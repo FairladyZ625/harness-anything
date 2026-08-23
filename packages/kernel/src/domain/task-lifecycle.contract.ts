@@ -1,120 +1,1918 @@
-import { EXECUTION_V1_SCHEMA, isNativeCommitSha, isNativeExecution, LEASE_V1_SCHEMA, validateSubmissionV1 } from "./execution.ts";
+import {
+  EXECUTION_V1_SCHEMA,
+  isNativeCommitSha,
+  isNativeExecution,
+  LEASE_V1_SCHEMA,
+  validateSubmissionV1,
+} from "./execution.ts";
 import { digest } from "./digest.ts";
-import type { ExecutionV1, LeaseHolder, LeaseV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
-import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA, reviewDigest } from "./review.ts";
+import type {
+  ExecutionV1,
+  LeaseHolder,
+  LeaseV1,
+  ProjectedExecution,
+  SubmissionV1,
+} from "./execution.ts";
+import {
+  REVIEW_CONSENT_V1_SCHEMA,
+  REVIEW_V1_SCHEMA,
+  reviewDigest,
+} from "./review.ts";
 import type { ReviewConsentV1, ReviewV1, ReviewVerdict } from "./review.ts";
 import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
 import { TASK_V1_SCHEMA, taskClasses } from "./task.ts";
-import type { ActorAxes, ContractValidationIssue, TaskClass, TaskV1 } from "./task.ts";
-import { TASK_EDGE_TAKEN_SCHEMA, TASK_GRAPH_V1_SCHEMA, validateTaskGraph } from "./task-graph.ts";
+import type {
+  ActorAxes,
+  ContractValidationIssue,
+  TaskClass,
+  TaskV1,
+} from "./task.ts";
+import {
+  TASK_EDGE_TAKEN_SCHEMA,
+  TASK_GRAPH_V1_SCHEMA,
+  validateTaskGraph,
+} from "./task-graph.ts";
 import type { TaskEdgeTaken, TaskGraphV1 } from "./task-graph.ts";
-import { isNonEmptyString, normalizeCommandEnvelope, validateNormalizedCommandEnvelope } from "./write-chain.contract.ts";
-import type { NormalizedCommandEnvelope, WriteSource } from "./write-chain.contract.ts";
+import {
+  isNonEmptyString,
+  normalizeCommandEnvelope,
+  validateNormalizedCommandEnvelope,
+} from "./write-chain.contract.ts";
+import type {
+  NormalizedCommandEnvelope,
+  WriteSource,
+} from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
-import type { CodeDocReconciledEvent, ExecutionExecutorDeclaredEvent, ExecutionStartedEvent, ExecutionSubmittedEvent, LeaseChangeReason, ReviewConsentRecordedEvent, ReviewRecordedEvent, TaskCompletedEvent, TaskCreatedEvent, TaskEventType, TaskEventV1, TaskLifecycleErrorCode, TaskMutationEvent } from "./task-lifecycle-event.ts";
-import { isIndependentFrom, isSameExecution, isSamePerson } from "./actor-domain-services.ts";
-import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
+import {
+  TaskLifecycleContractError,
+  validateTaskEvent,
+} from "./task-lifecycle-event.ts";
+import type {
+  CodeDocReconciledEvent,
+  ExecutionExecutorDeclaredEvent,
+  ExecutionStartedEvent,
+  ExecutionSubmittedEvent,
+  LeaseChangeReason,
+  ReviewConsentRecordedEvent,
+  ReviewRecordedEvent,
+  TaskCompletedEvent,
+  TaskCreatedEvent,
+  TaskEventType,
+  TaskEventV1,
+  TaskLifecycleErrorCode,
+  TaskMutationEvent,
+} from "./task-lifecycle-event.ts";
+import {
+  isIndependentFrom,
+  isSameExecution,
+  isSamePerson,
+} from "./actor-domain-services.ts";
+import {
+  explainStatusTransition,
+  reinstateTaskTargets,
+} from "./lifecycle-status.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
-import { closeoutReadiness, currentSubmittedExecutions, gateResults } from "./closeout-readiness.ts";
-export { TaskLifecycleContractError, TASK_EVENT_V1_SCHEMA, serializeTaskEvent, taskEventTypes, validateCurrentTaskEvent, validateTaskEvent } from "./task-lifecycle-event.ts";
-export type { CodeDocReconciledEvent, CompletionGateVerifiedEvent, ExecutionExecutorDeclaredEvent, ExecutionStartedEvent, ExecutionSubmittedEvent, LeaseChangeReason, LeaseRenewedEvent, LifecycleDocumentClaim, ReviewConsentRecordedEvent, ReviewRecordedEvent, TaskCompletedEvent, TaskCreatedEvent, TaskEventType, TaskEventV1, TaskLifecycleErrorCode } from "./task-lifecycle-event.ts";
-export interface TaskLifecycleSnapshot { readonly revision: number; readonly task: TaskV1 | null; readonly executions: readonly ProjectedExecution[]; readonly reviews: readonly ReviewV1[]; readonly consents: readonly ReviewConsentV1[]; readonly codeDocWitnesses: readonly CodeDocWitnessV1[]; readonly gateWitnesses: readonly CompletionGateWitnessV1[]; readonly edgesTaken: readonly TaskEdgeTaken[]; readonly lease: LeaseV1 | null; readonly decisionRelations?: readonly CoverageRelation[] }
-export const TASK_LIFECYCLE_SCHEMA = Object.freeze({ id: "task-lifecycle/v1", task: TASK_V1_SCHEMA, execution: EXECUTION_V1_SCHEMA, lease: LEASE_V1_SCHEMA, review: REVIEW_V1_SCHEMA, consent: REVIEW_CONSENT_V1_SCHEMA, graph: TASK_GRAPH_V1_SCHEMA, edgeTaken: TASK_EDGE_TAKEN_SCHEMA });
-interface Intent<T extends string> { readonly type: T; readonly taskId: string }
-export interface CreateReplayTaskIntent extends Intent<"CreateReplayTask"> { readonly title: string; readonly taskClass: TaskClass; readonly graph: TaskGraphV1; readonly completionGateIds: readonly string[]; readonly presetSnapshotDigest: `sha256:${string}` | null }
-export interface StartExecutionIntent extends Intent<"StartExecution"> { readonly executionId: string; readonly ttlMs?: number }
-export interface TransitionTaskIntent extends Intent<"TransitionTask"> { readonly status: DomainStatus; readonly reason: string; readonly force: boolean }
-export interface SubmitExecutionIntent extends Intent<"SubmitExecution"> { readonly executionId: string; readonly submission: SubmissionV1 }
-export interface RecordReviewIntent extends Intent<"RecordReview"> { readonly executionId: string; readonly reviewId: string; readonly verdict: ReviewVerdict; readonly reason: string; readonly evidenceChecked: readonly string[]; readonly commitSha: string; readonly iteration: number; readonly contentDigest: `sha256:${string}` }
-export interface RecordReviewConsentIntent extends Intent<"RecordReviewConsent"> { readonly executionId: string; readonly reviewId: string; readonly consentId: string; readonly reviewDigest: `sha256:${string}`; readonly contentDigest: `sha256:${string}` }
-export interface ReconcileCodeDocIntent extends Intent<"ReconcileCodeDoc"> { readonly executionId: string; readonly witnessId: string; readonly commitSha: string; readonly iteration: number; readonly paths: readonly string[] }
-export interface CompleteTaskIntent extends Intent<"CompleteTask"> { readonly executionId: string }
-export type TaskLifecycleCommandIntent = CreateReplayTaskIntent | StartExecutionIntent | TransitionTaskIntent | SubmitExecutionIntent | RecordReviewIntent | RecordReviewConsentIntent | ReconcileCodeDocIntent | CompleteTaskIntent;
-export type NormalizedTaskLifecycleCommand<C extends TaskLifecycleCommandIntent = TaskLifecycleCommandIntent> = C & NormalizedCommandEnvelope<ActorAxes>;
-type Meta = { readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string };
-export type CreateReplayTaskCommand = NormalizedTaskLifecycleCommand<CreateReplayTaskIntent> & Meta; export type StartExecutionCommand = NormalizedTaskLifecycleCommand<StartExecutionIntent> & Meta; export type TransitionTaskCommand = NormalizedTaskLifecycleCommand<TransitionTaskIntent> & Meta; export type SubmitExecutionCommand = NormalizedTaskLifecycleCommand<SubmitExecutionIntent> & Meta; export type RecordReviewCommand = NormalizedTaskLifecycleCommand<RecordReviewIntent> & Meta; export type RecordReviewConsentCommand = NormalizedTaskLifecycleCommand<RecordReviewConsentIntent> & Meta; export type ReconcileCodeDocCommand = NormalizedTaskLifecycleCommand<ReconcileCodeDocIntent> & Meta; export type CompleteTaskCommand = NormalizedTaskLifecycleCommand<CompleteTaskIntent> & Meta;
-export type TaskLifecycleCommand = CreateReplayTaskCommand | StartExecutionCommand | TransitionTaskCommand | SubmitExecutionCommand | RecordReviewCommand | RecordReviewConsentCommand | ReconcileCodeDocCommand | CompleteTaskCommand;
-export function normalizeTaskLifecycleCommand<C extends TaskLifecycleCommandIntent>(binding: { readonly workspaceId: string; readonly actor: ActorAxes; readonly source: WriteSource; readonly expectedRevision: number }, command: C): NormalizedTaskLifecycleCommand<C> { return Object.freeze({ ...command, ...normalizeCommandEnvelope({ ...binding, command: command as unknown as Readonly<Record<string, unknown>> }) }) as unknown as NormalizedTaskLifecycleCommand<C>; }
-function intent(command: TaskLifecycleCommand): TaskLifecycleCommandIntent { const { schema: _schema, workspaceId: _workspaceId, actor: _actor, source: _source, expectedRevision: _expectedRevision, opId: _opId, commandDigest: _commandDigest, eventId: _eventId, workspaceRevision: _workspaceRevision, occurredAt: _occurredAt, transport: _transport, ...value } = command as TaskLifecycleCommand & { readonly transport?: unknown }; return value as TaskLifecycleCommandIntent; }
-export function validateTaskLifecycleCommandEnvelope(command: TaskLifecycleCommand): readonly ContractValidationIssue[] { return validateNormalizedCommandEnvelope(command, { workspaceId: command.workspaceId, actor: command.actor, source: command.source, expectedRevision: command.expectedRevision, command: intent(command) as unknown as Readonly<Record<string, unknown>> }).map((message) => ({ code: "invalid_schema", message })); }
-export interface CreateReplayTaskProof { readonly taskIdUnique: true; readonly actorBinding: ActorAxes }
-export interface StartExecutionProof { readonly actorBinding: ActorAxes; readonly reservation: { readonly taskId: string; readonly executionId: string; readonly expiresAt: string; readonly ttlMs: number; readonly previousHolder: LeaseHolder | null; readonly reason: LeaseChangeReason; readonly version: number } }
+import {
+  closeoutReadiness,
+  currentSubmittedExecutions,
+  gateResults,
+} from "./closeout-readiness.ts";
+export {
+  TaskLifecycleContractError,
+  TASK_EVENT_V1_SCHEMA,
+  serializeTaskEvent,
+  taskEventTypes,
+  validateCurrentTaskEvent,
+  validateTaskEvent,
+} from "./task-lifecycle-event.ts";
+export type {
+  CodeDocReconciledEvent,
+  CompletionGateVerifiedEvent,
+  ExecutionExecutorDeclaredEvent,
+  ExecutionStartedEvent,
+  ExecutionSubmittedEvent,
+  LeaseChangeReason,
+  LeaseRenewedEvent,
+  LifecycleDocumentClaim,
+  ReviewConsentRecordedEvent,
+  ReviewRecordedEvent,
+  TaskCompletedEvent,
+  TaskCreatedEvent,
+  TaskEventType,
+  TaskEventV1,
+  TaskLifecycleErrorCode,
+} from "./task-lifecycle-event.ts";
+export interface TaskLifecycleSnapshot {
+  readonly revision: number;
+  readonly task: TaskV1 | null;
+  readonly executions: readonly ProjectedExecution[];
+  readonly reviews: readonly ReviewV1[];
+  readonly consents: readonly ReviewConsentV1[];
+  readonly codeDocWitnesses: readonly CodeDocWitnessV1[];
+  readonly gateWitnesses: readonly CompletionGateWitnessV1[];
+  readonly edgesTaken: readonly TaskEdgeTaken[];
+  readonly lease: LeaseV1 | null;
+  readonly decisionRelations?: readonly CoverageRelation[];
+}
+export const TASK_LIFECYCLE_SCHEMA = Object.freeze({
+  id: "task-lifecycle/v1",
+  task: TASK_V1_SCHEMA,
+  execution: EXECUTION_V1_SCHEMA,
+  lease: LEASE_V1_SCHEMA,
+  review: REVIEW_V1_SCHEMA,
+  consent: REVIEW_CONSENT_V1_SCHEMA,
+  graph: TASK_GRAPH_V1_SCHEMA,
+  edgeTaken: TASK_EDGE_TAKEN_SCHEMA,
+});
+interface Intent<T extends string> {
+  readonly type: T;
+  readonly taskId: string;
+}
+export interface CreateReplayTaskIntent extends Intent<"CreateReplayTask"> {
+  readonly title: string;
+  readonly taskClass: TaskClass;
+  readonly graph: TaskGraphV1;
+  readonly completionGateIds: readonly string[];
+  readonly presetSnapshotDigest: `sha256:${string}` | null;
+}
+export interface StartExecutionIntent extends Intent<"StartExecution"> {
+  readonly executionId: string;
+  readonly ttlMs?: number;
+}
+export interface TransitionTaskIntent extends Intent<"TransitionTask"> {
+  readonly status: DomainStatus;
+  readonly reason: string;
+  readonly force: boolean;
+}
+export interface SubmitExecutionIntent extends Intent<"SubmitExecution"> {
+  readonly executionId: string;
+  readonly submission: SubmissionV1;
+}
+export interface RecordReviewIntent extends Intent<"RecordReview"> {
+  readonly executionId: string;
+  readonly reviewId: string;
+  readonly verdict: ReviewVerdict;
+  readonly reason: string;
+  readonly evidenceChecked: readonly string[];
+  readonly commitSha: string;
+  readonly iteration: number;
+  readonly contentDigest: `sha256:${string}`;
+}
+export interface RecordReviewConsentIntent extends Intent<"RecordReviewConsent"> {
+  readonly executionId: string;
+  readonly reviewId: string;
+  readonly consentId: string;
+  readonly reviewDigest: `sha256:${string}`;
+  readonly contentDigest: `sha256:${string}`;
+}
+export interface ReconcileCodeDocIntent extends Intent<"ReconcileCodeDoc"> {
+  readonly executionId: string;
+  readonly witnessId: string;
+  readonly commitSha: string;
+  readonly iteration: number;
+  readonly paths: readonly string[];
+}
+export interface CompleteTaskIntent extends Intent<"CompleteTask"> {
+  readonly executionId: string;
+}
+export type TaskLifecycleCommandIntent =
+  | CreateReplayTaskIntent
+  | StartExecutionIntent
+  | TransitionTaskIntent
+  | SubmitExecutionIntent
+  | RecordReviewIntent
+  | RecordReviewConsentIntent
+  | ReconcileCodeDocIntent
+  | CompleteTaskIntent;
+export type NormalizedTaskLifecycleCommand<
+  C extends TaskLifecycleCommandIntent = TaskLifecycleCommandIntent,
+> = C & NormalizedCommandEnvelope<ActorAxes>;
+type Meta = {
+  readonly eventId: string;
+  readonly workspaceRevision: number;
+  readonly occurredAt: string;
+};
+export type CreateReplayTaskCommand =
+  NormalizedTaskLifecycleCommand<CreateReplayTaskIntent> & Meta;
+export type StartExecutionCommand =
+  NormalizedTaskLifecycleCommand<StartExecutionIntent> & Meta;
+export type TransitionTaskCommand =
+  NormalizedTaskLifecycleCommand<TransitionTaskIntent> & Meta;
+export type SubmitExecutionCommand =
+  NormalizedTaskLifecycleCommand<SubmitExecutionIntent> & Meta;
+export type RecordReviewCommand =
+  NormalizedTaskLifecycleCommand<RecordReviewIntent> & Meta;
+export type RecordReviewConsentCommand =
+  NormalizedTaskLifecycleCommand<RecordReviewConsentIntent> & Meta;
+export type ReconcileCodeDocCommand =
+  NormalizedTaskLifecycleCommand<ReconcileCodeDocIntent> & Meta;
+export type CompleteTaskCommand =
+  NormalizedTaskLifecycleCommand<CompleteTaskIntent> & Meta;
+export type TaskLifecycleCommand =
+  | CreateReplayTaskCommand
+  | StartExecutionCommand
+  | TransitionTaskCommand
+  | SubmitExecutionCommand
+  | RecordReviewCommand
+  | RecordReviewConsentCommand
+  | ReconcileCodeDocCommand
+  | CompleteTaskCommand;
+export function normalizeTaskLifecycleCommand<
+  C extends TaskLifecycleCommandIntent,
+>(
+  binding: {
+    readonly workspaceId: string;
+    readonly actor: ActorAxes;
+    readonly source: WriteSource;
+    readonly expectedRevision: number;
+  },
+  command: C,
+): NormalizedTaskLifecycleCommand<C> {
+  return Object.freeze({
+    ...command,
+    ...normalizeCommandEnvelope({
+      ...binding,
+      command: command as unknown as Readonly<Record<string, unknown>>,
+    }),
+  }) as unknown as NormalizedTaskLifecycleCommand<C>;
+}
+function intent(command: TaskLifecycleCommand): TaskLifecycleCommandIntent {
+  const {
+    schema: _schema,
+    workspaceId: _workspaceId,
+    actor: _actor,
+    source: _source,
+    expectedRevision: _expectedRevision,
+    opId: _opId,
+    commandDigest: _commandDigest,
+    eventId: _eventId,
+    workspaceRevision: _workspaceRevision,
+    occurredAt: _occurredAt,
+    transport: _transport,
+    ...value
+  } = command as TaskLifecycleCommand & { readonly transport?: unknown };
+  return value as TaskLifecycleCommandIntent;
+}
+export function validateTaskLifecycleCommandEnvelope(
+  command: TaskLifecycleCommand,
+): readonly ContractValidationIssue[] {
+  return validateNormalizedCommandEnvelope(command, {
+    workspaceId: command.workspaceId,
+    actor: command.actor,
+    source: command.source,
+    expectedRevision: command.expectedRevision,
+    command: intent(command) as unknown as Readonly<Record<string, unknown>>,
+  }).map((message) => ({ code: "invalid_schema", message }));
+}
+export interface CreateReplayTaskProof {
+  readonly taskIdUnique: true;
+  readonly actorBinding: ActorAxes;
+}
+export interface StartExecutionProof {
+  readonly actorBinding: ActorAxes;
+  readonly reservation: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly expiresAt: string;
+    readonly ttlMs: number;
+    readonly previousHolder: LeaseHolder | null;
+    readonly reason: LeaseChangeReason;
+    readonly version: number;
+  };
+}
 export type TransitionTaskProof = Readonly<Record<never, never>>;
-export interface SubmitExecutionProof { readonly actorBinding: ActorAxes; readonly leaseVersion: number; readonly sessionDisposition: "complete" | "partial" | "unavailable" }
-export interface ReviewProof { readonly actorBinding: ActorAxes; readonly capability: "execution-review@v1"; readonly capabilityRef: string }
-export interface ReviewConsentProof { readonly actorBinding: ActorAxes; readonly capability: "execution-consent@v1"; readonly capabilityRef: string }
-export interface CodeDocProof { readonly actorBinding: ActorAxes; readonly capability: "code-doc-reconcile@v1"; readonly capabilityRef: string }
-export interface CompleteTaskProof { readonly capability: "task-complete@v1"; readonly capabilityRef: string; readonly actorRole: "owner" | "commander"; readonly noActiveLease: true; readonly gateReceipts: readonly { readonly gateId: string; readonly receiptRef: string; readonly result: "pass"; readonly executionId: string; readonly commitSha: string; readonly iteration: number }[] }
-export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTaskCommand ? CreateReplayTaskProof : C extends StartExecutionCommand ? StartExecutionProof : C extends TransitionTaskCommand ? TransitionTaskProof : C extends SubmitExecutionCommand ? SubmitExecutionProof : C extends RecordReviewCommand ? ReviewProof : C extends RecordReviewConsentCommand ? ReviewConsentProof : C extends ReconcileCodeDocCommand ? CodeDocProof : C extends CompleteTaskCommand ? CompleteTaskProof : never;
-export interface TransitionResult { readonly snapshot: TaskLifecycleSnapshot; readonly event: TaskEventV1 }
-interface Transition { readonly id: string; readonly commandType: TaskLifecycleCommand["type"]; readonly from: string; readonly proof: readonly string[]; readonly eventType: TaskEventType; readonly matches: (command: TaskLifecycleCommand, snapshot: TaskLifecycleSnapshot) => boolean; readonly validate: (snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCommand, proof: unknown) => readonly ContractValidationIssue[]; readonly reduce: (snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCommand, proof: unknown) => TransitionResult }
-export function emptyTaskLifecycleSnapshot(revision = 0): TaskLifecycleSnapshot { return { revision, task: null, executions: [], reviews: [], consents: [], codeDocWitnesses: [], gateWitnesses: [], edgesTaken: [], lease: null }; }
-function envelope<E extends TaskEventV1>(command: TaskLifecycleCommand, type: E["type"], payload: Omit<E["payload"], "documentClaims">): E { return { schema: "task-event/v1", eventId: command.eventId, workspaceRevision: command.workspaceRevision, opId: command.opId, taskId: command.taskId, type, actor: command.actor, source: command.source, occurredAt: command.occurredAt, payload: { ...payload, documentClaims: [] } } as unknown as E; }
-function revisionIssues(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCommand): ContractValidationIssue[] { return command.expectedRevision === snapshot.revision && command.workspaceRevision > snapshot.revision ? [] : [lifecycleContractIssue("invalid_transition", "aggregate expected revision must match and workspace revision must advance")]; }
-function replaceExecution(values: readonly ProjectedExecution[], replacement: ExecutionV1): readonly ProjectedExecution[] { return values.map((value) => value.executionId === replacement.executionId ? replacement : value); }
-function execution(snapshot: TaskLifecycleSnapshot, id: string): ExecutionV1 | undefined { return snapshot.executions.find((value): value is ExecutionV1 => isNativeExecution(value) && value.executionId === id && value.iteration === snapshot.task?.iteration); }
-export function heldLeaseForExecutionActor(snapshot: TaskLifecycleSnapshot, executionId: string | undefined, actor: ActorAxes): LeaseV1 | undefined { const lease = snapshot.lease; return lease?.phase === "held" && (executionId === undefined || lease.executionId === executionId) && isSameExecution(lease.actor, actor) ? lease : undefined; }
-export function executionExecutorDeclarationCandidates(snapshot: TaskLifecycleSnapshot, taskId: string, actor: ActorAxes): readonly ExecutionV1[] { const task = snapshot.task; if (!task || task.taskId !== taskId || task.status !== "in_review" || task.currentNode !== "review" || snapshot.lease !== null || actor.executor === null) return []; return currentSubmittedExecutions(snapshot).filter((value) => value.actor.executor === null && isSamePerson(value.actor, actor) && !snapshot.reviews.some((review) => review.executionId === value.executionId)); }
-function takeEdge(task: TaskV1, trigger: TaskEdgeTaken["on"], reason: string, commitSha: string, iteration: number): TaskEdgeTaken { const edge = task.graph.edges.find((value) => value.on === trigger); if (!edge) throw new TaskLifecycleContractError("invalid_graph", [lifecycleContractIssue("invalid_graph_shape", `graph has no ${trigger} edge`)]); return { edgeId: edge.id, from: edge.from, to: edge.to, on: edge.on, actorRole: edge.actorRole, reason, commitSha, iteration }; }
-const create: Transition = { id: "create_replay_task", commandType: "CreateReplayTask", from: "missing", proof: ["taskIdUnique", "actorBinding", "validGraph"], eventType: "task_created", matches: (command) => command.type === "CreateReplayTask", validate: (snapshot, raw, rawProof) => { const command = raw as CreateReplayTaskCommand, proof = rawProof as Partial<CreateReplayTaskProof>, issues = revisionIssues(snapshot, command); if (snapshot.task !== null) issues.push(lifecycleContractIssue("invalid_transition", "CreateReplayTask requires a missing aggregate")); if (!isNonEmptyString(command.taskId) || !isNonEmptyString(command.title) || !taskClasses.includes(command.taskClass) || !Array.isArray(command.completionGateIds) || command.presetSnapshotDigest !== null && !/^sha256:[0-9a-f]{64}$/u.test(command.presetSnapshotDigest)) issues.push(lifecycleContractIssue("invalid_schema", "create command fields are invalid")); if (proof.taskIdUnique !== true || !proof.actorBinding || !isSameExecution(command.actor, proof.actorBinding)) issues.push(lifecycleContractIssue("invalid_proof", "task identity and actor binding proof are required")); issues.push(...validateTaskGraph(command.graph)); return issues; }, reduce: (snapshot, raw) => { const command = raw as CreateReplayTaskCommand, task: TaskV1 = { schema: "task/v1", taskId: command.taskId, title: command.title, taskClass: command.taskClass, status: "planned", graph: command.graph, currentNode: "implementation", iteration: 0, createdBy: command.actor, completionGateIds: command.completionGateIds, presetSnapshotDigest: command.presetSnapshotDigest }; return { snapshot: { ...snapshot, revision: command.workspaceRevision, task }, event: envelope<TaskCreatedEvent>(command, "task_created", { task }) }; } };
+export interface SubmitExecutionProof {
+  readonly actorBinding: ActorAxes;
+  readonly leaseVersion: number;
+  readonly sessionDisposition: "complete" | "partial" | "unavailable";
+}
+export interface ReviewProof {
+  readonly actorBinding: ActorAxes;
+  readonly capability: "execution-review@v1";
+  readonly capabilityRef: string;
+}
+export interface ReviewConsentProof {
+  readonly actorBinding: ActorAxes;
+  readonly capability: "execution-consent@v1";
+  readonly capabilityRef: string;
+}
+export interface CodeDocProof {
+  readonly actorBinding: ActorAxes;
+  readonly capability: "code-doc-reconcile@v1";
+  readonly capabilityRef: string;
+}
+export interface CompleteTaskProof {
+  readonly capability: "task-complete@v1";
+  readonly capabilityRef: string;
+  readonly actorRole: "owner" | "commander";
+  readonly noActiveLease: true;
+  readonly gateReceipts: readonly {
+    readonly gateId: string;
+    readonly receiptRef: string;
+    readonly result: "pass";
+    readonly executionId: string;
+    readonly commitSha: string;
+    readonly iteration: number;
+  }[];
+}
+export type ProofFor<C extends TaskLifecycleCommand> =
+  C extends CreateReplayTaskCommand
+    ? CreateReplayTaskProof
+    : C extends StartExecutionCommand
+      ? StartExecutionProof
+      : C extends TransitionTaskCommand
+        ? TransitionTaskProof
+        : C extends SubmitExecutionCommand
+          ? SubmitExecutionProof
+          : C extends RecordReviewCommand
+            ? ReviewProof
+            : C extends RecordReviewConsentCommand
+              ? ReviewConsentProof
+              : C extends ReconcileCodeDocCommand
+                ? CodeDocProof
+                : C extends CompleteTaskCommand
+                  ? CompleteTaskProof
+                  : never;
+export interface TransitionResult {
+  readonly snapshot: TaskLifecycleSnapshot;
+  readonly event: TaskEventV1;
+}
+interface Transition {
+  readonly id: string;
+  readonly commandType: TaskLifecycleCommand["type"];
+  readonly from: string;
+  readonly proof: readonly string[];
+  readonly eventType: TaskEventType;
+  readonly matches: (
+    command: TaskLifecycleCommand,
+    snapshot: TaskLifecycleSnapshot,
+  ) => boolean;
+  readonly validate: (
+    snapshot: TaskLifecycleSnapshot,
+    command: TaskLifecycleCommand,
+    proof: unknown,
+  ) => readonly ContractValidationIssue[];
+  readonly reduce: (
+    snapshot: TaskLifecycleSnapshot,
+    command: TaskLifecycleCommand,
+    proof: unknown,
+  ) => TransitionResult;
+}
+export function emptyTaskLifecycleSnapshot(
+  revision = 0,
+): TaskLifecycleSnapshot {
+  return {
+    revision,
+    task: null,
+    executions: [],
+    reviews: [],
+    consents: [],
+    codeDocWitnesses: [],
+    gateWitnesses: [],
+    edgesTaken: [],
+    lease: null,
+  };
+}
+function envelope<E extends TaskEventV1>(
+  command: TaskLifecycleCommand,
+  type: E["type"],
+  payload: Omit<E["payload"], "documentClaims">,
+): E {
+  return {
+    schema: "task-event/v1",
+    eventId: command.eventId,
+    workspaceRevision: command.workspaceRevision,
+    opId: command.opId,
+    taskId: command.taskId,
+    type,
+    actor: command.actor,
+    source: command.source,
+    occurredAt: command.occurredAt,
+    payload: { ...payload, documentClaims: [] },
+  } as unknown as E;
+}
+function revisionIssues(
+  snapshot: TaskLifecycleSnapshot,
+  command: TaskLifecycleCommand,
+): ContractValidationIssue[] {
+  return command.expectedRevision === snapshot.revision &&
+    command.workspaceRevision > snapshot.revision
+    ? []
+    : [
+        lifecycleContractIssue(
+          "invalid_transition",
+          "aggregate expected revision must match and workspace revision must advance",
+        ),
+      ];
+}
+function replaceExecution(
+  values: readonly ProjectedExecution[],
+  replacement: ExecutionV1,
+): readonly ProjectedExecution[] {
+  return values.map((value) =>
+    value.executionId === replacement.executionId ? replacement : value,
+  );
+}
+function execution(
+  snapshot: TaskLifecycleSnapshot,
+  id: string,
+): ExecutionV1 | undefined {
+  return snapshot.executions.find(
+    (value): value is ExecutionV1 =>
+      isNativeExecution(value) &&
+      value.executionId === id &&
+      value.iteration === snapshot.task?.iteration,
+  );
+}
+export function heldLeaseForExecutionActor(
+  snapshot: TaskLifecycleSnapshot,
+  executionId: string | undefined,
+  actor: ActorAxes,
+): LeaseV1 | undefined {
+  const lease = snapshot.lease;
+  return lease?.phase === "held" &&
+    (executionId === undefined || lease.executionId === executionId) &&
+    isSameExecution(lease.actor, actor)
+    ? lease
+    : undefined;
+}
+export function executionExecutorDeclarationCandidates(
+  snapshot: TaskLifecycleSnapshot,
+  taskId: string,
+  actor: ActorAxes,
+): readonly ExecutionV1[] {
+  const task = snapshot.task;
+  if (
+    !task ||
+    task.taskId !== taskId ||
+    task.status !== "in_review" ||
+    task.currentNode !== "review" ||
+    snapshot.lease !== null ||
+    actor.executor === null
+  )
+    return [];
+  return currentSubmittedExecutions(snapshot).filter(
+    (value) =>
+      value.actor.executor === null &&
+      isSamePerson(value.actor, actor) &&
+      !snapshot.reviews.some(
+        (review) => review.executionId === value.executionId,
+      ),
+  );
+}
+function takeEdge(
+  task: TaskV1,
+  trigger: TaskEdgeTaken["on"],
+  reason: string,
+  commitSha: string,
+  iteration: number,
+): TaskEdgeTaken {
+  const edge = task.graph.edges.find((value) => value.on === trigger);
+  if (!edge)
+    throw new TaskLifecycleContractError("invalid_graph", [
+      lifecycleContractIssue(
+        "invalid_graph_shape",
+        `graph has no ${trigger} edge`,
+      ),
+    ]);
+  return {
+    edgeId: edge.id,
+    from: edge.from,
+    to: edge.to,
+    on: edge.on,
+    actorRole: edge.actorRole,
+    reason,
+    commitSha,
+    iteration,
+  };
+}
+const create: Transition = {
+  id: "create_replay_task",
+  commandType: "CreateReplayTask",
+  from: "missing",
+  proof: ["taskIdUnique", "actorBinding", "validGraph"],
+  eventType: "task_created",
+  matches: (command) => command.type === "CreateReplayTask",
+  validate: (snapshot, raw, rawProof) => {
+    const command = raw as CreateReplayTaskCommand,
+      proof = rawProof as Partial<CreateReplayTaskProof>,
+      issues = revisionIssues(snapshot, command);
+    if (snapshot.task !== null)
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "CreateReplayTask requires a missing aggregate",
+        ),
+      );
+    if (
+      !isNonEmptyString(command.taskId) ||
+      !isNonEmptyString(command.title) ||
+      !taskClasses.includes(command.taskClass) ||
+      !Array.isArray(command.completionGateIds) ||
+      (command.presetSnapshotDigest !== null &&
+        !/^sha256:[0-9a-f]{64}$/u.test(command.presetSnapshotDigest))
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_schema",
+          "create command fields are invalid",
+        ),
+      );
+    if (
+      proof.taskIdUnique !== true ||
+      !proof.actorBinding ||
+      !isSameExecution(command.actor, proof.actorBinding)
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_proof",
+          "task identity and actor binding proof are required",
+        ),
+      );
+    issues.push(...validateTaskGraph(command.graph));
+    return issues;
+  },
+  reduce: (snapshot, raw) => {
+    const command = raw as CreateReplayTaskCommand,
+      task: TaskV1 = {
+        schema: "task/v1",
+        taskId: command.taskId,
+        title: command.title,
+        taskClass: command.taskClass,
+        status: "planned",
+        graph: command.graph,
+        currentNode: "implementation",
+        iteration: 0,
+        createdBy: command.actor,
+        completionGateIds: command.completionGateIds,
+        presetSnapshotDigest: command.presetSnapshotDigest,
+      };
+    return {
+      snapshot: { ...snapshot, revision: command.workspaceRevision, task },
+      event: envelope<TaskCreatedEvent>(command, "task_created", { task }),
+    };
+  },
+};
 /** The state-side admissibility of StartExecution: a new execution, or the unleased active execution of the current round.
  * Exported so the daemon preview and this transition answer with one rule instead of two. */
-export function canStartExecution(snapshot: TaskLifecycleSnapshot, executionId: string): boolean {
-  const task = snapshot.task, rejoin = snapshot.executions.find((value) => value.executionId === executionId),
-    round = snapshot.executions.find((value) => isNativeExecution(value) && value.iteration === task?.iteration && value.state === "active");
-  return Boolean(task) && ["planned", "active"].includes(task!.status) && task!.currentNode === "implementation"
-    && !snapshot.lease && isNonEmptyString(executionId) && rejoin === round;
+export function canStartExecution(
+  snapshot: TaskLifecycleSnapshot,
+  executionId: string,
+): boolean {
+  const task = snapshot.task,
+    rejoin = snapshot.executions.find(
+      (value) => value.executionId === executionId,
+    ),
+    round = snapshot.executions.find(
+      (value) =>
+        isNativeExecution(value) &&
+        value.iteration === task?.iteration &&
+        value.state === "active",
+    );
+  return (
+    Boolean(task) &&
+    ["planned", "active"].includes(task!.status) &&
+    task!.currentNode === "implementation" &&
+    !snapshot.lease &&
+    isNonEmptyString(executionId) &&
+    rejoin === round
+  );
 }
 /** The state-side admissibility shared by the block/unblock/cancel catalog entries. */
-export function allowsTaskStatusMove(snapshot: TaskLifecycleSnapshot, target: "active" | "blocked" | "cancelled"): boolean {
+export function allowsTaskStatusMove(
+  snapshot: TaskLifecycleSnapshot,
+  target: "active" | "blocked" | "cancelled",
+): boolean {
   const task = snapshot.task;
-  return Boolean(task) && !snapshot.lease && task!.status !== target && explainStatusTransition(task!.status, target).allowed;
+  return (
+    Boolean(task) &&
+    !snapshot.lease &&
+    task!.status !== target &&
+    explainStatusTransition(task!.status, target).allowed
+  );
 }
-const start: Transition = { id: "start_execution", commandType: "StartExecution", from: "planned|active/implementation", proof: ["actorBinding", "reservation"], eventType: "execution_started", matches: (command) => command.type === "StartExecution", validate: (snapshot, raw, rawProof) => { const command = raw as StartExecutionCommand, proof = rawProof as Partial<StartExecutionProof>, issues = revisionIssues(snapshot, command), reservation = proof.reservation; if (!canStartExecution(snapshot, command.executionId)) issues.push(lifecycleContractIssue("invalid_transition", "StartExecution requires a new execution, or the unleased active execution of the current round, in planned or returned implementation")); if (!proof.actorBinding || !isSameExecution(command.actor, proof.actorBinding) || !reservation || reservation.taskId !== command.taskId || reservation.executionId !== command.executionId || !isNonEmptyString(reservation.expiresAt) || !Number.isInteger(reservation.ttlMs) || reservation.ttlMs < 1 || !Number.isInteger(reservation.version) || reservation.version < 0) issues.push(lifecycleContractIssue("invalid_proof", "active reservation CAS proof is required")); return issues; }, reduce: (snapshot, raw, rawProof) => { const command = raw as StartExecutionCommand, reservation = (rawProof as StartExecutionProof).reservation, task = { ...snapshot.task as TaskV1, status: "active" as const }, rejoin = snapshot.executions.find((value) => value.executionId === command.executionId) as ExecutionV1 | undefined, execution: ExecutionV1 = rejoin ?? { schema: "execution/v1", executionId: command.executionId, taskId: command.taskId, nodeId: "implementation", iteration: task.iteration, state: "active", actor: command.actor, claimedAt: command.occurredAt, submittedAt: null, closedAt: null, submission: null }, lease: LeaseV1 = { schema: "lease/v1", taskId: command.taskId, executionId: command.executionId, actor: command.actor, source: command.source, phase: "held", expiresAt: reservation.expiresAt, ttlMs: reservation.ttlMs, version: reservation.version }; return { snapshot: { ...snapshot, revision: command.workspaceRevision, task, executions: rejoin ? snapshot.executions : [...snapshot.executions, execution], lease }, event: envelope<ExecutionStartedEvent>(command, "execution_started", { task, execution, lease, previousHolder: reservation.previousHolder, leaseExpiresAt: lease.expiresAt, reason: reservation.reason }) }; } };
-function transitionTask(snapshot: TaskLifecycleSnapshot, command: TransitionTaskCommand, status: "planned" | "active" | "in_review" | "blocked" | "cancelled"): TransitionResult { const task: TaskV1 = { ...snapshot.task as TaskV1, status, ...(status === "cancelled" ? { pinned: false } : {}) }, reason = status === "active" && !isNonEmptyString(command.reason) ? "Explicit lifecycle transition to active" : command.reason, mutation = { command: "transition" as const, reason, fields: ["status"] }; return { snapshot: { ...snapshot, revision: command.workspaceRevision, task }, event: envelope<TaskMutationEvent>(command, "task_transitioned", { task, mutation }) }; }
-const block: Transition = { id: "block_task", commandType: "TransitionTask", from: "planned|active|in_review", proof: [], eventType: "task_transitioned", matches: (command) => command.type === "TransitionTask" && command.status === "blocked", validate: (snapshot, raw) => { const command = raw as TransitionTaskCommand, issues = revisionIssues(snapshot, command); if (!allowsTaskStatusMove(snapshot, "blocked")) issues.push(lifecycleContractIssue("invalid_transition", "BlockTask requires an unleased planned, active, or in_review task")); if (!isNonEmptyString(command.reason)) issues.push(lifecycleContractIssue("invalid_schema", "BlockTask requires a reason")); return issues; }, reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "blocked") };
+const start: Transition = {
+  id: "start_execution",
+  commandType: "StartExecution",
+  from: "planned|active/implementation",
+  proof: ["actorBinding", "reservation"],
+  eventType: "execution_started",
+  matches: (command) => command.type === "StartExecution",
+  validate: (snapshot, raw, rawProof) => {
+    const command = raw as StartExecutionCommand,
+      proof = rawProof as Partial<StartExecutionProof>,
+      issues = revisionIssues(snapshot, command),
+      reservation = proof.reservation;
+    if (!canStartExecution(snapshot, command.executionId))
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "StartExecution requires a new execution, or the unleased active execution of the current round, in planned or returned implementation",
+        ),
+      );
+    if (
+      !proof.actorBinding ||
+      !isSameExecution(command.actor, proof.actorBinding) ||
+      !reservation ||
+      reservation.taskId !== command.taskId ||
+      reservation.executionId !== command.executionId ||
+      !isNonEmptyString(reservation.expiresAt) ||
+      !Number.isInteger(reservation.ttlMs) ||
+      reservation.ttlMs < 1 ||
+      !Number.isInteger(reservation.version) ||
+      reservation.version < 0
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_proof",
+          "active reservation CAS proof is required",
+        ),
+      );
+    return issues;
+  },
+  reduce: (snapshot, raw, rawProof) => {
+    const command = raw as StartExecutionCommand,
+      reservation = (rawProof as StartExecutionProof).reservation,
+      task = { ...(snapshot.task as TaskV1), status: "active" as const },
+      rejoin = snapshot.executions.find(
+        (value) => value.executionId === command.executionId,
+      ) as ExecutionV1 | undefined,
+      execution: ExecutionV1 = rejoin ?? {
+        schema: "execution/v1",
+        executionId: command.executionId,
+        taskId: command.taskId,
+        nodeId: "implementation",
+        iteration: task.iteration,
+        state: "active",
+        actor: command.actor,
+        claimedAt: command.occurredAt,
+        submittedAt: null,
+        closedAt: null,
+        submission: null,
+      },
+      lease: LeaseV1 = {
+        schema: "lease/v1",
+        taskId: command.taskId,
+        executionId: command.executionId,
+        actor: command.actor,
+        source: command.source,
+        phase: "held",
+        expiresAt: reservation.expiresAt,
+        ttlMs: reservation.ttlMs,
+        version: reservation.version,
+      };
+    return {
+      snapshot: {
+        ...snapshot,
+        revision: command.workspaceRevision,
+        task,
+        executions: rejoin
+          ? snapshot.executions
+          : [...snapshot.executions, execution],
+        lease,
+      },
+      event: envelope<ExecutionStartedEvent>(command, "execution_started", {
+        task,
+        execution,
+        lease,
+        previousHolder: reservation.previousHolder,
+        leaseExpiresAt: lease.expiresAt,
+        reason: reservation.reason,
+      }),
+    };
+  },
+};
+function transitionTask(
+  snapshot: TaskLifecycleSnapshot,
+  command: TransitionTaskCommand,
+  status: "planned" | "active" | "in_review" | "blocked" | "cancelled",
+): TransitionResult {
+  const task: TaskV1 = {
+      ...(snapshot.task as TaskV1),
+      status,
+      ...(status === "cancelled" ? { pinned: false } : {}),
+    },
+    reason =
+      status === "active" && !isNonEmptyString(command.reason)
+        ? "Explicit lifecycle transition to active"
+        : command.reason,
+    mutation = { command: "transition" as const, reason, fields: ["status"] };
+  return {
+    snapshot: { ...snapshot, revision: command.workspaceRevision, task },
+    event: envelope<TaskMutationEvent>(command, "task_transitioned", {
+      task,
+      mutation,
+    }),
+  };
+}
+const block: Transition = {
+  id: "block_task",
+  commandType: "TransitionTask",
+  from: "planned|active|in_review",
+  proof: [],
+  eventType: "task_transitioned",
+  matches: (command) =>
+    command.type === "TransitionTask" && command.status === "blocked",
+  validate: (snapshot, raw) => {
+    const command = raw as TransitionTaskCommand,
+      issues = revisionIssues(snapshot, command);
+    if (!allowsTaskStatusMove(snapshot, "blocked"))
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "BlockTask requires an unleased planned, active, or in_review task",
+        ),
+      );
+    if (!isNonEmptyString(command.reason))
+      issues.push(
+        lifecycleContractIssue("invalid_schema", "BlockTask requires a reason"),
+      );
+    return issues;
+  },
+  reduce: (snapshot, raw) =>
+    transitionTask(snapshot, raw as TransitionTaskCommand, "blocked"),
+};
 /** The sole exit from cancelled: a compensating rollback (batch mis-cancellation recovery) to the
  * adjudicated pre-cancel status. Writer semantics mirror cancel — audit-first, aggregate-only —
  * except force stays cancel-specific: reinstate restores recorded state rather than destroying it.
  * Dispatches ahead of unblock so a cancelled→active command lands here, not on the blocked-only entry. */
-const reinstate: Transition = { id: "reinstate_task", commandType: "TransitionTask", from: "cancelled", proof: ["auditedReason"], eventType: "task_transitioned", matches: (command, snapshot) => command.type === "TransitionTask" && (reinstateTaskTargets as readonly DomainStatus[]).includes(command.status) && snapshot.task?.status === "cancelled", validate: (snapshot, raw) => { const command = raw as TransitionTaskCommand, issues = revisionIssues(snapshot, command); if (snapshot.task?.status !== "cancelled" || snapshot.lease !== null || !(reinstateTaskTargets as readonly DomainStatus[]).includes(command.status) || !explainStatusTransition("cancelled", command.status).allowed) issues.push(lifecycleContractIssue("invalid_transition", "ReinstateTask requires an unleased cancelled task moving back to planned, active, or in_review")); if (!isNonEmptyString(command.reason)) issues.push(lifecycleContractIssue("invalid_schema", "ReinstateTask requires an auditable reason")); return issues; }, reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, (raw as TransitionTaskCommand).status as "planned" | "active" | "in_review") };
-const unblock: Transition = { id: "unblock_task", commandType: "TransitionTask", from: "blocked", proof: [], eventType: "task_transitioned", matches: (command) => command.type === "TransitionTask" && command.status === "active", validate: (snapshot, raw) => { const command = raw as TransitionTaskCommand, issues = revisionIssues(snapshot, command); if (snapshot.task?.status !== "blocked" || !allowsTaskStatusMove(snapshot, "active")) issues.push(lifecycleContractIssue("invalid_transition", "UnblockTask requires an unleased blocked task")); return issues; }, reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "active") };
-const cancel: Transition = { id: "cancel_task", commandType: "TransitionTask", from: "planned|active|blocked|in_review", proof: ["forcedReason"], eventType: "task_transitioned", matches: (command) => command.type === "TransitionTask" && command.status === "cancelled", validate: (snapshot, raw) => { const command = raw as TransitionTaskCommand, issues = revisionIssues(snapshot, command); if (!allowsTaskStatusMove(snapshot, "cancelled")) issues.push(lifecycleContractIssue("invalid_transition", "CancelTask requires an unleased non-terminal task")); if (!command.force || !isNonEmptyString(command.reason)) issues.push(lifecycleContractIssue("force_reason_required", "CancelTask requires force and an auditable reason")); return issues; }, reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "cancelled") };
-const submit: Transition = { id: "submit_execution", commandType: "SubmitExecution", from: "active/implementation", proof: ["actorBinding", "leaseVersion", "submission"], eventType: "execution_submitted", matches: (command) => command.type === "SubmitExecution", validate: (snapshot, raw, rawProof) => { const command = raw as SubmitExecutionCommand, proof = rawProof as Partial<SubmitExecutionProof>, issues = revisionIssues(snapshot, command), task = snapshot.task, current = execution(snapshot, command.executionId), lease = snapshot.lease; if (!task || task.status !== "active" || task.currentNode !== "implementation" || current?.state !== "active") issues.push(lifecycleContractIssue("invalid_transition", "SubmitExecution requires the active current execution")); if (!lease || lease.phase !== "held" || lease.executionId !== command.executionId || !isSameExecution(lease.actor, command.actor) || stableStringify(lease.source) !== stableStringify(command.source) || !proof.actorBinding || !isSameExecution(proof.actorBinding, command.actor) || proof.leaseVersion !== lease.version || !["complete", "partial", "unavailable"].includes(String(proof.sessionDisposition))) issues.push(lifecycleContractIssue("invalid_proof", "submit must own and atomically release the active lease")); issues.push(...validateSubmissionV1(command.submission)); return issues; }, reduce: (snapshot, raw) => { const command = raw as SubmitExecutionCommand, current = execution(snapshot, command.executionId) as ExecutionV1, nextExecution: ExecutionV1 = { ...current, state: "submitted", submittedAt: command.occurredAt, submission: command.submission }, task: TaskV1 = { ...snapshot.task as TaskV1, status: "in_review", currentNode: "review" }, edge = takeEdge(task, "submitted", command.submission.completionClaim, command.submission.commitSha, task.iteration); return { snapshot: { ...snapshot, revision: command.workspaceRevision, task, executions: replaceExecution(snapshot.executions, nextExecution), edgesTaken: [...snapshot.edgesTaken, edge], lease: null }, event: envelope<ExecutionSubmittedEvent>(command, "execution_submitted", { task, execution: nextExecution, edge }) }; } };
-function reviewIssues(snapshot: TaskLifecycleSnapshot, command: RecordReviewCommand, proof: Partial<ReviewProof>): ContractValidationIssue[] { const issues = revisionIssues(snapshot, command), current = execution(snapshot, command.executionId); if (snapshot.task?.status !== "in_review" || snapshot.task.currentNode !== "review" || current?.state !== "submitted" || !current.submission) issues.push(lifecycleContractIssue("invalid_transition", "Review requires the current submitted execution")); else if (snapshot.reviews.some((value) => value.reviewId === command.reviewId)) issues.push(lifecycleContractIssue("invalid_transition", "append-only Review history requires a new review id")); else if (command.commitSha !== current.submission.commitSha || command.iteration !== current.iteration || !isIndependentFrom(current.actor, command.actor)) issues.push(lifecycleContractIssue("invalid_proof", "Review must bind the current content cut and an independent reviewer")); if (!proof.actorBinding || !isSameExecution(command.actor, proof.actorBinding) || proof.capability !== "execution-review@v1" || !isNonEmptyString(proof.capabilityRef) || !isNonEmptyString(command.reviewId) || !isNonEmptyString(command.reason) || !Array.isArray(command.evidenceChecked) || !digest(command.contentDigest)) issues.push(lifecycleContractIssue("invalid_proof", "transport-bound execution review proof and content digest are required")); if (command.verdict === "changes_requested" && (snapshot.task?.iteration ?? 0) >= (snapshot.task?.graph.maxIterations ?? 0)) issues.push(lifecycleContractIssue("manual_intervention_required", "return budget exhausted; escalate for manual intervention")); return issues; }
-function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 { return { schema: "review/v1", reviewId: command.reviewId, taskId: command.taskId, executionId: command.executionId, verdict: command.verdict, actor: command.actor, capabilityRef: proof.capabilityRef, reason: command.reason, evidenceChecked: command.evidenceChecked, commitSha: command.commitSha, iteration: command.iteration as 0 | 1, contentDigest: command.contentDigest, reviewedAt: command.occurredAt }; }
-const review: Transition = { id: "record_execution_review", commandType: "RecordReview", from: "in_review/review", proof: ["independentActor", "execution-review@v1", "contentCut"], eventType: "review_recorded", matches: (command) => command.type === "RecordReview", validate: (snapshot, raw, proof) => reviewIssues(snapshot, raw as RecordReviewCommand, proof as Partial<ReviewProof>), reduce: (snapshot, raw, rawProof) => { const command = raw as RecordReviewCommand, current = execution(snapshot, command.executionId) as ExecutionV1, recorded = reviewFrom(command, rawProof as ReviewProof); if (command.verdict !== "changes_requested") return { snapshot: { ...snapshot, revision: command.workspaceRevision, reviews: [...snapshot.reviews, recorded] }, event: envelope<ReviewRecordedEvent>(command, "review_recorded", { task: snapshot.task as TaskV1, execution: current, review: recorded }) }; const nextExecution: ExecutionV1 = { ...current, state: "changes_requested", closedAt: command.occurredAt }, task: TaskV1 = { ...snapshot.task as TaskV1, status: "active", currentNode: "implementation", iteration: 1 }, edge = takeEdge(snapshot.task as TaskV1, "changes_requested", command.reason, command.commitSha, command.iteration); return { snapshot: { ...snapshot, revision: command.workspaceRevision, task, executions: replaceExecution(snapshot.executions, nextExecution), reviews: [...snapshot.reviews, recorded], edgesTaken: [...snapshot.edgesTaken, edge], lease: null }, event: envelope<ReviewRecordedEvent>(command, "review_recorded", { task, execution: nextExecution, review: recorded, edge }) }; } };
-const consent: Transition = { id: "record_review_consent", commandType: "RecordReviewConsent", from: "in_review/review/approved", proof: ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest"], eventType: "review_consent_recorded", matches: (command) => command.type === "RecordReviewConsent", validate: (snapshot, raw, rawProof) => { const command = raw as RecordReviewConsentCommand, proof = rawProof as Partial<ReviewConsentProof>, issues = revisionIssues(snapshot, command), current = execution(snapshot, command.executionId), recorded = snapshot.reviews.find((value) => value.reviewId === command.reviewId && value.executionId === command.executionId); if (snapshot.task?.status !== "in_review" || current?.state !== "submitted" || recorded?.verdict !== "approved" || snapshot.consents.some((value) => value.reviewId === command.reviewId)) issues.push(lifecycleContractIssue("invalid_transition", "consent must select an unconsented approved current Review")); if (!recorded || command.reviewDigest !== reviewDigest(recorded) || command.contentDigest !== recorded.contentDigest || !proof.actorBinding || !isSameExecution(command.actor, proof.actorBinding) || !snapshot.task || !isSameExecution(command.actor, snapshot.task.createdBy) || proof.capability !== "execution-consent@v1" || !isNonEmptyString(proof.capabilityRef) || !isNonEmptyString(command.consentId)) issues.push(lifecycleContractIssue("invalid_proof", "owner consent must bind the Review and reviewed content digests")); return issues; }, reduce: (snapshot, raw) => { const command = raw as RecordReviewConsentCommand, current = execution(snapshot, command.executionId) as ExecutionV1, recorded = snapshot.reviews.find((value) => value.reviewId === command.reviewId) as ReviewV1, value: ReviewConsentV1 = { schema: "review-consent/v1", consentId: command.consentId, taskId: command.taskId, executionId: command.executionId, reviewId: command.reviewId, reviewDigest: command.reviewDigest, contentDigest: command.contentDigest, actor: command.actor, source: command.source, consentedAt: command.occurredAt }; return { snapshot: { ...snapshot, revision: command.workspaceRevision, consents: [...snapshot.consents, value] }, event: envelope<ReviewConsentRecordedEvent>(command, "review_consent_recorded", { task: snapshot.task as TaskV1, execution: current, review: recorded, consent: value }) }; } };
-const reconcile: Transition = { id: "reconcile_code_doc", commandType: "ReconcileCodeDoc", from: "in_review/review", proof: ["actorBinding", "code-doc-reconcile@v1", "commitPaths"], eventType: "code_doc_reconciled", matches: (command) => command.type === "ReconcileCodeDoc", validate: (snapshot, raw, rawProof) => { const command = raw as ReconcileCodeDocCommand, proof = rawProof as Partial<CodeDocProof>, issues = revisionIssues(snapshot, command), current = execution(snapshot, command.executionId); if (snapshot.task?.status !== "in_review" || current?.state !== "submitted" || !current.submission) issues.push(lifecycleContractIssue("invalid_transition", "code-doc reconcile requires the current submitted execution")); if (!current?.submission || command.commitSha !== current.submission.commitSha || command.iteration !== current.iteration || !isNativeCommitSha(command.commitSha) || !isNonEmptyString(command.witnessId) || !canonicalDocumentPaths(command.paths) || !proof.actorBinding || !isSameExecution(command.actor, proof.actorBinding) || proof.capability !== "code-doc-reconcile@v1" || !isNonEmptyString(proof.capabilityRef)) issues.push(lifecycleContractIssue("invalid_proof", "code-doc witness must bind canonical paths to the submitted commit")); return issues; }, reduce: (snapshot, raw) => { const command = raw as ReconcileCodeDocCommand, current = execution(snapshot, command.executionId) as ExecutionV1, witness: CodeDocWitnessV1 = { schema: "code-doc-witness/v1", witnessId: command.witnessId, taskId: command.taskId, executionId: command.executionId, commitSha: command.commitSha, iteration: command.iteration as 0 | 1, paths: [...new Set(command.paths)].sort(), actor: command.actor, source: command.source, reconciledAt: command.occurredAt }, witnesses = [...snapshot.codeDocWitnesses.filter((value) => value.executionId !== command.executionId), witness]; return { snapshot: { ...snapshot, revision: command.workspaceRevision, codeDocWitnesses: witnesses }, event: envelope<CodeDocReconciledEvent>(command, "code_doc_reconciled", { task: snapshot.task as TaskV1, execution: current, witness }) }; } };
-export function isReadyToComplete(snapshot: TaskLifecycleSnapshot): boolean { return closeoutReadiness(snapshot).readiness === "ready"; }
-const complete: Transition = { id: "complete_task", commandType: "CompleteTask", from: "in_review/review/ready", proof: ["ownerOrCommander", "reviewConsent", "typedGateReceipts", "noActiveLease"], eventType: "task_completed", matches: (command) => command.type === "CompleteTask", validate: (snapshot, raw, rawProof) => { const command = raw as CompleteTaskCommand, proof = rawProof as Partial<CompleteTaskProof>, issues = revisionIssues(snapshot, command), task = snapshot.task, current = execution(snapshot, command.executionId), assessment = closeoutReadiness(snapshot); if (task?.status !== "in_review" || task.currentNode !== "review" || current?.state !== "submitted" || assessment.readiness !== "ready") issues.push(lifecycleContractIssue("invalid_transition", assessment.blocker === "lineage" && task ? `CompleteTask for a ${task.taskClass} task requires an active decision derives edge; run ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/${task.taskId} --rationale <why this decision authorises the task>` : "CompleteTask requires a consent-selected approved Review")); if (snapshot.lease || proof.noActiveLease !== true || proof.capability !== "task-complete@v1" || !isNonEmptyString(proof.capabilityRef) || !["owner", "commander"].includes(String(proof.actorRole))) issues.push(lifecycleContractIssue("invalid_proof", "completion authority and released lease are required")); if (task && current) { const receipts = [...(proof.gateReceipts ?? [])].sort((left, right) => left.gateId.localeCompare(right.gateId)), canonical = [...canonicalGateReceipts(snapshot, current)].sort((left, right) => left.gateId.localeCompare(right.gateId)); if (stableStringify(canonical) !== stableStringify(receipts)) issues.push(lifecycleContractIssue("invalid_proof", "CompleteTask may reference only L2-verified gate witnesses for this execution cut")); } return issues; }, reduce: (snapshot, raw) => { const command = raw as CompleteTaskCommand, current = execution(snapshot, command.executionId) as ExecutionV1, nextExecution: ExecutionV1 = { ...current, state: "accepted", closedAt: command.occurredAt }, task: TaskV1 = { ...snapshot.task as TaskV1, status: "done", pinned: false }; return { snapshot: { ...snapshot, revision: command.workspaceRevision, task, executions: replaceExecution(snapshot.executions, nextExecution) }, event: envelope<TaskCompletedEvent>(command, "task_completed", { task, execution: nextExecution }) }; } };
-export const TASK_LIFECYCLE_TRANSITIONS: readonly Transition[] = Object.freeze([create, start, block, reinstate, unblock, cancel, submit, review, consent, reconcile, complete]);
-export function validateTransition<C extends TaskLifecycleCommand>(snapshot: TaskLifecycleSnapshot, command: C, proof: ProofFor<C>): readonly ContractValidationIssue[] { const envelopeIssues = validateTaskLifecycleCommandEnvelope(command); if (envelopeIssues.length) return envelopeIssues; const transition = TASK_LIFECYCLE_TRANSITIONS.find((value) => value.matches(command, snapshot)); return transition ? transition.validate(snapshot, command, proof) : [lifecycleContractIssue("invalid_transition", `no lifecycle transition accepts ${command.type}`)]; }
-export function applyTransition<C extends TaskLifecycleCommand>(snapshot: TaskLifecycleSnapshot, command: C, proof: ProofFor<C>): TransitionResult { const normalized = validateTaskLifecycleCommandEnvelope(command); if (normalized.length) throw new TaskLifecycleContractError("invalid_schema", normalized); const transition = TASK_LIFECYCLE_TRANSITIONS.find((value) => value.matches(command, snapshot)); if (!transition) throw new TaskLifecycleContractError("invalid_transition", [lifecycleContractIssue("invalid_transition", `no lifecycle transition accepts ${command.type}`)]); const issues = transition.validate(snapshot, command, proof); if (issues.length) throw new TaskLifecycleContractError(errorCode(issues), issues); const result = transition.reduce(snapshot, command, proof); assertAtomic(snapshot, command, result); return result; }
-function assertAtomic(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCommand, result: TransitionResult): void { const graphIssues = validateTaskGraph(result.snapshot.task?.graph ?? snapshot.task?.graph), changed = "executionId" in command ? result.snapshot.executions.find((value) => value.executionId === command.executionId) : undefined; if (graphIssues.length) throw new TaskLifecycleContractError("invalid_graph", graphIssues); if (command.type === "TransitionTask" && (result.event.type !== "task_transitioned" || result.snapshot.task?.status !== command.status || result.snapshot.lease !== snapshot.lease)) throw new TaskLifecycleContractError("invalid_transition", [lifecycleContractIssue("invalid_status_transition_atomicity", "block, unblock, cancel, and reinstate must land the requested status without touching the lease")]); if (command.type === "SubmitExecution" && (result.snapshot.task?.status !== "in_review" || result.snapshot.task.currentNode !== "review" || result.snapshot.lease !== null || changed?.state !== "submitted" || result.event.type !== "execution_submitted")) throw new TaskLifecycleContractError("invalid_transition", [lifecycleContractIssue("invalid_submit_atomicity", "submit must finalize Execution, release lease, and enter in_review atomically")]); if (command.type === "RecordReview" && command.verdict === "changes_requested" && (result.snapshot.task?.status !== "active" || result.snapshot.task.currentNode !== "implementation" || result.snapshot.task.iteration !== (snapshot.task?.iteration ?? -1) + 1 || changed?.state !== "changes_requested" || result.snapshot.lease !== null)) throw new TaskLifecycleContractError("invalid_graph", [lifecycleContractIssue("invalid_return_atomicity", "changes_requested must close Execution and return to implementation atomically")]); }
-export function compileExecutionExecutorDeclaration(input: { readonly snapshot: TaskLifecycleSnapshot; readonly taskId: string; readonly executionId: string; readonly actor: ActorAxes; readonly source: WriteSource; readonly reason: string; readonly opId: string; readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string }): { readonly event: ExecutionExecutorDeclaredEvent; readonly snapshot: TaskLifecycleSnapshot } { const task = input.snapshot.task, current = execution(input.snapshot, input.executionId), eligible = executionExecutorDeclarationCandidates(input.snapshot, input.taskId, input.actor).some((value) => value.executionId === input.executionId); if (!task || !current || !eligible || !isNonEmptyString(input.reason) || input.workspaceRevision <= input.snapshot.revision) throw new TaskLifecycleContractError("invalid_proof", [lifecycleContractIssue("invalid_executor_declaration", "executor declaration requires the same principal to name an agent for the current unreviewed submitted Execution that originally declared no executor")]); const nextExecution: ExecutionV1 = { ...current, actor: input.actor }, event: ExecutionExecutorDeclaredEvent = { schema: "task-event/v1", eventId: input.eventId, workspaceRevision: input.workspaceRevision, opId: input.opId, taskId: input.taskId, type: "execution_executor_declared", actor: input.actor, source: input.source, occurredAt: input.occurredAt, payload: { task, execution: nextExecution, previousActor: current.actor, reason: input.reason, documentClaims: [] } }; return { event, snapshot: reduceTaskEvent(input.snapshot, event) }; }
-export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEventV1): TaskLifecycleSnapshot { const issues = validateTaskEvent(event); if (issues.length) throw new TaskLifecycleContractError("invalid_schema", issues); if (event.workspaceRevision <= snapshot.revision || (event.type === "task_created" ? snapshot.task !== null : snapshot.task?.taskId !== event.taskId)) throw new TaskLifecycleContractError("invalid_transition", [lifecycleContractIssue("invalid_transition", "event revision or aggregate identity is not replayable")]); let next: TaskLifecycleSnapshot; if (event.type === "task_created") next = { ...snapshot, revision: event.workspaceRevision, task: event.payload.task }; else if (event.type === "execution_started") next = { ...snapshot, revision: event.workspaceRevision, task: event.payload.task, executions: snapshot.executions.some((value) => value.executionId === event.payload.execution.executionId) ? replaceExecution(snapshot.executions, event.payload.execution) : [...snapshot.executions, event.payload.execution], lease: event.payload.lease }; else if (event.type === "lease_renewed") next = { ...snapshot, revision: event.workspaceRevision, lease: event.payload.lease }; else if (event.type === "execution_submitted") next = { ...snapshot, revision: event.workspaceRevision, task: event.payload.task, executions: replaceExecution(snapshot.executions, event.payload.execution), edgesTaken: [...snapshot.edgesTaken, event.payload.edge], lease: null }; else if (event.type === "execution_executor_declared") next = { ...snapshot, revision: event.workspaceRevision, executions: replaceExecution(snapshot.executions, event.payload.execution) }; else if (event.type === "review_recorded") next = { ...snapshot, revision: event.workspaceRevision, task: event.payload.task, executions: replaceExecution(snapshot.executions, event.payload.execution), reviews: [...snapshot.reviews, event.payload.review], edgesTaken: event.payload.edge ? [...snapshot.edgesTaken, event.payload.edge] : snapshot.edgesTaken, lease: null }; else if (event.type === "review_consent_recorded") next = { ...snapshot, revision: event.workspaceRevision, consents: [...snapshot.consents, event.payload.consent] }; else if (event.type === "code_doc_reconciled") next = { ...snapshot, revision: event.workspaceRevision, codeDocWitnesses: [...snapshot.codeDocWitnesses.filter((value) => value.executionId !== event.payload.witness.executionId), event.payload.witness] }; else if (event.type === "completion_gate_verified") next = { ...snapshot, revision: event.workspaceRevision, gateWitnesses: [...snapshot.gateWitnesses.filter((value) => value.executionId !== event.payload.witness.executionId || value.gateId !== event.payload.witness.gateId), event.payload.witness] }; else if (event.type === "lease_released") next = { ...snapshot, revision: event.workspaceRevision, task: event.payload.task, executions: replaceExecution(snapshot.executions, event.payload.execution), lease: null }; else if (event.type !== "task_completed") next = { ...snapshot, revision: event.workspaceRevision, task: event.payload.task }; else next = { ...snapshot, revision: event.workspaceRevision, task: event.payload.task, executions: replaceExecution(snapshot.executions, event.payload.execution), lease: null }; assertReplay(snapshot, event, next); return next; }
-function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next: TaskLifecycleSnapshot): void { if (event.type === "execution_submitted" && (event.payload.task.status !== "in_review" || event.payload.task.currentNode !== "review" || event.payload.execution.state !== "submitted" || event.payload.edge.on !== "submitted" || next.lease !== null)) throw new TaskLifecycleContractError("invalid_transition", [lifecycleContractIssue("invalid_submit_atomicity", "replayed submit is incomplete")]); if (event.type === "execution_executor_declared") { const current = execution(snapshot, event.payload.execution.executionId), expected = current ? { ...current, actor: event.actor } : null; if (!current || stableStringify(event.payload.task) !== stableStringify(snapshot.task) || stableStringify(event.payload.previousActor) !== stableStringify(current.actor) || stableStringify(event.payload.execution) !== stableStringify(expected) || current.actor.executor !== null || event.actor.executor === null || !isSamePerson(current.actor, event.actor) || snapshot.task?.status !== "in_review" || snapshot.task.currentNode !== "review" || snapshot.lease !== null || current.state !== "submitted" || !current.submission || snapshot.reviews.some((value) => value.executionId === current.executionId)) throw new TaskLifecycleContractError("invalid_proof", [lifecycleContractIssue("invalid_executor_declaration", "replayed executor declaration is not a same-principal repair of an unreviewed submitted execution")]); } if (event.type === "review_recorded" && snapshot.reviews.some((value) => value.reviewId === event.payload.review.reviewId)) throw new TaskLifecycleContractError("invalid_transition", [lifecycleContractIssue("invalid_transition", "replayed append-only Review reused an existing review id")]); if (event.type === "review_recorded" && event.payload.review.verdict === "changes_requested" && (event.payload.edge?.on !== "changes_requested" || event.payload.execution.state !== "changes_requested" || event.payload.task.status !== "active" || event.payload.task.currentNode !== "implementation" || event.payload.task.iteration !== (snapshot.task?.iteration ?? -1) + 1)) throw new TaskLifecycleContractError("invalid_graph", [lifecycleContractIssue("invalid_return_atomicity", "replayed changes_requested is incomplete")]); if (event.type === "review_consent_recorded" && (event.payload.consent.reviewDigest !== reviewDigest(event.payload.review) || event.payload.consent.contentDigest !== event.payload.review.contentDigest)) throw new TaskLifecycleContractError("invalid_proof", [lifecycleContractIssue("invalid_proof", "replayed consent is not content pinned")]); if (event.type === "completion_gate_verified" && (!snapshot.task?.completionGateIds.includes(event.payload.witness.gateId) || event.payload.witness.executionId !== event.payload.execution.executionId || event.payload.witness.commitSha !== event.payload.execution.submission?.commitSha || event.payload.witness.iteration !== event.payload.execution.iteration)) throw new TaskLifecycleContractError("invalid_proof", [lifecycleContractIssue("invalid_proof", "replayed checker witness is not bound to the execution cut")]); if (event.type === "task_completed" && (!isReadyToComplete(snapshot) || canonicalGateReceipts(snapshot, event.payload.execution).length !== snapshot.task?.completionGateIds.length || event.payload.task.status !== "done" || event.payload.execution.state !== "accepted")) throw new TaskLifecycleContractError("invalid_transition", [lifecycleContractIssue("invalid_transition", "replayed completion lacks review, consent, gate witnesses, or the decision derives edge")]); }
-export function canonicalGateReceipts(snapshot: TaskLifecycleSnapshot, current: ExecutionV1): CompleteTaskProof["gateReceipts"] {
-  const passed = new Set(gateResults(snapshot, undefined, current.executionId, current.submission?.commitSha, current.iteration).filter(({ status }) => status === "passed").map(({ gateId }) => gateId));
+const reinstate: Transition = {
+  id: "reinstate_task",
+  commandType: "TransitionTask",
+  from: "cancelled",
+  proof: ["auditedReason"],
+  eventType: "task_transitioned",
+  matches: (command, snapshot) =>
+    command.type === "TransitionTask" &&
+    (reinstateTaskTargets as readonly DomainStatus[]).includes(
+      command.status,
+    ) &&
+    snapshot.task?.status === "cancelled",
+  validate: (snapshot, raw) => {
+    const command = raw as TransitionTaskCommand,
+      issues = revisionIssues(snapshot, command);
+    if (
+      snapshot.task?.status !== "cancelled" ||
+      snapshot.lease !== null ||
+      !(reinstateTaskTargets as readonly DomainStatus[]).includes(
+        command.status,
+      ) ||
+      !explainStatusTransition("cancelled", command.status).allowed
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "ReinstateTask requires an unleased cancelled task moving back to planned, active, or in_review",
+        ),
+      );
+    if (!isNonEmptyString(command.reason))
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_schema",
+          "ReinstateTask requires an auditable reason",
+        ),
+      );
+    return issues;
+  },
+  reduce: (snapshot, raw) =>
+    transitionTask(
+      snapshot,
+      raw as TransitionTaskCommand,
+      (raw as TransitionTaskCommand).status as
+        "planned" | "active" | "in_review",
+    ),
+};
+const unblock: Transition = {
+  id: "unblock_task",
+  commandType: "TransitionTask",
+  from: "blocked",
+  proof: [],
+  eventType: "task_transitioned",
+  matches: (command) =>
+    command.type === "TransitionTask" && command.status === "active",
+  validate: (snapshot, raw) => {
+    const command = raw as TransitionTaskCommand,
+      issues = revisionIssues(snapshot, command);
+    if (
+      snapshot.task?.status !== "blocked" ||
+      !allowsTaskStatusMove(snapshot, "active")
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "UnblockTask requires an unleased blocked task",
+        ),
+      );
+    return issues;
+  },
+  reduce: (snapshot, raw) =>
+    transitionTask(snapshot, raw as TransitionTaskCommand, "active"),
+};
+const cancel: Transition = {
+  id: "cancel_task",
+  commandType: "TransitionTask",
+  from: "planned|active|blocked|in_review",
+  proof: ["forcedReason"],
+  eventType: "task_transitioned",
+  matches: (command) =>
+    command.type === "TransitionTask" && command.status === "cancelled",
+  validate: (snapshot, raw) => {
+    const command = raw as TransitionTaskCommand,
+      issues = revisionIssues(snapshot, command);
+    if (!allowsTaskStatusMove(snapshot, "cancelled"))
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "CancelTask requires an unleased non-terminal task",
+        ),
+      );
+    if (!command.force || !isNonEmptyString(command.reason))
+      issues.push(
+        lifecycleContractIssue(
+          "force_reason_required",
+          "CancelTask requires force and an auditable reason",
+        ),
+      );
+    return issues;
+  },
+  reduce: (snapshot, raw) =>
+    transitionTask(snapshot, raw as TransitionTaskCommand, "cancelled"),
+};
+const submit: Transition = {
+  id: "submit_execution",
+  commandType: "SubmitExecution",
+  from: "active/implementation",
+  proof: ["actorBinding", "leaseVersion", "submission"],
+  eventType: "execution_submitted",
+  matches: (command) => command.type === "SubmitExecution",
+  validate: (snapshot, raw, rawProof) => {
+    const command = raw as SubmitExecutionCommand,
+      proof = rawProof as Partial<SubmitExecutionProof>,
+      issues = revisionIssues(snapshot, command),
+      task = snapshot.task,
+      current = execution(snapshot, command.executionId),
+      lease = snapshot.lease;
+    if (
+      !task ||
+      task.status !== "active" ||
+      task.currentNode !== "implementation" ||
+      current?.state !== "active"
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "SubmitExecution requires the active current execution",
+        ),
+      );
+    if (
+      !lease ||
+      lease.phase !== "held" ||
+      lease.executionId !== command.executionId ||
+      !isSameExecution(lease.actor, command.actor) ||
+      stableStringify(lease.source) !== stableStringify(command.source) ||
+      !proof.actorBinding ||
+      !isSameExecution(proof.actorBinding, command.actor) ||
+      proof.leaseVersion !== lease.version ||
+      !["complete", "partial", "unavailable"].includes(
+        String(proof.sessionDisposition),
+      )
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_proof",
+          "submit must own and atomically release the active lease",
+        ),
+      );
+    issues.push(...validateSubmissionV1(command.submission));
+    return issues;
+  },
+  reduce: (snapshot, raw) => {
+    const command = raw as SubmitExecutionCommand,
+      current = execution(snapshot, command.executionId) as ExecutionV1,
+      nextExecution: ExecutionV1 = {
+        ...current,
+        state: "submitted",
+        submittedAt: command.occurredAt,
+        submission: command.submission,
+      },
+      task: TaskV1 = {
+        ...(snapshot.task as TaskV1),
+        status: "in_review",
+        currentNode: "review",
+      },
+      edge = takeEdge(
+        task,
+        "submitted",
+        command.submission.completionClaim,
+        command.submission.commitSha,
+        task.iteration,
+      );
+    return {
+      snapshot: {
+        ...snapshot,
+        revision: command.workspaceRevision,
+        task,
+        executions: replaceExecution(snapshot.executions, nextExecution),
+        edgesTaken: [...snapshot.edgesTaken, edge],
+        lease: null,
+      },
+      event: envelope<ExecutionSubmittedEvent>(command, "execution_submitted", {
+        task,
+        execution: nextExecution,
+        edge,
+      }),
+    };
+  },
+};
+function reviewIssues(
+  snapshot: TaskLifecycleSnapshot,
+  command: RecordReviewCommand,
+  proof: Partial<ReviewProof>,
+): ContractValidationIssue[] {
+  const issues = revisionIssues(snapshot, command),
+    current = execution(snapshot, command.executionId);
+  if (
+    snapshot.task?.status !== "in_review" ||
+    snapshot.task.currentNode !== "review" ||
+    current?.state !== "submitted" ||
+    !current.submission
+  )
+    issues.push(
+      lifecycleContractIssue(
+        "invalid_transition",
+        "Review requires the current submitted execution",
+      ),
+    );
+  else if (
+    snapshot.reviews.some((value) => value.reviewId === command.reviewId)
+  )
+    issues.push(
+      lifecycleContractIssue(
+        "invalid_transition",
+        "append-only Review history requires a new review id",
+      ),
+    );
+  else if (
+    command.commitSha !== current.submission.commitSha ||
+    command.iteration !== current.iteration ||
+    !isIndependentFrom(current.actor, command.actor)
+  )
+    issues.push(
+      lifecycleContractIssue(
+        "invalid_proof",
+        "Review must bind the current content cut and an independent reviewer",
+      ),
+    );
+  if (
+    !proof.actorBinding ||
+    !isSameExecution(command.actor, proof.actorBinding) ||
+    proof.capability !== "execution-review@v1" ||
+    !isNonEmptyString(proof.capabilityRef) ||
+    !isNonEmptyString(command.reviewId) ||
+    !isNonEmptyString(command.reason) ||
+    !Array.isArray(command.evidenceChecked) ||
+    !digest(command.contentDigest)
+  )
+    issues.push(
+      lifecycleContractIssue(
+        "invalid_proof",
+        "transport-bound execution review proof and content digest are required",
+      ),
+    );
+  if (
+    command.verdict === "changes_requested" &&
+    (snapshot.task?.iteration ?? 0) >= (snapshot.task?.graph.maxIterations ?? 0)
+  )
+    issues.push(
+      lifecycleContractIssue(
+        "manual_intervention_required",
+        "return budget exhausted; escalate for manual intervention",
+      ),
+    );
+  return issues;
+}
+function reviewFrom(
+  command: RecordReviewCommand,
+  proof: ReviewProof,
+): ReviewV1 {
+  return {
+    schema: "review/v1",
+    reviewId: command.reviewId,
+    taskId: command.taskId,
+    executionId: command.executionId,
+    verdict: command.verdict,
+    actor: command.actor,
+    capabilityRef: proof.capabilityRef,
+    reason: command.reason,
+    evidenceChecked: command.evidenceChecked,
+    commitSha: command.commitSha,
+    iteration: command.iteration as 0 | 1,
+    contentDigest: command.contentDigest,
+    reviewedAt: command.occurredAt,
+  };
+}
+const review: Transition = {
+  id: "record_execution_review",
+  commandType: "RecordReview",
+  from: "in_review/review",
+  proof: ["independentActor", "execution-review@v1", "contentCut"],
+  eventType: "review_recorded",
+  matches: (command) => command.type === "RecordReview",
+  validate: (snapshot, raw, proof) =>
+    reviewIssues(
+      snapshot,
+      raw as RecordReviewCommand,
+      proof as Partial<ReviewProof>,
+    ),
+  reduce: (snapshot, raw, rawProof) => {
+    const command = raw as RecordReviewCommand,
+      current = execution(snapshot, command.executionId) as ExecutionV1,
+      recorded = reviewFrom(command, rawProof as ReviewProof);
+    if (command.verdict !== "changes_requested")
+      return {
+        snapshot: {
+          ...snapshot,
+          revision: command.workspaceRevision,
+          reviews: [...snapshot.reviews, recorded],
+        },
+        event: envelope<ReviewRecordedEvent>(command, "review_recorded", {
+          task: snapshot.task as TaskV1,
+          execution: current,
+          review: recorded,
+        }),
+      };
+    const nextExecution: ExecutionV1 = {
+        ...current,
+        state: "changes_requested",
+        closedAt: command.occurredAt,
+      },
+      task: TaskV1 = {
+        ...(snapshot.task as TaskV1),
+        status: "active",
+        currentNode: "implementation",
+        iteration: 1,
+      },
+      edge = takeEdge(
+        snapshot.task as TaskV1,
+        "changes_requested",
+        command.reason,
+        command.commitSha,
+        command.iteration,
+      );
+    return {
+      snapshot: {
+        ...snapshot,
+        revision: command.workspaceRevision,
+        task,
+        executions: replaceExecution(snapshot.executions, nextExecution),
+        reviews: [...snapshot.reviews, recorded],
+        edgesTaken: [...snapshot.edgesTaken, edge],
+        lease: null,
+      },
+      event: envelope<ReviewRecordedEvent>(command, "review_recorded", {
+        task,
+        execution: nextExecution,
+        review: recorded,
+        edge,
+      }),
+    };
+  },
+};
+const consent: Transition = {
+  id: "record_review_consent",
+  commandType: "RecordReviewConsent",
+  from: "in_review/review/approved",
+  proof: [
+    "ownerActor",
+    "execution-consent@v1",
+    "reviewDigest",
+    "contentDigest",
+  ],
+  eventType: "review_consent_recorded",
+  matches: (command) => command.type === "RecordReviewConsent",
+  validate: (snapshot, raw, rawProof) => {
+    const command = raw as RecordReviewConsentCommand,
+      proof = rawProof as Partial<ReviewConsentProof>,
+      issues = revisionIssues(snapshot, command),
+      current = execution(snapshot, command.executionId),
+      recorded = snapshot.reviews.find(
+        (value) =>
+          value.reviewId === command.reviewId &&
+          value.executionId === command.executionId,
+      );
+    if (
+      snapshot.task?.status !== "in_review" ||
+      current?.state !== "submitted" ||
+      recorded?.verdict !== "approved" ||
+      snapshot.consents.some((value) => value.reviewId === command.reviewId)
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "consent must select an unconsented approved current Review",
+        ),
+      );
+    if (
+      !recorded ||
+      command.reviewDigest !== reviewDigest(recorded) ||
+      command.contentDigest !== recorded.contentDigest ||
+      !proof.actorBinding ||
+      !isSameExecution(command.actor, proof.actorBinding) ||
+      !snapshot.task ||
+      !isSameExecution(command.actor, snapshot.task.createdBy) ||
+      proof.capability !== "execution-consent@v1" ||
+      !isNonEmptyString(proof.capabilityRef) ||
+      !isNonEmptyString(command.consentId)
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_proof",
+          "owner consent must bind the Review and reviewed content digests",
+        ),
+      );
+    return issues;
+  },
+  reduce: (snapshot, raw) => {
+    const command = raw as RecordReviewConsentCommand,
+      current = execution(snapshot, command.executionId) as ExecutionV1,
+      recorded = snapshot.reviews.find(
+        (value) => value.reviewId === command.reviewId,
+      ) as ReviewV1,
+      value: ReviewConsentV1 = {
+        schema: "review-consent/v1",
+        consentId: command.consentId,
+        taskId: command.taskId,
+        executionId: command.executionId,
+        reviewId: command.reviewId,
+        reviewDigest: command.reviewDigest,
+        contentDigest: command.contentDigest,
+        actor: command.actor,
+        source: command.source,
+        consentedAt: command.occurredAt,
+      };
+    return {
+      snapshot: {
+        ...snapshot,
+        revision: command.workspaceRevision,
+        consents: [...snapshot.consents, value],
+      },
+      event: envelope<ReviewConsentRecordedEvent>(
+        command,
+        "review_consent_recorded",
+        {
+          task: snapshot.task as TaskV1,
+          execution: current,
+          review: recorded,
+          consent: value,
+        },
+      ),
+    };
+  },
+};
+const reconcile: Transition = {
+  id: "reconcile_code_doc",
+  commandType: "ReconcileCodeDoc",
+  from: "in_review/review",
+  proof: ["actorBinding", "code-doc-reconcile@v1", "commitPaths"],
+  eventType: "code_doc_reconciled",
+  matches: (command) => command.type === "ReconcileCodeDoc",
+  validate: (snapshot, raw, rawProof) => {
+    const command = raw as ReconcileCodeDocCommand,
+      proof = rawProof as Partial<CodeDocProof>,
+      issues = revisionIssues(snapshot, command),
+      current = execution(snapshot, command.executionId);
+    if (
+      snapshot.task?.status !== "in_review" ||
+      current?.state !== "submitted" ||
+      !current.submission
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "code-doc reconcile requires the current submitted execution",
+        ),
+      );
+    if (
+      !current?.submission ||
+      command.commitSha !== current.submission.commitSha ||
+      command.iteration !== current.iteration ||
+      !isNativeCommitSha(command.commitSha) ||
+      !isNonEmptyString(command.witnessId) ||
+      !canonicalDocumentPaths(command.paths) ||
+      !proof.actorBinding ||
+      !isSameExecution(command.actor, proof.actorBinding) ||
+      proof.capability !== "code-doc-reconcile@v1" ||
+      !isNonEmptyString(proof.capabilityRef)
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_proof",
+          "code-doc witness must bind canonical paths to the submitted commit",
+        ),
+      );
+    return issues;
+  },
+  reduce: (snapshot, raw) => {
+    const command = raw as ReconcileCodeDocCommand,
+      current = execution(snapshot, command.executionId) as ExecutionV1,
+      witness: CodeDocWitnessV1 = {
+        schema: "code-doc-witness/v1",
+        witnessId: command.witnessId,
+        taskId: command.taskId,
+        executionId: command.executionId,
+        commitSha: command.commitSha,
+        iteration: command.iteration as 0 | 1,
+        paths: [...new Set(command.paths)].sort(),
+        actor: command.actor,
+        source: command.source,
+        reconciledAt: command.occurredAt,
+      },
+      witnesses = [
+        ...snapshot.codeDocWitnesses.filter(
+          (value) => value.executionId !== command.executionId,
+        ),
+        witness,
+      ];
+    return {
+      snapshot: {
+        ...snapshot,
+        revision: command.workspaceRevision,
+        codeDocWitnesses: witnesses,
+      },
+      event: envelope<CodeDocReconciledEvent>(command, "code_doc_reconciled", {
+        task: snapshot.task as TaskV1,
+        execution: current,
+        witness,
+      }),
+    };
+  },
+};
+export function isReadyToComplete(snapshot: TaskLifecycleSnapshot): boolean {
+  return closeoutReadiness(snapshot).readiness === "ready";
+}
+const complete: Transition = {
+  id: "complete_task",
+  commandType: "CompleteTask",
+  from: "in_review/review/ready",
+  proof: [
+    "ownerOrCommander",
+    "reviewConsent",
+    "typedGateReceipts",
+    "noActiveLease",
+  ],
+  eventType: "task_completed",
+  matches: (command) => command.type === "CompleteTask",
+  validate: (snapshot, raw, rawProof) => {
+    const command = raw as CompleteTaskCommand,
+      proof = rawProof as Partial<CompleteTaskProof>,
+      issues = revisionIssues(snapshot, command),
+      task = snapshot.task,
+      current = execution(snapshot, command.executionId),
+      assessment = closeoutReadiness(snapshot);
+    if (
+      task?.status !== "in_review" ||
+      task.currentNode !== "review" ||
+      current?.state !== "submitted" ||
+      assessment.readiness !== "ready"
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          assessment.blocker === "lineage" && task
+            ? `CompleteTask for a ${task.taskClass} task requires an active decision derives edge; run ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/${task.taskId} --rationale <why this decision authorises the task>`
+            : "CompleteTask requires a consent-selected approved Review",
+        ),
+      );
+    if (
+      snapshot.lease ||
+      proof.noActiveLease !== true ||
+      proof.capability !== "task-complete@v1" ||
+      !isNonEmptyString(proof.capabilityRef) ||
+      !["owner", "commander"].includes(String(proof.actorRole))
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_proof",
+          "completion authority and released lease are required",
+        ),
+      );
+    if (task && current) {
+      const receipts = [...(proof.gateReceipts ?? [])].sort((left, right) =>
+          left.gateId.localeCompare(right.gateId),
+        ),
+        canonical = [...canonicalGateReceipts(snapshot, current)].sort(
+          (left, right) => left.gateId.localeCompare(right.gateId),
+        );
+      if (stableStringify(canonical) !== stableStringify(receipts))
+        issues.push(
+          lifecycleContractIssue(
+            "invalid_proof",
+            "CompleteTask may reference only L2-verified gate witnesses for this execution cut",
+          ),
+        );
+    }
+    return issues;
+  },
+  reduce: (snapshot, raw) => {
+    const command = raw as CompleteTaskCommand,
+      current = execution(snapshot, command.executionId) as ExecutionV1,
+      nextExecution: ExecutionV1 = {
+        ...current,
+        state: "accepted",
+        closedAt: command.occurredAt,
+      },
+      task: TaskV1 = {
+        ...(snapshot.task as TaskV1),
+        status: "done",
+        pinned: false,
+      };
+    return {
+      snapshot: {
+        ...snapshot,
+        revision: command.workspaceRevision,
+        task,
+        executions: replaceExecution(snapshot.executions, nextExecution),
+      },
+      event: envelope<TaskCompletedEvent>(command, "task_completed", {
+        task,
+        execution: nextExecution,
+      }),
+    };
+  },
+};
+export const TASK_LIFECYCLE_TRANSITIONS: readonly Transition[] = Object.freeze([
+  create,
+  start,
+  block,
+  reinstate,
+  unblock,
+  cancel,
+  submit,
+  review,
+  consent,
+  reconcile,
+  complete,
+]);
+export function validateTransition<C extends TaskLifecycleCommand>(
+  snapshot: TaskLifecycleSnapshot,
+  command: C,
+  proof: ProofFor<C>,
+): readonly ContractValidationIssue[] {
+  const envelopeIssues = validateTaskLifecycleCommandEnvelope(command);
+  if (envelopeIssues.length) return envelopeIssues;
+  const transition = TASK_LIFECYCLE_TRANSITIONS.find((value) =>
+    value.matches(command, snapshot),
+  );
+  return transition
+    ? transition.validate(snapshot, command, proof)
+    : [
+        lifecycleContractIssue(
+          "invalid_transition",
+          `no lifecycle transition accepts ${command.type}`,
+        ),
+      ];
+}
+export function applyTransition<C extends TaskLifecycleCommand>(
+  snapshot: TaskLifecycleSnapshot,
+  command: C,
+  proof: ProofFor<C>,
+): TransitionResult {
+  const normalized = validateTaskLifecycleCommandEnvelope(command);
+  if (normalized.length)
+    throw new TaskLifecycleContractError("invalid_schema", normalized);
+  const transition = TASK_LIFECYCLE_TRANSITIONS.find((value) =>
+    value.matches(command, snapshot),
+  );
+  if (!transition)
+    throw new TaskLifecycleContractError("invalid_transition", [
+      lifecycleContractIssue(
+        "invalid_transition",
+        `no lifecycle transition accepts ${command.type}`,
+      ),
+    ]);
+  const issues = transition.validate(snapshot, command, proof);
+  if (issues.length)
+    throw new TaskLifecycleContractError(errorCode(issues), issues);
+  const result = transition.reduce(snapshot, command, proof);
+  assertAtomic(snapshot, command, result);
+  return result;
+}
+function assertAtomic(
+  snapshot: TaskLifecycleSnapshot,
+  command: TaskLifecycleCommand,
+  result: TransitionResult,
+): void {
+  const graphIssues = validateTaskGraph(
+      result.snapshot.task?.graph ?? snapshot.task?.graph,
+    ),
+    changed =
+      "executionId" in command
+        ? result.snapshot.executions.find(
+            (value) => value.executionId === command.executionId,
+          )
+        : undefined;
+  if (graphIssues.length)
+    throw new TaskLifecycleContractError("invalid_graph", graphIssues);
+  if (
+    command.type === "TransitionTask" &&
+    (result.event.type !== "task_transitioned" ||
+      result.snapshot.task?.status !== command.status ||
+      result.snapshot.lease !== snapshot.lease)
+  )
+    throw new TaskLifecycleContractError("invalid_transition", [
+      lifecycleContractIssue(
+        "invalid_status_transition_atomicity",
+        "block, unblock, cancel, and reinstate must land the requested status without touching the lease",
+      ),
+    ]);
+  if (
+    command.type === "SubmitExecution" &&
+    (result.snapshot.task?.status !== "in_review" ||
+      result.snapshot.task.currentNode !== "review" ||
+      result.snapshot.lease !== null ||
+      changed?.state !== "submitted" ||
+      result.event.type !== "execution_submitted")
+  )
+    throw new TaskLifecycleContractError("invalid_transition", [
+      lifecycleContractIssue(
+        "invalid_submit_atomicity",
+        "submit must finalize Execution, release lease, and enter in_review atomically",
+      ),
+    ]);
+  if (
+    command.type === "RecordReview" &&
+    command.verdict === "changes_requested" &&
+    (result.snapshot.task?.status !== "active" ||
+      result.snapshot.task.currentNode !== "implementation" ||
+      result.snapshot.task.iteration !== (snapshot.task?.iteration ?? -1) + 1 ||
+      changed?.state !== "changes_requested" ||
+      result.snapshot.lease !== null)
+  )
+    throw new TaskLifecycleContractError("invalid_graph", [
+      lifecycleContractIssue(
+        "invalid_return_atomicity",
+        "changes_requested must close Execution and return to implementation atomically",
+      ),
+    ]);
+}
+export function compileExecutionExecutorDeclaration(input: {
+  readonly snapshot: TaskLifecycleSnapshot;
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly actor: ActorAxes;
+  readonly source: WriteSource;
+  readonly reason: string;
+  readonly opId: string;
+  readonly eventId: string;
+  readonly workspaceRevision: number;
+  readonly occurredAt: string;
+}): {
+  readonly event: ExecutionExecutorDeclaredEvent;
+  readonly snapshot: TaskLifecycleSnapshot;
+} {
+  const task = input.snapshot.task,
+    current = execution(input.snapshot, input.executionId),
+    eligible = executionExecutorDeclarationCandidates(
+      input.snapshot,
+      input.taskId,
+      input.actor,
+    ).some((value) => value.executionId === input.executionId);
+  if (
+    !task ||
+    !current ||
+    !eligible ||
+    !isNonEmptyString(input.reason) ||
+    input.workspaceRevision <= input.snapshot.revision
+  )
+    throw new TaskLifecycleContractError("invalid_proof", [
+      lifecycleContractIssue(
+        "invalid_executor_declaration",
+        "executor declaration requires the same principal to name an agent for the current unreviewed submitted Execution that originally declared no executor",
+      ),
+    ]);
+  const nextExecution: ExecutionV1 = { ...current, actor: input.actor },
+    event: ExecutionExecutorDeclaredEvent = {
+      schema: "task-event/v1",
+      eventId: input.eventId,
+      workspaceRevision: input.workspaceRevision,
+      opId: input.opId,
+      taskId: input.taskId,
+      type: "execution_executor_declared",
+      actor: input.actor,
+      source: input.source,
+      occurredAt: input.occurredAt,
+      payload: {
+        task,
+        execution: nextExecution,
+        previousActor: current.actor,
+        reason: input.reason,
+        documentClaims: [],
+      },
+    };
+  return { event, snapshot: reduceTaskEvent(input.snapshot, event) };
+}
+export function reduceTaskEvent(
+  snapshot: TaskLifecycleSnapshot,
+  event: TaskEventV1,
+): TaskLifecycleSnapshot {
+  const issues = validateTaskEvent(event);
+  if (issues.length)
+    throw new TaskLifecycleContractError("invalid_schema", issues);
+  if (
+    event.workspaceRevision <= snapshot.revision ||
+    (event.type === "task_created"
+      ? snapshot.task !== null
+      : snapshot.task?.taskId !== event.taskId)
+  )
+    throw new TaskLifecycleContractError("invalid_transition", [
+      lifecycleContractIssue(
+        "invalid_transition",
+        "event revision or aggregate identity is not replayable",
+      ),
+    ]);
+  let next: TaskLifecycleSnapshot;
+  if (event.type === "task_created")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+    };
+  else if (event.type === "execution_started")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: snapshot.executions.some(
+        (value) => value.executionId === event.payload.execution.executionId,
+      )
+        ? replaceExecution(snapshot.executions, event.payload.execution)
+        : [...snapshot.executions, event.payload.execution],
+      lease: event.payload.lease,
+    };
+  else if (event.type === "lease_renewed")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      lease: event.payload.lease,
+    };
+  else if (event.type === "execution_submitted")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(
+        snapshot.executions,
+        event.payload.execution,
+      ),
+      edgesTaken: [...snapshot.edgesTaken, event.payload.edge],
+      lease: null,
+    };
+  else if (event.type === "execution_executor_declared")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      executions: replaceExecution(
+        snapshot.executions,
+        event.payload.execution,
+      ),
+    };
+  else if (event.type === "review_recorded")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(
+        snapshot.executions,
+        event.payload.execution,
+      ),
+      reviews: [...snapshot.reviews, event.payload.review],
+      edgesTaken: event.payload.edge
+        ? [...snapshot.edgesTaken, event.payload.edge]
+        : snapshot.edgesTaken,
+      lease: null,
+    };
+  else if (event.type === "review_consent_recorded")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      consents: [...snapshot.consents, event.payload.consent],
+    };
+  else if (event.type === "code_doc_reconciled")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      codeDocWitnesses: [
+        ...snapshot.codeDocWitnesses.filter(
+          (value) => value.executionId !== event.payload.witness.executionId,
+        ),
+        event.payload.witness,
+      ],
+    };
+  else if (event.type === "completion_gate_verified")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      gateWitnesses: [
+        ...snapshot.gateWitnesses.filter(
+          (value) =>
+            value.executionId !== event.payload.witness.executionId ||
+            value.gateId !== event.payload.witness.gateId,
+        ),
+        event.payload.witness,
+      ],
+    };
+  else if (event.type === "lease_released")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(
+        snapshot.executions,
+        event.payload.execution,
+      ),
+      lease: null,
+    };
+  else if (event.type !== "task_completed")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+    };
+  else
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(
+        snapshot.executions,
+        event.payload.execution,
+      ),
+      lease: null,
+    };
+  assertReplay(snapshot, event, next);
+  return next;
+}
+function assertReplay(
+  snapshot: TaskLifecycleSnapshot,
+  event: TaskEventV1,
+  next: TaskLifecycleSnapshot,
+): void {
+  if (
+    event.type === "execution_submitted" &&
+    (event.payload.task.status !== "in_review" ||
+      event.payload.task.currentNode !== "review" ||
+      event.payload.execution.state !== "submitted" ||
+      event.payload.edge.on !== "submitted" ||
+      next.lease !== null)
+  )
+    throw new TaskLifecycleContractError("invalid_transition", [
+      lifecycleContractIssue(
+        "invalid_submit_atomicity",
+        "replayed submit is incomplete",
+      ),
+    ]);
+  if (event.type === "execution_executor_declared") {
+    const current = execution(snapshot, event.payload.execution.executionId),
+      expected = current ? { ...current, actor: event.actor } : null;
+    if (
+      !current ||
+      stableStringify(event.payload.task) !== stableStringify(snapshot.task) ||
+      stableStringify(event.payload.previousActor) !==
+        stableStringify(current.actor) ||
+      stableStringify(event.payload.execution) !== stableStringify(expected) ||
+      current.actor.executor !== null ||
+      event.actor.executor === null ||
+      !isSamePerson(current.actor, event.actor) ||
+      snapshot.task?.status !== "in_review" ||
+      snapshot.task.currentNode !== "review" ||
+      snapshot.lease !== null ||
+      current.state !== "submitted" ||
+      !current.submission ||
+      snapshot.reviews.some(
+        (value) => value.executionId === current.executionId,
+      )
+    )
+      throw new TaskLifecycleContractError("invalid_proof", [
+        lifecycleContractIssue(
+          "invalid_executor_declaration",
+          "replayed executor declaration is not a same-principal repair of an unreviewed submitted execution",
+        ),
+      ]);
+  }
+  if (
+    event.type === "review_recorded" &&
+    snapshot.reviews.some(
+      (value) => value.reviewId === event.payload.review.reviewId,
+    )
+  )
+    throw new TaskLifecycleContractError("invalid_transition", [
+      lifecycleContractIssue(
+        "invalid_transition",
+        "replayed append-only Review reused an existing review id",
+      ),
+    ]);
+  if (
+    event.type === "review_recorded" &&
+    event.payload.review.verdict === "changes_requested" &&
+    (event.payload.edge?.on !== "changes_requested" ||
+      event.payload.execution.state !== "changes_requested" ||
+      event.payload.task.status !== "active" ||
+      event.payload.task.currentNode !== "implementation" ||
+      event.payload.task.iteration !== (snapshot.task?.iteration ?? -1) + 1)
+  )
+    throw new TaskLifecycleContractError("invalid_graph", [
+      lifecycleContractIssue(
+        "invalid_return_atomicity",
+        "replayed changes_requested is incomplete",
+      ),
+    ]);
+  if (
+    event.type === "review_consent_recorded" &&
+    (event.payload.consent.reviewDigest !==
+      reviewDigest(event.payload.review) ||
+      event.payload.consent.contentDigest !==
+        event.payload.review.contentDigest)
+  )
+    throw new TaskLifecycleContractError("invalid_proof", [
+      lifecycleContractIssue(
+        "invalid_proof",
+        "replayed consent is not content pinned",
+      ),
+    ]);
+  if (
+    event.type === "completion_gate_verified" &&
+    (!snapshot.task?.completionGateIds.includes(event.payload.witness.gateId) ||
+      event.payload.witness.executionId !==
+        event.payload.execution.executionId ||
+      event.payload.witness.commitSha !==
+        event.payload.execution.submission?.commitSha ||
+      event.payload.witness.iteration !== event.payload.execution.iteration)
+  )
+    throw new TaskLifecycleContractError("invalid_proof", [
+      lifecycleContractIssue(
+        "invalid_proof",
+        "replayed checker witness is not bound to the execution cut",
+      ),
+    ]);
+  if (
+    event.type === "task_completed" &&
+    (!isReadyToComplete(snapshot) ||
+      canonicalGateReceipts(snapshot, event.payload.execution).length !==
+        snapshot.task?.completionGateIds.length ||
+      event.payload.task.status !== "done" ||
+      event.payload.execution.state !== "accepted")
+  )
+    throw new TaskLifecycleContractError("invalid_transition", [
+      lifecycleContractIssue(
+        "invalid_transition",
+        "replayed completion lacks review, consent, gate witnesses, or the decision derives edge",
+      ),
+    ]);
+}
+export function canonicalGateReceipts(
+  snapshot: TaskLifecycleSnapshot,
+  current: ExecutionV1,
+): CompleteTaskProof["gateReceipts"] {
+  const passed = new Set(
+    gateResults(
+      snapshot,
+      undefined,
+      current.executionId,
+      current.submission?.commitSha,
+      current.iteration,
+    )
+      .filter(({ status }) => status === "passed")
+      .map(({ gateId }) => gateId),
+  );
   return (snapshot.task?.completionGateIds ?? []).flatMap((gateId) => {
     if (!passed.has(gateId)) return [];
-    const codeDoc = gateId === "code-doc-reconciliation" ? snapshot.codeDocWitnesses.find((value) => value.executionId === current.executionId && value.commitSha === current.submission?.commitSha && value.iteration === current.iteration) : undefined;
-    const gate = gateId !== "code-doc-reconciliation" ? snapshot.gateWitnesses.find((value) => value.gateId === gateId && value.executionId === current.executionId && value.commitSha === current.submission?.commitSha && value.iteration === current.iteration && value.result === "pass") : undefined;
-    const receiptRef = codeDoc ? `event:${codeDoc.witnessId}` : gate ? `event:${gate.receiptId}` : null;
-    return receiptRef ? [{ gateId, receiptRef, result: "pass" as const, executionId: current.executionId, commitSha: current.submission!.commitSha, iteration: current.iteration }] : [];
+    const codeDoc =
+      gateId === "code-doc-reconciliation"
+        ? snapshot.codeDocWitnesses.find(
+            (value) =>
+              value.executionId === current.executionId &&
+              value.commitSha === current.submission?.commitSha &&
+              value.iteration === current.iteration,
+          )
+        : undefined;
+    const gate =
+      gateId !== "code-doc-reconciliation"
+        ? snapshot.gateWitnesses.find(
+            (value) =>
+              value.gateId === gateId &&
+              value.executionId === current.executionId &&
+              value.commitSha === current.submission?.commitSha &&
+              value.iteration === current.iteration &&
+              value.result === "pass",
+          )
+        : undefined;
+    const receiptRef = codeDoc
+      ? `event:${codeDoc.witnessId}`
+      : gate
+        ? `event:${gate.receiptId}`
+        : null;
+    return receiptRef
+      ? [
+          {
+            gateId,
+            receiptRef,
+            result: "pass" as const,
+            executionId: current.executionId,
+            commitSha: current.submission!.commitSha,
+            iteration: current.iteration,
+          },
+        ]
+      : [];
   });
 }
 export { reviewDigest } from "./review.ts";
-function canonicalDocumentPaths(value: unknown): value is readonly string[] { if (!Array.isArray(value) || value.length === 0 || new Set(value).size !== value.length) return false; try { return value.every((path) => typeof path === "string" && normalizeRelativeDocumentPath(path) === path); } catch { return false; } }
-function errorCode(issues: readonly ContractValidationIssue[]): TaskLifecycleErrorCode { return issues.some((value) => value.code === "manual_intervention_required") ? "manual_intervention_required" : issues.some((value) => value.code.includes("graph") || value.code.includes("edge") || value.code.includes("atomicity")) ? "invalid_graph" : issues.some((value) => value.code === "invalid_proof") ? "invalid_proof" : "invalid_transition"; }
-function lifecycleContractIssue(code: string, message: string): ContractValidationIssue { return { code, message }; }
-export const TASK_LIFECYCLE_COMMAND_CATALOG = Object.freeze(TASK_LIFECYCLE_TRANSITIONS.map((value) => Object.freeze({ id: value.id, commandType: value.commandType, from: value.from, proof: value.proof, eventType: value.eventType })));
-export type TaskLifecycleCliCatalogEntry = (typeof TASK_LIFECYCLE_COMMAND_CATALOG)[number];
-export const TASK_LIFECYCLE_PROJECTION_FIELDS = Object.freeze({ task: TASK_V1_SCHEMA.required, execution: EXECUTION_V1_SCHEMA.required, review: REVIEW_V1_SCHEMA.required, consent: REVIEW_CONSENT_V1_SCHEMA.required, edgeTaken: TASK_EDGE_TAKEN_SCHEMA.required });
-const taskLifecycleContract = Object.freeze({ id: "task-lifecycle", phases: Object.freeze(["P4"]), commands: Object.freeze(TASK_LIFECYCLE_COMMAND_CATALOG.map((entry) => Object.freeze({ id: entry.id, phase: "P4" }))), gates: Object.freeze([]), guards: Object.freeze([]), schemas: Object.freeze([Object.freeze({ id: "task-event/v1", schema: "packages/kernel/src/domain/task-lifecycle.contract.ts#TASK_EVENT_V1_SCHEMA", parser: "packages/kernel/src/domain/task-lifecycle.contract.ts#validateTaskEvent", writer: "packages/kernel/src/domain/task-lifecycle.contract.ts#serializeTaskEvent", error: "packages/kernel/src/domain/task-lifecycle.contract.ts#TaskLifecycleContractError", negativeFixtures: Object.freeze(["tools/gates/test/fixtures/task-event-legacy-shape.json"]) })]) });
+function canonicalDocumentPaths(value: unknown): value is readonly string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    new Set(value).size !== value.length
+  )
+    return false;
+  try {
+    return value.every(
+      (path) =>
+        typeof path === "string" &&
+        normalizeRelativeDocumentPath(path) === path,
+    );
+  } catch {
+    return false;
+  }
+}
+function errorCode(
+  issues: readonly ContractValidationIssue[],
+): TaskLifecycleErrorCode {
+  return issues.some((value) => value.code === "manual_intervention_required")
+    ? "manual_intervention_required"
+    : issues.some(
+          (value) =>
+            value.code.includes("graph") ||
+            value.code.includes("edge") ||
+            value.code.includes("atomicity"),
+        )
+      ? "invalid_graph"
+      : issues.some((value) => value.code === "invalid_proof")
+        ? "invalid_proof"
+        : "invalid_transition";
+}
+function lifecycleContractIssue(
+  code: string,
+  message: string,
+): ContractValidationIssue {
+  return { code, message };
+}
+export const TASK_LIFECYCLE_COMMAND_CATALOG = Object.freeze(
+  TASK_LIFECYCLE_TRANSITIONS.map((value) =>
+    Object.freeze({
+      id: value.id,
+      commandType: value.commandType,
+      from: value.from,
+      proof: value.proof,
+      eventType: value.eventType,
+    }),
+  ),
+);
+export type TaskLifecycleCliCatalogEntry =
+  (typeof TASK_LIFECYCLE_COMMAND_CATALOG)[number];
+export const TASK_LIFECYCLE_PROJECTION_FIELDS = Object.freeze({
+  task: TASK_V1_SCHEMA.required,
+  execution: EXECUTION_V1_SCHEMA.required,
+  review: REVIEW_V1_SCHEMA.required,
+  consent: REVIEW_CONSENT_V1_SCHEMA.required,
+  edgeTaken: TASK_EDGE_TAKEN_SCHEMA.required,
+});
+const taskLifecycleContract = Object.freeze({
+  id: "task-lifecycle",
+  phases: Object.freeze(["P4"]),
+  commands: Object.freeze(
+    TASK_LIFECYCLE_COMMAND_CATALOG.map((entry) =>
+      Object.freeze({ id: entry.id, phase: "P4" }),
+    ),
+  ),
+  gates: Object.freeze([]),
+  guards: Object.freeze([]),
+  schemas: Object.freeze([
+    Object.freeze({
+      id: "task-event/v1",
+      schema:
+        "packages/kernel/src/domain/task-lifecycle.contract.ts#TASK_EVENT_V1_SCHEMA",
+      parser:
+        "packages/kernel/src/domain/task-lifecycle.contract.ts#validateTaskEvent",
+      writer:
+        "packages/kernel/src/domain/task-lifecycle.contract.ts#serializeTaskEvent",
+      error:
+        "packages/kernel/src/domain/task-lifecycle.contract.ts#TaskLifecycleContractError",
+      negativeFixtures: Object.freeze([
+        "tools/gates/test/fixtures/task-event-legacy-shape.json",
+      ]),
+    }),
+  ]),
+});
 export default taskLifecycleContract;
