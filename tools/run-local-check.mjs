@@ -84,6 +84,7 @@ function manifestDerivedSteps() {
 // base-sensitive local adapter explicit; the remaining static gates are derived.
 const FAST_STEPS = [
   ["line-budget", "check:local:line-budget"],
+  ["line-density", "check:local:line-density"],
   ["typecheck", "typecheck"],
   ["test:fast", "test:fast"],
   ["test:contract", "test:contract"],
