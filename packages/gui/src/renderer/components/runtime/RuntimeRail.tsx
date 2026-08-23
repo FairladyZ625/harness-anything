@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
-import { dispatchOutcomeView } from "../../dispatch-flow.ts";
 import { runtimeDockGroups, type RuntimeDockRow } from "../../runtime-panorama.ts";
 import { t } from "../../i18n/index.tsx";
 import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
@@ -78,7 +77,7 @@ function SessionGroupRows({ sessions, picked, onSelect }: { readonly sessions: r
       <LiveDot state={row.status === "running" ? "live" : row.status === "failed" ? "failed" : "idle"} tip={row.status} />
       <span className="min-w-0 flex-1 truncate text-[11.5px]">{row.agentName ?? row.instanceId}</span>
       <span className="min-w-0 max-w-[76px] shrink truncate font-mono text-[9.5px] text-text-muted">{row.taskTitle ?? t("agentRuntime.noTask")}</span>
-      <span data-testid={`runtime-outcome-${row.runtimeSessionId}`} className={`shrink-0 font-mono text-[9.5px] ${OUTCOME_TONE[dispatchOutcomeView(row.status === "running" ? null : row.status === "succeeded" || row.status === "failed" || row.status === "cancelled" ? row.status : "unknown")]}`}>{row.status}</span>
+      <span data-testid={`runtime-outcome-${row.runtimeSessionId}`} className={`shrink-0 font-mono text-[9.5px] ${OUTCOME_TONE[row.status]}`}>{row.status}</span>
     </Row>)}
   </div>)}</>;
 }
