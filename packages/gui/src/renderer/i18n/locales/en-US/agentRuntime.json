@@ -173,6 +173,7 @@
   "agentRuntime.inspectorHealth": "Health",
   "agentRuntime.inspectorDefinition": "Declaration",
   "agentRuntime.inspectorMembers": "Members",
+  "agentRuntime.showMoreSessions": "Show {count} more · {remaining} remaining",
   "agentRuntime.inspectorSessions": "Sessions ({count})",
   "agentRuntime.inspectorReferencedBy": "Referenced by squads ({count})",
   "agentRuntime.notReferenced": "Not referenced",

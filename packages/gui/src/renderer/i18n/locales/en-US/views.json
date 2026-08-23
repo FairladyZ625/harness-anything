@@ -41,6 +41,7 @@
   "views.decisionsVerdict.confirmAction": "Confirm {action}",
   "views.decisionsVerdict.reject": "Reject",
   "views.decisionsVerdict.rejected": "rejected",
+  "views.decisionsView.showMoreHistory": "Show {count} more · {remaining} remaining",
   "views.decisionsView.canonicalJudgmentHistory": "Canonical judgment history",
   "views.decisionsView.notInCurrentSession": "not in current session",
   "views.decisionsView.pathUnknown": "path unknown",

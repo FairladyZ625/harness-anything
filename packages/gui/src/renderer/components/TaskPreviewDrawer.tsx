@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowSquareOut,
   CheckCircle,
@@ -20,6 +20,9 @@ import { EntityRefLink } from "./EntityRefLink.tsx";
 import { localMonthDayTime } from "../model/local-time.ts";
 
 const timeOf = (iso: string) => localMonthDayTime(iso) ?? "—";
+
+/** 事件流一次显示这么多条,剩下的靠批量按钮显形(照抄 BoardView 的做法)。 */
+const EVENT_BATCH_SIZE = 4;
 
 function Section({
   title,
@@ -53,6 +56,7 @@ export function TaskPreviewDrawer({
   onOpenDetail: (id: string) => void;
   onPreviewTask: (id: string) => void;
 }) {
+  const [visibleEvents, setVisibleEvents] = useState(EVENT_BATCH_SIZE);
   useEffect(() => {
     if (!task) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -61,6 +65,7 @@ export function TaskPreviewDrawer({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose, task]);
+  useEffect(() => { setVisibleEvents(EVENT_BATCH_SIZE); }, [task?.taskId]);
 
   if (!task) return null;
 
@@ -72,9 +77,9 @@ export function TaskPreviewDrawer({
     })
     .filter((item) => item.task);
   const missingDocs = task.docs.filter((doc) => doc.required && doc.presence !== "unknown" && !doc.present);
-  const taskEvents = (task.events ?? [])
-    .sort((a, b) => b.at.localeCompare(a.at))
-    .slice(0, 4);
+  const orderedEvents = [...(task.events ?? [])].sort((a, b) => b.at.localeCompare(a.at));
+  const taskEvents = orderedEvents.slice(0, visibleEvents);
+  const hiddenEvents = orderedEvents.length - taskEvents.length;
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-bg/45">
@@ -276,6 +281,22 @@ export function TaskPreviewDrawer({
                     <span className="ml-2 text-text-muted">{event.summary}</span>
                   </div>
                 ))}
+                {hiddenEvents > 0 && (
+                  <button
+                    type="button"
+                    data-testid="task-preview-events-more"
+                    onClick={() => setVisibleEvents((count) =>
+                      Math.min(count + EVENT_BATCH_SIZE, orderedEvents.length))}
+                    className="w-full rounded-lg border border-dashed border-border px-3 py-2
+                      text-center font-mono text-[12px] text-text-muted hover:border-border-strong
+                      hover:text-text"
+                  >
+                    {t("components.taskPreviewDrawer.showMoreEvents", {
+                      count: Math.min(EVENT_BATCH_SIZE, hiddenEvents),
+                      remaining: hiddenEvents,
+                    })}
+                  </button>
+                )}
               </div>
             )}
           </Section>

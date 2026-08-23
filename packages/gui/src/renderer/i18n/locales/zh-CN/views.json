@@ -41,6 +41,7 @@
   "views.decisionsVerdict.confirmAction": "确认 {action}",
   "views.decisionsVerdict.reject": "拒绝",
   "views.decisionsVerdict.rejected": "已拒绝",
+  "views.decisionsView.showMoreHistory": "再显示 {count} 条 · 还有 {remaining} 条",
   "views.decisionsView.canonicalJudgmentHistory": "canonical judgment 历史",
   "views.decisionsView.notInCurrentSession": "不在当前 session",
   "views.decisionsView.pathUnknown": "路径未知",

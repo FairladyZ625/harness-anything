@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MagnifyingGlass, ArrowRight } from "@phosphor-icons/react";
+import { t } from "../i18n/index.tsx";
 
 /**
  * ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。
@@ -32,6 +33,9 @@ export function buildPaletteIndex(
   return entries;
 }
 
+/** 一屏批量:命令面板一次只渲染这么多条,剩下的靠批量按钮显形(照抄 BoardView 的做法)。 */
+const PALETTE_BATCH_SIZE = 50;
+
 export function CommandPalette({
   open,
   entries,
@@ -45,6 +49,7 @@ export function CommandPalette({
 }) {
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(PALETTE_BATCH_SIZE);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -56,19 +61,20 @@ export function CommandPalette({
     }
   }, [open]);
 
-  const filtered = useMemo(() => {
+  const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return entries.slice(0, 50);
-    return entries
-      .filter(
-        (e) => e.label.toLowerCase().includes(needle) || e.ref.toLowerCase().includes(needle),
-      )
-      .slice(0, 50);
+    if (!needle) return entries;
+    return entries.filter(
+      (e) => e.label.toLowerCase().includes(needle) || e.ref.toLowerCase().includes(needle),
+    );
   }, [query, entries]);
+  const filtered = useMemo(() => matches.slice(0, visibleCount), [matches, visibleCount]);
+  const hiddenCount = matches.length - filtered.length;
 
   useEffect(() => {
     setActiveIdx(0);
-  }, [query]);
+    setVisibleCount(PALETTE_BATCH_SIZE);
+  }, [query, entries.length]);
 
   if (!open) return null;
 
@@ -166,6 +172,19 @@ export function CommandPalette({
                 )}
               </button>
             ))
+          )}
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              data-testid="command-palette-more"
+              onClick={() => setVisibleCount((count) => Math.min(count + PALETTE_BATCH_SIZE, matches.length))}
+              className="w-full px-3 py-2 text-center font-mono text-[11px] text-text-muted hover:text-text"
+            >
+              {t("components.commandPalette.showMore", {
+                count: Math.min(PALETTE_BATCH_SIZE, hiddenCount),
+                remaining: hiddenCount,
+              })}
+            </button>
           )}
         </div>
       </div>

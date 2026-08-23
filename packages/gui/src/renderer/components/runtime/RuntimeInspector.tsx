@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
@@ -21,6 +21,29 @@ type OpenSession = (runtimeSessionId: string) => void;
 // liveness word decides the dot through a table lookup alone.
 const LIVENESS_DOT: Record<string, "live" | "idle"> = { live: "live" };
 
+/** 每个 inspector 段落一次显示这么多行,剩下的靠批量按钮显形(照抄 BoardView 的做法)。 */
+const SECTION_BATCH_SIZE = 8;
+
+/**
+ * 只显示前 N 行时必须把剩余条数显形:段落标题里的 `{count}` 是截断前的真实总数,
+ * 若下面只列 8 行又不交代,界面就会出现"标题写 23、下面 8 行"这种没有出口的组合。
+ */
+function BatchedRows<Row>({ rows, testId, children }: { readonly rows: readonly Row[];
+  readonly testId: string; readonly children: (row: Row) => ReactNode }) {
+  const [visibleCount, setVisibleCount] = useState(SECTION_BATCH_SIZE);
+  useEffect(() => { setVisibleCount(SECTION_BATCH_SIZE); }, [rows.length]);
+  const hiddenCount = rows.length - Math.min(visibleCount, rows.length);
+  return <>
+    {rows.slice(0, visibleCount).map((row) => children(row))}
+    {hiddenCount > 0 && <button type="button" data-testid={testId}
+      onClick={() => setVisibleCount((count) => Math.min(count + SECTION_BATCH_SIZE, rows.length))}
+      className="mt-1 w-full rounded border border-dashed border-border px-1.5 py-1 text-center
+        font-mono text-[10px] text-text-muted hover:border-border-strong hover:text-text">{
+      t("agentRuntime.showMoreSessions", { count: Math.min(SECTION_BATCH_SIZE, hiddenCount),
+        remaining: hiddenCount })}</button>}
+  </>;
+}
+
 export function ProviderInspector({ instance, probeError, sessions, onOpenSession }: {
   readonly instance: RuntimeInstanceSummary | null; readonly probeError: string | null; readonly sessions:
   readonly AgentRuntimeSessionDto[]; readonly onOpenSession: OpenSession }) {
@@ -31,9 +54,10 @@ export function ProviderInspector({ instance, probeError, sessions, onOpenSessio
         tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorRuntime")}</h2>
     <RuntimeFacts instance={instance} probeError={probeError} />
     <Section title={t("agentRuntime.inspectorSessions", { count: sessions.length })}>
-      {sessions.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : sessions.slice(0,
-        8).map((session) => <LiveSessionRow key={session.runtimeSessionId} session={session}
-        onOpenSession={onOpenSession} />)}
+      {sessions.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty>
+        : <BatchedRows rows={sessions} testId="runtime-inspector-sessions-more">{(session) =>
+          <LiveSessionRow key={session.runtimeSessionId} session={session}
+            onOpenSession={onOpenSession} />}</BatchedRows>}
     </Section>
   </aside>;
 }
@@ -56,7 +80,10 @@ export function IdentityInspector({ selection, agents, squads, rows, onSelect, o
         onSelect={onSelect} />
       : <SquadFacts squad={squads.find((squad) => squad.id === selection.id) ?? null} onSelect={onSelect} />}
     <Section title={t("agentRuntime.inspectorSessions", { count: related.length })}>
-      {related.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : related.slice(0, 8).map((row) => <DispatchSessionRow key={row.runtimeSessionId} row={row} onOpenSession={onOpenSession} />)}
+      {related.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty>
+        : <BatchedRows rows={related} testId="runtime-inspector-related-more">{(row) =>
+          <DispatchSessionRow key={row.runtimeSessionId} row={row} onOpenSession={onOpenSession} />}
+        </BatchedRows>}
     </Section>
   </aside>;
 }
@@ -73,9 +100,10 @@ export function SessionInspector({ row, rows, onSelectSession, onOpenTask, onSel
         tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorSession")}</h2>
     <SessionFacts row={row} onOpenTask={onOpenTask} onSelectEntity={onSelectEntity} />
     <Section title={t("agentRuntime.inspectorSessions", { count: siblings.length })}>
-      {siblings.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty> : siblings.slice(0,
-        8).map((sibling) => <DispatchSessionRow key={sibling.runtimeSessionId} row={sibling}
-        onOpenSession={onSelectSession} />)}
+      {siblings.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty>
+        : <BatchedRows rows={siblings} testId="runtime-inspector-siblings-more">{(sibling) =>
+          <DispatchSessionRow key={sibling.runtimeSessionId} row={sibling}
+            onOpenSession={onSelectSession} />}</BatchedRows>}
     </Section>
   </aside>;
 }
