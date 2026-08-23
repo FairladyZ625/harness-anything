@@ -223,15 +223,15 @@ const DECISION_INPUT_LINES = Object.freeze({
   kernel: 10198, // re-measured under dec_F906FA4E1BE047B6F591CF4316 (S4 moves Git materialization off the write return path)
   "task-lifecycle": 375,
   "write-contract": 292,
-  "doc-sync": 572,
+  "doc-sync": 2463,
   preset: 372,
   cli: 377,
   gui: 18494,
-  daemon: 4244, // re-measured under dec_4BA57B8082D26A05FBD9C70166 (conn-log v1 lands the connection-level observability)
-  fleet: 222,
+  daemon: 22892,
+  fleet: 1482,
   "authority-write-path": 0,
   "identity-rbac": 563,
-  "agent-runtime": 360,
+  "agent-runtime": 2157,
   decision: 286,
   fact: 307,
   "test-infra": 0
