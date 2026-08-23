@@ -98,9 +98,13 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   await page.locator('[data-entity="task"]').first().click();
   await page.locator("aside").getByText("task-gui-smoke", { exact: true }).waitFor();
   await page.getByRole("button", { name: "打开", exact: true }).click();
-  await page.getByRole("button", { name: /派生自 dec_gui_smoke/u }).waitFor({ timeout: 10_000 });
+  // W3 起 Task 详情是分页签的:上游 decision 归「关系」页签,默认页签是「概况」;
+  // 同一次重构把关系类型拆成了独立的 label badge,链接按钮上只剩 peer 引用。
+  await page.getByRole("tab", { name: "关系" }).click();
   const relationLink = page.getByRole("button", { name: "decision/dec_gui_smoke", exact: true });
-  await relationLink.waitFor();
+  await relationLink.waitFor({ timeout: 10_000 });
+  const relationRowText = await relationLink.locator("xpath=..").innerText();
+  assert.match(relationRowText, /派生自/u, "the upstream decision must still be labelled as a derives edge");
   // 收起态终端 dock 的悬浮按钮(fixed 右下角,z-30)会盖住详情页链接:
   // 先移除再点,避免点击被遮罩吞掉。
   await page.evaluate(() => globalThis.document.querySelector('button[title="Ctrl+`"]')?.remove());
@@ -159,9 +163,18 @@ test("GUI creates a Runtime and Agent from zero, invokes its selected Skill, and
   await runtimeDialog.getByRole("button", { name: "Codex", exact: true }).click();
   await runtimeDialog.getByTestId("new-runtime-id").fill("gui-from-zero");
   await runtimeDialog.getByLabel(/^(?:名称|Name)$/u).fill("GUI From Zero");
-  const modelSelect = runtimeDialog.getByTestId("new-runtime-model");
-  await modelSelect.locator('option[value="gpt-5.6-sol"]').waitFor({ state: "attached" });
-  assert.equal(await modelSelect.inputValue(), "", "detected default must not require a typed model override");
+  // model 面自 bd7d9422e 起是多选 checkbox 列表,不再是单选 select。原断言
+  // inputValue()==="" 表达的语义是「不必手动指定 model 就能建」;在多选形态下
+  // 等价形态是:探测到的模型默认全部预勾选,用户不做任何选择即可提交。
+  const modelList = runtimeDialog.getByTestId("new-runtime-models");
+  await modelList.getByText("gpt-5.6-sol", { exact: true }).waitFor({ state: "attached" });
+  const detectedCount = await modelList.locator('input[type="checkbox"]').count();
+  assert.ok(detectedCount > 0, "model detection must populate the runtime model list");
+  assert.equal(
+    await modelList.locator('input[type="checkbox"]:checked').count(),
+    detectedCount,
+    "detected models must come pre-selected so creating a Runtime needs no manual model pick",
+  );
   assert.equal(await runtimeDialog.getByTestId("new-runtime-model-custom").count(), 0, "custom model input must stay opt-in");
   const createRuntime = runtimeDialog.getByTestId("new-runtime-create");
   assert.equal(await createRuntime.isEnabled(), true, "blank-model Runtime form did not become creatable from the detected default");
