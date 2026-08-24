@@ -30,7 +30,9 @@ export function reduceBatch(
   return transaction(db, () => {
     for (const event of events) stageEvent(db, event);
     const reducedItems = drainDeferred(db, limit, readBlob);
-    const state = db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
+    const state =
+      /* @gate-identity check-bypass-write-boundary/bypass-write-001 */
+      db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
       readonly scan_cursor: string | null;
       readonly scanned_revision: number;
     };
@@ -66,7 +68,9 @@ export function catchUpRound(
 } {
   const head = eventStore.readHead();
   const sourceRevision = head?.revision ?? 0;
-  const state = db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
+  const state =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-002 */
+    db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
     readonly scan_cursor: string | null;
     readonly scanned_revision: number;
   };
@@ -74,6 +78,7 @@ export function catchUpRound(
   const batch = shouldScan ? eventStore.readBatch(state.scan_cursor, limit) : null;
   if (batch?.prefetchContent !== undefined) batchContentPrefetchers.set(eventStore, batch.prefetchContent);
   const hasDeferred =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-003 */
     db.prepare("SELECT 1 AS present FROM event_source WHERE workspace_revision = ?").get(watermark(db) + 1) !==
     undefined;
   if (batch === null && !hasDeferred) {
@@ -161,14 +166,18 @@ function readyDeferredEvents(
 
 function stageEvent(db: DatabaseSync, event: CanonicalEventV1): void {
   const eventJson = serializeCanonicalEvent(event).trimEnd();
-  const applied = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(event.opId) as
+  const applied =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-004 */
+    db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(event.opId) as
     | { readonly event_json: string }
     | undefined;
   if (applied !== undefined) {
     if (applied.event_json !== eventJson) throw new Error(`projection opId ${event.opId} names different bytes`);
     return;
   }
-  const staged = db
+  const staged =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-005 */
+    db
     .prepare("SELECT event_json FROM event_source WHERE op_id = ? OR workspace_revision = ?")
     .get(event.opId, event.workspaceRevision) as { readonly event_json: string } | undefined;
   if (staged !== undefined) {
@@ -189,7 +198,9 @@ function drainDeferred(db: DatabaseSync, limit: number, readBlob: EventStreamPor
   let next = watermark(db),
     reduced = 0;
   while (reduced < limit) {
-    const row = db.prepare("SELECT event_json FROM event_source WHERE workspace_revision = ?").get(next + 1) as
+    const row =
+      /* @gate-identity check-bypass-write-boundary/bypass-write-006 */
+      db.prepare("SELECT event_json FROM event_source WHERE workspace_revision = ?").get(next + 1) as
       | { readonly event_json: string }
       | undefined;
     if (row === undefined) break;

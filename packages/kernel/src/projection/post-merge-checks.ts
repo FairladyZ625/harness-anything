@@ -1,4 +1,6 @@
-import { execFileSync } from "node:child_process";
+import {
+  /* @gate-identity check-sync-subprocess/sync-subprocess-012 */
+  execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { findEntityRefs } from "../domain/index.ts";
@@ -100,7 +102,13 @@ function findDuplicateExternalBindings(entries: ReadonlyArray<TaskSourceEntry>):
 
 function findTrackedGeneratedFiles(rootDir: string): ReadonlyArray<ProjectionWarning> {
   try {
-    const output = execFileSync("git", ["-C", rootDir, "ls-files", "--", ".harness", ".journal", ".projection.sqlite", ".adopt-claims"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
+    const output =
+      /* @gate-identity check-sync-subprocess/sync-subprocess-013 */
+      execFileSync(
+        "git",
+        ["-C", rootDir, "ls-files", "--", ".harness", ".journal", ".projection.sqlite", ".adopt-claims"],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }
+      ).trim();
     if (output.length === 0) return [];
     return [hardFail(
       "collaboration-gate",

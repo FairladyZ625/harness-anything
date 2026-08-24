@@ -43,11 +43,14 @@ export function replayClaim(
 ): void {
   const lease = checkedLease(event.payload.lease);
   const reserving = { ...lease, phase: "reserving" as const };
+  /* @gate-identity check-bypass-write-boundary/bypass-write-017 */
   db.prepare(UPSERT_LEASE_SQL).run(event.taskId, canonicalJson(reserving));
+  /* @gate-identity check-bypass-write-boundary/bypass-write-018 */
   db.prepare("UPDATE lease_cas SET lease_json = ? WHERE task_id = ?").run(
     canonicalJson({ ...lease, phase: "held" }),
     event.taskId,
   );
+  /* @gate-identity check-bypass-write-boundary/bypass-write-019 */
   db.prepare(INSERT_LEASE_INTERVAL_SQL).run(
     event.taskId,
     lease.executionId,
@@ -71,13 +74,16 @@ export function replayRenew(db: DatabaseSync, event: Extract<TaskEventV1, { read
     current.version + 1 === renewed.version;
   if (!matchesPrevious && canonicalJson(current) !== canonicalJson(renewed))
     throw new Error(`stale lease renewal event for task ${event.taskId}`);
+  /* @gate-identity check-bypass-write-boundary/bypass-write-020 */
   db.prepare(UPSERT_LEASE_SQL).run(event.taskId, canonicalJson(renewed));
+  /* @gate-identity check-bypass-write-boundary/bypass-write-021 */
   db.prepare(UPDATE_LEASE_EXPIRY_SQL).run(renewed.expiresAt, event.taskId, renewed.executionId);
 }
 
 export function replayRelease(db: DatabaseSync, taskId: string, executionId: string, revision: number): void {
   const lease = storedLease(db, taskId);
   if (lease !== null && lease.executionId === executionId)
+    /* @gate-identity check-bypass-write-boundary/bypass-write-022 */
     db.prepare("UPDATE lease_cas SET lease_json = ? WHERE task_id = ?").run(
       canonicalJson({
         ...lease,
@@ -86,11 +92,14 @@ export function replayRelease(db: DatabaseSync, taskId: string, executionId: str
       }),
       taskId,
     );
+  /* @gate-identity check-bypass-write-boundary/bypass-write-023 */
   db.prepare(UPDATE_LEASE_RELEASE_SQL).run(revision, taskId, executionId);
 }
 
 export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): TaskLifecycleSnapshot {
-  const row = db.prepare("SELECT snapshot_json FROM task_snapshot WHERE task_id = ?").get(taskId) as
+  const row =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-024 */
+    db.prepare("SELECT snapshot_json FROM task_snapshot WHERE task_id = ?").get(taskId) as
     | { readonly snapshot_json: string }
     | undefined;
   if (row === undefined) return emptyTaskLifecycleSnapshot();
@@ -131,7 +140,9 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
 }
 
 export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
-  const rows = db
+  const rows =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-025 */
+    db
     .prepare("SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision")
     .all(taskId) as unknown as readonly Record<string, unknown>[];
   return rows.map((row) => ({
@@ -152,7 +163,9 @@ export function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 
   const current = effectiveLease(db, lease.taskId, now);
   if (current !== null && current.phase !== "orphaned" && current.phase !== "released")
     throw new Error(`lease conflict for task ${lease.taskId}`);
-  const count = db.prepare(COUNT_ACTIVE_LEASES_SQL).get(now) as { readonly count: number };
+  const count =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-026 */
+    db.prepare(COUNT_ACTIVE_LEASES_SQL).get(now) as { readonly count: number };
   if (count.count >= TASK_LEASE_BROKER_CONTRACT.capacity)
     throw new Error(
       `lease capacity ${TASK_LEASE_BROKER_CONTRACT.capacity} exhausted; wait for a lease to be released or expire`,
@@ -160,6 +173,7 @@ export function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 
   const expectedVersion = current === null ? 0 : current.version + 1;
   if (lease.phase !== "reserving" || lease.version !== expectedVersion)
     throw new Error(`stale lease reservation for task ${lease.taskId}`);
+  /* @gate-identity check-bypass-write-boundary/bypass-write-027 */
   db.prepare(UPSERT_LEASE_SQL).run(lease.taskId, canonicalJson(lease));
   return lease;
 }

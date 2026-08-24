@@ -12,18 +12,9 @@ import {
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
-test("repository inventory freezes 17 AST sites across 7 files", () => {
+test("repository inventory freezes the governed API and syntax-kind multisets", () => {
   const counts = inventoryCounts(scanSyncSubprocess(repoRoot));
   assert.equal(counts.total, 17);
-  assert.deepEqual(counts.files, {
-    "packages/daemon/src/agent-runtime-installation-discovery.ts": 2,
-    "packages/daemon/src/doc-sync-candidate-scanner.ts": 2,
-    "packages/daemon/src/doc-sync-files.ts": 3,
-    "packages/daemon/src/process-port.ts": 2,
-    "packages/daemon/src/runtime-spawn-process.ts": 2,
-    "packages/kernel/src/projection/post-merge-checks.ts": 2,
-    "packages/kernel/src/store/local-version-control-system.ts": 4
-  });
   assert.deepEqual(counts.kinds, { import: 7, call: 10 });
   assert.deepEqual(counts.apis, { execFileSync: 15, spawnSync: 2 });
 });
@@ -79,24 +70,55 @@ test("a new spawnSync site fails the ratchet", () => {
   });
 });
 
-test("line movement is stable and a mutated baseline fingerprint fails closed", () => {
+test("source identities survive formatting, responsibility split, and file rename", () => {
   withFixture({
-    "packages/kernel/src/git.ts": 'import { execFileSync } from "node:child_process";\nexport function run() { return execFileSync("git", ["status"]); }\n'
+    "packages/kernel/src/git.ts": 'import { /* @gate-identity check-sync-subprocess/sync-fixture-import */ execFileSync } from "node:child_process";\nexport function run() { return /* @gate-identity check-sync-subprocess/sync-fixture-call */ execFileSync("git", ["status"]); }\n'
   }, (root) => {
     const original = scanSyncSubprocess(root);
-    const baseline = original.map(({ key }) => ({ key }));
+    const baseline = [
+      { key: "sync-fixture-import", kind: "import", api: "execFileSync" },
+      { key: "sync-fixture-call", kind: "call", api: "execFileSync" }
+    ];
     assert.deepEqual(checkSyncSubprocess(original, baseline), []);
 
-    writeFileSync(path.join(root, "packages/kernel/src/git.ts"), '\nimport { execFileSync } from "node:child_process";\nexport function run() { return execFileSync("git", ["status"]); }\n');
+    const movedPath = path.join(root, "packages/daemon/src/git-runner.ts");
+    mkdirSync(path.dirname(movedPath), { recursive: true });
+    writeFileSync(movedPath, [
+      'import { /* @gate-identity check-sync-subprocess/sync-fixture-import */ execFileSync } from "node:child_process";',
+      "export function runGitStatus() {",
+      "  return /* @gate-identity check-sync-subprocess/sync-fixture-call */ execFileSync(",
+      '    "git",',
+      '    ["status"],',
+      "  );",
+      "}"
+    ].join("\n"));
+    rmSync(path.join(root, "packages/kernel/src/git.ts"));
     const moved = scanSyncSubprocess(root);
     assert.deepEqual(moved.map((site) => site.key), original.map((site) => site.key));
-    assert.deepEqual(moved.map((site) => site.line), original.map((site) => site.line + 1));
     assert.deepEqual(checkSyncSubprocess(moved, baseline), []);
+  });
+});
 
-    const mutatedBaseline = baseline.map((entry, index) => index === 1 ? { key: entry.key.replace(/[0-9a-f]{64}/u, "0".repeat(64)) } : entry);
-    const findings = checkSyncSubprocess(moved, mutatedBaseline);
-    assert.equal(findings.filter((finding) => finding.includes("new synchronous subprocess")).length, 1, findings.join("\n"));
-    assert.equal(findings.filter((finding) => finding.includes("stale baseline entry")).length, 1, findings.join("\n"));
+test("duplicate source identities fail closed", () => {
+  withFixture({
+    "packages/kernel/src/git.ts": 'import { /* @gate-identity check-sync-subprocess/sync-fixture */ execFileSync } from "node:child_process";\nexport function run() { return /* @gate-identity check-sync-subprocess/sync-fixture */ execFileSync("git"); }\n'
+  }, (root) => {
+    const findings = checkSyncSubprocess(scanSyncSubprocess(root), [
+      { key: "sync-fixture", kind: "import", api: "execFileSync" }
+    ]);
+    assert.ok(findings.some((finding) => finding.includes("duplicate source identity")), findings.join("\n"));
+  });
+});
+
+test("a stable identity cannot transfer to a different synchronous API", () => {
+  withFixture({
+    "packages/kernel/src/git.ts": 'import { /* @gate-identity check-sync-subprocess/sync-fixture-import */ execSync } from "node:child_process";\nexport function run() { return /* @gate-identity check-sync-subprocess/sync-fixture-call */ execSync("git status"); }\n'
+  }, (root) => {
+    const findings = checkSyncSubprocess(scanSyncSubprocess(root), [
+      { key: "sync-fixture-import", kind: "import", api: "execFileSync" },
+      { key: "sync-fixture-call", kind: "call", api: "execFileSync" }
+    ]);
+    assert.equal(findings.filter((finding) => finding.includes("baseline freezes")).length, 2, findings.join("\n"));
   });
 });
 
@@ -104,7 +126,9 @@ test("deleted sites make baseline entries stale", () => {
   withFixture({
     "packages/daemon/src/clean.ts": "export const clean = true;\n"
   }, (root) => {
-    const findings = checkSyncSubprocess(scanSyncSubprocess(root), [{ key: "packages/daemon/src/old.ts::<module>::call::deadbeef::1" }]);
+    const findings = checkSyncSubprocess(scanSyncSubprocess(root), [
+      { key: "sync-deleted", kind: "call", api: "execFileSync" }
+    ]);
     assert.match(findings[0], /stale baseline entry/u);
   });
 });

@@ -70,7 +70,9 @@ export async function settleDecisionReceipt(
 
 export function decisionHasReachableEvidence(decision: DecisionRow, relations: ReadonlyArray<RelationEdge>): boolean {
   const claimRefs = new Set(decision.claims.map((claim) => `decision/${decision.decisionId}/${claim.id}`));
-  return relations.some((relation) => relation.state === "active" && relation.direction !== "undirected"
+  return relations.some((relation) =>
+    /* @gate-identity check-gui-status-judgments/gui-status-019 */
+    relation.state === "active" && relation.direction !== "undirected"
     && claimRefs.has(relation.from) && /^(?:fact|task|decision)\//u.test(relation.to));
 }
 
@@ -133,7 +135,9 @@ export function useDecisionActions(repoId: string) {
       if (settlement.state !== "applied") { if (settlement.state === "pending") pendingResolvers.current.set(operationKey("proposal"), async (receipt) => finish(await settleDecisionReceipt(receipt, ({ opId }) => harnessClient.showReceipt({ repoId, opId })))); return failure("proposal", "propose", settlement); }
       const decisionId = decisionIdFromEvidence(settlement.receipt.evidence);
       if (!decisionId) return publish("proposal", { state: "pending", kind: "propose", opId: settlement.opId, code: "projection_key_missing", hint: "receipt 已 applied 但未返回 decisionId；用 opId 查询，勿重放 mutation。" });
-      const reread = await refresh(), visible = reread.decisions.decisions.some((decision) => decision.decisionId === decisionId && decision.state === "proposed");
+      const reread = await refresh(), visible = reread.decisions.decisions.some((decision) => decision.decisionId === decisionId &&
+        /* @gate-identity check-gui-status-judgments/gui-status-020 */
+        decision.state === "proposed");
       if (visible) { pendingResolvers.current.delete(operationKey("proposal")); return publish("proposal", { state: "success", kind: "propose", opId: settlement.opId, hint: `${decisionId} 已从 canonical projection 重读。`, receipt: visibleReceipt(settlement.receipt) }); }
       pendingResolvers.current.set(operationKey("proposal"), async (receipt) => finish(await settleDecisionReceipt(receipt, ({ opId }) => harnessClient.showReceipt({ repoId, opId }))));
       return publish("proposal", { state: "pending", kind: "propose", opId: settlement.opId, code: "projection_not_visible", hint: `${decisionId} 尚未出现在 canonical projection；勿重放 mutation。` });

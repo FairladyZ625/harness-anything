@@ -154,8 +154,45 @@ export function DecisionPoolView({
       <input aria-label={t("views.decisionPoolView.decisionSearch")} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("views.decisionPoolView.searchTitleIdQuestion")} className={`${selectClass} min-w-52`} />
       <Filter value={moduleFilter} set={setModuleFilter} label={t("views.decisionPoolView.filterModule")} allLabel={t("views.decisionPoolView.filterAll", { label: t("views.decisionPoolView.filterModule") })} values={modules} /><Filter value={productLineFilter} set={setProductLineFilter} label={t("views.decisionPoolView.filterProductLine")} allLabel={t("views.decisionPoolView.filterAll", { label: t("views.decisionPoolView.filterProductLine") })} values={productLines} />
       <select className={selectClass} value={stateFilter} onChange={(e) => setStateFilter(e.target.value as DecisionState | "all")}><option value="all">{t("views.decisionPoolView.stateAll")}</option>{currentGroup.states.map((state) => <option key={state}>{state}</option>)}</select>
-      <Filter value={riskFilter} set={setRiskFilter as (value: string) => void} label={t("views.decisionPoolView.filterRisk")} allLabel={t("views.decisionPoolView.riskAll")} values={["high", "medium", "low", "unknown"]} /><Filter value={urgencyFilter} set={setUrgencyFilter as (value: string) => void} label={t("views.decisionPoolView.filterUrgency")} allLabel={t("views.decisionPoolView.urgencyAll")} values={["high", "medium", "low", "unknown"]} />
-      <Filter value={verticalFilter} set={setVerticalFilter} label={t("views.decisionPoolView.filterVertical")} allLabel={t("views.decisionPoolView.verticalAll")} values={verticals} /><Filter value={presetFilter} set={setPresetFilter} label={t("views.decisionPoolView.filterPreset")} allLabel={t("views.decisionPoolView.presetAll")} values={presets} /><Filter value={proposedByFilter} set={setProposedByFilter as (value: string) => void} label={t("views.decisionPoolView.filterProposedBy")} allLabel={t("views.decisionPoolView.filterProposedByAll")} values={["human", "agent", "system", "unknown"]} />
+      <Filter
+        value={riskFilter}
+        set={setRiskFilter as (value: string) => void}
+        label={t("views.decisionPoolView.filterRisk")}
+        allLabel={t("views.decisionPoolView.riskAll")}
+        values={
+        /* @gate-identity check-gui-status-judgments/gui-status-059 */
+        ["high", "medium", "low", "unknown"]}
+      />
+      <Filter
+        value={urgencyFilter}
+        set={setUrgencyFilter as (value: string) => void}
+        label={t("views.decisionPoolView.filterUrgency")}
+        allLabel={t("views.decisionPoolView.urgencyAll")}
+        values={
+        /* @gate-identity check-gui-status-judgments/gui-status-060 */
+        ["high", "medium", "low", "unknown"]} />
+      <Filter
+        value={verticalFilter}
+        set={setVerticalFilter}
+        label={t("views.decisionPoolView.filterVertical")}
+        allLabel={t("views.decisionPoolView.verticalAll")}
+        values={verticals}
+      />
+      <Filter
+        value={presetFilter}
+        set={setPresetFilter}
+        label={t("views.decisionPoolView.filterPreset")}
+        allLabel={t("views.decisionPoolView.presetAll")}
+        values={presets}
+      />
+      <Filter
+        value={proposedByFilter}
+        set={setProposedByFilter as (value: string) => void}
+        label={t("views.decisionPoolView.filterProposedBy")}
+        allLabel={t("views.decisionPoolView.filterProposedByAll")}
+        values={
+        /* @gate-identity check-gui-status-judgments/gui-status-061 */
+        ["human", "agent", "system", "unknown"]} />
       <select className={selectClass} value={timeRange} onChange={(e) => setTimeRange(e.target.value as TimeRange)}><option value="all">{t("views.decisionPoolView.timeAll")}</option><option value="14d">{t("views.decisionPoolView.timeLast14Days")}</option><option value="30d">{t("views.decisionPoolView.timeLast30Days")}</option></select>
       <select aria-label={t("views.decisionPoolView.filterGroupBy")} className={selectClass} value={groupBy} onChange={(e) => setGroupBy(e.target.value as PoolGroupBy)} title={t("views.decisionPoolView.groupByTitle")}><option value="none">{t("views.decisionPoolView.groupByNone")}</option><option value="productLine">{t("views.decisionPoolView.groupByMilestone")}</option><option value="vertical">{t("views.decisionPoolView.groupByVertical")}</option></select>
     </div>
@@ -187,7 +224,15 @@ export function DecisionPoolView({
           <ChainView decision={decision} relations={relations} onNavigateDecision={onNavigateDecision} />
         </div>
       {(decision.body || decision.judgmentConsents.length > 0) && <details className="mt-2 text-[11px] text-text-muted"><summary className="cursor-pointer select-none text-text-faint hover:text-text-muted">{t("views.decisionPoolView.canonicalBodyConsents")}</summary>{decision.body && <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-surface-raised p-2">{decision.body.body}</pre>}{decision.judgmentConsents.map((consent) => <div key={consent.consentId} className="mt-1 font-mono">{consent.action} · {consent.consentId} · {consent.consentedAt}</div>)}</details>}
-        {decision.state === "proposed" && onJudge && <DecisionJudgmentPanel decision={decision} relations={relations} feedback={mutationFeedback?.(decision.decisionId)} onSubmit={onJudge} onCheckReceipt={() => onCheckReceipt?.(decision.decisionId)} />}
+        {
+          /* @gate-identity check-gui-status-judgments/gui-status-062 */
+          decision.state === "proposed" && onJudge && <DecisionJudgmentPanel
+            decision={decision}
+            relations={relations}
+            feedback={mutationFeedback?.(decision.decisionId)}
+            onSubmit={onJudge}
+            onCheckReceipt={() => onCheckReceipt?.(decision.decisionId)}
+          />}
       </article>)}
       </section>)}
       {hiddenCount > 0 && <button type="button" data-testid="decision-pool-more" onClick={() => setPage({ scope: pageScope, count: Math.min(visibleLimit + DECISION_BATCH_SIZE, rows.length) })} className="w-full rounded-lg border border-dashed border-border px-3 py-2 font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text">{t("views.decisionPoolView.showMore", { count: Math.min(DECISION_BATCH_SIZE, hiddenCount), remaining: hiddenCount })}</button>}

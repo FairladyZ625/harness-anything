@@ -69,7 +69,11 @@ export function DecisionsView({
   const [skipped, setSkipped] = useState<Set<string>>(new Set()), [cursor, setCursor] = useState(0), [inspectedFactRef, setInspectedFactRef] = useState<string | null>(null), [help, setHelp] = useState(false);
   const [openRequest, setOpenRequest] = useState<(JudgmentOpenRequest & { readonly decisionId: string }) | undefined>();
   const queue = useMemo(() => {
-    const proposed = decisions.filter((decision) => decision.state === "proposed"), active = proposed.filter((decision) => !skipped.has(decision.decisionId)), skippedRows = proposed.filter((decision) => skipped.has(decision.decisionId));
+    const proposed = decisions.filter((decision) =>
+      /* @gate-identity check-gui-status-judgments/gui-status-063 */
+      decision.state === "proposed");
+    const active = proposed.filter((decision) => !skipped.has(decision.decisionId));
+    const skippedRows = proposed.filter((decision) => skipped.has(decision.decisionId));
     const sorted = (rows: DecisionRow[]) => [...rows].sort((a, b) => { const [ra, ua] = sortKey(a), [rb, ub] = sortKey(b); return ra - rb || ua - ub || (a.proposedAt ?? "").localeCompare(b.proposedAt ?? ""); });
     return [...sorted(active), ...sorted(skippedRows)];
   }, [decisions, skipped]);

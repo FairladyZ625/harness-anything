@@ -48,7 +48,9 @@ export function listProjection(
       query.cursor === undefined &&
       query.pinnedFirst !== true
     ) {
-      const rows = db
+      const rows =
+        /* @gate-identity check-bypass-write-boundary/bypass-write-012 */
+        db
         .prepare(
           [
             "SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path,",
@@ -115,7 +117,9 @@ export function readDocument(
   return withDatabase(projectionPath, readHead, (db) => {
     const round = catchUpRound(db, eventStore, limit),
       current = watermark(db),
-      row = db.prepare("SELECT value_json FROM document WHERE path = ?").get(documentPath) as
+      row =
+        /* @gate-identity check-bypass-write-boundary/bypass-write-013 */
+        db.prepare("SELECT value_json FROM document WHERE path = ?").get(documentPath) as
         | { readonly value_json: string }
         | undefined;
     return {
@@ -136,7 +140,9 @@ export function readPresetSnapshot(
   return withDatabase(projectionPath, readHead, (db) => {
     const round = catchUpRound(db, eventStore, limit),
       current = watermark(db),
-      row = db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as
+      row =
+        /* @gate-identity check-bypass-write-boundary/bypass-write-014 */
+        db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as
         | { readonly value_json: string }
         | undefined;
     return {
@@ -165,6 +171,7 @@ export function readProjection(
       snapshot: readSnapshot(db, taskId, now()),
       packagePath:
         (
+          /* @gate-identity check-bypass-write-boundary/bypass-write-015 */
           db.prepare("SELECT package_path FROM task_package WHERE task_id = ?").get(taskId) as
             | { readonly package_path: string }
             | undefined

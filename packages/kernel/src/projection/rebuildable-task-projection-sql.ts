@@ -33,21 +33,27 @@ const stateDigestTables = [
 ] as const;
 
 export function watermark(db: DatabaseSync): number {
-  const row = db.prepare("SELECT watermark FROM projection_meta WHERE singleton = 1").get() as {
+  const row =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-031 */
+    db.prepare("SELECT watermark FROM projection_meta WHERE singleton = 1").get() as {
     readonly watermark: number;
   };
   return Number(row.watermark);
 }
 
 export function readStateDigest(db: DatabaseSync): `sha256:${string}` | null {
-  const row = db.prepare("SELECT state_digest FROM projection_meta WHERE singleton = 1").get() as {
+  const row =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-032 */
+    db.prepare("SELECT state_digest FROM projection_meta WHERE singleton = 1").get() as {
     readonly state_digest: string | null;
   };
   return row.state_digest === null ? null : (row.state_digest as `sha256:${string}`);
 }
 
 export function isAtSourceCut(db: DatabaseSync, sourceRevision: number): boolean {
-  const state = db
+  const state =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-033 */
+    db
     .prepare("SELECT watermark, scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1")
     .get() as {
     readonly watermark: number;
@@ -58,6 +64,7 @@ export function isAtSourceCut(db: DatabaseSync, sourceRevision: number): boolean
     Number(state.watermark) === sourceRevision &&
     state.scan_cursor === null &&
     Number(state.scanned_revision) === sourceRevision &&
+    /* @gate-identity check-bypass-write-boundary/bypass-write-034 */
     db.prepare("SELECT 1 FROM event_source LIMIT 1").get() === undefined
   );
 }
@@ -75,22 +82,25 @@ export function refreshStateDigestAtSourceCut(db: DatabaseSync, sourceRevision: 
   return value;
 }
 export function transaction<A>(db: DatabaseSync, run: () => A): A {
+  /* @gate-identity check-bypass-write-boundary/bypass-write-028 */
   db.exec("BEGIN IMMEDIATE");
   try {
     const value = run();
+    /* @gate-identity check-bypass-write-boundary/bypass-write-029 */
     db.exec("COMMIT");
     return value;
   } catch (error) {
+    /* @gate-identity check-bypass-write-boundary/bypass-write-030 */
     db.exec("ROLLBACK");
     throw error;
   }
 }
 type SqlValue = string | number | bigint | Uint8Array | null;
 export function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlValue[]): number | bigint {
-  return db.prepare(sql).run(...values).changes;
+  return /* @gate-identity check-bypass-write-boundary/bypass-write-035 */ db.prepare(sql).run(...values).changes;
 }
 export function prepareQuery(db: DatabaseSync, sql: string) {
-  return db.prepare(sql);
+  return /* @gate-identity check-bypass-write-boundary/bypass-write-036 */ db.prepare(sql);
 }
 export function queryRow(
   db: DatabaseSync,

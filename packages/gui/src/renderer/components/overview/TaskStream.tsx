@@ -113,7 +113,9 @@ export function TaskStream({
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-center gap-2">
         <StreamTabs
-          options={BOARD_COLUMNS.filter((column) => column !== "unknown").map((column) => ({
+          options={BOARD_COLUMNS.filter((column) =>
+            /* @gate-identity check-gui-status-judgments/gui-status-007 */
+            column !== "unknown").map((column) => ({
             key: column,
             label: STATUS_META[column].label,
             count: summary.byStatus[column],

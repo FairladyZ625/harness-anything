@@ -96,49 +96,65 @@ test("structurally pure display branching does not need a baseline exemption", (
   });
 });
 
-test("line movement keeps identity while new same-shape judgment and content mutation fail", () => {
+test("source identity survives formatting, responsibility split, and file rename", () => {
   const register = [
     { id: "task.status", entity: "Task", field: "status", module: "packages/kernel/src/domain/task.ts", anchor: "taskStatuses", words: ["active", "blocked"] }
   ];
   withFixture({
-    "packages/gui/src/panel.ts": 'type TaskStatus = "active" | "blocked";\nexport const visible = (status: TaskStatus) => status === "active";\n'
+    "packages/gui/src/panel.ts": 'type TaskStatus = "active" | "blocked";\nexport const visible = (status: TaskStatus) => /* @gate-identity check-gui-status-judgments/gui-fixture */ status === "active";\n'
   }, (root) => {
     const original = scanGuiStatusJudgments(root, register);
     assert.equal(original.length, 1);
-    assert.match(checkGuiStatusJudgments(original, [])[0], /new GUI status judgment/u);
-    const baseline = [{ key: original[0].key, classification: "domain-judgment" }];
+    const baseline = [{
+      key: "gui-fixture",
+      classification: "domain-judgment",
+      kind: "comparison",
+      shape: "point-comparison",
+      words: ["active"]
+    }];
     assert.deepEqual(checkGuiStatusJudgments(original, baseline), []);
 
-    writeFileSync(path.join(root, "packages/gui/src/panel.ts"), '\ntype TaskStatus = "active" | "blocked";\nexport const visible = (status: TaskStatus) => status === "active";\n');
+    const movedPath = path.join(root, "packages/gui/src/visibility.ts");
+    writeFileSync(movedPath, [
+      'type TaskStatus = "active" | "blocked";',
+      "export function visible(status: TaskStatus) {",
+      "  return /* @gate-identity check-gui-status-judgments/gui-fixture */ status ===",
+      '    "active";',
+      "}"
+    ].join("\n"));
+    rmSync(path.join(root, "packages/gui/src/panel.ts"));
     const moved = scanGuiStatusJudgments(root, register);
     assert.equal(moved[0].key, original[0].key);
-    assert.equal(moved[0].line, original[0].line + 1);
     assert.deepEqual(checkGuiStatusJudgments(moved, baseline), []);
 
-    writeFileSync(path.join(root, "packages/gui/src/panel.ts"), 'type TaskStatus = "active" | "blocked";\nexport const visible = (status: TaskStatus) => status === "blocked";\n');
-    const mutated = scanGuiStatusJudgments(root, register);
-    const findings = checkGuiStatusJudgments(mutated, baseline);
-    assert.ok(findings.some((finding) => finding.includes("new GUI status judgment")), findings.join("\n"));
-    assert.ok(findings.some((finding) => finding.includes("stale baseline entry")), findings.join("\n"));
+    writeFileSync(movedPath, [
+      'type TaskStatus = "active" | "blocked";',
+      "export function visible(status: TaskStatus) {",
+      '  return /* @gate-identity check-gui-status-judgments/gui-fixture */ status === "blocked";',
+      "}"
+    ].join("\n"));
+    const semanticChange = checkGuiStatusJudgments(scanGuiStatusJudgments(root, register), baseline);
+    assert.ok(semanticChange.some((finding) => finding.includes("baseline freezes")), semanticChange.join("\n"));
   });
 });
 
-test("semantic scopes distinguish delete-and-add movement of identical sites without line coordinates", () => {
+test("duplicate source identities fail closed", () => {
   const register = [
     { id: "task.status", entity: "Task", field: "status", module: "packages/kernel/src/domain/task.ts", anchor: "taskStatuses", words: ["active", "blocked"] }
   ];
   withFixture({
-    "packages/gui/src/panel.ts": 'export function first(status: string) { return status === "active"; }\nexport function second(status: string) { return status === "active"; }\n'
+    "packages/gui/src/panel.ts": 'export function first(status: string) { return /* @gate-identity check-gui-status-judgments/gui-fixture */ status === "active"; }\nexport function second(status: string) { return /* @gate-identity check-gui-status-judgments/gui-fixture */ status === "active"; }\n'
   }, (root) => {
-    const original = scanGuiStatusJudgments(root, register);
-    assert.equal(original.length, 2);
-    assert.notEqual(original[0].key, original[1].key);
-    const baseline = original.map((site) => ({ key: site.key, classification: "domain-judgment" }));
-
-    writeFileSync(path.join(root, "packages/gui/src/panel.ts"), 'export function second(status: string) { return status === "active"; }\nexport function third(status: string) { return status === "active"; }\n');
-    const findings = checkGuiStatusJudgments(scanGuiStatusJudgments(root, register), baseline);
-    assert.equal(findings.filter((finding) => finding.includes("new GUI status judgment")).length, 1, findings.join("\n"));
-    assert.equal(findings.filter((finding) => finding.includes("stale baseline entry")).length, 1, findings.join("\n"));
+    const findings = checkGuiStatusJudgments(scanGuiStatusJudgments(root, register), [
+      {
+        key: "gui-fixture",
+        classification: "domain-judgment",
+        kind: "comparison",
+        shape: "point-comparison",
+        words: ["active"]
+      }
+    ]);
+    assert.ok(findings.some((finding) => finding.includes("duplicate source identity")), findings.join("\n"));
   });
 });
 

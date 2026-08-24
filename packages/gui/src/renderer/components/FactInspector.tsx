@@ -89,7 +89,9 @@ export function FactInspector({
     .map((relation) => normalizeDecisionId(relation.from));
   const coveredDecisionIds = coverageRows
     .filter(
-      (row) => row.status === "covered" && row.coveringFactRef === fullRef,
+      (row) =>
+        /* @gate-identity check-gui-status-judgments/gui-status-005 */
+        row.status === "covered" && row.coveringFactRef === fullRef,
     )
     .map((row) => normalizeDecisionId(row.decisionRef));
   const supportedDecisionIds = [

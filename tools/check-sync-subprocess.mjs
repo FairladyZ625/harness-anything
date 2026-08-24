@@ -5,17 +5,19 @@
  * Authority: dec_7F0604B4D53637BB6FF9875C8B CH1. Only APIs acquired
  * from node:child_process are in scope; synchronous filesystem APIs are not.
  */
-import { createHash } from "node:crypto";
 import { readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { syncSubprocessBaseline } from "./gate-allowlists/sync-subprocess-baseline.mjs";
+import { readSourceIdentity } from "./gate-allowlists/source-identity.mjs";
 
+const GATE_ID = "check-sync-subprocess";
 const SOURCE_ROOTS = ["packages/daemon/src", "packages/kernel/src"];
 const SOURCE_FILE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/u;
 const CHILD_PROCESS_MODULE = "node:child_process";
 const SYNC_APIS = new Set(["execFileSync", "execSync", "spawnSync"]);
+const SITE_KINDS = new Set(["call", "export", "import", "reference"]);
 
 export function scanSyncSubprocess(root = process.cwd()) {
   const files = SOURCE_ROOTS.flatMap((directory) => walk(path.join(root, directory)));
@@ -46,7 +48,7 @@ export function scanSyncSubprocess(root = process.cwd()) {
     const add = (node, kind, api) => {
       const point = source.getLineAndCharacterOfPosition(node.getStart(source));
       const content = node.getText(source).replaceAll("\r\n", "\n");
-      const fingerprint = createHash("sha256").update(content).digest("hex");
+      const identity = readSourceIdentity(node, source, GATE_ID);
       fileSites.push({
         path: relativePath,
         line: point.line + 1,
@@ -54,7 +56,7 @@ export function scanSyncSubprocess(root = process.cwd()) {
         kind,
         api,
         scope: semanticScope(node, source),
-        fingerprint,
+        identity,
         content
       });
     };
@@ -122,12 +124,8 @@ export function scanSyncSubprocess(root = process.cwd()) {
     };
     visitReferences(source);
 
-    const occurrences = new Map();
     for (const site of fileSites.sort((left, right) => left.line - right.line || left.column - right.column)) {
-      const identity = `${site.path}::${site.scope}::${site.kind}::${site.fingerprint}`;
-      const occurrence = (occurrences.get(identity) ?? 0) + 1;
-      occurrences.set(identity, occurrence);
-      sites.push({ ...site, key: `${identity}::${occurrence}` });
+      sites.push({ ...site, key: site.identity ?? `${site.path}:${site.line}:${site.column}` });
     }
   }
   return sites.sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column);
@@ -137,21 +135,28 @@ export function checkSyncSubprocess(sites, baseline = syncSubprocessBaseline) {
   const findings = [];
   const baselineByKey = new Map();
   for (const entry of baseline) {
-    if (!entry || typeof entry.key !== "string") {
+    if (!entry || typeof entry.key !== "string" || !SYNC_APIS.has(entry.api) || !SITE_KINDS.has(entry.kind)) {
       findings.push(`invalid baseline entry ${JSON.stringify(entry)}`);
       continue;
     }
     if (baselineByKey.has(entry.key)) findings.push(`duplicate baseline key ${entry.key}`);
     baselineByKey.set(entry.key, entry);
   }
-  const siteByKey = new Map(sites.map((site) => [site.key, site]));
+  const siteByKey = new Map();
   for (const site of sites) {
-    if (!baselineByKey.has(site.key)) {
+    if (site.identity !== null && siteByKey.has(site.key)) findings.push(`${site.key}: duplicate source identity`);
+    siteByKey.set(site.key, site);
+  }
+  for (const site of sites) {
+    const entry = baselineByKey.get(site.key);
+    if (entry && (entry.api !== site.api || entry.kind !== site.kind)) {
+      findings.push(`${site.key}: baseline freezes ${entry.kind}/${entry.api}, site is ${site.kind}/${site.api}`);
+    } else if (!entry) {
       findings.push(`${site.key}: new synchronous subprocess ${site.kind} (${site.api})`);
     }
   }
   for (const entry of baseline) {
-    if (typeof entry?.key === "string" && !siteByKey.has(entry.key)) {
+    if (typeof entry?.key === "string" && !sites.some((site) => site.identity === entry.key)) {
       findings.push(`${entry.key}: stale baseline entry; remove it rather than transferring the exemption`);
     }
   }
@@ -249,7 +254,7 @@ function walk(directory) { const files = []; let entries; try { entries = readdi
 
 function printBaseline(sites) {
   console.log("export const syncSubprocessBaseline = Object.freeze([");
-  for (const site of sites) console.log(`  { key: ${JSON.stringify(site.key)} }, // ${site.api} ${site.kind} @ ${site.scope}`);
+  for (const site of sites) console.log(`  { key: ${JSON.stringify(site.key)}, kind: ${JSON.stringify(site.kind)}, api: ${JSON.stringify(site.api)} }, // @ ${site.scope}`);
   console.log("]);");
 }
 

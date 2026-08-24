@@ -1,6 +1,8 @@
 import type { CanonicalStatus, RelationKind } from "../../model/types";
 
-export const STEP_FLOW: CanonicalStatus[] = ["planned", "active", "in_review", "done"];
+export const STEP_FLOW: CanonicalStatus[] =
+  /* @gate-identity check-gui-status-judgments/gui-status-016 */
+  ["planned", "active", "in_review", "done"];
 
 export const OUT_LABEL: Record<RelationKind, string> = {
   supports: "支撑",

@@ -24,7 +24,9 @@ const ENTITY_CHIPS: ReadonlyArray<{ color: string; label: string }> = [
   { color: "var(--color-axis-evidence)", label: "fact" },
 ];
 
-const FULFILLMENT_ORDER = [
+const FULFILLMENT_ORDER =
+  /* @gate-identity check-gui-status-judgments/gui-status-006 */
+  [
   "evidenced",
   "delivered",
   "standing-policy",

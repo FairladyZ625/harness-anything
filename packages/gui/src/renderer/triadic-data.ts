@@ -69,7 +69,9 @@ export function buildTriadicRendererData(input: {
   const relationRows = input.graph.edges;
   return {
     decisions: adaptDecisionRows(input.decisions.decisions, relationRows, input.graph.coverageRows),
-    facts: input.graph.facts.map((row) => ({ anchor: `${row.taskId}/${row.factId}`, taskId: row.taskId, category: row.memoryClass === "semantic" ? "lesson" : row.memoryClass === "procedural" ? "progress" : "finding", text: row.statement, at: row.observedAt, confidence: row.confidence, source: row.source, provenance: row.provenance, invalidated: row.liveness === "superseded_fact" })),
+    facts: input.graph.facts.map((row) => ({ anchor: `${row.taskId}/${row.factId}`, taskId: row.taskId, category: row.memoryClass === "semantic" ? "lesson" : row.memoryClass === "procedural" ? "progress" : "finding", text: row.statement, at: row.observedAt, confidence: row.confidence, source: row.source, provenance: row.provenance, invalidated:
+      /* @gate-identity check-gui-status-judgments/gui-status-055 */
+      row.liveness === "superseded_fact" })),
     relations: adaptRelationRows(relationRows),
     coverageRows: input.graph.coverageRows,
     factAnchors: input.graph.factAnchors,
@@ -94,7 +96,9 @@ const emptyDecisionList: DecisionListSuccess = {
 function adaptRelationRows(rows: ReadonlyArray<RelationGraphEdgeRow>): RelationEdge[] {
   const edges: RelationEdge[] = [];
   for (const row of rows) {
-    if (row.state !== "active") continue;
+    if (
+      /* @gate-identity check-gui-status-judgments/gui-status-056 */
+      row.state !== "active") continue;
     if (!isKernelRelationKind(row.relationType)) continue;
     edges.push({
       relationId: row.relationId,
@@ -121,7 +125,9 @@ function adaptDecisionRows(
 ): DecisionRow[] {
   const relationsBySource = new Map<string, string[]>();
   for (const row of relationRows) {
-    if (row.state !== "active") continue;
+    if (
+      /* @gate-identity check-gui-status-judgments/gui-status-057 */
+      row.state !== "active") continue;
     if (!row.targetRef.startsWith("fact/")) continue;
     const values = relationsBySource.get(row.sourceRef) ?? [];
     values.push(row.targetRef);

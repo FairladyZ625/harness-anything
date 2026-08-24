@@ -282,7 +282,9 @@ export function partitionFactsByAnomaly(
     byAnomaly.set(anomaly, arr);
   }
 
-  const order: FactAnomaly[] = ["contradictory", "orphan", "low-confidence", "superseded", "normal"];
+  const order: FactAnomaly[] =
+    /* @gate-identity check-gui-status-judgments/gui-status-022 */
+    ["contradictory", "orphan", "low-confidence", "superseded", "normal"];
   const zones: TerritoryZone[] = [];
   for (const anomaly of order) {
     const group = byAnomaly.get(anomaly);

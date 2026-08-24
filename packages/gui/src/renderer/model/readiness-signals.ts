@@ -72,7 +72,9 @@ function coverageSignal(
   if (loadBearingCount === 0) return { id: "coverage", label: "覆盖度", color: "na", summary: "N/A · 无 load-bearing claim。" };
   if (graphState !== "ready") return { id: "coverage", label: "覆盖度", color: "unknown", summary: `relation graph ${graphState};缺字段不作绿灯。` };
   if (missingRows.length) return { id: "coverage", label: "覆盖度", color: "unknown", summary: `coverageRows 缺 claim:${missingRows.map((claim) => claim.id).join(", ")};不从 option evidence 猜。` };
-  const uncovered = rows.filter((row) => row.status === "uncovered");
+  const uncovered = rows.filter((row) =>
+    /* @gate-identity check-gui-status-judgments/gui-status-031 */
+    row.status === "uncovered");
   const revisions = basisSummary(rows);
   return uncovered.length
     ? { id: "coverage", label: "覆盖度", color: "red", summary: `canonical coverageRows:${loadBearingCount - uncovered.length}/${loadBearingCount};未覆盖 ${uncovered.map((row) => row.claimRef.split("/").at(-1)).join(", ")} · ${revisions}。` }

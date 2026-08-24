@@ -296,7 +296,11 @@ export interface EventEntry {
 }
 
 export const isExternal = (t: TaskRow) => t.origin === "external" || (t.origin === undefined && t.engine !== "local");
-export const isTerminal = (s: SnapshotStatus) => s === "done" || s === "cancelled";
+export const isTerminal = (s: SnapshotStatus) =>
+  /* @gate-identity check-gui-status-judgments/gui-status-039 */
+  s === "done" ||
+  /* @gate-identity check-gui-status-judgments/gui-status-040 */
+  s === "cancelled";
 
 export const BOARD_COLUMNS: SnapshotStatus[] = [
   "planned",

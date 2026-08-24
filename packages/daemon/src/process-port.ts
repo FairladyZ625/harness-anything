@@ -1,4 +1,6 @@
-import { execFile, execFileSync, spawn } from "node:child_process";
+import { execFile,
+  /* @gate-identity check-sync-subprocess/sync-subprocess-008 */
+  execFileSync, spawn } from "node:child_process";
 import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
 export const detachedProcessOptions = Object.freeze({ detached: true, stdio: "ignore" as const, windowsHide: true });
 export function startDetachedProcess(command: string, args: readonly string[], env: NodeJS.ProcessEnv, outputPath?: string): void { const outputFd = outputPath ? openDaemonOutputFd(outputPath) : null;
@@ -18,7 +20,23 @@ export function terminateProcess(pid: number): void { process.kill(pid, "SIGTERM
 // signal handlers; yielding one macrotask turn between bounded segments lets a
 // pending SIGTERM reach its handler at the next safe point.
 export function yieldToEventLoop(): Promise<void> { return new Promise((resolve) => setImmediate(resolve)); }
-export function runProcessText(command: string, args: readonly string[], cwd?: string, env?: NodeJS.ProcessEnv): string { return execFileSync(command, [...args], { cwd, ...(env ? { env } : {}), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
+export function runProcessText(
+  command: string,
+  args: readonly string[],
+  cwd?: string,
+  env?: NodeJS.ProcessEnv
+): string {
+  return (
+    /* @gate-identity check-sync-subprocess/sync-subprocess-009 */
+    execFileSync(command, [...args], {
+      cwd,
+      ...(env ? { env } : {}),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true
+    })
+  );
+}
 export function runProcessTextAsync(command: string, args: readonly string[], cwd?: string, env?: NodeJS.ProcessEnv, input?: string, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     // execFile's own AbortSignal handling fires the callback as soon as the signal aborts,

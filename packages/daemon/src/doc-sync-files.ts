@@ -1,4 +1,6 @@
-import { execFileSync } from "node:child_process";
+import {
+  /* @gate-identity check-sync-subprocess/sync-subprocess-003 */
+  execFileSync } from "node:child_process";
 import { lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
@@ -80,6 +82,7 @@ export function artifactSource(
 
 export function gitTracked(rootDir: string, target: string): boolean {
   try {
+    /* @gate-identity check-sync-subprocess/sync-subprocess-004 */
     execFileSync("git", ["-C", rootDir, "ls-files", "--error-unmatch", "--", target], {
       stdio: "ignore",
       windowsHide: true,
@@ -92,6 +95,7 @@ export function gitTracked(rootDir: string, target: string): boolean {
 
 export function gitModified(rootDir: string, target: string): boolean {
   try {
+    /* @gate-identity check-sync-subprocess/sync-subprocess-005 */
     execFileSync("git", ["-C", rootDir, "diff", "--quiet", "HEAD", "--", target], {
       stdio: "ignore",
       windowsHide: true,

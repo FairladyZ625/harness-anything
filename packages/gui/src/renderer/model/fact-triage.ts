@@ -74,6 +74,7 @@ export function computeFactTriageSignals(
     coverageRows
         .filter(
           (row) =>
+            /* @gate-identity check-gui-status-judgments/gui-status-030 */
             row.status === "covered" && row.coveringFactRef === factRef,
         )
         .map((row) => decisionIdFromRef(row.decisionRef))

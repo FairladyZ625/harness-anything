@@ -1,4 +1,6 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn,
+  /* @gate-identity check-sync-subprocess/sync-subprocess-010 */
+  spawnSync } from "node:child_process";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime-instances.ts";
@@ -130,6 +132,7 @@ export function observeResumeProcess(
 export function terminateRuntimeProcess(child: ReturnType<typeof spawn>): void {
   if (child.killed || child.pid === undefined) return;
   if (process.platform === "win32") {
+    /* @gate-identity check-sync-subprocess/sync-subprocess-011 */
     spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
       windowsHide: true,
     });

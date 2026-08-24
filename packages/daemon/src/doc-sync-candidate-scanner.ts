@@ -1,4 +1,6 @@
-import { execFileSync } from "node:child_process";
+import {
+  /* @gate-identity check-sync-subprocess/sync-subprocess-006 */
+  execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -406,9 +408,12 @@ function conflictLogicalPaths(authoredRoot: string): string[] {
   return found;
 }
 function gitNames(repoRoot: string, args: readonly string[]): string[] {
-  return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8", windowsHide: true })
-    .split("\0")
-    .filter(Boolean);
+  return (
+    /* @gate-identity check-sync-subprocess/sync-subprocess-007 */
+    execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8", windowsHide: true })
+      .split("\0")
+      .filter(Boolean)
+  );
 }
 function relative(root: string, target: string): string {
   return path.relative(root, target).split(path.sep).join("/");

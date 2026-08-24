@@ -48,8 +48,10 @@ export function writeProjectionDatabase(
   taskFieldExtensions: ReadonlyArray<TaskFieldExtensionProjection>,
   relationProjection: { readonly edges: readonly RelationGraphEdgeRow[]; readonly coverageRows: readonly RelationCoverageRow[]; readonly factAnchors: readonly FactAnchorRow[]; readonly facts: readonly RelationFactRow[]; readonly decisions: readonly ColdDecisionProjectionRow[]; readonly truthComplete: boolean }
 ): void {
+  /* @gate-identity check-bypass-write-boundary/bypass-write-040 */
   mkdirSync(path.dirname(projectionPath), { recursive: true });
   const tempPath = `${projectionPath}.${process.pid}.${Date.now()}.tmp`;
+  /* @gate-identity check-bypass-write-boundary/bypass-write-041 */
   rmSync(tempPath, { force: true });
   runSqlite(tempPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -97,6 +99,7 @@ export function writeProjectionDatabase(
     yield* writeDecisionProjection(sql, relationProjection.decisions);
     yield* writeRelationProjection(sql, relationProjection);
   }));
+  /* @gate-identity check-bypass-write-boundary/bypass-write-042 */
   renameSync(tempPath, projectionPath);
 }
 
