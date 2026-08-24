@@ -1,113 +1,773 @@
 import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
 import { isFactEvent, isMigrationImportEvent, parseCanonicalEvent } from "../domain/doc-sync.contract.ts";
-import { deriveRelationId, parseEntityRef, validateRelationRecordsForHost, type EntityRelationRecord } from "../domain/index.ts";
+import {
+  deriveRelationId,
+  parseEntityRef,
+  validateRelationRecordsForHost,
+  type EntityRelationRecord,
+} from "../domain/index.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { parseFlowObject, parseObjectList, parseStringArray, readBlockScalar, unquote } from "../markdown/flow-frontmatter.ts";
+import {
+  parseFlowObject,
+  parseObjectList,
+  parseStringArray,
+  readBlockScalar,
+  unquote,
+} from "../markdown/flow-frontmatter.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { parseRelationFlowRecords } from "./relation-flow-frontmatter.ts";
-import type { DecisionAnchorTruth, EventBackedRelationTruth, FactAnchorRow, RelationCoverageRow, RelationFactRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
+import type {
+  DecisionAnchorTruth,
+  EventBackedRelationTruth,
+  FactAnchorRow,
+  RelationCoverageRow,
+  RelationFactRow,
+  RelationGraphEdgeRow,
+} from "./relation-graph-projection.ts";
 import { sourcePath } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 import { coverageOf } from "../domain/decision-coverage.ts";
 import { factLiveness } from "../domain/fact-liveness.ts";
 
-export interface ColdDecisionProjectionRow { readonly decisionId: string; readonly legacyId?: string; readonly state: string; readonly title: string; readonly question: string; readonly chosen: readonly string[]; readonly rejected: readonly { readonly text: string; readonly whyNot: string }[]; readonly chosenRecords: readonly { readonly id: string; readonly text: string; readonly rationale?: string }[]; readonly rejectedRecords: readonly { readonly id: string; readonly text: string; readonly whyNot: string }[]; readonly claimRecords: readonly { readonly id: string; readonly text: string; readonly loadBearing: boolean; readonly fulfillment: RelationCoverageRow["fulfillment"] }[]; readonly body: string; readonly path: string; readonly moduleKeys: readonly string[]; readonly productLineKeys: readonly string[]; readonly riskTier?: string; readonly urgency?: string; readonly vertical?: string; readonly preset?: string; readonly decisionClass?: string; readonly proposedAt?: string; readonly provenance?: readonly Record<string, unknown>[]; readonly decidedAt?: string }
-export interface ColdRebuildIssue { readonly entityType: "decision" | "fact" | "relation"; readonly migratedFrom: string; readonly sourcePath: string; readonly reason: string }
-export interface ColdRebuildSource { readonly decisions: readonly ColdDecisionProjectionRow[]; readonly truth: EventBackedRelationTruth; readonly facts: readonly RelationFactRow[]; readonly tasks: readonly { readonly ref: string; readonly status: string }[]; readonly knownFactRefs: ReadonlySet<string>; readonly issues: readonly ColdRebuildIssue[]; readonly complete: boolean }
-interface DecisionSource { readonly decisionId: string; readonly decisionRef: string; readonly filePath: string; readonly frontmatter: string; readonly visible: boolean }
-interface RelationEntry { readonly hostRef: string; readonly ownerRef: string; readonly record: EntityRelationRecord; readonly sourcePath: string; readonly recordIndex: number }
-interface EventFactSource { readonly row: RelationFactRow; readonly sourcePath: string }
-interface AuthoredEventRead { readonly rows: readonly EventFactSource[]; readonly relations: readonly RelationEntry[]; readonly issues: readonly ColdRebuildIssue[] }
+export interface ColdDecisionProjectionRow {
+  readonly decisionId: string;
+  readonly legacyId?: string;
+  readonly state: string;
+  readonly title: string;
+  readonly question: string;
+  readonly chosen: readonly string[];
+  readonly rejected: readonly { readonly text: string; readonly whyNot: string }[];
+  readonly chosenRecords: readonly { readonly id: string; readonly text: string; readonly rationale?: string }[];
+  readonly rejectedRecords: readonly { readonly id: string; readonly text: string; readonly whyNot: string }[];
+  readonly claimRecords: readonly {
+    readonly id: string;
+    readonly text: string;
+    readonly loadBearing: boolean;
+    readonly fulfillment: RelationCoverageRow["fulfillment"];
+  }[];
+  readonly body: string;
+  readonly path: string;
+  readonly moduleKeys: readonly string[];
+  readonly productLineKeys: readonly string[];
+  readonly riskTier?: string;
+  readonly urgency?: string;
+  readonly vertical?: string;
+  readonly preset?: string;
+  readonly decisionClass?: string;
+  readonly proposedAt?: string;
+  readonly provenance?: readonly Record<string, unknown>[];
+  readonly decidedAt?: string;
+}
+export interface ColdRebuildIssue {
+  readonly entityType: "decision" | "fact" | "relation";
+  readonly migratedFrom: string;
+  readonly sourcePath: string;
+  readonly reason: string;
+}
+export interface ColdRebuildSource {
+  readonly decisions: readonly ColdDecisionProjectionRow[];
+  readonly truth: EventBackedRelationTruth;
+  readonly facts: readonly RelationFactRow[];
+  readonly tasks: readonly { readonly ref: string; readonly status: string }[];
+  readonly knownFactRefs: ReadonlySet<string>;
+  readonly issues: readonly ColdRebuildIssue[];
+  readonly complete: boolean;
+}
+interface DecisionSource {
+  readonly decisionId: string;
+  readonly decisionRef: string;
+  readonly filePath: string;
+  readonly frontmatter: string;
+  readonly visible: boolean;
+}
+interface RelationEntry {
+  readonly hostRef: string;
+  readonly ownerRef: string;
+  readonly record: EntityRelationRecord;
+  readonly sourcePath: string;
+  readonly recordIndex: number;
+}
+interface EventFactSource {
+  readonly row: RelationFactRow;
+  readonly sourcePath: string;
+}
+interface AuthoredEventRead {
+  readonly rows: readonly EventFactSource[];
+  readonly relations: readonly RelationEntry[];
+  readonly issues: readonly ColdRebuildIssue[];
+}
 
 export function readColdRebuildSource(rootInput: HarnessLayoutInput): ColdRebuildSource {
-  const layout = resolveHarnessLayout(rootInput), taskDirs = listDirs(layout.tasksRoot), taskIds = new Set(taskDirs.map(readTaskId));
-  const decisionRead = readDecisions(layout.rootDir, layout.decisionsRoot), eventRead = readAuthoredEvents(layout.rootDir, layout.authoredRoot), eventFacts = eventRead.rows, factRows = new Map(eventFacts.map(({ row }) => [row.ref, row])), knownFactRefs = new Set(factRows.keys()), factAnchors = new Map<string, FactAnchorRow>();
-  const entries: RelationEntry[] = [], decisionAnchors: DecisionAnchorTruth[] = [];
-  const issues: ColdRebuildIssue[] = [...decisionRead.issues, ...eventRead.issues]; let complete = decisionRead.complete && eventRead.issues.length === 0;
+  const layout = resolveHarnessLayout(rootInput),
+    taskDirs = listDirs(layout.tasksRoot),
+    taskIds = new Set(taskDirs.map(readTaskId));
+  const decisionRead = readDecisions(layout.rootDir, layout.decisionsRoot),
+    eventRead = readAuthoredEvents(layout.rootDir, layout.authoredRoot),
+    eventFacts = eventRead.rows,
+    factRows = new Map(eventFacts.map(({ row }) => [row.ref, row])),
+    knownFactRefs = new Set(factRows.keys()),
+    factAnchors = new Map<string, FactAnchorRow>();
+  const entries: RelationEntry[] = [],
+    decisionAnchors: DecisionAnchorTruth[] = [];
+  const issues: ColdRebuildIssue[] = [...decisionRead.issues, ...eventRead.issues];
+  let complete = decisionRead.complete && eventRead.issues.length === 0;
   for (const taskDir of taskDirs) {
-    const taskId = readTaskId(taskDir), indexPath = path.join(taskDir, "INDEX.md"), indexBody = readTextFileIfPresent(indexPath), indexFrontmatter = indexBody === null ? null : readFrontmatter(indexBody), factsPath = layout.taskDocumentPath(taskId, "facts.md"), body = readTextFileIfPresent(factsPath), hosted = [...(indexFrontmatter ? frontmatterRelations(indexFrontmatter).map((record) => ({ record, from: indexPath })) : []), ...(body === null ? [] : parseRelationFlowRecords(body).map((record) => ({ record, from: factsPath })))];
-    for (const [recordIndex, { record, from }] of hosted.entries()) entries.push(relationEntry(record, `task/${taskId}`, sourcePath(layout.rootDir, from), recordIndex));
+    const taskId = readTaskId(taskDir),
+      indexPath = path.join(taskDir, "INDEX.md"),
+      indexBody = readTextFileIfPresent(indexPath),
+      indexFrontmatter = indexBody === null ? null : readFrontmatter(indexBody),
+      factsPath = layout.taskDocumentPath(taskId, "facts.md"),
+      body = readTextFileIfPresent(factsPath),
+      hosted = [
+        ...(indexFrontmatter
+          ? frontmatterRelations(indexFrontmatter).map((record) => ({ record, from: indexPath }))
+          : []),
+        ...(body === null ? [] : parseRelationFlowRecords(body).map((record) => ({ record, from: factsPath }))),
+      ];
+    for (const [recordIndex, { record, from }] of hosted.entries())
+      entries.push(relationEntry(record, `task/${taskId}`, sourcePath(layout.rootDir, from), recordIndex));
     if (body === null) continue;
-    const parsed = parseLegacyFacts(taskId, sourcePath(layout.rootDir, factsPath), body); complete &&= parsed.complete; issues.push(...parsed.issues);
+    const parsed = parseLegacyFacts(taskId, sourcePath(layout.rootDir, factsPath), body);
+    complete &&= parsed.complete;
+    issues.push(...parsed.issues);
     for (const row of parsed.rows) factRows.set(row.ref, row);
     for (const ref of parsed.knownFactRefs) knownFactRefs.add(ref);
     for (const row of parsed.anchors) factAnchors.set(row.factRef, row);
-    if (body.includes("Managed by `ha fact record`") && [...body.matchAll(/^### (F-[0-9A-HJKMNP-TV-Z]{8})$/gmu)].some((match) => !factRows.has(`fact/${taskId}/${match[1]}`))) complete = false;
+    if (
+      body.includes("Managed by `ha fact record`") &&
+      [...body.matchAll(/^### (F-[0-9A-HJKMNP-TV-Z]{8})$/gmu)].some(
+        (match) => !factRows.has(`fact/${taskId}/${match[1]}`),
+      )
+    )
+      complete = false;
   }
-  for (const { row, sourcePath: eventPath } of eventFacts) factAnchors.set(row.ref, { factRef: row.ref, taskId: row.taskId, factId: row.factId, sourcePath: eventPath });
+  for (const { row, sourcePath: eventPath } of eventFacts)
+    factAnchors.set(row.ref, { factRef: row.ref, taskId: row.taskId, factId: row.factId, sourcePath: eventPath });
   for (const decision of decisionRead.sources.filter(({ visible }) => visible)) {
-    const anchorRefs = [decision.decisionRef, ...decisionAnchorsFrom(decision.frontmatter).map((anchor) => `${decision.decisionRef}/${anchor}`)];
-    decisionAnchors.push({ decisionRef: decision.decisionRef, decisionId: decision.decisionId, anchorRefs, sourcePath: sourcePath(layout.rootDir, decision.filePath) });
-    for (const [recordIndex, record] of frontmatterRelations(decision.frontmatter).entries()) entries.push(relationEntry(record, decision.decisionRef, sourcePath(layout.rootDir, decision.filePath), recordIndex));
+    const anchorRefs = [
+      decision.decisionRef,
+      ...decisionAnchorsFrom(decision.frontmatter).map((anchor) => `${decision.decisionRef}/${anchor}`),
+    ];
+    decisionAnchors.push({
+      decisionRef: decision.decisionRef,
+      decisionId: decision.decisionId,
+      anchorRefs,
+      sourcePath: sourcePath(layout.rootDir, decision.filePath),
+    });
+    for (const [recordIndex, record] of frontmatterRelations(decision.frontmatter).entries())
+      entries.push(
+        relationEntry(record, decision.decisionRef, sourcePath(layout.rootDir, decision.filePath), recordIndex),
+      );
   }
-  const eventRelationIds = new Set(eventRead.relations.map(({ record }) => record.relation_id)), materializedEntries = [...entries.filter(({ record }) => !eventRelationIds.has(record.relation_id)), ...eventRead.relations];
-  const knownDecisions = new Set(decisionAnchors.flatMap(({ anchorRefs }) => anchorRefs)), relationRead = relationEdges(materializedEntries, taskIds, knownDecisions, knownFactRefs); complete &&= relationRead.issues.length === 0; issues.push(...relationRead.issues);
-  const facts = [...factRows.values()].map((row) => ({ ...row, liveness: factLiveness(row, relationRead.rows) })).sort((a, b) => a.ref.localeCompare(b.ref));
-  const tasks = taskDirs.map((taskDir) => { const body = readTextFileIfPresent(path.join(taskDir, "INDEX.md")), frontmatter = body === null ? null : readFrontmatter(body); return { ref: `task/${readTaskId(taskDir)}`, status: frontmatter ? readScalar(frontmatter, "  status") || readScalar(frontmatter, "status") || "unknown" : "unknown" }; });
-  return { decisions: decisionRead.rows, truth: { factAnchors: [...factAnchors.values()].sort(byFactRef), decisionAnchors, edges: relationRead.rows, coverageRows: [] }, facts, tasks, knownFactRefs, issues: issues.sort((a, b) => `${a.sourcePath}\0${a.migratedFrom}`.localeCompare(`${b.sourcePath}\0${b.migratedFrom}`)), complete };
+  const eventRelationIds = new Set(eventRead.relations.map(({ record }) => record.relation_id)),
+    materializedEntries = [
+      ...entries.filter(({ record }) => !eventRelationIds.has(record.relation_id)),
+      ...eventRead.relations,
+    ];
+  const knownDecisions = new Set(decisionAnchors.flatMap(({ anchorRefs }) => anchorRefs)),
+    relationRead = relationEdges(materializedEntries, taskIds, knownDecisions, knownFactRefs);
+  complete &&= relationRead.issues.length === 0;
+  issues.push(...relationRead.issues);
+  const facts = [...factRows.values()]
+    .map((row) => ({ ...row, liveness: factLiveness(row, relationRead.rows) }))
+    .sort((a, b) => a.ref.localeCompare(b.ref));
+  const tasks = taskDirs.map((taskDir) => {
+    const body = readTextFileIfPresent(path.join(taskDir, "INDEX.md")),
+      frontmatter = body === null ? null : readFrontmatter(body);
+    return {
+      ref: `task/${readTaskId(taskDir)}`,
+      status: frontmatter
+        ? readScalar(frontmatter, "  status") || readScalar(frontmatter, "status") || "unknown"
+        : "unknown",
+    };
+  });
+  return {
+    decisions: decisionRead.rows,
+    truth: {
+      factAnchors: [...factAnchors.values()].sort(byFactRef),
+      decisionAnchors,
+      edges: relationRead.rows,
+      coverageRows: [],
+    },
+    facts,
+    tasks,
+    knownFactRefs,
+    issues: issues.sort((a, b) =>
+      `${a.sourcePath}\0${a.migratedFrom}`.localeCompare(`${b.sourcePath}\0${b.migratedFrom}`),
+    ),
+    complete,
+  };
 }
 
-export function buildColdCoverage(source: ColdRebuildSource, edgesInput: readonly RelationGraphEdgeRow[]): readonly RelationCoverageRow[] {
-  return [...coverageOf(source.decisions.map((decision) => { const ref = `decision/${decision.decisionId}`; return { ref, state: decision.state, decisionClass: decision.decisionClass === "standing-policy" ? "standing_policy" : decision.decisionClass ?? "ordinary", appliesTo: { modules: decision.moduleKeys, productLines: decision.productLineKeys }, claims: decision.claimRecords.map((claim) => ({ ref: `${ref}/${claim.id}`, loadBearing: claim.loadBearing, fulfillment: claim.fulfillment })) }; }), source.facts, source.tasks, edgesInput)].sort((a, b) => a.claimRef.localeCompare(b.claimRef));
+export function buildColdCoverage(
+  source: ColdRebuildSource,
+  edgesInput: readonly RelationGraphEdgeRow[],
+): readonly RelationCoverageRow[] {
+  return [
+    ...coverageOf(
+      source.decisions.map((decision) => {
+        const ref = `decision/${decision.decisionId}`;
+        return {
+          ref,
+          state: decision.state,
+          decisionClass:
+            decision.decisionClass === "standing-policy" ? "standing_policy" : (decision.decisionClass ?? "ordinary"),
+          appliesTo: { modules: decision.moduleKeys, productLines: decision.productLineKeys },
+          claims: decision.claimRecords.map((claim) => ({
+            ref: `${ref}/${claim.id}`,
+            loadBearing: claim.loadBearing,
+            fulfillment: claim.fulfillment,
+          })),
+        };
+      }),
+      source.facts,
+      source.tasks,
+      edgesInput,
+    ),
+  ].sort((a, b) => a.claimRef.localeCompare(b.claimRef));
 }
 
-function readDecisions(rootDir: string, decisionsRoot: string): { readonly sources: readonly DecisionSource[]; readonly rows: readonly ColdDecisionProjectionRow[]; readonly issues: readonly ColdRebuildIssue[]; readonly complete: boolean } {
-  const drafts: Array<Omit<DecisionSource, "visible"> & { readonly watermark: string; readonly typedRevision: string }> = [], rows: ColdDecisionProjectionRow[] = [], issues: ColdRebuildIssue[] = [], watermarks = new Map<string, number>(); let complete = true;
-  for (const filePath of listColdRebuildFiles(decisionsRoot).filter((candidate) => path.basename(candidate) === "decision.md")) {
-    const body = readTextFileIfPresent(filePath), frontmatter = body === null ? null : readFrontmatter(body);
-    const portable = sourcePath(rootDir, filePath), fallback = path.basename(path.dirname(filePath));
-    if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") { complete = false; issues.push({ entityType: "decision", migratedFrom: fallback, sourcePath: portable, reason: "decision.md must contain decision-package/v1 frontmatter" }); continue; }
-    const decisionId = readScalar(frontmatter, "decision_id"); if (!decisionId) { complete = false; issues.push({ entityType: "decision", migratedFrom: fallback, sourcePath: portable, reason: "decision_id is missing" }); continue; }
-    const watermark = readScalar(frontmatter, "_coordinatorWatermark"), typedRevision = readScalar(frontmatter, "workspaceRevision"); if (watermark) watermarks.set(watermark, (watermarks.get(watermark) ?? 0) + 1);
-    drafts.push({ decisionId, decisionRef: `decision/${decisionId}`, filePath, frontmatter, watermark, typedRevision }); rows.push(decisionRow(rootDir, filePath, body!, frontmatter, decisionId));
+function readDecisions(
+  rootDir: string,
+  decisionsRoot: string,
+): {
+  readonly sources: readonly DecisionSource[];
+  readonly rows: readonly ColdDecisionProjectionRow[];
+  readonly issues: readonly ColdRebuildIssue[];
+  readonly complete: boolean;
+} {
+  const drafts: Array<
+      Omit<DecisionSource, "visible"> & { readonly watermark: string; readonly typedRevision: string }
+    > = [],
+    rows: ColdDecisionProjectionRow[] = [],
+    issues: ColdRebuildIssue[] = [],
+    watermarks = new Map<string, number>();
+  let complete = true;
+  for (const filePath of listColdRebuildFiles(decisionsRoot).filter(
+    (candidate) => path.basename(candidate) === "decision.md",
+  )) {
+    const body = readTextFileIfPresent(filePath),
+      frontmatter = body === null ? null : readFrontmatter(body);
+    const portable = sourcePath(rootDir, filePath),
+      fallback = path.basename(path.dirname(filePath));
+    if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") {
+      complete = false;
+      issues.push({
+        entityType: "decision",
+        migratedFrom: fallback,
+        sourcePath: portable,
+        reason: "decision.md must contain decision-package/v1 frontmatter",
+      });
+      continue;
+    }
+    const decisionId = readScalar(frontmatter, "decision_id");
+    if (!decisionId) {
+      complete = false;
+      issues.push({
+        entityType: "decision",
+        migratedFrom: fallback,
+        sourcePath: portable,
+        reason: "decision_id is missing",
+      });
+      continue;
+    }
+    const watermark = readScalar(frontmatter, "_coordinatorWatermark"),
+      typedRevision = readScalar(frontmatter, "workspaceRevision");
+    if (watermark) watermarks.set(watermark, (watermarks.get(watermark) ?? 0) + 1);
+    drafts.push({ decisionId, decisionRef: `decision/${decisionId}`, filePath, frontmatter, watermark, typedRevision });
+    rows.push(decisionRow(rootDir, filePath, body!, frontmatter, decisionId));
   }
-  const sources = drafts.map((row) => ({ decisionId: row.decisionId, decisionRef: row.decisionRef, filePath: row.filePath, frontmatter: row.frontmatter, visible: row.watermark ? watermarks.get(row.watermark) === 1 : Boolean(row.typedRevision) })).sort((a, b) => a.decisionRef.localeCompare(b.decisionRef));
-  return { sources, rows: rows.sort((a, b) => coldRebuildLegacyNumber(a.legacyId) - coldRebuildLegacyNumber(b.legacyId) || a.decisionId.localeCompare(b.decisionId)), issues, complete };
+  const sources = drafts
+    .map((row) => ({
+      decisionId: row.decisionId,
+      decisionRef: row.decisionRef,
+      filePath: row.filePath,
+      frontmatter: row.frontmatter,
+      visible: row.watermark ? watermarks.get(row.watermark) === 1 : Boolean(row.typedRevision),
+    }))
+    .sort((a, b) => a.decisionRef.localeCompare(b.decisionRef));
+  return {
+    sources,
+    rows: rows.sort(
+      (a, b) =>
+        coldRebuildLegacyNumber(a.legacyId) - coldRebuildLegacyNumber(b.legacyId) ||
+        a.decisionId.localeCompare(b.decisionId),
+    ),
+    issues,
+    complete,
+  };
 }
-function decisionRow(rootDir: string, filePath: string, body: string, frontmatter: string, decisionId: string): ColdDecisionProjectionRow {
-  const applies = decisionAppliesTo(frontmatter), chosen = objectList(frontmatter, "chosen"), rejected = objectList(frontmatter, "rejected"), claimRows = objectList(frontmatter, "claims"), provenance = objectList(frontmatter, "provenance"), legacy = /(?:^|_)E(\d+)(?:_|$)/u.exec(decisionId)?.[1], decisionClass = readScalar(frontmatter, "decisionClass").replace("_", "-");
-  const chosenRecords = chosen.flatMap((entry) => typeof entry.id === "string" && typeof entry.text === "string" ? [{ id: entry.id, text: entry.text, ...(typeof entry.rationale === "string" ? { rationale: entry.rationale } : {}) }] : []), rejectedRecords = rejected.flatMap((entry) => typeof entry.id === "string" && typeof entry.text === "string" ? [{ id: entry.id, text: entry.text, whyNot: String(entry.why_not ?? entry.whyNot ?? "") }] : []), claimRecords = claimRows.flatMap((entry) => typeof entry.id === "string" && typeof entry.text === "string" ? [{ id: entry.id, text: entry.text, loadBearing: entry.load_bearing !== false && entry.loadBearing !== false, fulfillment: fulfillment(entry.fulfillment) }] : []);
-  return { decisionId, ...(legacy ? { legacyId: `E${Number(legacy)}` } : {}), state: readScalar(frontmatter, "state") || "unknown", title: unquote(readScalar(frontmatter, "title")) || decisionId, question: unquote(readScalar(frontmatter, "question")), chosen: chosenRecords.map(({ text }) => text), rejected: rejectedRecords.map(({ text, whyNot }) => ({ text, whyNot })), chosenRecords, rejectedRecords, claimRecords, body: documentProse(body), path: sourcePath(rootDir, filePath), moduleKeys: applies.modules, productLineKeys: applies.productLines, ...optional("riskTier", readScalar(frontmatter, "riskTier")), ...optional("urgency", readScalar(frontmatter, "urgency")), ...optional("vertical", unquote(readScalar(frontmatter, "vertical"))), ...optional("preset", unquote(readScalar(frontmatter, "preset"))), ...optional("decisionClass", decisionClass), ...optional("proposedAt", unquote(readScalar(frontmatter, "proposedAt"))), ...(provenance.length ? { provenance } : {}), ...optional("decidedAt", unquote(readScalar(frontmatter, "decidedAt"))) };
+function decisionRow(
+  rootDir: string,
+  filePath: string,
+  body: string,
+  frontmatter: string,
+  decisionId: string,
+): ColdDecisionProjectionRow {
+  const applies = decisionAppliesTo(frontmatter),
+    chosen = objectList(frontmatter, "chosen"),
+    rejected = objectList(frontmatter, "rejected"),
+    claimRows = objectList(frontmatter, "claims"),
+    provenance = objectList(frontmatter, "provenance"),
+    legacy = /(?:^|_)E(\d+)(?:_|$)/u.exec(decisionId)?.[1],
+    decisionClass = readScalar(frontmatter, "decisionClass").replace("_", "-");
+  const chosenRecords = chosen.flatMap((entry) =>
+      typeof entry.id === "string" && typeof entry.text === "string"
+        ? [
+            {
+              id: entry.id,
+              text: entry.text,
+              ...(typeof entry.rationale === "string" ? { rationale: entry.rationale } : {}),
+            },
+          ]
+        : [],
+    ),
+    rejectedRecords = rejected.flatMap((entry) =>
+      typeof entry.id === "string" && typeof entry.text === "string"
+        ? [{ id: entry.id, text: entry.text, whyNot: String(entry.why_not ?? entry.whyNot ?? "") }]
+        : [],
+    ),
+    claimRecords = claimRows.flatMap((entry) =>
+      typeof entry.id === "string" && typeof entry.text === "string"
+        ? [
+            {
+              id: entry.id,
+              text: entry.text,
+              loadBearing: entry.load_bearing !== false && entry.loadBearing !== false,
+              fulfillment: fulfillment(entry.fulfillment),
+            },
+          ]
+        : [],
+    );
+  return {
+    decisionId,
+    ...(legacy ? { legacyId: `E${Number(legacy)}` } : {}),
+    state: readScalar(frontmatter, "state") || "unknown",
+    title: unquote(readScalar(frontmatter, "title")) || decisionId,
+    question: unquote(readScalar(frontmatter, "question")),
+    chosen: chosenRecords.map(({ text }) => text),
+    rejected: rejectedRecords.map(({ text, whyNot }) => ({ text, whyNot })),
+    chosenRecords,
+    rejectedRecords,
+    claimRecords,
+    body: documentProse(body),
+    path: sourcePath(rootDir, filePath),
+    moduleKeys: applies.modules,
+    productLineKeys: applies.productLines,
+    ...optional("riskTier", readScalar(frontmatter, "riskTier")),
+    ...optional("urgency", readScalar(frontmatter, "urgency")),
+    ...optional("vertical", unquote(readScalar(frontmatter, "vertical"))),
+    ...optional("preset", unquote(readScalar(frontmatter, "preset"))),
+    ...optional("decisionClass", decisionClass),
+    ...optional("proposedAt", unquote(readScalar(frontmatter, "proposedAt"))),
+    ...(provenance.length ? { provenance } : {}),
+    ...optional("decidedAt", unquote(readScalar(frontmatter, "decidedAt"))),
+  };
 }
-function decisionAppliesTo(frontmatter: string): { readonly modules: readonly string[]; readonly productLines: readonly string[] } { const inline = readScalar(frontmatter, "applies_to"); if (inline.startsWith("{")) { const value = parseFlowObject(inline, { tolerateInvalidArrays: true }); return { modules: coldRebuildStrings(value.modules), productLines: coldRebuildStrings(value.productLines) }; } return { modules: parseStringArray(readBlockScalar(frontmatter, "applies_to", "modules"), { tolerateInvalidArrays: true }), productLines: parseStringArray(readBlockScalar(frontmatter, "applies_to", "productLines"), { tolerateInvalidArrays: true }) }; }
-function decisionAnchorsFrom(frontmatter: string): readonly string[] { return ["claims", "chosen", "rejected"].flatMap((key) => objectList(frontmatter, key).flatMap((entry) => typeof entry.id === "string" ? [entry.id] : [])); }
-function frontmatterRelations(frontmatter: string): readonly EntityRelationRecord[] { const inline = readScalar(frontmatter, "relations"); if (inline.startsWith("[")) { try { const rows = JSON.parse(inline) as unknown; return Array.isArray(rows) ? rows.filter(isRelation) : []; } catch { return []; } } return parseRelationFlowRecords(frontmatter); }
-function objectList(frontmatter: string, key: string): readonly Record<string, unknown>[] { const inline = readScalar(frontmatter, key); if (inline.startsWith("[")) { try { const rows = JSON.parse(inline) as unknown; return Array.isArray(rows) ? rows.filter(isColdRebuildRecord) : []; } catch { return []; } } return parseObjectList(frontmatter, key, { tolerateInvalidArrays: true }); }
-
-function parseLegacyFacts(taskId: string, portablePath: string, body: string): { readonly rows: readonly RelationFactRow[]; readonly anchors: readonly FactAnchorRow[]; readonly knownFactRefs: readonly string[]; readonly issues: readonly ColdRebuildIssue[]; readonly complete: boolean } {
-  const rows: RelationFactRow[] = [], anchors: FactAnchorRow[] = [], knownFactRefs: string[] = [], issues: ColdRebuildIssue[] = []; let candidates = 0;
-  for (const [index, line] of body.split(/\r?\n/u).map((value) => value.trim()).entries()) {
-    if (!line.startsWith("- {") || !/(?:^|[,{}]\s*)fact_id\s*:/u.test(line)) continue; candidates += 1; const fields = flowFields(line.slice(line.indexOf("{") + 1, line.lastIndexOf("}"))), factId = coldRebuildScalar(fields.fact_id), provenance = flowObjects(fields.provenance), tags = flowArray(fields.memoryTags), migrated = flowFields(stripBraces(fields.migration)).state === "migrated";
-    if (!/^F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(factId) || !coldRebuildScalar(fields.statement) || !coldRebuildScalar(fields.source) || !coldRebuildScalar(fields.observedAt) || !["low", "medium", "high"].includes(coldRebuildScalar(fields.confidence)) || !["semantic", "episodic", "procedural", ""].includes(coldRebuildScalar(fields.memoryClass)) || !provenance.length) { issues.push({ entityType: "fact", migratedFrom: factId || `${taskId}:line-${index + 1}`, sourcePath: portablePath, reason: "legacy fact record is malformed" }); continue; }
-    const ref = `fact/${taskId}/${factId}`; knownFactRefs.push(ref); if (!migrated) { rows.push({ schema: "task-fact-row/v1", ref, taskId, factId, statement: coldRebuildScalar(fields.statement), source: coldRebuildScalar(fields.source), observedAt: coldRebuildScalar(fields.observedAt), confidence: coldRebuildScalar(fields.confidence) as RelationFactRow["confidence"], memoryClass: (coldRebuildScalar(fields.memoryClass) || "episodic") as RelationFactRow["memoryClass"], memoryTags: tags, provenance: provenance as RelationFactRow["provenance"], liveness: "standing" }); anchors.push({ factRef: ref, taskId, factId, sourcePath: portablePath }); }
+function decisionAppliesTo(frontmatter: string): {
+  readonly modules: readonly string[];
+  readonly productLines: readonly string[];
+} {
+  const inline = readScalar(frontmatter, "applies_to");
+  if (inline.startsWith("{")) {
+    const value = parseFlowObject(inline, { tolerateInvalidArrays: true });
+    return { modules: coldRebuildStrings(value.modules), productLines: coldRebuildStrings(value.productLines) };
   }
-  return { rows, anchors, knownFactRefs, issues, complete: rows.length <= candidates && candidates === rows.length + migratedFactCount(body) };
+  return {
+    modules: parseStringArray(readBlockScalar(frontmatter, "applies_to", "modules"), { tolerateInvalidArrays: true }),
+    productLines: parseStringArray(readBlockScalar(frontmatter, "applies_to", "productLines"), {
+      tolerateInvalidArrays: true,
+    }),
+  };
 }
-function readAuthoredEvents(rootDir: string, authoredRoot: string): AuthoredEventRead { const eventsRoot = path.join(authoredRoot, "events"), rows = new Map<string, EventFactSource>(), relations: RelationEntry[] = [], issues: ColdRebuildIssue[] = []; for (const file of listColdRebuildFiles(eventsRoot).filter((candidate) => path.extname(candidate) === ".json" && path.basename(candidate) !== "head.json")) { const body = readTextFileIfPresent(file); if (body === null) continue; let event; try { event = parseCanonicalEvent(body); } catch (error) { const reason = error instanceof Error ? error.message : String(error); consumeKnownError(error); issues.push({ entityType: "fact", migratedFrom: path.basename(file, ".json"), sourcePath: sourcePath(rootDir, file), reason }); continue; } if (isFactEvent(event)) { const ref = `fact/${event.taskId}/${event.factId}`, row: RelationFactRow = { schema: "task-fact-row/v1", ref, taskId: event.taskId, factId: event.factId, statement: event.payload.statement, source: event.payload.evidenceSource, observedAt: event.payload.observedAt, confidence: event.payload.confidence, memoryClass: event.payload.memoryClass, memoryTags: event.payload.memoryTags, provenance: relationProvenance(event.payload.provenance), liveness: "standing" }; rows.set(ref, { row, sourcePath: `event:${event.opId}` }); if (event.payload.supersedes) { const identity = { source: ref, target: event.payload.supersedes.factRef, type: "supersedes-fact" as const, direction: "directed" as const }, record: EntityRelationRecord = { relation_id: deriveRelationId(identity), ...identity, strength: "strong", origin: "declared", state: "active", rationale: event.payload.supersedes.rationale }; relations.push(relationEntry(record, ref, `event:${event.opId}`, 0)); } continue; } if (!isMigrationImportEvent(event)) continue; const entity = event.payload.entity; if (entity.kind === "fact") { const ref = `fact/${entity.fact.taskId}/${entity.fact.factId}`, row: RelationFactRow = { schema: "task-fact-row/v1", ref, taskId: entity.fact.taskId, factId: entity.fact.factId, statement: entity.fact.statement, source: entity.fact.evidenceSource, observedAt: entity.fact.observedAt, confidence: entity.fact.confidence, memoryClass: entity.fact.memoryClass, memoryTags: entity.fact.memoryTags, provenance: entity.fact.provenance, liveness: "standing" }; rows.set(ref, { row, sourcePath: `event:${event.opId}` }); } else if (entity.kind === "relation") relations.push(relationEntry(entity.relation, entity.ownerRef, `event:${event.opId}`, 0)); } return { rows: [...rows.values()], relations, issues }; }
+function decisionAnchorsFrom(frontmatter: string): readonly string[] {
+  return ["claims", "chosen", "rejected"].flatMap((key) =>
+    objectList(frontmatter, key).flatMap((entry) => (typeof entry.id === "string" ? [entry.id] : [])),
+  );
+}
+function frontmatterRelations(frontmatter: string): readonly EntityRelationRecord[] {
+  const inline = readScalar(frontmatter, "relations");
+  if (inline.startsWith("[")) {
+    try {
+      const rows = JSON.parse(inline) as unknown;
+      return Array.isArray(rows) ? rows.filter(isRelation) : [];
+    } catch {
+      return [];
+    }
+  }
+  return parseRelationFlowRecords(frontmatter);
+}
+function objectList(frontmatter: string, key: string): readonly Record<string, unknown>[] {
+  const inline = readScalar(frontmatter, key);
+  if (inline.startsWith("[")) {
+    try {
+      const rows = JSON.parse(inline) as unknown;
+      return Array.isArray(rows) ? rows.filter(isColdRebuildRecord) : [];
+    } catch {
+      return [];
+    }
+  }
+  return parseObjectList(frontmatter, key, { tolerateInvalidArrays: true });
+}
 
-function relationProvenance(value: readonly { readonly runtime: string; readonly sessionId: string | null; readonly boundAt: string }[]): RelationFactRow["provenance"] { return value.flatMap((entry) => entry.sessionId === null ? [] : [{ runtime: entry.runtime, sessionId: entry.sessionId, boundAt: entry.boundAt }]); }
+function parseLegacyFacts(
+  taskId: string,
+  portablePath: string,
+  body: string,
+): {
+  readonly rows: readonly RelationFactRow[];
+  readonly anchors: readonly FactAnchorRow[];
+  readonly knownFactRefs: readonly string[];
+  readonly issues: readonly ColdRebuildIssue[];
+  readonly complete: boolean;
+} {
+  const rows: RelationFactRow[] = [],
+    anchors: FactAnchorRow[] = [],
+    knownFactRefs: string[] = [],
+    issues: ColdRebuildIssue[] = [];
+  let candidates = 0;
+  for (const [index, line] of body
+    .split(/\r?\n/u)
+    .map((value) => value.trim())
+    .entries()) {
+    if (!line.startsWith("- {") || !/(?:^|[,{}]\s*)fact_id\s*:/u.test(line)) continue;
+    candidates += 1;
+    const fields = flowFields(line.slice(line.indexOf("{") + 1, line.lastIndexOf("}"))),
+      factId = coldRebuildScalar(fields.fact_id),
+      provenance = flowObjects(fields.provenance),
+      tags = flowArray(fields.memoryTags),
+      migrated = flowFields(stripBraces(fields.migration)).state === "migrated";
+    if (
+      !/^F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(factId) ||
+      !coldRebuildScalar(fields.statement) ||
+      !coldRebuildScalar(fields.source) ||
+      !coldRebuildScalar(fields.observedAt) ||
+      !["low", "medium", "high"].includes(coldRebuildScalar(fields.confidence)) ||
+      !["semantic", "episodic", "procedural", ""].includes(coldRebuildScalar(fields.memoryClass)) ||
+      !provenance.length
+    ) {
+      issues.push({
+        entityType: "fact",
+        migratedFrom: factId || `${taskId}:line-${index + 1}`,
+        sourcePath: portablePath,
+        reason: "legacy fact record is malformed",
+      });
+      continue;
+    }
+    const ref = `fact/${taskId}/${factId}`;
+    knownFactRefs.push(ref);
+    if (!migrated) {
+      rows.push({
+        schema: "task-fact-row/v1",
+        ref,
+        taskId,
+        factId,
+        statement: coldRebuildScalar(fields.statement),
+        source: coldRebuildScalar(fields.source),
+        observedAt: coldRebuildScalar(fields.observedAt),
+        confidence: coldRebuildScalar(fields.confidence) as RelationFactRow["confidence"],
+        memoryClass: (coldRebuildScalar(fields.memoryClass) || "episodic") as RelationFactRow["memoryClass"],
+        memoryTags: tags,
+        provenance: provenance as RelationFactRow["provenance"],
+        liveness: "standing",
+      });
+      anchors.push({ factRef: ref, taskId, factId, sourcePath: portablePath });
+    }
+  }
+  return {
+    rows,
+    anchors,
+    knownFactRefs,
+    issues,
+    complete: rows.length <= candidates && candidates === rows.length + migratedFactCount(body),
+  };
+}
+function readAuthoredEvents(rootDir: string, authoredRoot: string): AuthoredEventRead {
+  const eventsRoot = path.join(authoredRoot, "events"),
+    rows = new Map<string, EventFactSource>(),
+    relations: RelationEntry[] = [],
+    issues: ColdRebuildIssue[] = [];
+  for (const file of listColdRebuildFiles(eventsRoot).filter(
+    (candidate) => path.extname(candidate) === ".json" && path.basename(candidate) !== "head.json",
+  )) {
+    const body = readTextFileIfPresent(file);
+    if (body === null) continue;
+    let event;
+    try {
+      event = parseCanonicalEvent(body);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      consumeKnownError(error);
+      issues.push({
+        entityType: "fact",
+        migratedFrom: path.basename(file, ".json"),
+        sourcePath: sourcePath(rootDir, file),
+        reason,
+      });
+      continue;
+    }
+    if (isFactEvent(event)) {
+      const ref = `fact/${event.taskId}/${event.factId}`,
+        row: RelationFactRow = {
+          schema: "task-fact-row/v1",
+          ref,
+          taskId: event.taskId,
+          factId: event.factId,
+          statement: event.payload.statement,
+          source: event.payload.evidenceSource,
+          observedAt: event.payload.observedAt,
+          confidence: event.payload.confidence,
+          memoryClass: event.payload.memoryClass,
+          memoryTags: event.payload.memoryTags,
+          provenance: relationProvenance(event.payload.provenance),
+          liveness: "standing",
+        };
+      rows.set(ref, { row, sourcePath: `event:${event.opId}` });
+      if (event.payload.supersedes) {
+        const identity = {
+            source: ref,
+            target: event.payload.supersedes.factRef,
+            type: "supersedes-fact" as const,
+            direction: "directed" as const,
+          },
+          record: EntityRelationRecord = {
+            relation_id: deriveRelationId(identity),
+            ...identity,
+            strength: "strong",
+            origin: "declared",
+            state: "active",
+            rationale: event.payload.supersedes.rationale,
+          };
+        relations.push(relationEntry(record, ref, `event:${event.opId}`, 0));
+      }
+      continue;
+    }
+    if (!isMigrationImportEvent(event)) continue;
+    const entity = event.payload.entity;
+    if (entity.kind === "fact") {
+      const ref = `fact/${entity.fact.taskId}/${entity.fact.factId}`,
+        row: RelationFactRow = {
+          schema: "task-fact-row/v1",
+          ref,
+          taskId: entity.fact.taskId,
+          factId: entity.fact.factId,
+          statement: entity.fact.statement,
+          source: entity.fact.evidenceSource,
+          observedAt: entity.fact.observedAt,
+          confidence: entity.fact.confidence,
+          memoryClass: entity.fact.memoryClass,
+          memoryTags: entity.fact.memoryTags,
+          provenance: entity.fact.provenance,
+          liveness: "standing",
+        };
+      rows.set(ref, { row, sourcePath: `event:${event.opId}` });
+    } else if (entity.kind === "relation")
+      relations.push(relationEntry(entity.relation, entity.ownerRef, `event:${event.opId}`, 0));
+  }
+  return { rows: [...rows.values()], relations, issues };
+}
 
-function relationEntry(record: EntityRelationRecord, hostRef: string, portablePath: string, recordIndex: number): RelationEntry { const source = parseEntityRef(record.source), host = source?.kind === "fact" && source.ownerTaskId ? `fact/${source.ownerTaskId}/${source.id}` : hostRef; return { hostRef: host, ownerRef: hostRef, record, sourcePath: portablePath, recordIndex }; }
-function relationEdges(entries: readonly RelationEntry[], taskIds: ReadonlySet<string>, decisionRefs: ReadonlySet<string>, factRefs: ReadonlySet<string>): { readonly rows: readonly RelationGraphEdgeRow[]; readonly issues: readonly ColdRebuildIssue[] } { const seen = new Set<string>(), issues: ColdRebuildIssue[] = [], rows: RelationGraphEdgeRow[] = [], known = (ref: string): boolean => { const parsed = parseEntityRef(ref); return Boolean(parsed && !parsed.externalHarness && (parsed.kind === "task" ? taskIds.has(parsed.id) : parsed.kind === "decision" ? decisionRefs.has(ref) : factRefs.has(ref))); }; for (const entry of [...entries].sort((a, b) => `${a.sourcePath}\0${a.recordIndex}`.localeCompare(`${b.sourcePath}\0${b.recordIndex}`))) { const validation = validateRelationRecordsForHost(entry.hostRef, [entry.record]), reason = seen.has(entry.record.relation_id) ? "duplicate relation_id" : validation[0]?.message ?? (!known(entry.record.source) || !known(entry.record.target) ? "relation endpoint does not resolve" : ""); if (reason) { issues.push({ entityType: "relation", migratedFrom: entry.record.relation_id, sourcePath: entry.sourcePath, reason }); continue; } seen.add(entry.record.relation_id); rows.push({ relationId: entry.record.relation_id, sourceRef: entry.record.source, targetRef: entry.record.target, relationType: entry.record.type, direction: entry.record.direction, strength: entry.record.strength, origin: entry.record.origin, state: entry.record.state, rationale: entry.record.rationale, ownerRef: entry.ownerRef, sourcePath: entry.sourcePath, recordIndex: entry.recordIndex }); } return { rows: rows.sort((a, b) => `${a.sourceRef}\0${a.targetRef}\0${a.relationId}`.localeCompare(`${b.sourceRef}\0${b.targetRef}\0${b.relationId}`)), issues }; }
+function relationProvenance(
+  value: readonly { readonly runtime: string; readonly sessionId: string | null; readonly boundAt: string }[],
+): RelationFactRow["provenance"] {
+  return value.flatMap((entry) =>
+    entry.sessionId === null ? [] : [{ runtime: entry.runtime, sessionId: entry.sessionId, boundAt: entry.boundAt }],
+  );
+}
 
-function flowFields(body: string): Record<string, string> { const fields: Record<string, string> = {}; for (const part of splitColdRebuildTopLevel(body)) { const separator = part.indexOf(":"); if (separator > 0) fields[part.slice(0, separator).trim()] = part.slice(separator + 1).trim(); } return fields; }
-function flowObjects(value = ""): readonly Record<string, string>[] { const inner = stripArray(value); return splitColdRebuildTopLevel(inner).flatMap((part) => part.startsWith("{") ? [Object.fromEntries(Object.entries(flowFields(stripBraces(part))).map(([key, field]) => [key, coldRebuildScalar(field)]))] : []); }
-function flowArray(value = ""): readonly string[] { return splitColdRebuildTopLevel(stripArray(value)).map(coldRebuildScalar).filter(Boolean); }
-function splitColdRebuildTopLevel(value: string): string[] { const parts: string[] = []; let quote = false, square = 0, brace = 0, start = 0; for (let index = 0; index < value.length; index += 1) { const char = value[index], previous = value[index - 1]; if (char === '"' && previous !== "\\") quote = !quote; if (!quote && char === "[") square += 1; if (!quote && char === "]") square -= 1; if (!quote && char === "{") brace += 1; if (!quote && char === "}") brace -= 1; if (!quote && !square && !brace && char === ",") { parts.push(value.slice(start, index).trim()); start = index + 1; } } const tail = value.slice(start).trim(); if (tail) parts.push(tail); return parts; }
-function coldRebuildScalar(value = ""): string { return unquote(value); }
-function stripArray(value = ""): string { return value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1).trim() : ""; }
-function stripBraces(value = ""): string { return value.startsWith("{") && value.endsWith("}") ? value.slice(1, -1).trim() : ""; }
-function migratedFactCount(body: string): number { return body.split(/\r?\n/u).filter((line) => /fact_id\s*:/.test(line) && /migration:\s*\{[^}]*state:\s*migrated/u.test(line)).length; }
-function listDirs(root: string): readonly string[] { return (readDirIfPresent(root) ?? []).flatMap((entry) => { const candidate = path.join(root, entry.name), stat = statPathIfPresent(candidate); return entry.isDirectory() && stat?.isDirectory() ? [candidate] : []; }).sort(); }
-function listColdRebuildFiles(root: string): readonly string[] { const stat = statPathIfPresent(root); if (!stat) return []; if (stat.isFile()) return [root]; if (!stat.isDirectory()) return []; return (readDirIfPresent(root) ?? []).filter((entry) => entry.name !== ".git" && entry.name !== "node_modules").flatMap((entry) => listColdRebuildFiles(path.join(root, entry.name))).sort(); }
-function readTaskId(taskDir: string): string { const body = readTextFileIfPresent(path.join(taskDir, "INDEX.md")), frontmatter = body === null ? null : readFrontmatter(body); return frontmatter ? readScalar(frontmatter, "task_id") || readScalar(frontmatter, "taskId") || path.basename(taskDir) : path.basename(taskDir); }
-function optional<Key extends string>(key: Key, value: string): { readonly [K in Key]?: string } { return value ? { [key]: value } as { [K in Key]: string } : {}; }
-function coldRebuildLegacyNumber(value?: string): number { return value ? Number(value.slice(1)) : Number.MAX_SAFE_INTEGER; }
-function fulfillment(value: unknown): RelationCoverageRow["fulfillment"] { return value === "evidenced" || value === "delivered" ? value : value === "standing-policy" || value === "standing_policy" ? "standing-policy" : null; }
-function coldRebuildStrings(value: unknown): readonly string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []; }
-function isColdRebuildRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
-function isRelation(value: unknown): value is EntityRelationRecord { return isColdRebuildRecord(value) && typeof value.relation_id === "string" && typeof value.source === "string" && typeof value.target === "string"; }
-function byFactRef(a: FactAnchorRow, b: FactAnchorRow): number { return a.factRef.localeCompare(b.factRef); }
-function documentProse(body: string): string { const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n/u.exec(body); return match ? body.slice(match[0].length) : ""; }
+function relationEntry(
+  record: EntityRelationRecord,
+  hostRef: string,
+  portablePath: string,
+  recordIndex: number,
+): RelationEntry {
+  const source = parseEntityRef(record.source),
+    host = source?.kind === "fact" && source.ownerTaskId ? `fact/${source.ownerTaskId}/${source.id}` : hostRef;
+  return { hostRef: host, ownerRef: hostRef, record, sourcePath: portablePath, recordIndex };
+}
+function relationEdges(
+  entries: readonly RelationEntry[],
+  taskIds: ReadonlySet<string>,
+  decisionRefs: ReadonlySet<string>,
+  factRefs: ReadonlySet<string>,
+): { readonly rows: readonly RelationGraphEdgeRow[]; readonly issues: readonly ColdRebuildIssue[] } {
+  const seen = new Set<string>(),
+    issues: ColdRebuildIssue[] = [],
+    rows: RelationGraphEdgeRow[] = [],
+    known = (ref: string): boolean => {
+      const parsed = parseEntityRef(ref);
+      return Boolean(
+        parsed &&
+          !parsed.externalHarness &&
+          (parsed.kind === "task"
+            ? taskIds.has(parsed.id)
+            : parsed.kind === "decision"
+              ? decisionRefs.has(ref)
+              : factRefs.has(ref)),
+      );
+    };
+  for (const entry of [...entries].sort((a, b) =>
+    `${a.sourcePath}\0${a.recordIndex}`.localeCompare(`${b.sourcePath}\0${b.recordIndex}`),
+  )) {
+    const validation = validateRelationRecordsForHost(entry.hostRef, [entry.record]),
+      reason = seen.has(entry.record.relation_id)
+        ? "duplicate relation_id"
+        : (validation[0]?.message ??
+          (!known(entry.record.source) || !known(entry.record.target) ? "relation endpoint does not resolve" : ""));
+    if (reason) {
+      issues.push({
+        entityType: "relation",
+        migratedFrom: entry.record.relation_id,
+        sourcePath: entry.sourcePath,
+        reason,
+      });
+      continue;
+    }
+    seen.add(entry.record.relation_id);
+    rows.push({
+      relationId: entry.record.relation_id,
+      sourceRef: entry.record.source,
+      targetRef: entry.record.target,
+      relationType: entry.record.type,
+      direction: entry.record.direction,
+      strength: entry.record.strength,
+      origin: entry.record.origin,
+      state: entry.record.state,
+      rationale: entry.record.rationale,
+      ownerRef: entry.ownerRef,
+      sourcePath: entry.sourcePath,
+      recordIndex: entry.recordIndex,
+    });
+  }
+  return {
+    rows: rows.sort((a, b) =>
+      `${a.sourceRef}\0${a.targetRef}\0${a.relationId}`.localeCompare(
+        `${b.sourceRef}\0${b.targetRef}\0${b.relationId}`,
+      ),
+    ),
+    issues,
+  };
+}
+
+function flowFields(body: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const part of splitColdRebuildTopLevel(body)) {
+    const separator = part.indexOf(":");
+    if (separator > 0) fields[part.slice(0, separator).trim()] = part.slice(separator + 1).trim();
+  }
+  return fields;
+}
+function flowObjects(value = ""): readonly Record<string, string>[] {
+  const inner = stripArray(value);
+  return splitColdRebuildTopLevel(inner).flatMap((part) =>
+    part.startsWith("{")
+      ? [
+          Object.fromEntries(
+            Object.entries(flowFields(stripBraces(part))).map(([key, field]) => [key, coldRebuildScalar(field)]),
+          ),
+        ]
+      : [],
+  );
+}
+function flowArray(value = ""): readonly string[] {
+  return splitColdRebuildTopLevel(stripArray(value)).map(coldRebuildScalar).filter(Boolean);
+}
+function splitColdRebuildTopLevel(value: string): string[] {
+  const parts: string[] = [];
+  let quote = false,
+    square = 0,
+    brace = 0,
+    start = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index],
+      previous = value[index - 1];
+    if (char === '"' && previous !== "\\") quote = !quote;
+    if (!quote && char === "[") square += 1;
+    if (!quote && char === "]") square -= 1;
+    if (!quote && char === "{") brace += 1;
+    if (!quote && char === "}") brace -= 1;
+    if (!quote && !square && !brace && char === ",") {
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  const tail = value.slice(start).trim();
+  if (tail) parts.push(tail);
+  return parts;
+}
+function coldRebuildScalar(value = ""): string {
+  return unquote(value);
+}
+function stripArray(value = ""): string {
+  return value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1).trim() : "";
+}
+function stripBraces(value = ""): string {
+  return value.startsWith("{") && value.endsWith("}") ? value.slice(1, -1).trim() : "";
+}
+function migratedFactCount(body: string): number {
+  return body
+    .split(/\r?\n/u)
+    .filter((line) => /fact_id\s*:/.test(line) && /migration:\s*\{[^}]*state:\s*migrated/u.test(line)).length;
+}
+function listDirs(root: string): readonly string[] {
+  return (readDirIfPresent(root) ?? [])
+    .flatMap((entry) => {
+      const candidate = path.join(root, entry.name),
+        stat = statPathIfPresent(candidate);
+      return entry.isDirectory() && stat?.isDirectory() ? [candidate] : [];
+    })
+    .sort();
+}
+function listColdRebuildFiles(root: string): readonly string[] {
+  const stat = statPathIfPresent(root);
+  if (!stat) return [];
+  if (stat.isFile()) return [root];
+  if (!stat.isDirectory()) return [];
+  return (readDirIfPresent(root) ?? [])
+    .filter((entry) => entry.name !== ".git" && entry.name !== "node_modules")
+    .flatMap((entry) => listColdRebuildFiles(path.join(root, entry.name)))
+    .sort();
+}
+function readTaskId(taskDir: string): string {
+  const body = readTextFileIfPresent(path.join(taskDir, "INDEX.md")),
+    frontmatter = body === null ? null : readFrontmatter(body);
+  return frontmatter
+    ? readScalar(frontmatter, "task_id") || readScalar(frontmatter, "taskId") || path.basename(taskDir)
+    : path.basename(taskDir);
+}
+function optional<Key extends string>(key: Key, value: string): { readonly [K in Key]?: string } {
+  return value ? ({ [key]: value } as { [K in Key]: string }) : {};
+}
+function coldRebuildLegacyNumber(value?: string): number {
+  return value ? Number(value.slice(1)) : Number.MAX_SAFE_INTEGER;
+}
+function fulfillment(value: unknown): RelationCoverageRow["fulfillment"] {
+  return value === "evidenced" || value === "delivered"
+    ? value
+    : value === "standing-policy" || value === "standing_policy"
+      ? "standing-policy"
+      : null;
+}
+function coldRebuildStrings(value: unknown): readonly string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+function isColdRebuildRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function isRelation(value: unknown): value is EntityRelationRecord {
+  return (
+    isColdRebuildRecord(value) &&
+    typeof value.relation_id === "string" &&
+    typeof value.source === "string" &&
+    typeof value.target === "string"
+  );
+}
+function byFactRef(a: FactAnchorRow, b: FactAnchorRow): number {
+  return a.factRef.localeCompare(b.factRef);
+}
+function documentProse(body: string): string {
+  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n/u.exec(body);
+  return match ? body.slice(match[0].length) : "";
+}

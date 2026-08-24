@@ -1,65 +1,541 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
-import { canonicalPresetBytes, consumeKnownError, validatePresetRunReceiptV1, type PresetRunOutcomeV1, type PresetRunPhaseV1, type PresetRunReceiptV1 } from "./preset.contract.ts";
+import {
+  canonicalPresetBytes,
+  consumeKnownError,
+  validatePresetRunReceiptV1,
+  type PresetRunOutcomeV1,
+  type PresetRunPhaseV1,
+  type PresetRunReceiptV1,
+} from "./preset.contract.ts";
 import { createRuntime, decodePresetPackageV3, type InternalPresetResolution } from "./preset-resolver.ts";
 import { presetRuntimeDefaults } from "./preset-system.ts";
 
-export interface PresetRunStartInput { readonly presetId: string; readonly entrypoint: string; readonly taskId?: string; readonly inputs?: Readonly<Record<string, unknown>>; readonly idempotencyKey: string }
-export interface PresetProducedReceipt { readonly outcome: "applied" | "pending" | "indeterminate" | "op_rejected"; readonly code?: string; readonly nextAction?: string }
-export interface PresetProcessExecutionPort { readonly publish: (action: Readonly<Record<string, unknown>> & { readonly kind: string }) => Promise<PresetProducedReceipt>; readonly admitProduce?: (actionKind: string) => boolean }
-export interface PresetProcessService { readonly start: (input: PresetRunStartInput, port?: PresetProcessExecutionPort) => Promise<PresetRunReceiptV1>; readonly status: (runId: string) => PresetRunReceiptV1; readonly close: () => Promise<void> }
-export interface PresetProcessServiceOptions extends Partial<PresetProcessExecutionPort> { readonly rootDir: string; readonly userRoot: string; readonly runRoot?: string; readonly timeoutMs?: number; readonly maxResultBytes?: number }
-interface Witness { readonly schema: "preset-run-witness/v1"; readonly runId: string; readonly idempotencyKey: string; readonly requestDigest: string; readonly outcome: PresetRunOutcomeV1; readonly phase: PresetRunPhaseV1; readonly phases: readonly PresetRunPhaseV1[]; readonly snapshotDigest?: `sha256:${string}`; readonly processToken?: string; readonly resultDigest?: `sha256:${string}`; readonly code?: string; readonly nextAction?: string }
-interface ScriptResult { readonly schema: "preset-script-result/v1"; readonly produces: readonly { readonly capabilityId: string; readonly payload: Readonly<Record<string, unknown>> }[] } interface TrackedChild { readonly child: ChildProcess; readonly freeze: () => void; termination?: Promise<void> }
-const terminal = new Set<PresetRunOutcomeV1>(["applied", "op_rejected", "failed", "outcome_unknown"]), resultLimit = 64 * 1_024, terminationGraceMs = 100;
-export function recoverPresetRunStatus(options: Pick<PresetProcessServiceOptions, "rootDir" | "userRoot">, runId: string): PresetRunReceiptV1 { return createPresetProcessService(options).status(runId); }
+export interface PresetRunStartInput {
+  readonly presetId: string;
+  readonly entrypoint: string;
+  readonly taskId?: string;
+  readonly inputs?: Readonly<Record<string, unknown>>;
+  readonly idempotencyKey: string;
+}
+export interface PresetProducedReceipt {
+  readonly outcome: "applied" | "pending" | "indeterminate" | "op_rejected";
+  readonly code?: string;
+  readonly nextAction?: string;
+}
+export interface PresetProcessExecutionPort {
+  readonly publish: (
+    action: Readonly<Record<string, unknown>> & { readonly kind: string },
+  ) => Promise<PresetProducedReceipt>;
+  readonly admitProduce?: (actionKind: string) => boolean;
+}
+export interface PresetProcessService {
+  readonly start: (input: PresetRunStartInput, port?: PresetProcessExecutionPort) => Promise<PresetRunReceiptV1>;
+  readonly status: (runId: string) => PresetRunReceiptV1;
+  readonly close: () => Promise<void>;
+}
+export interface PresetProcessServiceOptions extends Partial<PresetProcessExecutionPort> {
+  readonly rootDir: string;
+  readonly userRoot: string;
+  readonly runRoot?: string;
+  readonly timeoutMs?: number;
+  readonly maxResultBytes?: number;
+}
+interface Witness {
+  readonly schema: "preset-run-witness/v1";
+  readonly runId: string;
+  readonly idempotencyKey: string;
+  readonly requestDigest: string;
+  readonly outcome: PresetRunOutcomeV1;
+  readonly phase: PresetRunPhaseV1;
+  readonly phases: readonly PresetRunPhaseV1[];
+  readonly snapshotDigest?: `sha256:${string}`;
+  readonly processToken?: string;
+  readonly resultDigest?: `sha256:${string}`;
+  readonly code?: string;
+  readonly nextAction?: string;
+}
+interface ScriptResult {
+  readonly schema: "preset-script-result/v1";
+  readonly produces: readonly { readonly capabilityId: string; readonly payload: Readonly<Record<string, unknown>> }[];
+}
+interface TrackedChild {
+  readonly child: ChildProcess;
+  readonly freeze: () => void;
+  termination?: Promise<void>;
+}
+const terminal = new Set<PresetRunOutcomeV1>(["applied", "op_rejected", "failed", "outcome_unknown"]),
+  resultLimit = 64 * 1_024,
+  terminationGraceMs = 100;
+export function recoverPresetRunStatus(
+  options: Pick<PresetProcessServiceOptions, "rootDir" | "userRoot">,
+  runId: string,
+): PresetRunReceiptV1 {
+  return createPresetProcessService(options).status(runId);
+}
 
 export function createPresetProcessService(options: PresetProcessServiceOptions): PresetProcessService {
-  const rootDir = path.resolve(options.rootDir), runRoot = path.resolve(options.runRoot ?? path.join(rootDir, ".harness/preset-runs")), witnessRoot = path.join(runRoot, "witnesses"), stagingRoot = path.join(runRoot, "staging"), timeoutMs = options.timeoutMs ?? 5_000, maxResultBytes = options.maxResultBytes ?? resultLimit;
-  ensureTree(rootDir, runRoot, witnessRoot, stagingRoot); const witnesses = new Map<string, Witness>(), children = new Map<string, TrackedChild>(); let closed = false;
-  for (const name of readdirSync(witnessRoot).filter((entry) => entry.endsWith(".json"))) { const loaded = loadWitness(path.join(witnessRoot, name)); witnesses.set(loaded.runId, terminal.has(loaded.outcome) ? loaded : save({ ...loaded, outcome: "outcome_unknown", phase: "outcome_unknown", phases: [...loaded.phases, "outcome_unknown"], code: "daemon_restarted", nextAction: "Inspect authored state before deciding whether to start with a new idempotency key." })); }
-  const status = (runId: string): PresetRunReceiptV1 => { const witness = witnesses.get(runId); return witness ? receipt(witness) : rejection(runId || "run_invalid", "run_not_found", "Use the runId returned by repo.preset.run.start."); };
-  const start = async (input: PresetRunStartInput, executionPort?: PresetProcessExecutionPort): Promise<PresetRunReceiptV1> => {
-    if (!isNonEmptyRunText(input.idempotencyKey)) return rejection("run_invalid", "invalid_idempotency_key", "idempotencyKey is required."); const requestDigest = digest(input), runId = `run_${digest(input.idempotencyKey).slice(7, 33)}`, prior = [...witnesses.values()].find((item) => item.idempotencyKey === input.idempotencyKey);
-    if (prior) return prior.requestDigest === requestDigest ? receipt(prior) : rejection(runId, "idempotency_conflict", "Use a new idempotency key for different run input.");
-    try {
-      if (!isNonEmptyRunText(input.presetId) || !isNonEmptyRunText(input.entrypoint) || input.taskId !== undefined && !isNonEmptyRunText(input.taskId) || input.inputs !== undefined && !isPresetRunRecord(input.inputs)) throw presetProcessError("invalid_input", "Run input must contain presetId, entrypoint, optional taskId, object inputs, and idempotencyKey.");
-      const defaults = presetRuntimeDefaults(rootDir), resolved = createRuntime({ userRoot: options.userRoot }).resolveInternal({ presetId: input.presetId, entrypoint: input.entrypoint, verticalId: defaults.verticalId, profileId: defaults.profileId, locale: defaults.locale, purpose: "script-run" }), entrypoint = resolved.snapshot.entrypoints[input.entrypoint]!;
-      const port = executionPort ?? options as PresetProcessExecutionPort; validateInputs(entrypoint.inputs, input.inputs ?? {}); for (const capability of entrypoint.produces) { const provider = resolved.produceActions[capability.id]; if (!provider || !port.admitProduce?.(provider.actionKind) || typeof port.publish !== "function") throw presetProcessError("produce_not_admitted", `Produce ${capability.id} has no admitted RepoCell command.`); }
-      const witness = save({ schema: "preset-run-witness/v1", runId, idempotencyKey: input.idempotencyKey, requestDigest, outcome: "started", phase: "admitted", phases: ["admitted"], snapshotDigest: resolved.snapshot.digest }); setImmediate(() => void execute(witness, resolved, entrypoint, input.inputs ?? {}, input.taskId, port)); return receipt(witness);
-    } catch (error) { const known = consumeKnownError(error), witness = save({ schema: "preset-run-witness/v1", runId, idempotencyKey: input.idempotencyKey, requestDigest, outcome: "op_rejected", phase: "op_rejected", phases: ["op_rejected"], code: known.code, nextAction: known.message }); return receipt(witness); }
+  const rootDir = path.resolve(options.rootDir),
+    runRoot = path.resolve(options.runRoot ?? path.join(rootDir, ".harness/preset-runs")),
+    witnessRoot = path.join(runRoot, "witnesses"),
+    stagingRoot = path.join(runRoot, "staging"),
+    timeoutMs = options.timeoutMs ?? 5_000,
+    maxResultBytes = options.maxResultBytes ?? resultLimit;
+  ensureTree(rootDir, runRoot, witnessRoot, stagingRoot);
+  const witnesses = new Map<string, Witness>(),
+    children = new Map<string, TrackedChild>();
+  let closed = false;
+  for (const name of readdirSync(witnessRoot).filter((entry) => entry.endsWith(".json"))) {
+    const loaded = loadWitness(path.join(witnessRoot, name));
+    witnesses.set(
+      loaded.runId,
+      terminal.has(loaded.outcome)
+        ? loaded
+        : save({
+            ...loaded,
+            outcome: "outcome_unknown",
+            phase: "outcome_unknown",
+            phases: [...loaded.phases, "outcome_unknown"],
+            code: "daemon_restarted",
+            nextAction: "Inspect authored state before deciding whether to start with a new idempotency key.",
+          }),
+    );
+  }
+  const status = (runId: string): PresetRunReceiptV1 => {
+    const witness = witnesses.get(runId);
+    return witness
+      ? receipt(witness)
+      : rejection(runId || "run_invalid", "run_not_found", "Use the runId returned by repo.preset.run.start.");
   };
-  const close = async (): Promise<void> => { closed = true; const active = [...children]; for (const [, tracked] of active) tracked.freeze(); await Promise.all(active.map(([runId, tracked]) => terminate(runId, tracked))); for (const [runId] of active) fail(runId, "daemon_stopped", "The daemon stopped before the child reached a terminal receipt; do not automatically retry.", "outcome_unknown"); };
+  const start = async (
+    input: PresetRunStartInput,
+    executionPort?: PresetProcessExecutionPort,
+  ): Promise<PresetRunReceiptV1> => {
+    if (!isNonEmptyRunText(input.idempotencyKey))
+      return rejection("run_invalid", "invalid_idempotency_key", "idempotencyKey is required.");
+    const requestDigest = digest(input),
+      runId = `run_${digest(input.idempotencyKey).slice(7, 33)}`,
+      prior = [...witnesses.values()].find((item) => item.idempotencyKey === input.idempotencyKey);
+    if (prior)
+      return prior.requestDigest === requestDigest
+        ? receipt(prior)
+        : rejection(runId, "idempotency_conflict", "Use a new idempotency key for different run input.");
+    try {
+      if (
+        !isNonEmptyRunText(input.presetId) ||
+        !isNonEmptyRunText(input.entrypoint) ||
+        (input.taskId !== undefined && !isNonEmptyRunText(input.taskId)) ||
+        (input.inputs !== undefined && !isPresetRunRecord(input.inputs))
+      )
+        throw presetProcessError(
+          "invalid_input",
+          "Run input must contain presetId, entrypoint, optional taskId, object inputs, and idempotencyKey.",
+        );
+      const defaults = presetRuntimeDefaults(rootDir),
+        resolved = createRuntime({ userRoot: options.userRoot }).resolveInternal({
+          presetId: input.presetId,
+          entrypoint: input.entrypoint,
+          verticalId: defaults.verticalId,
+          profileId: defaults.profileId,
+          locale: defaults.locale,
+          purpose: "script-run",
+        }),
+        entrypoint = resolved.snapshot.entrypoints[input.entrypoint]!;
+      const port = executionPort ?? (options as PresetProcessExecutionPort);
+      validateInputs(entrypoint.inputs, input.inputs ?? {});
+      for (const capability of entrypoint.produces) {
+        const provider = resolved.produceActions[capability.id];
+        if (!provider || !port.admitProduce?.(provider.actionKind) || typeof port.publish !== "function")
+          throw presetProcessError(
+            "produce_not_admitted",
+            `Produce ${capability.id} has no admitted RepoCell command.`,
+          );
+      }
+      const witness = save({
+        schema: "preset-run-witness/v1",
+        runId,
+        idempotencyKey: input.idempotencyKey,
+        requestDigest,
+        outcome: "started",
+        phase: "admitted",
+        phases: ["admitted"],
+        snapshotDigest: resolved.snapshot.digest,
+      });
+      setImmediate(() => void execute(witness, resolved, entrypoint, input.inputs ?? {}, input.taskId, port));
+      return receipt(witness);
+    } catch (error) {
+      const known = consumeKnownError(error),
+        witness = save({
+          schema: "preset-run-witness/v1",
+          runId,
+          idempotencyKey: input.idempotencyKey,
+          requestDigest,
+          outcome: "op_rejected",
+          phase: "op_rejected",
+          phases: ["op_rejected"],
+          code: known.code,
+          nextAction: known.message,
+        });
+      return receipt(witness);
+    }
+  };
+  const close = async (): Promise<void> => {
+    closed = true;
+    const active = [...children];
+    for (const [, tracked] of active) tracked.freeze();
+    await Promise.all(active.map(([runId, tracked]) => terminate(runId, tracked)));
+    for (const [runId] of active)
+      fail(
+        runId,
+        "daemon_stopped",
+        "The daemon stopped before the child reached a terminal receipt; do not automatically retry.",
+        "outcome_unknown",
+      );
+  };
   return { start, status, close };
 
-  function save(witness: Witness): Witness { witnesses.set(witness.runId, witness); const target = path.join(witnessRoot, `${witness.runId}.json`), temporary = path.join(witnessRoot, `.${witness.runId}-${randomUUID()}.tmp`); writeFileSync(temporary, `${canonicalPresetBytes(witness)}\n`, { encoding: "utf8", mode: 0o600 }); renameSync(temporary, target); return witness; }
-  function change(runId: string, phase: PresetRunPhaseV1, outcome: PresetRunOutcomeV1, extra: Partial<Witness> = {}): Witness { const current = witnesses.get(runId); if (!current || terminal.has(current.outcome)) return current!; return save({ ...current, ...extra, outcome, phase, phases: [...current.phases, phase] }); }
-  function cleanup(runId: string): void { const stage = path.join(stagingRoot, runId); if (existsSync(stage)) rmSync(stage, { recursive: true, force: true }); } function fail(runId: string, code: string, nextAction: string, outcome: "failed" | "outcome_unknown" = "failed"): void { change(runId, outcome, outcome, { code, nextAction }); cleanup(runId); } function terminate(runId: string, tracked: TrackedChild): Promise<void> { tracked.termination ??= terminateChild(tracked.child).finally(() => children.delete(runId)); return tracked.termination; }
-  async function execute(witness: Witness, resolved: InternalPresetResolution, entrypoint: { readonly commandRef: string; readonly commandSha256: string; readonly produces: readonly { readonly id: string }[] }, inputs: Readonly<Record<string, unknown>>, taskId: string | undefined, port: PresetProcessExecutionPort): Promise<void> {
-    if (closed) { fail(witness.runId, "daemon_stopped", "The daemon stopped before spawn."); return; } const stage = path.join(stagingRoot, witness.runId), packageRoot = path.join(stage, "package");
-    try { mkdirSync(stage, { mode: 0o700 }); cpSync(resolved.packageRoot, packageRoot, { recursive: true, errorOnExist: true }); if (decodePresetPackageV3(packageRoot).packageDigest !== resolved.packageDigest) throw presetProcessError("package_changed", "Preset package changed after admission."); }
-    catch (error) { const known = consumeKnownError(error); fail(witness.runId, known.code, known.message); return; }
-    const spawnStage = realpathSync.native(stage), spawnPackage = path.join(spawnStage, "package"), command = path.resolve(spawnPackage, entrypoint.commandRef); if (!isWithinPresetRunRoot(spawnPackage, command) || digest(readFileSync(command, "utf8")) !== `sha256:${entrypoint.commandSha256}`) { fail(witness.runId, "package_changed", "Entrypoint bytes changed after admission."); return; }
-    save({ ...witnesses.get(witness.runId)!, processToken: randomUUID() }); let frame: string | undefined, exited = false, settled = false, disconnected = false, diagnostic = "";
-    const child = spawn(process.execPath, ["--permission", `--allow-fs-read=${spawnStage}`, `--allow-fs-write=${spawnStage}`, command], { cwd: spawnStage, env: { PATH: process.env.PATH, HOME: spawnStage, TMPDIR: spawnStage, HA_PRESET_INPUT: JSON.stringify(inputs), ...(taskId ? { HA_PRESET_TASK_ID: taskId } : {}), HA_PRESET_RESULT_PROTOCOL: "preset-script-result/v1" }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }); const tracked: TrackedChild = { child, freeze: () => { settled = true; clearTimeout(timer); } }; children.set(witness.runId, tracked);
-    const timer = setTimeout(() => stop("timeout", `Entrypoint exceeded ${timeoutMs}ms.`), timeoutMs); timer.unref();
-    const stop = (code: string, nextAction: string, outcome: "failed" | "outcome_unknown" = "failed") => { if (settled) return; settled = true; clearTimeout(timer); void terminate(witness.runId, tracked).then(() => fail(witness.runId, code, nextAction, outcome)); };
-    child.stderr?.on("data", (chunk) => { diagnostic = `${diagnostic}${String(chunk)}`.slice(-8_192); }); child.once("spawn", () => { change(witness.runId, "spawned", "running"); change(witness.runId, "running", "running"); }); child.stdout?.on("data", (chunk) => { frame = `${frame ?? ""}${String(chunk)}`; if (Buffer.byteLength(frame) > maxResultBytes) stop("result_oversize", `Child result exceeds ${maxResultBytes} bytes.`); }); child.stdout?.once("close", () => { disconnected = true; setTimeout(() => { if (!exited && frame === undefined) stop("child_disconnect", `Child disconnected before returning a result.${diagnostic ? ` ${diagnostic.trim()}` : ""}`); }, 25); }); child.once("error", (error) => stop("spawn_failed", error.message));
-    child.once("exit", (code, signal) => { exited = true; void complete(code, signal); });
-    async function complete(code: number | null, signal: NodeJS.Signals | null): Promise<void> { if (settled) return; if (signal) return stop("child_signal", `Child exited on ${signal}.`); if (code !== 0) return stop("child_exit", `Child exited with code ${code ?? "unknown"}.`); if (frame === undefined) return stop(disconnected ? "missing_result" : "missing_result", "Child exited without a result frame."); let result: ScriptResult; try { result = parseResult(frame); } catch (error) { const known = consumeKnownError(error); return stop(known.code, known.message); }
-      const resultDigest = digest(canonicalPresetBytes(result)); change(witness.runId, "publishing", "running", { resultDigest }); const seen = new Set<string>(); for (const produce of result.produces) { if (seen.has(produce.capabilityId)) return stop("duplicate_produce", `Produce ${produce.capabilityId} appears more than once.`); seen.add(produce.capabilityId); const declared = entrypoint.produces.find(({ id }) => id === produce.capabilityId), provider = resolved.produceActions[produce.capabilityId]; if (!declared || !provider || !exactFields(produce.payload, provider.payloadFields)) return stop("invalid_produce", `Produce ${produce.capabilityId} is not declared or has invalid fields.`); let published: PresetProducedReceipt; try { published = await port.publish({ kind: provider.actionKind, ...produce.payload }); } catch (error) { return stop("publication_unknown", consumeKnownError(error).message, "outcome_unknown"); } if (settled) return; if (published.outcome !== "applied") return stop(published.code ?? "publication_unknown", published.nextAction ?? "Inspect the direct RepoCell receipt.", published.outcome === "op_rejected" ? "failed" : "outcome_unknown"); }
-      settled = true; clearTimeout(timer); change(witness.runId, "applied", "applied", { resultDigest }); rmSync(stage, { recursive: true, force: true }); children.delete(witness.runId);
+  function save(witness: Witness): Witness {
+    witnesses.set(witness.runId, witness);
+    const target = path.join(witnessRoot, `${witness.runId}.json`),
+      temporary = path.join(witnessRoot, `.${witness.runId}-${randomUUID()}.tmp`);
+    writeFileSync(temporary, `${canonicalPresetBytes(witness)}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(temporary, target);
+    return witness;
+  }
+  function change(
+    runId: string,
+    phase: PresetRunPhaseV1,
+    outcome: PresetRunOutcomeV1,
+    extra: Partial<Witness> = {},
+  ): Witness {
+    const current = witnesses.get(runId);
+    if (!current || terminal.has(current.outcome)) return current!;
+    return save({ ...current, ...extra, outcome, phase, phases: [...current.phases, phase] });
+  }
+  function cleanup(runId: string): void {
+    const stage = path.join(stagingRoot, runId);
+    if (existsSync(stage)) rmSync(stage, { recursive: true, force: true });
+  }
+  function fail(
+    runId: string,
+    code: string,
+    nextAction: string,
+    outcome: "failed" | "outcome_unknown" = "failed",
+  ): void {
+    change(runId, outcome, outcome, { code, nextAction });
+    cleanup(runId);
+  }
+  function terminate(runId: string, tracked: TrackedChild): Promise<void> {
+    tracked.termination ??= terminateChild(tracked.child).finally(() => children.delete(runId));
+    return tracked.termination;
+  }
+  async function execute(
+    witness: Witness,
+    resolved: InternalPresetResolution,
+    entrypoint: {
+      readonly commandRef: string;
+      readonly commandSha256: string;
+      readonly produces: readonly { readonly id: string }[];
+    },
+    inputs: Readonly<Record<string, unknown>>,
+    taskId: string | undefined,
+    port: PresetProcessExecutionPort,
+  ): Promise<void> {
+    if (closed) {
+      fail(witness.runId, "daemon_stopped", "The daemon stopped before spawn.");
+      return;
+    }
+    const stage = path.join(stagingRoot, witness.runId),
+      packageRoot = path.join(stage, "package");
+    try {
+      mkdirSync(stage, { mode: 0o700 });
+      cpSync(resolved.packageRoot, packageRoot, { recursive: true, errorOnExist: true });
+      if (decodePresetPackageV3(packageRoot).packageDigest !== resolved.packageDigest)
+        throw presetProcessError("package_changed", "Preset package changed after admission.");
+    } catch (error) {
+      const known = consumeKnownError(error);
+      fail(witness.runId, known.code, known.message);
+      return;
+    }
+    const spawnStage = realpathSync.native(stage),
+      spawnPackage = path.join(spawnStage, "package"),
+      command = path.resolve(spawnPackage, entrypoint.commandRef);
+    if (
+      !isWithinPresetRunRoot(spawnPackage, command) ||
+      digest(readFileSync(command, "utf8")) !== `sha256:${entrypoint.commandSha256}`
+    ) {
+      fail(witness.runId, "package_changed", "Entrypoint bytes changed after admission.");
+      return;
+    }
+    save({ ...witnesses.get(witness.runId)!, processToken: randomUUID() });
+    let frame: string | undefined,
+      exited = false,
+      settled = false,
+      disconnected = false,
+      diagnostic = "";
+    const child = spawn(
+      process.execPath,
+      ["--permission", `--allow-fs-read=${spawnStage}`, `--allow-fs-write=${spawnStage}`, command],
+      {
+        cwd: spawnStage,
+        env: {
+          PATH: process.env.PATH,
+          HOME: spawnStage,
+          TMPDIR: spawnStage,
+          HA_PRESET_INPUT: JSON.stringify(inputs),
+          ...(taskId ? { HA_PRESET_TASK_ID: taskId } : {}),
+          HA_PRESET_RESULT_PROTOCOL: "preset-script-result/v1",
+        },
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    const tracked: TrackedChild = {
+      child,
+      freeze: () => {
+        settled = true;
+        clearTimeout(timer);
+      },
+    };
+    children.set(witness.runId, tracked);
+    const timer = setTimeout(() => stop("timeout", `Entrypoint exceeded ${timeoutMs}ms.`), timeoutMs);
+    timer.unref();
+    const stop = (code: string, nextAction: string, outcome: "failed" | "outcome_unknown" = "failed") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      void terminate(witness.runId, tracked).then(() => fail(witness.runId, code, nextAction, outcome));
+    };
+    child.stderr?.on("data", (chunk) => {
+      diagnostic = `${diagnostic}${String(chunk)}`.slice(-8_192);
+    });
+    child.once("spawn", () => {
+      change(witness.runId, "spawned", "running");
+      change(witness.runId, "running", "running");
+    });
+    child.stdout?.on("data", (chunk) => {
+      frame = `${frame ?? ""}${String(chunk)}`;
+      if (Buffer.byteLength(frame) > maxResultBytes)
+        stop("result_oversize", `Child result exceeds ${maxResultBytes} bytes.`);
+    });
+    child.stdout?.once("close", () => {
+      disconnected = true;
+      setTimeout(() => {
+        if (!exited && frame === undefined)
+          stop(
+            "child_disconnect",
+            `Child disconnected before returning a result.${diagnostic ? ` ${diagnostic.trim()}` : ""}`,
+          );
+      }, 25);
+    });
+    child.once("error", (error) => stop("spawn_failed", error.message));
+    child.once("exit", (code, signal) => {
+      exited = true;
+      void complete(code, signal);
+    });
+    async function complete(code: number | null, signal: NodeJS.Signals | null): Promise<void> {
+      if (settled) return;
+      if (signal) return stop("child_signal", `Child exited on ${signal}.`);
+      if (code !== 0) return stop("child_exit", `Child exited with code ${code ?? "unknown"}.`);
+      if (frame === undefined)
+        return stop(disconnected ? "missing_result" : "missing_result", "Child exited without a result frame.");
+      let result: ScriptResult;
+      try {
+        result = parseResult(frame);
+      } catch (error) {
+        const known = consumeKnownError(error);
+        return stop(known.code, known.message);
+      }
+      const resultDigest = digest(canonicalPresetBytes(result));
+      change(witness.runId, "publishing", "running", { resultDigest });
+      const seen = new Set<string>();
+      for (const produce of result.produces) {
+        if (seen.has(produce.capabilityId))
+          return stop("duplicate_produce", `Produce ${produce.capabilityId} appears more than once.`);
+        seen.add(produce.capabilityId);
+        const declared = entrypoint.produces.find(({ id }) => id === produce.capabilityId),
+          provider = resolved.produceActions[produce.capabilityId];
+        if (!declared || !provider || !exactFields(produce.payload, provider.payloadFields))
+          return stop("invalid_produce", `Produce ${produce.capabilityId} is not declared or has invalid fields.`);
+        let published: PresetProducedReceipt;
+        try {
+          published = await port.publish({ kind: provider.actionKind, ...produce.payload });
+        } catch (error) {
+          return stop("publication_unknown", consumeKnownError(error).message, "outcome_unknown");
+        }
+        if (settled) return;
+        if (published.outcome !== "applied")
+          return stop(
+            published.code ?? "publication_unknown",
+            published.nextAction ?? "Inspect the direct RepoCell receipt.",
+            published.outcome === "op_rejected" ? "failed" : "outcome_unknown",
+          );
+      }
+      settled = true;
+      clearTimeout(timer);
+      change(witness.runId, "applied", "applied", { resultDigest });
+      rmSync(stage, { recursive: true, force: true });
+      children.delete(witness.runId);
     }
   }
 }
 
-function receipt(witness: Witness): PresetRunReceiptV1 { const value = { schema: "preset-run-receipt/v1" as const, runId: witness.runId, outcome: witness.outcome, phase: witness.phase, phases: witness.phases, ...(witness.snapshotDigest ? { snapshotDigest: witness.snapshotDigest } : {}), ...(witness.resultDigest ? { resultDigest: witness.resultDigest } : {}), ...(witness.code ? { code: witness.code } : {}), ...(witness.nextAction ? { nextAction: witness.nextAction } : {}) }; if (validatePresetRunReceiptV1(value).length) throw presetProcessError("invalid_witness", "Preset run witness cannot project a valid receipt."); return value; }
-function rejection(runId: string, code: string, nextAction: string): PresetRunReceiptV1 { return { schema: "preset-run-receipt/v1", runId, outcome: "op_rejected", phase: "op_rejected", phases: ["op_rejected"], code, nextAction }; }
-function loadWitness(target: string): Witness { const value = JSON.parse(readFileSync(target, "utf8")) as Witness; if (!isPresetRunRecord(value) || value.schema !== "preset-run-witness/v1" || !isNonEmptyRunText(value.runId) || !isNonEmptyRunText(value.idempotencyKey) || !/^sha256:[0-9a-f]{64}$/u.test(value.requestDigest) || validatePresetRunReceiptV1(receipt(value)).length) throw presetProcessError("invalid_witness", `Invalid preset run witness ${path.basename(target)}.`); return value; }
-function parseResult(frame: string): ScriptResult { let value: unknown; try { value = JSON.parse(frame.trim()); } catch { throw presetProcessError("malformed_result", "Child result is not JSON."); } if (!isPresetRunRecord(value) || Object.keys(value).length !== 2 || value.schema !== "preset-script-result/v1" || !Array.isArray(value.produces) || !value.produces.every((item) => isPresetRunRecord(item) && Object.keys(item).length === 2 && isNonEmptyRunText(item.capabilityId) && isPresetRunRecord(item.payload))) throw presetProcessError("malformed_result", "Child result does not match preset-script-result/v1."); return value as unknown as ScriptResult; }
-function validateInputs(declared: readonly { readonly name: string; readonly type: "string" | "number" | "boolean" | "json"; readonly required: boolean }[], inputs: Readonly<Record<string, unknown>>): void { for (const field of Object.keys(inputs)) if (!declared.some(({ name }) => name === field)) throw presetProcessError("invalid_input", `Input ${field} is not declared.`); for (const input of declared) { const value = inputs[input.name]; if (value === undefined && input.required) throw presetProcessError("invalid_input", `Input ${input.name} is required.`); if (value !== undefined && (input.type === "json" ? !isPresetRunRecord(value) && !Array.isArray(value) : typeof value !== input.type)) throw presetProcessError("invalid_input", `Input ${input.name} must be ${input.type}.`); } }
-function ensureTree(root: string, ...targets: string[]): void { if (!existsSync(root) || !lstatSync(root).isDirectory() || lstatSync(root).isSymbolicLink()) throw presetProcessError("invalid_run_root", "Repository root must be a regular directory."); for (const target of targets) { const relative = path.relative(root, target); if (relative.startsWith("..") || path.isAbsolute(relative)) throw presetProcessError("invalid_run_root", "Preset run state must remain inside the repository root."); let current = root; for (const part of relative.split(path.sep).filter(Boolean)) { current = path.join(current, part); if (existsSync(current)) { if (!lstatSync(current).isDirectory() || lstatSync(current).isSymbolicLink()) throw presetProcessError("invalid_run_root", `${current} is not a regular directory.`); } else mkdirSync(current, { mode: 0o700 }); } } } function terminateChild(child: ChildProcess): Promise<void> { if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(); return new Promise((resolve) => { let bound: NodeJS.Timeout | undefined, finished = false; const done = () => { if (finished) return; finished = true; clearTimeout(force); if (bound) clearTimeout(bound); child.off("close", done); resolve(); }, force = setTimeout(() => { bound = setTimeout(done, terminationGraceMs); bound.unref(); child.kill("SIGKILL"); }, terminationGraceMs); child.once("close", done); force.unref(); child.kill("SIGTERM"); }); }
-function exactFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean { return Object.keys(value).every((field) => fields.includes(field)); } function isPresetRunRecord(value: unknown): value is Readonly<Record<string, unknown>> { return value !== null && typeof value === "object" && !Array.isArray(value); } function isNonEmptyRunText(value: unknown): value is string { return typeof value === "string" && value.trim().length > 0; } function digest(value: unknown): `sha256:${string}` { return `sha256:${createHash("sha256").update(typeof value === "string" ? value : canonicalPresetBytes(value)).digest("hex")}`; } function isWithinPresetRunRoot(root: string, target: string): boolean { const relative = path.relative(root, target); return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative); }
-function presetProcessError(code: string, message: string): Error & { readonly code: string } { return Object.assign(new Error(message), { code }); }
+function receipt(witness: Witness): PresetRunReceiptV1 {
+  const value = {
+    schema: "preset-run-receipt/v1" as const,
+    runId: witness.runId,
+    outcome: witness.outcome,
+    phase: witness.phase,
+    phases: witness.phases,
+    ...(witness.snapshotDigest ? { snapshotDigest: witness.snapshotDigest } : {}),
+    ...(witness.resultDigest ? { resultDigest: witness.resultDigest } : {}),
+    ...(witness.code ? { code: witness.code } : {}),
+    ...(witness.nextAction ? { nextAction: witness.nextAction } : {}),
+  };
+  if (validatePresetRunReceiptV1(value).length)
+    throw presetProcessError("invalid_witness", "Preset run witness cannot project a valid receipt.");
+  return value;
+}
+function rejection(runId: string, code: string, nextAction: string): PresetRunReceiptV1 {
+  return {
+    schema: "preset-run-receipt/v1",
+    runId,
+    outcome: "op_rejected",
+    phase: "op_rejected",
+    phases: ["op_rejected"],
+    code,
+    nextAction,
+  };
+}
+function loadWitness(target: string): Witness {
+  const value = JSON.parse(readFileSync(target, "utf8")) as Witness;
+  if (
+    !isPresetRunRecord(value) ||
+    value.schema !== "preset-run-witness/v1" ||
+    !isNonEmptyRunText(value.runId) ||
+    !isNonEmptyRunText(value.idempotencyKey) ||
+    !/^sha256:[0-9a-f]{64}$/u.test(value.requestDigest) ||
+    validatePresetRunReceiptV1(receipt(value)).length
+  )
+    throw presetProcessError("invalid_witness", `Invalid preset run witness ${path.basename(target)}.`);
+  return value;
+}
+function parseResult(frame: string): ScriptResult {
+  let value: unknown;
+  try {
+    value = JSON.parse(frame.trim());
+  } catch {
+    throw presetProcessError("malformed_result", "Child result is not JSON.");
+  }
+  if (
+    !isPresetRunRecord(value) ||
+    Object.keys(value).length !== 2 ||
+    value.schema !== "preset-script-result/v1" ||
+    !Array.isArray(value.produces) ||
+    !value.produces.every(
+      (item) =>
+        isPresetRunRecord(item) &&
+        Object.keys(item).length === 2 &&
+        isNonEmptyRunText(item.capabilityId) &&
+        isPresetRunRecord(item.payload),
+    )
+  )
+    throw presetProcessError("malformed_result", "Child result does not match preset-script-result/v1.");
+  return value as unknown as ScriptResult;
+}
+function validateInputs(
+  declared: readonly {
+    readonly name: string;
+    readonly type: "string" | "number" | "boolean" | "json";
+    readonly required: boolean;
+  }[],
+  inputs: Readonly<Record<string, unknown>>,
+): void {
+  for (const field of Object.keys(inputs))
+    if (!declared.some(({ name }) => name === field))
+      throw presetProcessError("invalid_input", `Input ${field} is not declared.`);
+  for (const input of declared) {
+    const value = inputs[input.name];
+    if (value === undefined && input.required)
+      throw presetProcessError("invalid_input", `Input ${input.name} is required.`);
+    if (
+      value !== undefined &&
+      (input.type === "json" ? !isPresetRunRecord(value) && !Array.isArray(value) : typeof value !== input.type)
+    )
+      throw presetProcessError("invalid_input", `Input ${input.name} must be ${input.type}.`);
+  }
+}
+function ensureTree(root: string, ...targets: string[]): void {
+  if (!existsSync(root) || !lstatSync(root).isDirectory() || lstatSync(root).isSymbolicLink())
+    throw presetProcessError("invalid_run_root", "Repository root must be a regular directory.");
+  for (const target of targets) {
+    const relative = path.relative(root, target);
+    if (relative.startsWith("..") || path.isAbsolute(relative))
+      throw presetProcessError("invalid_run_root", "Preset run state must remain inside the repository root.");
+    let current = root;
+    for (const part of relative.split(path.sep).filter(Boolean)) {
+      current = path.join(current, part);
+      if (existsSync(current)) {
+        if (!lstatSync(current).isDirectory() || lstatSync(current).isSymbolicLink())
+          throw presetProcessError("invalid_run_root", `${current} is not a regular directory.`);
+      } else mkdirSync(current, { mode: 0o700 });
+    }
+  }
+}
+function terminateChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    let bound: NodeJS.Timeout | undefined,
+      finished = false;
+    const done = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(force);
+        if (bound) clearTimeout(bound);
+        child.off("close", done);
+        resolve();
+      },
+      force = setTimeout(() => {
+        bound = setTimeout(done, terminationGraceMs);
+        bound.unref();
+        child.kill("SIGKILL");
+      }, terminationGraceMs);
+    child.once("close", done);
+    force.unref();
+    child.kill("SIGTERM");
+  });
+}
+function exactFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
+  return Object.keys(value).every((field) => fields.includes(field));
+}
+function isPresetRunRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function isNonEmptyRunText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+function digest(value: unknown): `sha256:${string}` {
+  return `sha256:${createHash("sha256")
+    .update(typeof value === "string" ? value : canonicalPresetBytes(value))
+    .digest("hex")}`;
+}
+function isWithinPresetRunRoot(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+function presetProcessError(code: string, message: string): Error & { readonly code: string } {
+  return Object.assign(new Error(message), { code });
+}

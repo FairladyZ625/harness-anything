@@ -97,6 +97,44 @@ test("a many-to-one compression is rejected when the longest line grows even as 
   });
 });
 
+test("a restoration split across git's own hunk boundaries is allowed", () => {
+  // `git diff -U0` can put a removal in one hunk and the bulk of the matching
+  // insertion in the very next hunk once the rewritten header no longer looks
+  // like a small edit of the old one. This is exactly what happened restoring
+  // packages/kernel/src/domain/fact-event.ts: the compressed one-liner was
+  // removed in one hunk, and most of its expansion landed in a second,
+  // zero-removal hunk immediately after. Per-hunk comparison blames the second
+  // hunk for content the first hunk already paid for; per-file comparison must
+  // not.
+  const first = hunk("packages/kernel/src/a.ts", 39, {
+    added: ["function body(records) {"],
+    removed: ["x".repeat(600)]
+  });
+  const second = hunk("packages/kernel/src/a.ts", 51, {
+    added: [LONG, "  return records.join(newline);", "}"],
+    removed: []
+  });
+  assert.deepEqual(findViolations([first, second].join("\n")), []);
+});
+
+test("a genuinely new overlong line is still rejected when a sibling hunk in the same file is unrelated", () => {
+  const first = hunk("packages/kernel/src/a.ts", 5, {
+    added: ["const a = 1;"],
+    removed: ["const a = 1;"]
+  });
+  const second = hunk("packages/kernel/src/a.ts", 40, { added: [LONG] });
+  const violations = findViolations([first, second].join("\n"));
+  assert.equal(violations.length, 1);
+  assert.deepEqual(violations[0], {
+    filePath: "packages/kernel/src/a.ts",
+    lineNumber: 5,
+    addedLongCharacters: LONG.length,
+    removedLongCharacters: 0,
+    addedMaxLineLength: LONG.length,
+    removedMaxLineLength: 0
+  });
+});
+
 test("non-production paths are out of scope", () => {
   assert.deepEqual(findViolations(hunk("tools/gates/line-density.mjs", 1, { added: [LONG] })), []);
   assert.deepEqual(findViolations(hunk("packages/kernel/test/a.test.ts", 1, { added: [LONG] })), []);
@@ -145,7 +183,7 @@ test("the rejection carries the whole specification, not just a pointer", () => 
   assert.match(message, /writing new code in the style of the code already around it/u);
   assert.match(message, /not a mistake you made/u);
   assert.match(message, /task_7fc88830d00f0b8157a498a85c/u);
-  assert.match(message, /obligation is bounded to the hunks listed above/u);
+  assert.match(message, /obligation is bounded to the files listed above/u);
 
   // preempt the reflex the gate is most likely to provoke
   assert.match(message, /ceiling and design limit was doubled/u);
@@ -167,6 +205,6 @@ test("a truncated report still states the true total", () => {
     removedMaxLineLength: 0
   }));
   const message = explain(many);
-  assert.match(message, /25 production hunk\(s\) increased overlong content/u);
+  assert.match(message, /25 production file\(s\) increased overlong content/u);
   assert.match(message, /and 5 more \(25 total\)/u);
 });

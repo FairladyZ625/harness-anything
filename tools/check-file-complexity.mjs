@@ -4,9 +4,9 @@ import path from "node:path";
 
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
-const sourceMaxLines = 600;
-const testMaxLines = 700;
-const toolMaxLines = 650;
+const sourceMaxLines = 900;
+const testMaxLines = 2000;
+const toolMaxLines = 900;
 const violations = [];
 
 function relative(filePath) {

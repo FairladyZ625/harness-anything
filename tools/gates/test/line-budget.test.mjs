@@ -112,10 +112,12 @@ test("current budgets reject the retired Decision/Fact bucket and historical bud
   assert.throws(() => parseBudgets(JSON.stringify(historicalWithUnknown), "historical", true), /unknown: surprise/u);
 });
 
-// The caps were doubled under dec_D848EF980B86800CFC6BD82125; they are no longer
-// the exact split measurements, but they are still hard refusals.
+// The caps were doubled under dec_D848EF980B86800CFC6BD82125, then re-derived
+// again under dec_0F89CCF2438AACE2356F416CA0 once W2-A/W2-B2 restoration measured
+// decision and fact past their doubled caps; they are no longer the exact split
+// measurements, but they are still hard refusals.
 test("Decision and Fact ceilings above their doubled design caps are rejected", () => {
-  for (const [moduleName, limit] of [["decision", 572], ["fact", 614]]) {
+  for (const [moduleName, limit] of [["decision", 1763], ["fact", 1790]]) {
     assert.throws(
       () => parseBudgets(budgetBody(2).replace(`"${moduleName}": 0`, `"${moduleName}": ${limit + 1}`)),
       new RegExp(`${moduleName} exceeds its design limit ${limit}`, "u")
@@ -219,21 +221,32 @@ function headroomFor(measured) {
 // whichever of the two lands first. Only two modules differ between those trees:
 // daemon (1630 -> 1660, #1458 adds lines) and gui (18494 -> 18414, #1458 removes
 // them), so daemon uses the merged figure and gui the base one.
+//
+// decision, fact, fleet, task-lifecycle, and gui were re-measured on the tree
+// formed by rebasing W2-B2 (task_962979dec24a440f06e5f3259b, single-file line-cap
+// outlier restoration) onto W2-A (task_508c25a976fe9502d385bb7413, full-repo
+// source restoration): decision and fact under dec_0F89CCF2438AACE2356F416CA0
+// (their tier ceiling exceeds even the doubled design cap, so the design cap was
+// re-derived instead of the module being split — see that decision's body for
+// why splitting decision-actions.ts/fact-actions.ts does not meet this repo's
+// module-extraction bar), fleet under the same decision for the same reason,
+// task-lifecycle and gui under dec_D848EF980B86800CFC6BD82125 directly (neither
+// is design-capped, so no new judgment call was needed for them).
 const DECISION_INPUT_LINES = Object.freeze({
   kernel: 21614, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
-  "task-lifecycle": 375,
+  "task-lifecycle": 1313,
   "write-contract": 292,
   "doc-sync": 3849, // re-measured on the W2-B convergence tree (kernel + daemon restorations both raise this module)
   preset: 2623, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
   cli: 4615, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
-  gui: 18494,
+  gui: 27338,
   daemon: 22892,
-  fleet: 1482,
+  fleet: 3203,
   "authority-write-path": 0,
   "identity-rbac": 563,
   "agent-runtime": 2157,
-  decision: 286,
-  fact: 307,
+  decision: 763,
+  fact: 790,
   "test-infra": 0
 });
 

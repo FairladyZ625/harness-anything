@@ -1,6 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-import { formatRelationFlowRecord, parseEntityRef, validateRelationRecordsForHost, type EntityRelationRecord, type EntityRelationValidationIssue } from "../domain/index.ts";
+import {
+  formatRelationFlowRecord,
+  parseEntityRef,
+  validateRelationRecordsForHost,
+  type EntityRelationRecord,
+  type EntityRelationValidationIssue,
+} from "../domain/index.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
@@ -9,15 +15,85 @@ import { deriveRelationTaskAuthoredSources, type RelationAuthoredSourceKind } fr
 import { sourcePath } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
-export interface RelationGraphEdgeRow { readonly relationId: string; readonly sourceRef: string; readonly targetRef: string; readonly relationType: EntityRelationRecord["type"]; readonly direction: EntityRelationRecord["direction"]; readonly strength: EntityRelationRecord["strength"]; readonly origin: EntityRelationRecord["origin"]; readonly state: EntityRelationRecord["state"]; readonly rationale: string; readonly ownerRef: string; readonly sourcePath: string; readonly recordIndex: number }
-export interface RelationCoverageRow { readonly decisionRef: string; readonly claimRef: string; readonly status: "covered" | "uncovered"; readonly fulfillment: "evidenced" | "delivered" | "standing-policy" | null; readonly coveringFactRef?: string; readonly refutingFactRefs?: readonly string[]; readonly relationPath: readonly string[]; readonly basisRevision?: number }
-export interface FactAnchorRow { readonly factRef: string; readonly taskId: string; readonly factId: string; readonly sourcePath: string }
-export interface RelationFactRow { readonly schema: "task-fact-row/v1"; readonly ref: string; readonly taskId: string; readonly factId: string; readonly statement: string; readonly source: string; readonly observedAt: string; readonly confidence: "low" | "medium" | "high"; readonly memoryClass: "semantic" | "episodic" | "procedural"; readonly memoryTags: readonly string[]; readonly provenance: readonly { readonly runtime: string; readonly sessionId: string; readonly boundAt: string }[]; readonly liveness: "standing" | "superseded_fact" }
-export interface DecisionAnchorTruth { readonly decisionRef: string; readonly decisionId: string; readonly anchorRefs: readonly string[]; readonly sourcePath: string }
-export interface EventBackedRelationTruth { readonly factAnchors: readonly FactAnchorRow[]; readonly decisionAnchors: readonly DecisionAnchorTruth[]; readonly edges: readonly RelationGraphEdgeRow[]; readonly coverageRows: readonly RelationCoverageRow[] }
-export interface RelationGraphProjection { readonly edges: readonly RelationGraphEdgeRow[]; readonly coverageRows: readonly RelationCoverageRow[]; readonly factAnchors: readonly FactAnchorRow[] }
-export interface RelationRecordEntry { readonly hostRef: string; readonly ownerRef: string; readonly sourceKind: RelationAuthoredSourceKind; readonly record: EntityRelationRecord; readonly sourcePath: string; readonly recordIndex: number }
-export interface RelationRecordValidationIssue { readonly entry: RelationRecordEntry; readonly issue: EntityRelationValidationIssue | { readonly code: "relation_provenance_inheritance_mismatch" | "relation_endpoint_unknown"; readonly relationId?: string; readonly message: string } }
+export interface RelationGraphEdgeRow {
+  readonly relationId: string;
+  readonly sourceRef: string;
+  readonly targetRef: string;
+  readonly relationType: EntityRelationRecord["type"];
+  readonly direction: EntityRelationRecord["direction"];
+  readonly strength: EntityRelationRecord["strength"];
+  readonly origin: EntityRelationRecord["origin"];
+  readonly state: EntityRelationRecord["state"];
+  readonly rationale: string;
+  readonly ownerRef: string;
+  readonly sourcePath: string;
+  readonly recordIndex: number;
+}
+export interface RelationCoverageRow {
+  readonly decisionRef: string;
+  readonly claimRef: string;
+  readonly status: "covered" | "uncovered";
+  readonly fulfillment: "evidenced" | "delivered" | "standing-policy" | null;
+  readonly coveringFactRef?: string;
+  readonly refutingFactRefs?: readonly string[];
+  readonly relationPath: readonly string[];
+  readonly basisRevision?: number;
+}
+export interface FactAnchorRow {
+  readonly factRef: string;
+  readonly taskId: string;
+  readonly factId: string;
+  readonly sourcePath: string;
+}
+export interface RelationFactRow {
+  readonly schema: "task-fact-row/v1";
+  readonly ref: string;
+  readonly taskId: string;
+  readonly factId: string;
+  readonly statement: string;
+  readonly source: string;
+  readonly observedAt: string;
+  readonly confidence: "low" | "medium" | "high";
+  readonly memoryClass: "semantic" | "episodic" | "procedural";
+  readonly memoryTags: readonly string[];
+  readonly provenance: readonly { readonly runtime: string; readonly sessionId: string; readonly boundAt: string }[];
+  readonly liveness: "standing" | "superseded_fact";
+}
+export interface DecisionAnchorTruth {
+  readonly decisionRef: string;
+  readonly decisionId: string;
+  readonly anchorRefs: readonly string[];
+  readonly sourcePath: string;
+}
+export interface EventBackedRelationTruth {
+  readonly factAnchors: readonly FactAnchorRow[];
+  readonly decisionAnchors: readonly DecisionAnchorTruth[];
+  readonly edges: readonly RelationGraphEdgeRow[];
+  readonly coverageRows: readonly RelationCoverageRow[];
+}
+export interface RelationGraphProjection {
+  readonly edges: readonly RelationGraphEdgeRow[];
+  readonly coverageRows: readonly RelationCoverageRow[];
+  readonly factAnchors: readonly FactAnchorRow[];
+}
+export interface RelationRecordEntry {
+  readonly hostRef: string;
+  readonly ownerRef: string;
+  readonly sourceKind: RelationAuthoredSourceKind;
+  readonly record: EntityRelationRecord;
+  readonly sourcePath: string;
+  readonly recordIndex: number;
+}
+export interface RelationRecordValidationIssue {
+  readonly entry: RelationRecordEntry;
+  readonly issue:
+    | EntityRelationValidationIssue
+    | {
+        readonly code: "relation_provenance_inheritance_mismatch" | "relation_endpoint_unknown";
+        readonly relationId?: string;
+        readonly message: string;
+      };
+}
 
 export function createRelationGraphProjectionTables(db: DatabaseSync): void {
   db.exec(`
@@ -31,17 +107,198 @@ export function createRelationGraphProjectionTables(db: DatabaseSync): void {
 }
 
 const emptyTruth: EventBackedRelationTruth = { factAnchors: [], decisionAnchors: [], edges: [], coverageRows: [] };
-export function buildRelationGraphProjection(rootInput: HarnessLayoutInput, truth: EventBackedRelationTruth = emptyTruth): RelationGraphProjection { const entries = collectRelationRecordEntries(rootInput), refIndex = buildGraphRefIndex(rootInput, truth), authored = relationEntriesToEdges(entries, refIndex), edges = convergeEdges([...truth.edges, ...authored]); return { edges, coverageRows: truth.coverageRows, factAnchors: [...truth.factAnchors].sort((a, b) => a.factRef.localeCompare(b.factRef)) }; }
-export function validateRelationGraphRecords(rootInput: HarnessLayoutInput, truth: EventBackedRelationTruth = emptyTruth): readonly RelationRecordValidationIssue[] { return validateRelationRecordEntries(collectRelationRecordEntries(rootInput), buildGraphRefIndex(rootInput, truth)); }
-export function readRelationGraphAuthoredSourceKinds(rootInput: HarnessLayoutInput): readonly RelationAuthoredSourceKind[] { return [...new Set(collectRelationRecordEntries(rootInput).map((entry) => entry.sourceKind))].sort(); }
-export function detectRelationGraphCycles(edges: readonly RelationGraphEdgeRow[]): readonly (readonly string[])[] { const graph = new Map<string, string[]>(); for (const edge of edges) if (edge.state === "active") { graph.set(edge.sourceRef, [...graph.get(edge.sourceRef) ?? [], edge.targetRef]); if (!graph.has(edge.targetRef)) graph.set(edge.targetRef, []); } const visiting = new Set<string>(), visited = new Set<string>(), stack: string[] = [], cycles: string[][] = []; const visit = (ref: string): void => { if (visiting.has(ref)) { cycles.push(stack.slice(stack.indexOf(ref)).concat(ref)); return; } if (visited.has(ref) || cycles.length) return; visiting.add(ref); stack.push(ref); for (const target of graph.get(ref) ?? []) visit(target); stack.pop(); visiting.delete(ref); visited.add(ref); }; for (const ref of graph.keys()) visit(ref); return cycles; }
+export function buildRelationGraphProjection(
+  rootInput: HarnessLayoutInput,
+  truth: EventBackedRelationTruth = emptyTruth,
+): RelationGraphProjection {
+  const entries = collectRelationRecordEntries(rootInput),
+    refIndex = buildGraphRefIndex(rootInput, truth),
+    authored = relationEntriesToEdges(entries, refIndex),
+    edges = convergeEdges([...truth.edges, ...authored]);
+  return {
+    edges,
+    coverageRows: truth.coverageRows,
+    factAnchors: [...truth.factAnchors].sort((a, b) => a.factRef.localeCompare(b.factRef)),
+  };
+}
+export function validateRelationGraphRecords(
+  rootInput: HarnessLayoutInput,
+  truth: EventBackedRelationTruth = emptyTruth,
+): readonly RelationRecordValidationIssue[] {
+  return validateRelationRecordEntries(collectRelationRecordEntries(rootInput), buildGraphRefIndex(rootInput, truth));
+}
+export function readRelationGraphAuthoredSourceKinds(
+  rootInput: HarnessLayoutInput,
+): readonly RelationAuthoredSourceKind[] {
+  return [...new Set(collectRelationRecordEntries(rootInput).map((entry) => entry.sourceKind))].sort();
+}
+export function detectRelationGraphCycles(edges: readonly RelationGraphEdgeRow[]): readonly (readonly string[])[] {
+  const graph = new Map<string, string[]>();
+  for (const edge of edges)
+    if (edge.state === "active") {
+      graph.set(edge.sourceRef, [...(graph.get(edge.sourceRef) ?? []), edge.targetRef]);
+      if (!graph.has(edge.targetRef)) graph.set(edge.targetRef, []);
+    }
+  const visiting = new Set<string>(),
+    visited = new Set<string>(),
+    stack: string[] = [],
+    cycles: string[][] = [];
+  const visit = (ref: string): void => {
+    if (visiting.has(ref)) {
+      cycles.push(stack.slice(stack.indexOf(ref)).concat(ref));
+      return;
+    }
+    if (visited.has(ref) || cycles.length) return;
+    visiting.add(ref);
+    stack.push(ref);
+    for (const target of graph.get(ref) ?? []) visit(target);
+    stack.pop();
+    visiting.delete(ref);
+    visited.add(ref);
+  };
+  for (const ref of graph.keys()) visit(ref);
+  return cycles;
+}
 
-function collectRelationRecordEntries(rootInput: HarnessLayoutInput): readonly RelationRecordEntry[] { const layout = resolveHarnessLayout(rootInput), entries: RelationRecordEntry[] = []; for (const taskDir of listTaskDirs(layout.tasksRoot)) { const taskId = readTaskPackageId(taskDir); for (const source of deriveRelationTaskAuthoredSources(taskDir)) { const body = readTextFileIfPresent(source.filePath), frontmatter = body === null ? null : readFrontmatter(body); if (!frontmatter) continue; parseRelationFlowRecords(frontmatter).forEach((record, recordIndex) => entries.push({ hostRef: `task/${taskId}`, ownerRef: `task/${taskId}`, sourceKind: source.kind, record, sourcePath: sourcePath(layout.rootDir, source.filePath), recordIndex })); } } return entries.sort((a, b) => a.sourcePath.localeCompare(b.sourcePath) || a.recordIndex - b.recordIndex); }
-function relationEntriesToEdges(entries: readonly RelationRecordEntry[], index: GraphRefIndex): readonly RelationGraphEdgeRow[] { return entries.filter((entry) => validateRelationRecordsForHost(entry.hostRef, [entry.record]).length === 0 && known(entry.record.source, index) && known(entry.record.target, index)).map((entry) => ({ relationId: entry.record.relation_id, sourceRef: entry.record.source, targetRef: entry.record.target, relationType: entry.record.type, direction: entry.record.direction, strength: entry.record.strength, origin: entry.record.origin, state: entry.record.state, rationale: entry.record.rationale, ownerRef: entry.ownerRef, sourcePath: entry.sourcePath, recordIndex: entry.recordIndex })); }
-function convergeEdges(rows: readonly RelationGraphEdgeRow[]): readonly RelationGraphEdgeRow[] { const seen = new Map<string, string>(), result: RelationGraphEdgeRow[] = []; for (const row of rows) { const bytes = JSON.stringify(row); if (!seen.has(row.relationId)) { seen.set(row.relationId, bytes); result.push(row); } else if (seen.get(row.relationId) !== bytes) continue; } return result.sort((a, b) => a.relationId.localeCompare(b.relationId)); }
-interface GraphRefIndex { readonly taskIds: ReadonlySet<string>; readonly decisionRefs: ReadonlySet<string>; readonly factRefs: ReadonlySet<string> }
-function buildGraphRefIndex(rootInput: HarnessLayoutInput, truth: EventBackedRelationTruth): GraphRefIndex { const layout = resolveHarnessLayout(rootInput), taskIds = new Set(listTaskDirs(layout.tasksRoot).map(readTaskPackageId)), decisionRefs = new Set(truth.decisionAnchors.flatMap((row) => row.anchorRefs)), factRefs = new Set(truth.factAnchors.map((row) => row.factRef)); for (const edge of truth.edges) { const task = /^task\/([^/]+)$/u.exec(edge.sourceRef)?.[1] ?? /^task\/([^/]+)$/u.exec(edge.targetRef)?.[1]; if (task) taskIds.add(task); } return { taskIds, decisionRefs, factRefs }; }
-function known(text: string, index: GraphRefIndex): boolean { const ref = parseEntityRef(text); if (!ref || ref.externalHarness) return false; if (ref.kind === "task") return index.taskIds.has(ref.id); if (ref.kind === "decision") return index.decisionRefs.has(text); return index.factRefs.has(text); }
-function validateRelationRecordEntries(entries: readonly RelationRecordEntry[], index: GraphRefIndex): readonly RelationRecordValidationIssue[] { const issues: RelationRecordValidationIssue[] = [], seen = new Map<string, string>(); for (const entry of entries) { for (const issue of validateRelationRecordsForHost(entry.hostRef, [entry.record])) { issues.push({ entry, issue }); if (issue.code === "relation_host_source_mismatch") issues.push({ entry, issue: { code: "relation_provenance_inheritance_mismatch", relationId: entry.record.relation_id, message: `Relation ${entry.record.relation_id} cannot inherit provenance from ${entry.hostRef}.` } }); } for (const endpoint of [entry.record.source, entry.record.target]) if (!known(endpoint, index)) issues.push({ entry, issue: { code: "relation_endpoint_unknown", relationId: entry.record.relation_id, message: `Relation ${entry.record.relation_id} has unknown endpoint ${endpoint}` } }); const bytes = formatRelationFlowRecord(entry.record), previous = seen.get(entry.record.relation_id); if (previous && previous !== bytes) issues.push({ entry, issue: { code: "duplicate_relation_id", relationId: entry.record.relation_id, message: `Duplicate relation_id ${entry.record.relation_id} has different bytes` } }); else seen.set(entry.record.relation_id, bytes); } return issues; }
-function listTaskDirs(tasksRoot: string): readonly string[] { return (readDirIfPresent(tasksRoot) ?? []).flatMap((entry) => { const candidate = path.join(tasksRoot, entry.name), stat = statPathIfPresent(candidate); return entry.isDirectory() && stat?.isDirectory() ? [candidate] : []; }).sort(); }
-function readTaskPackageId(taskDir: string): string { const body = readTextFileIfPresent(path.join(taskDir, "INDEX.md")), frontmatter = body === null ? null : readFrontmatter(body); return frontmatter ? readScalar(frontmatter, "task_id") || path.basename(taskDir) : path.basename(taskDir); }
+function collectRelationRecordEntries(rootInput: HarnessLayoutInput): readonly RelationRecordEntry[] {
+  const layout = resolveHarnessLayout(rootInput),
+    entries: RelationRecordEntry[] = [];
+  for (const taskDir of listTaskDirs(layout.tasksRoot)) {
+    const taskId = readTaskPackageId(taskDir);
+    for (const source of deriveRelationTaskAuthoredSources(taskDir)) {
+      const body = readTextFileIfPresent(source.filePath),
+        frontmatter = body === null ? null : readFrontmatter(body);
+      if (!frontmatter) continue;
+      parseRelationFlowRecords(frontmatter).forEach((record, recordIndex) =>
+        entries.push({
+          hostRef: `task/${taskId}`,
+          ownerRef: `task/${taskId}`,
+          sourceKind: source.kind,
+          record,
+          sourcePath: sourcePath(layout.rootDir, source.filePath),
+          recordIndex,
+        }),
+      );
+    }
+  }
+  return entries.sort((a, b) => a.sourcePath.localeCompare(b.sourcePath) || a.recordIndex - b.recordIndex);
+}
+function relationEntriesToEdges(
+  entries: readonly RelationRecordEntry[],
+  index: GraphRefIndex,
+): readonly RelationGraphEdgeRow[] {
+  return entries
+    .filter(
+      (entry) =>
+        validateRelationRecordsForHost(entry.hostRef, [entry.record]).length === 0 &&
+        known(entry.record.source, index) &&
+        known(entry.record.target, index),
+    )
+    .map((entry) => ({
+      relationId: entry.record.relation_id,
+      sourceRef: entry.record.source,
+      targetRef: entry.record.target,
+      relationType: entry.record.type,
+      direction: entry.record.direction,
+      strength: entry.record.strength,
+      origin: entry.record.origin,
+      state: entry.record.state,
+      rationale: entry.record.rationale,
+      ownerRef: entry.ownerRef,
+      sourcePath: entry.sourcePath,
+      recordIndex: entry.recordIndex,
+    }));
+}
+function convergeEdges(rows: readonly RelationGraphEdgeRow[]): readonly RelationGraphEdgeRow[] {
+  const seen = new Map<string, string>(),
+    result: RelationGraphEdgeRow[] = [];
+  for (const row of rows) {
+    const bytes = JSON.stringify(row);
+    if (!seen.has(row.relationId)) {
+      seen.set(row.relationId, bytes);
+      result.push(row);
+    } else if (seen.get(row.relationId) !== bytes) continue;
+  }
+  return result.sort((a, b) => a.relationId.localeCompare(b.relationId));
+}
+interface GraphRefIndex {
+  readonly taskIds: ReadonlySet<string>;
+  readonly decisionRefs: ReadonlySet<string>;
+  readonly factRefs: ReadonlySet<string>;
+}
+function buildGraphRefIndex(rootInput: HarnessLayoutInput, truth: EventBackedRelationTruth): GraphRefIndex {
+  const layout = resolveHarnessLayout(rootInput),
+    taskIds = new Set(listTaskDirs(layout.tasksRoot).map(readTaskPackageId)),
+    decisionRefs = new Set(truth.decisionAnchors.flatMap((row) => row.anchorRefs)),
+    factRefs = new Set(truth.factAnchors.map((row) => row.factRef));
+  for (const edge of truth.edges) {
+    const task = /^task\/([^/]+)$/u.exec(edge.sourceRef)?.[1] ?? /^task\/([^/]+)$/u.exec(edge.targetRef)?.[1];
+    if (task) taskIds.add(task);
+  }
+  return { taskIds, decisionRefs, factRefs };
+}
+function known(text: string, index: GraphRefIndex): boolean {
+  const ref = parseEntityRef(text);
+  if (!ref || ref.externalHarness) return false;
+  if (ref.kind === "task") return index.taskIds.has(ref.id);
+  if (ref.kind === "decision") return index.decisionRefs.has(text);
+  return index.factRefs.has(text);
+}
+function validateRelationRecordEntries(
+  entries: readonly RelationRecordEntry[],
+  index: GraphRefIndex,
+): readonly RelationRecordValidationIssue[] {
+  const issues: RelationRecordValidationIssue[] = [],
+    seen = new Map<string, string>();
+  for (const entry of entries) {
+    for (const issue of validateRelationRecordsForHost(entry.hostRef, [entry.record])) {
+      issues.push({ entry, issue });
+      if (issue.code === "relation_host_source_mismatch")
+        issues.push({
+          entry,
+          issue: {
+            code: "relation_provenance_inheritance_mismatch",
+            relationId: entry.record.relation_id,
+            message: `Relation ${entry.record.relation_id} cannot inherit provenance from ${entry.hostRef}.`,
+          },
+        });
+    }
+    for (const endpoint of [entry.record.source, entry.record.target])
+      if (!known(endpoint, index))
+        issues.push({
+          entry,
+          issue: {
+            code: "relation_endpoint_unknown",
+            relationId: entry.record.relation_id,
+            message: `Relation ${entry.record.relation_id} has unknown endpoint ${endpoint}`,
+          },
+        });
+    const bytes = formatRelationFlowRecord(entry.record),
+      previous = seen.get(entry.record.relation_id);
+    if (previous && previous !== bytes)
+      issues.push({
+        entry,
+        issue: {
+          code: "duplicate_relation_id",
+          relationId: entry.record.relation_id,
+          message: `Duplicate relation_id ${entry.record.relation_id} has different bytes`,
+        },
+      });
+    else seen.set(entry.record.relation_id, bytes);
+  }
+  return issues;
+}
+function listTaskDirs(tasksRoot: string): readonly string[] {
+  return (readDirIfPresent(tasksRoot) ?? [])
+    .flatMap((entry) => {
+      const candidate = path.join(tasksRoot, entry.name),
+        stat = statPathIfPresent(candidate);
+      return entry.isDirectory() && stat?.isDirectory() ? [candidate] : [];
+    })
+    .sort();
+}
+function readTaskPackageId(taskDir: string): string {
+  const body = readTextFileIfPresent(path.join(taskDir, "INDEX.md")),
+    frontmatter = body === null ? null : readFrontmatter(body);
+  return frontmatter ? readScalar(frontmatter, "task_id") || path.basename(taskDir) : path.basename(taskDir);
+}

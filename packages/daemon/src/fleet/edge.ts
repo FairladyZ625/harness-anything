@@ -1,67 +1,806 @@
-import { closeSync, cpSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  cpSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
 import { consumeKnownError, type LedgerCutIdentity } from "../../../kernel/src/index.ts";
 import { sha256Bytes } from "../../../kernel/src/index.ts";
 import { writeFileDurably } from "../durable-file.ts";
-import { FLEET_CHUNK_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, FleetUtf8LineDecoder, fleetManifestDigest, parseFleetFrame, serializeFleetFrame, type FleetCut, type FleetDeltaChange, type FleetDescriptor, type FleetEntry, type FleetFrameV1, type FleetTaskAction } from "./contract.ts";
+import {
+  FLEET_CHUNK_BYTES,
+  FLEET_SESSION_SEND_WINDOW_BYTES,
+  FleetUtf8LineDecoder,
+  fleetManifestDigest,
+  parseFleetFrame,
+  serializeFleetFrame,
+  type FleetCut,
+  type FleetDeltaChange,
+  type FleetDescriptor,
+  type FleetEntry,
+  type FleetFrameV1,
+  type FleetTaskAction,
+} from "./contract.ts";
 
-type Begin = Extract<FleetFrameV1, { schema: "fleet.snapshot.begin/v1" | "fleet.delta.begin/v1" }>; type Finish = Extract<FleetFrameV1, { schema: "fleet.snapshot.finish/v1" | "fleet.delta.finish/v1" }>;
-type Current = { cut: FleetCut; manifestDigest: string }; type Manifest = Current & { entries: FleetEntry[] };
-export interface FleetEdgeView { readonly receive: (frame: FleetFrameV1) => FleetFrameV1 | null; readonly current: (repoId: string, viewId: string) => Current | null }
-export interface FleetEdgeChange { readonly path: string; readonly body: string | Buffer; readonly baseBlobSha256?: string | null; readonly policyId?: string; readonly mediaType?: string }
-export interface FleetPeerOptions { readonly hostname?: string; readonly port: number; readonly ca: string | Buffer; readonly servername?: string; readonly nodeId: string; readonly credential: string; readonly assignmentId: string; readonly timeoutMs?: number; readonly onFrame?: (frame: FleetFrameV1) => void }
-export interface FleetWriteClientOptions extends FleetPeerOptions { readonly changes: readonly FleetEdgeChange[]; readonly baseLedgerSha?: LedgerCutIdentity; readonly executionId?: string | null; readonly channel: "collaborator" | "replica" }
-export interface FleetWriteClientResult { readonly descriptors: readonly FleetDescriptor[]; readonly center: Extract<FleetFrameV1, { schema: "fleet.doc.result/v1" }> }
-export interface FleetReplicaPullClientOptions extends FleetPeerOptions { readonly viewRoot: string; readonly diskQuotaBytes: number; readonly beforeAck?: (frame: Extract<FleetFrameV1, { schema: "fleet.ack/v1" }>) => void; readonly edgeKillpoint?: (point: "after_page" | "after_chunk" | "before_current_rename") => void }
-export interface FleetReplicaPullClientResult { readonly replica: Extract<FleetFrameV1, { schema: "fleet.ack.result/v1" }> | Extract<FleetFrameV1, { schema: "fleet.replica.current/v1" }>; readonly current: Current }
-export class FleetRemoteError extends Error { readonly code: string; readonly retryable: boolean; readonly resumeOffset: number | null; constructor(frame: Extract<FleetFrameV1, { schema: "fleet.error/v1" }>) { super(frame.nextAction); this.code = frame.code; this.retryable = frame.retryable; this.resumeOffset = frame.resumeOffset; } }
-
-export function openFleetEdgeView(rootDir: string, diskQuotaBytes: number, killpoint?: (point: "after_page" | "after_chunk" | "before_current_rename") => void): FleetEdgeView { if (!Number.isSafeInteger(diskQuotaBytes) || diskQuotaBytes <= 0) throw new Error("replica disk quota is required"); const active = new Map<string, string>(), repoRoot = (repoId: string) => path.join(rootDir, "repos", repoId), viewRoot = (repoId: string, viewId: string) => path.join(repoRoot(repoId), "views", viewId), current = (repoId: string, viewId: string): Current | null => readJson(path.join(viewRoot(repoId, viewId), "current.json"));
-  return { current, receive: (frame) => { if (frame.schema === "fleet.snapshot.begin/v1" || frame.schema === "fleet.delta.begin/v1") { const root = viewRoot(frame.repoId, frame.viewId), staging = path.join(root, ".staging"), activeCut = current(frame.repoId, frame.viewId); if (frame.schema === "fleet.snapshot.begin/v1" && diskUsage(rootDir) + frame.manifest.totalBytes + FLEET_SESSION_SEND_WINDOW_BYTES > diskQuotaBytes) throw new Error("replica_quota_exceeded: incoming snapshot exceeds persistent quota"); mkdirSync(staging, { recursive: true }); for (const stale of readdirSync(staging).sort().slice(64)) rmSync(path.join(staging, stale), { recursive: true, force: true }); const replayedTarget = JSON.stringify(activeCut?.cut) === JSON.stringify(frame.schema === "fleet.snapshot.begin/v1" ? frame.cut : frame.toCut); if (frame.schema === "fleet.delta.begin/v1" && JSON.stringify(activeCut?.cut) !== JSON.stringify(frame.fromCut) && !replayedTarget) throw new Error("snapshot_required: delta base cut is not current"); exactJson(path.join(staging, frame.transferId, "begin.json"), frame); active.set(frame.transferId, root); return null; }
-      if (!("transferId" in frame) || typeof frame.transferId !== "string" || !active.has(frame.transferId)) return null; const root = active.get(frame.transferId)!, staging = path.join(root, ".staging", frame.transferId);
-      if (frame.schema === "fleet.snapshot.page/v1" || frame.schema === "fleet.delta.page/v1") { exactJson(path.join(staging, `page-${frame.pageIndex}.json`), frame); killpoint?.("after_page"); return null; }
-      if (frame.schema === "fleet.snapshot.chunk/v1" || frame.schema === "fleet.delta.chunk/v1") { const target = path.join(staging, "blobs", frame.blobSha256), bytes = Buffer.from(frame.dataBase64, "base64"); mkdirSync(path.dirname(target), { recursive: true }); const length = existsSync(target) ? statSync(target).size : 0; if (frame.offset > length) throw new Error("chunk gap"); if (frame.offset < length) { if (!readFileSync(target).subarray(frame.offset, frame.offset + bytes.length).equals(bytes)) throw new Error("chunk replay mismatch"); } else { if (diskUsage(rootDir) + bytes.byteLength > diskQuotaBytes) throw new Error("replica_quota_exceeded: staging chunk exceeds persistent quota"); const fd = openSync(target, "a"); try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); } } killpoint?.("after_chunk"); return null; }
-      if (frame.schema === "fleet.snapshot.finish/v1" || frame.schema === "fleet.delta.finish/v1") return finish(root, staging, frame, killpoint); return null; } };
+type Begin = Extract<FleetFrameV1, { schema: "fleet.snapshot.begin/v1" | "fleet.delta.begin/v1" }>;
+type Finish = Extract<FleetFrameV1, { schema: "fleet.snapshot.finish/v1" | "fleet.delta.finish/v1" }>;
+type Current = { cut: FleetCut; manifestDigest: string };
+type Manifest = Current & { entries: FleetEntry[] };
+export interface FleetEdgeView {
+  readonly receive: (frame: FleetFrameV1) => FleetFrameV1 | null;
+  readonly current: (repoId: string, viewId: string) => Current | null;
 }
-function finish(viewRoot: string, staging: string, frame: Finish, killpoint?: (point: "after_page" | "after_chunk" | "before_current_rename") => void): FleetFrameV1 { const begin = readJson<Begin>(path.join(staging, "begin.json")); if (!begin || begin.transferId !== frame.transferId || (frame.schema === "fleet.snapshot.finish/v1" ? begin.schema !== "fleet.snapshot.begin/v1" || begin.manifest.digest !== frame.manifestDigest : begin.schema !== "fleet.delta.begin/v1" || begin.resultManifestDigest !== frame.resultManifestDigest)) throw new Error("transfer finish mismatch"); const cut = begin.schema === "fleet.snapshot.begin/v1" ? begin.cut : begin.toCut, expected = begin.schema === "fleet.snapshot.begin/v1" ? begin.manifest.digest : begin.resultManifestDigest, already = readJson<Current>(path.join(viewRoot, "current.json")); if (JSON.stringify(already?.cut) === JSON.stringify(cut) && already?.manifestDigest === expected) { rmSync(staging, { recursive: true, force: true }); return ack(begin.transferId, cut, expected); } const pages = readdirSync(staging).filter((name) => /^page-\d+\.json$/u.test(name)).sort((a, b) => Number.parseInt(a.slice(5), 10) - Number.parseInt(b.slice(5), 10)).map((name) => readJson<Extract<FleetFrameV1, { schema: "fleet.snapshot.page/v1" | "fleet.delta.page/v1" }>>(path.join(staging, name))!); if (pages.some((page, index) => page.pageIndex !== index)) throw new Error("transfer page gap");
-  let entries: FleetEntry[], changes: FleetDeltaChange[] = []; const result = path.join(staging, "result"), files = path.join(result, "files"), repo = path.dirname(path.dirname(viewRoot)), casRoot = path.join(repo, "cas", "sha256"); rmSync(result, { recursive: true, force: true }); if (begin.schema === "fleet.snapshot.begin/v1") { entries = pages.flatMap((page) => page.schema === "fleet.snapshot.page/v1" ? page.entries : []); if (entries.length !== begin.manifest.entryCount || entries.reduce((sum, entry) => sum + entry.blob.size, 0) !== begin.manifest.totalBytes) throw new Error("snapshot manifest count mismatch"); mkdirSync(files, { recursive: true }); }
-  else { const previous = readJson<Current>(path.join(viewRoot, "current.json")); if (!previous || JSON.stringify(previous.cut) !== JSON.stringify(begin.fromCut)) throw new Error("snapshot_required: delta base changed"); const prior = readJson<Manifest>(path.join(viewRoot, "cuts", String(previous.cut.revision), "manifest.json")); if (!prior) throw new Error("snapshot_required: current manifest missing"); entries = [...prior.entries]; changes = pages.flatMap((page) => page.schema === "fleet.delta.page/v1" ? page.changes : []); if (changes.length !== begin.changeCount) throw new Error("delta change count mismatch"); cpSync(path.join(viewRoot, "cuts", String(previous.cut.revision), "files"), files, { recursive: true }); for (const change of changes) { entries = entries.filter((entry) => entry.path !== change.path); const target = path.join(files, change.path); if (change.op === "delete") rmSync(target, { force: true }); else entries.push({ path: change.path, blob: change.blob }); } }
-  entries.sort((a, b) => a.path.localeCompare(b.path)); for (const entry of entries) { const cas = path.join(casRoot, entry.blob.sha256.slice(0, 2), entry.blob.sha256), incoming = path.join(staging, "blobs", entry.blob.sha256); if (!existsSync(cas)) { if (!existsSync(incoming)) { if (entry.blob.size !== 0 || entry.blob.sha256 !== sha256Bytes(Buffer.alloc(0))) throw new Error("transfer blob missing"); writeFileDurably(cas, Buffer.alloc(0)); } else { const bytes = readFileSync(incoming); if (bytes.byteLength !== entry.blob.size || sha256Bytes(bytes) !== entry.blob.sha256) throw new Error("transfer blob mismatch"); mkdirSync(path.dirname(cas), { recursive: true }); renameSync(incoming, cas); } } const bytes = readFileSync(cas); if (bytes.byteLength !== entry.blob.size || sha256Bytes(bytes) !== entry.blob.sha256) throw new Error("edge CAS blob mismatch"); const target = path.join(files, entry.path); if (!existsSync(target) || changes.some((change) => change.op === "put" && change.path === entry.path) || begin.schema === "fleet.snapshot.begin/v1") { mkdirSync(path.dirname(target), { recursive: true }); cpSync(cas, target); } }
-  const digest = fleetManifestDigest(entries); if (digest !== expected) throw new Error("result manifest mismatch"); const manifest: Manifest = { cut, manifestDigest: digest, entries }; writeEdgeDurableJson(path.join(result, "manifest.json"), manifest); const cutDir = path.join(viewRoot, "cuts", String(cut.revision)); mkdirSync(path.dirname(cutDir), { recursive: true }); if (!existsSync(cutDir)) renameSync(result, cutDir); else rmSync(result, { recursive: true, force: true }); killpoint?.("before_current_rename"); writeEdgeDurableJson(path.join(viewRoot, "current.json"), { cut, manifestDigest: digest }); const reopened = readJson<Manifest>(path.join(cutDir, "manifest.json")), active = readJson<Current>(path.join(viewRoot, "current.json")); if (!reopened || !active || reopened.manifestDigest !== digest || JSON.stringify(active.cut) !== JSON.stringify(cut)) throw new Error("atomic view verification failed"); collect(viewRoot, casRoot, cut.revision); rmSync(staging, { recursive: true, force: true }); return ack(begin.transferId, cut, digest); }
-function collect(viewRoot: string, casRoot: string, currentRevision: number): void { const cutsRoot = path.join(viewRoot, "cuts"), revisions = existsSync(cutsRoot) ? readdirSync(cutsRoot).filter((name) => /^\d+$/u.test(name)).map(Number).sort((a, b) => b - a) : [], keep = new Set([currentRevision, ...revisions.filter((revision) => revision !== currentRevision).slice(0, 1)]); for (const revision of revisions.filter((value) => !keep.has(value)).slice(0, 64)) rmSync(path.join(cutsRoot, String(revision)), { recursive: true, force: true }); const viewsRoot = path.dirname(viewRoot), views = readdirSync(viewsRoot); if (views.length > 64) return; const referenced = new Set(views.flatMap((view) => { const root = path.join(viewsRoot, view, "cuts"); return existsSync(root) ? readdirSync(root).filter((name) => /^\d+$/u.test(name)).slice(0, 2).flatMap((revision) => readJson<Manifest>(path.join(root, revision, "manifest.json"))?.entries.map((entry) => entry.blob.sha256) ?? []) : []; })); let removed = 0; if (existsSync(casRoot)) outer: for (const prefix of readdirSync(casRoot).slice(0, 64)) for (const sha of readdirSync(path.join(casRoot, prefix)).slice(0, 64)) if (!referenced.has(sha)) { rmSync(path.join(casRoot, prefix, sha), { force: true }); if (++removed >= 64) break outer; } }
-function ack(transferId: string, cut: FleetCut, manifestDigest: string): Extract<FleetFrameV1, { schema: "fleet.ack/v1" }> { return { schema: "fleet.ack/v1", messageId: `${transferId}_ack`, transferId, cut, manifestDigest }; }
+export interface FleetEdgeChange {
+  readonly path: string;
+  readonly body: string | Buffer;
+  readonly baseBlobSha256?: string | null;
+  readonly policyId?: string;
+  readonly mediaType?: string;
+}
+export interface FleetPeerOptions {
+  readonly hostname?: string;
+  readonly port: number;
+  readonly ca: string | Buffer;
+  readonly servername?: string;
+  readonly nodeId: string;
+  readonly credential: string;
+  readonly assignmentId: string;
+  readonly timeoutMs?: number;
+  readonly onFrame?: (frame: FleetFrameV1) => void;
+}
+export interface FleetWriteClientOptions extends FleetPeerOptions {
+  readonly changes: readonly FleetEdgeChange[];
+  readonly baseLedgerSha?: LedgerCutIdentity;
+  readonly executionId?: string | null;
+  readonly channel: "collaborator" | "replica";
+}
+export interface FleetWriteClientResult {
+  readonly descriptors: readonly FleetDescriptor[];
+  readonly center: Extract<FleetFrameV1, { schema: "fleet.doc.result/v1" }>;
+}
+export interface FleetReplicaPullClientOptions extends FleetPeerOptions {
+  readonly viewRoot: string;
+  readonly diskQuotaBytes: number;
+  readonly beforeAck?: (frame: Extract<FleetFrameV1, { schema: "fleet.ack/v1" }>) => void;
+  readonly edgeKillpoint?: (point: "after_page" | "after_chunk" | "before_current_rename") => void;
+}
+export interface FleetReplicaPullClientResult {
+  readonly replica:
+    | Extract<FleetFrameV1, { schema: "fleet.ack.result/v1" }>
+    | Extract<FleetFrameV1, { schema: "fleet.replica.current/v1" }>;
+  readonly current: Current;
+}
+export class FleetRemoteError extends Error {
+  readonly code: string;
+  readonly retryable: boolean;
+  readonly resumeOffset: number | null;
+  constructor(frame: Extract<FleetFrameV1, { schema: "fleet.error/v1" }>) {
+    super(frame.nextAction);
+    this.code = frame.code;
+    this.retryable = frame.retryable;
+    this.resumeOffset = frame.resumeOffset;
+  }
+}
 
-export async function runFleetWriteClient(options: FleetWriteClientOptions): Promise<FleetWriteClientResult> { const session = await openPeer(options), staged: Array<{ input: FleetEdgeChange; descriptor: FleetDescriptor }> = []; try { const assigned = await session.request({ schema: "fleet.assignment.get/v1", messageId: session.messageId(), assignmentId: options.assignmentId }); if (assigned.schema !== "fleet.assignment.result/v1" || options.changes.length === 0) throw new Error("assignment result and changes expected"); for (const input of options.changes) staged.push({ input, descriptor: await uploadFleetChange(session, options.assignmentId, input) });
+export function openFleetEdgeView(
+  rootDir: string,
+  diskQuotaBytes: number,
+  killpoint?: (point: "after_page" | "after_chunk" | "before_current_rename") => void,
+): FleetEdgeView {
+  if (!Number.isSafeInteger(diskQuotaBytes) || diskQuotaBytes <= 0) throw new Error("replica disk quota is required");
+  const active = new Map<string, string>(),
+    repoRoot = (repoId: string) => path.join(rootDir, "repos", repoId),
+    viewRoot = (repoId: string, viewId: string) => path.join(repoRoot(repoId), "views", viewId),
+    current = (repoId: string, viewId: string): Current | null =>
+      readJson(path.join(viewRoot(repoId, viewId), "current.json"));
+  return {
+    current,
+    receive: (frame) => {
+      if (frame.schema === "fleet.snapshot.begin/v1" || frame.schema === "fleet.delta.begin/v1") {
+        const root = viewRoot(frame.repoId, frame.viewId),
+          staging = path.join(root, ".staging"),
+          activeCut = current(frame.repoId, frame.viewId);
+        if (
+          frame.schema === "fleet.snapshot.begin/v1" &&
+          diskUsage(rootDir) + frame.manifest.totalBytes + FLEET_SESSION_SEND_WINDOW_BYTES > diskQuotaBytes
+        )
+          throw new Error("replica_quota_exceeded: incoming snapshot exceeds persistent quota");
+        mkdirSync(staging, { recursive: true });
+        for (const stale of readdirSync(staging).sort().slice(64))
+          rmSync(path.join(staging, stale), { recursive: true, force: true });
+        const replayedTarget =
+          JSON.stringify(activeCut?.cut) ===
+          JSON.stringify(frame.schema === "fleet.snapshot.begin/v1" ? frame.cut : frame.toCut);
+        if (
+          frame.schema === "fleet.delta.begin/v1" &&
+          JSON.stringify(activeCut?.cut) !== JSON.stringify(frame.fromCut) &&
+          !replayedTarget
+        )
+          throw new Error("snapshot_required: delta base cut is not current");
+        exactJson(path.join(staging, frame.transferId, "begin.json"), frame);
+        active.set(frame.transferId, root);
+        return null;
+      }
+      if (!("transferId" in frame) || typeof frame.transferId !== "string" || !active.has(frame.transferId))
+        return null;
+      const root = active.get(frame.transferId)!,
+        staging = path.join(root, ".staging", frame.transferId);
+      if (frame.schema === "fleet.snapshot.page/v1" || frame.schema === "fleet.delta.page/v1") {
+        exactJson(path.join(staging, `page-${frame.pageIndex}.json`), frame);
+        killpoint?.("after_page");
+        return null;
+      }
+      if (frame.schema === "fleet.snapshot.chunk/v1" || frame.schema === "fleet.delta.chunk/v1") {
+        const target = path.join(staging, "blobs", frame.blobSha256),
+          bytes = Buffer.from(frame.dataBase64, "base64");
+        mkdirSync(path.dirname(target), { recursive: true });
+        const length = existsSync(target) ? statSync(target).size : 0;
+        if (frame.offset > length) throw new Error("chunk gap");
+        if (frame.offset < length) {
+          if (
+            !readFileSync(target)
+              .subarray(frame.offset, frame.offset + bytes.length)
+              .equals(bytes)
+          )
+            throw new Error("chunk replay mismatch");
+        } else {
+          if (diskUsage(rootDir) + bytes.byteLength > diskQuotaBytes)
+            throw new Error("replica_quota_exceeded: staging chunk exceeds persistent quota");
+          const fd = openSync(target, "a");
+          try {
+            writeFileSync(fd, bytes);
+            fsyncSync(fd);
+          } finally {
+            closeSync(fd);
+          }
+        }
+        killpoint?.("after_chunk");
+        return null;
+      }
+      if (frame.schema === "fleet.snapshot.finish/v1" || frame.schema === "fleet.delta.finish/v1")
+        return finish(root, staging, frame, killpoint);
+      return null;
+    },
+  };
+}
+function finish(
+  viewRoot: string,
+  staging: string,
+  frame: Finish,
+  killpoint?: (point: "after_page" | "after_chunk" | "before_current_rename") => void,
+): FleetFrameV1 {
+  const begin = readJson<Begin>(path.join(staging, "begin.json"));
+  if (
+    !begin ||
+    begin.transferId !== frame.transferId ||
+    (frame.schema === "fleet.snapshot.finish/v1"
+      ? begin.schema !== "fleet.snapshot.begin/v1" || begin.manifest.digest !== frame.manifestDigest
+      : begin.schema !== "fleet.delta.begin/v1" || begin.resultManifestDigest !== frame.resultManifestDigest)
+  )
+    throw new Error("transfer finish mismatch");
+  const cut = begin.schema === "fleet.snapshot.begin/v1" ? begin.cut : begin.toCut,
+    expected = begin.schema === "fleet.snapshot.begin/v1" ? begin.manifest.digest : begin.resultManifestDigest,
+    already = readJson<Current>(path.join(viewRoot, "current.json"));
+  if (JSON.stringify(already?.cut) === JSON.stringify(cut) && already?.manifestDigest === expected) {
+    rmSync(staging, { recursive: true, force: true });
+    return ack(begin.transferId, cut, expected);
+  }
+  const pages = readdirSync(staging)
+    .filter((name) => /^page-\d+\.json$/u.test(name))
+    .sort((a, b) => Number.parseInt(a.slice(5), 10) - Number.parseInt(b.slice(5), 10))
+    .map(
+      (name) =>
+        readJson<Extract<FleetFrameV1, { schema: "fleet.snapshot.page/v1" | "fleet.delta.page/v1" }>>(
+          path.join(staging, name),
+        )!,
+    );
+  if (pages.some((page, index) => page.pageIndex !== index)) throw new Error("transfer page gap");
+  let entries: FleetEntry[],
+    changes: FleetDeltaChange[] = [];
+  const result = path.join(staging, "result"),
+    files = path.join(result, "files"),
+    repo = path.dirname(path.dirname(viewRoot)),
+    casRoot = path.join(repo, "cas", "sha256");
+  rmSync(result, { recursive: true, force: true });
+  if (begin.schema === "fleet.snapshot.begin/v1") {
+    entries = pages.flatMap((page) => (page.schema === "fleet.snapshot.page/v1" ? page.entries : []));
+    if (
+      entries.length !== begin.manifest.entryCount ||
+      entries.reduce((sum, entry) => sum + entry.blob.size, 0) !== begin.manifest.totalBytes
+    )
+      throw new Error("snapshot manifest count mismatch");
+    mkdirSync(files, { recursive: true });
+  } else {
+    const previous = readJson<Current>(path.join(viewRoot, "current.json"));
+    if (!previous || JSON.stringify(previous.cut) !== JSON.stringify(begin.fromCut))
+      throw new Error("snapshot_required: delta base changed");
+    const prior = readJson<Manifest>(path.join(viewRoot, "cuts", String(previous.cut.revision), "manifest.json"));
+    if (!prior) throw new Error("snapshot_required: current manifest missing");
+    entries = [...prior.entries];
+    changes = pages.flatMap((page) => (page.schema === "fleet.delta.page/v1" ? page.changes : []));
+    if (changes.length !== begin.changeCount) throw new Error("delta change count mismatch");
+    cpSync(path.join(viewRoot, "cuts", String(previous.cut.revision), "files"), files, { recursive: true });
+    for (const change of changes) {
+      entries = entries.filter((entry) => entry.path !== change.path);
+      const target = path.join(files, change.path);
+      if (change.op === "delete") rmSync(target, { force: true });
+      else entries.push({ path: change.path, blob: change.blob });
+    }
+  }
+  entries.sort((a, b) => a.path.localeCompare(b.path));
+  for (const entry of entries) {
+    const cas = path.join(casRoot, entry.blob.sha256.slice(0, 2), entry.blob.sha256),
+      incoming = path.join(staging, "blobs", entry.blob.sha256);
+    if (!existsSync(cas)) {
+      if (!existsSync(incoming)) {
+        if (entry.blob.size !== 0 || entry.blob.sha256 !== sha256Bytes(Buffer.alloc(0)))
+          throw new Error("transfer blob missing");
+        writeFileDurably(cas, Buffer.alloc(0));
+      } else {
+        const bytes = readFileSync(incoming);
+        if (bytes.byteLength !== entry.blob.size || sha256Bytes(bytes) !== entry.blob.sha256)
+          throw new Error("transfer blob mismatch");
+        mkdirSync(path.dirname(cas), { recursive: true });
+        renameSync(incoming, cas);
+      }
+    }
+    const bytes = readFileSync(cas);
+    if (bytes.byteLength !== entry.blob.size || sha256Bytes(bytes) !== entry.blob.sha256)
+      throw new Error("edge CAS blob mismatch");
+    const target = path.join(files, entry.path);
+    if (
+      !existsSync(target) ||
+      changes.some((change) => change.op === "put" && change.path === entry.path) ||
+      begin.schema === "fleet.snapshot.begin/v1"
+    ) {
+      mkdirSync(path.dirname(target), { recursive: true });
+      cpSync(cas, target);
+    }
+  }
+  const digest = fleetManifestDigest(entries);
+  if (digest !== expected) throw new Error("result manifest mismatch");
+  const manifest: Manifest = { cut, manifestDigest: digest, entries };
+  writeEdgeDurableJson(path.join(result, "manifest.json"), manifest);
+  const cutDir = path.join(viewRoot, "cuts", String(cut.revision));
+  mkdirSync(path.dirname(cutDir), { recursive: true });
+  if (!existsSync(cutDir)) renameSync(result, cutDir);
+  else rmSync(result, { recursive: true, force: true });
+  killpoint?.("before_current_rename");
+  writeEdgeDurableJson(path.join(viewRoot, "current.json"), { cut, manifestDigest: digest });
+  const reopened = readJson<Manifest>(path.join(cutDir, "manifest.json")),
+    active = readJson<Current>(path.join(viewRoot, "current.json"));
+  if (!reopened || !active || reopened.manifestDigest !== digest || JSON.stringify(active.cut) !== JSON.stringify(cut))
+    throw new Error("atomic view verification failed");
+  collect(viewRoot, casRoot, cut.revision);
+  rmSync(staging, { recursive: true, force: true });
+  return ack(begin.transferId, cut, digest);
+}
+function collect(viewRoot: string, casRoot: string, currentRevision: number): void {
+  const cutsRoot = path.join(viewRoot, "cuts"),
+    revisions = existsSync(cutsRoot)
+      ? readdirSync(cutsRoot)
+          .filter((name) => /^\d+$/u.test(name))
+          .map(Number)
+          .sort((a, b) => b - a)
+      : [],
+    keep = new Set([currentRevision, ...revisions.filter((revision) => revision !== currentRevision).slice(0, 1)]);
+  for (const revision of revisions.filter((value) => !keep.has(value)).slice(0, 64))
+    rmSync(path.join(cutsRoot, String(revision)), { recursive: true, force: true });
+  const viewsRoot = path.dirname(viewRoot),
+    views = readdirSync(viewsRoot);
+  if (views.length > 64) return;
+  const referenced = new Set(
+    views.flatMap((view) => {
+      const root = path.join(viewsRoot, view, "cuts");
+      return existsSync(root)
+        ? readdirSync(root)
+            .filter((name) => /^\d+$/u.test(name))
+            .slice(0, 2)
+            .flatMap(
+              (revision) =>
+                readJson<Manifest>(path.join(root, revision, "manifest.json"))?.entries.map(
+                  (entry) => entry.blob.sha256,
+                ) ?? [],
+            )
+        : [];
+    }),
+  );
+  let removed = 0;
+  if (existsSync(casRoot))
+    outer: for (const prefix of readdirSync(casRoot).slice(0, 64))
+      for (const sha of readdirSync(path.join(casRoot, prefix)).slice(0, 64))
+        if (!referenced.has(sha)) {
+          rmSync(path.join(casRoot, prefix, sha), { force: true });
+          if (++removed >= 64) break outer;
+        }
+}
+function ack(
+  transferId: string,
+  cut: FleetCut,
+  manifestDigest: string,
+): Extract<FleetFrameV1, { schema: "fleet.ack/v1" }> {
+  return { schema: "fleet.ack/v1", messageId: `${transferId}_ack`, transferId, cut, manifestDigest };
+}
+
+export async function runFleetWriteClient(options: FleetWriteClientOptions): Promise<FleetWriteClientResult> {
+  const session = await openPeer(options),
+    staged: Array<{ input: FleetEdgeChange; descriptor: FleetDescriptor }> = [];
+  try {
+    const assigned = await session.request({
+      schema: "fleet.assignment.get/v1",
+      messageId: session.messageId(),
+      assignmentId: options.assignmentId,
+    });
+    if (assigned.schema !== "fleet.assignment.result/v1" || options.changes.length === 0)
+      throw new Error("assignment result and changes expected");
+    for (const input of options.changes)
+      staged.push({ input, descriptor: await uploadFleetChange(session, options.assignmentId, input) });
     // W2's mirror writer is a system replication of its authenticated
     // assignment and therefore names that assignment's execution. The W3
     // collaborator route keeps its explicit execution (or null repository
     // channel). The center still proves holder actor/source/task; no client-
     // reported exemption crosses the wire.
-    const executionId = options.channel === "replica" ? assigned.executionId : options.executionId ?? null;
-    const center = await session.request({ schema: "fleet.doc.submit/v1", messageId: session.messageId(), assignmentId: options.assignmentId, executionId, writerEpoch: assigned.writerEpoch, baseLedgerSha: options.baseLedgerSha ?? assigned.baseLedgerSha, changes: staged.map(({ input, descriptor }) => ({ path: input.path, baseBlobSha256: input.baseBlobSha256 ?? null, policyId: input.policyId ?? "markdown-body-replaceable/v1", candidate: descriptor })) }); if (center.schema !== "fleet.doc.result/v1") throw new Error("doc result expected"); return { descriptors: staged.map(({ descriptor }) => descriptor), center }; } finally { session.close(); } }
+    const executionId = options.channel === "replica" ? assigned.executionId : (options.executionId ?? null);
+    const center = await session.request({
+      schema: "fleet.doc.submit/v1",
+      messageId: session.messageId(),
+      assignmentId: options.assignmentId,
+      executionId,
+      writerEpoch: assigned.writerEpoch,
+      baseLedgerSha: options.baseLedgerSha ?? assigned.baseLedgerSha,
+      changes: staged.map(({ input, descriptor }) => ({
+        path: input.path,
+        baseBlobSha256: input.baseBlobSha256 ?? null,
+        policyId: input.policyId ?? "markdown-body-replaceable/v1",
+        candidate: descriptor,
+      })),
+    });
+    if (center.schema !== "fleet.doc.result/v1") throw new Error("doc result expected");
+    return { descriptors: staged.map(({ descriptor }) => descriptor), center };
+  } finally {
+    session.close();
+  }
+}
 // Stage claim bytes for a task transition bundle without submitting: the
 // descriptors ride the fleet task command frame instead of a doc submit.
-export async function runFleetUploadClient(options: FleetPeerOptions & { readonly changes: readonly FleetEdgeChange[] }): Promise<readonly FleetDescriptor[]> { const session = await openPeer(options); try { await session.request({ schema: "fleet.assignment.get/v1", messageId: session.messageId(), assignmentId: options.assignmentId }); const descriptors: FleetDescriptor[] = []; for (const input of options.changes) descriptors.push(await uploadFleetChange(session, options.assignmentId, input)); return descriptors; } finally { session.close(); } }
-export async function readFleetAssignmentClient(options: FleetPeerOptions): Promise<Extract<FleetFrameV1, { schema: "fleet.assignment.result/v1" }>> { const session = await openPeer(options); try { const result = await session.request({ schema: "fleet.assignment.get/v1", messageId: session.messageId(), assignmentId: options.assignmentId }); if (result.schema !== "fleet.assignment.result/v1") throw new Error("assignment result expected"); return result; } finally { session.close(); } }
-export async function readFleetReceiptClient(options: FleetPeerOptions & { readonly opId: string }): Promise<Readonly<Record<string, unknown>>> { const session = await openPeer(options); try { const result = await session.request({ schema: "fleet.receipt.get/v1", messageId: session.messageId(), assignmentId: options.assignmentId, opId: options.opId }); if (result.schema !== "fleet.receipt.result/v1") throw new Error("receipt result expected"); return result.receipt; } finally { session.close(); } }
-export async function runFleetRuntimeEventClient(options: FleetPeerOptions & { readonly repoId: string; readonly opId: string; readonly eventType: string; readonly payload: Readonly<Record<string, unknown>>; readonly resultBody?: string }): Promise<Extract<FleetFrameV1, { schema: "fleet.runtime.event.result/v1" }>> { const session = await openPeer(options); try { const assigned = await session.request({ schema: "fleet.assignment.get/v1", messageId: session.messageId(), assignmentId: options.assignmentId }); if (assigned.schema !== "fleet.assignment.result/v1") throw new Error("assignment result expected"); const result = options.resultBody === undefined ? null : await uploadFleetChange(session, options.assignmentId, { path: "runtime-result.txt", body: options.resultBody, mediaType: "text/plain; charset=utf-8" }), response = await session.request({ schema: "fleet.runtime.event/v1", messageId: session.messageId(), assignmentId: options.assignmentId, writerEpoch: assigned.writerEpoch, repoId: options.repoId, opId: options.opId, eventType: options.eventType, payload: options.payload, result }); if (response.schema !== "fleet.runtime.event.result/v1") throw new Error("runtime event result expected"); return response; } finally { session.close(); } }
-export async function runFleetRuntimeArchiveClient(options: FleetPeerOptions & { readonly repoId: string; readonly archive: Readonly<Record<string, unknown>> }): Promise<Readonly<Record<string, unknown>>> { const session = await openPeer(options); try { const assigned = await session.request({ schema: "fleet.assignment.get/v1", messageId: session.messageId(), assignmentId: options.assignmentId }); if (assigned.schema !== "fleet.assignment.result/v1") throw new Error("assignment result expected"); const response = await session.request({ schema: "fleet.runtime.archive/v1", messageId: session.messageId(), assignmentId: options.assignmentId, writerEpoch: assigned.writerEpoch, repoId: options.repoId, archive: options.archive }); if (response.schema !== "fleet.runtime.archive.result/v1") throw new Error("runtime archive result expected"); return response.receipt; } finally { session.close(); } }
-export async function runFleetRuntimeReadClient(options: FleetPeerOptions & { readonly repoId: string; readonly method: "repo.agentRuntime.overview" | "repo.agentRuntime.sessions.read"; readonly payload: Readonly<Record<string, unknown>> }): Promise<Readonly<Record<string, unknown>>> { const session = await openPeer(options); try { const response = await session.request({ schema: "fleet.runtime.read/v1", messageId: session.messageId(), assignmentId: options.assignmentId, repoId: options.repoId, method: options.method, payload: options.payload }); if (response.schema !== "fleet.runtime.read.result/v1") throw new Error("runtime read result expected"); return response.result; } finally { session.close(); } }
-type FleetUploadSession = { readonly messageId: () => string; readonly request: (frame: FleetFrameV1) => Promise<FleetFrameV1> };
-async function uploadFleetChange(session: FleetUploadSession, assignmentId: string, input: FleetEdgeChange): Promise<FleetDescriptor> { const body = Buffer.isBuffer(input.body) ? input.body : Buffer.from(input.body), content = { sha256: sha256Bytes(body), size: body.byteLength, mediaType: input.mediaType ?? (input.path.endsWith(".md") ? "text/markdown" : "text/plain") }, ready = await session.request({ schema: "fleet.upload.begin/v1", messageId: session.messageId(), assignmentId, content }); if (ready.schema !== "fleet.upload.ready/v1") throw new Error("upload ready expected"); let offset = ready.resumeOffset; while (offset < body.length) { const response = await session.request({ schema: "fleet.upload.chunk/v1", messageId: session.messageId(), uploadId: ready.uploadId, offset, dataBase64: body.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64") }); if (response.schema !== "fleet.upload.ready/v1") throw new Error("chunk receipt expected"); offset = response.resumeOffset; } const uploaded = await session.request({ schema: "fleet.upload.finish/v1", messageId: session.messageId(), uploadId: ready.uploadId }); if (uploaded.schema !== "fleet.upload.result/v1") throw new Error("upload result expected"); return uploaded.descriptor; }
-export interface FleetTaskCommandClientOptions extends FleetPeerOptions { readonly opId: string; readonly repoId: string; readonly taskId: string | null; readonly action: FleetTaskAction; readonly waitMs: number; readonly writerEpoch?: number; readonly docChanges?: readonly { path: string; baseBlobSha256: string | null; policyId: string; candidate: FleetDescriptor }[]; readonly mirrorBaseCut?: { readonly revision: number; readonly headDigest: string } | null }
+export async function runFleetUploadClient(
+  options: FleetPeerOptions & { readonly changes: readonly FleetEdgeChange[] },
+): Promise<readonly FleetDescriptor[]> {
+  const session = await openPeer(options);
+  try {
+    await session.request({
+      schema: "fleet.assignment.get/v1",
+      messageId: session.messageId(),
+      assignmentId: options.assignmentId,
+    });
+    const descriptors: FleetDescriptor[] = [];
+    for (const input of options.changes)
+      descriptors.push(await uploadFleetChange(session, options.assignmentId, input));
+    return descriptors;
+  } finally {
+    session.close();
+  }
+}
+export async function readFleetAssignmentClient(
+  options: FleetPeerOptions,
+): Promise<Extract<FleetFrameV1, { schema: "fleet.assignment.result/v1" }>> {
+  const session = await openPeer(options);
+  try {
+    const result = await session.request({
+      schema: "fleet.assignment.get/v1",
+      messageId: session.messageId(),
+      assignmentId: options.assignmentId,
+    });
+    if (result.schema !== "fleet.assignment.result/v1") throw new Error("assignment result expected");
+    return result;
+  } finally {
+    session.close();
+  }
+}
+export async function readFleetReceiptClient(
+  options: FleetPeerOptions & { readonly opId: string },
+): Promise<Readonly<Record<string, unknown>>> {
+  const session = await openPeer(options);
+  try {
+    const result = await session.request({
+      schema: "fleet.receipt.get/v1",
+      messageId: session.messageId(),
+      assignmentId: options.assignmentId,
+      opId: options.opId,
+    });
+    if (result.schema !== "fleet.receipt.result/v1") throw new Error("receipt result expected");
+    return result.receipt;
+  } finally {
+    session.close();
+  }
+}
+export async function runFleetRuntimeEventClient(
+  options: FleetPeerOptions & {
+    readonly repoId: string;
+    readonly opId: string;
+    readonly eventType: string;
+    readonly payload: Readonly<Record<string, unknown>>;
+    readonly resultBody?: string;
+  },
+): Promise<Extract<FleetFrameV1, { schema: "fleet.runtime.event.result/v1" }>> {
+  const session = await openPeer(options);
+  try {
+    const assigned = await session.request({
+      schema: "fleet.assignment.get/v1",
+      messageId: session.messageId(),
+      assignmentId: options.assignmentId,
+    });
+    if (assigned.schema !== "fleet.assignment.result/v1") throw new Error("assignment result expected");
+    const result =
+        options.resultBody === undefined
+          ? null
+          : await uploadFleetChange(session, options.assignmentId, {
+              path: "runtime-result.txt",
+              body: options.resultBody,
+              mediaType: "text/plain; charset=utf-8",
+            }),
+      response = await session.request({
+        schema: "fleet.runtime.event/v1",
+        messageId: session.messageId(),
+        assignmentId: options.assignmentId,
+        writerEpoch: assigned.writerEpoch,
+        repoId: options.repoId,
+        opId: options.opId,
+        eventType: options.eventType,
+        payload: options.payload,
+        result,
+      });
+    if (response.schema !== "fleet.runtime.event.result/v1") throw new Error("runtime event result expected");
+    return response;
+  } finally {
+    session.close();
+  }
+}
+export async function runFleetRuntimeArchiveClient(
+  options: FleetPeerOptions & { readonly repoId: string; readonly archive: Readonly<Record<string, unknown>> },
+): Promise<Readonly<Record<string, unknown>>> {
+  const session = await openPeer(options);
+  try {
+    const assigned = await session.request({
+      schema: "fleet.assignment.get/v1",
+      messageId: session.messageId(),
+      assignmentId: options.assignmentId,
+    });
+    if (assigned.schema !== "fleet.assignment.result/v1") throw new Error("assignment result expected");
+    const response = await session.request({
+      schema: "fleet.runtime.archive/v1",
+      messageId: session.messageId(),
+      assignmentId: options.assignmentId,
+      writerEpoch: assigned.writerEpoch,
+      repoId: options.repoId,
+      archive: options.archive,
+    });
+    if (response.schema !== "fleet.runtime.archive.result/v1") throw new Error("runtime archive result expected");
+    return response.receipt;
+  } finally {
+    session.close();
+  }
+}
+export async function runFleetRuntimeReadClient(
+  options: FleetPeerOptions & {
+    readonly repoId: string;
+    readonly method: "repo.agentRuntime.overview" | "repo.agentRuntime.sessions.read";
+    readonly payload: Readonly<Record<string, unknown>>;
+  },
+): Promise<Readonly<Record<string, unknown>>> {
+  const session = await openPeer(options);
+  try {
+    const response = await session.request({
+      schema: "fleet.runtime.read/v1",
+      messageId: session.messageId(),
+      assignmentId: options.assignmentId,
+      repoId: options.repoId,
+      method: options.method,
+      payload: options.payload,
+    });
+    if (response.schema !== "fleet.runtime.read.result/v1") throw new Error("runtime read result expected");
+    return response.result;
+  } finally {
+    session.close();
+  }
+}
+type FleetUploadSession = {
+  readonly messageId: () => string;
+  readonly request: (frame: FleetFrameV1) => Promise<FleetFrameV1>;
+};
+async function uploadFleetChange(
+  session: FleetUploadSession,
+  assignmentId: string,
+  input: FleetEdgeChange,
+): Promise<FleetDescriptor> {
+  const body = Buffer.isBuffer(input.body) ? input.body : Buffer.from(input.body),
+    content = {
+      sha256: sha256Bytes(body),
+      size: body.byteLength,
+      mediaType: input.mediaType ?? (input.path.endsWith(".md") ? "text/markdown" : "text/plain"),
+    },
+    ready = await session.request({
+      schema: "fleet.upload.begin/v1",
+      messageId: session.messageId(),
+      assignmentId,
+      content,
+    });
+  if (ready.schema !== "fleet.upload.ready/v1") throw new Error("upload ready expected");
+  let offset = ready.resumeOffset;
+  while (offset < body.length) {
+    const response = await session.request({
+      schema: "fleet.upload.chunk/v1",
+      messageId: session.messageId(),
+      uploadId: ready.uploadId,
+      offset,
+      dataBase64: body.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
+    });
+    if (response.schema !== "fleet.upload.ready/v1") throw new Error("chunk receipt expected");
+    offset = response.resumeOffset;
+  }
+  const uploaded = await session.request({
+    schema: "fleet.upload.finish/v1",
+    messageId: session.messageId(),
+    uploadId: ready.uploadId,
+  });
+  if (uploaded.schema !== "fleet.upload.result/v1") throw new Error("upload result expected");
+  return uploaded.descriptor;
+}
+export interface FleetTaskCommandClientOptions extends FleetPeerOptions {
+  readonly opId: string;
+  readonly repoId: string;
+  readonly taskId: string | null;
+  readonly action: FleetTaskAction;
+  readonly waitMs: number;
+  readonly writerEpoch?: number;
+  readonly docChanges?: readonly {
+    path: string;
+    baseBlobSha256: string | null;
+    policyId: string;
+    candidate: FleetDescriptor;
+  }[];
+  readonly mirrorBaseCut?: { readonly revision: number; readonly headDigest: string } | null;
+}
 // The center parks a conflicted command server-side, so the peer response window
 // must cover the whole wait, not the transport default of five seconds.
- export async function runFleetTaskCommandClient(options: FleetTaskCommandClientOptions): Promise<Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }>> { const session = await openPeer({ ...options, timeoutMs: options.timeoutMs ?? (options.waitMs + 10_000) }); try { const assigned = options.writerEpoch === undefined ? await session.request({ schema: "fleet.assignment.get/v1", messageId: session.messageId(), assignmentId: options.assignmentId }) : null; if (assigned !== null && assigned.schema !== "fleet.assignment.result/v1") throw new Error("assignment result expected"); const writerEpoch = options.writerEpoch ?? (assigned as Extract<FleetFrameV1, { schema: "fleet.assignment.result/v1" }>).writerEpoch; let result: FleetFrameV1; try { result = await session.request({ schema: "fleet.task.command/v1", messageId: session.messageId(), assignmentId: options.assignmentId, writerEpoch, opId: options.opId, repoId: options.repoId, taskId: options.taskId, action: options.action, waitMs: options.waitMs, docChanges: options.docChanges ?? null, mirrorBaseCut: options.mirrorBaseCut ?? null }); } catch (error) { if (error instanceof FleetRemoteError && error.code === "writer_epoch_stale") { const queried = await session.request({ schema: "fleet.receipt.get/v1", messageId: session.messageId(), assignmentId: options.assignmentId, opId: options.opId }); if (queried.schema !== "fleet.receipt.result/v1") throw new Error("receipt result expected"); return { schema: "fleet.task.result/v1", messageId: session.messageId(), inReplyTo: "writer-epoch", outcome: "op_rejected", opId: options.opId, revision: null, code: error.code, receipt: queried.receipt, lease: null, queuePosition: null }; } throw error; } if (result.schema !== "fleet.task.result/v1") throw new Error("task result expected"); return result; } finally { session.close(); } }
-export async function runFleetReplicaPullClient(options: FleetReplicaPullClientOptions): Promise<FleetReplicaPullClientResult> { const view = openFleetEdgeView(options.viewRoot, options.diskQuotaBytes, options.edgeKillpoint), session = await openPeer(options); let last: FleetReplicaPullClientResult["replica"] | null = null; try { for (;;) { session.send({ schema: "fleet.replica.pull/v1", messageId: session.messageId(), assignmentId: options.assignmentId }); for (;;) { const inbound = await session.next(); if (inbound.schema === "fleet.replica.current/v1") { const current = view.current(inbound.repoId, inbound.viewId); if (!current || JSON.stringify(current.cut) !== JSON.stringify(inbound.cut) || current.manifestDigest !== inbound.manifestDigest) throw new Error("center current differs from edge current"); return { replica: last ?? inbound, current }; } const response = view.receive(inbound); if (!response) continue; if (response.schema !== "fleet.ack/v1") throw new Error("replica ACK expected"); options.beforeAck?.(response); const acknowledged = await session.request(response); if (acknowledged.schema !== "fleet.ack.result/v1") throw new Error("ACK result expected"); last = acknowledged; break; } } } finally { session.close(); } }
-async function openPeer(options: FleetPeerOptions) { const socket = await peerSocket(options), peer = peerFor(socket, options.timeoutMs ?? 5_000), prefix = `${options.nodeId}_${Date.now().toString(36)}`; let sequence = 0; const messageId = () => `${prefix}_${sequence++}`, next = async () => { const frame = await peer.next(); options.onFrame?.(frame); if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame); return frame; }, send = (frame: FleetFrameV1) => socket.write(serializeFleetFrame(frame)), request = async (frame: FleetFrameV1) => { send(frame); return next(); }; const ready = await request({ schema: "fleet.session.hello/v1", messageId: messageId(), protocolVersion: 1, nodeId: options.nodeId, credential: options.credential }); if (ready.schema !== "fleet.session.ready/v1") throw new Error("session ready expected"); return { messageId, next, send, request, close: peer.close }; }
-function peerSocket(options: FleetPeerOptions): Promise<TLSSocket> { return new Promise((resolve, reject) => { const socket = connect({ host: options.hostname ?? "127.0.0.1", port: options.port, ca: options.ca, servername: options.servername ?? "localhost", rejectUnauthorized: true }, () => resolve(socket)); socket.once("error", reject); }); }
-function peerFor(socket: TLSSocket, timeoutMs: number) { let closed: Error | null = null; const reader = new FleetUtf8LineDecoder(), queue: FleetFrameV1[] = [], waiting: Array<{ readonly resolve: (value: FleetFrameV1) => void; readonly reject: (error: Error) => void; readonly timer: NodeJS.Timeout }> = [], settleWaiters = (error: Error): void => { for (const waiter of waiting.splice(0)) { clearTimeout(waiter.timer); waiter.reject(error); } }; socket.on("data", (chunk) => { try { for (const line of reader.push(chunk)) { const frame = parseFleetFrame(line), waiter = waiting.shift(); if (waiter) { clearTimeout(waiter.timer); waiter.resolve(frame); } else queue.push(frame); } } catch (error) { consumeKnownError(error); closed = error instanceof Error ? error : new Error(String(error)); settleWaiters(closed); socket.destroy(closed); } }); socket.on("end", () => { try { reader.finish(); } catch (error) { consumeKnownError(error); closed = error instanceof Error ? error : new Error(String(error)); settleWaiters(closed); } }); socket.on("error", (error) => { closed = error; settleWaiters(error); }); // A parked server-hold request must fail fast when the connection drops, so
+export async function runFleetTaskCommandClient(
+  options: FleetTaskCommandClientOptions,
+): Promise<Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }>> {
+  const session = await openPeer({ ...options, timeoutMs: options.timeoutMs ?? options.waitMs + 10_000 });
+  try {
+    const assigned =
+      options.writerEpoch === undefined
+        ? await session.request({
+            schema: "fleet.assignment.get/v1",
+            messageId: session.messageId(),
+            assignmentId: options.assignmentId,
+          })
+        : null;
+    if (assigned !== null && assigned.schema !== "fleet.assignment.result/v1")
+      throw new Error("assignment result expected");
+    const writerEpoch =
+      options.writerEpoch ?? (assigned as Extract<FleetFrameV1, { schema: "fleet.assignment.result/v1" }>).writerEpoch;
+    let result: FleetFrameV1;
+    try {
+      result = await session.request({
+        schema: "fleet.task.command/v1",
+        messageId: session.messageId(),
+        assignmentId: options.assignmentId,
+        writerEpoch,
+        opId: options.opId,
+        repoId: options.repoId,
+        taskId: options.taskId,
+        action: options.action,
+        waitMs: options.waitMs,
+        docChanges: options.docChanges ?? null,
+        mirrorBaseCut: options.mirrorBaseCut ?? null,
+      });
+    } catch (error) {
+      if (error instanceof FleetRemoteError && error.code === "writer_epoch_stale") {
+        const queried = await session.request({
+          schema: "fleet.receipt.get/v1",
+          messageId: session.messageId(),
+          assignmentId: options.assignmentId,
+          opId: options.opId,
+        });
+        if (queried.schema !== "fleet.receipt.result/v1") throw new Error("receipt result expected");
+        return {
+          schema: "fleet.task.result/v1",
+          messageId: session.messageId(),
+          inReplyTo: "writer-epoch",
+          outcome: "op_rejected",
+          opId: options.opId,
+          revision: null,
+          code: error.code,
+          receipt: queried.receipt,
+          lease: null,
+          queuePosition: null,
+        };
+      }
+      throw error;
+    }
+    if (result.schema !== "fleet.task.result/v1") throw new Error("task result expected");
+    return result;
+  } finally {
+    session.close();
+  }
+}
+export async function runFleetReplicaPullClient(
+  options: FleetReplicaPullClientOptions,
+): Promise<FleetReplicaPullClientResult> {
+  const view = openFleetEdgeView(options.viewRoot, options.diskQuotaBytes, options.edgeKillpoint),
+    session = await openPeer(options);
+  let last: FleetReplicaPullClientResult["replica"] | null = null;
+  try {
+    for (;;) {
+      session.send({
+        schema: "fleet.replica.pull/v1",
+        messageId: session.messageId(),
+        assignmentId: options.assignmentId,
+      });
+      for (;;) {
+        const inbound = await session.next();
+        if (inbound.schema === "fleet.replica.current/v1") {
+          const current = view.current(inbound.repoId, inbound.viewId);
+          if (
+            !current ||
+            JSON.stringify(current.cut) !== JSON.stringify(inbound.cut) ||
+            current.manifestDigest !== inbound.manifestDigest
+          )
+            throw new Error("center current differs from edge current");
+          return { replica: last ?? inbound, current };
+        }
+        const response = view.receive(inbound);
+        if (!response) continue;
+        if (response.schema !== "fleet.ack/v1") throw new Error("replica ACK expected");
+        options.beforeAck?.(response);
+        const acknowledged = await session.request(response);
+        if (acknowledged.schema !== "fleet.ack.result/v1") throw new Error("ACK result expected");
+        last = acknowledged;
+        break;
+      }
+    }
+  } finally {
+    session.close();
+  }
+}
+async function openPeer(options: FleetPeerOptions) {
+  const socket = await peerSocket(options),
+    peer = peerFor(socket, options.timeoutMs ?? 5_000),
+    prefix = `${options.nodeId}_${Date.now().toString(36)}`;
+  let sequence = 0;
+  const messageId = () => `${prefix}_${sequence++}`,
+    next = async () => {
+      const frame = await peer.next();
+      options.onFrame?.(frame);
+      if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame);
+      return frame;
+    },
+    send = (frame: FleetFrameV1) => socket.write(serializeFleetFrame(frame)),
+    request = async (frame: FleetFrameV1) => {
+      send(frame);
+      return next();
+    };
+  const ready = await request({
+    schema: "fleet.session.hello/v1",
+    messageId: messageId(),
+    protocolVersion: 1,
+    nodeId: options.nodeId,
+    credential: options.credential,
+  });
+  if (ready.schema !== "fleet.session.ready/v1") throw new Error("session ready expected");
+  return { messageId, next, send, request, close: peer.close };
+}
+function peerSocket(options: FleetPeerOptions): Promise<TLSSocket> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(
+      {
+        host: options.hostname ?? "127.0.0.1",
+        port: options.port,
+        ca: options.ca,
+        servername: options.servername ?? "localhost",
+        rejectUnauthorized: true,
+      },
+      () => resolve(socket),
+    );
+    socket.once("error", reject);
+  });
+}
+function peerFor(socket: TLSSocket, timeoutMs: number) {
+  let closed: Error | null = null;
+  const reader = new FleetUtf8LineDecoder(),
+    queue: FleetFrameV1[] = [],
+    waiting: Array<{
+      readonly resolve: (value: FleetFrameV1) => void;
+      readonly reject: (error: Error) => void;
+      readonly timer: NodeJS.Timeout;
+    }> = [],
+    settleWaiters = (error: Error): void => {
+      for (const waiter of waiting.splice(0)) {
+        clearTimeout(waiter.timer);
+        waiter.reject(error);
+      }
+    };
+  socket.on("data", (chunk) => {
+    try {
+      for (const line of reader.push(chunk)) {
+        const frame = parseFleetFrame(line),
+          waiter = waiting.shift();
+        if (waiter) {
+          clearTimeout(waiter.timer);
+          waiter.resolve(frame);
+        } else queue.push(frame);
+      }
+    } catch (error) {
+      consumeKnownError(error);
+      closed = error instanceof Error ? error : new Error(String(error));
+      settleWaiters(closed);
+      socket.destroy(closed);
+    }
+  });
+  socket.on("end", () => {
+    try {
+      reader.finish();
+    } catch (error) {
+      consumeKnownError(error);
+      closed = error instanceof Error ? error : new Error(String(error));
+      settleWaiters(closed);
+    }
+  });
+  socket.on("error", (error) => {
+    closed = error;
+    settleWaiters(error);
+  }); // A parked server-hold request must fail fast when the connection drops, so
   // the retry loop can reconnect with the same opId instead of waiting out the
   // response timeout (adversarial F4).
-  socket.on("close", () => { const error = closed ?? new Error("Fleet connection closed"); closed = error; settleWaiters(error); });
-  return { next: () => { if (queue.length) return Promise.resolve(queue.shift()!); if (closed) return Promise.reject(closed); return new Promise<FleetFrameV1>((resolve, reject) => { const timer = setTimeout(() => { const at = waiting.findIndex((waiter) => waiter.timer === timer); if (at >= 0) waiting.splice(at, 1); reject(new Error("Fleet response timeout")); }, timeoutMs); waiting.push({ resolve, reject, timer }); }); }, close: () => socket.destroy() }; }
-function exactJson(file: string, value: unknown): void { if (existsSync(file)) { if (JSON.stringify(readJson(file)) !== JSON.stringify(value)) throw new Error("transfer replay mismatch"); return; } writeEdgeDurableJson(file, value); } function writeEdgeDurableJson(file: string, value: unknown): void { writeFileDurably(file, `${JSON.stringify(value)}\n`); }
-function readJson<T>(file: string): T | null { return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) as T : null; }
-function diskUsage(root: string): number { if (!existsSync(root)) return 0; const stat = statSync(root); return stat.isDirectory() ? readdirSync(root).reduce((sum, name) => sum + diskUsage(path.join(root, name)), 0) : stat.size; }
+  socket.on("close", () => {
+    const error = closed ?? new Error("Fleet connection closed");
+    closed = error;
+    settleWaiters(error);
+  });
+  return {
+    next: () => {
+      if (queue.length) return Promise.resolve(queue.shift()!);
+      if (closed) return Promise.reject(closed);
+      return new Promise<FleetFrameV1>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          const at = waiting.findIndex((waiter) => waiter.timer === timer);
+          if (at >= 0) waiting.splice(at, 1);
+          reject(new Error("Fleet response timeout"));
+        }, timeoutMs);
+        waiting.push({ resolve, reject, timer });
+      });
+    },
+    close: () => socket.destroy(),
+  };
+}
+function exactJson(file: string, value: unknown): void {
+  if (existsSync(file)) {
+    if (JSON.stringify(readJson(file)) !== JSON.stringify(value)) throw new Error("transfer replay mismatch");
+    return;
+  }
+  writeEdgeDurableJson(file, value);
+}
+function writeEdgeDurableJson(file: string, value: unknown): void {
+  writeFileDurably(file, `${JSON.stringify(value)}\n`);
+}
+function readJson<T>(file: string): T | null {
+  return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as T) : null;
+}
+function diskUsage(root: string): number {
+  if (!existsSync(root)) return 0;
+  const stat = statSync(root);
+  return stat.isDirectory()
+    ? readdirSync(root).reduce((sum, name) => sum + diskUsage(path.join(root, name)), 0)
+    : stat.size;
+}

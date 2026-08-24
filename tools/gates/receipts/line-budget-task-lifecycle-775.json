@@ -1,8 +1,0 @@
-{
-  "decisionId": "dec_D848EF980B86800CFC6BD82125",
-  "scope": "module:task-lifecycle",
-  "kind": "line-budget",
-  "limit": 775,
-  "expiry": "2027-08-31T00:00:00Z",
-  "signature": "5376c34604b0fd4eeb8b945a47f202f4c83a4ae12b302b22fdc789dff7eb8690"
-}

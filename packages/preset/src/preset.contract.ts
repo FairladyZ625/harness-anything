@@ -1,67 +1,646 @@
-import { presetCommands, presetMethods } from "./preset-command-contract.ts"; export { consentJsonFields, decisionProposalJsonFields, presetCommands, presetMethods, reviewJsonFields, taskCreateJsonFields, taskSubmissionJsonFields, type RpcShape } from "./preset-command-contract.ts";
-export type PresetLayer = "bundled" | "user"; export type PresetPurpose = "inspect" | "task-create" | "script-run"; export type PresetKind = "template-content" | "process-action";
-export interface CapabilityRefV1 { readonly id: string; readonly kind: "checker" | "scaffold" | "projection" | "command" | "template" | "raw-fs"; readonly version: string }
-export interface TypedInputV1 { readonly name: string; readonly type: "string" | "number" | "boolean" | "json"; readonly required: boolean }
-export interface TemplateSelectionV1 { readonly slot: string; readonly templateRef: string; readonly materializeAs: string; readonly localePolicy: { readonly prefer: "project" | "preset" | "explicit"; readonly fallback: "zh-CN" | "en-US" } }
-export interface PresetProfileV3 { readonly id: string; readonly title: string; readonly checkerProfile?: string; readonly completionGates: readonly string[]; readonly templateSelections: readonly TemplateSelectionV1[]; readonly capabilityImports?: readonly CapabilityRefV1[] }
-type RuntimeContractSchema<T> = Readonly<{ readonly id: string; readonly required: readonly string[] }> & { readonly Type: T }; function runtimeSchema<T>(id: string, required: readonly string[]): RuntimeContractSchema<T> { return Object.freeze({ id, required: Object.freeze(required) }) as RuntimeContractSchema<T>; }
-interface PresetManifestCommonV3 { readonly schema: "preset-manifest/v3"; readonly id: string; readonly title: string; readonly vertical: string; readonly version: string }
-export interface PresetTaskManifestV3 extends PresetManifestCommonV3 { readonly kind: "template-content" | "process-action"; readonly outputShape: string; readonly extends?: string; readonly policyPath?: string; readonly kernelVersionRange: { readonly min: string; readonly maxExclusive?: string }; readonly capabilityImports: readonly (CapabilityRefV1 & { readonly required: boolean })[]; readonly entrypoints?: Readonly<Record<string, { readonly type: "script"; readonly intent: string; readonly inputs: readonly TypedInputV1[]; readonly requires: readonly CapabilityRefV1[]; readonly produces: readonly CapabilityRefV1[]; readonly sideEffects: readonly CapabilityRefV1[]; readonly command: string }>>; readonly profiles: readonly PresetProfileV3[]; readonly defaultProfile: string }
+import { presetCommands, presetMethods } from "./preset-command-contract.ts";
+export {
+  consentJsonFields,
+  decisionProposalJsonFields,
+  presetCommands,
+  presetMethods,
+  reviewJsonFields,
+  taskCreateJsonFields,
+  taskSubmissionJsonFields,
+  type RpcShape,
+} from "./preset-command-contract.ts";
+export type PresetLayer = "bundled" | "user";
+export type PresetPurpose = "inspect" | "task-create" | "script-run";
+export type PresetKind = "template-content" | "process-action";
+export interface CapabilityRefV1 {
+  readonly id: string;
+  readonly kind: "checker" | "scaffold" | "projection" | "command" | "template" | "raw-fs";
+  readonly version: string;
+}
+export interface TypedInputV1 {
+  readonly name: string;
+  readonly type: "string" | "number" | "boolean" | "json";
+  readonly required: boolean;
+}
+export interface TemplateSelectionV1 {
+  readonly slot: string;
+  readonly templateRef: string;
+  readonly materializeAs: string;
+  readonly localePolicy: { readonly prefer: "project" | "preset" | "explicit"; readonly fallback: "zh-CN" | "en-US" };
+}
+export interface PresetProfileV3 {
+  readonly id: string;
+  readonly title: string;
+  readonly checkerProfile?: string;
+  readonly completionGates: readonly string[];
+  readonly templateSelections: readonly TemplateSelectionV1[];
+  readonly capabilityImports?: readonly CapabilityRefV1[];
+}
+type RuntimeContractSchema<T> = Readonly<{ readonly id: string; readonly required: readonly string[] }> & {
+  readonly Type: T;
+};
+function runtimeSchema<T>(id: string, required: readonly string[]): RuntimeContractSchema<T> {
+  return Object.freeze({ id, required: Object.freeze(required) }) as RuntimeContractSchema<T>;
+}
+interface PresetManifestCommonV3 {
+  readonly schema: "preset-manifest/v3";
+  readonly id: string;
+  readonly title: string;
+  readonly vertical: string;
+  readonly version: string;
+}
+export interface PresetTaskManifestV3 extends PresetManifestCommonV3 {
+  readonly kind: "template-content" | "process-action";
+  readonly outputShape: string;
+  readonly extends?: string;
+  readonly policyPath?: string;
+  readonly kernelVersionRange: { readonly min: string; readonly maxExclusive?: string };
+  readonly capabilityImports: readonly (CapabilityRefV1 & { readonly required: boolean })[];
+  readonly entrypoints?: Readonly<
+    Record<
+      string,
+      {
+        readonly type: "script";
+        readonly intent: string;
+        readonly inputs: readonly TypedInputV1[];
+        readonly requires: readonly CapabilityRefV1[];
+        readonly produces: readonly CapabilityRefV1[];
+        readonly sideEffects: readonly CapabilityRefV1[];
+        readonly command: string;
+      }
+    >
+  >;
+  readonly profiles: readonly PresetProfileV3[];
+  readonly defaultProfile: string;
+}
 export type PresetManifestV3 = PresetTaskManifestV3;
-export const PRESET_MANIFEST_V3_SCHEMA = runtimeSchema<PresetManifestV3>("preset-manifest/v3", ["schema", "id", "title", "vertical", "version", "kind"]);
-export interface PresetDocumentV1 { readonly schema: "preset-document/v1"; readonly description: string; readonly whenToUse: string; readonly body: string }
-export interface PresetSnapshotV1 { readonly schema: "preset-snapshot/v1"; readonly identity: { readonly id: string; readonly version: string; readonly verticalId: string; readonly layer: PresetLayer }; readonly profile: { readonly id: string; readonly outputShape: string; readonly completionGateIds: readonly string[] }; readonly guidance: { readonly description: string; readonly whenToUse: string; readonly bodySha256: string }; readonly scaffold: { readonly baseVersion: "software-coding/v1"; readonly overlayDigest: `sha256:${string}` | null; readonly resolvedSelectionDigest: `sha256:${string}` }; readonly templates: readonly { readonly slot: string; readonly path: string; readonly templateRef: string; readonly locale: string; readonly owner: "doc-sync"; readonly requiredAnchors: readonly string[]; readonly content: { readonly sha256: string; readonly size: number; readonly mediaType: "text/markdown" | "text/plain" } }[]; readonly entrypoints: Readonly<Record<string, { readonly type: "script"; readonly intent: string; readonly inputs: readonly TypedInputV1[]; readonly requires: readonly CapabilityRefV1[]; readonly produces: readonly CapabilityRefV1[]; readonly sideEffects: readonly CapabilityRefV1[]; readonly commandRef: string; readonly commandSha256: string }>>; readonly provenance: { readonly manifestSha256: string; readonly packageSha256: string; readonly verticalSha256: string; readonly templateCatalogSha256: string; readonly resolverVersion: "1"; readonly ancestry: readonly string[] }; readonly digest: `sha256:${string}` }
-export interface PresetCatalogIssueV1 { readonly code: string; readonly message: string }
-export interface PresetCatalogEntryV1 { readonly id: string; readonly title: string; readonly description: string; readonly verticalId: string; readonly layer: PresetLayer; readonly source: string; readonly validity: "valid" | "unavailable" | "blocked"; readonly version?: string; readonly kind?: PresetKind; readonly defaultProfile?: string; readonly entrypoints?: readonly string[]; readonly issues: readonly PresetCatalogIssueV1[]; readonly issueCount?: number; readonly errorCode?: string; readonly missingProviderIds?: readonly string[]; readonly nextAction?: string; readonly shadows?: { readonly layer: "bundled"; readonly title: string } }
-export interface ResolvePresetRequestV1 { readonly presetId: string; readonly verticalId: string; readonly profileId?: string; readonly locale: string; readonly purpose: PresetPurpose; readonly entrypoint?: string }
-export interface ExecutablePackageHandle { readonly packageDigest: string; readonly opaque: symbol }
-export type PresetResolveResultV1 = { readonly ok: true; readonly snapshot: PresetSnapshotV1; readonly package: ExecutablePackageHandle | null } | { readonly ok: false; readonly error: PresetResolutionErrorV1 };
-export interface PresetResolutionErrorV1 { readonly code: string; readonly hint: string; readonly nextAction: string }
-export interface CanonicalPresetResolver { readonly list: (input: { readonly verticalId: string }) => Promise<readonly PresetCatalogEntryV1[]>; readonly resolve: (input: ResolvePresetRequestV1) => Promise<PresetResolveResultV1> }
-export type PresetRunPhaseV1 = "admitted" | "spawned" | "running" | "publishing" | "applied" | "op_rejected" | "failed" | "outcome_unknown"; export type PresetRunOutcomeV1 = "started" | "running" | "applied" | "op_rejected" | "failed" | "outcome_unknown";
-export interface PresetRunReceiptV1 { readonly schema: "preset-run-receipt/v1"; readonly runId: string; readonly outcome: PresetRunOutcomeV1; readonly phase: PresetRunPhaseV1; readonly phases: readonly PresetRunPhaseV1[]; readonly snapshotDigest?: `sha256:${string}`; readonly resultDigest?: `sha256:${string}`; readonly code?: string; readonly nextAction?: string }
-export const PRESET_DOCUMENT_V1_SCHEMA = Object.freeze({ id: "preset-document/v1", required: Object.freeze(["schema", "description", "whenToUse", "body"]) }), PRESET_SNAPSHOT_V1_SCHEMA = Object.freeze({ id: "preset-snapshot/v1", required: Object.freeze(["schema", "identity", "profile", "guidance", "scaffold", "templates", "entrypoints", "provenance", "digest"]) }), PRESET_RUN_RECEIPT_V1_SCHEMA = Object.freeze({ id: "preset-run-receipt/v1", required: Object.freeze(["schema", "runId", "outcome", "phase", "phases"]) });
-export class PresetContractError extends Error { readonly code = "invalid_preset_contract"; constructor(message: string) { super(message); this.name = "PresetContractError"; } }
-export function consumeKnownError(error: unknown): { readonly code: string; readonly message: string } { return error && typeof error === "object" && "code" in error && typeof error.code === "string" ? { code: error.code, message: "message" in error && typeof error.message === "string" ? error.message : String(error) } : { code: "process_failed", message: error instanceof Error ? error.message : String(error) }; }
-const requiredManifest = PRESET_MANIFEST_V3_SCHEMA.required, manifestFields = [...requiredManifest, "outputShape", "kernelVersionRange", "capabilityImports", "profiles", "defaultProfile", "extends", "policyPath", "entrypoints"];
+export const PRESET_MANIFEST_V3_SCHEMA = runtimeSchema<PresetManifestV3>("preset-manifest/v3", [
+  "schema",
+  "id",
+  "title",
+  "vertical",
+  "version",
+  "kind",
+]);
+export interface PresetDocumentV1 {
+  readonly schema: "preset-document/v1";
+  readonly description: string;
+  readonly whenToUse: string;
+  readonly body: string;
+}
+export interface PresetSnapshotV1 {
+  readonly schema: "preset-snapshot/v1";
+  readonly identity: {
+    readonly id: string;
+    readonly version: string;
+    readonly verticalId: string;
+    readonly layer: PresetLayer;
+  };
+  readonly profile: {
+    readonly id: string;
+    readonly outputShape: string;
+    readonly completionGateIds: readonly string[];
+  };
+  readonly guidance: { readonly description: string; readonly whenToUse: string; readonly bodySha256: string };
+  readonly scaffold: {
+    readonly baseVersion: "software-coding/v1";
+    readonly overlayDigest: `sha256:${string}` | null;
+    readonly resolvedSelectionDigest: `sha256:${string}`;
+  };
+  readonly templates: readonly {
+    readonly slot: string;
+    readonly path: string;
+    readonly templateRef: string;
+    readonly locale: string;
+    readonly owner: "doc-sync";
+    readonly requiredAnchors: readonly string[];
+    readonly content: {
+      readonly sha256: string;
+      readonly size: number;
+      readonly mediaType: "text/markdown" | "text/plain";
+    };
+  }[];
+  readonly entrypoints: Readonly<
+    Record<
+      string,
+      {
+        readonly type: "script";
+        readonly intent: string;
+        readonly inputs: readonly TypedInputV1[];
+        readonly requires: readonly CapabilityRefV1[];
+        readonly produces: readonly CapabilityRefV1[];
+        readonly sideEffects: readonly CapabilityRefV1[];
+        readonly commandRef: string;
+        readonly commandSha256: string;
+      }
+    >
+  >;
+  readonly provenance: {
+    readonly manifestSha256: string;
+    readonly packageSha256: string;
+    readonly verticalSha256: string;
+    readonly templateCatalogSha256: string;
+    readonly resolverVersion: "1";
+    readonly ancestry: readonly string[];
+  };
+  readonly digest: `sha256:${string}`;
+}
+export interface PresetCatalogIssueV1 {
+  readonly code: string;
+  readonly message: string;
+}
+export interface PresetCatalogEntryV1 {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly verticalId: string;
+  readonly layer: PresetLayer;
+  readonly source: string;
+  readonly validity: "valid" | "unavailable" | "blocked";
+  readonly version?: string;
+  readonly kind?: PresetKind;
+  readonly defaultProfile?: string;
+  readonly entrypoints?: readonly string[];
+  readonly issues: readonly PresetCatalogIssueV1[];
+  readonly issueCount?: number;
+  readonly errorCode?: string;
+  readonly missingProviderIds?: readonly string[];
+  readonly nextAction?: string;
+  readonly shadows?: { readonly layer: "bundled"; readonly title: string };
+}
+export interface ResolvePresetRequestV1 {
+  readonly presetId: string;
+  readonly verticalId: string;
+  readonly profileId?: string;
+  readonly locale: string;
+  readonly purpose: PresetPurpose;
+  readonly entrypoint?: string;
+}
+export interface ExecutablePackageHandle {
+  readonly packageDigest: string;
+  readonly opaque: symbol;
+}
+export type PresetResolveResultV1 =
+  | { readonly ok: true; readonly snapshot: PresetSnapshotV1; readonly package: ExecutablePackageHandle | null }
+  | { readonly ok: false; readonly error: PresetResolutionErrorV1 };
+export interface PresetResolutionErrorV1 {
+  readonly code: string;
+  readonly hint: string;
+  readonly nextAction: string;
+}
+export interface CanonicalPresetResolver {
+  readonly list: (input: { readonly verticalId: string }) => Promise<readonly PresetCatalogEntryV1[]>;
+  readonly resolve: (input: ResolvePresetRequestV1) => Promise<PresetResolveResultV1>;
+}
+export type PresetRunPhaseV1 =
+  | "admitted"
+  | "spawned"
+  | "running"
+  | "publishing"
+  | "applied"
+  | "op_rejected"
+  | "failed"
+  | "outcome_unknown";
+export type PresetRunOutcomeV1 = "started" | "running" | "applied" | "op_rejected" | "failed" | "outcome_unknown";
+export interface PresetRunReceiptV1 {
+  readonly schema: "preset-run-receipt/v1";
+  readonly runId: string;
+  readonly outcome: PresetRunOutcomeV1;
+  readonly phase: PresetRunPhaseV1;
+  readonly phases: readonly PresetRunPhaseV1[];
+  readonly snapshotDigest?: `sha256:${string}`;
+  readonly resultDigest?: `sha256:${string}`;
+  readonly code?: string;
+  readonly nextAction?: string;
+}
+export const PRESET_DOCUMENT_V1_SCHEMA = Object.freeze({
+    id: "preset-document/v1",
+    required: Object.freeze(["schema", "description", "whenToUse", "body"]),
+  }),
+  PRESET_SNAPSHOT_V1_SCHEMA = Object.freeze({
+    id: "preset-snapshot/v1",
+    required: Object.freeze([
+      "schema",
+      "identity",
+      "profile",
+      "guidance",
+      "scaffold",
+      "templates",
+      "entrypoints",
+      "provenance",
+      "digest",
+    ]),
+  }),
+  PRESET_RUN_RECEIPT_V1_SCHEMA = Object.freeze({
+    id: "preset-run-receipt/v1",
+    required: Object.freeze(["schema", "runId", "outcome", "phase", "phases"]),
+  });
+export class PresetContractError extends Error {
+  readonly code = "invalid_preset_contract";
+  constructor(message: string) {
+    super(message);
+    this.name = "PresetContractError";
+  }
+}
+export function consumeKnownError(error: unknown): { readonly code: string; readonly message: string } {
+  return error && typeof error === "object" && "code" in error && typeof error.code === "string"
+    ? {
+        code: error.code,
+        message: "message" in error && typeof error.message === "string" ? error.message : String(error),
+      }
+    : { code: "process_failed", message: error instanceof Error ? error.message : String(error) };
+}
+const requiredManifest = PRESET_MANIFEST_V3_SCHEMA.required,
+  manifestFields = [
+    ...requiredManifest,
+    "outputShape",
+    "kernelVersionRange",
+    "capabilityImports",
+    "profiles",
+    "defaultProfile",
+    "extends",
+    "policyPath",
+    "entrypoints",
+  ];
 export function validatePresetManifestV3(value: unknown): readonly string[] {
-  if (!isPresetContractRecord(value)) return ["preset.json must contain a JSON object manifest; expected preset-manifest/v3."];
-  const errors: string[] = [], unknownFields = Object.keys(value).filter((field) => !manifestFields.includes(field));
-  for (const field of unknownFields) errors.push(`preset.json contains unknown field "${field}"; remove it or use a declared v3 field.`);
-  for (const field of requiredManifest) if (!Object.hasOwn(value, field)) errors.push(`preset.json is missing required field "${field}"; expected a preset-manifest/v3 field.`);
+  if (!isPresetContractRecord(value))
+    return ["preset.json must contain a JSON object manifest; expected preset-manifest/v3."];
+  const errors: string[] = [],
+    unknownFields = Object.keys(value).filter((field) => !manifestFields.includes(field));
+  for (const field of unknownFields)
+    errors.push(`preset.json contains unknown field "${field}"; remove it or use a declared v3 field.`);
+  for (const field of requiredManifest)
+    if (!Object.hasOwn(value, field))
+      errors.push(`preset.json is missing required field "${field}"; expected a preset-manifest/v3 field.`);
   if (value.schema !== "preset-manifest/v3") errors.push(`preset.json field "schema" must equal "preset-manifest/v3".`);
-  const kind = String(value.kind), knownKind = ["template-content", "process-action"].includes(kind);
+  const kind = String(value.kind),
+    knownKind = ["template-content", "process-action"].includes(kind);
   if (!knownKind) errors.push(`preset.json field "kind" must be one of template-content, process-action.`);
   if (!presetId(value.id)) errors.push(`preset.json field "id" must be a lowercase preset id.`);
-  for (const field of ["title", "vertical", "version"] as const) if (!nonEmpty(value[field])) errors.push(`preset.json field "${field}" must be a non-empty string; expected a declared preset identity value.`);
+  for (const field of ["title", "vertical", "version"] as const)
+    if (!nonEmpty(value[field]))
+      errors.push(
+        `preset.json field "${field}" must be a non-empty string; expected a declared preset identity value.`,
+      );
   if (!knownKind) return errors;
-  for (const field of ["outputShape", "kernelVersionRange", "capabilityImports", "profiles", "defaultProfile"] as const) if (!Object.hasOwn(value, field)) errors.push(`preset.json is missing required field "${field}" for task preset kind "${kind}"; expected the task-shape contract.`);
-  if (!nonEmpty(value.outputShape)) errors.push("preset.json field \"outputShape\" must be a non-empty string for task presets; expected the declared output shape.");
-  if (!isPresetContractRecord(value.kernelVersionRange) || !allowed(value.kernelVersionRange, ["min", "maxExclusive"], ["min"]) || !nonEmpty(value.kernelVersionRange.min) || value.kernelVersionRange.maxExclusive !== undefined && !nonEmpty(value.kernelVersionRange.maxExclusive)) errors.push("preset.json field \"kernelVersionRange\" is invalid; expected { min: string, maxExclusive?: string }.");
-  if (!Array.isArray(value.capabilityImports) || !value.capabilityImports.every((item) => capability(item, true))) errors.push("preset.json field \"capabilityImports\" is invalid; expected an array of capability refs with required booleans.");
-  if (!Array.isArray(value.profiles) || value.profiles.length === 0 || !value.profiles.every(profile) || !value.profiles.some((item) => isPresetContractRecord(item) && item.id === value.defaultProfile)) errors.push("preset.json field \"profiles\" or \"defaultProfile\" is invalid; expected at least one valid profile matching defaultProfile.");
-  if (value.extends !== undefined && !nonEmpty(value.extends) || value.policyPath !== undefined && !nonEmpty(value.policyPath) || value.entrypoints !== undefined && (!isPresetContractRecord(value.entrypoints) || !Object.entries(value.entrypoints).every(([name, item]) => nonEmpty(name) && entrypoint(item)))) errors.push("preset.json optional task field is invalid; expected valid extends, policyPath, or entrypoints values.");
+  for (const field of ["outputShape", "kernelVersionRange", "capabilityImports", "profiles", "defaultProfile"] as const)
+    if (!Object.hasOwn(value, field))
+      errors.push(
+        `preset.json is missing required field "${field}" for task preset kind "${kind}"; expected the task-shape contract.`,
+      );
+  if (!nonEmpty(value.outputShape))
+    errors.push(
+      'preset.json field "outputShape" must be a non-empty string for task presets; expected the declared output shape.',
+    );
+  if (
+    !isPresetContractRecord(value.kernelVersionRange) ||
+    !allowed(value.kernelVersionRange, ["min", "maxExclusive"], ["min"]) ||
+    !nonEmpty(value.kernelVersionRange.min) ||
+    (value.kernelVersionRange.maxExclusive !== undefined && !nonEmpty(value.kernelVersionRange.maxExclusive))
+  )
+    errors.push('preset.json field "kernelVersionRange" is invalid; expected { min: string, maxExclusive?: string }.');
+  if (!Array.isArray(value.capabilityImports) || !value.capabilityImports.every((item) => capability(item, true)))
+    errors.push(
+      'preset.json field "capabilityImports" is invalid; expected an array of capability refs with required booleans.',
+    );
+  if (
+    !Array.isArray(value.profiles) ||
+    value.profiles.length === 0 ||
+    !value.profiles.every(profile) ||
+    !value.profiles.some((item) => isPresetContractRecord(item) && item.id === value.defaultProfile)
+  )
+    errors.push(
+      'preset.json field "profiles" or "defaultProfile" is invalid; expected at least one valid profile matching defaultProfile.',
+    );
+  if (
+    (value.extends !== undefined && !nonEmpty(value.extends)) ||
+    (value.policyPath !== undefined && !nonEmpty(value.policyPath)) ||
+    (value.entrypoints !== undefined &&
+      (!isPresetContractRecord(value.entrypoints) ||
+        !Object.entries(value.entrypoints).every(([name, item]) => nonEmpty(name) && entrypoint(item))))
+  )
+    errors.push(
+      "preset.json optional task field is invalid; expected valid extends, policyPath, or entrypoints values.",
+    );
   return errors;
 }
-export function parsePresetManifestV3(value: unknown): PresetManifestV3 { const errors = validatePresetManifestV3(value); if (errors.length) throw new PresetContractError(errors.join("; ")); return value as PresetManifestV3; }
-export function validatePresetDocumentV1(value: unknown): readonly string[] { if (!isPresetContractRecord(value)) return ["PRESET.md is missing YAML frontmatter; expected schema: preset-document/v1, description, whenToUse, and a markdown body."]; const errors = Object.keys(value).filter((field) => !PRESET_DOCUMENT_V1_SCHEMA.required.includes(field)).map((field) => `PRESET.md contains unknown frontmatter field "${field}"; remove it.`); errors.push(...["schema", "description", "whenToUse", "body"].filter((field) => !Object.hasOwn(value, field)).map((field) => `PRESET.md is missing required field "${field}"; expected preset-document/v1 frontmatter/body.`)); if (Object.hasOwn(value, "schema") && value.schema !== "preset-document/v1") errors.push(`PRESET.md field "schema" must equal "preset-document/v1".`); if (Object.hasOwn(value, "description") && !nonEmpty(value.description)) errors.push("PRESET.md field \"description\" must be a non-empty string."); if (Object.hasOwn(value, "whenToUse") && !nonEmpty(value.whenToUse)) errors.push("PRESET.md field \"whenToUse\" must be a non-empty string."); if (Object.hasOwn(value, "body") && typeof value.body !== "string") errors.push("PRESET.md body must be markdown text."); return errors; }
-export function validatePresetSnapshotV1(value: unknown): readonly string[] { if (!isPresetContractRecord(value) || !allowed(value, PRESET_SNAPSHOT_V1_SCHEMA.required, PRESET_SNAPSHOT_V1_SCHEMA.required) || value.schema !== "preset-snapshot/v1" || !sha(value.digest) || !snapshotIdentity(value.identity) || !snapshotProfile(value.profile) || !snapshotGuidance(value.guidance) || !snapshotScaffold(value.scaffold) || !Array.isArray(value.templates) || !value.templates.every(snapshotTemplate) || !isPresetContractRecord(value.entrypoints) || !Object.values(value.entrypoints).every(snapshotEntrypoint) || !snapshotProvenance(value.provenance)) return ["preset snapshot is invalid"]; return []; }
-export function validatePresetRunReceiptV1(value: unknown): readonly string[] { const phases: readonly PresetRunPhaseV1[] = ["admitted", "spawned", "running", "publishing", "applied", "op_rejected", "failed", "outcome_unknown"], outcomes: readonly PresetRunOutcomeV1[] = ["started", "running", "applied", "op_rejected", "failed", "outcome_unknown"], fields = [...PRESET_RUN_RECEIPT_V1_SCHEMA.required, "snapshotDigest", "resultDigest", "code", "nextAction"]; return isPresetContractRecord(value) && allowed(value, fields, PRESET_RUN_RECEIPT_V1_SCHEMA.required) && value.schema === "preset-run-receipt/v1" && nonEmpty(value.runId) && outcomes.includes(value.outcome as PresetRunOutcomeV1) && phases.includes(value.phase as PresetRunPhaseV1) && Array.isArray(value.phases) && value.phases.length > 0 && value.phases.every((phase) => phases.includes(phase as PresetRunPhaseV1)) && value.phases.at(-1) === value.phase && (value.snapshotDigest === undefined || sha(value.snapshotDigest)) && (value.resultDigest === undefined || sha(value.resultDigest)) && (value.code === undefined || nonEmpty(value.code)) && (value.nextAction === undefined || nonEmpty(value.nextAction)) ? [] : ["preset run receipt is invalid"]; }
-export const serializePresetManifestV3 = (value: unknown): string => serialize(value, validatePresetManifestV3), serializePresetDocumentV1 = (value: unknown): string => serialize(value, validatePresetDocumentV1), serializePresetSnapshotV1 = (value: unknown): string => serialize(value, validatePresetSnapshotV1), serializePresetRunReceiptV1 = (value: unknown): string => serialize(value, validatePresetRunReceiptV1);
-export function canonicalPresetBytes(value: unknown): string { if (value === null || typeof value !== "object") return JSON.stringify(value); if (Array.isArray(value)) return `[${value.map(canonicalPresetBytes).join(",")}]`; return `{${Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${canonicalPresetBytes((value as Record<string, unknown>)[key])}`).join(",")}}`; }
-function serialize(value: unknown, validate: (input: unknown) => readonly string[]): string { const errors = validate(value); if (errors.length) throw new PresetContractError(errors.join("; ")); return `${canonicalPresetBytes(value)}\n`; }
-function profile(value: unknown): boolean { return isPresetContractRecord(value) && allowed(value, ["id", "title", "checkerProfile", "completionGates", "templateSelections", "capabilityImports"], ["id", "title", "completionGates", "templateSelections"]) && nonEmpty(value.id) && nonEmpty(value.title) && (value.checkerProfile === undefined || nonEmpty(value.checkerProfile)) && hasNonEmptyContractStrings(value.completionGates) && Array.isArray(value.templateSelections) && value.templateSelections.every(selection) && (value.capabilityImports === undefined || Array.isArray(value.capabilityImports) && value.capabilityImports.every((item) => capability(item, false))); }
-function selection(value: unknown): boolean { return isPresetContractRecord(value) && allowed(value, ["slot", "templateRef", "materializeAs", "localePolicy"], ["slot", "templateRef", "materializeAs", "localePolicy"]) && [value.slot, value.templateRef, value.materializeAs].every(nonEmpty) && isPresetContractRecord(value.localePolicy) && allowed(value.localePolicy, ["prefer", "fallback"], ["prefer", "fallback"]) && ["project", "preset", "explicit"].includes(String(value.localePolicy.prefer)) && ["zh-CN", "en-US"].includes(String(value.localePolicy.fallback)); }
-function capability(value: unknown, required: boolean): boolean { const needed = required ? ["id", "kind", "version", "required"] : ["id", "kind", "version"]; return isPresetContractRecord(value) && allowed(value, required ? needed : [...needed, "required"], needed) && [value.id, value.version].every(nonEmpty) && ["checker", "scaffold", "projection", "command", "template", "raw-fs"].includes(String(value.kind)) && (value.required === undefined || typeof value.required === "boolean") && (!required || typeof value.required === "boolean"); }
-function entrypoint(value: unknown): boolean { return isPresetContractRecord(value) && allowed(value, ["type", "intent", "inputs", "requires", "produces", "sideEffects", "command"], ["type", "intent", "inputs", "requires", "produces", "sideEffects", "command"]) && value.type === "script" && nonEmpty(value.intent) && nonEmpty(value.command) && Array.isArray(value.inputs) && value.inputs.every((item) => isPresetContractRecord(item) && allowed(item, ["name", "type", "required"], ["name", "type", "required"]) && nonEmpty(item.name) && ["string", "number", "boolean", "json"].includes(String(item.type)) && typeof item.required === "boolean") && [value.requires, value.produces, value.sideEffects].every((items) => Array.isArray(items) && items.every((item) => capability(item, false))); }
-function snapshotIdentity(value: unknown): boolean { return isPresetContractRecord(value) && allowed(value, ["id", "version", "verticalId", "layer"], ["id", "version", "verticalId", "layer"]) && [value.id, value.version, value.verticalId].every(nonEmpty) && ["bundled", "user"].includes(String(value.layer)); }
-function snapshotProfile(value: unknown): boolean { return isPresetContractRecord(value) && allowed(value, ["id", "outputShape", "completionGateIds"], ["id", "outputShape", "completionGateIds"]) && nonEmpty(value.id) && nonEmpty(value.outputShape) && hasNonEmptyContractStrings(value.completionGateIds); }
-function snapshotGuidance(value: unknown): boolean { return isPresetContractRecord(value) && allowed(value, ["description", "whenToUse", "bodySha256"], ["description", "whenToUse", "bodySha256"]) && nonEmpty(value.description) && nonEmpty(value.whenToUse) && bareSha(value.bodySha256); }
-function snapshotScaffold(value: unknown): boolean { return isPresetContractRecord(value) && allowed(value, ["baseVersion", "overlayDigest", "resolvedSelectionDigest"], ["baseVersion", "overlayDigest", "resolvedSelectionDigest"]) && value.baseVersion === "software-coding/v1" && (value.overlayDigest === null || sha(value.overlayDigest)) && sha(value.resolvedSelectionDigest); }
-function snapshotTemplate(value: unknown): boolean { return isPresetContractRecord(value) && allowed(value, ["slot", "path", "templateRef", "locale", "owner", "requiredAnchors", "content"], ["slot", "path", "templateRef", "locale", "owner", "requiredAnchors", "content"]) && [value.slot, value.path, value.templateRef, value.locale].every(nonEmpty) && value.owner === "doc-sync" && hasNonEmptyContractStrings(value.requiredAnchors) && isPresetContractRecord(value.content) && allowed(value.content, ["sha256", "size", "mediaType"], ["sha256", "size", "mediaType"]) && bareSha(value.content.sha256) && Number.isSafeInteger(value.content.size) && (value.content.size as number) >= 0 && ["text/markdown", "text/plain"].includes(String(value.content.mediaType)); }
-function snapshotEntrypoint(value: unknown): boolean { return isPresetContractRecord(value) && allowed(value, ["type", "intent", "inputs", "requires", "produces", "sideEffects", "commandRef", "commandSha256"], ["type", "intent", "inputs", "requires", "produces", "sideEffects", "commandRef", "commandSha256"]) && value.type === "script" && nonEmpty(value.intent) && nonEmpty(value.commandRef) && bareSha(value.commandSha256) && Array.isArray(value.inputs) && value.inputs.every((item) => isPresetContractRecord(item) && allowed(item, ["name", "type", "required"], ["name", "type", "required"]) && nonEmpty(item.name) && ["string", "number", "boolean", "json"].includes(String(item.type)) && typeof item.required === "boolean") && [value.requires, value.produces, value.sideEffects].every((items) => Array.isArray(items) && items.every((item) => capability(item, false))); }
-function snapshotProvenance(value: unknown): boolean { return isPresetContractRecord(value) && allowed(value, ["manifestSha256", "packageSha256", "verticalSha256", "templateCatalogSha256", "resolverVersion", "ancestry"], ["manifestSha256", "packageSha256", "verticalSha256", "templateCatalogSha256", "resolverVersion", "ancestry"]) && [value.manifestSha256, value.packageSha256, value.verticalSha256, value.templateCatalogSha256].every(bareSha) && value.resolverVersion === "1" && hasNonEmptyContractStrings(value.ancestry); }
-function isPresetContractRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); } function nonEmpty(value: unknown): value is string { return typeof value === "string" && value.trim().length > 0; } function hasNonEmptyContractStrings(value: unknown): boolean { return Array.isArray(value) && value.every(nonEmpty); } function presetId(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,127}$/u.test(value); } function bareSha(value: unknown): boolean { return typeof value === "string" && /^[0-9a-f]{64}$/u.test(value); } function sha(value: unknown): boolean { return typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value); } function allowed(value: Record<string, unknown>, fields: readonly string[], required: readonly string[]): boolean { return Object.keys(value).every((field) => fields.includes(field)) && required.every((field) => Object.hasOwn(value, field)); }
-const schemaDeclaration = (id: string, name: string, fixture: string) => ({ id, schema: `packages/preset/src/preset.contract.ts#${name}_SCHEMA`, parser: `packages/preset/src/preset.contract.ts#validate${name.split("_").map((part) => part[0] + part.slice(1).toLowerCase()).join("")}`, writer: `packages/preset/src/preset.contract.ts#serialize${name.split("_").map((part) => part[0] + part.slice(1).toLowerCase()).join("")}`, error: "packages/preset/src/preset.contract.ts#PresetContractError", negativeFixtures: Object.freeze([`packages/preset/fixtures/contracts/${fixture}`]) });
-export const presetSchemas = Object.freeze([schemaDeclaration("preset-manifest/v3", "PRESET_MANIFEST_V3", "preset-manifest-v3-invalid.json"), schemaDeclaration("preset-document/v1", "PRESET_DOCUMENT_V1", "preset-document-v1-invalid.json"), schemaDeclaration("preset-snapshot/v1", "PRESET_SNAPSHOT_V1", "preset-snapshot-v1-invalid.json"), schemaDeclaration("preset-run-receipt/v1", "PRESET_RUN_RECEIPT_V1", "preset-run-receipt-v1-invalid.json")]);
-export default Object.freeze({ id: "preset-v3", phases: Object.freeze(["Preset-A", "Preset-B"]), commands: presetCommands, methods: presetMethods, gates: Object.freeze([]), guards: Object.freeze([]), schemas: presetSchemas });
+export function parsePresetManifestV3(value: unknown): PresetManifestV3 {
+  const errors = validatePresetManifestV3(value);
+  if (errors.length) throw new PresetContractError(errors.join("; "));
+  return value as PresetManifestV3;
+}
+export function validatePresetDocumentV1(value: unknown): readonly string[] {
+  if (!isPresetContractRecord(value))
+    return [
+      "PRESET.md is missing YAML frontmatter; expected schema: preset-document/v1, description, whenToUse, and a markdown body.",
+    ];
+  const errors = Object.keys(value)
+    .filter((field) => !PRESET_DOCUMENT_V1_SCHEMA.required.includes(field))
+    .map((field) => `PRESET.md contains unknown frontmatter field "${field}"; remove it.`);
+  errors.push(
+    ...["schema", "description", "whenToUse", "body"]
+      .filter((field) => !Object.hasOwn(value, field))
+      .map((field) => `PRESET.md is missing required field "${field}"; expected preset-document/v1 frontmatter/body.`),
+  );
+  if (Object.hasOwn(value, "schema") && value.schema !== "preset-document/v1")
+    errors.push(`PRESET.md field "schema" must equal "preset-document/v1".`);
+  if (Object.hasOwn(value, "description") && !nonEmpty(value.description))
+    errors.push('PRESET.md field "description" must be a non-empty string.');
+  if (Object.hasOwn(value, "whenToUse") && !nonEmpty(value.whenToUse))
+    errors.push('PRESET.md field "whenToUse" must be a non-empty string.');
+  if (Object.hasOwn(value, "body") && typeof value.body !== "string")
+    errors.push("PRESET.md body must be markdown text.");
+  return errors;
+}
+export function validatePresetSnapshotV1(value: unknown): readonly string[] {
+  if (
+    !isPresetContractRecord(value) ||
+    !allowed(value, PRESET_SNAPSHOT_V1_SCHEMA.required, PRESET_SNAPSHOT_V1_SCHEMA.required) ||
+    value.schema !== "preset-snapshot/v1" ||
+    !sha(value.digest) ||
+    !snapshotIdentity(value.identity) ||
+    !snapshotProfile(value.profile) ||
+    !snapshotGuidance(value.guidance) ||
+    !snapshotScaffold(value.scaffold) ||
+    !Array.isArray(value.templates) ||
+    !value.templates.every(snapshotTemplate) ||
+    !isPresetContractRecord(value.entrypoints) ||
+    !Object.values(value.entrypoints).every(snapshotEntrypoint) ||
+    !snapshotProvenance(value.provenance)
+  )
+    return ["preset snapshot is invalid"];
+  return [];
+}
+export function validatePresetRunReceiptV1(value: unknown): readonly string[] {
+  const phases: readonly PresetRunPhaseV1[] = [
+      "admitted",
+      "spawned",
+      "running",
+      "publishing",
+      "applied",
+      "op_rejected",
+      "failed",
+      "outcome_unknown",
+    ],
+    outcomes: readonly PresetRunOutcomeV1[] = [
+      "started",
+      "running",
+      "applied",
+      "op_rejected",
+      "failed",
+      "outcome_unknown",
+    ],
+    fields = [...PRESET_RUN_RECEIPT_V1_SCHEMA.required, "snapshotDigest", "resultDigest", "code", "nextAction"];
+  return isPresetContractRecord(value) &&
+    allowed(value, fields, PRESET_RUN_RECEIPT_V1_SCHEMA.required) &&
+    value.schema === "preset-run-receipt/v1" &&
+    nonEmpty(value.runId) &&
+    outcomes.includes(value.outcome as PresetRunOutcomeV1) &&
+    phases.includes(value.phase as PresetRunPhaseV1) &&
+    Array.isArray(value.phases) &&
+    value.phases.length > 0 &&
+    value.phases.every((phase) => phases.includes(phase as PresetRunPhaseV1)) &&
+    value.phases.at(-1) === value.phase &&
+    (value.snapshotDigest === undefined || sha(value.snapshotDigest)) &&
+    (value.resultDigest === undefined || sha(value.resultDigest)) &&
+    (value.code === undefined || nonEmpty(value.code)) &&
+    (value.nextAction === undefined || nonEmpty(value.nextAction))
+    ? []
+    : ["preset run receipt is invalid"];
+}
+export const serializePresetManifestV3 = (value: unknown): string => serialize(value, validatePresetManifestV3),
+  serializePresetDocumentV1 = (value: unknown): string => serialize(value, validatePresetDocumentV1),
+  serializePresetSnapshotV1 = (value: unknown): string => serialize(value, validatePresetSnapshotV1),
+  serializePresetRunReceiptV1 = (value: unknown): string => serialize(value, validatePresetRunReceiptV1);
+export function canonicalPresetBytes(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalPresetBytes).join(",")}]`;
+  return `{${Object.keys(value as Record<string, unknown>)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalPresetBytes((value as Record<string, unknown>)[key])}`)
+    .join(",")}}`;
+}
+function serialize(value: unknown, validate: (input: unknown) => readonly string[]): string {
+  const errors = validate(value);
+  if (errors.length) throw new PresetContractError(errors.join("; "));
+  return `${canonicalPresetBytes(value)}\n`;
+}
+function profile(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    allowed(
+      value,
+      ["id", "title", "checkerProfile", "completionGates", "templateSelections", "capabilityImports"],
+      ["id", "title", "completionGates", "templateSelections"],
+    ) &&
+    nonEmpty(value.id) &&
+    nonEmpty(value.title) &&
+    (value.checkerProfile === undefined || nonEmpty(value.checkerProfile)) &&
+    hasNonEmptyContractStrings(value.completionGates) &&
+    Array.isArray(value.templateSelections) &&
+    value.templateSelections.every(selection) &&
+    (value.capabilityImports === undefined ||
+      (Array.isArray(value.capabilityImports) && value.capabilityImports.every((item) => capability(item, false))))
+  );
+}
+function selection(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    allowed(
+      value,
+      ["slot", "templateRef", "materializeAs", "localePolicy"],
+      ["slot", "templateRef", "materializeAs", "localePolicy"],
+    ) &&
+    [value.slot, value.templateRef, value.materializeAs].every(nonEmpty) &&
+    isPresetContractRecord(value.localePolicy) &&
+    allowed(value.localePolicy, ["prefer", "fallback"], ["prefer", "fallback"]) &&
+    ["project", "preset", "explicit"].includes(String(value.localePolicy.prefer)) &&
+    ["zh-CN", "en-US"].includes(String(value.localePolicy.fallback))
+  );
+}
+function capability(value: unknown, required: boolean): boolean {
+  const needed = required ? ["id", "kind", "version", "required"] : ["id", "kind", "version"];
+  return (
+    isPresetContractRecord(value) &&
+    allowed(value, required ? needed : [...needed, "required"], needed) &&
+    [value.id, value.version].every(nonEmpty) &&
+    ["checker", "scaffold", "projection", "command", "template", "raw-fs"].includes(String(value.kind)) &&
+    (value.required === undefined || typeof value.required === "boolean") &&
+    (!required || typeof value.required === "boolean")
+  );
+}
+function entrypoint(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    allowed(
+      value,
+      ["type", "intent", "inputs", "requires", "produces", "sideEffects", "command"],
+      ["type", "intent", "inputs", "requires", "produces", "sideEffects", "command"],
+    ) &&
+    value.type === "script" &&
+    nonEmpty(value.intent) &&
+    nonEmpty(value.command) &&
+    Array.isArray(value.inputs) &&
+    value.inputs.every(
+      (item) =>
+        isPresetContractRecord(item) &&
+        allowed(item, ["name", "type", "required"], ["name", "type", "required"]) &&
+        nonEmpty(item.name) &&
+        ["string", "number", "boolean", "json"].includes(String(item.type)) &&
+        typeof item.required === "boolean",
+    ) &&
+    [value.requires, value.produces, value.sideEffects].every(
+      (items) => Array.isArray(items) && items.every((item) => capability(item, false)),
+    )
+  );
+}
+function snapshotIdentity(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    allowed(value, ["id", "version", "verticalId", "layer"], ["id", "version", "verticalId", "layer"]) &&
+    [value.id, value.version, value.verticalId].every(nonEmpty) &&
+    ["bundled", "user"].includes(String(value.layer))
+  );
+}
+function snapshotProfile(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    allowed(value, ["id", "outputShape", "completionGateIds"], ["id", "outputShape", "completionGateIds"]) &&
+    nonEmpty(value.id) &&
+    nonEmpty(value.outputShape) &&
+    hasNonEmptyContractStrings(value.completionGateIds)
+  );
+}
+function snapshotGuidance(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    allowed(value, ["description", "whenToUse", "bodySha256"], ["description", "whenToUse", "bodySha256"]) &&
+    nonEmpty(value.description) &&
+    nonEmpty(value.whenToUse) &&
+    bareSha(value.bodySha256)
+  );
+}
+function snapshotScaffold(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    allowed(
+      value,
+      ["baseVersion", "overlayDigest", "resolvedSelectionDigest"],
+      ["baseVersion", "overlayDigest", "resolvedSelectionDigest"],
+    ) &&
+    value.baseVersion === "software-coding/v1" &&
+    (value.overlayDigest === null || sha(value.overlayDigest)) &&
+    sha(value.resolvedSelectionDigest)
+  );
+}
+function snapshotTemplate(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    allowed(
+      value,
+      ["slot", "path", "templateRef", "locale", "owner", "requiredAnchors", "content"],
+      ["slot", "path", "templateRef", "locale", "owner", "requiredAnchors", "content"],
+    ) &&
+    [value.slot, value.path, value.templateRef, value.locale].every(nonEmpty) &&
+    value.owner === "doc-sync" &&
+    hasNonEmptyContractStrings(value.requiredAnchors) &&
+    isPresetContractRecord(value.content) &&
+    allowed(value.content, ["sha256", "size", "mediaType"], ["sha256", "size", "mediaType"]) &&
+    bareSha(value.content.sha256) &&
+    Number.isSafeInteger(value.content.size) &&
+    (value.content.size as number) >= 0 &&
+    ["text/markdown", "text/plain"].includes(String(value.content.mediaType))
+  );
+}
+function snapshotEntrypoint(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    allowed(
+      value,
+      ["type", "intent", "inputs", "requires", "produces", "sideEffects", "commandRef", "commandSha256"],
+      ["type", "intent", "inputs", "requires", "produces", "sideEffects", "commandRef", "commandSha256"],
+    ) &&
+    value.type === "script" &&
+    nonEmpty(value.intent) &&
+    nonEmpty(value.commandRef) &&
+    bareSha(value.commandSha256) &&
+    Array.isArray(value.inputs) &&
+    value.inputs.every(
+      (item) =>
+        isPresetContractRecord(item) &&
+        allowed(item, ["name", "type", "required"], ["name", "type", "required"]) &&
+        nonEmpty(item.name) &&
+        ["string", "number", "boolean", "json"].includes(String(item.type)) &&
+        typeof item.required === "boolean",
+    ) &&
+    [value.requires, value.produces, value.sideEffects].every(
+      (items) => Array.isArray(items) && items.every((item) => capability(item, false)),
+    )
+  );
+}
+function snapshotProvenance(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    allowed(
+      value,
+      ["manifestSha256", "packageSha256", "verticalSha256", "templateCatalogSha256", "resolverVersion", "ancestry"],
+      ["manifestSha256", "packageSha256", "verticalSha256", "templateCatalogSha256", "resolverVersion", "ancestry"],
+    ) &&
+    [value.manifestSha256, value.packageSha256, value.verticalSha256, value.templateCatalogSha256].every(bareSha) &&
+    value.resolverVersion === "1" &&
+    hasNonEmptyContractStrings(value.ancestry)
+  );
+}
+function isPresetContractRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function nonEmpty(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+function hasNonEmptyContractStrings(value: unknown): boolean {
+  return Array.isArray(value) && value.every(nonEmpty);
+}
+function presetId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,127}$/u.test(value);
+}
+function bareSha(value: unknown): boolean {
+  return typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);
+}
+function sha(value: unknown): boolean {
+  return typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value);
+}
+function allowed(value: Record<string, unknown>, fields: readonly string[], required: readonly string[]): boolean {
+  return (
+    Object.keys(value).every((field) => fields.includes(field)) &&
+    required.every((field) => Object.hasOwn(value, field))
+  );
+}
+const schemaDeclaration = (id: string, name: string, fixture: string) => ({
+  id,
+  schema: `packages/preset/src/preset.contract.ts#${name}_SCHEMA`,
+  parser: `packages/preset/src/preset.contract.ts#validate${name
+    .split("_")
+    .map((part) => part[0] + part.slice(1).toLowerCase())
+    .join("")}`,
+  writer: `packages/preset/src/preset.contract.ts#serialize${name
+    .split("_")
+    .map((part) => part[0] + part.slice(1).toLowerCase())
+    .join("")}`,
+  error: "packages/preset/src/preset.contract.ts#PresetContractError",
+  negativeFixtures: Object.freeze([`packages/preset/fixtures/contracts/${fixture}`]),
+});
+export const presetSchemas = Object.freeze([
+  schemaDeclaration("preset-manifest/v3", "PRESET_MANIFEST_V3", "preset-manifest-v3-invalid.json"),
+  schemaDeclaration("preset-document/v1", "PRESET_DOCUMENT_V1", "preset-document-v1-invalid.json"),
+  schemaDeclaration("preset-snapshot/v1", "PRESET_SNAPSHOT_V1", "preset-snapshot-v1-invalid.json"),
+  schemaDeclaration("preset-run-receipt/v1", "PRESET_RUN_RECEIPT_V1", "preset-run-receipt-v1-invalid.json"),
+]);
+export default Object.freeze({
+  id: "preset-v3",
+  phases: Object.freeze(["Preset-A", "Preset-B"]),
+  commands: presetCommands,
+  methods: presetMethods,
+  gates: Object.freeze([]),
+  guards: Object.freeze([]),
+  schemas: presetSchemas,
+});
