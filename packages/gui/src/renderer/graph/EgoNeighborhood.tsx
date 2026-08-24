@@ -297,7 +297,10 @@ function EgoNeighborhoodInner({
   if (!active) return null;
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
+    // 行轴:画布吃剩余宽,GraphDrawer 是它右侧的定宽栏(w-[26rem] shrink-0 border-l)。
+    // 写成 flex-col 会把这个侧栏压成底部横条 —— 横条按 shrink-0 占满整条带宽的高度,
+    // 却只填得下 26rem,带内其余部分是纯空区,同时把画布高度吃掉(内容一多吃到 0)。
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1">
       <ReactFlow
         nodes={displayNodes}
         edges={displayEdges}
