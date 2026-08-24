@@ -53,11 +53,39 @@ export function measureProductionLines({ rootDir, revision = null }) {
 
 const RETIRED_HISTORICAL_MODULES = new Set(["decision-fact"]);
 
+// These are the post-restoration measurements that produced the committed
+// candidate ceilings. They are intentionally fixed inputs for this derivation:
+// later production edits still have to fit under the resulting ceiling, while a
+// future remeasurement can deliberately replace this table and tighten it.
+export const MEASURED_MODULE_LINES = Object.freeze({
+  kernel: 28825,
+  "task-lifecycle": 1317,
+  "write-contract": 571,
+  "doc-sync": 4346,
+  preset: 5489,
+  cli: 5586,
+  gui: 32684,
+  daemon: 32090,
+  fleet: 3203,
+  "authority-write-path": 0,
+  "identity-rbac": 616,
+  "agent-runtime": 3719,
+  decision: 768,
+  fact: 1058,
+  "test-infra": 0
+});
+
 export function headroomFor(measured) {
   if (measured < 500) return 400;
   if (measured < 2000) return 1000;
   if (measured < 10000) return 4000;
   return 7000;
+}
+
+export function mechanicalUpperBoundFor(moduleName) {
+  const measured = MEASURED_MODULE_LINES[moduleName];
+  if (measured === undefined) throw new Error(`unknown module: ${moduleName}`);
+  return measured === 0 ? 0 : measured + headroomFor(measured);
 }
 
 export function parseBudgets(body, source = "line-budgets.json", historical = false) {
@@ -123,6 +151,10 @@ export function evaluateLineBudget({
   for (const moduleName of MODULES) {
     const actual = current.counts[moduleName];
     const ceiling = ceilings[moduleName];
+    const mechanicalUpperBound = mechanicalUpperBoundFor(moduleName);
+    if (ceiling > mechanicalUpperBound) {
+      errors.push(`${moduleName}: ceiling ${ceiling} exceeds mechanical upper bound ${mechanicalUpperBound} derived from ${MEASURED_MODULE_LINES[moduleName]} measured lines`);
+    }
     if (actual > ceiling) {
       errors.push(`${moduleName}: actual ${actual} exceeds ceiling ${ceiling}; reduce production lines to ${ceiling} or add a verified line-budget decision receipt and update the ceiling`);
     }

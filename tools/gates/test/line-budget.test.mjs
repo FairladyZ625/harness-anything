@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import { evaluateLineBudget, headroomFor, parseBudgets } from "../line-budget.mjs";
+import { evaluateLineBudget, headroomFor, mechanicalUpperBoundFor, parseBudgets } from "../line-budget.mjs";
 import { MODULES } from "../module-policy.mjs";
 import { loadReceipts, signReceipt, verifyReceipt } from "../receipt-verify.mjs";
 import { makeRepo, writeRepoFile } from "./helpers.mjs";
@@ -35,6 +35,24 @@ test("G32 rejects production lines above the ceiling", () => {
   const result = evaluateLineBudget({ rootDir, base });
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /actual 3 exceeds ceiling 2/u);
+});
+
+test("G32 rejects a ceiling above the measured mechanical upper bound", () => {
+  const { rootDir, base } = fixtureRepo();
+  const ceiling = mechanicalUpperBoundFor("kernel") + 1;
+  writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(ceiling));
+  const unsigned = {
+    decisionId: "dec_01KZQ92VEPTDRS2HS8CKDBKW2Q",
+    scope: "module:kernel",
+    kind: "line-budget",
+    limit: ceiling,
+    expiry: "2099-12-31T23:59:59Z"
+  };
+  writeRepoFile(rootDir, "tools/gates/receipts/kernel.json", `${JSON.stringify({ ...unsigned, signature: signReceipt(unsigned) }, null, 2)}\n`);
+
+  const result = evaluateLineBudget({ rootDir, base, receiptsDir: path.join(rootDir, "tools/gates/receipts") });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /kernel: ceiling 35826 exceeds mechanical upper bound 35825 derived from 28825 measured lines/u);
 });
 
 // Deleting production code must not tighten the budget. The old rule forced the
