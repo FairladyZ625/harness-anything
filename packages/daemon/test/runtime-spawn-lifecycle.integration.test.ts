@@ -12,6 +12,7 @@ import {
   type AgentDefinitionSnapshot,
 } from "../../kernel/src/index.ts";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { launchExitNotification } from "../src/runtime-spawn.ts";
@@ -344,6 +345,130 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           },
         ),
         (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_spawn",
+      );
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("attached runtime settlement includes provider records persisted after attach before exit", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-attached-tail-"));
+  let exit: ((code: number | null) => void) | null = null;
+  try {
+    initIngressRepo(root, 4310);
+    const cell = await openRepoCell({
+      repoId: workspaceId("runtime-attached-tail"),
+      rootDir: canonicalRoot(root),
+      ownerId: "attached-tail-test",
+      runtimeInstances: () => [
+        {
+          schemaVersion: 2,
+          instanceId: definition.instanceId,
+          name: "Codex Attached Tail",
+          kindId: definition.kindId,
+          installationId: definition.installationId,
+          providerId: definition.providerId,
+          models: [definition.model],
+          defaultModel: definition.model,
+          enabled: true,
+          permissionMode: "workspace-write",
+          codex: {},
+          authMode: definition.authMode,
+          authState: "configured",
+          authReadiness: { status: "ready", code: null, hint: null },
+          isolationState: "enforced",
+        },
+      ],
+      prepareRuntimeLaunch: async (_instanceId, request) => ({
+        definition,
+        installation,
+        executablePath: installation.executablePath,
+        args: ["exec", "--json", "-"],
+        env: process.env,
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: () => ({
+        pid: process.pid,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: (listener) => {
+          exit = listener;
+        },
+        terminate: () => undefined,
+      }),
+    });
+    try {
+      const receipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Settle the durable tail after attach",
+          taskId: null,
+          idempotencyKey: "attached-tail",
+        },
+        {
+          actor: { principal: { personId: "person-attached-tail" }, executor: null },
+          source: "local",
+        },
+      );
+      const records = [
+        { type: "thread.started", thread_id: "provider-attached-tail" },
+        {
+          type: "item.completed",
+          item: {
+            id: "write",
+            type: "file_change",
+            changes: [{ path: "result.txt", kind: "add" }],
+            status: "completed",
+          },
+        },
+        {
+          type: "item.completed",
+          item: { id: "message", type: "agent_message", text: "attached tail settled" },
+        },
+        { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
+      ];
+      for (const event of records) {
+        appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
+          kind: "provider_event",
+          occurredAt: "2026-08-24T12:00:00.000Z",
+          event,
+        });
+      }
+      appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
+        kind: "process_exit",
+        occurredAt: "2026-08-24T12:00:01.000Z",
+        exitCode: 0,
+        signal: null,
+      });
+      assert.ok(exit, "runtime exit listener must be attached before the provider exits");
+      exit(0);
+      await eventually(() =>
+        makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root })
+          .read()
+          .events.some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === receipt.runtimeSessionId,
+          ),
+      );
+      const projection = makeTaskProjection({
+          rootDir: root,
+          eventStore: makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }),
+        }),
+        settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!;
+      projection.close();
+      assert.deepEqual(
+        {
+          liveness: settled.liveness,
+          outcome: settled.outcome,
+          exitCode: settled.exitCode,
+        },
+        { liveness: "exited", outcome: "succeeded", exitCode: 0 },
       );
     } finally {
       await cell.close();
