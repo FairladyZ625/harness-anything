@@ -124,5 +124,8 @@ export async function runRuntimeFacadeCommand(
     !command.json && action.noStream !== true,
     writeActivity,
     spawned,
+    typeof action.taskId === "string" && typeof spawned.dispatchId === "string"
+      ? { taskId: action.taskId, dispatchId: spawned.dispatchId }
+      : undefined,
   );
 }

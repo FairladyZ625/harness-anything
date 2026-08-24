@@ -2,6 +2,7 @@ import path from "node:path";
 import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
 import { blockingOf, closeoutReadiness, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
+import { readTaskDispatches } from "./dispatch-read.ts";
 import { makeDecisionActions } from "./decision-actions.ts";
 import { makeFactActions } from "./fact-actions.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
@@ -54,7 +55,11 @@ export function initializeRepoCell(context: any): any {
       killpoint: context.input.killpoint,
     });
   const runtimeReads = makeAgentRuntimeReadModel({
-      projection,
+    readDispatch: (taskId, dispatchId) =>
+      readTaskDispatches({ rootDir: context.rootDir, projection, taskId }).dispatches.find(
+        (row) => row.dispatchId === dispatchId,
+      ) ?? null,
+    projection,
       store,
       stream: context.runtimeStream,
       runtimeInstances: context.input.runtimeInstances ?? (() => []),

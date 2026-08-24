@@ -19,6 +19,10 @@ import { runtimeKindForInstallation } from "./runtime-inventory.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 
 export function makeAgentRuntimeReadModel(input: {
+  readonly readDispatch?: (
+    taskId: string,
+    dispatchId: string,
+  ) => { readonly runtimeSessionId: string } | null;
   readonly projection: TaskProjection;
   readonly store: CanonicalEventStore;
   readonly stream: AgentRuntimeStreamHub;
@@ -131,12 +135,19 @@ export function makeAgentRuntimeReadModel(input: {
       };
     },
     session: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionResult => {
-      const runtimeSessionIdValue = requiredRuntimeReadField(payload, "runtimeSessionId");
+      const target = runtimeSessionTarget(payload),
+        runtimeSessionIdValue = target.runtimeSessionId ??
+          input.readDispatch?.(target.taskId!, target.dispatchId!)?.runtimeSessionId ??
+          null;
       const cut = synchronize(),
-        session = input.projection.readRuntimeSession(runtimeSessionIdValue);
-      if (!session) {
-        throw coded("runtime_session_not_found", `Runtime session ${runtimeSessionIdValue} was not found.`);
-      }
+        session = runtimeSessionIdValue === null ? null : input.projection.readRuntimeSession(runtimeSessionIdValue);
+      if (!session)
+        throw coded(
+          "runtime_session_not_found",
+          target.runtimeSessionId === null
+            ? `Runtime dispatch ${target.dispatchId} for task ${target.taskId} has no projected session.`
+            : `Runtime session ${runtimeSessionIdValue} was not found.`,
+        );
       return {
         ok: true,
         status: cut.status,
@@ -238,6 +249,33 @@ function requiredRuntimeReadField(payload: Readonly<Record<string, unknown>>, fi
   const value = payload[field];
   if (typeof value !== "string" || !value) throw coded("invalid_request", `Agent runtime ${field} is required.`);
   return value;
+}
+function runtimeSessionTarget(payload: Readonly<Record<string, unknown>>): {
+  readonly runtimeSessionId: string | null;
+  readonly taskId: string | null;
+  readonly dispatchId: string | null;
+} {
+  const keys = Object.keys(payload);
+  if (keys.some((key) => !["runtimeSessionId", "taskId", "dispatchId"].includes(key)))
+    throw coded("invalid_request", "Agent runtime session reads accept runtimeSessionId or taskId plus dispatchId.");
+  const runtimeSessionId = payload.runtimeSessionId,
+    taskId = payload.taskId,
+    dispatchId = payload.dispatchId;
+  if (runtimeSessionId !== undefined && (typeof runtimeSessionId !== "string" || !runtimeSessionId))
+    throw coded("invalid_request", "Agent runtime runtimeSessionId must be non-empty when supplied.");
+  if (taskId !== undefined && (typeof taskId !== "string" || !taskId))
+    throw coded("invalid_request", "Agent runtime taskId must be non-empty when supplied.");
+  if (dispatchId !== undefined && (typeof dispatchId !== "string" || !dispatchId))
+    throw coded("invalid_request", "Agent runtime dispatchId must be non-empty when supplied.");
+  if (runtimeSessionId === undefined && (taskId === undefined || dispatchId === undefined))
+    throw coded("invalid_request", "Agent runtime session reads require runtimeSessionId or taskId plus dispatchId.");
+  if (runtimeSessionId !== undefined && (taskId !== undefined || dispatchId !== undefined))
+    throw coded("invalid_request", "Agent runtime session reads cannot mix runtimeSessionId with taskId or dispatchId.");
+  return {
+    runtimeSessionId: typeof runtimeSessionId === "string" ? runtimeSessionId : null,
+    taskId: typeof taskId === "string" ? taskId : null,
+    dispatchId: typeof dispatchId === "string" ? dispatchId : null,
+  };
 }
 function lifecycleCursor(value: string): number {
   const match = /^lifecycle:(\d+)$/u.exec(value),
