@@ -123,7 +123,11 @@ export function FreshnessView({
         ) : (
           <StreamBody testId="freshness-rows">
             {shown.map((candidate) => (
-              <FreshnessRow key={`${candidate.decisionId}/${candidate.claimId}`} candidate={candidate} onNavigateEntity={onNavigateEntity} />
+              <FreshnessRow
+                key={`${candidate.decisionId}/${candidate.claimId}`}
+                candidate={candidate}
+                onNavigateEntity={onNavigateEntity}
+              />
             ))}
             {hidden > 0 && (
               <button
