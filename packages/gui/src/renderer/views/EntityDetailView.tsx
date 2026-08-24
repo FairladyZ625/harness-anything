@@ -3,76 +3,24 @@ import { WarningCircle } from "@phosphor-icons/react";
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types";
 import type { RelationCoverageRow, FactAnchorRow } from "../../api/renderer-dto";
 import { FactInspector } from "../components/FactInspector";
-import { DecisionDetailPanel } from "./genealogy/DecisionDetailPanel";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { t } from "../i18n/index.tsx";
 
 /**
- * Fact / Decision 详情页(W4 可寻址路由):
- *   fact/<taskId>/<anchor>  → view=factDetail + focusedEntityRef
- *   decision/<id>           → view=decisionDetail + focusedEntityRef
+ * Fact 详情页(W4 可寻址路由):
+ *   fact/<taskId>/<anchor> → view=factDetail + focusedEntityRef
  *
- * 「打开详情」不再落在列表页。页面 = 详情栏(复用 FactInspector /
- * DecisionDetailPanel)+ 邻域画布(复用 graph/EgoNeighborhood):任意实体就地
- * 看到「它周围有什么」,双击/详情钮直接跳去邻居的详情页,导航历史栈可原路返回。
+ * 「打开详情」不再落在列表页。页面 = 详情栏(复用 FactInspector)
+ * + 邻域画布(复用 graph/EgoNeighborhood):任意实体就地看到「它周围有什么」,
+ * 双击/详情钮直接跳去邻居的详情页,导航历史栈可原路返回。
  *
- * 取数:没有 fact/decision 单体 read,详情复用 App 已加载的 triadic 投影集合
+ * Decision 详情已迁至 components/decisionDetail/(正文经 decision-show 单体
+ * read 取回),此文件不再承载 decision/<id> 路由。
+ *
+ * 取数:没有 fact 单体 read,详情复用 App 已加载的 triadic 投影集合
  * (facts / decisions / relations / factAnchors)。集合仍在加载时显示加载态;
  * 加载完仍找不到 → 「不在当前投影」态,不编造内容。
  */
-export function DecisionDetailView({
-  decisionId,
-  decisions,
-  tasks,
-  facts,
-  relations,
-  factAnchors,
-  loading,
-  onNavigateEntity,
-  onFocusGraph,
-  onOpenPool,
-}: {
-  decisionId: string | null;
-  decisions: DecisionRow[];
-  tasks: TaskRow[];
-  facts: FactRef[];
-  relations: RelationEdge[];
-  factAnchors: ReadonlyArray<FactAnchorRow>;
-  loading: boolean;
-  onNavigateEntity?: (ref: string) => void;
-  onFocusGraph?: (ref: string) => void;
-  onOpenPool?: (decisionId: string) => void;
-}) {
-  const decision = useMemo(
-    () => decisions.find((d) => d.decisionId === decisionId) ?? null,
-    [decisions, decisionId],
-  );
-
-  return (
-    <div data-testid="decision-detail-view" className="flex h-full min-h-0 flex-1">
-      {decision ? (
-        <DecisionDetailPanel
-          decision={decision}
-          side="right"
-          onOpenPool={onOpenPool ? () => onOpenPool(decision.decisionId) : undefined}
-          onFocusGraph={onFocusGraph ? () => onFocusGraph(`decision/${decision.decisionId}`) : undefined}
-        />
-      ) : (
-        <DetailPendingColumn loading={loading} refLabel={decisionId ?? "—"} />
-      )}
-      <NeighborhoodPane
-        focusRef={decision ? `decision/${decision.decisionId}` : null}
-        tasks={tasks}
-        decisions={decisions}
-        facts={facts}
-        relations={relations}
-        factAnchors={factAnchors}
-        onNavigateEntity={onNavigateEntity}
-      />
-    </div>
-  );
-}
-
 export function FactDetailView({
   factRef,
   facts,
