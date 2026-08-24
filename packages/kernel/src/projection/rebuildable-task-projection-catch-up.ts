@@ -219,7 +219,10 @@ function drainDeferred(
       /* @gate-identity check-bypass-write-boundary/bypass-write-006 */
       db
         .prepare(
-          "SELECT event_json FROM event_source WHERE workspace_revision = ? OR (? = 1 AND workspace_revision > ?) ORDER BY workspace_revision LIMIT 1",
+          [
+            "SELECT event_json FROM event_source WHERE workspace_revision = ?",
+            "OR (? = 1 AND workspace_revision > ?) ORDER BY workspace_revision LIMIT 1",
+          ].join(" "),
         )
         .get(next + 1, allowRevisionGaps ? 1 : 0, next) as { readonly event_json: string } | undefined;
     if (row === undefined) break;
