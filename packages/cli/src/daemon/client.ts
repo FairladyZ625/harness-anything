@@ -36,6 +36,24 @@ const autostartFailureCodes = [
   "daemon_bind_timeout",
   "daemon_starting",
 ] as const;
+// These values belong to the invoking runtime worker or its provider launch,
+// not to the resident daemon that owns the shared socket.
+const daemonRuntimeScopedEnvironmentKeys = [
+  "CODEX_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_BASE_URL",
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "CLAUDE_CODE_SESSION_ID",
+  "CODEX_THREAD_ID",
+  "CODEX_SESSION_ID",
+  "HARNESS_ACTOR",
+  "HARNESS_DAEMON_ENDPOINT",
+  "HARNESS_DAEMON_ID",
+  "HARNESS_DAEMON_REPO_ID",
+  "HARNESS_DAEMON_USER_ROOT",
+] as const;
 export function daemonServeEntry(): string {
   return realpathSync(
     fileURLToPath(new URL(import.meta.url.endsWith(".js") ? "../index.js" : "../index.ts", import.meta.url)),
@@ -46,10 +64,12 @@ export function cliDaemonServeLaunch(
   daemonId: string,
   execPath = process.execPath,
 ): DaemonLaunchSpec {
+  const env = { ...process.env };
+  for (const key of daemonRuntimeScopedEnvironmentKeys) delete env[key];
   return {
     command: execPath,
     args: [daemonServeEntry(), "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
-    env: process.env,
+    env,
   };
 }
 export function daemonAutostartFailureCode(error: unknown): string | null {
