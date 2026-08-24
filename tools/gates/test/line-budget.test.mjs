@@ -225,7 +225,7 @@ const DECISION_INPUT_LINES = Object.freeze({
   "write-contract": 292,
   "doc-sync": 3849, // re-measured on the W2-B convergence tree (kernel + daemon restorations both raise this module)
   preset: 372,
-  cli: 377,
+  cli: 4615, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
   gui: 18494,
   daemon: 22892,
   fleet: 1482,
