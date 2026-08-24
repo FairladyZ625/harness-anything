@@ -1,10 +1,17 @@
 import { spawn,
   /* @gate-identity check-sync-subprocess/sync-subprocess-010 */
   spawnSync } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
+import { fileURLToPath } from "node:url";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime-instances.ts";
-import { scrubProviderValue, type DispatchStreamWriter } from "./dispatch-stream.ts";
+import {
+  appendRuntimeWorkerRecord,
+  readRuntimeWorkerChunk,
+  scrubProviderValue,
+  type DispatchStreamWriter,
+} from "./dispatch-stream.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import type { ResumeProcessEvent, ResumeProcessObservation, RuntimeProcess } from "./runtime-spawn-types.ts";
@@ -129,7 +136,7 @@ export function observeResumeProcess(
 // cmd.exe, and the surviving grandchild holds the inherited stdio pipes open, which keeps the
 // daemon -- or a test process -- alive with a runtime it believes it stopped. taskkill /T ends the
 // tree. Windows has no graceful signal to lose here: SIGTERM already terminates unconditionally.
-export function terminateRuntimeProcess(child: ReturnType<typeof spawn>): void {
+export function terminateRuntimeProcess(child: Pick<ReturnType<typeof spawn>, "killed" | "pid" | "kill">): void {
   if (child.killed || child.pid === undefined) return;
   if (process.platform === "win32") {
     /* @gate-identity check-sync-subprocess/sync-subprocess-011 */
@@ -139,6 +146,24 @@ export function terminateRuntimeProcess(child: ReturnType<typeof spawn>): void {
     return;
   }
   child.kill("SIGTERM");
+}
+
+export function terminateRuntimePid(pid: number): void {
+  if (!Number.isInteger(pid) || pid < 1) return;
+  if (process.platform === "win32") {
+    terminateRuntimeProcess({ killed: false, pid, kill: () => false });
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch (error) {
+    if (childProcessErrorCode(error) !== "ESRCH") throw error;
+    consumeKnownError(error);
+  }
+}
+
+export function runtimePidIsAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (error) { return childProcessErrorCode(error) === "EPERM"; }
 }
 
 export function launchExitNotification(input: {
@@ -261,36 +286,130 @@ export function childProcessErrorCode(error: unknown): string {
     : "spawn_failed";
 }
 
-export function launchNative(input: PreparedRuntimeLaunch): RuntimeProcess {
-  const command = nativeCommand(input),
-    child = spawn(command.executablePath, command.args, {
-      cwd: input.cwd,
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-      env: input.env,
-      ...(process.platform === "win32" && command.executablePath.toLowerCase().endsWith("cmd.exe")
-        ? { windowsVerbatimArguments: true }
-        : {}),
-    });
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdin.end(input.prompt);
+export function launchNative(
+  input: PreparedRuntimeLaunch,
+  persistence: { readonly rootDir: string; readonly dispatchId: string },
+): RuntimeProcess {
+  const command = nativeCommand(input);
+  const workerHost = import.meta.url.endsWith(".js")
+    ? "./runtime-worker-host.js"
+    : "./runtime-worker-host.ts";
+  const entry = fileURLToPath(new URL(workerHost, import.meta.url));
+  const child = spawn(process.execPath, [entry, "--runtime-worker-host"], {
+    detached: true,
+    stdio: ["pipe", "ignore", "ignore"],
+    windowsHide: true,
+    env: process.env,
+  });
+  const pid = child.pid ?? 0;
+  const observed = observeDispatchProcess(persistence.rootDir, persistence.dispatchId, pid);
+  appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
+    kind: "process_started",
+    occurredAt: new Date().toISOString(),
+    pid,
+  });
+  child.stdin?.on("error", consumeKnownError);
+  child.stdin?.end(JSON.stringify({
+    ...persistence,
+    executablePath: command.executablePath,
+    args: command.args,
+    cwd: input.cwd,
+    env: input.env,
+    prompt: input.prompt,
+    windowsVerbatimArguments:
+      process.platform === "win32" && command.executablePath.toLowerCase().endsWith("cmd.exe"),
+  }));
+  child.unref();
+  return observed;
+}
+
+export function adoptNativeProcess(rootDir: string, dispatchId: string, pid: number): RuntimeProcess {
+  return observeDispatchProcess(rootDir, dispatchId, pid);
+}
+
+function observeDispatchProcess(rootDir: string, dispatchId: string, pid: number): RuntimeProcess {
+  const outputs: Array<{ readonly chunk: string; readonly persisted: boolean }> = [];
+  const errors: string[] = [];
+  const decoder = new StringDecoder("utf8");
+  let offset = 0;
+  let buffer = "";
+  let outputListener: ((chunk: string, persisted?: boolean) => void) | null = null;
+  let errorListener: ((chunk: string) => void) | null = null;
+  let exitListener: ((code: number | null) => void) | null = null;
+  let exitCode: number | null = null;
+  let exited = false;
+  let released = false;
+  const emitOutput = (chunk: string): void => {
+    if (outputListener) outputListener(chunk, true);
+    else outputs.push({ chunk, persisted: true });
+  };
+  const emitError = (chunk: string): void => {
+    if (errorListener) errorListener(chunk);
+    else errors.push(chunk);
+  };
+  const emitExit = (code: number | null): void => {
+    if (exited) return;
+    exited = true;
+    exitCode = code;
+    if (exitListener) exitListener(code);
+  };
+  const drain = (): void => {
+    if (released) return;
+    try {
+      const bytes = readRuntimeWorkerChunk(rootDir, dispatchId, offset);
+      if (bytes.length === 0) return;
+      offset += bytes.length;
+      buffer += decoder.write(bytes);
+      const lines = buffer.split(/\r?\n/u);
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const record = parseDispatchProcessRecord(line);
+        if (record?.kind === "provider_event") emitOutput(`${JSON.stringify(record.event)}\n`);
+        else if (record?.kind === "provider_output_invalid") emitOutput(`${String(record.output)}\n`);
+        else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
+        else if (record?.kind === "process_exit") {
+          emitExit(Number.isInteger(record.exitCode) ? Number(record.exitCode) : null);
+        }
+      }
+    } catch (error) {
+      consumeKnownError(error);
+    }
+  };
+  const timer = setInterval(drain, 20);
+  timer.unref();
+  queueMicrotask(drain);
   return {
-    pid: child.pid ?? 0,
+    pid,
     onOutput: (listener) => {
-      child.stdout.on("data", listener);
+      outputListener = listener;
+      for (const value of outputs.splice(0)) listener(value.chunk, value.persisted);
     },
     onErrorOutput: (listener) => {
-      child.stderr.on("data", listener);
+      errorListener = listener;
+      for (const value of errors.splice(0)) listener(value);
     },
     onExit: (listener) => {
-      child.once("close", listener);
-      child.once("error", () => listener(null));
+      exitListener = listener;
+      if (exited) queueMicrotask(() => listener(exitCode));
     },
-    terminate: () => {
-      terminateRuntimeProcess(child);
+    terminate: () => terminateRuntimePid(pid),
+    release: () => {
+      released = true;
+      clearInterval(timer);
     },
   };
+}
+
+function parseDispatchProcessRecord(line: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(line);
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null;
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
 }
 
 export function nativeCommand(input: PreparedRuntimeLaunch): {

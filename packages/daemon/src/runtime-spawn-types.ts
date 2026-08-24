@@ -16,13 +16,17 @@ import { type RuntimePermissionMode } from "./runtime-permissions.ts";
 
 export interface RuntimeProcess {
   readonly pid: number;
-  readonly onOutput: (listener: (chunk: string) => void) => void;
+  readonly onOutput: (listener: (chunk: string, persisted?: boolean) => void) => void;
   readonly onErrorOutput: (listener: (chunk: string) => void) => void;
   readonly onExit: (listener: (code: number | null) => void) => void;
   readonly terminate: () => void;
+  readonly release?: () => void;
 }
 
-export type RuntimeLauncher = (input: PreparedRuntimeLaunch) => RuntimeProcess;
+export type RuntimeLauncher = (
+  input: PreparedRuntimeLaunch,
+  persistence: { readonly rootDir: string; readonly dispatchId: string },
+) => RuntimeProcess;
 
 export interface RuntimeDaemonRoute {
   readonly userRoot: string;
@@ -55,8 +59,8 @@ export type ActiveRuntime = {
   readonly instanceId: string;
   readonly kindId: RuntimeInstanceKind;
   readonly permissionMode: RuntimePermissionMode | null;
-  readonly agent: RuntimeAgent | null;
-  readonly delegatedBy: RuntimeAgent | null;
+  readonly agent: Pick<RuntimeAgent, "id" | "name"> | null;
+  readonly delegatedBy: Pick<RuntimeAgent, "id" | "name"> | null;
   readonly squadId: string | null;
   readonly binding: RuntimeBinding;
   readonly task: {
@@ -72,6 +76,7 @@ export type ActiveRuntime = {
   readonly startedAt: string;
   readonly stream: DispatchStreamWriter;
   buffer: string;
+  durableOutputCount: number;
   stdoutObserved: boolean;
   errorBuffer: string;
   errorOverflowed: boolean;
@@ -114,7 +119,10 @@ export type ResumeProcessObservation = {
   }) => void;
 };
 
-export type RuntimeSessionSelection = Pick<RuntimeSession, "providerSessionId" | "instanceId" | "liveness">;
+export type RuntimeSessionSelection = Pick<
+  RuntimeSession,
+  "runtimeSessionId" | "providerSessionId" | "instanceId" | "liveness" | "outcome"
+>;
 
 export interface RemoteRuntimePersistence {
   readonly existing: (opId: string) => Promise<JsonObject | null>;

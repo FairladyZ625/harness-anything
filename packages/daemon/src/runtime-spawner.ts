@@ -13,11 +13,19 @@ import { runtimeTypeMatchesKind } from "./agent-runtime-contract.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
-import { openDispatchStream, readDispatchStream } from "./dispatch-stream.ts";
+import {
+  openDispatchStream,
+  readDispatchStream,
+  removeDispatchStream,
+  scrubProviderValue,
+  type DispatchStreamWriter,
+} from "./dispatch-stream.ts";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
+import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
+import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
@@ -45,11 +53,10 @@ import { isStructuredSuccessResult, parseProviderFrame } from "./runtime-spawn-p
 import {
   bindProvider as bindProviderImpl,
   captureErrorOutput as captureErrorOutputImpl,
-  consumeChunk as consumeChunkImpl,
-  consumeLine as consumeLineImpl,
+  consumeProviderChunk,
+  consumeProviderLine,
   markProtocolError as markProtocolErrorImpl,
   publishRuntimeEvent as publishRuntimeEventImpl,
-  terminateActive as terminateActiveImpl,
 } from "./runtime-spawn-provider-stream.ts";
 import {
   applied as appliedImpl,
@@ -108,6 +115,7 @@ export function makeRuntimeSpawner(input: {
     requiredRuntimeStore,
     requiredRuntimeProjection,
     runtimeSpawnError,
+    consumeChunk,
     consumeLine,
     markProtocolError,
     parseProviderFrame,
@@ -122,7 +130,7 @@ export function makeRuntimeSpawner(input: {
     launchExitNotification,
     publishExit,
     controlReceipt,
-    terminateActive,
+    captureErrorOutput,
   };
 
   return {
@@ -357,14 +365,48 @@ export function makeRuntimeSpawner(input: {
               },
             }
           : prepared;
-      let process: RuntimeProcess | undefined, resumeObservation: ResumeProcessObservation | undefined;
+      const taskBinding = taskId ? { taskId, executionId: remoteTask?.executionId ?? lease!.executionId } : null,
+        streamStartedAt = input.now();
+      let process: RuntimeProcess | undefined;
+      let resumeObservation: ResumeProcessObservation | undefined;
+      let stream: DispatchStreamWriter | undefined;
+      const openStream = (): DispatchStreamWriter => stream ??= openDispatchStream(input.rootDir, {
+        dispatchId: newDispatchId,
+        taskId: taskBinding?.taskId ?? null,
+        executionId: taskBinding?.executionId ?? null,
+        runtimeSessionId,
+        instanceId: definition.instanceId,
+        startedAt: streamStartedAt,
+        dispatchOpId,
+        kindId: definition.kindId,
+        permissionMode: launchedPermissionMode ?? null,
+        binding,
+        cwd,
+        prompt: scrubProviderValue(prompt) as string,
+        ...(promptSource ? { promptSource } : {}),
+        model: definition.model,
+        reasoningEffort: definition.reasoningEffort,
+        resumeProviderSessionId: providerSessionId ?? null,
+        ...(onExitCommand ? { onExitCommand } : {}),
+        ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
+        ...(delegatedBy
+          ? {
+            delegatedByAgentId: delegatedBy.id,
+            delegatedByAgentName: delegatedBy.name,
+            squadId: target!.squadId,
+          }
+          : {}),
+      });
       if (providerSessionId)
         try {
-          process = launch(workerLaunch);
+          openStream();
+          process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
           resumeObservation = observeResumeProcess(process, definition.kindId, providerSessionId);
           await resumeObservation.ready;
         } catch (error) {
           process?.terminate();
+          process?.release?.();
+          removeDispatchStream(input.rootDir, newDispatchId);
           if (runtimeErrorCode(error) === "runtime_resume_failed") throw error;
           consumeKnownError(error);
           throw runtimeSpawnError(
@@ -405,12 +447,16 @@ export function makeRuntimeSpawner(input: {
         );
       } catch (error) {
         process?.terminate();
+        process?.release?.();
+        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         throw error;
       }
       if (!process)
         try {
-          process = launch(workerLaunch);
+          openStream();
+          process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
         } catch (error) {
+          removeDispatchStream(input.rootDir, newDispatchId);
           await publishRuntimeEvent(
             "runtime_dispatch_outcome_unknown",
             { dispatchId: newDispatchId, runtimeSessionId },
@@ -420,47 +466,28 @@ export function makeRuntimeSpawner(input: {
           throw error;
         }
       const runtimeProcess = process;
-      let started!: AgentRuntimeEventV1;
       try {
-        started = (
-          await publishRuntimeEvent(
-            "runtime_session_started",
-            {
-              runtimeSessionId,
-              instanceId: definition.instanceId,
-              installationId: definition.installationId,
-              kindId: definition.kindId,
-              definitionSnapshotRef,
-              launchGeneration: input.daemonGeneration,
-              attachable: true,
-            },
-            `${dispatchOpId}-started`,
-            binding,
-          )
-        ).event;
+        await publishRuntimeEvent(
+          "runtime_session_started",
+          {
+            runtimeSessionId,
+            instanceId: definition.instanceId,
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            definitionSnapshotRef,
+            launchGeneration: input.daemonGeneration,
+            attachable: true,
+          },
+          `${dispatchOpId}-started`,
+          binding,
+        );
       } catch (error) {
         runtimeProcess.terminate();
+        runtimeProcess.release?.();
+        removeDispatchStream(input.rootDir, newDispatchId);
         throw error;
       }
-      const taskBinding = taskId ? { taskId, executionId: remoteTask?.executionId ?? lease!.executionId } : null;
-      const stream = openDispatchStream(input.rootDir, {
-        dispatchId: newDispatchId,
-        taskId: taskBinding?.taskId ?? null,
-        executionId: taskBinding?.executionId ?? null,
-        runtimeSessionId,
-        instanceId: definition.instanceId,
-        startedAt: started.occurredAt,
-        ...(onExitCommand ? { onExitCommand } : {}),
-        ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
-        ...(delegatedBy
-          ? {
-              delegatedByAgentId: delegatedBy.id,
-              delegatedByAgentName: delegatedBy.name,
-              squadId: target!.squadId,
-            }
-          : {}),
-      });
-      const active: ActiveRuntime = {
+      const active = createActiveRuntime({
         process: runtimeProcess,
         dispatchId: newDispatchId,
         runtimeSessionId,
@@ -479,58 +506,17 @@ export function makeRuntimeSpawner(input: {
         onExitCommand: onExitCommand ?? null,
         model: definition.model,
         reasoningEffort: definition.reasoningEffort,
-        startedAt: started.occurredAt,
-        stream,
-        buffer: "",
-        stdoutObserved: false,
-        errorBuffer: "",
-        errorOverflowed: false,
-        providerSessionId: null,
+        startedAt: streamStartedAt,
+        stream: openStream(),
         resumeProviderSessionId: providerSessionId ?? null,
-        finalText: null,
-        failureText: null,
-        providerOutcome: null,
-        writeItemObserved: false,
-        planObserved: false,
-        planIncomplete: false,
-        protocolError: false,
-        cancelRequested: false,
-        cancelBinding: null,
-        cancelOpId: null,
-      };
+      });
       processes.set(runtimeSessionId, active);
-      const handlers = {
-        output: (chunk: string) => {
-          if (processes.get(runtimeSessionId) === active)
-            input.schedule(async () => {
-              if (processes.get(runtimeSessionId) === active) {
-                active.stdoutObserved ||= chunk.length > 0;
-                await consumeChunk(active, chunk, false);
-              }
-            });
-        },
-        error: (chunk: string) => {
-          if (processes.get(runtimeSessionId) === active) input.schedule(() => captureErrorOutput(active, chunk));
-        },
-        exit: (code: number | null) => {
-          if (processes.get(runtimeSessionId) === active)
-            input.schedule(async () => {
-              if (processes.get(runtimeSessionId) !== active) return;
-              await consumeChunk(active, "", true);
-              await publishExit(active, code);
-            });
-        },
-      };
-      if (resumeObservation) resumeObservation.activate(handlers);
-      else {
-        runtimeProcess.onOutput(handlers.output);
-        runtimeProcess.onErrorOutput(handlers.error);
-        runtimeProcess.onExit(handlers.exit);
-      }
+      attachActiveRuntime(extracted, active, resumeObservation);
       return requested.receipt
         ? { ...requested.receipt, runtimeSessionId, dispatchId: newDispatchId }
         : applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId);
     },
+    adopt: () => adoptRuntimes(extracted),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     close: () => closeRuntimes(extracted),
   };
@@ -547,11 +533,11 @@ export function makeRuntimeSpawner(input: {
   }> {
     return publishRuntimeEventImpl<T>(extracted, type, payload, opId, binding, resultBody);
   }
-  async function consumeChunk(active: ActiveRuntime, chunk: string, flush: boolean): Promise<void> {
-    return consumeChunkImpl(extracted, active, chunk, flush);
+  async function consumeChunk(active: ActiveRuntime, chunk: string, flush: boolean, persisted = false): Promise<void> {
+    return consumeProviderChunk(extracted, active, chunk, flush, persisted);
   }
-  async function consumeLine(active: ActiveRuntime, line: string): Promise<void> {
-    return consumeLineImpl(extracted, active, line);
+  async function consumeLine(active: ActiveRuntime, line: string, persisted = false): Promise<void> {
+    return consumeProviderLine(extracted, active, line, persisted);
   }
   function captureErrorOutput(active: ActiveRuntime, chunk: string): void {
     return captureErrorOutputImpl(extracted, active, chunk);
@@ -561,9 +547,6 @@ export function makeRuntimeSpawner(input: {
   }
   function markProtocolError(active: ActiveRuntime): void {
     return markProtocolErrorImpl(extracted, active);
-  }
-  function terminateActive(active: ActiveRuntime, cancelled: boolean): void {
-    return terminateActiveImpl(extracted, active, cancelled);
   }
   async function publishExit(active: ActiveRuntime, code: number | null): Promise<void> {
     return publishExitImpl(extracted, active, code);

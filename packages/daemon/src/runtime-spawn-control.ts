@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
+import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
+
+const cancelDurableDrainTimeoutMs = 1_000;
 
 export async function cancelRuntime(context: any, payload: JsonObject, binding: RuntimeBinding): Promise<JsonObject> {
   const allowed = ["runtimeSessionId"],
@@ -16,6 +19,7 @@ export async function cancelRuntime(context: any, payload: JsonObject, binding: 
     active.cancelBinding = binding;
     active.cancelOpId = opId;
     active.cancelRequested = true;
+    await consumeDurableOutput(context, active, cancelDurableDrainTimeoutMs);
     active.process.terminate();
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
@@ -26,5 +30,5 @@ export async function cancelRuntime(context: any, payload: JsonObject, binding: 
 export function closeRuntimes(context: any): void {
   const active = [...context.processes.values()];
   context.processes.clear();
-  for (const entry of active) context.terminateActive(entry, false);
+  for (const entry of active) entry.process.release?.();
 }

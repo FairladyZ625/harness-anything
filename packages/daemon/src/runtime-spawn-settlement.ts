@@ -142,6 +142,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
             },
           };
     context.processes.delete(active.runtimeSessionId);
+    active.process.release?.();
     if (notification) setImmediate(() => context.launchExitNotification({ ...notification, now: context.input.now }));
   } finally {
     context.exiting.delete(active.runtimeSessionId);

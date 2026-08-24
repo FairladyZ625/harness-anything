@@ -17,7 +17,10 @@ export function readTaskDispatches(input: { readonly rootDir: string; readonly p
   const streamRoot = path.join(resolveHarnessLayout(input.rootDir).localRoot, "runtime", "dispatches");
   if (existsSync(streamRoot) && statSync(streamRoot).isDirectory()) for (const name of readdirSync(streamRoot).filter((value) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(value))) {
     const dispatchId = name.slice(0, -6), stream = readDispatchStream(input.rootDir, dispatchId); if (!stream?.header?.taskId || !tasks.has(stream.header.taskId)) continue;
-    const current = sessions.get(stream.header.runtimeSessionId); if (!rows.has(dispatchId)) rows.set(dispatchId, liveRow(stream.header, stream.providerSessionId, current));
+    const current = sessions.get(stream.header.runtimeSessionId);
+    if (!rows.has(dispatchId)) {
+      rows.set(dispatchId, liveRow(stream.header, stream.providerSessionId, current, stream.process?.exited === false));
+    }
   }
   const dispatches = [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
   return singleTaskId === undefined
@@ -26,7 +29,35 @@ export function readTaskDispatches(input: { readonly rootDir: string; readonly p
 }
 
 function archiveRow(value: Record<string, unknown>, session: RuntimeSession | undefined): TaskDispatchRow { return { dispatchId: String(value.dispatchId), taskId: String(value.taskId), executionId: String(value.executionId), runtimeSessionId: String(value.runtimeSessionId), instanceId: String(value.instanceId), ...(typeof value.agentId === "string" ? { agentId: value.agentId, agentName: typeof value.agentName === "string" ? value.agentName : value.agentId } : {}), ...(typeof value.delegatedByAgentId === "string" ? { delegatedByAgentId: value.delegatedByAgentId, delegatedByAgentName: typeof value.delegatedByAgentName === "string" ? value.delegatedByAgentName : value.delegatedByAgentId, squadId: String(value.squadId) } : {}), providerSessionId: typeof value.providerSessionId === "string" ? value.providerSessionId : session?.providerSessionId ?? null, eventStreamRef: typeof value.eventStreamRef === "string" ? value.eventStreamRef : null, startedAt: String(value.startedAt), endedAt: typeof value.endedAt === "string" ? value.endedAt : null, outcome: isOutcome(value.outcome) ? value.outcome : session?.outcome ?? "unknown", status: isOutcome(value.outcome) ? value.outcome : session?.outcome ?? "unknown" }; }
-function liveRow(header: DispatchStreamHeader, providerSessionId: string | null, session: RuntimeSession | undefined): TaskDispatchRow { const outcome = session?.outcome ?? null; return { dispatchId: header.dispatchId, taskId: header.taskId!, executionId: header.executionId!, runtimeSessionId: header.runtimeSessionId, instanceId: header.instanceId, ...(header.agentId ? { agentId: header.agentId, agentName: header.agentName ?? header.agentId } : {}), ...(header.delegatedByAgentId ? { delegatedByAgentId: header.delegatedByAgentId, delegatedByAgentName: header.delegatedByAgentName ?? header.delegatedByAgentId, squadId: header.squadId! } : {}), providerSessionId: providerSessionId ?? session?.providerSessionId ?? null, eventStreamRef: header.eventStreamRef, startedAt: header.startedAt, endedAt: null, outcome, status: outcome ?? (session?.liveness === "live" ? "running" : "unknown") }; }
+function liveRow(
+  header: DispatchStreamHeader,
+  providerSessionId: string | null,
+  session: RuntimeSession | undefined,
+  processRunning: boolean,
+): TaskDispatchRow {
+  const outcome = session?.outcome ?? null;
+  return {
+    dispatchId: header.dispatchId,
+    taskId: header.taskId!,
+    executionId: header.executionId!,
+    runtimeSessionId: header.runtimeSessionId,
+    instanceId: header.instanceId,
+    ...(header.agentId ? { agentId: header.agentId, agentName: header.agentName ?? header.agentId } : {}),
+    ...(header.delegatedByAgentId
+      ? {
+        delegatedByAgentId: header.delegatedByAgentId,
+        delegatedByAgentName: header.delegatedByAgentName ?? header.delegatedByAgentId,
+        squadId: header.squadId!,
+      }
+      : {}),
+    providerSessionId: providerSessionId ?? session?.providerSessionId ?? null,
+    eventStreamRef: header.eventStreamRef,
+    startedAt: header.startedAt,
+    endedAt: null,
+    outcome,
+    status: outcome ?? (session?.liveness === "live" || processRunning ? "running" : "unknown"),
+  };
+}
 function parseArchive(body: string): Record<string, unknown> | null { try { const value: unknown = JSON.parse(body); return isRecord(value) && value.schema === "runtime-dispatch/v1" ? value : null; } catch (error) { consumeKnownError(error); return null; } }
 function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function isOutcome(value: unknown): value is NonNullable<TaskDispatchRow["outcome"]> { return value === "succeeded" || value === "failed" || value === "unknown" || value === "cancelled"; }

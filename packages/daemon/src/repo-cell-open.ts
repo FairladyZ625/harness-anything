@@ -329,6 +329,7 @@ export async function openRepoCell(input: {
       resolveSquadDispatchTarget({ rootDir, leaderId, workerId }),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });
+  await runtimeSpawner.adopt();
   function assertRuntimeAdmission(force = false): void {
     runtimeAdmission.assert(rootDir, force);
   }

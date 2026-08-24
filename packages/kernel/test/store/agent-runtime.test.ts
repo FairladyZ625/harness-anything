@@ -82,6 +82,7 @@ test("projection reopen and rebuild project nonterminal sessions unknown before 
     const reopened = makeTaskProjection({ rootDir, eventStore: store });
     assert.deepEqual(runtimeState(reopened, "runtime-session-claude"), { liveness: "unknown", attachable: false }); assert.deepEqual(runtimeState(reopened, "runtime-session-exited"), { liveness: "exited", attachable: false }); assert.equal(store.read().revision, before);
     const rebuilt = reopened.rebuild(); assert.equal(rebuilt.metrics.sqliteTransactions, 2); assert.deepEqual(runtimeState(reopened, "runtime-session-claude"), { liveness: "unknown", attachable: false }); assert.deepEqual(runtimeState(reopened, "runtime-session-exited"), { liveness: "exited", attachable: false }); assert.equal(store.read().revision, before);
+    const adopted = eventFromProviderWitness({ ...witness("heartbeat"), type: "runtime_session_liveness_changed", payload: { runtimeSessionId: "runtime-session-claude", liveness: "live" } }, envelope(4))!; store.append(bundle(adopted)); reopened.apply(adopted); assert.deepEqual(runtimeState(reopened, "runtime-session-claude"), { liveness: "live", attachable: true });
     assert.equal(reopened.read("task-runtime").snapshot.task, null);
   });
 });
