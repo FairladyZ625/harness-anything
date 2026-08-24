@@ -5,95 +5,423 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { MIGRATION_DOCUMENT_POLICY_ID, REPLAY_TASK_GRAPH, checkTaskProjection, compileDecisionWrite, compileFactWrite, decisionWritePlan, deriveRelationId, formatRelationFlowRecord, makeTaskProjection, projectDecisionReadiness, readRelationGraphProjection, rebuildTaskProjection, renderDecisionDocument, serializeCanonicalEvent, sha256Text, taskLifecycleWritePlan, type DecisionEventDraftV1, type EntityRelationRecord, type FactEventDraftV1, type MigrationImportEventV1, type TaskEventV1 } from "../../src/index.ts";
-import { createDecisionProjectionTables, readDecisionDocumentState, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
+import {
+  MIGRATION_DOCUMENT_POLICY_ID,
+  REPLAY_TASK_GRAPH,
+  checkTaskProjection,
+  compileDecisionWrite,
+  compileFactWrite,
+  decisionWritePlan,
+  deriveRelationId,
+  formatRelationFlowRecord,
+  makeTaskProjection,
+  projectDecisionReadiness,
+  readRelationGraphProjection,
+  rebuildTaskProjection,
+  renderDecisionDocument,
+  serializeCanonicalEvent,
+  sha256Text,
+  taskLifecycleWritePlan,
+  type DecisionEventDraftV1,
+  type EntityRelationRecord,
+  type FactEventDraftV1,
+  type MigrationImportEventV1,
+  type TaskEventV1,
+} from "../../src/index.ts";
+import {
+  createDecisionProjectionTables,
+  readDecisionDocumentState,
+  reduceDecisionEvent,
+} from "../../src/projection/decision-event-projection.ts";
 import { createFactProjectionTables } from "../../src/projection/fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
 import { withTempStore } from "./helpers.ts";
 
-const actor = { principal: { personId: "proposer" }, executor: null } as const;
-
- test("real post-merge entry resolves event-backed Decision anchors and rejects unknown anchors", () => { withTempStore((rootDir) => { const fixture = projectionFixture(rootDir); applyDecision(fixture, proposal(1, "dec_KNOWN")); writeTask(rootDir, "task-authored", relation({ source: "task/task-authored", target: "decision/dec_KNOWN/CH1", type: "implements" })); const pass = checkTaskProjection({ rootDir, postMerge: true, eventRelationTruth: fixture.projection.readRelationTruth() }); assert.equal(pass.ok, true, JSON.stringify(pass.warnings));
-    writeTask(rootDir, "task-authored", relation({ source: "task/task-authored", target: "decision/dec_KNOWN/CH404", type: "implements" })); const fail = checkTaskProjection({ rootDir, postMerge: true, eventRelationTruth: fixture.projection.readRelationTruth() }); assert.equal(fail.ok, false); assert.equal(fail.warnings.some(({ code }) => code === "relation_endpoint_unknown"), true); }); });
-
-test("GUI graph reads task and relation truth from one read-only L2 database", () => { withTempStore((rootDir) => { const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite"); seedRelationProjection(projectionPath); const before = readFileSync(projectionPath), graph = readRelationGraphProjection({ rootDir }); assert.deepEqual(graph.edges.map(({ relationId }) => relationId), ["rel_positive"]); assert.deepEqual(graph.taskRows.map(({ taskId }) => taskId), ["task-positive"]); assert.equal(graph.facts[0]?.schema, "task-fact-row/v1"); assert.deepEqual(readFileSync(projectionPath), before, "read path must not rebuild or mutate canonical L2"); }); });
-
-test("GUI graph distinguishes unavailable truth from an empty relation set without creating a cache", () => { withTempStore((rootDir) => { const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite"), graph = readRelationGraphProjection({ rootDir }); assert.deepEqual(graph.edges, []); assert.equal(graph.warnings.some(({ code, severity }) => code === "relation_truth_unavailable" && severity === "hard-fail"), true); assert.equal(existsSync(projectionPath), false); }); });
-
-test("GUI graph rejects structurally complete relation tables without a truth-source marker", () => { withTempStore((rootDir) => { const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite"); seedRelationProjection(projectionPath, false); const graph = readRelationGraphProjection({ rootDir }); assert.deepEqual(graph.edges, []); assert.equal(graph.warnings.some(({ code, message }) => code === "relation_truth_unavailable" && message.includes("truth source")), true); }); });
-
-test("explicit cold rebuild derives Decision, relation, coverage, and Fact truth from authored L1", () => { withTempStore((rootDir) => { const factRef = "fact/task-cold/F-DEADBEEF", migratedRef = "fact/task-cold/F-ABCDEFGH", evidenced = relation({ source: "decision/dec_COLD/C1", target: factRef, type: "evidenced-by" }), derived = relation({ source: "decision/dec_COLD/CH1", target: "task/task-cold", type: "derives" }), superseded = relation({ source: factRef, target: migratedRef, type: "supersedes-fact" }); writeColdHistory(rootDir, evidenced, derived, superseded); const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite"); assert.equal(existsSync(path.join(rootDir, ".harness/cache/task.sqlite")), false); rebuildTaskProjection({ rootDir, projectionPath }); const graph = readRelationGraphProjection({ rootDir, projectionPath }), db = new DatabaseSync(projectionPath, { readOnly: true }); try { assert.equal(db.prepare("SELECT count(*) AS count FROM decision_projection").get()!.count, 1); assert.deepEqual({ ...db.prepare("SELECT decision_id, state, title FROM decision_projection").get()! }, { decision_id: "dec_COLD", state: "active", title: "Cold truth" }); } finally { db.close(); }
-  assert.deepEqual(graph.edges.map(({ relationId }) => relationId).sort(), [derived.relation_id, evidenced.relation_id, superseded.relation_id].sort()); assert.deepEqual(graph.facts.map(({ ref, statement }) => ({ ref, statement })), [{ ref: factRef, statement: "Cold rebuild evidence" }]); assert.deepEqual(graph.factAnchors.map(({ factRef: ref }) => ref), [factRef]); assert.deepEqual(graph.coverageRows.map(({ claimRef, status, fulfillment, coveringFactRef }) => ({ claimRef, status, fulfillment, coveringFactRef })), [{ claimRef: "decision/dec_COLD/C1", status: "covered", fulfillment: "evidenced", coveringFactRef: factRef }]); assert.deepEqual(graph.warnings, []); }); });
-
-test("cold rebuild replays migrated Fact and relation truth from canonical L1 events", () => { withTempStore((rootDir) => { const existingFact = "fact/task-cold/F-DEADBEEF", migratedFact = "fact/task-cold/F-3VSTHPDM", existingEdge = relation({ source: "decision/dec_COLD/C1", target: existingFact, type: "evidenced-by" }), migratedEdge = relation({ source: "decision/dec_COLD/C1", target: migratedFact, type: "evidenced-by" }); writeColdHistory(rootDir, existingEdge, relation({ source: "decision/dec_COLD/CH1", target: "task/task-cold", type: "derives" }), relation({ source: existingFact, target: "fact/task-cold/F-ABCDEFGH", type: "supersedes-fact" })); writeMigrationEvent(rootDir, migrationFactEvent(1)); writeMigrationEvent(rootDir, migrationRelationEvent(2, migratedEdge)); writeMigrationEvent(rootDir, migrationRelationEvent(3, existingEdge)); const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite"); rebuildTaskProjection({ rootDir, projectionPath }); const graph = readRelationGraphProjection({ rootDir, projectionPath }); assert.equal(graph.facts.some(({ ref, statement }) => ref === migratedFact && statement === "Migrated event fact"), true); assert.equal(graph.edges.some(({ relationId }) => relationId === migratedEdge.relation_id), true); assert.equal(graph.edges.find(({ relationId }) => relationId === existingEdge.relation_id)?.origin, "imported_snapshot", "canonical event fields win over a duplicated Markdown snapshot"); assert.deepEqual(graph.warnings, []); }); });
-
-test("cold rebuild derives supersedes-fact edges from native Fact events", () => { withTempStore((rootDir) => { const target = "fact/task-cold/F-DEADBEEF", replacement = "fact/task-cold/F-BCDEFGHJ", edge = relation({ source: replacement, target, type: "supersedes-fact" }); writeColdHistory(rootDir, relation({ source: "decision/dec_COLD/C1", target, type: "evidenced-by" }), relation({ source: "decision/dec_COLD/CH1", target: "task/task-cold", type: "derives" }), relation({ source: target, target: "fact/task-cold/F-ABCDEFGH", type: "supersedes-fact" })); writeFactEvent(rootDir, { ...fact(1), taskId: "task-cold", factId: "F-BCDEFGHJ", payload: { ...fact(1).payload, statement: "Replacement fact", supersedes: { factRef: target, rationale: edge.rationale } } }); const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite"); rebuildTaskProjection({ rootDir, projectionPath }); const graph = readRelationGraphProjection({ rootDir, projectionPath }); assert.equal(graph.edges.some(({ relationId, sourceRef, targetRef, relationType }) => relationId === edge.relation_id && sourceRef === replacement && targetRef === target && relationType === "supersedes-fact"), true); assert.deepEqual(graph.warnings, []); }); });
-
-test("cold rebuild marks structurally present relation truth unavailable when an authored source is incomplete", () => { withTempStore((rootDir) => { const evidenced = relation({ source: "decision/dec_COLD/C1", target: "fact/task-cold/F-DEADBEEF", type: "evidenced-by" }), derived = relation({ source: "decision/dec_COLD/CH1", target: "task/task-cold", type: "derives" }), superseded = relation({ source: "fact/task-cold/F-DEADBEEF", target: "fact/task-cold/F-ABCDEFGH", type: "supersedes-fact" }); writeColdHistory(rootDir, evidenced, derived, superseded); const factsPath = path.join(rootDir, "harness/tasks/task-cold/facts.md"), projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite"); writeFileSync(factsPath, readFileSync(factsPath, "utf8").replace("confidence: high", "confidence: invalid")); rebuildTaskProjection({ rootDir, projectionPath }); const db = new DatabaseSync(projectionPath, { readOnly: true }); try { assert.equal(db.prepare("SELECT count(*) AS count FROM relation_edges").get()!.count, 1); assert.equal(db.prepare("SELECT value FROM projection_meta WHERE key = 'relationTruthSource'").get(), undefined); } finally { db.close(); } const graph = readRelationGraphProjection({ rootDir, projectionPath }); assert.deepEqual(graph.edges, []); assert.equal(graph.warnings.some(({ code, severity }) => code === "relation_truth_unavailable" && severity === "hard-fail"), true); }); });
-
-test("post-merge continues to consume event-backed Decision/Fact truth", () => { withTempStore((rootDir) => { const fixture = projectionFixture(rootDir); applyDecision(fixture, proposal(1, "dec_GRAPH")); applyFact(fixture, fact(2)); const edge = relation({ source: "decision/dec_GRAPH/C1", target: "fact/task-evidence/F-DEADBEEF", type: "evidenced-by" }); applyDecision(fixture, claim(3, "dec_GRAPH")); applyDecision(fixture, related(4, "dec_GRAPH", edge)); assert.equal(checkTaskProjection({ rootDir, postMerge: true, eventRelationTruth: fixture.projection.readRelationTruth() }).ok, true); }); });
-
-test("post-merge fails closed without identity-bound event relation truth", () => { withTempStore((rootDir) => { const result = checkTaskProjection({ rootDir, postMerge: true }); assert.equal(result.ok, false); assert.equal(result.warnings.some(({ code, message }) => code === "relation_truth_unavailable" && message.includes("identity-bound")), true); }); });
-
-test("Decision readiness is commit-bound and ignores uncommitted worktree guesses", () => { withTempStore((rootDir) => { git(rootDir, "init"); git(rootDir, "config", "user.name", "Fixture"); git(rootDir, "config", "user.email", "fixture@example.test"); mkdirSync(path.join(rootDir, "packages/kernel"), { recursive: true }); writeFileSync(path.join(rootDir, "packages/kernel/index.ts"), "export const ready = true;\n"); git(rootDir, "add", "."); git(rootDir, "commit", "-m", "base", { GIT_AUTHOR_DATE: "2026-08-01T00:00:00Z", GIT_COMMITTER_DATE: "2026-08-01T00:00:00Z" }); const base = git(rootDir, "rev-parse", "HEAD"), decision = { decisionId: "dec_READY", proposedAt: "2026-08-02T00:00:00.000Z", appliesTo: { modules: ["kernel"], productLines: [] } };
-  const source = testReadinessSource(); let readiness = projectDecisionReadiness({ rootDir, commitSha: base, decisions: [decision] }, source)[0]!; assert.equal(readiness.appliesToDrift.state, "clear"); assert.equal(readiness.conflictMarker.state, "clear"); writeFileSync(path.join(rootDir, "packages/kernel/index.ts"), "<<<<<<< local\n=======\n>>>>>>> remote\n"); readiness = projectDecisionReadiness({ rootDir, commitSha: base, decisions: [decision] }, source)[0]!; assert.equal(readiness.conflictMarker.state, "clear", "uncommitted worktree markers are not canonical truth");
-  git(rootDir, "add", "."); git(rootDir, "commit", "-m", "canonical conflict", { GIT_AUTHOR_DATE: "2026-08-03T00:00:00Z", GIT_COMMITTER_DATE: "2026-08-03T00:00:00Z" }); const head = git(rootDir, "rev-parse", "HEAD"); readiness = projectDecisionReadiness({ rootDir, commitSha: head, decisions: [decision] }, source)[0]!; assert.equal(readiness.appliesToDrift.state, "drift"); assert.deepEqual(readiness.appliesToDrift.paths, ["packages/kernel/index.ts"]); assert.equal(readiness.conflictMarker.state, "conflict"); assert.deepEqual(readiness.conflictMarker.paths, ["packages/kernel/index.ts"]); const unknown = projectDecisionReadiness({ rootDir, commitSha: head, decisions: [{ ...decision, appliesTo: { modules: ["missing-module"], productLines: [] } }] }, source)[0]!; assert.equal(unknown.appliesToDrift.state, "unknown"); assert.equal(unknown.conflictMarker.state, "unknown"); }); });
-
-test("Decision readiness batches canonical Git reads across the ledger", () => {
-  const calls: string[][] = []; const source = { run: (_rootDir: string, args: readonly string[]) => { calls.push([...args]); return { ok: true, stdout: args[0] === "ls-tree" ? "packages/kernel/index.ts" : "" }; } }, count = 570;
-  const decisions = Array.from({ length: count }, (_, index) => ({ decisionId: `dec_SCALE_${index}`, proposedAt: new Date(Date.UTC(2026, 7, 1) + index * 1_000).toISOString(), appliesTo: { modules: ["kernel"], productLines: [] } }));
-  const readiness = projectDecisionReadiness({ rootDir: "/fixture", commitSha: "a".repeat(40), decisions }, source);
-  assert.equal(readiness.length, count); assert.equal(readiness.every((row) => row.appliesToDrift.state === "clear" && row.conflictMarker.state === "clear"), true); assert.equal(calls.length, 3, `readiness opened ${calls.length} Git processes for ${count} decisions sharing one canonical scope`);
+import {
+  accepted,
+  actor,
+  applyDecision,
+  applyFact,
+  claim,
+  compileCurrent,
+  decisionProjectionDatabase,
+  fact,
+  git,
+  migrationFactEvent,
+  migrationRelationEvent,
+  projectionFixture,
+  proposal,
+  related,
+  relation,
+  seedRelationProjection,
+  taskCreated,
+  testReadinessSource,
+  writeColdHistory,
+  writeFactEvent,
+  writeMigrationEvent,
+  writeTask,
+} from "./relation-graph-projection.fixtures.ts";
+test("real post-merge entry resolves event-backed Decision anchors and rejects unknown anchors", () => {
+  withTempStore((rootDir) => {
+    const fixture = projectionFixture(rootDir);
+    applyDecision(fixture, proposal(1, "dec_KNOWN"));
+    writeTask(
+      rootDir,
+      "task-authored",
+      relation({
+        source: "task/task-authored",
+        target: "decision/dec_KNOWN/CH1",
+        type: "implements",
+      }),
+    );
+    const pass = checkTaskProjection({
+      rootDir,
+      postMerge: true,
+      eventRelationTruth: fixture.projection.readRelationTruth(),
+    });
+    assert.equal(pass.ok, true, JSON.stringify(pass.warnings));
+    writeTask(
+      rootDir,
+      "task-authored",
+      relation({
+        source: "task/task-authored",
+        target: "decision/dec_KNOWN/CH404",
+        type: "implements",
+      }),
+    );
+    const fail = checkTaskProjection({
+      rootDir,
+      postMerge: true,
+      eventRelationTruth: fixture.projection.readRelationTruth(),
+    });
+    assert.equal(fail.ok, false);
+    assert.equal(
+      fail.warnings.some(({ code }) => code === "relation_endpoint_unknown"),
+      true,
+    );
+  });
 });
 
- test("real post-merge cycle check includes canonical Decision edges and task-authored edges", () => { withTempStore((rootDir) => { const fixture = projectionFixture(rootDir), projection = fixture.projection, created = taskCreated(1, "task-cycle"); projection.apply(created, taskLifecycleWritePlan(created)); applyDecision(fixture, proposal(2, "dec_CYCLE")); const derives = relation({ source: "decision/dec_CYCLE", target: "task/task-cycle", type: "derives" }); applyDecision(fixture, related(3, "dec_CYCLE", derives)); writeTask(rootDir, "task-cycle", relation({ source: "task/task-cycle", target: "decision/dec_CYCLE", type: "implements" })); const result = checkTaskProjection({ rootDir, postMerge: true, eventRelationTruth: projection.readRelationTruth() }); assert.equal(result.ok, false); assert.equal(result.warnings.some(({ code }) => code === "relation_cycle_detected"), true); }); });
+test("GUI graph reads task and relation truth from one read-only L2 database", () => {
+  withTempStore((rootDir) => {
+    const projectionPath = path.join(
+      rootDir,
+      ".harness/cache/projections.sqlite",
+    );
+    seedRelationProjection(projectionPath);
+    const before = readFileSync(projectionPath),
+      graph = readRelationGraphProjection({ rootDir });
+    assert.deepEqual(
+      graph.edges.map(({ relationId }) => relationId),
+      ["rel_positive"],
+    );
+    assert.deepEqual(
+      graph.taskRows.map(({ taskId }) => taskId),
+      ["task-positive"],
+    );
+    assert.equal(graph.facts[0]?.schema, "task-fact-row/v1");
+    assert.deepEqual(
+      readFileSync(projectionPath),
+      before,
+      "read path must not rebuild or mutate canonical L2",
+    );
+  });
+});
 
-test("Replay accepts a document today's renderer no longer reproduces, as long as its content hash matches the signed claim", () => { withTempStore((rootDir) => {
-  const fixture = projectionFixture(rootDir), draft = proposal(1, "dec_LEGACY_RENDER"), compiled = compileDecisionWrite({ event: draft, currentDecision: null, currentRelations: [], currentDocument: null });
-  // Stand in for a document written by an older renderer: strip a frontmatter line today's renderer always emits.
-  const legacyBody = compiled.body.replace(/^provenance: .*\n/mu, "");
-  assert.notEqual(legacyBody, compiled.body, "fixture must actually differ from what the current renderer produces");
-  const legacySha = sha256Text(legacyBody), legacySize = Buffer.byteLength(legacyBody, "utf8");
-  const event = { ...compiled.event, payload: { ...compiled.event.payload, decisionDocumentClaim: { ...compiled.event.payload.decisionDocumentClaim, sha256: legacySha, size: legacySize } } };
-  fixture.blobs.set(legacySha, Buffer.from(legacyBody, "utf8"));
-  fixture.projection.apply(event, decisionWritePlan(event));
-  assert.equal(fixture.projection.readDecision("dec_LEGACY_RENDER").decision?.decisionId, "dec_LEGACY_RENDER", "a historical document must replay even though the renderer has since evolved");
-}); });
+test("GUI graph distinguishes unavailable truth from an empty relation set without creating a cache", () => {
+  withTempStore((rootDir) => {
+    const projectionPath = path.join(
+        rootDir,
+        ".harness/cache/projections.sqlite",
+      ),
+      graph = readRelationGraphProjection({ rootDir });
+    assert.deepEqual(graph.edges, []);
+    assert.equal(
+      graph.warnings.some(
+        ({ code, severity }) =>
+          code === "relation_truth_unavailable" && severity === "hard-fail",
+      ),
+      true,
+    );
+    assert.equal(existsSync(projectionPath), false);
+  });
+});
 
-test("Decision projection requires exact plan, content hash, consent pin, and document base", () => { withTempStore((rootDir) => { const fixture = projectionFixture(rootDir), draft = proposal(1, "dec_EXACT"), compiled = compileDecisionWrite({ event: draft, currentDecision: null, currentRelations: [], currentDocument: null }), forgedSha = "0".repeat(64), forged = { ...compiled.event, payload: { ...compiled.event.payload, decisionDocumentClaim: { ...compiled.event.payload.decisionDocumentClaim, sha256: forgedSha } } }; fixture.blobs.set(forgedSha, Buffer.from(compiled.body)); assert.throws(() => fixture.projection.apply(compiled.event), /write plan/u); assert.throws(() => fixture.projection.apply(forged, decisionWritePlan(forged)), /projection mismatch/u); assert.equal(fixture.projection.readDecision("dec_EXACT").decision, null);
-  applyDecision(fixture, draft); const next = compileCurrent(fixture, accepted(2, "dec_EXACT")), tampered = { ...next.event, payload: { ...next.event.payload, judgmentConsent: { ...next.event.payload.judgmentConsent, machineDigest: `sha256:${"0".repeat(64)}` as const } } }, stale = { ...next.event, payload: { ...next.event.payload, baseDocumentSha256: "0".repeat(64) } }; fixture.blobs.set(next.blobs[0].sha256, Buffer.from(next.body)); assert.throws(() => fixture.projection.apply(tampered, decisionWritePlan(tampered)), /machine content cut/u); assert.throws(() => fixture.projection.apply(stale, decisionWritePlan(stale)), /base.*mismatch/u); assert.equal(fixture.projection.readDecision("dec_EXACT").decision?.state, "proposed"); }); });
+test("GUI graph rejects structurally complete relation tables without a truth-source marker", () => {
+  withTempStore((rootDir) => {
+    const projectionPath = path.join(
+      rootDir,
+      ".harness/cache/projections.sqlite",
+    );
+    seedRelationProjection(projectionPath, false);
+    const graph = readRelationGraphProjection({ rootDir });
+    assert.deepEqual(graph.edges, []);
+    assert.equal(
+      graph.warnings.some(
+        ({ code, message }) =>
+          code === "relation_truth_unavailable" &&
+          message.includes("truth source"),
+      ),
+      true,
+    );
+  });
+});
 
-test("Decision projection preserves authored option and claim order across two-digit ids", () => { const draft = proposal(1, "dec_ORDER"), numbered = (prefix: string) => Array.from({ length: 10 }, (_, index) => `${prefix}${index + 1}`), event: typeof draft = { ...draft, payload: { ...draft.payload, chosen: numbered("CH").map((id) => ({ id, text: `Chosen ${id}` })), rejected: numbered("RJ").map((id) => ({ id, text: `Rejected ${id}`, whyNot: `Why not ${id}` })), claims: numbered("C").map((id) => ({ id, text: `Claim ${id}`, loadBearing: true })) } }, compiled = compileDecisionWrite({ event, currentDecision: null, currentRelations: [], currentDocument: null }), db = decisionProjectionDatabase(); try { reduceDecisionEvent(db, compiled.event); const state = readDecisionDocumentState(db, event.decisionId); assert.ok(state); assert.deepEqual(state.chosen.map(({ id }) => id), numbered("CH")); assert.deepEqual(state.rejected.map(({ id }) => id), numbered("RJ")); assert.deepEqual(state.claims.map(({ id }) => id), numbered("C")); assert.equal(renderDecisionDocument(state, null, event.payload.body), compiled.body); } finally { db.close(); } });
+test("explicit cold rebuild derives Decision, relation, coverage, and Fact truth from authored L1", () => {
+  withTempStore((rootDir) => {
+    const factRef = "fact/task-cold/F-DEADBEEF",
+      migratedRef = "fact/task-cold/F-ABCDEFGH",
+      evidenced = relation({
+        source: "decision/dec_COLD/C1",
+        target: factRef,
+        type: "evidenced-by",
+      }),
+      derived = relation({
+        source: "decision/dec_COLD/CH1",
+        target: "task/task-cold",
+        type: "derives",
+      }),
+      superseded = relation({
+        source: factRef,
+        target: migratedRef,
+        type: "supersedes-fact",
+      });
+    writeColdHistory(rootDir, evidenced, derived, superseded);
+    const projectionPath = path.join(
+      rootDir,
+      ".harness/cache/projections.sqlite",
+    );
+    assert.equal(
+      existsSync(path.join(rootDir, ".harness/cache/task.sqlite")),
+      false,
+    );
+    rebuildTaskProjection({ rootDir, projectionPath });
+    const graph = readRelationGraphProjection({ rootDir, projectionPath }),
+      db = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.equal(
+        db.prepare("SELECT count(*) AS count FROM decision_projection").get()!
+          .count,
+        1,
+      );
+      assert.deepEqual(
+        {
+          ...db
+            .prepare(
+              "SELECT decision_id, state, title FROM decision_projection",
+            )
+            .get()!,
+        },
+        { decision_id: "dec_COLD", state: "active", title: "Cold truth" },
+      );
+    } finally {
+      db.close();
+    }
+    assert.deepEqual(
+      graph.edges.map(({ relationId }) => relationId).sort(),
+      [
+        derived.relation_id,
+        evidenced.relation_id,
+        superseded.relation_id,
+      ].sort(),
+    );
+    assert.deepEqual(
+      graph.facts.map(({ ref, statement }) => ({ ref, statement })),
+      [{ ref: factRef, statement: "Cold rebuild evidence" }],
+    );
+    assert.deepEqual(
+      graph.factAnchors.map(({ factRef: ref }) => ref),
+      [factRef],
+    );
+    assert.deepEqual(
+      graph.coverageRows.map(
+        ({ claimRef, status, fulfillment, coveringFactRef }) => ({
+          claimRef,
+          status,
+          fulfillment,
+          coveringFactRef,
+        }),
+      ),
+      [
+        {
+          claimRef: "decision/dec_COLD/C1",
+          status: "covered",
+          fulfillment: "evidenced",
+          coveringFactRef: factRef,
+        },
+      ],
+    );
+    assert.deepEqual(graph.warnings, []);
+  });
+});
 
-function proposal(revision: number, decisionId: string): DecisionEventDraftV1 { return { schema: "decision-event/v1", eventId: `event-${revision}`, workspaceRevision: revision, opId: `op-${revision}`, decisionId, type: "decision_proposed", actor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", payload: { title: "Canonical Decision", question: "Is this event-backed?", riskTier: "medium", urgency: "medium", vertical: "test", preset: "default", appliesTo: { modules: ["kernel"], productLines: [] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Use events" }], rejected: [{ id: "RJ1", text: "Use files", whyNot: "Files are not canonical." }], body: "\n# Canonical Decision\n", claims: [], fulfillments: [], relations: [] } }; }
-function claim(revision: number, decisionId: string): DecisionEventDraftV1 { return { schema: "decision-event/v1", eventId: `event-${revision}`, workspaceRevision: revision, opId: `op-${revision}`, decisionId, type: "decision_claim_declared", actor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", payload: { claimId: "C1", text: "The relation truth is shared.", loadBearing: true } }; }
-function accepted(revision: number, decisionId: string): DecisionEventDraftV1 { return { schema: "decision-event/v1", eventId: `event-${revision}`, workspaceRevision: revision, opId: `op-${revision}`, decisionId, type: "decision_accepted", actor: { principal: { personId: "arbiter" }, executor: null }, source: "local", occurredAt: "2026-08-13T00:00:01.000Z", payload: { rationale: "Independent approval.", judgmentOnlyRationale: "Explicit judgment-only approval." } }; }
-function related(revision: number, decisionId: string, record: EntityRelationRecord): DecisionEventDraftV1 { return { schema: "decision-event/v1", eventId: `event-${revision}`, workspaceRevision: revision, opId: `op-${revision}`, decisionId, type: "decision_related", actor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", payload: { relation: record } }; }
-function fact(revision: number): FactEventDraftV1 { return { schema: "fact-event/v1", eventId: `event-${revision}`, workspaceRevision: revision, opId: `op-${revision}`, taskId: "task-evidence", factId: "F-DEADBEEF", type: "fact_recorded", actor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", payload: { statement: "Event-backed evidence", evidenceSource: "test", observedAt: "2026-08-13T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [{ runtime: "unavailable", sessionId: null, transcriptReachability: "unavailable", boundAt: "2026-08-13T00:00:00.000Z" }] } }; }
-function taskCreated(revision: number, taskId: string): TaskEventV1 { return { schema: "task-event/v1", eventId: `event-${revision}`, workspaceRevision: revision, opId: `op-${revision}`, taskId, type: "task_created", actor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", payload: { task: { schema: "task/v1", taskId, title: "Cycle task", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null } } }; }
-function relation(input: Pick<EntityRelationRecord, "source" | "target" | "type">): EntityRelationRecord { const identity = { ...input, direction: "directed" as const }; return { relation_id: deriveRelationId(identity), ...identity, strength: "strong", origin: "declared", rationale: "Production entry fixture.", state: "active" }; }
-function migrationFactEvent(revision: number): MigrationImportEventV1 { const body = "# Facts\n", opId = `migration-fact-${revision}`; return { schema: "migration-import-event/v1", eventId: `event-${opId}`, workspaceRevision: revision, opId, type: "entity_migrated", actor, source: "migration-import/v1", occurredAt: "2026-08-15T00:00:00.000Z", payload: { migratedFrom: "legacy-fact", generation: "v0", entity: { kind: "fact", fact: { taskId: "task-cold", factId: "F-3VSTHPDM", statement: "Migrated event fact", evidenceSource: "fixture", observedAt: "2026-08-14T00:00:00.000Z", confidence: "high", memoryClass: "episodic", memoryTags: [], provenance: [{ runtime: "human", sessionId: "migration", boundAt: "2026-08-15T00:00:00.000Z" }] }, documentClaim: { path: "tasks/task-cold-fixture/facts.md", sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown", policyId: MIGRATION_DOCUMENT_POLICY_ID } } } }; }
-function migrationRelationEvent(revision: number, record: EntityRelationRecord): MigrationImportEventV1 { const opId = `migration-relation-${revision}`; return { schema: "migration-import-event/v1", eventId: `event-${opId}`, workspaceRevision: revision, opId, type: "entity_migrated", actor, source: "migration-import/v1", occurredAt: "2026-08-15T00:00:01.000Z", payload: { migratedFrom: record.relation_id, generation: "v0", entity: { kind: "relation", relation: { ...record, origin: "imported_snapshot" }, ownerRef: "decision/dec_COLD" } } }; }
-function writeMigrationEvent(rootDir: string, event: MigrationImportEventV1): void { const eventRoot = path.join(rootDir, "harness/events/fixture"); mkdirSync(eventRoot, { recursive: true }); writeFileSync(path.join(eventRoot, `${event.opId}.json`), serializeCanonicalEvent(event)); }
-function writeFactEvent(rootDir: string, event: FactEventDraftV1): void { const compiled = compileFactWrite({ event, packagePath: `tasks/${event.taskId}-fixture`, currentFacts: [] }), eventRoot = path.join(rootDir, "harness/events/fixture"); mkdirSync(eventRoot, { recursive: true }); writeFileSync(path.join(eventRoot, `${event.opId}.json`), serializeCanonicalEvent(compiled.event)); }
-function projectionFixture(rootDir: string) { const blobs = new Map<string, Uint8Array>(), eventStore = { readHead: () => null, readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }), readContentBlob: (sha256: string) => blobs.get(sha256) ?? null }; return { blobs, projection: makeTaskProjection({ rootDir, eventStore }) }; }
-function decisionProjectionDatabase(): DatabaseSync { const db = new DatabaseSync(":memory:"); db.exec("CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY, watermark INTEGER NOT NULL); INSERT INTO projection_meta VALUES (1, 1); CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL)"); createRelationGraphProjectionTables(db); createFactProjectionTables(db); createDecisionProjectionTables(db); return db; }
-function compileCurrent(fixture: ReturnType<typeof projectionFixture>, event: DecisionEventDraftV1) { const { projection } = fixture, current = projection.readDecision(event.decisionId).decision, path = `decisions/decision-${event.decisionId}/decision.md`, document = projection.readDocument(path).document, relations = projection.readDecisionGraph().edges.filter((edge) => edge.ownerRef === `decision/${event.decisionId}`).map((edge) => ({ relation_id: edge.relationId, source: edge.sourceRef, target: edge.targetRef, type: edge.relationType, strength: edge.strength, direction: edge.direction, origin: edge.origin, rationale: edge.rationale, state: edge.state })); return compileDecisionWrite({ event, currentDecision: current, currentRelations: relations, currentDocument: document }); }
-function applyDecision(fixture: ReturnType<typeof projectionFixture>, event: DecisionEventDraftV1): void { const compiled = compileCurrent(fixture, event); fixture.blobs.set(compiled.blobs[0].sha256, Buffer.from(compiled.body)); fixture.projection.apply(compiled.event, compiled.plan); }
-function applyFact(fixture: ReturnType<typeof projectionFixture>, event: FactEventDraftV1): void { const compiled = compileFactWrite({ event, packagePath: `tasks/${event.taskId}-evidence`, currentFacts: fixture.projection.searchFacts({ taskId: event.taskId }).facts }); fixture.blobs.set(compiled.blobs[0].sha256, Buffer.from(compiled.body)); fixture.projection.apply(compiled.event, compiled.plan); }
-function writeTask(rootDir: string, taskId: string, record: EntityRelationRecord): void { const taskRoot = path.join(rootDir, "harness/tasks", taskId); mkdirSync(taskRoot, { recursive: true }); writeFileSync(path.join(taskRoot, "INDEX.md"), ["---", "schema: task-package/v2", `task_id: ${taskId}`, `title: ${taskId}`, "lifecycle:", "  engine: local", "  status: active", "packageDisposition: active", "vertical: default", "preset: default", "relations:", formatRelationFlowRecord(record), "---", "", `# ${taskId}`, ""].join("\n")); }
-function seedRelationProjection(projectionPath: string, includeTruthSource = true): void { mkdirSync(path.dirname(projectionPath), { recursive: true }); const db = new DatabaseSync(projectionPath); try { db.exec(`
-  CREATE TABLE projection_meta (key TEXT PRIMARY KEY,value TEXT NOT NULL);
-  CREATE TABLE task_projection (task_id TEXT PRIMARY KEY,title TEXT NOT NULL,parent_task_id TEXT,canonical_status TEXT NOT NULL,coordination_status TEXT NOT NULL,raw_status TEXT NOT NULL,package_disposition TEXT NOT NULL,closeout_readiness TEXT NOT NULL,lifecycle_engine TEXT NOT NULL,freshness TEXT NOT NULL,updated_at TEXT NOT NULL,source TEXT NOT NULL,source_path TEXT NOT NULL,work_kind TEXT,risk_tier TEXT,urgency TEXT,vertical TEXT,preset TEXT,profile TEXT,module_key TEXT,module_title TEXT,has_lesson_candidates INTEGER NOT NULL);
-  CREATE TABLE relation_edges (relation_id TEXT PRIMARY KEY,source_ref TEXT NOT NULL,target_ref TEXT NOT NULL,relation_type TEXT NOT NULL,direction TEXT NOT NULL,strength TEXT NOT NULL,origin TEXT NOT NULL,state TEXT NOT NULL,rationale TEXT NOT NULL,owner_ref TEXT NOT NULL,source_path TEXT NOT NULL,record_index INTEGER NOT NULL);
-  CREATE TABLE relation_coverage (claim_ref TEXT PRIMARY KEY,decision_ref TEXT NOT NULL,status TEXT NOT NULL,fulfillment TEXT NOT NULL,covering_fact_ref TEXT,refuting_fact_refs_json TEXT,relation_path_json TEXT NOT NULL);
-  CREATE TABLE task_fact_anchors (fact_ref TEXT PRIMARY KEY,task_id TEXT NOT NULL,fact_id TEXT NOT NULL,source_path TEXT NOT NULL);
-  CREATE TABLE task_fact_projection (fact_ref TEXT PRIMARY KEY,task_id TEXT NOT NULL,fact_id TEXT NOT NULL,schema_name TEXT NOT NULL,statement TEXT NOT NULL,source TEXT NOT NULL,observed_at TEXT NOT NULL,confidence TEXT NOT NULL,memory_class TEXT NOT NULL,memory_tags_json TEXT NOT NULL,provenance_json TEXT NOT NULL,liveness TEXT NOT NULL);
-  INSERT INTO task_projection VALUES ('task-positive','Positive',NULL,'active','open','active','active','not_ready','kernel/task-lifecycle/v1','fresh','2026-08-14T00:00:00.000Z','local-document','harness/tasks/task-positive/INDEX.md',NULL,'medium','medium','software/coding','standard-task',NULL,'kernel','Kernel',0);
-  INSERT INTO relation_edges VALUES ('rel_positive','decision/dec_01KXA7811SVVT8P66HNDFZQ7DF/CH1','task/task-positive','derives','directed','strong','declared','active','positive','decision/dec_01KXA7811SVVT8P66HNDFZQ7DF','harness/decisions/decision-dec_01KXA7811SVVT8P66HNDFZQ7DF/decision.md',0);
-  INSERT INTO relation_coverage VALUES ('decision/dec_01KXA7811SVVT8P66HNDFZQ7DF/CH1','decision/dec_01KXA7811SVVT8P66HNDFZQ7DF','covered','standing-policy',NULL,'[]','["rel_positive"]');
-  INSERT INTO task_fact_anchors VALUES ('fact/task-positive/F-POSITIVE','task-positive','F-POSITIVE','harness/tasks/task-positive/facts.md');
-  INSERT INTO task_fact_projection VALUES ('fact/task-positive/F-POSITIVE','task-positive','F-POSITIVE','task-fact-row/v1','Observed','fixture','2026-08-14T00:00:00.000Z','high','semantic','[]','[]','standing');`); if (includeTruthSource) db.exec("INSERT INTO projection_meta VALUES ('relationTruthSource','authored-l1/v1')"); } finally { db.close(); } }
-function writeColdHistory(rootDir: string, evidenced: EntityRelationRecord, derived: EntityRelationRecord, superseded: EntityRelationRecord): void { const taskRoot = path.join(rootDir, "harness/tasks/task-cold"), decisionRoot = path.join(rootDir, "harness/decisions/decision-dec_COLD"); mkdirSync(taskRoot, { recursive: true }); mkdirSync(decisionRoot, { recursive: true }); writeFileSync(path.join(taskRoot, "INDEX.md"), ["---", "schema: task-package/v2", "task_id: task-cold", "title: Cold task", "lifecycle:", "  engine: local", "  status: active", "packageDisposition: active", "vertical: default", "preset: default", "---", "", "# Cold task", ""].join("\n")); writeFileSync(path.join(taskRoot, "facts.md"), ["# Facts", "", "## Records", "", "- {fact_id: F-DEADBEEF, statement: \"Cold rebuild evidence\", source: \"fixture\", observedAt: \"2026-07-01T00:00:00.000Z\", confidence: high, memoryClass: semantic, memoryTags: [episode], provenance: [{runtime: \"human\", sessionId: \"cold\", boundAt: \"2026-07-01T00:00:00.000Z\"}]}", "- {fact_id: F-ABCDEFGH, statement: \"Migrated historical endpoint\", source: \"fixture\", observedAt: \"2026-07-01T00:00:00.000Z\", confidence: high, memoryClass: semantic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"cold\", boundAt: \"2026-07-01T00:00:00.000Z\"}], migration: {schema: \"fact-migration/v1\", state: migrated, plan_id: \"plan\", execution_ref: \"execution/exe\", evidence_id: \"evidence\", migrated_at: \"2026-07-02T00:00:00.000Z\"}}", "relations:", formatRelationFlowRecord(superseded), ""].join("\n")); writeFileSync(path.join(decisionRoot, "decision.md"), ["---", "schema: decision-package/v1", "decision_id: dec_COLD", "_coordinatorWatermark: cold-unique", "title: \"Cold truth\"", "state: active", "riskTier: medium", "urgency: medium", "vertical: \"software/coding\"", "preset: \"architecture-decision\"", "applies_to:", "  modules: []", "  productLines: []", "proposedAt: \"2026-07-01T00:00:00.000Z\"", "decidedAt: \"2026-07-01T00:01:00.000Z\"", "provenance:", "  - { runtime: \"human\", sessionId: \"cold\", boundAt: \"2026-07-01T00:00:00.000Z\" }", "question: \"Can authored truth rebuild?\"", "chosen:", "  - { id: \"CH1\", text: \"Yes\" }", "rejected:", "  - { id: \"RJ1\", text: \"No\", why_not: \"Loses truth\" }", "claims:", "  - { id: \"C1\", text: \"Authored truth rebuilds\", fulfillment: \"evidenced\" }", "relations:", formatRelationFlowRecord(evidenced), formatRelationFlowRecord(derived), "---", "", "# Cold truth", ""].join("\n")); }
-function git(rootDir: string, ...argsAndMaybeEnv: Array<string | Record<string, string>>): string { const maybeEnv = argsAndMaybeEnv.at(-1), env = typeof maybeEnv === "object" ? maybeEnv : {}, args = argsAndMaybeEnv.filter((value): value is string => typeof value === "string"); return execFileSync("git", args, { cwd: rootDir, encoding: "utf8", env: { ...process.env, ...env } }).trim(); }
-function testReadinessSource() { return { run: (rootDir: string, args: readonly string[], allowNoMatch = false) => { try { return { ok: true, stdout: git(rootDir, ...args) }; } catch (error) { const status = typeof error === "object" && error && "status" in error ? Number(error.status) : null; return { ok: allowNoMatch && status === 1, stdout: "" }; } } }; }
+test("cold rebuild replays migrated Fact and relation truth from canonical L1 events", () => {
+  withTempStore((rootDir) => {
+    const existingFact = "fact/task-cold/F-DEADBEEF",
+      migratedFact = "fact/task-cold/F-3VSTHPDM",
+      existingEdge = relation({
+        source: "decision/dec_COLD/C1",
+        target: existingFact,
+        type: "evidenced-by",
+      }),
+      migratedEdge = relation({
+        source: "decision/dec_COLD/C1",
+        target: migratedFact,
+        type: "evidenced-by",
+      });
+    writeColdHistory(
+      rootDir,
+      existingEdge,
+      relation({
+        source: "decision/dec_COLD/CH1",
+        target: "task/task-cold",
+        type: "derives",
+      }),
+      relation({
+        source: existingFact,
+        target: "fact/task-cold/F-ABCDEFGH",
+        type: "supersedes-fact",
+      }),
+    );
+    writeMigrationEvent(rootDir, migrationFactEvent(1));
+    writeMigrationEvent(rootDir, migrationRelationEvent(2, migratedEdge));
+    writeMigrationEvent(rootDir, migrationRelationEvent(3, existingEdge));
+    const projectionPath = path.join(
+      rootDir,
+      ".harness/cache/projections.sqlite",
+    );
+    rebuildTaskProjection({ rootDir, projectionPath });
+    const graph = readRelationGraphProjection({ rootDir, projectionPath });
+    assert.equal(
+      graph.facts.some(
+        ({ ref, statement }) =>
+          ref === migratedFact && statement === "Migrated event fact",
+      ),
+      true,
+    );
+    assert.equal(
+      graph.edges.some(
+        ({ relationId }) => relationId === migratedEdge.relation_id,
+      ),
+      true,
+    );
+    assert.equal(
+      graph.edges.find(
+        ({ relationId }) => relationId === existingEdge.relation_id,
+      )?.origin,
+      "imported_snapshot",
+      "canonical event fields win over a duplicated Markdown snapshot",
+    );
+    assert.deepEqual(graph.warnings, []);
+  });
+});
+
+test("cold rebuild derives supersedes-fact edges from native Fact events", () => {
+  withTempStore((rootDir) => {
+    const target = "fact/task-cold/F-DEADBEEF",
+      replacement = "fact/task-cold/F-BCDEFGHJ",
+      edge = relation({ source: replacement, target, type: "supersedes-fact" });
+    writeColdHistory(
+      rootDir,
+      relation({
+        source: "decision/dec_COLD/C1",
+        target,
+        type: "evidenced-by",
+      }),
+      relation({
+        source: "decision/dec_COLD/CH1",
+        target: "task/task-cold",
+        type: "derives",
+      }),
+      relation({
+        source: target,
+        target: "fact/task-cold/F-ABCDEFGH",
+        type: "supersedes-fact",
+      }),
+    );
+    writeFactEvent(rootDir, {
+      ...fact(1),
+      taskId: "task-cold",
+      factId: "F-BCDEFGHJ",
+      payload: {
+        ...fact(1).payload,
+        statement: "Replacement fact",
+        supersedes: { factRef: target, rationale: edge.rationale },
+      },
+    });
+    const projectionPath = path.join(
+      rootDir,
+      ".harness/cache/projections.sqlite",
+    );
+    rebuildTaskProjection({ rootDir, projectionPath });
+    const graph = readRelationGraphProjection({ rootDir, projectionPath });
+    assert.equal(
+      graph.edges.some(
+        ({ relationId, sourceRef, targetRef, relationType }) =>
+          relationId === edge.relation_id &&
+          sourceRef === replacement &&
+          targetRef === target &&
+          relationType === "supersedes-fact",
+      ),
+      true,
+    );
+    assert.deepEqual(graph.warnings, []);
+  });
+});
+
+test("cold rebuild marks structurally present relation truth unavailable when an authored source is incomplete", () => {
+  withTempStore((rootDir) => {
+    const evidenced = relation({
+        source: "decision/dec_COLD/C1",
+        target: "fact/task-cold/F-DEADBEEF",
+        type: "evidenced-by",
+      }),
+      derived = relation({
+        source: "decision/dec_COLD/CH1",
+        target: "task/task-cold",
+        type: "derives",
+      }),
+      superseded = relation({
+        source: "fact/task-cold/F-DEADBEEF",
+        target: "fact/task-cold/F-ABCDEFGH",
+        type: "supersedes-fact",
+      });
+    writeColdHistory(rootDir, evidenced, derived, superseded);
+    const factsPath = path.join(rootDir, "harness/tasks/task-cold/facts.md"),
+      projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    writeFileSync(
+      factsPath,
+      readFileSync(factsPath, "utf8").replace(
+        "confidence: high",
+        "confidence: invalid",
+      ),
+    );
+    rebuildTaskProjection({ rootDir, projectionPath });
+    const db = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.equal(
+        db.prepare("SELECT count(*) AS count FROM relation_edges").get()!.count,
+        1,
+      );
+      assert.equal(
+        db
+          .prepare(
+            "SELECT value FROM projection_meta WHERE key = 'relationTruthSource'",
+          )
+          .get(),
+        undefined,
+      );
+    } finally {
+      db.close();
+    }
+    const graph = readRelationGraphProjection({ rootDir, projectionPath });
+    assert.deepEqual(graph.edges, []);
+    assert.equal(
+      graph.warnings.some(
+        ({ code, severity }) =>
+          code === "relation_truth_unavailable" && severity === "hard-fail",
+      ),
+      true,
+    );
+  });
+});
