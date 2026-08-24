@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import process from "node:process";
+import { parseProductionDeclaration } from "./gates/production-delta.mjs";
 
 export const defaultThresholds = Object.freeze({
   minCjkChars: 20,
@@ -13,6 +14,51 @@ const SHARED_CHECKLIST_HEADING = /^## PR Gate Checklist \/ PR 门禁清单\s*$/m
 const MERGIFY_QUEUE_BRANCH = /^mergify\/merge-queue\//u;
 const MERGIFY_QUEUE_PAYLOAD = /"merge-queue-pr"\s*:\s*true/u;
 const MERGIFY_AUTHORS = new Set(["mergify[bot]", "app/mergify"]);
+const DELETED_PRODUCTION_PATHS = /^Deleted-Production-Paths:[ \t]*(.*?)\s*$/gmu;
+const DELETED_GATES_FIXTURES = /^Deleted-Gates-Fixtures:[ \t]*(.*?)\s*$/gmu;
+
+function isEmptyListDeclaration(value) {
+  const normalized = value.trim();
+  return normalized.length === 0 || /^(?:none|n\/a|not applicable)$/iu.test(normalized);
+}
+
+export function checkGateHarvestDeclarations(body) {
+  const pathDeclarations = [...body.matchAll(DELETED_PRODUCTION_PATHS)].map((match) => match[1]);
+  const gateDeclarations = [...body.matchAll(DELETED_GATES_FIXTURES)].map((match) => match[1]);
+  const productionDelta = parseProductionDeclaration(body);
+  const hasDeletedProductionPaths = pathDeclarations.some((value) => !isEmptyListDeclaration(value));
+  const issues = [];
+
+  if (!hasDeletedProductionPaths) {
+    return {
+      ok: true,
+      hasDeletedProductionPaths: false,
+      pathDeclarations,
+      gateDeclarations,
+      productionDeltaCount: productionDelta.declaration === null ? 0 : 1,
+      issues
+    };
+  }
+
+  const hasDeletedGatesOrFixtures = gateDeclarations.some((value) => !isEmptyListDeclaration(value));
+  if (!hasDeletedGatesOrFixtures) {
+    issues.push("Gate Harvest with deleted production paths requires at least one Deleted-Gates-Fixtures entry.");
+    issues.push("删除生产路径时，Gate Harvest 必须列出至少一个 Deleted-Gates-Fixtures 门或 fixture。");
+  }
+  if (productionDelta.declaration === null) {
+    issues.push("Gate Harvest with deleted production paths requires exactly one CI-backed Production-Delta: +N/-M line.");
+    issues.push("删除生产路径时，Gate Harvest 必须包含且仅包含一行由 CI 提供依据的 Production-Delta: +N/-M。");
+  }
+
+  return {
+    ok: issues.length === 0,
+    hasDeletedProductionPaths: true,
+    pathDeclarations,
+    gateDeclarations,
+    productionDeltaCount: productionDelta.declaration === null ? 0 : 1,
+    issues
+  };
+}
 
 export function countBilingualSignals(body) {
   return {
@@ -78,6 +124,8 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds) {
   const englishCounts = countBilingualSignals(blocks.englishBlock);
   const chineseCounts = countBilingualSignals(blocks.chineseBlock);
   const issues = [...blocks.issues];
+  const gateHarvest = checkGateHarvestDeclarations(blocks.englishBlock);
+  issues.push(...gateHarvest.issues);
 
   if (blocks.ok && englishCounts.latinWords < thresholds.minLatinWords) {
     issues.push(`英文块内容不足：需要至少 ${thresholds.minLatinWords} 个拉丁单词，当前 ${englishCounts.latinWords} 个。`);
@@ -100,6 +148,7 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds) {
       englishIndex: blocks.englishIndex,
       chineseIndex: blocks.chineseIndex
     },
+    gateHarvest,
     issues
   };
 }
@@ -131,8 +180,10 @@ function readBodyFromArgs(argv) {
         "",
         "Requires a top-level `# English` block before a top-level `# 中文` block.",
         "The English block must contain at least 20 Latin words; the Chinese block must contain at least 20 CJK characters.",
+        "When Deleted-Production-Paths names a path, Deleted-Gates-Fixtures and exactly one CI-backed Production-Delta declaration are required.",
         "要求顶级 `# English` 块位于顶级 `# 中文` 块之前。",
-        "英文块至少包含 20 个拉丁单词；中文块至少包含 20 个 CJK 字符。"
+        "英文块至少包含 20 个拉丁单词；中文块至少包含 20 个 CJK 字符。",
+        "当 Deleted-Production-Paths 声明路径时，必须填写 Deleted-Gates-Fixtures，并包含且仅包含一行由 CI 提供依据的 Production-Delta。"
       ].join("\n"));
       process.stdout.write("\n");
       process.exit(0);
