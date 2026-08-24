@@ -7,14 +7,39 @@ import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import type { DecisionListFilters, DecisionPageQuery } from "./decision-event-projection.ts";
 import type { FactSearchFilters } from "./fact-event-projection.ts";
-import type { DocumentProjectionRead, FactAnchorProjectionRead, FactGraphProjectionRead, FactProjectionRead, FactProjectionSearchRead, DecisionProjectionRead, DecisionProjectionListRead, DecisionAgendaProjectionPageRead, DecisionGraphProjectionRead, LeaseInterval, PresetSnapshotProjectionRead, ProjectionApplyReceipt, ProjectionRebuildReceipt, ReplicaProjectionBasis, TaskProgressProjectionRead, TaskProjectionListRead, TaskProjectionRead, TaskRelationProjectionRead, TaskRuntimeBatchQuery, TaskRuntimeBatchRead } from "./projection-reads.ts";
+import type {
+  DecisionAgendaProjectionPageRead, DecisionGraphProjectionRead, DecisionProjectionListRead, DecisionProjectionRead,
+  DocumentProjectionRead, FactAnchorProjectionRead, FactGraphProjectionRead, FactProjectionRead,
+  FactProjectionSearchRead, LeaseInterval, PresetSnapshotProjectionRead, ProjectionApplyReceipt,
+  ProjectionRebuildReceipt, ReplicaProjectionBasis, TaskProgressProjectionRead, TaskProjectionListRead,
+  TaskProjectionRead, TaskRelationProjectionRead, TaskRuntimeBatchQuery, TaskRuntimeBatchRead,
+  WorkspaceSummaryProjectionRead,
+} from "./projection-reads.ts";
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 import type { TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 
 export interface TaskProjection {
   readonly path: string; readonly close: () => void; readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly readStateDigest: () => `sha256:${string}` | null;
-  readonly read: (taskId: string) => TaskProjectionRead; readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead; readonly readTaskRelations: () => TaskRelationProjectionRead; readonly readTaskDependencyClosure: (sourceRefs: readonly string[], maxDepth?: number) => TaskRelationProjectionRead; readonly readTaskRelationsByTargets: (targetRefs: readonly string[], relationType: string) => TaskRelationProjectionRead; readonly readTaskStatuses: (taskIds?: readonly string[]) => { readonly status: "ready" | "pending"; readonly rows: readonly { readonly taskId: string; readonly status: string | null }[]; readonly watermark: number; readonly sourceRevision: number }; readonly readTaskRuntimeBatch: (query: TaskRuntimeBatchQuery) => TaskRuntimeBatchRead; readonly readRelationQuery: (query?: TaskRelationQuery) => TaskRelationProjectionRead; readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
+  readonly read: (taskId: string) => TaskProjectionRead;
+  readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead;
+  readonly readWorkspaceSummary: () => WorkspaceSummaryProjectionRead;
+  readonly readTaskRelations: () => TaskRelationProjectionRead;
+  readonly readTaskDependencyClosure: (
+    sourceRefs: readonly string[], maxDepth?: number
+  ) => TaskRelationProjectionRead;
+  readonly readTaskRelationsByTargets: (
+    targetRefs: readonly string[], relationType: string
+  ) => TaskRelationProjectionRead;
+  readonly readTaskStatuses: (taskIds?: readonly string[]) => {
+    readonly status: "ready" | "pending";
+    readonly rows: readonly { readonly taskId: string; readonly status: string | null }[];
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  };
+  readonly readTaskRuntimeBatch: (query: TaskRuntimeBatchQuery) => TaskRuntimeBatchRead;
+  readonly readRelationQuery: (query?: TaskRelationQuery) => TaskRelationProjectionRead;
+  readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly readRelationTruth: () => EventBackedRelationTruth;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead; readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis; readonly taskIdForDocumentPath: (path: string) => string | null;
   readonly readTaskCompletion: (taskId: string, executionId: string) => TaskEventV1 | null;

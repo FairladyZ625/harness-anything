@@ -237,6 +237,32 @@ export function readRuntimeSessions(db: DatabaseSync): RuntimeSession[] {
     (row) => JSON.parse(String(row.value_json)) as RuntimeSession,
   );
 }
+export function readRuntimeSessionsForTask(db: DatabaseSync, taskId: string): RuntimeSession[] {
+  return queryRows(
+    db,
+    [
+      "SELECT runtime_session.value_json FROM runtime_session_task_binding",
+      "JOIN runtime_session USING(runtime_session_id) WHERE runtime_session_task_binding.task_id = ?",
+      "GROUP BY runtime_session.runtime_session_id ORDER BY runtime_session.runtime_session_id",
+    ].join(" "),
+    taskId,
+  ).map((row) => JSON.parse(String(row.value_json)) as RuntimeSession);
+}
+export function refreshRuntimeSessionAssociations(db: DatabaseSync, session: RuntimeSession): void {
+  runSql(db, "DELETE FROM runtime_session_task_binding WHERE runtime_session_id = ?", session.runtimeSessionId);
+  for (const binding of session.taskBindings)
+    runSql(
+      db,
+      [
+        "INSERT INTO runtime_session_task_binding(task_id, runtime_session_id, execution_id, bound_at)",
+        "VALUES (?, ?, ?, ?)",
+      ].join(" "),
+      binding.taskId,
+      session.runtimeSessionId,
+      binding.executionId,
+      binding.boundAt,
+    );
+}
 export function markRuntimeSessionsUnknown(db: DatabaseSync): number {
   const rows = queryRows(db, "SELECT runtime_session_id, value_json FROM runtime_session");
   let changed = 0;

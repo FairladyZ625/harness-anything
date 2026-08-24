@@ -19,6 +19,7 @@ import { withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { readDocument, readPresetSnapshot } from "./rebuildable-task-projection-reads.ts";
 import { watermark, parseEventJson, queryRow, queryRows, transaction } from "./rebuildable-task-projection-sql.ts";
+import { readWorkspaceSummaryRows } from "./workspace-summary-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -72,6 +73,7 @@ export function taskQueryApi(
 ): Pick<
   TaskProjection,
   | "readTaskRelations"
+  | "readWorkspaceSummary"
   | "readTaskDependencyClosure"
   | "readTaskRelationsByTargets"
   | "readTaskStatuses"
@@ -92,6 +94,17 @@ export function taskQueryApi(
 > {
   const { eventStore, limit, projectionPath, readHead } = context;
   return {
+    readWorkspaceSummary: () =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const round = catchUpRound(db, eventStore, limit),
+          current = watermark(db);
+        return {
+          status: current === round.sourceRevision ? "ready" : "pending",
+          summary: readWorkspaceSummaryRows(db),
+          watermark: current,
+          sourceRevision: round.sourceRevision,
+        };
+      }),
     readTaskRelations: () =>
       withDatabase(projectionPath, readHead, (db: DatabaseSync) => {
         const round = catchUpRound(db, eventStore, limit),

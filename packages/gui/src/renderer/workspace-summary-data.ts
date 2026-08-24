@@ -5,14 +5,19 @@ export const workspaceSummaryQueryKeys = {
   read: (repoId: string) => ["workspace-summary", repoId] as const
 };
 
+export function workspaceSummaryQuery(repoId: string) {
+  return {
+    queryKey: workspaceSummaryQueryKeys.read(repoId),
+    queryFn: () => harnessClient.getWorkspaceSummary({ repoId }),
+    staleTime: 10_000,
+    refetchOnWindowFocus: "always" as const
+  };
+}
+
 export function useWorkspaceSummaryQuery(repoId: string | null) {
   const selectedRepoId = repoId ?? "unselected";
   return useQuery({
-    queryKey: workspaceSummaryQueryKeys.read(selectedRepoId),
-    queryFn: () => harnessClient.getWorkspaceSummary({ repoId: selectedRepoId }),
-    enabled: repoId !== null,
-    staleTime: 10_000,
-    refetchInterval: 2_000,
-    refetchOnWindowFocus: "always"
+    ...workspaceSummaryQuery(selectedRepoId),
+    enabled: repoId !== null
   });
 }

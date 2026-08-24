@@ -30,7 +30,12 @@ import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { projectMigration } from "./rebuildable-task-projection-migration.ts";
 import { projectDecision, projectFact, projectProgress } from "./rebuildable-task-projection-write-model.ts";
 import { applyTaskEvent } from "./rebuildable-task-projection-task-events.ts";
-import { readRuntimeInstallation, readRuntimeSession, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
+import {
+  readRuntimeInstallation,
+  readRuntimeSession,
+  readSnapshot,
+  refreshRuntimeSessionAssociations,
+} from "./rebuildable-task-projection-runtime.ts";
 import { canonicalJson, runSql } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
@@ -152,7 +157,7 @@ export function applyEvent(
     const sessionId = runtimeSessionId(event);
     if (sessionId !== null) {
       const session = reduceRuntimeSession(readRuntimeSession(db, sessionId), event);
-      if (session !== null)
+      if (session !== null) {
         runSql(
           db,
           UPSERT_RUNTIME_SESSION_SQL,
@@ -160,6 +165,8 @@ export function applyEvent(
           event.workspaceRevision,
           canonicalJson(session),
         );
+        refreshRuntimeSessionAssociations(db, session);
+      }
     }
     return;
   }

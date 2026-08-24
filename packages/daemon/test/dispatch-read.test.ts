@@ -14,7 +14,12 @@ function session(liveness: RuntimeSession["liveness"], outcome: RuntimeSession["
 }
 
 function projectionFor(current: RuntimeSession): TaskProjection {
-  return { readTaskRuntimeBatch: () => ({ status: "ready", taskIds: [taskId], rows: [{ taskId, packagePath: "tasks/task-1", sessions: [current] }], watermark: 1, sourceRevision: 1 }), readReplicaBasis: () => ({ documents: [] }), readDocument: () => ({ document: null }) } as unknown as TaskProjection;
+  return {
+    readTaskRuntimeBatch: () => ({ status: "ready", taskIds: [taskId], rows: [{ taskId, packagePath: "tasks/task-1", sessions: [current] }], watermark: 1, sourceRevision: 1 }),
+    readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+    readDocument: () => ({ document: null }),
+    readReplicaBasis: () => { throw new Error("dispatch reads must not enumerate the replica document basis"); },
+  } as unknown as TaskProjection;
 }
 
 function statusFor(current: RuntimeSession): string {

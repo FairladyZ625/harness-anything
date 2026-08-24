@@ -22,6 +22,7 @@ import { admitRepoMode } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { chainRepoCellWrite, repoCellTaskQueryJudgments } from "./repo-cell.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
+import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 
 export function createRepoCellApi(context: any): RepoCell {
   const run = (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
@@ -477,6 +478,7 @@ export function createRepoCellApi(context: any): RepoCell {
     catalog: context.catalog,
     terminal: context.terminal,
     read,
+    workspaceSummary: () => workspaceSummaryFromProjection(context.projection),
     get replica() {
       return context.replica;
     },
