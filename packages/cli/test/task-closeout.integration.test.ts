@@ -61,10 +61,8 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
         "doc",
         "sync",
         "--submit",
-        "--execution-id",
-        executionId,
-        "--path",
-        closeoutPath,
+        "--task",
+        taskId,
       ],
       "agent:worker",
     );

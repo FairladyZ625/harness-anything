@@ -56,12 +56,17 @@ export function parseDoc(
       reason: f.one.get("--reason"),
     });
   if (id === "doc-status")
-    return accepted(rootDir, repoId, json, { kind: id, ...(taskId ? { taskId } : {}), paths });
+    return accepted(rootDir, repoId, json, {
+      kind: id,
+      ...(taskId ? { taskId } : { paths }),
+    });
   if (id === "doc-sync-dry-run")
-    return accepted(rootDir, repoId, json, { kind: "doc-dry-run", ...(taskId ? { taskId } : {}), paths });
+    return accepted(rootDir, repoId, json, {
+      kind: "doc-dry-run",
+      ...(taskId ? { taskId } : { paths }),
+    });
   return accepted(rootDir, repoId, json, {
     kind: "doc-submit",
-    ...(taskId ? { taskId } : {}),
-    paths,
+    ...(taskId ? { taskId } : { paths }),
   });
 }

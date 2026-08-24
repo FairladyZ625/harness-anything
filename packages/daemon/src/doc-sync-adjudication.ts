@@ -137,15 +137,13 @@ export function assignmentIntent(input: Input): DocWriteIntent {
 }
 
 export function scannerRead(input: Input): DocCandidateScan {
+  const taskScoped = Object.hasOwn(input.action, "taskId"),
+    fields = taskScoped ? ["kind", "taskId"] : ["kind", "paths"];
   if (
-    !hasExactDocSyncActionFields(
-      input.action,
-      Object.hasOwn(input.action, "taskId") ? ["kind", "taskId", "paths"] : ["kind", "paths"],
-    ) ||
-    !Array.isArray(input.action.paths) ||
-    input.action.paths.some((item) => typeof item !== "string") ||
-    (Object.hasOwn(input.action, "taskId") &&
-      (typeof input.action.taskId !== "string" || input.action.paths.length > 0))
+    !hasExactDocSyncActionFields(input.action, fields) ||
+    (taskScoped
+      ? typeof input.action.taskId !== "string"
+      : !Array.isArray(input.action.paths) || input.action.paths.some((item) => typeof item !== "string"))
   )
     throw docSyncError("invalid_command", `${input.action.kind} requires authored-root-relative paths or a task id`);
   const scan = scanDocCandidates({
@@ -156,7 +154,7 @@ export function scannerRead(input: Input): DocCandidateScan {
     actor: input.binding.actor,
     source: input.binding.source,
     now: input.now(),
-    selection: input.action.paths as string[],
+    ...(!taskScoped ? { selection: input.action.paths as string[] } : {}),
     ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),
   });
   validateSelectedDocPaths(input.rootDir, input.action.paths as string[], scan);
@@ -164,17 +162,17 @@ export function scannerRead(input: Input): DocCandidateScan {
 }
 
 export function scannerSubmit(input: Input): DocCandidateScan {
-  const fields = Object.hasOwn(input.action, "taskId")
-    ? ["kind", "taskId", "paths"]
-    : Object.hasOwn(input.action, "executionId")
-      ? ["kind", "executionId", "paths"]
-      : ["kind", "paths"];
+  const taskScoped = Object.hasOwn(input.action, "taskId"),
+    fields = taskScoped
+      ? ["kind", "taskId"]
+      : Object.hasOwn(input.action, "executionId")
+        ? ["kind", "executionId", "paths"]
+        : ["kind", "paths"];
   if (
     !hasExactDocSyncActionFields(input.action, fields) ||
-    !Array.isArray(input.action.paths) ||
-    input.action.paths.some((item) => typeof item !== "string") ||
-    (Object.hasOwn(input.action, "taskId") &&
-      (typeof input.action.taskId !== "string" || input.action.paths.length > 0)) ||
+    (taskScoped
+      ? typeof input.action.taskId !== "string"
+      : !Array.isArray(input.action.paths) || input.action.paths.some((item) => typeof item !== "string")) ||
     (Object.hasOwn(input.action, "executionId") && typeof input.action.executionId !== "string")
   )
     throw docSyncError("invalid_command", "local doc submit requires scanner paths or a task id");
@@ -186,7 +184,7 @@ export function scannerSubmit(input: Input): DocCandidateScan {
     actor: input.binding.actor,
     source: input.binding.source,
     now: input.now(),
-    selection: input.action.paths as string[],
+    ...(!taskScoped ? { selection: input.action.paths as string[] } : {}),
     ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),
     ...(typeof input.action.executionId === "string" ? { executionId: input.action.executionId } : {}),
   });

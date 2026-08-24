@@ -172,15 +172,27 @@ test("task-scoped doc sync derives every dirty candidate from the task id", asyn
     const packagePath = String(created.packagePath);
     write(rootDir, `${packagePath}/notes.md`, "# Task note\n");
     write(rootDir, "context/unrelated.md", "# Unrelated\n");
-    const status = await cell.run({ kind: "doc-status", taskId: "task-scope", paths: [] }, binding);
+    const status = await cell.run(
+      { kind: "doc-status", taskId: "task-scope" },
+      binding,
+    );
     assert.equal(status.outcome, "applied", JSON.stringify(status));
     const scanned = rows(status.evidence);
     assert.equal(scanned.length > 0, true);
     assert.equal(scanned.every((row) => row.path.startsWith(`${packagePath}/`)), true);
     assert.equal(scanned.some((row) => row.path === `${packagePath}/notes.md`), true);
-    const submitted = await cell.run({ kind: "doc-submit", taskId: "task-scope", paths: [] }, binding);
+    const submitted = await cell.run(
+      { kind: "doc-submit", taskId: "task-scope" },
+      binding,
+    );
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.match(submitted.summary ?? "", new RegExp(`${packagePath}/notes\\.md`, "u"));
+    const mixed = await cell.run(
+      { kind: "doc-submit", taskId: "task-scope", paths: [] },
+      binding,
+    );
+    assert.equal(mixed.outcome, "op_rejected");
+    assert.equal(mixed.code, "invalid_command");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

@@ -366,10 +366,8 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
         "doc",
         "sync",
         "--submit",
-        "--execution-id",
-        "exec-doc",
-        "--path",
-        docPath,
+        "--task",
+        "task-alpha",
       ]).outcome,
       "applied",
     );

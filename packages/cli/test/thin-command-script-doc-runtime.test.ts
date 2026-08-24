@@ -135,7 +135,10 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
     assert.deepEqual(Object.keys(submit.command.action).sort(), ["kind", "paths"]);
   }
   if (taskSubmit.ok)
-    assert.deepEqual(taskSubmit.command.action, { kind: "doc-submit", taskId: "task-1", paths: [] });
+    assert.deepEqual(taskSubmit.command.action, {
+      kind: "doc-submit",
+      taskId: "task-1",
+    });
   assert.equal(
     parseThinCommand(["doc", "sync", "--submit", "--task", "task-1", "--path", "tasks/task-1/task_plan.md"]).ok,
     false,
