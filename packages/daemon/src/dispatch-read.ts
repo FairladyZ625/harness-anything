@@ -1,6 +1,13 @@
 import { consumeKnownError, type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
-import { readDispatchLiveIndex, readDispatchStream, removeDispatchLiveIndexEntries, type DispatchStreamHeader } from "./dispatch-stream.ts";
+import {
+  readDispatchLiveIndex,
+  readDispatchStream,
+  removeDispatchLiveIndexEntries,
+  type DispatchStreamHeader,
+} from "./dispatch-stream.ts";
 import type { DaemonTaskDispatchesPayload, DaemonTaskDispatchesResult, TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
+
+type DispatchLiveIndexRow = ReturnType<typeof readDispatchLiveIndex>["entries"][number];
 
 type DispatchCandidate = {
   readonly session: RuntimeSession | undefined;
@@ -18,17 +25,21 @@ export function readTaskDispatches(input: { readonly rootDir: string; readonly p
     if (!event) continue;
     addCandidate(candidates, event.payload.dispatchId, session, task.taskId, task.packagePath, false);
   }
-  const staleIndexEntries = new Map<string, ReturnType<typeof readDispatchLiveIndex>["entries"][number]>(), indexedEntries = new Map<string, ReturnType<typeof readDispatchLiveIndex>["entries"][number]>();
+  const staleIndexEntries = new Map<string, DispatchLiveIndexRow>();
+  const indexedEntries = new Map<string, DispatchLiveIndexRow>();
   for (const entry of readDispatchLiveIndex(input.rootDir, batch.rows.map((row) => row.taskId)).entries) {
     const task = tasks.get(entry.taskId); if (!task) continue;
     indexedEntries.set(entry.dispatchId, entry);
-    addCandidate(candidates, entry.dispatchId, sessions.get(entry.runtimeSessionId), entry.taskId, task.packagePath, true);
+    const session = sessions.get(entry.runtimeSessionId);
+    addCandidate(candidates, entry.dispatchId, session, entry.taskId, task.packagePath, true);
     if (sessions.has(entry.runtimeSessionId)) staleIndexEntries.set(entry.dispatchId, entry);
   }
   const rows = new Map<string, TaskDispatchRow>();
   for (const [dispatchId, candidate] of candidates) {
     for (const target of candidate.taskPackages) {
-      const read = input.projection.readDocument(`${target.packagePath}/artifacts/dispatches/${dispatchId}.json`), archive = read.document ? parseArchive(read.document.body) : null;
+      const documentPath = `${target.packagePath}/artifacts/dispatches/${dispatchId}.json`;
+      const read = input.projection.readDocument(documentPath);
+      const archive = read.document ? parseArchive(read.document.body) : null;
       if (archive?.taskId !== target.taskId) continue;
       rows.set(dispatchId, archiveRow(archive, candidate.session));
       if (candidate.indexed) staleIndexEntries.set(dispatchId, indexedEntries.get(dispatchId)!);
@@ -40,7 +51,8 @@ export function readTaskDispatches(input: { readonly rootDir: string; readonly p
       if (candidate.indexed) staleIndexEntries.set(dispatchId, indexedEntries.get(dispatchId)!);
       continue;
     }
-    rows.set(dispatchId, liveRow(stream.header, stream.providerSessionId, candidate.session, stream.process?.exited === false));
+    const live = stream.process?.exited === false;
+    rows.set(dispatchId, liveRow(stream.header, stream.providerSessionId, candidate.session, live));
   }
   removeDispatchLiveIndexEntries(input.rootDir, [...staleIndexEntries.values()]);
   const dispatches = [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
@@ -49,11 +61,22 @@ export function readTaskDispatches(input: { readonly rootDir: string; readonly p
     : { ok: true, status: batch.status, taskId: singleTaskId, dispatches, watermark: batch.watermark, sourceRevision: batch.sourceRevision };
 }
 
-function addCandidate(candidates: Map<string, DispatchCandidate>, dispatchId: string, session: RuntimeSession | undefined, taskId: string, packagePath: string | null, indexed: boolean): void {
-  const known = candidates.get(dispatchId), taskPackages = packagePath === null ? [] : [{ taskId, packagePath }], merged = [...(known?.taskPackages ?? []), ...taskPackages];
+function addCandidate(
+  candidates: Map<string, DispatchCandidate>,
+  dispatchId: string,
+  session: RuntimeSession | undefined,
+  taskId: string,
+  packagePath: string | null,
+  indexed: boolean,
+): void {
+  const known = candidates.get(dispatchId);
+  const taskPackages = packagePath === null ? [] : [{ taskId, packagePath }];
+  const merged = [...(known?.taskPackages ?? []), ...taskPackages];
   candidates.set(dispatchId, {
     session: known?.session ?? session,
-    taskPackages: merged.filter((value, index) => merged.findIndex((candidate) => candidate.taskId === value.taskId && candidate.packagePath === value.packagePath) === index),
+    taskPackages: merged.filter((value, index) => merged.findIndex(
+      (candidate) => candidate.taskId === value.taskId && candidate.packagePath === value.packagePath,
+    ) === index),
     indexed: known?.indexed === true || indexed,
   });
 }
