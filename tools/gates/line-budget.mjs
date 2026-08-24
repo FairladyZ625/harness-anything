@@ -155,7 +155,7 @@ function parseArgs(argv) {
 // (tools/gates/line-density.mjs) stays fully active as the guard against new
 // compression during this window. Delete this guard and re-derive real
 // ceilings from the completed restoration once the full-file G36 scan is clean.
-const SUSPENDED = true;
+export const SUSPENDED = true;
 
 function suspended() {
   console.log(

@@ -97,9 +97,7 @@ export function resolveLocalDaemonTarget(input: {
     socketPath,
   };
 }
-export function readRegisteredRepos(
-  userRoot: string,
-): readonly {
+export function readRegisteredRepos(userRoot: string): readonly {
   readonly repoId: string;
   readonly canonicalRoot: string;
   readonly state: string;

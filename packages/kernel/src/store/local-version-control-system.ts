@@ -544,9 +544,7 @@ function preserveConflict(
   }
   return relative;
 }
-function readNode(
-  target: string,
-): {
+function readNode(target: string): {
   readonly mode: "100644" | "120000";
   readonly body: string;
   readonly sha256: string;
