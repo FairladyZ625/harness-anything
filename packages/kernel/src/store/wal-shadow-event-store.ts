@@ -313,7 +313,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     clearSchedule();
     consecutiveFailures = 0;
     for (let attempt = 1; hasWalRecords() && attempt <= retryLimit; attempt += 1) {
-      if (runFlush("drain")) break;
+      if (runFlush("drain") && !hasWalRecords()) break;
       if (attempt < retryLimit) await wait(retryBaseMs * 2 ** (attempt - 1));
     }
     if (hasWalRecords())
