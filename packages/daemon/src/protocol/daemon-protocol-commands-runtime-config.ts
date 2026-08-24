@@ -6,7 +6,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     id: "daemon-projection-rebuild",
     phase: "B2-S1",
     path: ["daemon", "projection", "rebuild"],
-    summary: "Discard and fully rebuild the local task projection from the canonical ledger.",
+    summary: "Rebuild the local task projection in place from the canonical ledger.",
     method: "repo.task.run",
     actionKind: "projection-rebuild",
     commandClass: "repo-write",

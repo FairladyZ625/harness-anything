@@ -52,7 +52,7 @@ export function makeTaskProjection(options: {
   readonly now?: () => string;
 }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
-  const limit = options.catchUpLimit ?? 64,
+  const limit = options.catchUpLimit ?? 4096,
     now = options.now ?? (() => new Date().toISOString()),
     sourceReadHead = options.eventStore.readHead;
   let observedSourceHead = false,

@@ -11,7 +11,7 @@ import type {
   TaskProjectionListRead,
   TaskProjectionRead,
 } from "./projection-reads.ts";
-import { discardDatabase, withDatabase } from "./rebuildable-task-projection-database.ts";
+import { resetDatabase, withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { markRuntimeSessionsUnknown, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import {
@@ -194,7 +194,7 @@ export function rebuildProjection(
   eventStore: EventStreamPort,
   limit: number,
 ): ProjectionRebuildReceipt {
-  discardDatabase(projectionPath, readHead);
+  resetDatabase(projectionPath, readHead);
   let transactions = 0,
     reducedItems = 0,
     maxBatchItems = 0;
