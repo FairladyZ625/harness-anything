@@ -1,33 +1,14 @@
-import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  lstatSync,
   mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readlinkSync,
   readdirSync,
-  rmSync,
+  readFileSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
-import {
-  deriveRelationId,
-  makeTaskEventStore,
-  makeTaskProjection,
-  sha256Text,
-  stableStringify,
-} from "../../kernel/src/index.ts";
-import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { deriveRelationId, sha256Text } from "../../kernel/src/index.ts";
 
 export const actor = {
   principal: { personId: "migration-owner" },

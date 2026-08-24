@@ -1,13 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import {
   cpSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -15,38 +12,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  classifyTextualArtifactPath,
-  compileTaskLifecycleWrite,
-  makeTaskEventStore,
-  makeTaskProjection,
-  reduceTaskEvent,
-  rebuildTaskProjection,
-  serializeCanonicalEvent,
-  type TaskProjection,
-} from "../../kernel/src/index.ts";
-import {
   DOC_POLICY_ID,
   MIGRATION_DOCUMENT_POLICY_ID,
-  MIGRATION_IMPORT_SOURCE,
-  migrationImportWritePlan,
-  sha256Text,
-  type CanonicalWriteBundle,
-  type MigrationImportEventV1,
+  makeTaskEventStore,
+  serializeCanonicalEvent,
 } from "../../kernel/src/index.ts";
 import {
   canonicalRoot,
   workspaceId,
 } from "../src/protocol/daemon-protocol.contract.ts";
-import { readDocReceipt, runDocAction } from "../src/doc-sync-actions.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
 import {
   actor,
-  blockedReason,
   git,
   initRepo,
-  materializeReport,
-  opaqueTextualMediaType,
   rows,
   standardMigration,
   write,

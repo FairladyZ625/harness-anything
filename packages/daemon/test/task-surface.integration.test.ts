@@ -1,25 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   makeTaskEventStore,
-  makeTaskProjection,
   readRelationGraphProjection,
   readTaskProjection,
   rebuildTaskProjection,
-  REPLAY_TASK_GRAPH,
-  taskLifecycleWritePlan,
-  type TaskEventV1,
 } from "../../kernel/src/index.ts";
 import {
   canonicalRoot,
@@ -27,7 +16,7 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
-import { actor, evidence, git, initRepo } from "./task-surface.fixtures.ts";
+import { actor, git, initRepo } from "./task-surface.fixtures.ts";
 test("task create publishes complete metadata and initial relations that survive cold rebuild", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-surface-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;

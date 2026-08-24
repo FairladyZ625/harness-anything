@@ -1,22 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   makeTaskEventStore,
   makeTaskProjection,
-  readRelationGraphProjection,
-  readTaskProjection,
-  rebuildTaskProjection,
   REPLAY_TASK_GRAPH,
   taskLifecycleWritePlan,
   type TaskEventV1,
@@ -27,7 +17,7 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
-import { actor, evidence, git, initRepo } from "./task-surface.fixtures.ts";
+import { actor, initRepo } from "./task-surface.fixtures.ts";
 test("forced cancellation is audited and terminal tasks require supersede instead of reopen", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-terminal-surface-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;

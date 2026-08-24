@@ -2,22 +2,16 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  lstatSync,
-  mkdirSync,
   mkdtempSync,
-  readFileSync,
-  readlinkSync,
   readdirSync,
+  readFileSync,
   rmSync,
-  statSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  deriveRelationId,
   makeTaskEventStore,
   makeTaskProjection,
   sha256Text,
@@ -32,26 +26,13 @@ import { openRepoCell } from "../src/repo-cell.ts";
 
 import {
   actor,
-  attributionFixture,
-  binaryAttachmentFixture,
   bootstrapPerson,
   bootstrapRoster,
-  coverageCompleteFixture,
-  coverageGapFixture,
-  decisionContentFixture,
   git,
-  hierarchyFixture,
-  illegalRelationFixture,
   initRepo,
-  legacyFixture,
   legacyRoster,
   multiSourceFixture,
-  orphanEndpointFixture,
-  referencedDocumentFixture,
-  snapshot,
   sources,
-  statOrNull,
-  symbolicLinkFixture,
   unfamiliarDocumentFixture,
 } from "./migration-import.fixtures.ts";
 test("a destination roster and a source roster both survive the migration without an operator decision", async () => {

@@ -1,29 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import {
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readlinkSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  deriveRelationId,
-  makeTaskEventStore,
-  makeTaskProjection,
-  sha256Text,
-  stableStringify,
-} from "../../kernel/src/index.ts";
-import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
+import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
 import {
   canonicalRoot,
   workspaceId,
@@ -32,27 +13,11 @@ import { openRepoCell } from "../src/repo-cell.ts";
 
 import {
   actor,
-  attributionFixture,
-  binaryAttachmentFixture,
-  bootstrapPerson,
-  bootstrapRoster,
   coverageCompleteFixture,
-  coverageGapFixture,
   decisionContentFixture,
-  git,
-  hierarchyFixture,
-  illegalRelationFixture,
   initRepo,
-  legacyFixture,
-  legacyRoster,
-  multiSourceFixture,
-  orphanEndpointFixture,
   referencedDocumentFixture,
-  snapshot,
   sources,
-  statOrNull,
-  symbolicLinkFixture,
-  unfamiliarDocumentFixture,
 } from "./migration-import.fixtures.ts";
 test("a CAS blob referenced by any migrated repo document follows it into the event stream", async () => {
   const scratch = mkdtempSync(

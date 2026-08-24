@@ -1,30 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import test from "node:test";
 import {
-  classifyTextualArtifactPath,
-  compileTaskLifecycleWrite,
-  makeTaskEventStore,
-  makeTaskProjection,
-  reduceTaskEvent,
-  rebuildTaskProjection,
-  serializeCanonicalEvent,
-  type TaskProjection,
-} from "../../kernel/src/index.ts";
-import {
-  DOC_POLICY_ID,
   MIGRATION_DOCUMENT_POLICY_ID,
   MIGRATION_IMPORT_SOURCE,
   migrationImportWritePlan,
@@ -32,12 +10,6 @@ import {
   type CanonicalWriteBundle,
   type MigrationImportEventV1,
 } from "../../kernel/src/index.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { readDocReceipt, runDocAction } from "../src/doc-sync-actions.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
 
 export const actor = {
   principal: { personId: "person-owner" },
