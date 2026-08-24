@@ -103,6 +103,7 @@
     "@eslint/js": "10.0.1",
     "@types/node": "24.13.2",
     "eslint": "10.7.0",
+    "lint-staged": "16.2.3",
     "prettier": "3.6.2",
     "typescript": "5.9.3",
     "typescript-eslint": "8.63.0"
@@ -115,5 +116,8 @@
   },
   "allowScripts": {
     "node-pty@1.1.0": true
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs}": "prettier --write"
   }
 }
