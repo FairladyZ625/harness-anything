@@ -10,7 +10,9 @@ import {
   readRuntimeInstallation,
   readRuntimeInstallations,
   readRuntimeSession,
+  readRuntimeSessionPage,
   readRuntimeSessions,
+  readRuntimeSessionsForTask,
   reserve,
 } from "./rebuildable-task-projection-runtime.ts";
 import { refreshStateDigestAtSourceCut, transaction } from "./rebuildable-task-projection-sql.ts";
@@ -25,6 +27,7 @@ export function runtimeLeaseApi(
   | "readRuntimeInstallation"
   | "readRuntimeInstallations"
   | "readRuntimeSession"
+  | "readRuntimeSessionPage"
   | "readRuntimeSessions"
   | "readRuntimeSessionsForTask"
   | "readLeaseIntervals"
@@ -42,11 +45,11 @@ export function runtimeLeaseApi(
     readRuntimeInstallations: () => withDatabase(projectionPath, readHead, readRuntimeInstallations),
     readRuntimeSession: (runtimeSessionIdValue) =>
       withDatabase(projectionPath, readHead, (db) => readRuntimeSession(db, runtimeSessionIdValue)),
+    readRuntimeSessionPage: (query) =>
+      withDatabase(projectionPath, readHead, (db) => readRuntimeSessionPage(db, query)),
     readRuntimeSessions: () => withDatabase(projectionPath, readHead, readRuntimeSessions),
     readRuntimeSessionsForTask: (taskId) =>
-      withDatabase(projectionPath, readHead, (db) =>
-        readRuntimeSessions(db).filter((session) => session.taskBindings.some((binding) => binding.taskId === taskId)),
-      ),
+      withDatabase(projectionPath, readHead, (db) => readRuntimeSessionsForTask(db, taskId)),
     readLeaseIntervals: (taskId) => withDatabase(projectionPath, readHead, (db) => readIntervals(db, taskId)),
     currentLease: (taskId, at) =>
       withDatabase(projectionPath, readHead, (db) => effectiveLease(db, taskId, at ?? now())),

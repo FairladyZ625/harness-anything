@@ -45,7 +45,6 @@ export const guiStatusJudgmentBaseline = Object.freeze([
   { key: "gui-status-038", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ derivedTasks.taskIds
   { key: "gui-status-039", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["done"] }, // point-comparison: done @ isTerminal
   { key: "gui-status-040", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["cancelled"] }, // point-comparison: cancelled @ isTerminal
-  { key: "gui-status-041", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["live"] }, // point-comparison: live @ runtimeDockRows.orphans.status
   { key: "gui-status-042", classification: "domain-judgment", kind: "group", shape: "proper-subset", words: ["failed"] }, // proper-subset: failed @ settleDaemonControl
   { key: "gui-status-043", classification: "domain-judgment", kind: "group", shape: "proper-subset", words: ["failed"] }, // proper-subset: failed @ useDaemonControl.request.settled
   { key: "gui-status-044", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ isTaskStartable

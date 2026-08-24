@@ -42,8 +42,10 @@ export function SessionsView({ repoId, tasks, focusedEntityRef, onSelectEntity, 
       className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono text-[11px] ${workspace.error ?
         "bg-status-blocked/10 text-status-blocked" : "text-text-muted"}`}>{workspace.error ?? workspace.feedback}</p>}
     <div className="flex min-h-0 flex-1">
-      <SessionRail sessions={rows} selectedId={selectedId} onSelect={(runtimeSessionId) =>
-        onSelectEntity(`session/${runtimeSessionId}`)} />
+      <SessionRail sessions={rows} remainingCount={workspace.remainingCount}
+        loadingMore={workspace.loadingMoreSessions} onLoadMore={workspace.loadMoreSessions}
+        selectedId={selectedId} onSelect={(runtimeSessionId) =>
+          onSelectEntity(`session/${runtimeSessionId}`)} />
       <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
         {selectedId === null
           ? <Empty>{t(workspace.overview.isPending ? "agentRuntime.loading" : "agentRuntime.noSessions")}</Empty>

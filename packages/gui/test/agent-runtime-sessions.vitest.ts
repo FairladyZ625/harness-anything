@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { SessionInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
 import { SessionRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
-import { sessionSiblingRows, sessionTaskTarget, type RuntimeDockRow } from "../src/renderer/runtime-panorama.ts";
+import { runtimeDockRows, sessionSiblingRows, sessionTaskTarget, type RuntimeDockRow } from "../src/renderer/runtime-panorama.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 beforeAll(() => setActiveLocale("en-US"));
@@ -30,6 +30,14 @@ describe("sessions as a first-class view", () => {
     expect(markup).toContain('data-testid="runtime-outcome-runtime-bound"');
     // The sessions rows sit inside the rail itself, not in any bottom drawer.
     expect(markup).not.toContain("sessions-dock");
+  });
+
+  it("keeps a renderer-side batch of 12 and makes the true remainder explicit", () => {
+    const rows = Array.from({ length: 25 }, (_, index) => ({ ...boundRow, runtimeSessionId: `runtime-${index}` })), markup = railView(rows, null); expect(markup.match(/data-testid="rail-session-/gu)).toHaveLength(12); expect(markup).toContain('data-testid="runtime-sessions-more"'); expect(markup).toContain("13 remaining"); expect(markup).not.toContain('data-testid="rail-session-runtime-12"');
+  });
+
+  it("renders daemon semantic states without recomputing liveness or collapsing to unknown", () => {
+    const states = ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"] as const, rows = runtimeDockRows([], states.map((semanticState, index) => ({ ...sessionDto, runtimeSessionId: `semantic-${index}`, semanticState, liveness: semanticState === "running" ? "live" as const : "exited" as const }))); expect(rows.map((row) => row.status)).toEqual(states); const markup = railView(rows, null); for (const label of ["Running", "Succeeded", "Failed", "Cancelled", "Ended · outcome indeterminate", "Status unavailable"]) expect(markup).toContain(`>${label}<`); expect(markup).not.toContain(">Unknown<");
   });
 
   it("shows whose session it is, which task holds it, and what is happening while it runs", () => {

@@ -51,14 +51,14 @@ export function ProvidersView({ repoId, focusedEntityRef, onSelectEntity }: { re
       className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono text-[11px] ${workspace.error ?
         "bg-status-blocked/10 text-status-blocked" : "text-text-muted"}`}>{workspace.error ?? workspace.feedback}</p>}
     <div className="flex min-h-0 flex-1">
-      <ProviderRail instances={instances} authProbeErrors={workspace.authProbeErrors}
+      <ProviderRail instances={instances} authProbeStates={workspace.authProbeStates}
         selectedId={selectedId} liveByInstance={workspace.liveByInstance} onSelect={(instanceId) =>
         onSelectEntity(`provider/${instanceId}`)} onNew={() => setDialog(true)} />
       <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
         {instance === null ? <Empty>{t(workspace.machine.isPending ? "agentRuntime.loading" :
           "agentRuntime.emptyProviders")}</Empty>
           : <RuntimeCard instance={instance} installations={installations}
-            authProbeError={workspace.authProbeErrors.get(instance.instanceId)}
+            authProbeState={workspace.authProbeStates.get(instance.instanceId)}
             agents={workspace.agents.data ?? []} liveSessions={liveSessions} busy={workspace.busy}
               onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)} onSelectRuntime={(instanceId) =>
               onSelectEntity(`provider/${instanceId}`)} onAuth={(action) => void
@@ -69,8 +69,8 @@ export function ProvidersView({ repoId, focusedEntityRef, onSelectEntity }: { re
                 void workspace.deleteInstance(instance.instanceId); }} onSelfTest={(model) =>
                 workspace.selfTest(instance.instanceId, model)} />}
       </main>
-      {inspector && <ProviderInspector instance={instance} probeError={selectedId === null ? null :
-        workspace.authProbeErrors.get(selectedId) ?? null} sessions={carrierSessions}
+      {inspector && <ProviderInspector instance={instance} probeState={selectedId === null ? undefined :
+        workspace.authProbeStates.get(selectedId)} sessions={carrierSessions}
         onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)} />}
     </div>
     {dialog && <NewRuntimeDialog installations={installations} existingInstanceIds={instances.map((row) =>

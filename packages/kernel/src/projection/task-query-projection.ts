@@ -29,8 +29,33 @@ export function taskCreatedAtSql(taskIdExpression: string): string {
  * variable-size bind list can cross SQLite's parameter ceiling. */
 export function readTaskRuntimeBatchPage(db: DatabaseSync, query: { readonly taskIds: readonly string[]; readonly limit?: number; readonly cursor?: string }): { readonly taskIds: readonly string[]; readonly rows: readonly { readonly taskId: string; readonly packagePath: string | null; readonly sessions: readonly RuntimeSession[] }[]; readonly page: ProjectionPage } {
   if (!Array.isArray(query.taskIds) || query.taskIds.length === 0 || query.taskIds.length > 500 || query.taskIds.some((taskId) => typeof taskId !== "string" || taskId.length === 0) || new Set(query.taskIds).size !== query.taskIds.length) throw new Error("task runtime batch requires 1..500 unique task ids");
-  const limit = query.limit === undefined ? 500 : checkedPageLimit(query.limit), ordered = [...query.taskIds].sort(), after = query.cursor === undefined ? null : decodePageCursor(query.cursor, 1)[0]!, remaining = after === null ? ordered : ordered.filter((taskId) => taskId > after), taskIds = remaining.slice(0, limit), last = taskIds.at(-1), selected = new Set(taskIds), tasks = new Map(listTaskRowsNarrow(db, {}).rows.filter((row) => selected.has(row.task_id)).map((row) => [row.task_id, row])), sessions = new Map<string, RuntimeSession[]>();
-  for (const session of (db.prepare("SELECT value_json FROM runtime_session ORDER BY runtime_session_id").all() as unknown as readonly { readonly value_json: string }[]).map((row) => JSON.parse(row.value_json) as RuntimeSession)) for (const binding of session.taskBindings) if (selected.has(binding.taskId)) { const rows = sessions.get(binding.taskId) ?? []; rows.push(session); sessions.set(binding.taskId, rows); }
+  const limit = query.limit === undefined ? 500 : checkedPageLimit(query.limit), ordered = [...query.taskIds].sort(), after = query.cursor === undefined ? null : decodePageCursor(query.cursor, 1)[0]!, remaining = after === null ? ordered : ordered.filter((taskId) => taskId > after), taskIds = remaining.slice(0, limit), last = taskIds.at(-1), encoded = JSON.stringify(taskIds);
+  const taskRows = db.prepare(`WITH requested(task_order, task_id) AS MATERIALIZED (
+      SELECT CAST(key AS INTEGER), value FROM json_each(?)
+    )
+    SELECT requested.task_id, task_package.package_path FROM requested JOIN task_snapshot USING(task_id)
+    LEFT JOIN task_package USING(task_id) ORDER BY requested.task_order`)
+    .all(encoded) as unknown as readonly {
+      readonly task_id: string;
+      readonly package_path: string | null;
+    }[];
+  const tasks = new Map(taskRows.map((row) => [row.task_id, row])), sessions = new Map<string, RuntimeSession[]>();
+  const sessionRows = db.prepare(`WITH requested(task_order, task_id) AS MATERIALIZED (
+      SELECT CAST(key AS INTEGER), value FROM json_each(?)
+    )
+    SELECT requested.task_id, runtime_session.value_json FROM requested
+    JOIN runtime_session_task_binding USING(task_id) JOIN runtime_session USING(runtime_session_id)
+    ORDER BY requested.task_order, runtime_session.runtime_session_id,
+      runtime_session_task_binding.bound_at, runtime_session_task_binding.execution_id`)
+    .all(encoded) as unknown as readonly {
+        readonly task_id: string;
+        readonly value_json: string;
+      }[];
+  for (const row of sessionRows) {
+    const values = sessions.get(row.task_id) ?? [];
+    values.push(JSON.parse(row.value_json) as RuntimeSession);
+    sessions.set(row.task_id, values);
+  }
   return { taskIds, rows: taskIds.flatMap((taskId) => { const task = tasks.get(taskId); return task ? [{ taskId, packagePath: task.package_path, sessions: sessions.get(taskId) ?? [] }] : []; }), page: { limit, cursor: query.cursor ?? null, nextCursor: remaining.length > limit && last ? encodePageCursor([last]) : null } };
 }
 

@@ -2,10 +2,15 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
-import { sessionSiblingRows, sessionTaskTarget, type RuntimeDockRow } from "../../runtime-panorama.ts";
+import {
+  runtimeDockStatusDot, runtimeDockStatusKey, sessionSiblingRows, sessionTaskTarget,
+  type RuntimeDockRow,
+} from "../../runtime-panorama.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
-import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
+import {
+  runtimeAuthPresentation, runtimeAuthPresentationText, type RuntimeAuthProbeState,
+} from "../../runtime-auth-presentation.ts";
 import { Avatar, CapDot, Empty, KindDot, KV, KVRow, LiveDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
@@ -44,15 +49,15 @@ function BatchedRows<Row>({ rows, testId, children }: { readonly rows: readonly 
   </>;
 }
 
-export function ProviderInspector({ instance, probeError, sessions, onOpenSession }: {
-  readonly instance: RuntimeInstanceSummary | null; readonly probeError: string | null; readonly sessions:
+export function ProviderInspector({ instance, probeState, sessions, onOpenSession }: {
+  readonly instance: RuntimeInstanceSummary | null; readonly probeState?: RuntimeAuthProbeState; readonly sessions:
   readonly AgentRuntimeSessionDto[]; readonly onOpenSession: OpenSession }) {
   return <aside data-testid="runtime-inspector" aria-label={t("agentRuntime.inspectorRuntime")}
     className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
     <h2
       className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
         tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorRuntime")}</h2>
-    <RuntimeFacts instance={instance} probeError={probeError} />
+    <RuntimeFacts instance={instance} probeState={probeState} />
     <Section title={t("agentRuntime.inspectorSessions", { count: sessions.length })}>
       {sessions.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty>
         : <BatchedRows rows={sessions} testId="runtime-inspector-sessions-more">{(session) =>
@@ -125,7 +130,8 @@ function DispatchSessionRow({ row, onOpenSession }: { readonly row: RuntimeDockR
   readonly onOpenSession: OpenSession }) {
   return <button type="button" onClick={() => onOpenSession(row.runtimeSessionId)}
     className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
-    <LiveDot state={row.status === "running" ? "live" : row.status === "failed" ? "failed" : "idle"} tip={row.status} />
+    <LiveDot state={runtimeDockStatusDot[row.status]}
+      tip={t(runtimeDockStatusKey[row.status] as never)} />
     <span className="min-w-0 flex-1"><span className="block truncate text-[11.5px]">{row.agentName ??
       row.instanceId}</span><span
       className="block truncate font-mono text-[10px] text-text-faint">{row.taskTitle ??
@@ -133,9 +139,10 @@ function DispatchSessionRow({ row, onOpenSession }: { readonly row: RuntimeDockR
     <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{row.startedAt.slice(11, 16)}</span>
   </button>;
 }
-function RuntimeFacts({ instance, probeError }: { readonly instance: RuntimeInstanceSummary | null; readonly probeError: string | null }) {
+function RuntimeFacts({ instance, probeState }: { readonly instance: RuntimeInstanceSummary | null;
+  readonly probeState?: RuntimeAuthProbeState }) {
   if (!instance) return <Section title={t("agentRuntime.inspectorHealth")}><Empty>{t("agentRuntime.notFound")}</Empty></Section>;
-  const auth = runtimeAuthPresentation(instance, probeError), authText = auth.state === "ready" ? t("agentRuntime.authVerified") : auth.state === "not-checked" ? t("agentRuntime.authNotChecked") : auth.state === "probe-error" ? t("agentRuntime.authProbeFailed", { error: auth.error ?? "" }) : `${instance.authReadiness.code}: ${instance.authReadiness.hint}`;
+  const auth = runtimeAuthPresentation(instance, probeState), authText = runtimeAuthPresentationText(instance, auth);
   return <Section title={t("agentRuntime.inspectorHealth")}>
     <div data-auth-status={auth.state} className="mb-2 flex items-center gap-1.5 text-[11px]"><CapDot state={auth.cap} tip={authText} /><span>{authText}</span></div>
     <KV><KVRow name="kind"><span className="inline-flex items-center gap-1"><KindDot kind={instance.kindId} />{instance.kindId}</span></KVRow><KVRow name="auth">{instance.authMode} · {instance.authState}</KVRow><KVRow name="enabled">{String(instance.enabled)}</KVRow><KVRow name="isolation">{instance.isolationState}</KVRow><KVRow name="permission">{instance.permissionMode ?? t("agentRuntime.providerDefault")}</KVRow></KV>

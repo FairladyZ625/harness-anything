@@ -4,7 +4,9 @@ import { runtimeIsolationState, runtimePermissionMode } from "../../../../../dae
 import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentEntityRow } from "../../agent-entity-client.ts";
 import type { RuntimeInstallationRow, RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
-import { runtimeAuthPresentation } from "../../runtime-auth-presentation.ts";
+import {
+  runtimeAuthPresentation, runtimeAuthPresentationText, type RuntimeAuthProbeState,
+} from "../../runtime-auth-presentation.ts";
 import { buildRuntimeInstanceUpdatePayload, runtimeDefaultModel, runtimeInstanceEditForm, runtimeInstanceEditModels, runtimeInstanceEditReady, toggleRuntimeModel, type RuntimeInstanceEditFormState } from "../../runtime-instance-form.ts";
 import { planeAllowsPermissions, planeUsesApiOverride, runtimeProviderPlane } from "../../runtime-provider-planes.ts";
 import { t } from "../../i18n/index.tsx";
@@ -14,7 +16,7 @@ import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
 type Props = {
   readonly instance: RuntimeInstanceSummary; readonly installations: readonly RuntimeInstallationRow[]; readonly agents: readonly AgentEntityRow[]; readonly liveSessions: number; readonly busy: boolean;
-  readonly authProbeError?: string;
+  readonly authProbeState?: RuntimeAuthProbeState;
   readonly onSelectAgent: (agentId: string) => void; readonly onAuth: (action: "login" | "logout") => void; readonly onValidate: () => void;
   readonly onSelectRuntime: (instanceId: string) => void;
   readonly onSetEnabled: (enabled: boolean) => void; readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void; readonly onDelete: () => void; readonly onSelfTest: (model: string) => Promise<string | null>;
@@ -23,14 +25,16 @@ type Props = {
 // section because agy has no API mode; claude shows the single-instance API override;
 // codex shows the call path it was created with, because those are separate instances.
 export function RuntimeCard({
-  instance, installations, agents, liveSessions, busy, authProbeError,
+  instance, installations, agents, liveSessions, busy, authProbeState,
   onSelectAgent, onSelectRuntime, onAuth, onValidate, onSetEnabled, onUpdate, onDelete, onSelfTest,
 }: Props) {
   const [confirm, setConfirm] = useState(false), [editing, setEditing] = useState(false), [selfTestModel, setSelfTestModel] = useState(instance.defaultModel), [selfTestResult, setSelfTestResult] = useState<string | null>(null), [selfTestBusy, setSelfTestBusy] = useState(false);
   useEffect(() => { setSelfTestModel(instance.defaultModel); setSelfTestResult(null); }, [instance.instanceId, instance.defaultModel]);
   useEffect(() => { setEditing(false); }, [instance.instanceId]);
   const plane = runtimeProviderPlane(instance.kindId), compatible = agents.filter((agent) => runtimeTypeMatchesKind(agent.runtimeType, instance.kindId));
-  const apiMode = instance.authMode === "api-key", auth = runtimeAuthPresentation(instance, authProbeError ?? null), authText = auth.state === "ready" ? t("agentRuntime.authVerified") : auth.state === "not-checked" ? t("agentRuntime.authNotChecked") : auth.state === "probe-error" ? t("agentRuntime.authProbeFailed", { error: auth.error ?? "" }) : `${instance.authReadiness.code}: ${instance.authReadiness.hint}`;
+  const apiMode = instance.authMode === "api-key",
+    auth = runtimeAuthPresentation(instance, authProbeState),
+    authText = runtimeAuthPresentationText(instance, auth);
   const nativeAuthActions = !apiMode && instance.kindId !== "agy", agyLoginPath = instance.kindId === "agy" && instance.authState === "unauthenticated";
   return <div data-testid={`runtime-card-${instance.instanceId}`}>
     <Crumbs>

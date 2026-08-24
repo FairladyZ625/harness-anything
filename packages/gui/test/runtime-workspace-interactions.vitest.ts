@@ -139,7 +139,15 @@ describe("runtime entry split (W6 IA)", () => {
 
 function seedQueries(client: QueryClient) {
   client.setQueryData(["runtime-instances", "machine"], { installations: providerInstallations, instances: [providerInstance] });
-  client.setQueryData(["runtime-control", "repo-a", "overview"], { ok: true, status: "ready", installations: [], instances: [], sessions: [boundSession, siblingSession], watermark: 1, sourceRevision: 1 });
+  // Sessions rail 走 useInfiniteQuery(键尾多一段 "pages"),Providers 页仍是单页 useQuery——
+  // 同一份 overview 负载播两个键,分页行为本身由 agent-runtime-sessions.vitest.ts 断言。
+  const overview = { ok: true, status: "ready", installations: [], instances: [],
+    sessions: [boundSession, siblingSession],
+    page: { limit: 12, cursor: null, nextCursor: null, remainingCount: 0 },
+    watermark: 1, sourceRevision: 1 };
+  client.setQueryData(["runtime-control", "repo-a", "overview"], overview);
+  client.setQueryData(["runtime-control", "repo-a", "overview", "pages"],
+    { pages: [overview], pageParams: [null] });
   client.setQueryData(["agents", "repo-a"], agents);
   client.setQueryData(["squads", "repo-a"], squads);
   client.setQueryData(["runtime-panorama", "repo-a", "task-bound,task-sibling"], [

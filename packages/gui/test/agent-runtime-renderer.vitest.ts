@@ -17,6 +17,7 @@ import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { openAgentRuntimePane } from "../src/renderer/agent-runtime-client.ts";
 import { submitRuntimeSpawn } from "../src/renderer/runtime-control.ts";
 import { readPanorama, runtimePanoramaTasks, runtimeSelfTestSpawnInput } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
+import { runtimeAuthPresentation } from "../src/renderer/runtime-auth-presentation.ts";
 
 beforeAll(() => setActiveLocale("en-US"));
 
@@ -80,14 +81,15 @@ describe("agent runtime renderer", () => {
   it("renders ready, not-checked, and unauthenticated as distinct auth states", () => {
     const unchecked = { ...claudeInstance, authState: "unknown", authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: "Authentication has not been verified in this daemon generation." } } as never;
     const unauthenticated = { ...claudeInstance, authState: "unauthenticated", authReadiness: { status: "not-ready", code: "runtime_subscription_required", hint: "Provider subscription authentication is unavailable in the operator environment." } } as never;
-    expect(runtimeCard(instance)).toContain('data-auth-status="ready"');
-    const uncheckedMarkup = runtimeCard(unchecked); expect(uncheckedMarkup).toContain('data-auth-status="not-checked"'); expect(uncheckedMarkup).toContain("Authentication not checked");
-    const unavailableMarkup = runtimeCard(unauthenticated); expect(unavailableMarkup).toContain('data-auth-status="not-ready"'); expect(unavailableMarkup).toContain("runtime_subscription_required");
+    expect(runtimeCard(instance)).toContain('data-auth-status="succeeded"');
+    const uncheckedMarkup = runtimeCard(unchecked); expect(uncheckedMarkup).toContain('data-auth-status="not-started"'); expect(uncheckedMarkup).toContain("Authentication not checked");
+    const unavailableMarkup = runtimeCard(unauthenticated); expect(unavailableMarkup).toContain('data-auth-status="succeeded"'); expect(unavailableMarkup).toContain("runtime_subscription_required");
   });
-  it("shows a background probe transport error instead of silently keeping not-checked", () => {
+  it("models not-started, probing, success, and retryable failure without pending fallback", () => {
     const unchecked = { ...claudeInstance, authState: "unknown", authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: "Authentication has not been verified in this daemon generation." } } as never;
-    const markup = renderToStaticMarkup(createElement(RuntimeCard, { instance: unchecked, installations: [installation], authProbeError: "connect ECONNREFUSED", agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
-    expect(markup).toContain('data-auth-status="probe-error"'); expect(markup).toContain("Authentication check failed: connect ECONNREFUSED");
+    const renderProbe = (authProbeState: Parameters<typeof runtimeAuthPresentation>[1]) => renderToStaticMarkup(createElement(RuntimeCard, { instance: unchecked, installations: [installation], authProbeState, agents: [], liveSessions: 0, busy: false, onSelectAgent: noop, onAuth: noop, onValidate: noop, onSetEnabled: noop, onUpdate: noop, onDelete: noop, onSelfTest: async () => null }));
+    const notStarted = renderProbe({ state: "not-started" }), probing = renderProbe({ state: "probing" }), succeeded = renderProbe({ state: "succeeded" }), failed = renderProbe({ state: "failed", error: "connect ECONNREFUSED" }); expect(notStarted).toContain('data-auth-status="not-started"'); expect(notStarted).toContain("Authentication not checked"); expect(probing).toContain('data-auth-status="probing"'); expect(probing).toContain("Checking authentication…"); expect(probing).not.toContain("Authentication not checked"); expect(succeeded).toContain('data-auth-status="succeeded"'); expect(succeeded).toContain("runtime_auth_not_checked"); expect(failed).toContain('data-auth-status="failed"'); expect(failed).toContain("retry available: connect ECONNREFUSED");
+    expect(["not-started", "probing", "succeeded", "failed"].map((state) => runtimeAuthPresentation(unchecked, state === "failed" ? { state, error: "failed" } : { state } as never).state)).toEqual(["not-started", "probing", "succeeded", "failed"]);
   });
   it("offers the provider's own login actions on a subscription instance and none on an api-key instance", () => {
     const subscription = runtimeCard(claudeInstance);
@@ -180,7 +182,7 @@ describe("agent runtime renderer", () => {
     expect(runtimePanoramaDelegation(panorama[0]!)).toBe("Fable → Luna");
     const rows = runtimeDockRows(panorama, []);
     const rail = renderToStaticMarkup(createElement(SessionRail, { sessions: rows, selectedId: null, onSelect: noop }));
-    for (const text of ["Sessions", "Review the runtime", "Core Squad", ">running<", ">succeeded<"]) expect(rail).toContain(text);
+    for (const text of ["Sessions", "Review the runtime", "Core Squad", ">Running<", ">Succeeded<"]) expect(rail).toContain(text);
     expect(rail).toContain('data-testid="rail-session-runtime-1"');
     expect(renderToStaticMarkup(createElement(SessionDetailView, { session, row: rows[0]!, result: null, frames: [], attach: "attached", busy: false, onCancel: noop, onOpenTask: noop }))).toContain("Fable → Luna");
   });

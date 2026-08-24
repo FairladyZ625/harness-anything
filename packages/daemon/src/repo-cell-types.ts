@@ -113,6 +113,7 @@ export interface RepoCell {
     method: M,
     payload?: Readonly<Record<string, unknown>>,
   ) => Promise<DaemonGuiReadResultMap[M]>;
+  readonly workspaceSummary: () => DaemonGuiReadResultMap["repo.workspace.summary.read"];
   readonly replica: ReplicaCutSource;
   readonly verifyReadiness: () => Promise<{
     readonly cellState: "attached";

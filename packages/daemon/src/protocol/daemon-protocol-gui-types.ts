@@ -122,7 +122,11 @@ export type DaemonGuiReadPayloadMap = {
     readonly path: string;
   };
   readonly "repo.tasks.documents.list": { readonly taskId: string };
-  readonly "repo.agentRuntime.overview": { readonly taskId?: string };
+  readonly "repo.agentRuntime.overview": {
+    readonly taskId?: string;
+    readonly limit?: number;
+    readonly cursor?: string
+  };
   readonly "repo.agentRuntime.sessions.read": {
     readonly runtimeSessionId: string;
   };

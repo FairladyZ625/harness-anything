@@ -10,6 +10,7 @@ import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type Lea
 import { markRuntimeSessionUnknown, type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import type { LeaseInterval } from "./projection-reads.ts";
+import type { RuntimeSessionPageQuery, RuntimeSessionPageRead } from "./task-projection-port.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -236,6 +237,59 @@ export function readRuntimeSessions(db: DatabaseSync): RuntimeSession[] {
   return queryRows(db, "SELECT value_json FROM runtime_session ORDER BY runtime_session_id").map(
     (row) => JSON.parse(String(row.value_json)) as RuntimeSession,
   );
+}
+export function readRuntimeSessionsForTask(db: DatabaseSync, taskId: string): RuntimeSession[] {
+  return queryRows(
+    db,
+    [
+      "SELECT runtime_session.value_json FROM runtime_session_task_binding",
+      "JOIN runtime_session USING(runtime_session_id) WHERE runtime_session_task_binding.task_id = ?",
+      "GROUP BY runtime_session.runtime_session_id ORDER BY runtime_session.runtime_session_id",
+    ].join(" "),
+    taskId,
+  ).map((row) => JSON.parse(String(row.value_json)) as RuntimeSession);
+}
+export function readRuntimeSessionPage(db: DatabaseSync,
+  query: RuntimeSessionPageQuery): RuntimeSessionPageRead {
+  if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 64)
+    throw new Error("runtime session page limit must be between 1 and 64");
+  const after = query.afterRuntimeSessionId, taskId = query.taskId;
+  const rows = taskId ? queryRows(db,
+    ["SELECT runtime_session.value_json FROM runtime_session_task_binding",
+      "JOIN runtime_session USING(runtime_session_id)",
+      "WHERE runtime_session_task_binding.task_id = ?",
+      ...(after === undefined ? [] : ["AND runtime_session.runtime_session_id > ?"]),
+      "GROUP BY runtime_session.runtime_session_id ORDER BY runtime_session.runtime_session_id LIMIT ?"
+    ].join(" "), taskId, ...(after === undefined ? [] : [after]), query.limit) : queryRows(db,
+    ["SELECT value_json FROM runtime_session", ...(after === undefined ? [] :
+      ["WHERE runtime_session_id > ?"]), "ORDER BY runtime_session_id LIMIT ?"].join(" "),
+    ...(after === undefined ? [] : [after]), query.limit);
+  const sessions = rows.map((row) => JSON.parse(String(row.value_json)) as RuntimeSession),
+    lastId = sessions.at(-1)?.runtimeSessionId;
+  if (lastId === undefined) return { rows: sessions, nextRuntimeSessionId: null, remainingCount: 0 };
+  const countRow = taskId ? queryRows(db,
+    ["SELECT COUNT(DISTINCT runtime_session.runtime_session_id) AS count",
+      "FROM runtime_session_task_binding JOIN runtime_session USING(runtime_session_id)",
+      "WHERE runtime_session_task_binding.task_id = ? AND runtime_session.runtime_session_id > ?"
+    ].join(" "), taskId, lastId)[0] : queryRows(db,
+    "SELECT COUNT(*) AS count FROM runtime_session WHERE runtime_session_id > ?", lastId)[0];
+  const remainingCount = Number(countRow?.count ?? 0);
+  return { rows: sessions, nextRuntimeSessionId: remainingCount > 0 ? lastId : null, remainingCount };
+}
+export function refreshRuntimeSessionAssociations(db: DatabaseSync, session: RuntimeSession): void {
+  runSql(db, "DELETE FROM runtime_session_task_binding WHERE runtime_session_id = ?", session.runtimeSessionId);
+  for (const binding of session.taskBindings)
+    runSql(
+      db,
+      [
+        "INSERT INTO runtime_session_task_binding(task_id, runtime_session_id, execution_id, bound_at)",
+        "VALUES (?, ?, ?, ?)",
+      ].join(" "),
+      binding.taskId,
+      session.runtimeSessionId,
+      binding.executionId,
+      binding.boundAt,
+    );
 }
 export function markRuntimeSessionsUnknown(db: DatabaseSync): number {
   const rows = queryRows(db, "SELECT runtime_session_id, value_json FROM runtime_session");

@@ -73,6 +73,54 @@ export const runtimeAndRecoveryStatusWords: readonly StatusWordRegistration[] = 
     meaning: "The transcript is available only from the temporary dispatch stream.",
     divergence: "entity-scoped",
   },
+  // ---- RuntimeSession semantic state (derived from liveness + outcome) ----
+  {
+    word: "running",
+    entity: "RuntimeSession",
+    field: "semantic state",
+    meaning: "Heartbeat is live and no outcome has been observed yet.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "succeeded",
+    entity: "RuntimeSession",
+    field: "semantic state",
+    meaning: "The observed outcome was success.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "failed",
+    entity: "RuntimeSession",
+    field: "semantic state",
+    meaning: "The observed outcome was failure.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "cancelled",
+    entity: "RuntimeSession",
+    field: "semantic state",
+    meaning: "The observed outcome was an actively requested cancellation.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "ended-indeterminate",
+    entity: "RuntimeSession",
+    field: "semantic state",
+    meaning: "An outcome was recorded but carries no verdict; the session ended without one.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "unavailable",
+    entity: "RuntimeSession",
+    field: "semantic state",
+    meaning: "No outcome was ever observed and the heartbeat is not live, so how it ended is unknown.",
+    divergence: "divergent",
+    resolution:
+      "Collides with the same entity's transcript reachability word, which is " +
+      "about reaching the transcript rather than about how the session ended. " +
+      "Both stand for now; a rename would go to this semantic state word " +
+      "(candidate: \"ended-unobserved\").",
+  },
   {
     word: "unavailable",
     entity: "RuntimeSession",

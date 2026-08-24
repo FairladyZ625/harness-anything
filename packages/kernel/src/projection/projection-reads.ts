@@ -3,6 +3,7 @@ import type { CanonicalEventV1, DocumentState } from "../domain/doc-sync.contrac
 import type { LeaseHolder } from "../domain/execution.ts";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
 import type { TaskProgressEventV1 } from "../domain/task-progress-event.ts";
+import type { WorkspaceSummary } from "../domain/workspace-summary.ts";
 import { readDecisionGraphRows, type DecisionAgendaProjectionRow, type DecisionProjectionRow } from "./decision-event-projection.ts";
 import { readFactAnchorRows, readFactGraphRows, type FactProjectionRow, type FactSearchPage } from "./fact-event-projection.ts";
 import type { ProjectionPage, TaskRelationProjectionRow } from "./task-query-projection.ts";
@@ -18,6 +19,12 @@ export interface TaskProjectionListRead { readonly status: "ready" | "pending"; 
 export interface TaskRuntimeBatchQuery { readonly taskIds: readonly string[]; readonly limit?: number; readonly cursor?: string }
 export interface TaskRuntimeBatchRow { readonly taskId: string; readonly packagePath: string | null; readonly sessions: readonly RuntimeSession[] }
 export interface TaskRuntimeBatchRead { readonly status: "ready" | "pending"; readonly taskIds: readonly string[]; readonly rows: readonly TaskRuntimeBatchRow[]; readonly watermark: number; readonly sourceRevision: number; readonly page: ProjectionPage }
+export interface WorkspaceSummaryProjectionRead {
+  readonly status: "ready" | "pending";
+  readonly summary: WorkspaceSummary;
+  readonly watermark: number;
+  readonly sourceRevision: number;
+}
 export interface TaskRelationProjectionRead { readonly status: "ready" | "pending"; readonly rows: readonly TaskRelationProjectionRow[]; readonly watermark: number; readonly sourceRevision: number; readonly page?: ProjectionPage }
 export interface ProjectionApplyReceipt { readonly metrics: { readonly sqliteTransactions: 1; readonly reducedItems: number } }
 export interface ProjectionRebuildReceipt {

@@ -8,7 +8,7 @@ import { createRelationGraphProjectionTables } from "./relation-graph-projection
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
-import { queryRows } from "./rebuildable-task-projection-sql.ts";
+import { queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -225,6 +225,15 @@ function createTables(db: DatabaseSync): void {
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS runtime_session_task_binding (
+      task_id TEXT NOT NULL,
+      runtime_session_id TEXT NOT NULL,
+      execution_id TEXT NOT NULL,
+      bound_at TEXT NOT NULL,
+      PRIMARY KEY(task_id, runtime_session_id, execution_id)
+    );
+    CREATE INDEX IF NOT EXISTS runtime_session_task_binding_session
+      ON runtime_session_task_binding(runtime_session_id, task_id, execution_id);
     CREATE TABLE IF NOT EXISTS task_snapshot (
       task_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
@@ -287,6 +296,22 @@ function createTables(db: DatabaseSync): void {
       reason TEXT NOT NULL,
       PRIMARY KEY(task_id, execution_id, acquired_revision)
     );
+  `);
+  // This table is a disposable lookup over runtime_session.value_json, so adding it must not
+  // invalidate the self-contained projection database (event_source lives in the same file).
+  // Backfill once in place; steady-state runtime events maintain the rows transactionally.
+  runSql(db, `
+    INSERT OR IGNORE INTO runtime_session_task_binding(task_id, runtime_session_id, execution_id, bound_at)
+    SELECT
+      json_extract(binding.value, '$.taskId'),
+      session.runtime_session_id,
+      json_extract(binding.value, '$.executionId'),
+      json_extract(binding.value, '$.boundAt')
+    FROM runtime_session AS session
+    JOIN json_each(session.value_json, '$.taskBindings') AS binding
+    WHERE json_type(binding.value, '$.taskId') = 'text'
+      AND json_type(binding.value, '$.executionId') = 'text'
+      AND json_type(binding.value, '$.boundAt') = 'text';
   `);
   createTaskRelationProjectionTable(db);
   createRelationGraphProjectionTables(db);

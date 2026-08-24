@@ -16,7 +16,6 @@ import { commandClassForAction, type DaemonGuiReadResultMap } from "./protocol/d
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { openRepoCell, type RepoCell, type RepoTaskAction } from "./repo-cell.ts";
-import { workspaceSummaryFromReads } from "./workspace-summary-read.ts";
 
 export function createDaemonHostRepositoryApi(
   context: any,
@@ -326,13 +325,8 @@ export function createDaemonHostRepositoryApi(
             : (context.unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`),
         );
       await context.binding(cell.status().rootDir, auth, "repo-read");
-      if (method === "repo.workspace.summary.read") {
-        const [tasks, decisions] = await Promise.all([
-          cell.read("repo.tasks.list", {}),
-          cell.read("repo.decisions.list", {}),
-        ]);
-        return workspaceSummaryFromReads(tasks, decisions) as DaemonGuiReadResultMap[typeof method];
-      }
+      if (method === "repo.workspace.summary.read")
+        return cell.workspaceSummary() as DaemonGuiReadResultMap[typeof method];
       if (method === "repo.gui.catalog.snapshot")
         return (await cell.catalog.snapshot()) as unknown as DaemonGuiReadResultMap[typeof method];
       if (method === "repo.gui.catalog.preset.read")

@@ -106,7 +106,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
 
 describe("sessions dock projection", () => {
   it("groups by squad first, then agent, and keeps unattributed sessions visible", () => {
-    const rows = runtimeDockRows([dispatchRow, { ...dispatchRow, dispatchId: "dispatch-2", runtimeSessionId: "runtime-2", squadId: undefined, squad: null, status: "succeeded", outcome: "succeeded" }], [{ runtimeSessionId: "runtime-9", instanceId: "claude-one", liveness: "live", activity: { lastObservedAt: "2026-08-20T04:00:00.000Z" } }]);
+    const rows = runtimeDockRows([dispatchRow, { ...dispatchRow, dispatchId: "dispatch-2", runtimeSessionId: "runtime-2", squadId: undefined, squad: null, status: "succeeded", outcome: "succeeded" }], [{ runtimeSessionId: "runtime-9", instanceId: "claude-one", liveness: "live", semanticState: "running", activity: { lastObservedAt: "2026-08-20T04:00:00.000Z" } }]);
     expect(rows.map((row) => row.runtimeSessionId)).toEqual(["runtime-1", "runtime-2", "runtime-9"]);
     expect(rows[0]!.delegation).toBe("Fable → Luna");
     expect(rows[2]).toMatchObject({ agentId: null, taskId: null, status: "running", delegation: null });

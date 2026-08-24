@@ -15,6 +15,17 @@ export interface AgentDefinitionSnapshot { readonly schema: "agent-definition-sn
 export interface RuntimeResultClaim { readonly sha256: string; readonly size: number; readonly mediaType: "text/plain; charset=utf-8" }
 export interface RuntimeInstallation { readonly installationId: string; readonly kindId: string; readonly protocolFamily: RuntimeProtocolFamily; readonly hostRef: string; readonly version: string; readonly discoverySource: "wrapper" | "hook"; readonly effectiveCapabilities: readonly RuntimeCapability[]; readonly lastObservedAt: string } export interface RuntimeTaskSessionLink { readonly taskId: string; readonly executionId: string; readonly providerSessionId: string; readonly transcriptRef: string; readonly boundAt: string }
 export interface RuntimeSession { readonly runtimeSessionId: string; readonly instanceId: string; readonly installationId: string; readonly kindId: string; readonly definitionSnapshotRef: string; readonly providerSessionId: string | null; readonly transcriptRef: string | null; readonly launchGeneration: number; readonly liveness: RuntimeLiveness; readonly attachable: boolean; readonly taskBindings: readonly RuntimeTaskSessionLink[]; readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null; readonly exitCode: number | null; readonly resultRef: string | null; readonly lastObservedAt: string }
+export type RuntimeSessionSemanticState = "running" | "succeeded" | "failed" | "cancelled" |
+  "ended-indeterminate" | "unavailable";
+/** A domain judgment over independent liveness and outcome facts. */
+export function runtimeSessionSemanticState(
+  session: Pick<RuntimeSession, "liveness" | "outcome">,
+): RuntimeSessionSemanticState {
+  if (session.outcome === "succeeded" || session.outcome === "failed" ||
+      session.outcome === "cancelled") return session.outcome;
+  if (session.outcome === "unknown") return "ended-indeterminate";
+  return session.liveness === "live" ? "running" : "unavailable";
+}
 interface RuntimePayloads {
   readonly runtime_installation_observed: { readonly installationId: string; readonly kindId: string; readonly protocolFamily: RuntimeProtocolFamily; readonly hostRef: string; readonly version: string; readonly discoverySource: "wrapper" | "hook"; readonly capabilities: readonly RuntimeCapability[] };
   readonly runtime_dispatch_requested: { readonly dispatchId: string; readonly runtimeSessionId: string; readonly instanceId: string; readonly installationId: string; readonly kindId: string; readonly idempotencyKey: string; readonly definitionSnapshotRef: string; readonly definitionSnapshot: AgentDefinitionSnapshot };

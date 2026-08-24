@@ -518,9 +518,14 @@ function MetaLine({ label, value, entityRef, onNavigate }: {
   </div>
 }
 
+// Total over the dispatch wire vocabulary, so a newly added status has to declare its colour
+// here rather than falling through to the faint default.
+const dispatchStatusColor: Readonly<Record<TaskDispatchProjectionRow["status"], string>> = {
+  running: "bg-status-active", succeeded: "bg-status-done", failed: "bg-danger",
+  cancelled: "bg-text-faint", unknown: "bg-text-faint",
+};
 function StatusDot({ status }: { readonly status: TaskDispatchProjectionRow["status"] }) {
-  const color = status === "succeeded" ? "bg-status-done" : status === "failed" ? "bg-danger" : status === "running" ? "bg-status-active" : "bg-text-faint";
-  return <span className={`size-2 rounded-full ${color}`} aria-label={status} />;
+  return <span className={`size-2 rounded-full ${dispatchStatusColor[status]}`} aria-label={status} />;
 }
 
 function SectionHeading({ eyebrow, title, description, extra }: { readonly eyebrow: string; readonly title: string; readonly description: string; readonly extra?: React.ReactNode }) {

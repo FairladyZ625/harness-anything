@@ -11,6 +11,7 @@ import type { DaemonControlReceipt, SystemRepoRow, TaskListSuccess } from "../sr
 import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, readTaskList, TASK_LIST_PAGE_LIMIT, taskDocumentQuery, taskListQuery, taskQueryKeys } from "../src/renderer/task-data.ts";
 import { triadicQueryKeys } from "../src/renderer/triadic-data.ts";
 import { favoritesStorageKey } from "../src/renderer/model/favorites.ts";
+import { workspaceSummaryQuery, workspaceSummaryQueryKeys } from "../src/renderer/workspace-summary-data.ts";
 
 describe("GUI S3 R1 repository isolation", () => {
   it("namespaces every repository projection by repo id", () => {
@@ -24,7 +25,27 @@ describe("GUI S3 R1 repository isolation", () => {
     expect(catalogQueryKeys.preset("repo-b", "preset-a", "zh-TW")).toEqual([
       "catalog", "repo-b", "preset", "preset-a", "zh-TW",
     ]);
+    expect(workspaceSummaryQueryKeys.read("repo-a")).toEqual(["workspace-summary", "repo-a"]);
     expect(favoritesStorageKey("repo-a")).not.toBe(favoritesStorageKey("repo-b"));
+  });
+
+  it("refreshes workspace census from ledger invalidation or focus, not a wall-clock loop", async () => {
+    vi.useFakeTimers();
+    const read = vi.fn(async () => ({ sourceRevision: 42 })),
+      client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+      options = workspaceSummaryQuery("repo-a"),
+      observer = new QueryObserver(client, { ...options, queryFn: read });
+    const unsubscribe = observer.subscribe(() => undefined);
+    try {
+      await observer.refetch();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(options.refetchOnWindowFocus).toBe("always");
+    } finally {
+      unsubscribe();
+      client.clear();
+      vi.useRealTimers();
+    }
   });
 
   it("keeps daemon-global status outside repository namespaces", () => {
