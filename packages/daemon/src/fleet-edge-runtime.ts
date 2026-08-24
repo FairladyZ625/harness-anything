@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
+import {
+  openEntityStore,
+  resolveHarnessLayout,
+  type AgentRuntimeEventV1,
+  type EntityStore,
+} from "../../kernel/src/index.ts";
 import { readAgentDeclaration, resolveSquadDispatchTarget } from "./agent-entities.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import {
@@ -56,15 +61,15 @@ type RuntimePorts = {
 };
 const runtimeOverviewPageLimit = 16;
 
-export async function readFleetRuntimeSessionsPaged(
-  readPage: (payload: JsonObject) => Promise<unknown>,
-): Promise<readonly {
-  readonly runtimeSessionId: string;
-  readonly providerSessionId: string | null;
-  readonly instanceId: string;
-  readonly liveness: "live" | "stale" | "unknown" | "exited";
-  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
-}[]> {
+export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObject) => Promise<unknown>): Promise<
+  readonly {
+    readonly runtimeSessionId: string;
+    readonly providerSessionId: string | null;
+    readonly instanceId: string;
+    readonly liveness: "live" | "stale" | "unknown" | "exited";
+    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
+  }[]
+> {
   const sessions: Array<{
     readonly runtimeSessionId: string;
     readonly providerSessionId: string | null;
@@ -81,13 +86,15 @@ export async function readFleetRuntimeSessionsPaged(
     const overview = result as AgentRuntimeOverviewResult;
     if (!overview.page)
       throw edgeRuntimeError("runtime_read_invalid", "A paged runtime overview omitted its page receipt.");
-    sessions.push(...overview.sessions.map(({
-      runtimeSessionId,
-      providerSessionId,
-      instanceId,
-      liveness,
-      activity,
-    }) => ({ runtimeSessionId, providerSessionId, instanceId, liveness, outcome: activity.outcome })));
+    sessions.push(
+      ...overview.sessions.map(({ runtimeSessionId, providerSessionId, instanceId, liveness, activity }) => ({
+        runtimeSessionId,
+        providerSessionId,
+        instanceId,
+        liveness,
+        outcome: activity.outcome,
+      })),
+    );
     cursor = overview.page.nextCursor;
     if (cursor !== null && seen.has(cursor))
       throw edgeRuntimeError("runtime_read_invalid", `Runtime overview repeated cursor ${cursor}.`);
@@ -125,6 +132,8 @@ export function openFleetEdgeRuntime(input: {
     },
     now = input.now ?? (() => new Date().toISOString()),
     stream = { publish: () => ({}) as never };
+  let entityStore: EntityStore | undefined;
+  const getEntityStore = (): EntityStore => (entityStore ??= openEntityStore(request.workspaceRoot));
   let tail = Promise.resolve();
   const schedule = (work: () => void | Promise<void>): void => {
     tail = tail.then(work).then(
@@ -227,9 +236,15 @@ export function openFleetEdgeRuntime(input: {
     now,
     runtimeInstances: input.ports.runtimeInstances,
     prepareLaunch: input.ports.prepareRuntimeLaunch,
-    resolveAgent: (agentId) => readAgentDeclaration({ rootDir: request.workspaceRoot, agentId }),
+    resolveAgent: (agentId) =>
+      readAgentDeclaration({ rootDir: request.workspaceRoot, agentId, entityStore: getEntityStore() }),
     resolveSquadDispatchTarget: (leaderId, workerId) =>
-      resolveSquadDispatchTarget({ rootDir: request.workspaceRoot, leaderId, workerId }),
+      resolveSquadDispatchTarget({
+        rootDir: request.workspaceRoot,
+        leaderId,
+        workerId,
+        entityStore: getEntityStore(),
+      }),
     ...(input.launch ? { launch: input.launch } : {}),
     schedule,
   });

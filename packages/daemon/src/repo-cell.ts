@@ -48,16 +48,13 @@ export function initializeRepoCell(context: any): any {
       killpoint: context.input.killpoint,
     })
       .then((receipt) => {
-        const blocked = [
-          ...(receipt.detail?.unresolvedTouches ?? []).map(
-            (touch) => `${touch.path} (${touch.requiredRoute})`,
-          ),
-          ...(receipt.detail?.deletions ?? []).map((deletion) => `${deletion.path} (deletion)`),
-        ];
+        const detail = receipt.detail?.kind === "doc_sync" ? receipt.detail : undefined,
+          blocked = [
+            ...(detail?.unresolvedTouches ?? []).map((touch) => `${touch.path} (${touch.requiredRoute})`),
+            ...(detail?.deletions ?? []).map((deletion) => `${deletion.path} (deletion)`),
+          ];
         if (blocked.length)
-          console.warn(
-            `[wal-materializer] authored doc candidates blocked; run ha doc status: ${blocked.join(", ")}`,
-          );
+          console.warn(`[wal-materializer] authored doc candidates blocked; run ha doc status: ${blocked.join(", ")}`);
       })
       .catch((error) => {
         console.warn(
@@ -95,15 +92,15 @@ export function initializeRepoCell(context: any): any {
       killpoint: context.input.killpoint,
     });
   const runtimeReads = makeAgentRuntimeReadModel({
-    readDispatch: (taskId, dispatchId) =>
-      readTaskDispatches({ rootDir: context.rootDir, projection, taskId }).dispatches.find(
-        (row) => row.dispatchId === dispatchId,
-      ) ?? null,
-    projection,
-    store,
-    stream: context.runtimeStream,
-    runtimeInstances: context.input.runtimeInstances ?? (() => []),
-  }),
+      readDispatch: (taskId, dispatchId) =>
+        readTaskDispatches({ rootDir: context.rootDir, projection, taskId }).dispatches.find(
+          (row) => row.dispatchId === dispatchId,
+        ) ?? null,
+      projection,
+      store,
+      stream: context.runtimeStream,
+      runtimeInstances: context.input.runtimeInstances ?? (() => []),
+    }),
     service = makeTaskLifecycleService({
       eventStore: store,
       projection,

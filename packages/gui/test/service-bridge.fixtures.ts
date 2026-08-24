@@ -1,5 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import path from "node:path";
+import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import {
   eventObjectTarget,
   makeTaskEventStore,
@@ -121,7 +120,7 @@ export function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan {
     ),
   }) as FrozenWritePlan;
 }
-export function seedEntityDeclarations(rootDir: string): void {
+export async function seedEntityDeclarations(endpoint: string, repoId: string): Promise<void> {
   const agent = {
       schema: "agent-declaration/v1",
       id: "terra",
@@ -140,18 +139,16 @@ export function seedEntityDeclarations(rootDir: string): void {
       workers: ["terra"],
       roster: "# Core Squad\n\nTerra leads review.",
     };
-  for (const declaration of [agent, squad]) {
-    const store = path.join(
-      rootDir,
-      "harness",
-      "schema" in declaration && declaration.schema === "agent-declaration/v1"
-        ? "agents"
-        : "squads",
+  for (const [method, declaration] of [
+    ["repo.agent.entity.write", agent],
+    ["repo.squad.entity.write", squad],
+  ] as const) {
+    const result = await requestDaemonJsonRpcAt(
+      endpoint,
+      method,
+      { repo: { repoId }, payload: { declaration } },
+      1_000,
     );
-    mkdirSync(store, { recursive: true });
-    writeFileSync(
-      path.join(store, `${declaration.id}.json`),
-      `${JSON.stringify(declaration, null, 2)}\n`,
-    );
+    if (result.ok !== true) throw new Error(`GUI entity fixture failed: ${JSON.stringify(result)}`);
   }
 }
