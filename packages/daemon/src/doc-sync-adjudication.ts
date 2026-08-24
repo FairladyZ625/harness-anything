@@ -11,7 +11,11 @@ import {
   type DocSyncReceiptDetail,
   type DocWriteIntent,
 } from "../../kernel/src/index.ts";
-import { scanDocCandidates, type DocCandidateScan, validateSelectedDocPaths } from "./doc-sync-candidate-scanner.ts";
+import {
+  scanDocCandidates,
+  type DocCandidateScan,
+  validateSelectedDocPaths,
+} from "./doc-sync-candidate-scanner.ts";
 import type { Input } from "./doc-sync-command-actions.ts";
 import { detail, directPaths } from "./doc-sync-details.ts";
 import { docSyncError, hasExactDocSyncActionFields } from "./doc-sync-files.ts";

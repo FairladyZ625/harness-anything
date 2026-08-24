@@ -303,11 +303,16 @@ export function validateSelectedDocPaths(
     const rewritten = prefixed.map((value) => value.slice(`${authoredPrefix}/`.length));
     throw docSyncError(
       "invalid_command",
-      `doc --path requires authored-root-relative paths; drop the '${authoredPrefix}/' prefix and retry with ${rewritten.map((value) => `'${value}'`).join(", ")}`,
+      [
+        `doc --path requires authored-root-relative paths; drop the '${authoredPrefix}/' prefix and retry with `,
+        `${rewritten.map((value) => `'${value}'`).join(", ")}`,
+      ].join(""),
     );
   }
   const missing = scan.rows
-    .filter((row) => row.state === "clean" && row.baseBlobSha256 === null && row.candidateBlobSha256 === null)
+    .filter(
+      (row) => row.state === "clean" && row.baseBlobSha256 === null && row.candidateBlobSha256 === null,
+    )
     .map((row) => row.path);
   if (missing.length > 0)
     throw docSyncError(

@@ -218,6 +218,19 @@ export function taskPlanHeadingRestore(input: Input, scan: DocCandidateScan): st
 export function noOp(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
   const revision = input.store.readHead()?.revision ?? 0,
     nextAction = "no eligible document changes to submit";
+  // Lifecycle-owned task plans may be clean after an H1 heal already published by task amend.
+  // Keep that idempotent acknowledgement applied; ordinary zero-write scans reject below.
+  if (scan.rows.length > 0 && scan.rows.every((row) => row.path.endsWith("/task_plan.md")))
+    return {
+      outcome: "applied",
+      opId: `noop:${scan.baseLedgerSha.headDigest}`,
+      revision,
+      evidence: "doc-sync:no-op",
+      visibility: "center",
+      proof: proof(revision, revision, true, true),
+      detail: scanDetail(input, scan, "no_op"),
+      summary: submitSummary("applied", [], scan),
+    };
   return {
     outcome: "op_rejected",
     opId: `noop:${scan.baseLedgerSha.headDigest}`,
