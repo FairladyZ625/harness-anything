@@ -13,6 +13,7 @@ export function spawningDecisionOf(task: TaskRow, relations: RelationEdge[]): st
   const decisionIds = [...new Set(relations.filter(
     (relation) =>
       relation.kind === "derives" &&
+      /* @gate-identity check-gui-status-judgments/gui-status-037 */
       relation.state === "active" &&
       relation.direction === "directed" &&
       relation.from.startsWith("decision/") &&
@@ -31,7 +32,9 @@ export function derivedTasks(
   tasks: TaskRow[],
 ): TaskRow[] {
   const taskIds = relations
-    .filter((relation) => relation.from === `decision/${decision.decisionId}` && relation.kind === "derives" && relation.state === "active" && relation.direction === "directed")
+    .filter((relation) => relation.from === `decision/${decision.decisionId}` && relation.kind === "derives" &&
+      /* @gate-identity check-gui-status-judgments/gui-status-038 */
+      relation.state === "active" && relation.direction === "directed")
     .map((relation) => normalizeTaskId(relation.to));
   return tasks.filter((task) => taskIds.includes(task.taskId));
 }

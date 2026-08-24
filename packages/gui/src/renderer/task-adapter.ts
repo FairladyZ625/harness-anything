@@ -17,7 +17,11 @@ export interface TaskAdaptContext {
 function adaptProjectionRow(row: TaskSnapshotProjectionRow, projectId: string, projectionStatus: "ready" | "pending", context: TaskAdaptContext): TaskRow {
   const task = row.snapshot.task!;
   const placement = placementFor(row, context);
-  const gates = row.closeoutAssessment.gates.map((gate) => ({ name: gate.gateId, ok: gate.status === "unknown" ? null : gate.status === "passed", ...(gate.detail ? { detail: gate.detail } : {}) }));
+  const gates = row.closeoutAssessment.gates.map((gate) => ({ name: gate.gateId, ok:
+    /* @gate-identity check-gui-status-judgments/gui-status-050 */
+    gate.status === "unknown" ? null :
+    /* @gate-identity check-gui-status-judgments/gui-status-051 */
+    gate.status === "passed", ...(gate.detail ? { detail: gate.detail } : {}) }));
   const blocking = row.blockingAssessment;
   const coordinationStatus = row.coordinationStatus;
   return {
@@ -27,7 +31,11 @@ function adaptProjectionRow(row: TaskSnapshotProjectionRow, projectId: string, p
     coordinationStatus,
     canonicalStatus: task.status,
     blocking: blocking.state,
-    blockingLabel: blocking.state === "blocked" ? `${blocking.blockers.length || "cycle"} 个 active blocking relation` : blocking.state === "unknown" ? "阻塞关系未能确定" : "当前投影无 active blocking relation",
+    blockingLabel:
+      /* @gate-identity check-gui-status-judgments/gui-status-052 */
+      blocking.state === "blocked" ? `${blocking.blockers.length || "cycle"} 个 active blocking relation` :
+      /* @gate-identity check-gui-status-judgments/gui-status-053 */
+      blocking.state === "unknown" ? "阻塞关系未能确定" : "当前投影无 active blocking relation",
     blockers: [...blocking.blockers],
     blockingWarnings: [...blocking.warnings],
     rawStatus: `${task.status}/${task.currentNode}`,
@@ -80,7 +88,10 @@ function placementFor(row: TaskSnapshotProjectionRow, context: TaskAdaptContext)
     return { moduleKeys: [], productLines: [], warning: "relation projection 未就绪，无法判定 derived placement" };
   }
   const relations = context.relations ?? [], decisionById = new Map((context.decisions ?? []).map((decision) => [decision.decisionId, decision]));
-  const derives = relations.filter((edge) => edge.kind === "derives" && edge.state === "active" && edge.direction === "directed" && edge.to === `task/${row.taskId}` && edge.from.startsWith("decision/"));
+  const derives = relations.filter((edge) => edge.kind === "derives" &&
+    /* @gate-identity check-gui-status-judgments/gui-status-054 */
+    edge.state === "active" && edge.direction === "directed" &&
+    edge.to === `task/${row.taskId}` && edge.from.startsWith("decision/"));
   if (derives.length === 0) return { moduleKeys: [...row.placement.moduleKeys], productLines: [...row.placement.productLines] };
   const ids = [...new Set(derives.map((edge) => edge.from.split("/")[1]).filter((id): id is string => Boolean(id)))], scopes = ids.map((id) => decisionById.get(id)?.appliesTo);
   if (scopes.some((scope) => scope === undefined)) return { moduleKeys: [], productLines: [], warning: "派生决策 scope 未完整投影" };

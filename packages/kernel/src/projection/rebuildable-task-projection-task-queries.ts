@@ -163,7 +163,9 @@ export function taskQueryApi(
       }),
     readOperation: (opId) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as
+        const row =
+          /* @gate-identity check-bypass-write-boundary/bypass-write-037 */
+          db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as
           | { readonly event_json: string }
           | undefined;
         return row === undefined ? null : { event: parseEventJson(row.event_json), watermark: watermark(db) };
@@ -184,7 +186,9 @@ export function taskQueryApi(
       }),
     readTaskOperation: (opId) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const row = db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as
+        const row =
+          /* @gate-identity check-bypass-write-boundary/bypass-write-038 */
+          db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as
           | { readonly event_json: string }
           | undefined;
         if (!row) return null;
@@ -258,6 +262,7 @@ export function taskQueryApi(
         readHead,
         (db) =>
           (
+            /* @gate-identity check-bypass-write-boundary/bypass-write-039 */
             db.prepare(TASK_FOR_DOCUMENT_SQL).get(documentPath, documentPath) as
               | { readonly task_id: string }
               | undefined

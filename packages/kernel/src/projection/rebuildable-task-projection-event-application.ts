@@ -172,7 +172,9 @@ export function applyEvent(
       eventJson,
     );
     for (const change of event.payload.changes) {
-      const previous = db.prepare("SELECT value_json FROM document WHERE path = ?").get(change.path) as
+      const previous =
+        /* @gate-identity check-bypass-write-boundary/bypass-write-011 */
+        db.prepare("SELECT value_json FROM document WHERE path = ?").get(change.path) as
           | { readonly value_json: string }
           | undefined,
         base = previous ? (JSON.parse(previous.value_json) as DocumentState) : null;

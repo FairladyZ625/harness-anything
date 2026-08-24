@@ -16,7 +16,9 @@ import { endpointToNodeId } from "./endpoint";
 export const UNPROJECTED_MODULE = "__unprojected__";
 
 /** task.module 字段里代表「未赋值」的占位值(task-adapter 硬编码)。 */
-const PLACEHOLDER_MODULES = new Set(["", "unassigned", "unknown", "none"]);
+const PLACEHOLDER_MODULES = new Set(
+  /* @gate-identity check-gui-status-judgments/gui-status-021 */
+  ["", "unassigned", "unknown", "none"]);
 
 /** task.module 是否为占位(未投影)。 */
 export function isModuleUnprojected(module: string | undefined | null): boolean {

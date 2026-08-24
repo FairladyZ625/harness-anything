@@ -82,7 +82,9 @@ export const guiTaskProjectionFields = [
 ] as const satisfies ReadonlyArray<keyof TaskProjectionRow>;
 
 const viewOrder: readonly GuiViewId[] = ["board", "list", "detail", "doc-viewer", "review-queue", "graph"];
-const boardOrder: readonly GuiCoordinationStatus[] = ["open", "blocked", "in_review", "terminal", "unknown"];
+const boardOrder: readonly GuiCoordinationStatus[] =
+  /* @gate-identity check-gui-status-judgments/gui-status-001 */
+  ["open", "blocked", "in_review", "terminal", "unknown"];
 const coordinationStatuses = new Set<GuiCoordinationStatus>(boardOrder);
 
 export function buildGuiViewModel(rows: readonly GuiTaskRow[]): GuiViewModel {
@@ -95,7 +97,9 @@ export function buildGuiViewModel(rows: readonly GuiTaskRow[]): GuiViewModel {
       taskIds: sortedRows.filter((row) => row.coordinationStatus === status).map((row) => row.taskId)
     })),
     list: sortedRows,
-    reviewQueue: sortedRows.filter((row) => row.closeoutReadiness === "ready"),
+    reviewQueue: sortedRows.filter((row) =>
+      /* @gate-identity check-gui-status-judgments/gui-status-002 */
+      row.closeoutReadiness === "ready"),
     graph: {
       nodes: sortedRows.map((row) => ({ id: row.taskId, title: row.title })),
       edges: sortedRows.flatMap((row) => row.parentTaskId && taskIds.has(row.parentTaskId)
@@ -106,7 +110,9 @@ export function buildGuiViewModel(rows: readonly GuiTaskRow[]): GuiViewModel {
 }
 
 export function buildGuiViewModelFromTaskProjection(rows: readonly TaskProjectionRow[]): GuiViewModel {
-  return buildGuiViewModel(rows.filter((row) => row.packageDisposition === "active").map(toGuiTaskRow));
+  return buildGuiViewModel(rows.filter((row) =>
+    /* @gate-identity check-gui-status-judgments/gui-status-003 */
+    row.packageDisposition === "active").map(toGuiTaskRow));
 }
 
 export function readGuiTaskListResult(result: unknown): GuiTaskListReadResult {
@@ -119,7 +125,9 @@ export function readGuiTaskListResult(result: unknown): GuiTaskListReadResult {
   for (const task of result.tasks) {
     const row = readGuiTaskRow(task);
     if (!row.ok) return row;
-    if ((task as TaskProjectionRow).packageDisposition !== "active") continue;
+    if (
+      /* @gate-identity check-gui-status-judgments/gui-status-004 */
+      (task as TaskProjectionRow).packageDisposition !== "active") continue;
     rows.push(row.row);
   }
   return {

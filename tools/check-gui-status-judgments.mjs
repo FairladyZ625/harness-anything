@@ -6,14 +6,15 @@
  * mirror anchors come from status-vocabulary.ts; this checker owns uses of
  * those vocabularies in GUI judgment syntax, not their declarations.
  */
-import { createHash } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { statusVocabularies, statusWordRegister } from "../packages/kernel/src/domain/status-vocabulary.ts";
 import { guiStatusJudgmentBaseline } from "./gate-allowlists/gui-status-judgment-baseline.mjs";
+import { readSourceIdentity } from "./gate-allowlists/source-identity.mjs";
 
+const GATE_ID = "check-gui-status-judgments";
 const GUI_SOURCE = "packages/gui/src";
 const SOURCE_FILE = /\.(?:ts|tsx|mts|js|jsx|mjs)$/u;
 const EQUALITY_OPERATORS = new Set([
@@ -23,6 +24,8 @@ const EQUALITY_OPERATORS = new Set([
   ts.SyntaxKind.ExclamationEqualsToken
 ]);
 const BASELINE_CLASSIFICATIONS = new Set(["domain-judgment"]);
+const BASELINE_KINDS = new Set(["comparison", "group", "membership", "switch"]);
+const BASELINE_SHAPES = new Set(["point-comparison", "proper-subset"]);
 const TRANSIENT_OPERATION_ENTITY = /(?:Receipt|Recovery|Run|Script|Adapter|Wire)$/u;
 const VALIDATION_FIELD = /(?:availability|targetState|sessionBinding|witness result|migration marker)/iu;
 
@@ -48,7 +51,7 @@ export function scanGuiStatusJudgments(
       if (insideAnySpan(node, mirrorSpans)) return;
       const point = source.getLineAndCharacterOfPosition(node.getStart(source));
       const content = node.getText(source).replaceAll("\r\n", "\n");
-      const fingerprint = createHash("sha256").update(content).digest("hex");
+      const identity = readSourceIdentity(node, source, GATE_ID);
       fileSites.push({
         path: relativePath,
         line: point.line + 1,
@@ -56,7 +59,7 @@ export function scanGuiStatusJudgments(
         kind,
         shape,
         scope: semanticScope(node, source),
-        fingerprint,
+        identity,
         classification: shape === "complete-mirror"
           ? "registry-mirror"
           : shape === "proper-subset" || !isPureDisplayUsage(node, checker)
@@ -107,12 +110,8 @@ export function scanGuiStatusJudgments(
       ts.forEachChild(node, visit);
     };
     visit(source);
-    const occurrences = new Map();
     for (const site of fileSites) {
-      const identity = `${site.path}::${site.scope}::${site.kind}::${site.fingerprint}`;
-      const occurrence = (occurrences.get(identity) ?? 0) + 1;
-      occurrences.set(identity, occurrence);
-      sites.push({ ...site, key: `${identity}::${occurrence}` });
+      sites.push({ ...site, key: site.identity ?? `${site.path}:${site.line}:${site.column}` });
     }
   }
   return sites.sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column);
@@ -122,25 +121,32 @@ export function checkGuiStatusJudgments(sites, baseline = guiStatusJudgmentBasel
   const findings = [];
   const baselineByKey = new Map();
   for (const entry of baseline) {
-    if (!entry || typeof entry.key !== "string" || !BASELINE_CLASSIFICATIONS.has(entry.classification)) {
+    if (!entry || typeof entry.key !== "string" || !BASELINE_CLASSIFICATIONS.has(entry.classification)
+      || !BASELINE_KINDS.has(entry.kind) || !BASELINE_SHAPES.has(entry.shape)
+      || !Array.isArray(entry.words) || !entry.words.every((word) => typeof word === "string")) {
       findings.push(`invalid baseline entry ${JSON.stringify(entry)}`);
       continue;
     }
     if (baselineByKey.has(entry.key)) findings.push(`duplicate baseline key ${entry.key}`);
     baselineByKey.set(entry.key, entry);
   }
-  const siteByKey = new Map(sites.map((site) => [site.key, site]));
+  const siteByKey = new Map();
+  for (const site of sites) {
+    if (site.identity !== null && siteByKey.has(site.key)) findings.push(`${site.key}: duplicate source identity`);
+    siteByKey.set(site.key, site);
+  }
   for (const site of sites) {
     const entry = baselineByKey.get(site.key);
-    if (entry && entry.classification !== site.classification) {
-      findings.push(`${site.key}: baseline says ${entry.classification}, structural classification is ${site.classification}`);
+    if (entry && (entry.classification !== site.classification || entry.kind !== site.kind
+      || entry.shape !== site.shape || wordKey(entry.words) !== wordKey(site.words))) {
+      findings.push(`${site.key}: baseline freezes ${entry.classification}/${entry.shape}/${entry.kind}/${entry.words.join(",")}; site is ${site.classification}/${site.shape}/${site.kind}/${site.words.join(",")}`);
     }
     if (!entry && site.classification === "domain-judgment") {
       findings.push(`${site.key}: new GUI status judgment (${site.shape}; ${site.words.join(", ") || "typed status"})`);
     }
   }
   for (const entry of baseline) {
-    if (typeof entry?.key === "string" && !siteByKey.has(entry.key)) {
+    if (typeof entry?.key === "string" && !sites.some((site) => site.identity === entry.key)) {
       findings.push(`${entry.key}: stale baseline entry; remove it rather than transferring the exemption`);
     }
   }
@@ -386,7 +392,9 @@ function walk(directory) { const files = []; let entries; try { entries = readdi
 
 function printBaseline(sites) {
   console.log("export const guiStatusJudgmentBaseline = Object.freeze([");
-  for (const site of sites.filter((entry) => entry.classification === "domain-judgment")) console.log(`  { key: ${JSON.stringify(site.key)}, classification: "domain-judgment" }, // ${site.shape}: ${site.words.join(", ")} @ ${site.scope}`);
+  for (const site of sites.filter((entry) => entry.classification === "domain-judgment")) {
+    console.log(`  { key: ${JSON.stringify(site.key)}, classification: "domain-judgment", kind: ${JSON.stringify(site.kind)}, shape: ${JSON.stringify(site.shape)}, words: ${JSON.stringify(site.words)} }, // @ ${site.scope}`);
+  }
   console.log("]);");
 }
 

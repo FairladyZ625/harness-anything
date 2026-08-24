@@ -150,7 +150,9 @@ function projectionFileFingerprint(projectionPath: string): string | null {
 // which has scanned or applied beyond the current source cut is likewise from an abandoned history;
 // discard it before any staged events can be applied to the replacement ledger.
 function matchesLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): boolean {
-  const row = db
+  const row =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-010 */
+    db
     .prepare("SELECT watermark, scanned_revision, head_digest FROM projection_meta WHERE singleton = 1")
     .get() as {
     readonly watermark: number;
@@ -162,13 +164,17 @@ function matchesLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPor
   return Number(row.scanned_revision) !== sourceRevision || row.head_digest === (head?.eventDigest ?? null);
 }
 function openDatabase(projectionPath: string): DatabaseSync {
-  return new DatabaseSync(projectionPath);
+  return new
+    /* @gate-identity check-bypass-write-boundary/bypass-write-007 */
+    DatabaseSync(projectionPath);
 }
 function configureDatabase(db: DatabaseSync): void {
+  /* @gate-identity check-bypass-write-boundary/bypass-write-008 */
   db.exec("PRAGMA journal_mode = DELETE; PRAGMA foreign_keys = ON");
 }
 
 function createTables(db: DatabaseSync): void {
+  /* @gate-identity check-bypass-write-boundary/bypass-write-009 */
   db.exec(`
     CREATE TABLE IF NOT EXISTS projection_meta (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1),

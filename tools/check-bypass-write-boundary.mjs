@@ -3,7 +3,10 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
+import { loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
+import { readSourceIdentity } from "./gate-allowlists/source-identity.mjs";
+
+const gateId = "check-bypass-write-boundary";
 
 const targetRoots = [
   "packages/kernel/src/store",
@@ -25,24 +28,41 @@ export function scanBypassWriteCalls(root = process.cwd()) {
 }
 
 export function checkBypassWriteBoundary(root = process.cwd()) {
-  const allowlist = loadGateAllowlist("check-bypass-write-boundary", {
+  const allowlist = loadGateAllowlist(gateId, {
     requiredSections: ["coordinatedCore", "rebuildable-projection", "exemptHumanOrBootstrap", "legacyArchive", "freshGateRegistry"]
   });
-  const rebuildableProjection = new Set(entryValues(allowlist["rebuildable-projection"]));
-  const governed = new Set(Object.entries(allowlist)
+  const rebuildableProjection = new Map(allowlist["rebuildable-projection"].map((entry) => [entry.value, entry]));
+  const governed = new Map(Object.entries(allowlist)
     .filter(([section]) => section !== "rebuildable-projection")
-    .flatMap(([, entries]) => entryValues(entries)));
-  const findings = scanBypassWriteCalls(root).map((finding) => ({
-    ...finding,
-    message: finding.category === "rebuildable-projection"
-      ? `${finding.api} writes a rebuildable projection cache under the explicit rebuildable-projection exemption`
-      : `${finding.api} writes filesystem state outside the coordinator unless explicitly governed`,
-    allowed: finding.category === "rebuildable-projection" ? rebuildableProjection.has(finding.key) : governed.has(finding.key)
-  }));
+    .flatMap(([, entries]) => entries)
+    .map((entry) => [entry.value, entry]));
+  const findings = scanBypassWriteCalls(root).map((finding) => {
+    const entry = (finding.category === "rebuildable-projection" ? rebuildableProjection : governed).get(finding.key);
+    return {
+      ...finding,
+      message: entry && entry.api !== finding.api
+        ? `source identity ${finding.key} changed API from ${entry.api} to ${finding.api}`
+        : finding.category === "rebuildable-projection"
+          ? `${finding.api} writes a rebuildable projection cache under the explicit rebuildable-projection exemption`
+          : `${finding.api} writes filesystem state outside the coordinator unless explicitly governed`,
+      allowed: finding.identity !== null && entry?.api === finding.api
+    };
+  });
 
-  for (const entry of [...governed, ...rebuildableProjection]) {
-    if (!findings.some((finding) => finding.key === entry)) {
-      findings.push({ key: entry, message: `allowlist entry is stale and should be removed: ${entry}`, allowed: false });
+  const identityCounts = new Map();
+  for (const finding of findings) {
+    if (finding.identity !== null) identityCounts.set(finding.identity, (identityCounts.get(finding.identity) ?? 0) + 1);
+  }
+  for (const finding of findings) {
+    if (finding.identity !== null && identityCounts.get(finding.identity) !== 1) {
+      finding.allowed = false;
+      finding.message = `source identity ${finding.identity} is attached to more than one governed call`;
+    }
+  }
+
+  for (const entry of [...governed.values(), ...rebuildableProjection.values()]) {
+    if (!findings.some((finding) => finding.identity === entry.value)) {
+      findings.push({ key: entry.value, message: `allowlist entry is stale and should be removed: ${entry.value}`, allowed: false });
     }
   }
   return { findings, violations: findings.filter((finding) => !finding.allowed) };
@@ -57,20 +77,22 @@ function inspectFile(root, rel) {
   const sqlite = sqliteBindings(sourceFile);
   const sqliteGoverned = category === "rebuildable-projection" || hasWritableSqliteOpen(sourceFile, sqlite);
   if (bindings.named.size === 0 && bindings.namespaces.size === 0 && sqlite.size === 0) return [];
-  const occurrences = new Map();
   const findings = [];
 
   visit(sourceFile, (node) => {
     const api = ts.isCallExpression(node) ? calledFsApi(node.expression, bindings) ?? calledSqliteApi(node.expression, sqlite, sqliteGoverned)
       : ts.isNewExpression(node) && ts.isIdentifier(node.expression) && sqlite.has(node.expression.text) && !readOnlySqliteOpen(node) ? "DatabaseSync" : undefined;
     if (!api) return;
-    const occurrence = (occurrences.get(api) ?? 0) + 1;
-    occurrences.set(api, occurrence);
     const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.expression.getStart(sourceFile));
+    const identity = readSourceIdentity(node.expression, sourceFile, gateId);
     findings.push({
       api,
       category,
-      key: `${rel}#${api}@${occurrence}`,
+      path: rel,
+      line: line + 1,
+      column: character + 1,
+      identity,
+      key: identity ?? `${rel}#${api}@${line + 1}:${character + 1}`,
       legacyKey: `${rel}#${api}@${line + 1}:${character + 1}`
     });
   });
@@ -156,7 +178,10 @@ function main() {
   const result = checkBypassWriteBoundary();
   if (result.violations.length > 0) {
     console.error("Bypass write boundary check failed:");
-    for (const finding of result.violations) console.error(`- ${finding.key}: ${finding.message}`);
+    for (const finding of result.violations) {
+      const location = finding.path ? `${finding.path}:${finding.line}:${finding.column}` : finding.key;
+      console.error(`- ${location} [${finding.key}]: ${finding.message}`);
+    }
     process.exitCode = 1;
   } else {
     console.log(`Bypass write boundary check passed (${result.findings.length} governed filesystem/SQLite call(s)).`);

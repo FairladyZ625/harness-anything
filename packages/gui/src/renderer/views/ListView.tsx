@@ -35,7 +35,9 @@ function AuditRow({
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
 }) {
-  const archived = task.packageDisposition !== "active";
+  const archived =
+    /* @gate-identity check-gui-status-judgments/gui-status-064 */
+    task.packageDisposition !== "active";
   const spawningDecision = spawningDecisionOf(task, relations);
   return (
     <tr
@@ -152,7 +154,9 @@ export function ListView({
   const riskCount = tasks.filter(
     (task) =>
       task.freshness !== "fresh" ||
+      /* @gate-identity check-gui-status-judgments/gui-status-065 */
       task.closeoutReadiness === "missing" ||
+      /* @gate-identity check-gui-status-judgments/gui-status-066 */
       task.closeoutReadiness === "failed",
   ).length;
 

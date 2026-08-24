@@ -23,5 +23,7 @@ export function incomingRelations(targetRef: string, kind: RelationKind, relatio
  * predicate instead of re-deriving the criterion, so the two layers cannot drift.
  */
 export function activeIncomingRelations(targetRef: string, kind: RelationKind, relations: ReadonlyArray<RelationEdge>): ReadonlyArray<RelationEdge> {
-  return incomingRelations(targetRef, kind, relations).filter((edge) => edge.state === "active");
+  return incomingRelations(targetRef, kind, relations).filter((edge) =>
+    /* @gate-identity check-gui-status-judgments/gui-status-032 */
+    edge.state === "active");
 }

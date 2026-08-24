@@ -24,11 +24,27 @@ export function TaskControlPanel({ task, feedback, onProgress, onSubmit }: {
 }) {
   const [localError, setLocalError] = useState<string | null>(null), pending = feedback?.state === "pending";
   const reason = task.origin === "external" ? t("components.taskControlPanel.readOnlyExternal")
-    : task.origin === "archival" || task.packageDisposition !== "active" ? t("components.taskControlPanel.readOnlyArchived")
-      : task.canonicalStatus === "in_review" ? t("components.taskControlPanel.readOnlyInReview")
-        : task.canonicalStatus === "done" ? t("components.taskControlPanel.readOnlyDone")
-          : task.canonicalStatus === "planned" ? task.blocking === "blocked" ? t("components.taskControlPanel.plannedBlocked") : t("components.taskControlPanel.planned")
-            : task.canonicalStatus === "active" && !task.activeExecutionId ? t("components.taskControlPanel.activeWithoutLease") : null;
+    : task.origin === "archival" ||
+      /* @gate-identity check-gui-status-judgments/gui-status-008 */
+      task.packageDisposition !== "active" ? t("components.taskControlPanel.readOnlyArchived")
+      :
+        /* @gate-identity check-gui-status-judgments/gui-status-009 */
+        task.canonicalStatus === "in_review" ? t("components.taskControlPanel.readOnlyInReview")
+        :
+          /* @gate-identity check-gui-status-judgments/gui-status-010 */
+          task.canonicalStatus === "done" ? t("components.taskControlPanel.readOnlyDone")
+          :
+            /* @gate-identity check-gui-status-judgments/gui-status-011 */
+            task.canonicalStatus === "planned" ?
+            /* @gate-identity check-gui-status-judgments/gui-status-012 */
+            task.blocking === "blocked"
+              ? t("components.taskControlPanel.plannedBlocked")
+              : t("components.taskControlPanel.planned")
+            :
+              /* @gate-identity check-gui-status-judgments/gui-status-013 */
+              task.canonicalStatus === "active" && !task.activeExecutionId
+                ? t("components.taskControlPanel.activeWithoutLease")
+                : null;
 
   return <section className="rounded-md border border-border bg-bg/50 p-2.5" data-testid="task-control-panel">
     <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">{t("components.taskControlPanel.title")}</div>
@@ -41,7 +57,11 @@ export function TaskControlPanel({ task, feedback, onProgress, onSubmit }: {
       {blocker.rationale && <p className="mt-0.5 font-sans text-[11px]">{blocker.rationale}</p>}
     </div>)}
     {reason && <p className="mt-2 text-[11px] leading-relaxed text-text-muted">{reason}</p>}
-    {task.canonicalStatus === "active" && task.activeExecutionId && task.origin === "native" && task.packageDisposition === "active" && <div className="mt-2 space-y-2">
+    {
+      /* @gate-identity check-gui-status-judgments/gui-status-014 */
+      task.canonicalStatus === "active" && task.activeExecutionId && task.origin === "native" &&
+      /* @gate-identity check-gui-status-judgments/gui-status-015 */
+      task.packageDisposition === "active" && <div className="mt-2 space-y-2">
       <p className="font-mono text-[11px] text-text-faint">{t("components.taskControlPanel.lease", { executionId: task.activeExecutionId })}</p>
       <details className="rounded border border-border bg-surface p-2">
         <summary className="cursor-pointer text-[12px] font-medium text-text">{t("components.taskControlPanel.addProgress")}</summary>

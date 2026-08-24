@@ -50,7 +50,10 @@ export function matchesTask(
 ): boolean {
   if (
     !filters.includeArchived &&
-    (task.packageDisposition !== "active" ||
+    (
+      /* @gate-identity check-gui-status-judgments/gui-status-033 */
+      task.packageDisposition !== "active" ||
+      /* @gate-identity check-gui-status-judgments/gui-status-034 */
       task.coordinationStatus === "cancelled")
   ) {
     return false;
@@ -81,7 +84,11 @@ export function matchesTask(
 
   if (filters.module !== "all" && task.module !== filters.module && !task.moduleKeys?.includes(filters.module)) return false;
   if (filters.engine !== "all" && task.engine !== filters.engine) return false;
-  if (filters.status.length > 0 && !filters.status.includes(task.coordinationStatus) && !(task.blocking === "unknown" && filters.status.includes("unknown")))
+  if (filters.status.length > 0 && !filters.status.includes(task.coordinationStatus) && !(
+    /* @gate-identity check-gui-status-judgments/gui-status-035 */
+    task.blocking === "unknown" &&
+    /* @gate-identity check-gui-status-judgments/gui-status-036 */
+    filters.status.includes("unknown")))
     return false;
   if (filters.closeout !== "all" && task.closeoutReadiness !== filters.closeout)
     return false;

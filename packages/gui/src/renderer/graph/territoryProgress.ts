@@ -46,6 +46,7 @@ export function deriveZoneProgress(
   let planned = 0;
   let other = 0;
   for (const task of tasks) {
+    /* @gate-identity check-gui-status-judgments/gui-status-023 */
     switch (statusBucket(task.coordinationStatus)) {
       case "done": done += 1; break;
       case "active": active += 1; break;
@@ -64,9 +65,19 @@ export function deriveZoneProgress(
 }
 
 function statusBucket(status: SnapshotStatus): SnapshotStatus {
-  if (status === "done" || status === "active" || status === "blocked") return status;
-  if (status === "in_review") return "in_review";
-  if (status === "planned") return "planned";
+  if (
+    /* @gate-identity check-gui-status-judgments/gui-status-024 */
+    status === "done" ||
+    /* @gate-identity check-gui-status-judgments/gui-status-025 */
+    status === "active" ||
+    /* @gate-identity check-gui-status-judgments/gui-status-026 */
+    status === "blocked") return status;
+  if (
+    /* @gate-identity check-gui-status-judgments/gui-status-027 */
+    status === "in_review") return "in_review";
+  if (
+    /* @gate-identity check-gui-status-judgments/gui-status-028 */
+    status === "planned") return "planned";
   return "unknown";
 }
 
@@ -182,6 +193,7 @@ function taskImportance(a: TaskRow, b: TaskRow): number {
 }
 
 function statusWeight(status: SnapshotStatus): number {
+  /* @gate-identity check-gui-status-judgments/gui-status-029 */
   switch (status) {
     case "blocked": return 0;
     case "active": return 1;

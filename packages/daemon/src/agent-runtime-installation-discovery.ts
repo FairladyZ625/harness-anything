@@ -1,4 +1,6 @@
-import { execFileSync } from "node:child_process";
+import {
+  /* @gate-identity check-sync-subprocess/sync-subprocess-001 */
+  execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { accessSync, constants, realpathSync } from "node:fs";
 import path from "node:path";
@@ -138,7 +140,9 @@ export function runExecutableSync(
   },
 ): string {
   const shim = platform === "win32" && /\.(?:cmd|bat)$/iu.test(executablePath);
-  const stdout = execFileSync(
+  const stdout =
+    /* @gate-identity check-sync-subprocess/sync-subprocess-002 */
+    execFileSync(
     shim ? "cmd.exe" : executablePath,
     shim ? ["/d", "/s", "/c", `"${executablePath}" ${args.join(" ")}`] : [...args],
     {

@@ -17,7 +17,10 @@ type DockSession = { readonly runtimeSessionId: string; readonly instanceId: str
 export function runtimeDockRows(panorama: readonly RuntimePanoramaRow[], sessions: readonly DockSession[]): readonly RuntimeDockRow[] {
   const liveness = new Map(sessions.map((session) => [session.runtimeSessionId, session])), seen = new Set<string>();
   const dispatched = panorama.map((row): RuntimeDockRow => { seen.add(row.runtimeSessionId); return { runtimeSessionId: row.runtimeSessionId, agentId: row.agentId ?? null, agentName: row.agentName ?? row.agentId ?? null, squadId: row.squadId ?? null, squadName: row.squad?.name ?? row.squadId ?? null, instanceId: row.instanceId, taskId: row.taskId, taskTitle: row.taskTitle, startedAt: row.startedAt, status: row.status, liveness: liveness.get(row.runtimeSessionId)?.liveness ?? null, dispatchId: row.dispatchId, delegation: runtimePanoramaDelegation(row) }; });
-  const orphans = sessions.filter((session) => !seen.has(session.runtimeSessionId)).map((session): RuntimeDockRow => ({ runtimeSessionId: session.runtimeSessionId, agentId: null, agentName: null, squadId: null, squadName: null, instanceId: session.instanceId, taskId: null, taskTitle: null, startedAt: session.activity.lastObservedAt, status: session.liveness === "live" ? "running" : "unknown", liveness: session.liveness, dispatchId: null, delegation: null }));
+  const orphans = sessions.filter((session) => !seen.has(session.runtimeSessionId)).map((session): RuntimeDockRow => ({ runtimeSessionId: session.runtimeSessionId, agentId: null, agentName: null, squadId: null, squadName: null, instanceId: session.instanceId, taskId: null, taskTitle: null, startedAt: session.activity.lastObservedAt, status:
+    /* @gate-identity check-gui-status-judgments/gui-status-041 */
+    session.liveness === "live" ? "running" : "unknown",
+    liveness: session.liveness, dispatchId: null, delegation: null }));
   return [...dispatched, ...orphans];
 }
 

@@ -51,7 +51,13 @@ export async function settleTaskReceipt(
 }
 
 export function isTaskStartable(task: TaskRow): boolean {
-  return task.origin === "native" && task.packageDisposition === "active" && task.canonicalStatus === "planned" && task.blocking === "clear";
+  return task.origin === "native" &&
+    /* @gate-identity check-gui-status-judgments/gui-status-044 */
+    task.packageDisposition === "active" &&
+    /* @gate-identity check-gui-status-judgments/gui-status-045 */
+    task.canonicalStatus === "planned" &&
+    /* @gate-identity check-gui-status-judgments/gui-status-046 */
+    task.blocking === "clear";
 }
 
 export function createGuiExecutionId(randomUUID: () => string = () => crypto.randomUUID()): string {
@@ -93,17 +99,23 @@ export function useTaskActions(repoId: string) {
   const startTask = (task: TaskRow): Promise<TaskMutationFeedback> => once(`start:${task.taskId}`, task.taskId, async () => {
     const executionId = createGuiExecutionId(); publish(task.taskId, { state: "pending", kind: "start", opId: "awaiting-receipt", hint: `正在申请 lease · ${executionId}` });
     const settlement = await settleTaskReceipt(await harnessClient.startTask({ repoId, taskId: task.taskId, executionId }), ({ opId }) => harnessClient.showReceipt({ repoId, opId }));
-    return reread(task.taskId, "start", settlement, (data) => data.rows.some((row) => row.taskId === task.taskId && row.snapshot.task?.status === "active" && row.snapshot.lease?.executionId === executionId));
+    return reread(task.taskId, "start", settlement, (data) => data.rows.some((row) => row.taskId === task.taskId &&
+      /* @gate-identity check-gui-status-judgments/gui-status-047 */
+      row.snapshot.task?.status === "active" && row.snapshot.lease?.executionId === executionId));
   });
   const appendProgress = (task: TaskRow, input: { readonly text: string; readonly evidence: ReadonlyArray<{ readonly type: string; readonly path: string; readonly summary: string }> }): Promise<TaskMutationFeedback> => once(`progress:${task.taskId}`, task.taskId, async () => {
     publish(task.taskId, { state: "pending", kind: "progress", opId: "awaiting-receipt", hint: "正在追加 typed progress…" });
     const settlement = await settleTaskReceipt(await harnessClient.appendTaskProgress({ repoId, taskId: task.taskId, executionId: task.activeExecutionId, ...input }), ({ opId }) => harnessClient.showReceipt({ repoId, opId }));
-    return reread(task.taskId, "progress", settlement, (data) => data.rows.some((row) => row.taskId === task.taskId && row.snapshot.task?.status === "active" && row.snapshot.lease?.executionId === task.activeExecutionId));
+    return reread(task.taskId, "progress", settlement, (data) => data.rows.some((row) => row.taskId === task.taskId &&
+      /* @gate-identity check-gui-status-judgments/gui-status-048 */
+      row.snapshot.task?.status === "active" && row.snapshot.lease?.executionId === task.activeExecutionId));
   });
   const submitTask = (task: TaskRow, submission: GuiSubmissionV1): Promise<TaskMutationFeedback> => once(`submit:${task.taskId}`, task.taskId, async () => {
     publish(task.taskId, { state: "pending", kind: "submit", opId: "awaiting-receipt", hint: "正在原子提交 SubmissionV1…" });
     const settlement = await settleTaskReceipt(await harnessClient.submitTask({ repoId, taskId: task.taskId, executionId: task.activeExecutionId ?? "", submission }), ({ opId }) => harnessClient.showReceipt({ repoId, opId }));
-    return reread(task.taskId, "submit", settlement, (data) => data.rows.some((row) => row.taskId === task.taskId && row.snapshot.task?.status === "in_review" && row.snapshot.lease === null));
+    return reread(task.taskId, "submit", settlement, (data) => data.rows.some((row) => row.taskId === task.taskId &&
+      /* @gate-identity check-gui-status-judgments/gui-status-049 */
+      row.snapshot.task?.status === "in_review" && row.snapshot.lease === null));
   });
   return { feedback, startTask, appendProgress, submitTask };
 }

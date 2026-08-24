@@ -6,16 +6,11 @@ import test from "node:test";
 import { scanBypassWriteCalls } from "../../check-bypass-write-boundary.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const targetPrefix = "packages/kernel/src/projection/rebuildable-task-projection";
 const preSplitSqliteCounts = {
   DatabaseSync: 1,
   "sqlite.exec": 5,
   "sqlite.prepare": 33
 };
-
-function belongsToRebuildableTaskProjection(key) {
-  return key.startsWith(`${targetPrefix}.ts#`) || key.startsWith(`${targetPrefix}-`);
-}
 
 test("rebuildable task projection calls and allowlist declarations stay in exact sync", () => {
   const allowlist = JSON.parse(readFileSync(
@@ -24,16 +19,14 @@ test("rebuildable task projection calls and allowlist declarations stay in exact
   ));
   const declared = allowlist.entries["rebuildable-projection"]
     .map((entry) => entry.value)
-    .filter(belongsToRebuildableTaskProjection)
     .sort();
-  const discovered = scanBypassWriteCalls(repoRoot)
-    .filter((finding) => finding.category === "rebuildable-projection" && belongsToRebuildableTaskProjection(finding.key))
-    .map((finding) => finding.key)
-    .sort();
+  const discoveredFindings = scanBypassWriteCalls(repoRoot)
+    .filter((finding) => finding.category === "rebuildable-projection");
+  const discovered = discoveredFindings.map((finding) => finding.key).sort();
 
   const discoveredSqliteCounts = Object.fromEntries(Object.keys(preSplitSqliteCounts).map((api) => [
     api,
-    discovered.filter((key) => key.includes(`#${api}@`)).length
+    discoveredFindings.filter((finding) => finding.api === api).length
   ]));
   for (const [api, preSplitCount] of Object.entries(preSplitSqliteCounts)) {
     assert.ok(
@@ -44,6 +37,6 @@ test("rebuildable task projection calls and allowlist declarations stay in exact
   assert.deepEqual(
     declared,
     discovered,
-    "rebuildable-task-projection split-module allowlist must declare every governed call exactly once and contain no stale positions"
+    "rebuildable-projection allowlist must declare every source-attached identity exactly once"
   );
 });

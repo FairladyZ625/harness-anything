@@ -62,7 +62,9 @@ function LaneCard({
   onToggleFavorite: (id: string) => void;
 }) {
   const external = isExternal(task);
-  const archived = task.packageDisposition !== "active";
+  const archived =
+    /* @gate-identity check-gui-status-judgments/gui-status-067 */
+    task.packageDisposition !== "active";
   const spawningDecision = spawningDecisionOf(task, relations);
   return (
     <div
