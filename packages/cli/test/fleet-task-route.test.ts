@@ -24,7 +24,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   assert.deepEqual(routed?.action, { kind: "task-start", taskId: "task_one" });
   const child = path.join(root, "worktrees", "nested"); mkdirSync(child, { recursive: true });
   const childRouted = await fleetTaskRoute(command("repo.task.run", { kind: "task-progress-append", taskId: "task_one", executionId: "execution_one", text: "nested cwd", evidence: [] }, child), env);
-  assert.equal(childRouted?.workspaceRoot, child); assert.deepEqual(childRouted?.action, { kind: "task-progress-append", taskId: "task_one", executionId: "execution_one", text: "nested cwd", evidence: [] });
+  assert.equal(childRouted?.workspaceRoot, root, "commands from descendants still materialize the registered workspace"); assert.deepEqual(childRouted?.action, { kind: "task-progress-append", taskId: "task_one", executionId: "execution_one", text: "nested cwd", evidence: [] });
   assert.equal(await fleetTaskRoute(command("repo.task.run", { kind: "task-complete", taskId: "task_one" }), env), null, "unsupported commands keep the explicit local repo-mode rejection path");
 
   writeFileSync(path.join(root, "task.json"), '{"title":"Structured edge task","riskTier":"high"}\n');

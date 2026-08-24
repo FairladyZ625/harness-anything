@@ -6,7 +6,7 @@
 // in the local mirror.
 //
 // W3-C class-A sync (design-v2 §3): when the command's task package has local
-// mirror-worktree changes, they ride the same command — uploaded as claims and
+// registered-harness changes, they ride the same command — uploaded as claims and
 // carried with the mirror base cut — so the center validates holder, document
 // base, and lifecycle transition as one serial command. A conflict rejects the
 // whole command and stages base/local/center into .harness/conflicts; an
@@ -14,7 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { classifyTextualArtifactPath, consumeKnownError, DOC_POLICY_ID } from "../../kernel/src/index.ts";
+import { classifyTextualArtifactPath, consumeKnownError, DOC_POLICY_ID, resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { FleetRemoteError, runFleetReplicaPullClient, runFleetTaskCommandClient, runFleetUploadClient } from "./fleet/edge.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
 import { fleetCredentialFromRoster, readFleetRosterFile } from "./fleet-center-admission.ts";
@@ -42,13 +42,14 @@ export function fleetDocPathInTaskPackage(value: string, taskId: string): boolea
 // or a distinct task id. The canonical package INDEX owns that distinction.
 // Returning null on absent/ambiguous metadata fails closed for automatic
 // carry, while the center remains the final task/lease authority.
-function fleetExactTaskPackagePath(view: FleetMirrorView, taskId: string): string | null {
+function fleetExactTaskPackagePath(view: FleetMirrorView, workspaceRoot: string, taskId: string): string | null {
+  const materializedRoot = resolveHarnessLayout(workspaceRoot).authoredRoot;
   const paths = new Set<string>();
   for (const logical of view.entries.keys()) {
     const match = /^(tasks\/[^/]+)\/INDEX\.md$/u.exec(logical);
     if (!match) continue;
     try {
-      const body = readFileSync(path.join(view.worktreeRoot, ...logical.split("/")), "utf8");
+      const body = readFileSync(path.join(materializedRoot, ...logical.split("/")), "utf8");
       if (body.split(/\r?\n/u).some((line) => line === `task_id: ${taskId}` || line === `taskId: ${taskId}`)) paths.add(match[1]!);
     } catch (error) { consumeKnownError(error); }
   }
@@ -62,7 +63,7 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
   const waitMs = payload.waitTimeoutMs !== undefined && Number.isSafeInteger(payload.waitTimeoutMs) && payload.waitTimeoutMs > 0 ? payload.waitTimeoutMs : timers.maxWaitMs;
   const opId = randomUUID(), peer = { hostname: payload.host, port: payload.port, ca: readFileSync(payload.caPath, "utf8"), servername: payload.servername, nodeId: payload.nodeId, credential, assignmentId: payload.assignmentId };
   const workspaceRoot = payload.workspaceRoot ?? null;
-  // One edge/view has a single materialized worktree. Hold its round fence
+  // One edge/view has one registered harness materialization. Hold its round fence
   // across gate check, candidate scan/upload, center command, pull, and local
   // materialization so an A round cannot interleave with B sync (or another
   // A round) between those state-machine edges.
@@ -71,7 +72,7 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
   // staged, unhandled divergence, its transitions stay blocked — the edge
   // refuses before any upload or center round-trip.
   if (workspaceRoot !== null && taskId !== null && action.kind !== "task-create") {
-    const view = locateFleetMirrorView(payload.viewRoot, payload.repoId), exactPackage = view === null ? null : fleetExactTaskPackagePath(view, taskId), belongs = (conflictPath: string): boolean => exactPackage === null ? fleetDocPathInTaskPackage(conflictPath, taskId) : conflictPath.startsWith(`${exactPackage}/`);
+    const view = locateFleetMirrorView(payload.viewRoot, payload.repoId), exactPackage = view === null ? null : fleetExactTaskPackagePath(view, workspaceRoot, taskId), belongs = (conflictPath: string): boolean => exactPackage === null ? fleetDocPathInTaskPackage(conflictPath, taskId) : conflictPath.startsWith(`${exactPackage}/`);
     const open = readFleetUnresolvedConflicts(workspaceRoot, payload.repoId).flatMap((record) => record.paths.map((row) => row.path)).filter(belongs);
     if (open.length > 0) return { schema: "command-receipt/v2", ok: false, command: action.kind, outcome: "op_rejected", opId: `conflict-open:${taskId}`, canonicalOutcome: "op_rejected", mirrorOutcome: "conflict_open", code: "conflict_open", taskId, error: { code: "conflict_open", hint: `An unresolved staged conflict covers ${[...new Set(open)].sort().join(", ")}; exit explicitly with ha doc conflict resolve|discard-local|overwrite-center before rerunning this task's commands.` } } as Record<string, unknown>;
   }
@@ -102,7 +103,7 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
   return { schema: "command-receipt/v2", ok, command: action.kind, outcome: result.outcome, opId: result.opId !== "" ? result.opId : `fleet:${opId}`, revision: result.revision ?? null, canonicalOutcome: result.outcome, mirrorOutcome: mirror === null ? "not_pulled" : mirror.outcome, ...(ok ? {} : { error: { code: result.code ?? (mirror !== null && mirror.outcome === "pull_blocked" ? "pull_blocked" : "fleet_task_rejected"), hint: conflictNextAction(staged, typeof receipt.nextAction === "string" ? receipt.nextAction : conflictCode === null ? "Inspect the fleet task receipt." : "Pull the center, rebase the local task documents, and rerun the same command; or resolve the staged conflict explicitly.") } }), ...(receipt as Record<string, unknown>), fleet: { origin: "fleet-edge", nodeId: payload.nodeId, assignmentId: payload.assignmentId, commandOpId: opId, waitOutcome: result.outcome, lease: result.lease }, ...(mirror ? { mirror } : {}), ...(staged.length ? { conflicts: staged.map((conflict) => ({ conflictId: conflict.conflictId, paths: conflict.paths, dir: conflict.dir, exits: ["resolve", "discard-local", "overwrite-center"] })) } : {}), ...(result.queuePosition !== null ? { queuePosition: result.queuePosition } : {}) } as Record<string, unknown>;
   });
 
-  // PUSHING_DOCS_AND_TRANSITION: gather this task's dirty mirror-worktree prose
+  // PUSHING_DOCS_AND_TRANSITION: gather this task's dirty registered-harness prose
   // (doc-sync-allowed routes only, inside the assignment scope), upload the
   // bytes as claims, and carry descriptors plus the mirror base cut on the
   // command frame.
@@ -110,11 +111,11 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
     if (taskId === null || workspaceRoot === null || action.kind === "task-create") return null;
     const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
     if (view === null) return null;
-    cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId);
-    const packagePath = fleetExactTaskPackagePath(view, taskId);
+    cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
+    const packagePath = fleetExactTaskPackagePath(view, workspaceRoot, taskId);
     if (packagePath === null) return null;
     const scope = fleetEdgeScopePaths(payload.assignmentId, payload.rosterPath);
-    const candidates = scanFleetMirrorWorktree(view).changes.filter((change) => change.path.startsWith(`${packagePath}/`) && (scope === null || scope.some((allowed) => change.path === allowed || change.path.startsWith(`${allowed}/`))));
+    const candidates = scanFleetMirrorWorktree(view, workspaceRoot).changes.filter((change) => change.path.startsWith(`${packagePath}/`) && (scope === null || scope.some((allowed) => change.path === allowed || change.path.startsWith(`${allowed}/`))));
     if (candidates.length === 0) return null;
     const descriptors = await runFleetUploadClient({ ...peer, timeoutMs: 60_000, changes: candidates.map((change) => ({ path: change.path, body: Buffer.from(change.bytes), mediaType: change.mediaType })) });
     return { docChanges: candidates.map((change, index) => ({ path: change.path, baseBlobSha256: change.baseBlobSha256, policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID, candidate: descriptors[index]! })), mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest } };

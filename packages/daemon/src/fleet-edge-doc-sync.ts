@@ -1,7 +1,7 @@
 // Class-B sync (design-v2 §3): one explicit `ha doc sync` round on a
 // remote-edge workspace — COMPARING_WITH_CENTER (a replica pull IS the
 // comparison: "current" means the center has not moved), then PUSHING the
-// shared-surface prose that is dirty in the mirror worktree, or PULLING when
+// shared-surface prose that is dirty in the registered harness, or PULLING when
 // the center advanced. A center that moved the same paths the edge changed
 // rejects the push (CENTER_REJECTED) and the divergence is staged — never
 // merged, never silently overwritten. The same module serves the three
@@ -36,14 +36,14 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
     // Cache dirty-path base bytes BEFORE the compare pull: the marker cut is
     // still the view's current cut at this moment, so base/ stays stageable
     // even when the pull jumps past the retention window.
-    if (preView !== null) cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId);
+    if (preView !== null) cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, payload.workspaceRoot);
     // COMPARING_WITH_CENTER
     const pulled = await runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes, timeoutMs });
     const settle = applyFleetMirrorCut(payload.viewRoot, payload.repoId, payload.workspaceRoot, "pull", { kind: "shared-docs" });
     const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
     if (view === null) return fleetDocSyncReceipt(false, "mirror_missing", { syncState: "COMPARING_WITH_CENTER", canonicalOutcome: "applied", mirrorOutcome: "applied", ...cutOf(pulled.current.cut.revision), nextAction: "Run a task command or ha daemon fleet edge sync first so the mirror view exists, then rerun ha doc sync." });
     const scope = fleetEdgeScopePaths(payload.assignmentId, payload.rosterPath);
-    const scan = scanFleetMirrorWorktree(view, selection);
+    const scan = scanFleetMirrorWorktree(view, payload.workspaceRoot, selection);
     // Task-context documents never ride the shared-surface round: they travel
     // with their task commands (class A). Report them so the operator knows.
     const rideAlong = scan.changes.filter((change) => change.path.startsWith("tasks/")).map((change) => change.path);
@@ -92,12 +92,12 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
   return withFleetMirrorLock(payload.viewRoot, payload.repoId, async () => {
     const record = readFleetConflictRecord(payload.workspaceRoot, payload.conflictId);
     if (record.state === "resolved") return { schema: "command-receipt/v2", ok: true, command: `doc-conflict-${payload.action}`, outcome: "applied", conflictId: record.conflictId, state: record.state, resolvedVia: record.resolvedVia, nextAction: "This conflict is already resolved." };
-    if (payload.action === "resolve") { const settled = settleFleetConflictRecord(payload.workspaceRoot, payload.conflictId, "resolve"); return { schema: "command-receipt/v2", ok: true, command: "doc-conflict-resolve", outcome: "applied", conflictId: settled.conflictId, state: settled.state, paths: settled.paths.map((row) => row.path), nextAction: "Record closed. Merge base/local/center into the mirror worktree yourself, then rerun ha doc sync (or the task command) on the fresh base." }; }
+    if (payload.action === "resolve") { const settled = settleFleetConflictRecord(payload.workspaceRoot, payload.conflictId, "resolve"); return { schema: "command-receipt/v2", ok: true, command: "doc-conflict-resolve", outcome: "applied", conflictId: settled.conflictId, state: settled.state, paths: settled.paths.map((row) => row.path), nextAction: "Record closed. Merge base/local/center into the registered harness yourself, then rerun ha doc sync (or the task command) on the fresh base." }; }
     const credential = fleetEdgeCredential(payload.nodeId, payload.credential, payload.rosterPath);
     const peer = { hostname: payload.host, port: payload.port, ca: readFileSync(payload.caPath, "utf8"), servername: payload.servername, nodeId: payload.nodeId, credential, assignmentId: payload.assignmentId };
     const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
     if (view === null) return { schema: "command-receipt/v2", ok: false, command: `doc-conflict-${payload.action}`, outcome: "op_rejected", conflictId: record.conflictId, code: "mirror_missing", canonicalOutcome: "op_rejected", mirrorOutcome: "not_pulled", error: { code: "mirror_missing", hint: "The mirror view is gone; rerun a task command or ha daemon fleet edge sync, then retry the exit." } };
-    if (payload.action === "discard-local") { for (const row of record.paths) restoreFleetConflictCenterBytes(payload.workspaceRoot, record.conflictId, view, row); const settled = settleFleetConflictRecord(payload.workspaceRoot, payload.conflictId, "discard-local"); return { schema: "command-receipt/v2", ok: true, command: "doc-conflict-discard-local", outcome: "applied", conflictId: settled.conflictId, state: settled.state, canonicalOutcome: "applied", mirrorOutcome: "applied", paths: settled.paths.map((row) => row.path), nextAction: "Local changes for these paths were discarded; the mirror worktree now holds the recorded center bytes." }; }
+    if (payload.action === "discard-local") { for (const row of record.paths) restoreFleetConflictCenterBytes(payload.workspaceRoot, payload.conflictId, row); const settled = settleFleetConflictRecord(payload.workspaceRoot, payload.conflictId, "discard-local"); return { schema: "command-receipt/v2", ok: true, command: "doc-conflict-discard-local", outcome: "applied", conflictId: settled.conflictId, state: settled.state, canonicalOutcome: "applied", mirrorOutcome: "applied", paths: settled.paths.map((row) => row.path), nextAction: "Local changes for these paths were discarded; the registered harness now holds the recorded center bytes." }; }
     // overwrite-center is idempotent and pull-first: if the center already
     // holds the staged local bytes (a prior attempt crashed after the append),
     // the exit settles without pushing again. Otherwise it submits with the
