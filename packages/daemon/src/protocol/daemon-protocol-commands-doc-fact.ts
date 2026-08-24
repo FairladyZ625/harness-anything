@@ -9,6 +9,10 @@ export const docFactProtocolCommands = Object.freeze([
     method: "repo.task.run",
     commandClass: "repo-read",
     inputs: [
+      cliInput("--task", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use --task <task-id> to scan only that task package; omit it for workspace prose.",
+      }),
       cliInput("--path", "repeated", false, {
         code: "invalid_field",
         nextAction: "--path requires an authored-relative path.",
@@ -24,6 +28,10 @@ export const docFactProtocolCommands = Object.freeze([
     method: "repo.task.run",
     commandClass: "repo-read",
     inputs: [
+      cliInput("--task", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use --task <task-id> to preview only that task package; omit it for workspace prose.",
+      }),
       cliInput("--path", "repeated", false, {
         code: "invalid_field",
         nextAction: "--path requires an authored-relative path.",
@@ -39,9 +47,9 @@ export const docFactProtocolCommands = Object.freeze([
     method: "repo.task.run",
     commandClass: "repo-write",
     inputs: [
-      cliInput("--execution-id", "single", false, {
+      cliInput("--task", "single", false, {
         code: "invalid_field",
-        nextAction: "--execution-id requires a non-empty value.",
+        nextAction: "Use --task <task-id> to sync only that task package; omit it for workspace prose.",
       }),
       cliInput("--path", "repeated", false, {
         code: "invalid_field",

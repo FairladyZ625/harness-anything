@@ -51,7 +51,7 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
       "# Closeout\n\n## Summary\n\nExecutor attribution recovered.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the executor declaration contract.\n",
     );
     assert.equal(
-      run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--execution-id", executionId, "--path", closeoutPath]).outcome,
+      run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--task", taskId]).outcome,
       "applied",
     );
     const commitSha = git(root, "rev-parse", "HEAD");

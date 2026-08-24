@@ -157,6 +157,36 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
   }
 });
 
+test("task-scoped doc sync derives every dirty candidate from the task id", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-task-scope-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+      repoId: workspaceId("task-scope"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "task-scope-daemon",
+    }),
+    binding = { actor, source: "local" as const };
+  try {
+    const created = await cell.run({ kind: "task-create", taskId: "task-scope", title: "Scoped task" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const packagePath = String(created.packagePath);
+    write(rootDir, `${packagePath}/notes.md`, "# Task note\n");
+    write(rootDir, "context/unrelated.md", "# Unrelated\n");
+    const status = await cell.run({ kind: "doc-status", taskId: "task-scope", paths: [] }, binding);
+    assert.equal(status.outcome, "applied", JSON.stringify(status));
+    const scanned = rows(status.evidence);
+    assert.equal(scanned.length > 0, true);
+    assert.equal(scanned.every((row) => row.path.startsWith(`${packagePath}/`)), true);
+    assert.equal(scanned.some((row) => row.path === `${packagePath}/notes.md`), true);
+    const submitted = await cell.run({ kind: "doc-submit", taskId: "task-scope", paths: [] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.match(submitted.summary ?? "", new RegExp(`${packagePath}/notes\\.md`, "u"));
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("doc retire deletes one projected document and returns an auditable retirement receipt", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-"));
   initRepo(rootDir);

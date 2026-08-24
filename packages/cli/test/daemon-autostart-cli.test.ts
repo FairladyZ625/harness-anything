@@ -264,7 +264,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
 
     assert.equal(run(fixture.root, fixture.userRoot, ["task", "start", taskId, "--execution-id", executionId], "agent:claude-code").outcome, "applied");
     writeFileSync(path.join(fixture.root, "harness", closeoutPath), "# Closeout\n\n## Summary\n\nExecutor attribution restored.\n\n## Verification\n\nEnd-to-end daemon flow.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n", "utf8");
-    assert.equal(run(fixture.root, fixture.userRoot, ["doc", "sync", "--submit", "--execution-id", executionId, "--path", closeoutPath], "agent:claude-code").outcome, "applied");
+    assert.equal(run(fixture.root, fixture.userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:claude-code").outcome, "applied");
     const commitSha = git(fixture.root, "rev-parse", "HEAD");
 
     writeFileSync(path.join(fixture.root, "submission.json"), JSON.stringify({ completionClaim: "Executor axis is covered.", deliverables: ["daemon actor binding"], outputs: [closeoutPath], verificationNotes: ["end-to-end daemon flow"], knownGaps: [], residualRisks: [], commitSha }));

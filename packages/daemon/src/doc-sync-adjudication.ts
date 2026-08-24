@@ -138,11 +138,16 @@ export function assignmentIntent(input: Input): DocWriteIntent {
 
 export function scannerRead(input: Input): DocCandidateScan {
   if (
-    !hasExactDocSyncActionFields(input.action, ["kind", "paths"]) ||
+    !hasExactDocSyncActionFields(
+      input.action,
+      Object.hasOwn(input.action, "taskId") ? ["kind", "taskId", "paths"] : ["kind", "paths"],
+    ) ||
     !Array.isArray(input.action.paths) ||
-    input.action.paths.some((item) => typeof item !== "string")
+    input.action.paths.some((item) => typeof item !== "string") ||
+    (Object.hasOwn(input.action, "taskId") &&
+      (typeof input.action.taskId !== "string" || input.action.paths.length > 0))
   )
-    throw docSyncError("invalid_command", `${input.action.kind} requires authored-root-relative paths`);
+    throw docSyncError("invalid_command", `${input.action.kind} requires authored-root-relative paths or a task id`);
   const scan = scanDocCandidates({
     rootDir: input.rootDir,
     workspaceId: input.workspaceId,
@@ -152,20 +157,27 @@ export function scannerRead(input: Input): DocCandidateScan {
     source: input.binding.source,
     now: input.now(),
     selection: input.action.paths as string[],
+    ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),
   });
   validateSelectedDocPaths(input.rootDir, input.action.paths as string[], scan);
   return scan;
 }
 
 export function scannerSubmit(input: Input): DocCandidateScan {
-  const fields = Object.hasOwn(input.action, "executionId") ? ["kind", "executionId", "paths"] : ["kind", "paths"];
+  const fields = Object.hasOwn(input.action, "taskId")
+    ? ["kind", "taskId", "paths"]
+    : Object.hasOwn(input.action, "executionId")
+      ? ["kind", "executionId", "paths"]
+      : ["kind", "paths"];
   if (
     !hasExactDocSyncActionFields(input.action, fields) ||
     !Array.isArray(input.action.paths) ||
     input.action.paths.some((item) => typeof item !== "string") ||
-    (input.action.executionId !== undefined && typeof input.action.executionId !== "string")
+    (Object.hasOwn(input.action, "taskId") &&
+      (typeof input.action.taskId !== "string" || input.action.paths.length > 0)) ||
+    (Object.hasOwn(input.action, "executionId") && typeof input.action.executionId !== "string")
   )
-    throw docSyncError("invalid_command", "local doc submit requires scanner paths and an optional executionId");
+    throw docSyncError("invalid_command", "local doc submit requires scanner paths or a task id");
   const scan = scanDocCandidates({
     rootDir: input.rootDir,
     workspaceId: input.workspaceId,
@@ -175,6 +187,7 @@ export function scannerSubmit(input: Input): DocCandidateScan {
     source: input.binding.source,
     now: input.now(),
     selection: input.action.paths as string[],
+    ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),
     ...(typeof input.action.executionId === "string" ? { executionId: input.action.executionId } : {}),
   });
   validateSelectedDocPaths(input.rootDir, input.action.paths as string[], scan);
