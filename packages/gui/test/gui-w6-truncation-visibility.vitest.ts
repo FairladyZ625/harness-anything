@@ -112,7 +112,7 @@ describe("W6 Goal 第三项:只显示前 N 条必须显形", () => {
 
   it("provider inspector 的会话段(前 8)交代剩余条数", () => {
     const markup = renderToStaticMarkup(createElement(ProviderInspector, {
-      instance: FIXTURE_INSTANCE as never, probeError: null, sessions: sessionDtos(12), onOpenSession: noop
+      instance: FIXTURE_INSTANCE as never, sessions: sessionDtos(12), onOpenSession: noop
     }));
     expect(markup).toContain('data-testid="runtime-inspector-sessions-more"');
     expect(markup).toContain(remaining(4));

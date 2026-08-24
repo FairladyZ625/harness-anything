@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
 import { successfulAgentRuntimeResult, type AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
@@ -11,6 +11,7 @@ import { joinRuntimePanorama, runtimeDockRows, type RuntimePanoramaTask } from "
 import { runtimeCommandClient } from "../../runtime-command-client.ts";
 import { submitRuntimeSpawn, type RuntimeSpawnSettlement } from "../../runtime-control.ts";
 import { runtimeInstanceClient, type RuntimeInstanceCreateInput, type RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
+import type { RuntimeAuthProbeState } from "../../runtime-auth-presentation.ts";
 import { createGuiExecutionId } from "../../task-actions.ts";
 import { t } from "../../i18n/index.tsx";
 
@@ -80,14 +81,18 @@ function useRuntimePanorama(repoId: string, tasks: readonly RuntimePanoramaTask[
 // 兄弟会话全部从这两面派生;唯一的写是 cancel。
 export function useSessionsWorkspace(repoId: string, tasks: readonly RuntimePanoramaTask[]) {
   const client = useQueryClient();
-  const overview = useQuery({ queryKey: ["runtime-control", repoId, "overview"], queryFn: () =>
-    agentRuntimeClient.overview(repoId), staleTime: 3_000 });
-  const sessions = () => overview.data?.sessions ?? [];
+  const overview = useInfiniteQuery({ queryKey: ["runtime-control", repoId, "overview", "pages"],
+    initialPageParam: null as string | null, queryFn: ({ pageParam }) => agentRuntimeClient.overview(repoId,
+      undefined, { limit: 12, ...(pageParam === null ? {} : { cursor: pageParam }) }),
+    getNextPageParam: (lastPage) => lastPage.page?.nextCursor ?? undefined, staleTime: 3_000 });
+  const pages = overview.data?.pages ?? [], sessions = () => pages.flatMap((page) => page.sessions),
+    remainingCount = pages.at(-1)?.page?.remainingCount ?? 0;
   const panorama = useRuntimePanorama(repoId, tasks, sessions());
   const channel = useRuntimeChannel(repoId, async () => { await Promise.all([client.invalidateQueries({
     queryKey: ["runtime-control", repoId] }), client.invalidateQueries({ queryKey: ["runtime-panorama",
     repoId] })]); });
-  return { overview, panorama, dockRows: runtimeDockRows(panorama.data ?? [], sessions()), busy:
+  return { overview, panorama, dockRows: runtimeDockRows(panorama.data ?? [], sessions()), remainingCount,
+    loadMoreSessions: () => overview.fetchNextPage(), loadingMoreSessions: overview.isFetchingNextPage, busy:
     channel.busy, feedback: channel.feedback, error: channel.error, clearFeedback: channel.clearFeedback,
     cancelSession: (runtimeSessionId: string) => channel.run(t("agentRuntime.opSessionCancelled"), () =>
       runtimeCommandClient.cancel(repoId, runtimeSessionId)) };
@@ -143,9 +148,13 @@ export function useProviderWorkspace(repoId: string) {
     runtimeInstanceClient.probe(instance.instanceId), enabled: needsProbe, retry: false, staleTime:
     2_000, ...(needsProbe ? {} : { initialData: instance }) }; }) });
   const instances = listedInstances.map((instance, index) => authProbes[index]?.data ?? instance);
-  const authProbeErrors = new Map<string, string>(listedInstances.flatMap((instance, index) => { const
-    error = authProbes[index]?.error; return error === null || error === undefined ? [] :
-    [[instance.instanceId, message(error)] as const]; }));
+  const authProbeStates = new Map<string, RuntimeAuthProbeState>(listedInstances.map((instance, index) => {
+    const probe = authProbes[index];
+    if (probe?.isFetching) return [instance.instanceId, { state: "probing" }];
+    if (probe?.error) return [instance.instanceId, { state: "failed", error: message(probe.error) }];
+    if (probe?.data) return [instance.instanceId, { state: "succeeded" }];
+    return [instance.instanceId, { state: "not-started" }];
+  }));
   const overview = useQuery({ queryKey: ["runtime-control", repoId, "overview"], queryFn: () =>
     agentRuntimeClient.overview(repoId), staleTime: 3_000 });
   const liveByInstance = new Map<string, number>();
@@ -172,7 +181,7 @@ export function useProviderWorkspace(repoId: string) {
         t("agentRuntime.selfTestTitle"), error: message(cause) })); return null;
     }
   };
-  return { machine, agents, instances, authProbeErrors, overview, liveByInstance, busy: channel.busy,
+  return { machine, agents, instances, authProbeStates, overview, liveByInstance, busy: channel.busy,
     feedback: channel.feedback, error: channel.error, settlement: channel.settlement, clearFeedback:
     channel.clearFeedback,
     createInstance: async (input: RuntimeInstanceCreateInput) => { const created = await

@@ -10,6 +10,7 @@ import {
   readRuntimeInstallation,
   readRuntimeInstallations,
   readRuntimeSession,
+  readRuntimeSessionPage,
   readRuntimeSessions,
   readRuntimeSessionsForTask,
   reserve,
@@ -26,6 +27,7 @@ export function runtimeLeaseApi(
   | "readRuntimeInstallation"
   | "readRuntimeInstallations"
   | "readRuntimeSession"
+  | "readRuntimeSessionPage"
   | "readRuntimeSessions"
   | "readRuntimeSessionsForTask"
   | "readLeaseIntervals"
@@ -43,6 +45,8 @@ export function runtimeLeaseApi(
     readRuntimeInstallations: () => withDatabase(projectionPath, readHead, readRuntimeInstallations),
     readRuntimeSession: (runtimeSessionIdValue) =>
       withDatabase(projectionPath, readHead, (db) => readRuntimeSession(db, runtimeSessionIdValue)),
+    readRuntimeSessionPage: (query) =>
+      withDatabase(projectionPath, readHead, (db) => readRuntimeSessionPage(db, query)),
     readRuntimeSessions: () => withDatabase(projectionPath, readHead, readRuntimeSessions),
     readRuntimeSessionsForTask: (taskId) =>
       withDatabase(projectionPath, readHead, (db) => readRuntimeSessionsForTask(db, taskId)),

@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { eventFromProviderWitness, type ProviderWitnessV1 } from "../../src/agent-runtime/provider-witness.ts";
-import { reduceRuntimeSession, runtimeEventContentClaims, validateCurrentAgentRuntimeEvent, type AgentRuntimeEventType, type AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
+import { reduceRuntimeSession, runtimeEventContentClaims, runtimeSessionSemanticState, validateCurrentAgentRuntimeEvent, type AgentRuntimeEventType, type AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
 import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { eventObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
@@ -14,6 +14,7 @@ import { withTempStoreAsync } from "./helpers.ts";
 
 type Fixture = { readonly schema: string; readonly profile: string; readonly witnesses: readonly ProviderWitnessV1[] };
 const claude = fixture("claude-compatible.json"), codex = fixture("codex.json");
+test("runtime session semantics preserve the four adjudicated liveness/outcome cases", () => { assert.deepEqual([runtimeSessionSemanticState({ liveness: "live", outcome: null }), runtimeSessionSemanticState({ liveness: "exited", outcome: "succeeded" }), runtimeSessionSemanticState({ liveness: "exited", outcome: "failed" }), runtimeSessionSemanticState({ liveness: "exited", outcome: "cancelled" }), runtimeSessionSemanticState({ liveness: "exited", outcome: "unknown" }), runtimeSessionSemanticState({ liveness: "unknown", outcome: null })], ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"]); });
 const actor = { principal: { personId: "person-runtime" }, executor: null } as const;
 const envelope = (revision: number, source: AgentRuntimeEventV1["source"] = "local") => ({ eventId: `event-runtime-${revision}`, workspaceRevision: revision,
   opId: `op-runtime-${revision}`, actor, source, occurredAt: `2026-08-12T00:00:0${revision}.000Z`, hostRef: "host:local" });
@@ -42,6 +43,8 @@ test("runtime events use the canonical envelope, head, store, and the shared pro
     const db = new DatabaseSync(projection.path, { readOnly: true }); try { const plan = db.prepare("EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.definitionSnapshotRef') = ? ORDER BY workspace_revision LIMIT 1").all("runtime-session-claude", session!.definitionSnapshotRef) as readonly { readonly detail: string }[]; assert.match(plan.map(({ detail }) => detail).join("\n"), /SEARCH event_index USING INDEX event_index_runtime_dispatch_lookup/u); } finally { db.close(); }
     assert.deepEqual(session?.taskBindings.map(({ taskId, executionId, transcriptRef }) => ({ taskId, executionId, transcriptRef })), [{ taskId: "task-runtime", executionId: "execution-claude", transcriptRef: "file:runtime-transcripts/claude/session.jsonl" }]);
     assert.deepEqual(projection.readRuntimeSessionsForTask("task-runtime").map((value) => value.runtimeSessionId), ["runtime-session-claude"]);
+    assert.deepEqual(projection.readRuntimeSessionPage({ limit: 12 }), { rows: [session], nextRuntimeSessionId: null, remainingCount: 0 });
+    const pageDb = new DatabaseSync(projection.path, { readOnly: true }); try { const primaryPlan = pageDb.prepare("EXPLAIN QUERY PLAN SELECT value_json FROM runtime_session WHERE runtime_session_id > ? ORDER BY runtime_session_id LIMIT ?").all("runtime-session", 12) as readonly { readonly detail: string }[], taskPlan = pageDb.prepare("EXPLAIN QUERY PLAN SELECT runtime_session.value_json FROM runtime_session_task_binding JOIN runtime_session USING(runtime_session_id) WHERE runtime_session_task_binding.task_id = ? AND runtime_session.runtime_session_id > ? GROUP BY runtime_session.runtime_session_id ORDER BY runtime_session.runtime_session_id LIMIT ?").all("task-runtime", "runtime-session", 12) as readonly { readonly detail: string }[]; assert.match(primaryPlan.map(({ detail }) => detail).join("\n"), /SEARCH runtime_session USING INDEX .*runtime_session.*runtime_session_id/u); assert.match(taskPlan.map(({ detail }) => detail).join("\n"), /SEARCH runtime_session_task_binding USING COVERING INDEX .*task_id.*runtime_session_id/u); } finally { pageDb.close(); }
   });
 });
 

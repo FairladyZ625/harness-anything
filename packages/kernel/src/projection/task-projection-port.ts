@@ -18,6 +18,11 @@ import type {
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 import type { TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 
+export interface RuntimeSessionPageQuery { readonly taskId?: string; readonly limit: number;
+  readonly afterRuntimeSessionId?: string }
+export interface RuntimeSessionPageRead { readonly rows: readonly RuntimeSession[];
+  readonly nextRuntimeSessionId: string | null; readonly remainingCount: number }
+
 export interface TaskProjection {
   readonly path: string; readonly close: () => void; readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
   readonly readStateDigest: () => `sha256:${string}` | null;
@@ -55,4 +60,5 @@ export interface TaskProjection {
   readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
   readonly readRuntimeInstallation: (installationId: string) => RuntimeInstallation | null; readonly readRuntimeInstallations: () => readonly RuntimeInstallation[]; readonly readRuntimeSession: (runtimeSessionId: string) => RuntimeSession | null;
   readonly readRuntimeSessions: () => readonly RuntimeSession[]; readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
+  readonly readRuntimeSessionPage: (query: RuntimeSessionPageQuery) => RuntimeSessionPageRead;
 }

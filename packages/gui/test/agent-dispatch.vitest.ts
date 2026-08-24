@@ -101,7 +101,7 @@ describe("agent dispatch flow", () => {
     const base = { dispatchId: "d", taskId: "task-dispatch", executionId: "e", runtimeSessionId: "r", instanceId: "w4c-verify-codex", agentId: "terra", agentName: "terra", providerSessionId: null, eventStreamRef: null, startedAt: "2026-08-20T02:00:00.000Z", endedAt: null, outcome: null, status: "running", taskTitle: "Dispatch task", squad: null } as const;
     const rows = runtimeDockRows((["running", "succeeded", "failed", "unknown", "cancelled"] as const).map((status, index) => ({ ...base, dispatchId: `d-${index}`, runtimeSessionId: `runtime-${index}`, status, outcome: status === "running" ? null : status })), []);
     const markup = renderToStaticMarkup(createElement(SessionRail, { sessions: rows, selectedId: null, onSelect: () => undefined }));
-    for (const status of ["running", "succeeded", "failed", "unknown", "cancelled"]) expect(markup).toContain(`>${status}<`);
+    for (const status of ["Running", "Succeeded", "Failed", "Unknown", "Cancelled"]) expect(markup).toContain(`>${status}<`);
     for (let index = 0; index < 5; index += 1) expect(markup).toContain(`data-testid="runtime-outcome-runtime-${index}"`);
   });
   it("cancels through the daemon GUI channel method with the exact session id", async () => {

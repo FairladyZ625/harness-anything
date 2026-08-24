@@ -1,4 +1,5 @@
 import type { SquadEntityRow } from "./agent-entity-client.ts";
+import type { AgentRuntimeSessionDto } from "../../../daemon/src/agent-runtime-contract.ts";
 import type { TaskDispatchRow } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 
 export type RuntimePanoramaTask = { readonly taskId: string; readonly title: string };
@@ -10,16 +11,40 @@ export function runtimePanoramaDelegation(row: RuntimePanoramaRow): string | nul
 // the dock answers "who is running", and the instance is only the carrier. A runtime
 // session the dispatch ledger does not know about still belongs in the dock, so it is
 // carried under an unattributed group rather than dropped.
-export type RuntimeDockRow = { readonly runtimeSessionId: string; readonly agentId: string | null; readonly agentName: string | null; readonly squadId: string | null; readonly squadName: string | null; readonly instanceId: string; readonly taskId: string | null; readonly taskTitle: string | null; readonly startedAt: string; readonly status: TaskDispatchRow["status"]; readonly liveness: "live" | "stale" | "unknown" | "exited" | null; readonly dispatchId: string | null; readonly delegation: string | null };
+export type RuntimeDockStatus = TaskDispatchRow["status"] |
+  NonNullable<AgentRuntimeSessionDto["semanticState"]>;
+export type RuntimeDockRow = {
+  readonly runtimeSessionId: string; readonly agentId: string | null; readonly agentName: string | null;
+  readonly squadId: string | null; readonly squadName: string | null; readonly instanceId: string;
+  readonly taskId: string | null; readonly taskTitle: string | null; readonly startedAt: string;
+  readonly status: RuntimeDockStatus; readonly liveness: "live" | "stale" | "unknown" | "exited" | null;
+  readonly dispatchId: string | null; readonly delegation: string | null;
+};
 export type RuntimeDockGroup = { readonly key: string; readonly kind: "squad" | "agent" | "unattributed"; readonly label: string; readonly rows: readonly RuntimeDockRow[] };
-type DockSession = { readonly runtimeSessionId: string; readonly instanceId: string; readonly liveness: "live" | "stale" | "unknown" | "exited"; readonly activity: { readonly lastObservedAt: string } };
+type DockSession = Pick<AgentRuntimeSessionDto,
+  "runtimeSessionId" | "instanceId" | "liveness" | "semanticState"> &
+  { readonly activity: { readonly lastObservedAt: string } };
+export const runtimeDockStatusKey: Record<RuntimeDockStatus, string> = {
+  running: "agentRuntime.sessionStatusRunning", succeeded: "agentRuntime.sessionStatusSucceeded",
+  failed: "agentRuntime.sessionStatusFailed", cancelled: "agentRuntime.sessionStatusCancelled",
+  unknown: "agentRuntime.sessionStatusUnknown",
+  "ended-indeterminate": "agentRuntime.sessionStatusEndedIndeterminate",
+  unavailable: "agentRuntime.sessionStatusUnavailable",
+};
 
 export function runtimeDockRows(panorama: readonly RuntimePanoramaRow[], sessions: readonly DockSession[]): readonly RuntimeDockRow[] {
   const liveness = new Map(sessions.map((session) => [session.runtimeSessionId, session])), seen = new Set<string>();
-  const dispatched = panorama.map((row): RuntimeDockRow => { seen.add(row.runtimeSessionId); return { runtimeSessionId: row.runtimeSessionId, agentId: row.agentId ?? null, agentName: row.agentName ?? row.agentId ?? null, squadId: row.squadId ?? null, squadName: row.squad?.name ?? row.squadId ?? null, instanceId: row.instanceId, taskId: row.taskId, taskTitle: row.taskTitle, startedAt: row.startedAt, status: row.status, liveness: liveness.get(row.runtimeSessionId)?.liveness ?? null, dispatchId: row.dispatchId, delegation: runtimePanoramaDelegation(row) }; });
+  const dispatched = panorama.map((row): RuntimeDockRow => {
+    const session = liveness.get(row.runtimeSessionId); seen.add(row.runtimeSessionId);
+    return { runtimeSessionId: row.runtimeSessionId, agentId: row.agentId ?? null,
+      agentName: row.agentName ?? row.agentId ?? null, squadId: row.squadId ?? null,
+      squadName: row.squad?.name ?? row.squadId ?? null, instanceId: row.instanceId,
+      taskId: row.taskId, taskTitle: row.taskTitle, startedAt: row.startedAt,
+      status: session?.semanticState ?? row.status, liveness: session?.liveness ?? null,
+      dispatchId: row.dispatchId, delegation: runtimePanoramaDelegation(row) };
+  });
   const orphans = sessions.filter((session) => !seen.has(session.runtimeSessionId)).map((session): RuntimeDockRow => ({ runtimeSessionId: session.runtimeSessionId, agentId: null, agentName: null, squadId: null, squadName: null, instanceId: session.instanceId, taskId: null, taskTitle: null, startedAt: session.activity.lastObservedAt, status:
-    /* @gate-identity check-gui-status-judgments/gui-status-041 */
-    session.liveness === "live" ? "running" : "unknown",
+    session.semanticState ?? "unavailable",
     liveness: session.liveness, dispatchId: null, delegation: null }));
   return [...dispatched, ...orphans];
 }
@@ -52,4 +77,6 @@ export function runtimeDockGroups(rows: readonly RuntimeDockRow[]): readonly Run
   }
   return [...groups].map(([key, value]) => ({ key, kind: value.kind, label: value.label, rows: value.rows }));
 }
-export const runtimeDockLiveCount = (rows: readonly RuntimeDockRow[]): number => rows.filter((row) => row.status === "running").length;
+const LIVE_DOCK_STATUS: Readonly<Record<string, boolean>> = { running: true };
+export const runtimeDockLiveCount = (rows: readonly RuntimeDockRow[]): number =>
+  rows.filter((row) => LIVE_DOCK_STATUS[row.status]).length;

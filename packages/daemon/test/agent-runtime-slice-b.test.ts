@@ -28,7 +28,13 @@ test("runtime read facets expose safe overview/session/events through the shared
 test("runtime overview batches definitions while a single-session read selects one dispatch", () => withRuntime(({ store, projection, stream }) => {
   let fullTaskListReads = 0, taskStatusReads = 0, singleDispatchReads = 0, batchDispatchReads = 0; const measured = new Proxy(projection, { get: (target, property, receiver) => { if (property === "list") fullTaskListReads += 1; if (property === "readTaskStatuses") taskStatusReads += 1; if (property === "readRuntimeDispatch") singleDispatchReads += 1; if (property === "readRuntimeDispatches") batchDispatchReads += 1; const value = Reflect.get(target, property, receiver); return typeof value === "function" ? value.bind(target) : value; } });
   const reads = makeAgentRuntimeReadModel({ store, projection: measured, stream }); reads.overview({}); reads.session({ runtimeSessionId: "runtime-session" });
-  assert.deepEqual({ fullTaskListReads, taskStatusReads, singleDispatchReads, batchDispatchReads }, { fullTaskListReads: 0, taskStatusReads: 2, singleDispatchReads: 1, batchDispatchReads: 1 });
+  assert.deepEqual({ fullTaskListReads, taskStatusReads, singleDispatchReads, batchDispatchReads }, { fullTaskListReads: 0, taskStatusReads: 2, singleDispatchReads: 2, batchDispatchReads: 0 });
+}));
+
+test("runtime overview pages at the server before DTO and dispatch expansion", () => withRuntime(({ store, projection, stream, session }) => {
+  const rows = Array.from({ length: 12 }, (_, index) => ({ ...session, runtimeSessionId: `runtime-${String(index).padStart(2, "0")}` })); let unboundedReads = 0, exactDispatchReads = 0, pageQuery: unknown;
+  const measured = new Proxy(projection, { get: (target, property, receiver) => { if (property === "readRuntimeSessions") return () => { unboundedReads += 1; return [...rows, ...rows]; }; if (property === "readRuntimeSessionPage") return (query: unknown) => { pageQuery = query; return { rows, nextRuntimeSessionId: "runtime-11", remainingCount: 13 }; }; if (property === "readRuntimeDispatch") return (runtimeSessionId: string) => { exactDispatchReads += 1; return { ...dispatch(), payload: { ...dispatch().payload, runtimeSessionId } }; }; const value = Reflect.get(target, property, receiver); return typeof value === "function" ? value.bind(target) : value; } });
+  const overview = makeAgentRuntimeReadModel({ store, projection: measured, stream }).overview({ limit: 12 }); assert.equal(overview.sessions.length, 12); assert.equal(unboundedReads, 0); assert.equal(exactDispatchReads, 12); assert.deepEqual(pageQuery, { limit: 12 }); assert.deepEqual(overview.page, { limit: 12, cursor: null, nextCursor: "runtime-session:runtime-11", remainingCount: 13 });
 }));
 
 test("attach catches up from cursor, gaps require snapshot, and unsupported is typed", async () => withRuntime(async ({ stream, session }) => {

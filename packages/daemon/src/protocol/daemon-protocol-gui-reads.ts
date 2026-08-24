@@ -195,7 +195,7 @@ export const daemonGuiReadMethods = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({}, true),
+      payload: shape({ taskId: "string?", limit: "number?", cursor: "string?" }),
     }),
     guiBridgeMethod: "getAgentRuntimeOverview",
     httpMethod: "GET",
