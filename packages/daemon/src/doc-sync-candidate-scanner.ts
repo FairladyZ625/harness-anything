@@ -27,6 +27,7 @@ import {
   type TaskProjection,
   type WriteSource,
 } from "../../kernel/src/index.ts";
+import { docSyncError } from "./doc-sync-files.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
 type TextualArtifactMediaType = NonNullable<ReturnType<typeof classifyTextualArtifactPath>>["mediaType"];
@@ -286,6 +287,33 @@ export function scanDocCandidates(input: {
       .map((name) => relative(input.rootDir, path.join(directory, name)))
       .sort();
   }
+}
+
+export function validateSelectedDocPaths(
+  rootDir: string,
+  selected: readonly string[],
+  scan: DocCandidateScan,
+): void {
+  if (selected.length === 0) return;
+  const authoredPrefix = resolveLedgerGitLayout(rootDir).authoredPrefix,
+    prefixed = authoredPrefix
+      ? selected.filter((value) => value === authoredPrefix || value.startsWith(`${authoredPrefix}/`))
+      : [];
+  if (prefixed.length > 0) {
+    const rewritten = prefixed.map((value) => value.slice(`${authoredPrefix}/`.length));
+    throw docSyncError(
+      "invalid_command",
+      `doc --path requires authored-root-relative paths; drop the '${authoredPrefix}/' prefix and retry with ${rewritten.map((value) => `'${value}'`).join(", ")}`,
+    );
+  }
+  const missing = scan.rows
+    .filter((row) => row.state === "clean" && row.baseBlobSha256 === null && row.candidateBlobSha256 === null)
+    .map((row) => row.path);
+  if (missing.length > 0)
+    throw docSyncError(
+      "document_not_found",
+      `selected doc-sync path does not match an authored candidate: ${missing.join(", ")}; run ha doc status`,
+    );
 }
 
 export function intentFromScan(

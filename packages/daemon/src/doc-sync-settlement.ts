@@ -215,16 +215,19 @@ export function taskPlanHeadingRestore(input: Input, scan: DocCandidateScan): st
   return null;
 }
 
-export function noOp(input: Input, scan: DocCandidateScan): WriteReceipt {
-  const revision = input.store.readHead()?.revision ?? 0;
+export function noOp(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
+  const revision = input.store.readHead()?.revision ?? 0,
+    nextAction = "no eligible document changes to submit";
   return {
-    outcome: "applied",
+    outcome: "op_rejected",
     opId: `noop:${scan.baseLedgerSha.headDigest}`,
     revision,
+    code: "no_changes",
+    origin: "doc-sync",
     evidence: "doc-sync:no-op",
-    visibility: "center",
-    proof: proof(revision, revision, true, true),
-    detail: scanDetail(input, scan, "no_op"),
+    nextAction,
+    detail: { ...scanDetail(input, scan, "no_changes"), nextAction },
+    summary: submitSummary("op_rejected", [], scan),
   };
 }
 
@@ -261,6 +264,7 @@ export function submitSummary(
     `doc-submit: ${outcome}`,
     "applied:",
     ...(applied.length ? applied : ["(none)"]),
+    `applied count: ${applied.length}`,
     "skipped:",
     ...(skipped.length
       ? skipped.map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is not eligible"}`)

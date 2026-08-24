@@ -11,7 +11,7 @@ import {
   type DocSyncReceiptDetail,
   type DocWriteIntent,
 } from "../../kernel/src/index.ts";
-import { scanDocCandidates, type DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
+import { scanDocCandidates, type DocCandidateScan, validateSelectedDocPaths } from "./doc-sync-candidate-scanner.ts";
 import type { Input } from "./doc-sync-command-actions.ts";
 import { detail, directPaths } from "./doc-sync-details.ts";
 import { docSyncError, hasExactDocSyncActionFields } from "./doc-sync-files.ts";
@@ -139,7 +139,7 @@ export function scannerRead(input: Input): DocCandidateScan {
     input.action.paths.some((item) => typeof item !== "string")
   )
     throw docSyncError("invalid_command", `${input.action.kind} requires authored-root-relative paths`);
-  return scanDocCandidates({
+  const scan = scanDocCandidates({
     rootDir: input.rootDir,
     workspaceId: input.workspaceId,
     store: input.store,
@@ -149,6 +149,8 @@ export function scannerRead(input: Input): DocCandidateScan {
     now: input.now(),
     selection: input.action.paths as string[],
   });
+  validateSelectedDocPaths(input.rootDir, input.action.paths as string[], scan);
+  return scan;
 }
 
 export function scannerSubmit(input: Input): DocCandidateScan {
@@ -160,7 +162,7 @@ export function scannerSubmit(input: Input): DocCandidateScan {
     (input.action.executionId !== undefined && typeof input.action.executionId !== "string")
   )
     throw docSyncError("invalid_command", "local doc submit requires scanner paths and an optional executionId");
-  return scanDocCandidates({
+  const scan = scanDocCandidates({
     rootDir: input.rootDir,
     workspaceId: input.workspaceId,
     store: input.store,
@@ -171,4 +173,6 @@ export function scannerSubmit(input: Input): DocCandidateScan {
     selection: input.action.paths as string[],
     ...(typeof input.action.executionId === "string" ? { executionId: input.action.executionId } : {}),
   });
+  validateSelectedDocPaths(input.rootDir, input.action.paths as string[], scan);
+  return scan;
 }
