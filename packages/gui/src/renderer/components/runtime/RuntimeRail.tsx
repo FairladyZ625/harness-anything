@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from "react";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
-import { runtimeDockGroups, runtimeDockStatusKey, type RuntimeDockRow } from "../../runtime-panorama.ts";
+import {
+  runtimeDockGroups, runtimeDockStatusDot, runtimeDockStatusKey, type RuntimeDockRow,
+} from "../../runtime-panorama.ts";
 import { t } from "../../i18n/index.tsx";
 import {
   runtimeAuthPresentation, runtimeAuthPresentationText, type RuntimeAuthProbeState,
@@ -11,10 +13,9 @@ import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 const OUTCOME_TONE: Record<RuntimeDockRow["status"], string> = {
   succeeded: "text-status-done", failed: "text-status-blocked", cancelled: "text-status-cancelled",
-  unknown: "text-status-unknown", running: "text-status-active",
+  running: "text-status-active", unknown: "text-status-unknown",
   "ended-indeterminate": "text-status-unknown", unavailable: "text-text-faint",
 };
-const OUTCOME_DOT: Readonly<Record<string, "live" | "failed" | "idle">> = { running: "live", failed: "failed" };
 const ROW_BATCH_SIZE = 12;
 
 // W6 IA 拆分:原四段聚合 rail 随「Agent 运行时」入口撤销,拆成三条页级 rail——
@@ -115,7 +116,7 @@ function SessionGroupRows({ sessions, selectedId, onSelect }: { readonly session
       <span className="ml-auto font-mono text-[10px] text-text-faint">{group.rows.length}</span>
     </button>
     {!collapsed[group.key] && group.rows.map((row) => <Row key={row.runtimeSessionId} tip={row.runtimeSessionId} testId={`rail-session-${row.runtimeSessionId}`} selected={selectedId === row.runtimeSessionId} onSelect={() => onSelect(row.runtimeSessionId)}>
-      <LiveDot state={OUTCOME_DOT[row.status] ?? "idle"} tip={t(runtimeDockStatusKey[row.status] as never)} />
+      <LiveDot state={runtimeDockStatusDot[row.status]} tip={t(runtimeDockStatusKey[row.status] as never)} />
       <span className="min-w-0 flex-1 truncate text-[11.5px]">{row.agentName ?? row.instanceId}</span>
       <span className="min-w-0 max-w-[76px] shrink truncate font-mono text-[9.5px] text-text-muted">{row.taskTitle ?? t("agentRuntime.noTask")}</span>
       <span data-testid={`runtime-outcome-${row.runtimeSessionId}`}

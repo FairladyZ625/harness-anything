@@ -4,13 +4,23 @@ import type { TaskDispatchRow } from "../../../daemon/src/protocol/daemon-protoc
 
 export type RuntimePanoramaTask = { readonly taskId: string; readonly title: string };
 export type RuntimePanoramaRow = TaskDispatchRow & { readonly taskTitle: string; readonly squad: SquadEntityRow | null };
-export function joinRuntimePanorama(tasks: readonly RuntimePanoramaTask[], dispatches: readonly TaskDispatchRow[], squads: ReadonlyMap<string, SquadEntityRow>): readonly RuntimePanoramaRow[] { const titles = new Map(tasks.map((task) => [task.taskId, task.title])); return [...dispatches].map((dispatch) => ({ ...dispatch, taskTitle: titles.get(dispatch.taskId) ?? dispatch.taskId, squad: dispatch.squadId ? (squads.get(dispatch.squadId) ?? null) : null })).sort((left, right) => { if (left.status === "running" && right.status !== "running") return -1; if (right.status === "running" && left.status !== "running") return 1; return right.startedAt.localeCompare(left.startedAt); }); }
+export function joinRuntimePanorama(tasks: readonly RuntimePanoramaTask[], dispatches: readonly TaskDispatchRow[], squads: ReadonlyMap<string, SquadEntityRow>): readonly RuntimePanoramaRow[] { const titles = new Map(tasks.map((task) => [task.taskId, task.title])); return [...dispatches].map((dispatch) => ({ ...dispatch, taskTitle: titles.get(dispatch.taskId) ?? dispatch.taskId, squad: dispatch.squadId ? (squads.get(dispatch.squadId) ?? null) : null })).sort((left, right) => dispatchSortRank[left.status] - dispatchSortRank[right.status] || right.startedAt.localeCompare(left.startedAt)); }
+// In-flight dispatches sort above ended ones; inside a rank the newest start wins. The map is
+// total over the wire vocabulary so a newly added dispatch status has to declare where it sorts.
+const dispatchSortRank: Readonly<Record<TaskDispatchRow["status"], number>> = {
+  running: 0, succeeded: 1, failed: 1, unknown: 1, cancelled: 1,
+};
 export function runtimePanoramaDelegation(row: RuntimePanoramaRow): string | null { if (!row.delegatedByAgentId || !row.agentId) return null; const leader = row.delegatedByAgentName ?? row.delegatedByAgentId, worker = row.agentName ?? row.agentId; return `${leader} → ${worker}`; }
 
 // The prototype's sessions dock groups by Agent or Squad, never by runtime instance:
 // the dock answers "who is running", and the instance is only the carrier. A runtime
 // session the dispatch ledger does not know about still belongs in the dock, so it is
 // carried under an unattributed group rather than dropped.
+// The dock carries whichever vocabulary the row actually came from: a session contributes its
+// semantic state, a dispatch row without a session contributes the ledger's own status. The two
+// are kept separate on purpose — the ledger's "unknown" covers both "ended, recorded as unknown"
+// and "no outcome was ever recorded", so collapsing it into "ended-indeterminate" would claim a
+// record that may not exist.
 export type RuntimeDockStatus = TaskDispatchRow["status"] |
   NonNullable<AgentRuntimeSessionDto["semanticState"]>;
 export type RuntimeDockRow = {
@@ -24,6 +34,12 @@ export type RuntimeDockGroup = { readonly key: string; readonly kind: "squad" | 
 type DockSession = Pick<AgentRuntimeSessionDto,
   "runtimeSessionId" | "instanceId" | "liveness" | "semanticState"> &
   { readonly activity: { readonly lastObservedAt: string } };
+// Every dock status carries a dot state; only "running" and "failed" are distinct, but the
+// map is total so a newly added status cannot silently fall through to the idle default.
+export const runtimeDockStatusDot: Readonly<Record<RuntimeDockStatus, "live" | "failed" | "idle">> = {
+  running: "live", failed: "failed", succeeded: "idle", cancelled: "idle", unknown: "idle",
+  "ended-indeterminate": "idle", unavailable: "idle",
+};
 export const runtimeDockStatusKey: Record<RuntimeDockStatus, string> = {
   running: "agentRuntime.sessionStatusRunning", succeeded: "agentRuntime.sessionStatusSucceeded",
   failed: "agentRuntime.sessionStatusFailed", cancelled: "agentRuntime.sessionStatusCancelled",

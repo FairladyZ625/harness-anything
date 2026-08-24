@@ -2,7 +2,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
-import { sessionSiblingRows, sessionTaskTarget, type RuntimeDockRow } from "../../runtime-panorama.ts";
+import {
+  runtimeDockStatusDot, runtimeDockStatusKey, sessionSiblingRows, sessionTaskTarget,
+  type RuntimeDockRow,
+} from "../../runtime-panorama.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import {
@@ -127,7 +130,8 @@ function DispatchSessionRow({ row, onOpenSession }: { readonly row: RuntimeDockR
   readonly onOpenSession: OpenSession }) {
   return <button type="button" onClick={() => onOpenSession(row.runtimeSessionId)}
     className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
-    <LiveDot state={row.status === "running" ? "live" : row.status === "failed" ? "failed" : "idle"} tip={row.status} />
+    <LiveDot state={runtimeDockStatusDot[row.status]}
+      tip={t(runtimeDockStatusKey[row.status] as never)} />
     <span className="min-w-0 flex-1"><span className="block truncate text-[11.5px]">{row.agentName ??
       row.instanceId}</span><span
       className="block truncate font-mono text-[10px] text-text-faint">{row.taskTitle ??
