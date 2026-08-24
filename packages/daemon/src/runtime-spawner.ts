@@ -457,21 +457,9 @@ export function makeRuntimeSpawner(input: {
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         throw error;
       }
-      if (!process)
-        try {
-          openStream();
-          process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
-        } catch (error) {
-          removeDispatchStream(input.rootDir, newDispatchId);
-          await publishRuntimeEvent(
-            "runtime_dispatch_outcome_unknown",
-            { dispatchId: newDispatchId, runtimeSessionId },
-            `${dispatchOpId}-outcome-unknown`,
-            binding,
-          );
-          throw error;
-        }
-      const runtimeProcess = process;
+      // Publish the canonical session before starting the provider. A provider can
+      // immediately call back through the sealed daemon route; its task+dispatch
+      // target must see a session projection before that first callback arrives.
       try {
         await publishRuntimeEvent(
           "runtime_session_started",
@@ -488,11 +476,26 @@ export function makeRuntimeSpawner(input: {
           binding,
         );
       } catch (error) {
-        runtimeProcess.terminate();
-        runtimeProcess.release?.();
-        removeDispatchStream(input.rootDir, newDispatchId);
+        process?.terminate();
+        process?.release?.();
+        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         throw error;
       }
+      if (!process)
+        try {
+          openStream();
+          process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
+        } catch (error) {
+          removeDispatchStream(input.rootDir, newDispatchId);
+          await publishRuntimeEvent(
+            "runtime_dispatch_outcome_unknown",
+            { dispatchId: newDispatchId, runtimeSessionId },
+            `${dispatchOpId}-outcome-unknown`,
+            binding,
+          );
+          throw error;
+        }
+      const runtimeProcess = process;
       const active = createActiveRuntime({
         process: runtimeProcess,
         dispatchId: newDispatchId,

@@ -14,45 +14,33 @@ export async function waitForRuntime(
   stream: boolean,
   writeActivity: (text: string) => void,
   spawned?: JsonObject,
+  target?: { readonly taskId: string; readonly dispatchId: string },
 ): Promise<JsonObject> {
   const readCommand = {
       ...command,
       method: "repo.agentRuntime.sessions.read",
-      action: { kind: "runtime-status", runtimeSessionId },
+      action: {
+        kind: "runtime-status",
+        ...(target ? target : { runtimeSessionId }),
+      },
     },
-    read = () => runCommandThroughDaemon(readCommand),
-    attaching = stream
-      ? streamRuntimeThroughDaemon(command, runtimeSessionId, (value) =>
-          renderRuntimeFrames(value, writeActivity),
-        ).then(
-          (detach) => ({ detach }),
-          (error: unknown) => ({ error }),
-        )
-      : undefined;
+    read = () => runCommandThroughDaemon(readCommand);
   let current = await read();
-  if (current.ok !== true) {
-    const attached = await attaching;
-    if (attached && "detach" in attached) attached.detach();
-    return current;
-  }
   let detach: (() => void) | undefined;
-  if (attaching) {
-    const attached = await attaching;
-    if ("detach" in attached) detach = attached.detach;
-    else
-      try {
-        detach = await streamRuntimeThroughDaemon(
-          command,
-          runtimeSessionId,
-          (value) => renderRuntimeFrames(value, writeActivity),
-        );
-      } catch (error) {
-        consumeKnownError(error);
-        writeActivity(
-          `[stream] ${error instanceof Error ? error.message : String(error)}\n`,
-        );
-      }
-  }
+  if (current.ok !== true) return current;
+  if (stream)
+    try {
+      detach = await streamRuntimeThroughDaemon(
+        command,
+        runtimeSessionId,
+        (value) => renderRuntimeFrames(value, writeActivity),
+      );
+    } catch (error) {
+      consumeKnownError(error);
+      writeActivity(
+        `[stream] ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+    }
   let statusReader:
     | Awaited<ReturnType<typeof openRuntimeStatusReader>>
     | undefined;

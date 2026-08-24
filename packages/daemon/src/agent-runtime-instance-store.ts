@@ -272,8 +272,10 @@ export function openRuntimeInstanceStore(input: {
       );
       throw runtimeInstanceError("runtime_credential_unavailable", credentialUnavailableHint);
     }
-    if (config.kindId === "codex") writeCodexConfig(path.join(env.CODEX_HOME!, "config.toml"), config, secret);
-    else env.ANTHROPIC_API_KEY = secret;
+    if (config.kindId === "codex") {
+      const configPath = path.join(env.CODEX_HOME!, "config.toml");
+      if (!codexConfigHasBearer(configPath)) writeCodexConfig(configPath, config, secret);
+    } else env.ANTHROPIC_API_KEY = secret;
     rememberAuthReadiness(config.instanceId, available());
     return {
       definition,
@@ -543,7 +545,14 @@ export function openRuntimeInstanceStore(input: {
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       chmodSync(directory, 0o700);
     }
-    if (config.kindId === "codex") writeCodexConfig(path.join(provider, "config.toml"), config);
+    // Materialize the non-secret config at instance creation. API-key launches add
+    // the bearer once after credential resolution and preserve it for same-instance
+    // workers; rewriting it here would expose an unauthenticated window.
+    if (config.kindId === "codex") {
+      const configPath = path.join(provider, "config.toml");
+      if (config.auth.mode === "subscription" || !existsSync(configPath))
+        writeCodexConfig(configPath, config);
+    }
     if (config.auth.mode === "subscription") {
       const authFile = providerAuthFile(config.kindId),
         shared = sharedProviderDirectory(input.env ?? process.env, config.kindId, platform);
@@ -585,6 +594,10 @@ export function openRuntimeInstanceStore(input: {
       return unavailable("runtime_auth_probe_failed", "Provider authentication probe could not determine readiness.");
     }
   }
+}
+
+function codexConfigHasBearer(configPath: string): boolean {
+  return existsSync(configPath) && /^\s*experimental_bearer_token\s*=/mu.test(readFileSync(configPath, "utf8"));
 }
 
 function authReadinessLabel(readiness: RuntimeAuthReadiness): string {

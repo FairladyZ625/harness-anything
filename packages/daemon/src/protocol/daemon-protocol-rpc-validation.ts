@@ -65,6 +65,8 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateAgendaQueryPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.task.dispatches")
     errors.push(...validateTaskDispatchesPayload((value.params as JsonObject).payload));
+  if (!errors.length && value.method === "repo.agentRuntime.sessions.read")
+    errors.push(...validateRuntimeSessionReadPayload((value.params as JsonObject).payload));
   if (!errors.length && isDaemonGuiActionMethod(value.method))
     errors.push(...validateGuiActionPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.terminal.attach") {
@@ -83,6 +85,18 @@ export function validateSessionEnvironment(value: unknown): string[] {
   return Object.values(value).every((item) => typeof item === "string" && item.trim().length > 0)
     ? []
     : ["session environment values must be non-empty strings"];
+}
+
+function validateRuntimeSessionReadPayload(value: unknown): string[] {
+  if (!isJsonObject(value)) return ["runtime session read payload must be an object"];
+  const runtimeSessionId = value.runtimeSessionId,
+    taskId = value.taskId,
+    dispatchId = value.dispatchId;
+  if (runtimeSessionId === undefined && (taskId === undefined || dispatchId === undefined))
+    return ["runtime session read requires runtimeSessionId or taskId plus dispatchId"];
+  if (runtimeSessionId !== undefined && (taskId !== undefined || dispatchId !== undefined))
+    return ["runtime session read cannot mix runtimeSessionId with taskId or dispatchId"];
+  return [];
 }
 
 // The wide task reads accept optional narrow/paged facets; absent payload or absent

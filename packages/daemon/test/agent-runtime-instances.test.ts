@@ -102,6 +102,72 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
+test("same-instance API-key launches keep the previous bearer during the next credential lookup", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-api-key-fanout-"));
+  let credentialLookups = 0;
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [observed],
+      resolveCredential: async () => {
+        credentialLookups += 1;
+        if (credentialLookups === 2)
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        return credentialLookups === 1 ? "instance-secret" : "worker-secret";
+      },
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-api-fanout",
+      name: "Codex API Fanout",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "codex_local_access",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      codex: { baseUrl: "https://example.invalid/v1" },
+      auth: { mode: "api-key", credentialRef: "credential:v1:codex-api-fanout" },
+    });
+    const configPath = path.join(
+      userRoot,
+      "runtime-instances",
+      "codex-api-fanout",
+      "home",
+      ".codex",
+      "config.toml",
+    );
+    assert.equal(existsSync(configPath), true);
+    assert.doesNotMatch(readFileSync(configPath, "utf8"), /experimental_bearer_token\s*=/u);
+
+    await store.prepareLaunch("codex-api-fanout", {
+      cwd: "/workspace/repo",
+      prompt: "leader",
+    });
+    const workerLaunch = store.prepareLaunch("codex-api-fanout", {
+      cwd: "/workspace/repo",
+      prompt: "worker",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    assert.match(
+      readFileSync(configPath, "utf8"),
+      /experimental_bearer_token = "instance-secret"/u,
+    );
+    await workerLaunch;
+    assert.match(
+      readFileSync(configPath, "utf8"),
+      /experimental_bearer_token = "instance-secret"/u,
+    );
+    assert.doesNotMatch(
+      readFileSync(configPath, "utf8"),
+      /experimental_bearer_token = "worker-secret"/u,
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("runtime kinds receive prompt-injected skills without native discovery mounts", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-skill-prompt-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"), installations = (["codex", "claude", "agy"] as const).map((kindId) => ({ installationId: `${kindId}-skills`, kindId, executablePath: `/opt/runtime-test/${kindId}`, version: "1.0.0", observedAt: "2026-08-20T00:00:00.000Z" }));
   try {

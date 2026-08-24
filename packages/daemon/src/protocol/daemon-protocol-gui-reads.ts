@@ -214,7 +214,7 @@ export const daemonGuiReadMethods = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ runtimeSessionId: "string" }),
+      payload: shape({ runtimeSessionId: "string?", taskId: "string?", dispatchId: "string?" }),
     }),
     guiBridgeMethod: "getAgentRuntimeSession",
     httpMethod: "GET",
