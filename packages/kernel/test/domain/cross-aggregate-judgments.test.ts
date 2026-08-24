@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { blockingOf } from "../../src/domain/task-blocking.ts";
 import { closeoutReadiness, type CloseoutSnapshot } from "../../src/domain/closeout-readiness.ts";
-import { coverageOf } from "../../src/domain/decision-coverage.ts";
+import { coverageOf, freshnessReasonOf } from "../../src/domain/decision-coverage.ts";
 import { factLiveness } from "../../src/domain/fact-liveness.ts";
 import { consentedApprovedReview, reviewDigest } from "../../src/domain/review.ts";
 
@@ -97,6 +97,20 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
     { claimRef: "decision/d1/C2", status: "covered", relationPath: ["delivery"] },
     { claimRef: "decision/policy/C1", status: "covered", relationPath: ["decision/policy"] }
   ]);
+});
+
+test("freshness reason classifies uncovered causes once, in the domain", () => {
+  // covered rows carry no cause, whatever their other fields say.
+  assert.equal(freshnessReasonOf({ status: "covered", fulfillment: "evidenced", refutingFactRefs: ["fact/task/F-live"] }), null);
+  // refuted outranks the other causes: an undeclared claim under active refutation is refuted.
+  assert.equal(freshnessReasonOf({ status: "uncovered", fulfillment: "evidenced", refutingFactRefs: ["fact/task/F-live"] }), "refuted");
+  assert.equal(freshnessReasonOf({ status: "uncovered", fulfillment: null, refutingFactRefs: ["fact/task/F-live"] }), "refuted");
+  assert.equal(freshnessReasonOf({ status: "uncovered", fulfillment: "evidenced", refutingFactRefs: [] }), "no-live-evidence");
+  assert.equal(freshnessReasonOf({ status: "uncovered", fulfillment: "delivered", refutingFactRefs: [] }), "no-live-evidence");
+  assert.equal(freshnessReasonOf({ status: "uncovered", fulfillment: "standing-policy", refutingFactRefs: [] }), "no-live-evidence");
+  assert.equal(freshnessReasonOf({ status: "uncovered", fulfillment: null, refutingFactRefs: [] }), "fulfillment-undeclared");
+  // the served row shape leaves refutingFactRefs optional; absent is not refuted.
+  assert.equal(freshnessReasonOf({ status: "uncovered", fulfillment: "evidenced" }), "no-live-evidence");
 });
 
 test("blocking applies depends-on to the source and releases it only when the target is done", () => {

@@ -1,21 +1,19 @@
 import type { DecisionRow } from "./types.ts";
-import type { RelationCoverageRow } from "../../api/renderer-dto.ts";
+import type { FreshnessReason, RelationCoverageRow } from "../../api/renderer-dto.ts";
 
 /**
- * 风化(freshness)派生 —— 只消费 canonical coverageRows,不做第二次覆盖判定。
+ * 风化(freshness)派生 —— 纯展示消费者:只消费 canonical coverageRows 与 daemon 读面
+ * 附带的 uncovered 成因分类,本模块不做任何覆盖判定。
  *
  * 定义(dec_LEDGER_E37/E42,与 model/types.ts:191 的注释同源):承重 claim 沿
- * relation 可达的支撑 fact 为空 → 覆盖度不足 → 风化候选。canonical 判据就是
- * kernel `coverageOf` 投影出的 `status === "uncovered"`;本模块只做排序与归因
- * 分类,绝不沿 option evidence 自行猜覆盖(与 readiness-signals 同一纪律)。
- *
- * uncovered 的三种成因(status-word-register-domain 的登记语义):
- *   refuted                  —— 被活 fact 沿 refuted-by 反驳(最急:证据不止缺失,还在反向施压);
- *   no-live-evidence         —— 声明了 fulfillment 模式,但沿 relation 找不到满足该模式的证据;
- *   fulfillment-undeclared   —— claim 未声明 fulfillment(覆盖方式本身缺位)。
+ * relation 可达的支撑 fact 为空 → 覆盖度不足 → 风化候选。「哪些行算 uncovered」
+ * 以及成因(refuted / no-live-evidence / fulfillment-undeclared)全部由 kernel 域
+ * 单点判定(kernel `freshnessReasonOf`),经 relation graph 读面以 optional
+ * `freshnessReason` 字段送达;无该字段的行(covered 行、旧 daemon)一律不进候选,
+ * renderer 不沿 option evidence 自行猜覆盖(与 readiness-signals 同一纪律)。
  */
 
-export type FreshnessReason = "refuted" | "no-live-evidence" | "fulfillment-undeclared";
+export type { FreshnessReason };
 
 export interface FreshnessCandidate {
   readonly decisionId: string;
@@ -40,7 +38,10 @@ export function freshnessCandidates(
 ): FreshnessCandidate[] {
   const byId = new Map(decisions.map((decision) => [decision.decisionId, decision]));
   return coverageRows
-    .filter((row) => row.status === "uncovered")
+    .filter(
+      (row): row is RelationCoverageRow & { freshnessReason: FreshnessReason } =>
+        row.freshnessReason !== undefined,
+    )
     .map((row) => {
       const decisionId = row.decisionRef.replace(/^decision\//u, "");
       const decision = byId.get(decisionId) ?? null;
@@ -55,7 +56,7 @@ export function freshnessCandidates(
         decisionTitle: decision?.title ?? null,
         claimId,
         claimText: claim?.text ?? null,
-        reason: reasonOf(row),
+        reason: row.freshnessReason,
         fulfillment: row.fulfillment,
         refutingFactRefs: row.refutingFactRefs ?? [],
       };
@@ -66,10 +67,4 @@ export function freshnessCandidates(
         left.decisionId.localeCompare(right.decisionId) ||
         left.claimId.localeCompare(right.claimId),
     );
-}
-
-function reasonOf(row: RelationCoverageRow): FreshnessReason {
-  if ((row.refutingFactRefs ?? []).length > 0) return "refuted";
-  if (row.fulfillment === null) return "fulfillment-undeclared";
-  return "no-live-evidence";
 }

@@ -129,7 +129,9 @@ export function validateDaemonRelationGraph(value: unknown): readonly string[] {
         (row.refutingFactRefs !== undefined && !stringArray(row.refutingFactRefs)) ||
         !stringArray(row.relationPath) ||
         (row.basisRevision !== undefined && !integer(row.basisRevision)) ||
-        (row.coveringFactRef !== undefined && !nonEmpty(row.coveringFactRef)),
+        (row.coveringFactRef !== undefined && !nonEmpty(row.coveringFactRef)) ||
+        (row.freshnessReason !== undefined &&
+          !["refuted", "no-live-evidence", "fulfillment-undeclared"].includes(String(row.freshnessReason))),
     ) ||
     !Array.isArray(value.factAnchors) ||
     value.factAnchors.some(

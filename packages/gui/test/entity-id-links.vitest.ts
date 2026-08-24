@@ -219,6 +219,8 @@ const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readon
 /**
  * 风化视图的 coverage 夹具:fixture 决策 dec_g10alpha 的承重 claim CH1 处于
  * uncovered(被活事实反驳),让 it.each 的死 ID 扫描覆盖到反驳事实链接的渲染面。
+ * uncovered 行的成因由夹具直接以 freshnessReason 提供(daemon 读面附带、kernel
+ * `freshnessReasonOf` 判定)——本测试不重算成因,与 renderer 同为纯消费者。
  */
 function freshnessCoverage(patch: Partial<RelationCoverageRow> = {}): RelationCoverageRow {
   return {
@@ -228,7 +230,7 @@ function freshnessCoverage(patch: Partial<RelationCoverageRow> = {}): RelationCo
   };
 }
 const FRESHNESS_COVERAGE_ROWS: readonly RelationCoverageRow[] = [
-  freshnessCoverage({ status: "uncovered", refutingFactRefs: [FACT_REF] }),
+  freshnessCoverage({ status: "uncovered", refutingFactRefs: [FACT_REF], freshnessReason: "refuted" }),
   freshnessCoverage({ claimRef: `decision/${DECISION_ID}/CH2`, status: "covered" }),
 ];
 
@@ -329,17 +331,24 @@ describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
     } as Parameters<typeof FreshnessView>[0]));
   }
 
-  it("纯函数:只收 uncovered 行,join 出 claim 原文与决策标题,归因排序", () => {
+  it("纯函数:只收带成因分类的行,join 出 claim 原文与决策标题,按成因排序", () => {
     const rows = [
-      freshnessCoverage({ status: "uncovered", refutingFactRefs: [FACT_REF] }),
+      freshnessCoverage({
+        status: "uncovered", refutingFactRefs: [FACT_REF], freshnessReason: "refuted",
+      }),
       freshnessCoverage({ claimRef: `decision/${DECISION_ID}/CH9`, status: "covered" }),
       freshnessCoverage({
         claimRef: `decision/${DECISION_ID}/CH8`, status: "uncovered",
-        fulfillment: "evidenced", refutingFactRefs: [],
+        fulfillment: "evidenced", refutingFactRefs: [], freshnessReason: "no-live-evidence",
       }),
       freshnessCoverage({
         claimRef: `decision/${DECISION_ID}/CH7`, status: "uncovered",
-        fulfillment: null, refutingFactRefs: [],
+        fulfillment: null, refutingFactRefs: [], freshnessReason: "fulfillment-undeclared",
+      }),
+      // 阴性:无 freshnessReason 的 uncovered 行(旧 daemon)不进候选——缺判据不猜。
+      freshnessCoverage({
+        claimRef: `decision/${DECISION_ID}/CH0`, status: "uncovered",
+        fulfillment: "evidenced", refutingFactRefs: [],
       }),
     ];
     const candidates = freshnessCandidates(FIXTURE_DECISIONS, rows);
@@ -384,7 +393,10 @@ describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
 
   it("规模:超过 12 行先显 12 行,批量按钮报出剩余数,点击再显一批", async () => {
     const coverageRows = Array.from({ length: 15 }, (_, index) =>
-      freshnessCoverage({ claimRef: `decision/${DECISION_ID}/C${index}`, status: "uncovered", refutingFactRefs: [] }));
+      freshnessCoverage({
+        claimRef: `decision/${DECISION_ID}/C${index}`, status: "uncovered",
+        refutingFactRefs: [], freshnessReason: "no-live-evidence",
+      }));
     const container = await mountFreshness({ coverageRows });
     expect(container.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(12);
     const more = container.querySelector<HTMLButtonElement>("[data-testid='freshness-more']")!;

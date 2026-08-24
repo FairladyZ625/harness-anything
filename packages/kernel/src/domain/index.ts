@@ -26,6 +26,9 @@ export { closeoutReadiness, closeoutReadinesses, currentExecutionCuts, currentSu
 export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
 export { blockingOf } from "./task-blocking.ts";
 
+export { freshnessReasonOf } from "./decision-coverage.ts";
+export type { FreshnessReason, FreshnessReasonInput } from "./decision-coverage.ts";
+
 export { summarizeWorkspace, workspaceTaskStatus } from "./workspace-summary.ts";
 
 export { DEFAULT_TASK_ROOT_THRESHOLD, DEFAULT_TASK_WIP_LIMIT, admitTaskExecutionWip, deriveTaskRoot, hasCloseoutEvidence, parseTaskWipLimit, taskWipOccupyingStatuses } from "./task-wip-policy.ts";
