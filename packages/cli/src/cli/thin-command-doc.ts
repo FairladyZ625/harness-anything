@@ -39,7 +39,11 @@ export function parseDoc(
   const paths = f.many.get("--path") ?? [];
   const taskId = f.one.get("--task");
   if (taskId && paths.length)
-    return rejected("invalid_field", "Use either --task <task-id> or --path for doc sync; task sync discovers its package paths automatically.", json);
+    return rejected(
+      "invalid_field",
+      "Use either --task <task-id> or --path for doc sync; task sync discovers its package paths automatically.",
+      json,
+    );
   if (id === "doc-show")
     return accepted(rootDir, repoId, json, {
       kind: id,
