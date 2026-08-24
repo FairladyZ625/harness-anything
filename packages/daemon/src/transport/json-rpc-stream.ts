@@ -31,10 +31,15 @@ export interface JsonRpcStreamOptions {
   readonly output: Writable;
   readonly transportKind: DaemonTransportKind;
   readonly authContext: DaemonAuthenticationContext;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext, emit: (method: string, params: Record<string, unknown>) => Promise<void>, connectionId: string, signal: AbortSignal) => JsonRpcProtocolServer;
+  readonly createProtocolServer: (
+    authContext: DaemonAuthenticationContext,
+    emit: (method: string, params: Record<string, unknown>) => Promise<void>,
+    connectionId: string,
+    signal: AbortSignal,
+  ) => JsonRpcProtocolServer;
   readonly authenticateFirstFrame?: (
     frame: unknown,
-    authContext: DaemonAuthenticationContext
+    authContext: DaemonAuthenticationContext,
   ) => TransportAuthenticationResult;
   readonly connectionId?: string;
   readonly onError?: (error: Error) => void;
@@ -57,7 +62,9 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   const connectionId = options.connectionId ?? randomUUID();
   const disconnected = new AbortController();
   let authContext = options.authContext;
-  let server = options.authenticateFirstFrame ? undefined : options.createProtocolServer(authContext, emit, connectionId, disconnected.signal);
+  let server = options.authenticateFirstFrame
+    ? undefined
+    : options.createProtocolServer(authContext, emit, connectionId, disconnected.signal);
   let waitingForAuthentication = options.authenticateFirstFrame !== undefined;
   let queue = Promise.resolve();
 
@@ -69,11 +76,15 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   options.input.on("end", () => {
     const batch = reader.flush();
     enqueueFrames(batch.frames);
-    if (batch.error) failConnection(parseError(batch.error)); else queue = queue.finally(() => server?.close());
+    if (batch.error) failConnection(parseError(batch.error));
+    else queue = queue.finally(() => server?.close());
   });
   options.input.on("error", (error: Error) => failConnection(error));
   options.input.on("close", disconnect);
-  options.output.on("error", (error: Error) => { disconnect(); options.onError?.(error); });
+  options.output.on("error", (error: Error) => {
+    disconnect();
+    options.onError?.(error);
+  });
 
   return {
     connectionId,
@@ -100,14 +111,16 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
       disconnect();
       options.input.destroy();
       options.output.destroy();
-    }
+    },
   };
 
   function enqueueFrames(frames: ReadonlyArray<unknown>): void {
     for (const frame of frames) {
-      queue = queue.then(() => handleFrame(frame)).catch((error: unknown) => {
-        failConnection(error instanceof Error ? error : new Error(String(error)));
-      });
+      queue = queue
+        .then(() => handleFrame(frame))
+        .catch((error: unknown) => {
+          failConnection(error instanceof Error ? error : new Error(String(error)));
+        });
     }
   }
 
@@ -140,11 +153,28 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     options.output.end();
   }
 
-  function writeFrame(frame: unknown): boolean { return options.output.write(encodeJsonLineFrame(frame)); }
-  async function emit(method: string, params: Record<string, unknown>): Promise<void> { if (writeFrame({ jsonrpc: "2.0", method, params })) return; await writableReady(options.output); }
-  function disconnect(): void { if (!disconnected.signal.aborted) disconnected.abort(); }
+  function writeFrame(frame: unknown): boolean {
+    return options.output.write(encodeJsonLineFrame(frame));
+  }
+  async function emit(method: string, params: Record<string, unknown>): Promise<void> {
+    if (writeFrame({ jsonrpc: "2.0", method, params })) return;
+    await writableReady(options.output);
+  }
+  function disconnect(): void {
+    if (!disconnected.signal.aborted) disconnected.abort();
+  }
 }
-function writableReady(output: Writable): Promise<void> { return new Promise((resolve) => { const done = () => { output.off("drain", done); output.off("close", done); resolve(); }; output.once("drain", done); output.once("close", done); }); }
+function writableReady(output: Writable): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      output.off("drain", done);
+      output.off("close", done);
+      resolve();
+    };
+    output.once("drain", done);
+    output.once("close", done);
+  });
+}
 
 function parseError(error: Error): Error {
   return new Error(`Invalid JSON-RPC frame: ${error.message}`);

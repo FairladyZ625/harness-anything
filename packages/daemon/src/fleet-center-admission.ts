@@ -1,34 +1,147 @@
-import { readFileSync } from "node:fs"; import path from "node:path";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { DaemonHost } from "./daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "./fleet/center.ts";
 import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/edge.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
-export interface FleetRoster { readonly nodes: readonly { readonly nodeId: string; readonly credential: string }[]; readonly assignments: readonly FleetAssignmentRecord[] }
-export class FleetRosterError extends Error { readonly code: string; constructor(code: string, message: string) { super(message); this.name = "FleetRosterError"; this.code = code; } }
-const id = /^[A-Za-z0-9_-]{1,96}$/u, row = (value: unknown): Record<string, unknown> | null => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null, shapeText = '{ "schema": "fleet-roster/v1", "nodes": [{ "nodeId": string, "credential": string }], "assignments": [{ "assignmentId": string, "nodeId": string, "repoId": string, "taskId": string, "executionId": string, "viewId": string, "personId": string, "executorId"?: string, "expiresAt": ISO-8601 timestamp, "paths": non-empty string array }] }';
-export function readFleetRosterFile(file: string): FleetRoster { try { return parseFleetRoster(JSON.parse(readFileSync(file, "utf8"))); } catch (error) { if (error instanceof FleetRosterError) throw error; throw new FleetRosterError("roster_unreadable", `Fleet roster at ${file} could not be read or parsed: ${error instanceof Error ? error.message : String(error)}. Provide ${shapeText}.`); } }
+export interface FleetRoster {
+  readonly nodes: readonly { readonly nodeId: string; readonly credential: string }[];
+  readonly assignments: readonly FleetAssignmentRecord[];
+}
+export class FleetRosterError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "FleetRosterError";
+    this.code = code;
+  }
+}
+const id = /^[A-Za-z0-9_-]{1,96}$/u,
+  row = (value: unknown): Record<string, unknown> | null =>
+    value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null,
+  shapeText =
+    '{ "schema": "fleet-roster/v1", "nodes": [{ "nodeId": string, "credential": string }], "assignments": [{ "assignmentId": string, "nodeId": string, "repoId": string, "taskId": string, "executionId": string, "viewId": string, "personId": string, "executorId"?: string, "expiresAt": ISO-8601 timestamp, "paths": non-empty string array }] }';
+export function readFleetRosterFile(file: string): FleetRoster {
+  try {
+    return parseFleetRoster(JSON.parse(readFileSync(file, "utf8")));
+  } catch (error) {
+    if (error instanceof FleetRosterError) throw error;
+    throw new FleetRosterError(
+      "roster_unreadable",
+      `Fleet roster at ${file} could not be read or parsed: ${error instanceof Error ? error.message : String(error)}. Provide ${shapeText}.`,
+    );
+  }
+}
 export function parseFleetRoster(input: unknown): FleetRoster {
-  const record = row(input), fail = (detail: string) => new FleetRosterError("roster_invalid", `Fleet roster is invalid: ${detail}. Provide ${shapeText}.`);
-  if (record === null || record.schema !== "fleet-roster/v1") throw fail("the top-level schema must be fleet-roster/v1");
-  const node = (value: unknown): { nodeId: string; credential: string } | null => { const entry = row(value); return entry && typeof entry.nodeId === "string" && id.test(entry.nodeId) && typeof entry.credential === "string" && entry.credential.length > 0 ? { nodeId: entry.nodeId, credential: entry.credential } : null; };
-  if (!Array.isArray(record.nodes) || record.nodes.length === 0 || record.nodes.some((value) => node(value) === null)) throw fail("nodes must be a non-empty array of { nodeId, credential } rows");
-  const nodes = record.nodes.map((value) => node(value)!), known = new Set(nodes.map(({ nodeId }) => nodeId));
-  const assignment = (value: unknown): FleetAssignmentRecord | null => { const entry = row(value), fields = ["assignmentId", "nodeId", "repoId", "taskId", "executionId", "viewId", "personId"]; return entry && fields.every((field) => typeof entry[field] === "string" && id.test(entry[field] as string)) && (entry.executorId === undefined || typeof entry.executorId === "string" && id.test(entry.executorId)) && Array.isArray(entry.paths) && entry.paths.length > 0 && entry.paths.length <= 128 && entry.paths.every((item) => typeof item === "string" && item.length > 0) && typeof entry.expiresAt === "string" && !Number.isNaN(Date.parse(entry.expiresAt)) ? { assignmentId: entry.assignmentId as string, nodeId: entry.nodeId as string, repoId: entry.repoId as string, taskId: entry.taskId as string, executionId: entry.executionId as string, viewId: entry.viewId as string, paths: entry.paths as string[], expiresAt: entry.expiresAt as string, actor: { principal: { personId: entry.personId as string }, executor: typeof entry.executorId === "string" ? { kind: "agent", id: entry.executorId } : null } } : null; };
-  if (!Array.isArray(record.assignments) || record.assignments.length === 0 || record.assignments.some((value) => assignment(value) === null)) throw fail("assignments must be a non-empty array of complete assignment rows");
+  const record = row(input),
+    fail = (detail: string) =>
+      new FleetRosterError("roster_invalid", `Fleet roster is invalid: ${detail}. Provide ${shapeText}.`);
+  if (record === null || record.schema !== "fleet-roster/v1")
+    throw fail("the top-level schema must be fleet-roster/v1");
+  const node = (value: unknown): { nodeId: string; credential: string } | null => {
+    const entry = row(value);
+    return entry &&
+      typeof entry.nodeId === "string" &&
+      id.test(entry.nodeId) &&
+      typeof entry.credential === "string" &&
+      entry.credential.length > 0
+      ? { nodeId: entry.nodeId, credential: entry.credential }
+      : null;
+  };
+  if (!Array.isArray(record.nodes) || record.nodes.length === 0 || record.nodes.some((value) => node(value) === null))
+    throw fail("nodes must be a non-empty array of { nodeId, credential } rows");
+  const nodes = record.nodes.map((value) => node(value)!),
+    known = new Set(nodes.map(({ nodeId }) => nodeId));
+  const assignment = (value: unknown): FleetAssignmentRecord | null => {
+    const entry = row(value),
+      fields = ["assignmentId", "nodeId", "repoId", "taskId", "executionId", "viewId", "personId"];
+    return entry &&
+      fields.every((field) => typeof entry[field] === "string" && id.test(entry[field] as string)) &&
+      (entry.executorId === undefined || (typeof entry.executorId === "string" && id.test(entry.executorId))) &&
+      Array.isArray(entry.paths) &&
+      entry.paths.length > 0 &&
+      entry.paths.length <= 128 &&
+      entry.paths.every((item) => typeof item === "string" && item.length > 0) &&
+      typeof entry.expiresAt === "string" &&
+      !Number.isNaN(Date.parse(entry.expiresAt))
+      ? {
+          assignmentId: entry.assignmentId as string,
+          nodeId: entry.nodeId as string,
+          repoId: entry.repoId as string,
+          taskId: entry.taskId as string,
+          executionId: entry.executionId as string,
+          viewId: entry.viewId as string,
+          paths: entry.paths as string[],
+          expiresAt: entry.expiresAt as string,
+          actor: {
+            principal: { personId: entry.personId as string },
+            executor: typeof entry.executorId === "string" ? { kind: "agent", id: entry.executorId } : null,
+          },
+        }
+      : null;
+  };
+  if (
+    !Array.isArray(record.assignments) ||
+    record.assignments.length === 0 ||
+    record.assignments.some((value) => assignment(value) === null)
+  )
+    throw fail("assignments must be a non-empty array of complete assignment rows");
   const assignments = record.assignments.map((value) => assignment(value)!);
-  if (assignments.some(({ nodeId }) => !known.has(nodeId))) throw fail("every assignment nodeId must also be declared in nodes");
+  if (assignments.some(({ nodeId }) => !known.has(nodeId)))
+    throw fail("every assignment nodeId must also be declared in nodes");
   return { nodes, assignments };
 }
 export function fleetCredentialFromRoster(nodeId: string, rosterPath: string): string {
   const node = readFleetRosterFile(rosterPath).nodes.find((entry) => entry.nodeId === nodeId);
-  if (!node) throw new FleetRosterError("node_unknown", `Node ${nodeId} is not declared in the fleet roster at ${rosterPath}.`);
+  if (!node)
+    throw new FleetRosterError("node_unknown", `Node ${nodeId} is not declared in the fleet roster at ${rosterPath}.`);
   return node.credential;
 }
-export interface FleetCenterAdmissionRequest { readonly host: Pick<DaemonHost, "replica" | "run" | "read" | "runtimeIngress" | "status">; readonly userRoot: string; readonly payload: { readonly port: number; readonly bind?: string; readonly keyPath: string; readonly certPath: string; readonly rosterPath: string; readonly stateRoot?: string; readonly quotaBytes: number } }
-const material = (file: string, flag: string): Buffer => { try { return readFileSync(file); } catch (error) { throw new FleetRosterError("fleet_material_unreadable", `Fleet TLS ${flag} at ${file} could not be read: ${error instanceof Error ? error.message : String(error)}.`); } };
-export async function startFleetCenterAdmission(input: FleetCenterAdmissionRequest): Promise<{ readonly center: FleetTlsCenter; readonly roster: FleetRoster; readonly stateRoot: string }> {
-  const roster = readFleetRosterFile(input.payload.rosterPath), credentialOf = new Map(roster.nodes.map((node) => [node.nodeId, node.credential])), assignmentOf = new Map(roster.assignments.map((entry) => [entry.assignmentId, entry])), stateRoot = input.payload.stateRoot ?? path.join(input.userRoot, "fleet");
-  return { center: await listenFleetTls({ host: input.host, stateRoot, key: material(input.payload.keyPath, "--key"), cert: material(input.payload.certPath, "--cert"), hostname: input.payload.bind, port: input.payload.port, replicaDiskQuotaBytes: input.payload.quotaBytes, authenticate: (nodeId, credential) => credentialOf.get(nodeId) === credential, resolveAssignment: (assignmentId) => assignmentOf.get(assignmentId) ?? null }), roster, stateRoot };
+export interface FleetCenterAdmissionRequest {
+  readonly host: Pick<DaemonHost, "replica" | "run" | "read" | "runtimeIngress" | "status">;
+  readonly userRoot: string;
+  readonly payload: {
+    readonly port: number;
+    readonly bind?: string;
+    readonly keyPath: string;
+    readonly certPath: string;
+    readonly rosterPath: string;
+    readonly stateRoot?: string;
+    readonly quotaBytes: number;
+  };
+}
+const material = (file: string, flag: string): Buffer => {
+  try {
+    return readFileSync(file);
+  } catch (error) {
+    throw new FleetRosterError(
+      "fleet_material_unreadable",
+      `Fleet TLS ${flag} at ${file} could not be read: ${error instanceof Error ? error.message : String(error)}.`,
+    );
+  }
+};
+export async function startFleetCenterAdmission(
+  input: FleetCenterAdmissionRequest,
+): Promise<{ readonly center: FleetTlsCenter; readonly roster: FleetRoster; readonly stateRoot: string }> {
+  const roster = readFleetRosterFile(input.payload.rosterPath),
+    credentialOf = new Map(roster.nodes.map((node) => [node.nodeId, node.credential])),
+    assignmentOf = new Map(roster.assignments.map((entry) => [entry.assignmentId, entry])),
+    stateRoot = input.payload.stateRoot ?? path.join(input.userRoot, "fleet");
+  return {
+    center: await listenFleetTls({
+      host: input.host,
+      stateRoot,
+      key: material(input.payload.keyPath, "--key"),
+      cert: material(input.payload.certPath, "--cert"),
+      hostname: input.payload.bind,
+      port: input.payload.port,
+      replicaDiskQuotaBytes: input.payload.quotaBytes,
+      authenticate: (nodeId, credential) => credentialOf.get(nodeId) === credential,
+      resolveAssignment: (assignmentId) => assignmentOf.get(assignmentId) ?? null,
+    }),
+    roster,
+    stateRoot,
+  };
 }
 export interface FleetEdgeSyncRequest {
   readonly payload: {
@@ -48,15 +161,16 @@ export interface FleetEdgeSyncRequest {
   };
 }
 export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<Record<string, unknown>> {
-  const credential = input.payload.credential
-    ?? (input.payload.rosterPath
+  const credential =
+    input.payload.credential ??
+    (input.payload.rosterPath
       ? fleetCredentialFromRoster(input.payload.nodeId, input.payload.rosterPath)
       : (() => {
-        throw new FleetRosterError(
-          "credential_required",
-          "Fleet edge sync requires exactly one machine credential source: --credential or --roster.",
-        );
-      })());
+          throw new FleetRosterError(
+            "credential_required",
+            "Fleet edge sync requires exactly one machine credential source: --credential or --roster.",
+          );
+        })());
   return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
     const pulled = await runFleetReplicaPullClient({
       hostname: input.payload.host,
@@ -73,8 +187,8 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
       if (error instanceof FleetRemoteError)
         throw Object.assign(
           new Error(
-            `${error.message} Reissue the credential in the center roster`
-              + " or correct --node-id / credential source / --assignment, then retry the edge sync.",
+            `${error.message} Reissue the credential in the center roster` +
+              " or correct --node-id / credential source / --assignment, then retry the edge sync.",
           ),
           { code: error.code },
         );
@@ -88,10 +202,11 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
       { viewId: pulled.replica.viewId },
     );
     const blocked = materialized.outcome === "pull_blocked";
-    const blockedHint = materialized.conflicts.length === 0
-      ? "The registered harness could not be materialized; inspect the edge mirror state."
-      : `Divergence staged at ${materialized.conflicts[0]!.dir}; exit explicitly with`
-        + ` ha doc conflict resolve|discard-local|overwrite-center ${materialized.conflicts[0]!.conflictId}.`;
+    const blockedHint =
+      materialized.conflicts.length === 0
+        ? "The registered harness could not be materialized; inspect the edge mirror state."
+        : `Divergence staged at ${materialized.conflicts[0]!.dir}; exit explicitly with` +
+          ` ha doc conflict resolve|discard-local|overwrite-center ${materialized.conflicts[0]!.conflictId}.`;
     return {
       schema: "command-receipt/v2",
       ok: !blocked,

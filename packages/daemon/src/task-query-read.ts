@@ -1,12 +1,28 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
-  blockingOf, closeoutReadiness, freshnessReasonOf, readRelationGraphProjection, workspaceTaskStatus,
-  type FreshnessReason, type FreshnessReasonInput, type ProjectedExecution, type TaskProjection,
-  type TaskProjectionListQuery, type TaskRelationProjectionRead, type TaskRelationQuery
+  blockingOf,
+  closeoutReadiness,
+  freshnessReasonOf,
+  readRelationGraphProjection,
+  workspaceTaskStatus,
+  type FreshnessReason,
+  type FreshnessReasonInput,
+  type ProjectedExecution,
+  type TaskProjection,
+  type TaskProjectionListQuery,
+  type TaskRelationProjectionRead,
+  type TaskRelationQuery,
 } from "../../kernel/src/index.ts";
 import type { CanonicalRoot } from "./protocol/daemon-protocol.contract.ts";
-import type { AgendaAwaitingRow, AgendaTaskRow, DaemonAgendaResult, DaemonTaskSnapshotListResult, ExecutionEvidenceProjection, TaskPlacementSupplement } from "./protocol/daemon-protocol.contract.ts";
+import type {
+  AgendaAwaitingRow,
+  AgendaTaskRow,
+  DaemonAgendaResult,
+  DaemonTaskSnapshotListResult,
+  ExecutionEvidenceProjection,
+  TaskPlacementSupplement,
+} from "./protocol/daemon-protocol.contract.ts";
 
 /**
  * The daemon's task query read model. Extracted verbatim from repo-cell so the
@@ -22,28 +38,76 @@ export interface TaskQueryReadModel {
   readonly relationGraphPage: (query: TaskRelationQuery) => DaemonGuiReadResultForRelationGraph;
   readonly guiTasks: (query?: TaskProjectionListQuery) => DaemonTaskSnapshotListResult;
 }
-export interface TaskQueryJudgments { readonly closeout: typeof closeoutReadiness; readonly blocking: typeof blockingOf }
-type DaemonGuiReadResultForRelationGraph = import("./protocol/daemon-protocol.contract.ts").DaemonGuiReadResultMap["repo.triadic.relationGraph"];
-export function makeTaskQueryReadModel(input: { readonly rootDir: CanonicalRoot; readonly projection: TaskProjection; readonly judgments: TaskQueryJudgments }): TaskQueryReadModel {
-  const { rootDir, projection, judgments } = input, closeout = judgments.closeout, blocking = judgments.blocking;
-  function relationGraph(): DaemonGuiReadResultForRelationGraph { return relationGraphFrom(readRelationGraphProjection({ rootDir })); }
-  function relationGraphFrom(materialized: ReturnType<typeof readRelationGraphProjection>): DaemonGuiReadResultForRelationGraph {
-    const decisions = projection.readDecisionGraph(), facts = projection.readFactGraph(), taskRelations = projection.readTaskRelations(), eventTruthReady = decisions.status === "ready" && facts.status === "ready" && taskRelations.status === "ready";
+export interface TaskQueryJudgments {
+  readonly closeout: typeof closeoutReadiness;
+  readonly blocking: typeof blockingOf;
+}
+type DaemonGuiReadResultForRelationGraph =
+  import("./protocol/daemon-protocol.contract.ts").DaemonGuiReadResultMap["repo.triadic.relationGraph"];
+export function makeTaskQueryReadModel(input: {
+  readonly rootDir: CanonicalRoot;
+  readonly projection: TaskProjection;
+  readonly judgments: TaskQueryJudgments;
+}): TaskQueryReadModel {
+  const { rootDir, projection, judgments } = input,
+    closeout = judgments.closeout,
+    blocking = judgments.blocking;
+  function relationGraph(): DaemonGuiReadResultForRelationGraph {
+    return relationGraphFrom(readRelationGraphProjection({ rootDir }));
+  }
+  function relationGraphFrom(
+    materialized: ReturnType<typeof readRelationGraphProjection>,
+  ): DaemonGuiReadResultForRelationGraph {
+    const decisions = projection.readDecisionGraph(),
+      facts = projection.readFactGraph(),
+      taskRelations = projection.readTaskRelations(),
+      eventTruthReady = decisions.status === "ready" && facts.status === "ready" && taskRelations.status === "ready";
     if (!eventTruthReady) {
-      const warning = { code: "relation_truth_unavailable" as const, source: "generated-cache" as const, severity: "hard-fail" as const, message: "Event-backed relation truth has not reached the canonical source revision.", repairHint: "Retry after the rebuild projection catches up." };
-      return { ok: true, ...withoutTaskRows(materialized), warnings: materialized.warnings.some(({ code }) => code === warning.code) ? materialized.warnings : [...materialized.warnings, warning] };
+      const warning = {
+        code: "relation_truth_unavailable" as const,
+        source: "generated-cache" as const,
+        severity: "hard-fail" as const,
+        message: "Event-backed relation truth has not reached the canonical source revision.",
+        repairHint: "Retry after the rebuild projection catches up.",
+      };
+      return {
+        ok: true,
+        ...withoutTaskRows(materialized),
+        warnings: materialized.warnings.some(({ code }) => code === warning.code)
+          ? materialized.warnings
+          : [...materialized.warnings, warning],
+      };
     }
     const eventCoverage = decisions.coverageRows.map((row) => {
-      const fulfillment = row.fulfillment === "standing_policy" ? "standing-policy" as const : row.fulfillment;
+      const fulfillment = row.fulfillment === "standing_policy" ? ("standing-policy" as const) : row.fulfillment;
       return withFreshnessReason({ ...row, fulfillment });
     });
-    const eventFacts = facts.facts.map((row) => ({ schema: "task-fact-row/v1" as const, ref: row.ref, taskId: row.taskId, factId: row.factId, statement: row.statement, source: row.evidenceSource, observedAt: row.observedAt, confidence: row.confidence, memoryClass: row.memoryClass, memoryTags: row.memoryTags, provenance: relationProvenance(row.provenance), liveness: row.state }));
+    const eventFacts = facts.facts.map((row) => ({
+      schema: "task-fact-row/v1" as const,
+      ref: row.ref,
+      taskId: row.taskId,
+      factId: row.factId,
+      statement: row.statement,
+      source: row.evidenceSource,
+      observedAt: row.observedAt,
+      confidence: row.confidence,
+      memoryClass: row.memoryClass,
+      memoryTags: row.memoryTags,
+      provenance: relationProvenance(row.provenance),
+      liveness: row.state,
+    }));
     const mergedCoverage = mergeRows(
-      materialized.coverageRows.map(withFreshnessReason), eventCoverage, (row) => row.claimRef);
+      materialized.coverageRows.map(withFreshnessReason),
+      eventCoverage,
+      (row) => row.claimRef,
+    );
     return {
       ok: true,
-      edges: mergeRows(materialized.edges, [...taskRelations.rows, ...decisions.edges, ...facts.edges],
-        (row) => row.relationId),
+      edges: mergeRows(
+        materialized.edges,
+        [...taskRelations.rows, ...decisions.edges, ...facts.edges],
+        (row) => row.relationId,
+      ),
       coverageRows: mergedCoverage,
       factAnchors: mergeRows(materialized.factAnchors, facts.factAnchors, (row) => row.factRef),
       facts: mergeRows(materialized.facts, eventFacts, (row) => row.ref),
@@ -51,27 +115,228 @@ export function makeTaskQueryReadModel(input: { readonly rootDir: CanonicalRoot;
       // unmaterialized `projections.sqlite` generated cache is not a gap in what was served
       // and must not stand as a permanent hard-fail warning on every otherwise-healthy read.
       warnings: materialized.warnings.filter(
-        (warning) => !(warning.source === "generated-cache" && warning.code === "relation_truth_unavailable")),
+        (warning) => !(warning.source === "generated-cache" && warning.code === "relation_truth_unavailable"),
+      ),
     };
   }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
-    const lifecycle = projection.list(query), narrow = hasNarrowFacet(query), materialized = narrow ? null : readRelationGraphProjection({ rootDir }), l2 = new Map((materialized?.taskRows ?? []).map((row) => [row.taskId, row])), graph = narrow ? null : relationGraphFrom(materialized!), graphWarnings = graph?.warnings ?? [], hardWarnings = graphWarnings.filter(({ severity }) => severity === "hard-fail").map(({ message }) => message), context = narrow ? narrowTaskContext(lifecycle.rows.map(({ taskId }) => taskId)) : null, edges = context?.decisionEdges ?? projection.readDecisionGraph().edges, activeDerives = new Map<string, typeof edges>();
-    for (const edge of edges) if (edge.state === "active" && edge.direction === "directed" && edge.relationType === "derives") activeDerives.set(edge.targetRef, [...activeDerives.get(edge.targetRef) ?? [], edge]);
-    const blockingTasks = context?.taskStatuses ?? lifecycle.rows.flatMap((row) => row.snapshot.task ? [{ taskId: row.taskId, status: row.snapshot.task.status }] : []);
+    const lifecycle = projection.list(query),
+      narrow = hasNarrowFacet(query),
+      materialized = narrow ? null : readRelationGraphProjection({ rootDir }),
+      l2 = new Map((materialized?.taskRows ?? []).map((row) => [row.taskId, row])),
+      graph = narrow ? null : relationGraphFrom(materialized!),
+      graphWarnings = graph?.warnings ?? [],
+      hardWarnings = graphWarnings.filter(({ severity }) => severity === "hard-fail").map(({ message }) => message),
+      context = narrow ? narrowTaskContext(lifecycle.rows.map(({ taskId }) => taskId)) : null,
+      edges = context?.decisionEdges ?? projection.readDecisionGraph().edges,
+      activeDerives = new Map<string, typeof edges>();
+    for (const edge of edges)
+      if (edge.state === "active" && edge.direction === "directed" && edge.relationType === "derives")
+        activeDerives.set(edge.targetRef, [...(activeDerives.get(edge.targetRef) ?? []), edge]);
+    const blockingTasks =
+      context?.taskStatuses ??
+      lifecycle.rows.flatMap((row) =>
+        row.snapshot.task ? [{ taskId: row.taskId, status: row.snapshot.task.status }] : [],
+      );
     const blockingEdges = context?.blockingEdges ?? graph!.edges;
-    const blockingRows = new Map(blocking(blockingTasks, blockingEdges, { state: hardWarnings.length ? "error" : "ready", hardFailWarnings: hardWarnings }).map((row) => [row.taskId, row]));
-    const decisions = context?.decisions ?? new Map(projection.listDecisions({}).decisions.map((row) => [row.decisionId, row]));
-    return { ok: true, ...lifecycle, rows: lifecycle.rows.map((row) => { const source = l2.get(row.taskId), task = row.snapshot.task, metadata = task?.metadata, disposition = task?.packageDisposition ?? source?.packageDisposition ?? "active", derived = activeDerives.get(`task/${row.taskId}`) ?? [], scopes = derived.flatMap((edge) => { const id = /^decision\/([^/]+)/u.exec(edge.sourceRef)?.[1]; return id ? [decisions.get(id)] : []; }).filter((value) => value !== undefined), origin: TaskPlacementSupplement["origin"] = source?.source === "external-engine" ? "external" : disposition !== "active" ? "archival" : "native", placement: TaskPlacementSupplement = { moduleKeys: [...new Set([metadata?.moduleKey, source?.moduleKey, ...scopes.flatMap((scope) => scope.appliesTo.modules)].filter((value): value is string => !!value))].sort(), productLines: [...new Set(scopes.flatMap((scope) => scope.appliesTo.productLines))].sort(), parentTaskId: metadata?.parentTaskId ?? source?.parentTaskId ?? null, origin, engine: source?.lifecycleEngine ?? "kernel/task-lifecycle/v1", packageDisposition: disposition, provenance: [...(source ? [{ kind: "l2" as const, ref: source.sourcePath }] : [{ kind: "canonical-event" as const, ref: `task/${row.taskId}` }]), ...derived.map((edge) => ({ kind: "decision-relation" as const, ref: edge.relationId }))] }, snapshotAvailability = { consents: "known" as const, codeDocWitnesses: "known" as const, gateWitnesses: "known" as const }, blockingAssessment = blockingRows.get(row.taskId) ?? { taskId: row.taskId, state: "unknown" as const, blockers: [], warnings: ["task snapshot missing from blocking judgment"] }, coordinationStatus = task ? workspaceTaskStatus({ status: task.status, blockingState: blockingAssessment.state }) : "unknown" as const; return { ...row, coordinationStatus, snapshotAvailability, closeoutAssessment: closeout(row.snapshot, snapshotAvailability), blockingAssessment, placement, executionEvidence: row.snapshot.executions.map((execution) => projectExecutionEvidence(row.taskId, execution, origin)) }; }) };
+    const blockingRows = new Map(
+      blocking(blockingTasks, blockingEdges, {
+        state: hardWarnings.length ? "error" : "ready",
+        hardFailWarnings: hardWarnings,
+      }).map((row) => [row.taskId, row]),
+    );
+    const decisions =
+      context?.decisions ?? new Map(projection.listDecisions({}).decisions.map((row) => [row.decisionId, row]));
+    return {
+      ok: true,
+      ...lifecycle,
+      rows: lifecycle.rows.map((row) => {
+        const source = l2.get(row.taskId),
+          task = row.snapshot.task,
+          metadata = task?.metadata,
+          disposition = task?.packageDisposition ?? source?.packageDisposition ?? "active",
+          derived = activeDerives.get(`task/${row.taskId}`) ?? [],
+          scopes = derived
+            .flatMap((edge) => {
+              const id = /^decision\/([^/]+)/u.exec(edge.sourceRef)?.[1];
+              return id ? [decisions.get(id)] : [];
+            })
+            .filter((value) => value !== undefined),
+          origin: TaskPlacementSupplement["origin"] =
+            source?.source === "external-engine" ? "external" : disposition !== "active" ? "archival" : "native",
+          placement: TaskPlacementSupplement = {
+            moduleKeys: [
+              ...new Set(
+                [metadata?.moduleKey, source?.moduleKey, ...scopes.flatMap((scope) => scope.appliesTo.modules)].filter(
+                  (value): value is string => !!value,
+                ),
+              ),
+            ].sort(),
+            productLines: [...new Set(scopes.flatMap((scope) => scope.appliesTo.productLines))].sort(),
+            parentTaskId: metadata?.parentTaskId ?? source?.parentTaskId ?? null,
+            origin,
+            engine: source?.lifecycleEngine ?? "kernel/task-lifecycle/v1",
+            packageDisposition: disposition,
+            provenance: [
+              ...(source
+                ? [{ kind: "l2" as const, ref: source.sourcePath }]
+                : [{ kind: "canonical-event" as const, ref: `task/${row.taskId}` }]),
+              ...derived.map((edge) => ({ kind: "decision-relation" as const, ref: edge.relationId })),
+            ],
+          },
+          snapshotAvailability = {
+            consents: "known" as const,
+            codeDocWitnesses: "known" as const,
+            gateWitnesses: "known" as const,
+          },
+          blockingAssessment = blockingRows.get(row.taskId) ?? {
+            taskId: row.taskId,
+            state: "unknown" as const,
+            blockers: [],
+            warnings: ["task snapshot missing from blocking judgment"],
+          },
+          coordinationStatus = task
+            ? workspaceTaskStatus({ status: task.status, blockingState: blockingAssessment.state })
+            : ("unknown" as const);
+        return {
+          ...row,
+          coordinationStatus,
+          snapshotAvailability,
+          closeoutAssessment: closeout(row.snapshot, snapshotAvailability),
+          blockingAssessment,
+          placement,
+          executionEvidence: row.snapshot.executions.map((execution) =>
+            projectExecutionEvidence(row.taskId, execution, origin),
+          ),
+        };
+      }),
+    };
   }
   function agenda(query: { readonly limit?: number; readonly cursor?: string } = {}): DaemonAgendaResult {
-    const sourceLimit = query.limit ?? 100, cursor = query.cursor === undefined ? null : decodeAgendaCursor(query.cursor), readTaskPage = (status: "active" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) => cursor?.[key] === null ? null : guiTasks({ status, limit: sourceLimit, pinnedFirst: true, ...(cursor?.[key] ? { cursor: cursor[key]! } : {}) }), active = readTaskPage("active", "active"), blocked = readTaskPage("blocked", "blocked"), planned = readTaskPage("planned", "planned"), inReview = readTaskPage("in_review", "inReview"), decisions = cursor?.decisions === null ? null : projection.listDecisionAgendaPage({ state: "proposed", limit: sourceLimit, ...(cursor?.decisions ? { cursor: cursor.decisions } : {}) }), reads = [active, blocked, planned, inReview, decisions].filter((read): read is NonNullable<typeof read> => read !== null), inFlight = (active?.rows ?? []).filter((row) => row.snapshot.lease !== null || row.snapshot.executions.some(({ state }) => state === "active")).map(agendaTaskRow).sort(compareAgendaTasks), waitingOnOthers = [...(blocked?.rows ?? []), ...(planned?.rows ?? []).filter(({ blockingAssessment }) => blockingAssessment.state !== "clear"), ...(active?.rows ?? []).filter(({ blockingAssessment }) => blockingAssessment.state !== "clear")].map(agendaTaskRow).sort(compareAgendaTasks), dispatchable = (planned?.rows ?? []).filter(({ blockingAssessment }) => blockingAssessment.state === "clear").map(agendaTaskRow).sort(compareAgendaTasks), awaitingExecutions: AgendaAwaitingRow[] = (inReview?.rows ?? []).flatMap((row) => row.snapshot.executions.filter((execution) => execution.state === "submitted" && !row.snapshot.reviews.some((review) => review.executionId === execution.executionId && review.verdict === "approved" && review.commitSha === execution.submission?.commitSha && review.iteration === execution.iteration)).map((execution) => ({ kind: "execution" as const, taskId: row.taskId, title: row.snapshot.task?.title ?? row.taskId, pinned: row.snapshot.task?.pinned ?? false, executionId: execution.executionId, submittedAt: execution.submittedAt ?? row.updatedAt, blockingAssessment: row.blockingAssessment }))), awaitingDecisions: AgendaAwaitingRow[] = (decisions?.decisions ?? []).map((decision) => ({ kind: "decision", decisionId: decision.decisionId, title: decision.title, riskTier: decision.riskTier, urgency: decision.urgency, proposedAt: decision.proposedAt })), awaitingDecision = [...awaitingExecutions, ...awaitingDecisions].sort(compareAwaiting), nextState: AgendaCursor = { active: active?.page?.nextCursor ?? null, blocked: blocked?.page?.nextCursor ?? null, planned: planned?.page?.nextCursor ?? null, inReview: inReview?.page?.nextCursor ?? null, decisions: decisions?.page.nextCursor ?? null }, nextCursor = Object.values(nextState).some((value) => value !== null) ? encodeAgendaCursor(nextState) : null, watermarks = reads.map(({ watermark }) => watermark), revisions = reads.map(({ sourceRevision }) => sourceRevision), warningCodes = [...new Set([active, blocked, planned, inReview].flatMap((read) => read?.warnings ?? []))], warnings: DaemonAgendaResult["warnings"] = warningCodes.map((code) => ({ code, source: "generated-cache", severity: "warning", message: "The agenda projection cache was rebuilt from canonical events." }));
-    return { schema: "daemon.agenda/v1", ok: true, command: "agenda", status: reads.every((read) => read.status === "ready") ? "ready" : "pending", inFlight, awaitingDecision, waitingOnOthers, dispatchable, page: { sourceLimit, cursor: query.cursor ?? null, nextCursor }, watermark: watermarks.length ? Math.min(...watermarks) : 0, sourceRevision: revisions.length ? Math.max(...revisions) : 0, warnings, summary: renderAgendaSummary({ inFlight, awaitingDecision, waitingOnOthers, dispatchable }) };
+    const sourceLimit = query.limit ?? 100,
+      cursor = query.cursor === undefined ? null : decodeAgendaCursor(query.cursor),
+      readTaskPage = (status: "active" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) =>
+        cursor?.[key] === null
+          ? null
+          : guiTasks({
+              status,
+              limit: sourceLimit,
+              pinnedFirst: true,
+              ...(cursor?.[key] ? { cursor: cursor[key]! } : {}),
+            }),
+      active = readTaskPage("active", "active"),
+      blocked = readTaskPage("blocked", "blocked"),
+      planned = readTaskPage("planned", "planned"),
+      inReview = readTaskPage("in_review", "inReview"),
+      decisions =
+        cursor?.decisions === null
+          ? null
+          : projection.listDecisionAgendaPage({
+              state: "proposed",
+              limit: sourceLimit,
+              ...(cursor?.decisions ? { cursor: cursor.decisions } : {}),
+            }),
+      reads = [active, blocked, planned, inReview, decisions].filter(
+        (read): read is NonNullable<typeof read> => read !== null,
+      ),
+      inFlight = (active?.rows ?? [])
+        .filter((row) => row.snapshot.lease !== null || row.snapshot.executions.some(({ state }) => state === "active"))
+        .map(agendaTaskRow)
+        .sort(compareAgendaTasks),
+      waitingOnOthers = [
+        ...(blocked?.rows ?? []),
+        ...(planned?.rows ?? []).filter(({ blockingAssessment }) => blockingAssessment.state !== "clear"),
+        ...(active?.rows ?? []).filter(({ blockingAssessment }) => blockingAssessment.state !== "clear"),
+      ]
+        .map(agendaTaskRow)
+        .sort(compareAgendaTasks),
+      dispatchable = (planned?.rows ?? [])
+        .filter(({ blockingAssessment }) => blockingAssessment.state === "clear")
+        .map(agendaTaskRow)
+        .sort(compareAgendaTasks),
+      awaitingExecutions: AgendaAwaitingRow[] = (inReview?.rows ?? []).flatMap((row) =>
+        row.snapshot.executions
+          .filter(
+            (execution) =>
+              execution.state === "submitted" &&
+              !row.snapshot.reviews.some(
+                (review) =>
+                  review.executionId === execution.executionId &&
+                  review.verdict === "approved" &&
+                  review.commitSha === execution.submission?.commitSha &&
+                  review.iteration === execution.iteration,
+              ),
+          )
+          .map((execution) => ({
+            kind: "execution" as const,
+            taskId: row.taskId,
+            title: row.snapshot.task?.title ?? row.taskId,
+            pinned: row.snapshot.task?.pinned ?? false,
+            executionId: execution.executionId,
+            submittedAt: execution.submittedAt ?? row.updatedAt,
+            blockingAssessment: row.blockingAssessment,
+          })),
+      ),
+      awaitingDecisions: AgendaAwaitingRow[] = (decisions?.decisions ?? []).map((decision) => ({
+        kind: "decision",
+        decisionId: decision.decisionId,
+        title: decision.title,
+        riskTier: decision.riskTier,
+        urgency: decision.urgency,
+        proposedAt: decision.proposedAt,
+      })),
+      awaitingDecision = [...awaitingExecutions, ...awaitingDecisions].sort(compareAwaiting),
+      nextState: AgendaCursor = {
+        active: active?.page?.nextCursor ?? null,
+        blocked: blocked?.page?.nextCursor ?? null,
+        planned: planned?.page?.nextCursor ?? null,
+        inReview: inReview?.page?.nextCursor ?? null,
+        decisions: decisions?.page.nextCursor ?? null,
+      },
+      nextCursor = Object.values(nextState).some((value) => value !== null) ? encodeAgendaCursor(nextState) : null,
+      watermarks = reads.map(({ watermark }) => watermark),
+      revisions = reads.map(({ sourceRevision }) => sourceRevision),
+      warningCodes = [...new Set([active, blocked, planned, inReview].flatMap((read) => read?.warnings ?? []))],
+      warnings: DaemonAgendaResult["warnings"] = warningCodes.map((code) => ({
+        code,
+        source: "generated-cache",
+        severity: "warning",
+        message: "The agenda projection cache was rebuilt from canonical events.",
+      }));
+    return {
+      schema: "daemon.agenda/v1",
+      ok: true,
+      command: "agenda",
+      status: reads.every((read) => read.status === "ready") ? "ready" : "pending",
+      inFlight,
+      awaitingDecision,
+      waitingOnOthers,
+      dispatchable,
+      page: { sourceLimit, cursor: query.cursor ?? null, nextCursor },
+      watermark: watermarks.length ? Math.min(...watermarks) : 0,
+      sourceRevision: revisions.length ? Math.max(...revisions) : 0,
+      warnings,
+      summary: renderAgendaSummary({ inFlight, awaitingDecision, waitingOnOthers, dispatchable }),
+    };
   }
   function narrowTaskContext(taskIds: readonly string[]) {
-    const taskRefs = taskIds.map((taskId) => `task/${taskId}`), blockingEdges = projection.readTaskDependencyClosure(taskRefs).rows, decisionEdges = projection.readTaskRelationsByTargets(taskRefs, "derives").rows, statusIds = new Set(taskIds);
-    for (const edge of blockingEdges) { const targetId = /^task\/([^/]+)$/u.exec(edge.targetRef)?.[1]; if (targetId) statusIds.add(targetId); }
-    const decisionIds = [...new Set(decisionEdges.flatMap((edge) => /^decision\/([^/]+)/u.exec(edge.sourceRef)?.[1] ?? []))], decisions = new Map(decisionIds.length ? projection.readDecisions(decisionIds).decisions.map((row) => [row.decisionId, row]) : []);
-    const taskStatuses = projection.readTaskStatuses([...statusIds]).rows.flatMap((row) => row.status === null ? [] : [{ taskId: row.taskId, status: row.status }]);
+    const taskRefs = taskIds.map((taskId) => `task/${taskId}`),
+      blockingEdges = projection.readTaskDependencyClosure(taskRefs).rows,
+      decisionEdges = projection.readTaskRelationsByTargets(taskRefs, "derives").rows,
+      statusIds = new Set(taskIds);
+    for (const edge of blockingEdges) {
+      const targetId = /^task\/([^/]+)$/u.exec(edge.targetRef)?.[1];
+      if (targetId) statusIds.add(targetId);
+    }
+    const decisionIds = [
+        ...new Set(decisionEdges.flatMap((edge) => /^decision\/([^/]+)/u.exec(edge.sourceRef)?.[1] ?? [])),
+      ],
+      decisions = new Map(
+        decisionIds.length ? projection.readDecisions(decisionIds).decisions.map((row) => [row.decisionId, row]) : [],
+      );
+    const taskStatuses = projection
+      .readTaskStatuses([...statusIds])
+      .rows.flatMap((row) => (row.status === null ? [] : [{ taskId: row.taskId, status: row.status }]));
     return { blockingEdges, decisionEdges, decisions, taskStatuses };
   }
   /**
@@ -82,42 +347,187 @@ export function makeTaskQueryReadModel(input: { readonly rootDir: CanonicalRoot;
    * markdown-side cache appear in the unparameterized converged read, not here.
    */
   function relationGraphPage(query: TaskRelationQuery): DaemonGuiReadResultForRelationGraph {
-    const page: TaskRelationProjectionRead = projection.readRelationQuery(query), refs = new Set(page.rows.flatMap((edge) => [edge.sourceRef, edge.targetRef])), factRefs = [...refs].filter((ref) => ref.startsWith("fact/")), facts = projection.searchFacts({ refs: factRefs }), factAnchors = projection.readFactAnchors(factRefs), decisionRefs = [...refs].filter((ref) => ref.startsWith("decision/")), decisions = decisionRefs.length === 0 ? { coverageRows: [] } : projection.readDecisionGraph(), coverageRows = decisions.coverageRows.filter((row) => decisionRefs.some((ref) => row.decisionRef === ref || row.claimRef === ref));
+    const page: TaskRelationProjectionRead = projection.readRelationQuery(query),
+      refs = new Set(page.rows.flatMap((edge) => [edge.sourceRef, edge.targetRef])),
+      factRefs = [...refs].filter((ref) => ref.startsWith("fact/")),
+      facts = projection.searchFacts({ refs: factRefs }),
+      factAnchors = projection.readFactAnchors(factRefs),
+      decisionRefs = [...refs].filter((ref) => ref.startsWith("decision/")),
+      decisions = decisionRefs.length === 0 ? { coverageRows: [] } : projection.readDecisionGraph(),
+      coverageRows = decisions.coverageRows.filter((row) =>
+        decisionRefs.some((ref) => row.decisionRef === ref || row.claimRef === ref),
+      );
     const servedCoverage = coverageRows.map((row) => {
-      const fulfillment = row.fulfillment === "standing_policy" ? "standing-policy" as const : row.fulfillment;
+      const fulfillment = row.fulfillment === "standing_policy" ? ("standing-policy" as const) : row.fulfillment;
       return withFreshnessReason({ ...row, fulfillment });
     });
     const servedFacts = facts.facts.map((row) => ({
-      schema: "task-fact-row/v1" as const, ref: row.ref, taskId: row.taskId, factId: row.factId,
-      statement: row.statement, source: row.evidenceSource, observedAt: row.observedAt,
-      confidence: row.confidence, memoryClass: row.memoryClass, memoryTags: row.memoryTags,
-      provenance: relationProvenance(row.provenance), liveness: row.state,
+      schema: "task-fact-row/v1" as const,
+      ref: row.ref,
+      taskId: row.taskId,
+      factId: row.factId,
+      statement: row.statement,
+      source: row.evidenceSource,
+      observedAt: row.observedAt,
+      confidence: row.confidence,
+      memoryClass: row.memoryClass,
+      memoryTags: row.memoryTags,
+      provenance: relationProvenance(row.provenance),
+      liveness: row.state,
     }));
     return {
-      ok: true, edges: page.rows, coverageRows: servedCoverage, factAnchors: factAnchors.rows,
-      facts: servedFacts, warnings: [], ...(page.page ? { page: page.page } : {}),
+      ok: true,
+      edges: page.rows,
+      coverageRows: servedCoverage,
+      factAnchors: factAnchors.rows,
+      facts: servedFacts,
+      warnings: [],
+      ...(page.page ? { page: page.page } : {}),
     };
   }
   return Object.freeze({ agenda, relationGraph, relationGraphPage, guiTasks });
 }
-function mergeRows<A>(materialized: readonly A[], eventRows: readonly A[], key: (row: A) => string): readonly A[] { const rows = new Map(materialized.map((row) => [key(row), row])); for (const row of eventRows) rows.set(key(row), row); return [...rows.values()].sort((left, right) => key(left).localeCompare(key(right))); }
+function mergeRows<A>(materialized: readonly A[], eventRows: readonly A[], key: (row: A) => string): readonly A[] {
+  const rows = new Map(materialized.map((row) => [key(row), row]));
+  for (const row of eventRows) rows.set(key(row), row);
+  return [...rows.values()].sort((left, right) => key(left).localeCompare(key(right)));
+}
 /** Attach the kernel's uncovered-cause classification so consumers never re-derive it. */
 function withFreshnessReason<T extends FreshnessReasonInput>(row: T): T & { freshnessReason?: FreshnessReason } {
   const reason = freshnessReasonOf(row);
   return reason === null ? row : { ...row, freshnessReason: reason };
 }
-function relationProvenance(value: readonly { readonly runtime: string; readonly sessionId: string | null; readonly boundAt: string }[]): readonly { readonly runtime: string; readonly sessionId: string; readonly boundAt: string }[] { return value.flatMap((entry) => entry.sessionId === null ? [] : [{ runtime: entry.runtime, sessionId: entry.sessionId, boundAt: entry.boundAt }]); }
-function hasNarrowFacet(query: TaskProjectionListQuery): boolean { return query.status !== undefined || query.changedAfterRevision !== undefined || query.updatedAfter !== undefined || query.updatedBefore !== undefined || query.limit !== undefined || query.cursor !== undefined || query.pinnedFirst === true; }
-function withoutTaskRows(value: ReturnType<typeof readRelationGraphProjection>): Omit<ReturnType<typeof readRelationGraphProjection>, "taskRows"> { const { taskRows: _taskRows, ...rest } = value; return rest; }
-function evidenceSubstrate(locator: string): "repository-path" | "uri" | "canonical-event" | "opaque" { if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(locator)) return "uri"; if (locator.startsWith("event:")) return "canonical-event"; if (!path.isAbsolute(locator) && !locator.split("/").includes("..") && /^[A-Za-z0-9._/-]+$/u.test(locator)) return "repository-path"; return "opaque"; }
-function projectExecutionEvidence(taskId: string, execution: ProjectedExecution, taskOrigin: TaskPlacementSupplement["origin"]): ExecutionEvidenceProjection { if (execution.schema === "archived-execution/v1") return { executionId: execution.executionId, origin: "archival", outputs: execution.outputs.map((output, index) => ({ evidenceId: `evidence_${createHash("sha256").update(`${taskId}\0${execution.executionId}\0${index}\0${output.migratedFrom}`).digest("hex").slice(0, 24)}`, locator: output.locator, substrate: output.substrate, checkerReceiptRef: output.checkerReceiptRef, checkerResult: output.checkerResult })) }; return { executionId: execution.executionId, origin: taskOrigin === "archival" ? "archival" : "native", outputs: (execution.submission?.outputs ?? []).map((locator, index) => ({ evidenceId: `evidence_${createHash("sha256").update(`${taskId}\0${execution.executionId}\0${index}\0${locator}`).digest("hex").slice(0, 24)}`, locator, substrate: evidenceSubstrate(locator), checkerReceiptRef: null, checkerResult: "unknown" })) }; }
+function relationProvenance(
+  value: readonly { readonly runtime: string; readonly sessionId: string | null; readonly boundAt: string }[],
+): readonly { readonly runtime: string; readonly sessionId: string; readonly boundAt: string }[] {
+  return value.flatMap((entry) =>
+    entry.sessionId === null ? [] : [{ runtime: entry.runtime, sessionId: entry.sessionId, boundAt: entry.boundAt }],
+  );
+}
+function hasNarrowFacet(query: TaskProjectionListQuery): boolean {
+  return (
+    query.status !== undefined ||
+    query.changedAfterRevision !== undefined ||
+    query.updatedAfter !== undefined ||
+    query.updatedBefore !== undefined ||
+    query.limit !== undefined ||
+    query.cursor !== undefined ||
+    query.pinnedFirst === true
+  );
+}
+function withoutTaskRows(
+  value: ReturnType<typeof readRelationGraphProjection>,
+): Omit<ReturnType<typeof readRelationGraphProjection>, "taskRows"> {
+  const { taskRows: _taskRows, ...rest } = value;
+  return rest;
+}
+function evidenceSubstrate(locator: string): "repository-path" | "uri" | "canonical-event" | "opaque" {
+  if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(locator)) return "uri";
+  if (locator.startsWith("event:")) return "canonical-event";
+  if (!path.isAbsolute(locator) && !locator.split("/").includes("..") && /^[A-Za-z0-9._/-]+$/u.test(locator))
+    return "repository-path";
+  return "opaque";
+}
+function projectExecutionEvidence(
+  taskId: string,
+  execution: ProjectedExecution,
+  taskOrigin: TaskPlacementSupplement["origin"],
+): ExecutionEvidenceProjection {
+  if (execution.schema === "archived-execution/v1")
+    return {
+      executionId: execution.executionId,
+      origin: "archival",
+      outputs: execution.outputs.map((output, index) => ({
+        evidenceId: `evidence_${createHash("sha256").update(`${taskId}\0${execution.executionId}\0${index}\0${output.migratedFrom}`).digest("hex").slice(0, 24)}`,
+        locator: output.locator,
+        substrate: output.substrate,
+        checkerReceiptRef: output.checkerReceiptRef,
+        checkerResult: output.checkerResult,
+      })),
+    };
+  return {
+    executionId: execution.executionId,
+    origin: taskOrigin === "archival" ? "archival" : "native",
+    outputs: (execution.submission?.outputs ?? []).map((locator, index) => ({
+      evidenceId: `evidence_${createHash("sha256").update(`${taskId}\0${execution.executionId}\0${index}\0${locator}`).digest("hex").slice(0, 24)}`,
+      locator,
+      substrate: evidenceSubstrate(locator),
+      checkerReceiptRef: null,
+      checkerResult: "unknown",
+    })),
+  };
+}
 type AgendaSourceRead = DaemonTaskSnapshotListResult["rows"][number];
 type AgendaCursorKey = "active" | "blocked" | "planned" | "inReview";
 type AgendaCursor = Readonly<Record<AgendaCursorKey | "decisions", string | null>>;
-function agendaTaskRow(row: AgendaSourceRead): AgendaTaskRow { const task = row.snapshot.task!; return { taskId: row.taskId, title: task.title, status: task.status, pinned: task.pinned ?? false, updatedAt: row.updatedAt, leaseExecutionId: row.snapshot.lease?.executionId ?? null, activeExecutionIds: row.snapshot.executions.filter(({ state }) => state === "active").map(({ executionId }) => executionId).sort(), blockingAssessment: row.blockingAssessment }; }
-function compareAgendaTasks(left: AgendaTaskRow, right: AgendaTaskRow): number { return Number(right.pinned) - Number(left.pinned) || left.taskId.localeCompare(right.taskId); }
-function compareAwaiting(left: AgendaAwaitingRow, right: AgendaAwaitingRow): number { const leftPinned = left.kind === "execution" && left.pinned, rightPinned = right.kind === "execution" && right.pinned; return Number(rightPinned) - Number(leftPinned) || awaitingKey(left).localeCompare(awaitingKey(right)); }
-function awaitingKey(row: AgendaAwaitingRow): string { return row.kind === "execution" ? `execution/${row.taskId}/${row.executionId}` : `decision/${row.decisionId}`; }
-function decodeAgendaCursor(value: string): AgendaCursor { let parsed: unknown; try { parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")); } catch { throw new Error("agenda cursor is invalid"); } const keys = ["active", "blocked", "planned", "inReview", "decisions"] as const; if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed) || Object.keys(parsed).length !== keys.length || keys.some((key) => !Object.hasOwn(parsed, key) || (parsed as Record<string, unknown>)[key] !== null && (typeof (parsed as Record<string, unknown>)[key] !== "string" || !(parsed as Record<string, string>)[key]))) throw new Error("agenda cursor is invalid"); return parsed as AgendaCursor; }
-function encodeAgendaCursor(value: AgendaCursor): string { return Buffer.from(JSON.stringify(value), "utf8").toString("base64url"); }
-function renderAgendaSummary(groups: Pick<DaemonAgendaResult, "inFlight" | "awaitingDecision" | "waitingOnOthers" | "dispatchable">): string { const taskLine = (row: AgendaTaskRow) => `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(({ targetTaskId }) => targetTaskId).join(", ")}）` : ""}`, awaitingLine = (row: AgendaAwaitingRow) => row.kind === "execution" ? `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}` : `- decision ${row.decisionId} ${row.title}`, section = (title: string, rows: readonly string[]) => `${title} (${rows.length})\n${rows.length ? rows.join("\n") : "- 无"}`; return [section("在飞线", groups.inFlight.map(taskLine)), section("待裁", groups.awaitingDecision.map(awaitingLine)), section("球在别人手里", groups.waitingOnOthers.map(taskLine)), section("可派队列", groups.dispatchable.map(taskLine))].join("\n\n"); }
+function agendaTaskRow(row: AgendaSourceRead): AgendaTaskRow {
+  const task = row.snapshot.task!;
+  return {
+    taskId: row.taskId,
+    title: task.title,
+    status: task.status,
+    pinned: task.pinned ?? false,
+    updatedAt: row.updatedAt,
+    leaseExecutionId: row.snapshot.lease?.executionId ?? null,
+    activeExecutionIds: row.snapshot.executions
+      .filter(({ state }) => state === "active")
+      .map(({ executionId }) => executionId)
+      .sort(),
+    blockingAssessment: row.blockingAssessment,
+  };
+}
+function compareAgendaTasks(left: AgendaTaskRow, right: AgendaTaskRow): number {
+  return Number(right.pinned) - Number(left.pinned) || left.taskId.localeCompare(right.taskId);
+}
+function compareAwaiting(left: AgendaAwaitingRow, right: AgendaAwaitingRow): number {
+  const leftPinned = left.kind === "execution" && left.pinned,
+    rightPinned = right.kind === "execution" && right.pinned;
+  return Number(rightPinned) - Number(leftPinned) || awaitingKey(left).localeCompare(awaitingKey(right));
+}
+function awaitingKey(row: AgendaAwaitingRow): string {
+  return row.kind === "execution" ? `execution/${row.taskId}/${row.executionId}` : `decision/${row.decisionId}`;
+}
+function decodeAgendaCursor(value: string): AgendaCursor {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("agenda cursor is invalid");
+  }
+  const keys = ["active", "blocked", "planned", "inReview", "decisions"] as const;
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    Object.keys(parsed).length !== keys.length ||
+    keys.some(
+      (key) =>
+        !Object.hasOwn(parsed, key) ||
+        ((parsed as Record<string, unknown>)[key] !== null &&
+          (typeof (parsed as Record<string, unknown>)[key] !== "string" || !(parsed as Record<string, string>)[key])),
+    )
+  )
+    throw new Error("agenda cursor is invalid");
+  return parsed as AgendaCursor;
+}
+function encodeAgendaCursor(value: AgendaCursor): string {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+function renderAgendaSummary(
+  groups: Pick<DaemonAgendaResult, "inFlight" | "awaitingDecision" | "waitingOnOthers" | "dispatchable">,
+): string {
+  const taskLine = (row: AgendaTaskRow) =>
+      `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(({ targetTaskId }) => targetTaskId).join(", ")}）` : ""}`,
+    awaitingLine = (row: AgendaAwaitingRow) =>
+      row.kind === "execution"
+        ? `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}`
+        : `- decision ${row.decisionId} ${row.title}`,
+    section = (title: string, rows: readonly string[]) =>
+      `${title} (${rows.length})\n${rows.length ? rows.join("\n") : "- 无"}`;
+  return [
+    section("在飞线", groups.inFlight.map(taskLine)),
+    section("待裁", groups.awaitingDecision.map(awaitingLine)),
+    section("球在别人手里", groups.waitingOnOthers.map(taskLine)),
+    section("可派队列", groups.dispatchable.map(taskLine)),
+  ].join("\n\n");
+}

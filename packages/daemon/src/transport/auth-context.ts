@@ -2,7 +2,10 @@ import type { FleetAssignmentBinding } from "../fleet/contract.ts";
 import type { DaemonSessionEnvironment } from "../protocol/daemon-protocol.contract.ts";
 
 export type DaemonTransportKind = "unix-socket" | "fleet-tls";
-export interface DaemonFleetAssignmentBinding extends FleetAssignmentBinding { readonly nodeId: FleetAssignmentBinding["nodeId"]; readonly assignmentId: FleetAssignmentBinding["assignmentId"] }
+export interface DaemonFleetAssignmentBinding extends FleetAssignmentBinding {
+  readonly nodeId: FleetAssignmentBinding["nodeId"];
+  readonly assignmentId: FleetAssignmentBinding["assignmentId"];
+}
 
 export interface UnixSocketOwnerBoundary {
   readonly ownerUid: number;

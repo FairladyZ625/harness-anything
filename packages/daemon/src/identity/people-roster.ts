@@ -10,7 +10,7 @@ import {
   type IdentityProviderFailure,
   type PeopleRoster,
   type PersonProfile,
-  type RolePolicy
+  type RolePolicy,
 } from "./types.ts";
 
 const ROSTER_SCHEMA = "harness-people/v1";
@@ -24,7 +24,7 @@ const credentialKinds = new Set<CredentialKind>([
   "email-address",
   "password-account",
   "oauth-subject",
-  "api-token"
+  "api-token",
 ]);
 
 export function loadPeopleRoster(rootInput: HarnessLayoutInput): PeopleRoster {
@@ -53,8 +53,20 @@ export function peopleRosterFromDocument(body: string): PeopleRoster {
     roles: raw.roles,
     resolveCredential: (credential, providerId) => {
       const person = peopleByCredential.get(credentialKey(credential));
-      if (!person) return credentialResolutionFailure(providerId, "credential_unknown", "Credential is not bound to a person.", credential);
-      if (person.disabled) return credentialResolutionFailure(providerId, "person_disabled", `Person is disabled: ${person.personId}`, credential);
+      if (!person)
+        return credentialResolutionFailure(
+          providerId,
+          "credential_unknown",
+          "Credential is not bound to a person.",
+          credential,
+        );
+      if (person.disabled)
+        return credentialResolutionFailure(
+          providerId,
+          "person_disabled",
+          `Person is disabled: ${person.personId}`,
+          credential,
+        );
       return {
         ok: true,
         actor: {
@@ -63,11 +75,11 @@ export function peopleRosterFromDocument(body: string): PeopleRoster {
           ...(person.primaryEmail ? { primaryEmail: person.primaryEmail } : {}),
           roles: person.roles,
           resolvedCredential: credential,
-          providerId
-        }
+          providerId,
+        },
       };
     },
-    roleAllows: (roleId, commandClass) => rolesById.get(roleId)?.commandClasses.includes(commandClass) ?? false
+    roleAllows: (roleId, commandClass) => rolesById.get(roleId)?.commandClasses.includes(commandClass) ?? false,
   };
 }
 
@@ -75,7 +87,7 @@ function credentialResolutionFailure(
   providerId: string,
   code: IdentityProviderFailure["code"],
   message: string,
-  credential?: CredentialRef
+  credential?: CredentialRef,
 ): IdentityProviderFailure {
   return { ok: false, code, providerId, message, ...(credential ? { credential } : {}) };
 }
@@ -102,7 +114,8 @@ function validateRoster(people: ReadonlyArray<PersonProfile>, roles: ReadonlyArr
     for (const credential of person.credentials) {
       if (!credentialKinds.has(credential.kind)) throw new Error(`unknown credential kind: ${credential.kind}`);
       const key = credentialKey(credential);
-      if (credentialKeys.has(key)) throw new Error(`duplicate credential binding: ${credential.kind}:${credential.issuer}:${credential.subject}`);
+      if (credentialKeys.has(key))
+        throw new Error(`duplicate credential binding: ${credential.kind}:${credential.issuer}:${credential.subject}`);
       credentialKeys.add(key);
     }
   }
@@ -135,9 +148,15 @@ export function mergePeopleRosterDocuments(sourceBody: string, destinationBody: 
     return { ok: false, reason: `people.yaml does not parse as a roster on both sides: ${describe(error)}` };
   }
   if (source.schema !== ROSTER_SCHEMA || destination.schema !== ROSTER_SCHEMA) {
-    return { ok: false, reason: `people.yaml schema must be ${ROSTER_SCHEMA} on both sides; source=${label(source.schema)}, destination=${label(destination.schema)}` };
+    return {
+      ok: false,
+      reason: `people.yaml schema must be ${ROSTER_SCHEMA} on both sides; source=${label(source.schema)}, destination=${label(destination.schema)}`,
+    };
   }
-  for (const [side, roster] of [["source", source], ["destination", destination]] as const) {
+  for (const [side, roster] of [
+    ["source", source],
+    ["destination", destination],
+  ] as const) {
     const shape = rosterShapeError(roster);
     if (shape) return { ok: false, reason: `${side} people.yaml is not a well-formed roster: ${shape}` };
   }
@@ -151,9 +170,13 @@ export function mergePeopleRosterDocuments(sourceBody: string, destinationBody: 
       addedRoles.push(role.roleId);
       continue;
     }
-    const kept = [...held.commandClasses].sort().join(","), incoming = [...role.commandClasses].sort().join(",");
+    const kept = [...held.commandClasses].sort().join(","),
+      incoming = [...role.commandClasses].sort().join(",");
     if (kept !== incoming) {
-      return { ok: false, reason: `role ${role.roleId} authorizes different command classes on each side (source=[${incoming}], destination=[${kept}]); merging would change what the role grants` };
+      return {
+        ok: false,
+        reason: `role ${role.roleId} authorizes different command classes on each side (source=[${incoming}], destination=[${kept}]); merging would change what the role grants`,
+      };
     }
   }
 
@@ -186,12 +209,21 @@ export function mergePeopleRosterDocuments(sourceBody: string, destinationBody: 
   return { ok: true, body: serializeRoster(people, roles), summary };
 }
 
-function mergePerson(destination: PersonProfile, source: PersonProfile): { readonly ok: true; readonly person: PersonProfile; readonly changed: boolean } | { readonly ok: false; readonly reason: string } {
+function mergePerson(
+  destination: PersonProfile,
+  source: PersonProfile,
+):
+  | { readonly ok: true; readonly person: PersonProfile; readonly changed: boolean }
+  | { readonly ok: false; readonly reason: string } {
   const scalars: { primaryEmail?: string; disabled?: boolean } = {};
   for (const field of ["displayName", "primaryEmail", "disabled"] as const) {
-    const kept = destination[field], incoming = source[field];
+    const kept = destination[field],
+      incoming = source[field];
     if (kept !== undefined && incoming !== undefined && kept !== incoming) {
-      return { ok: false, reason: `person ${destination.personId} declares a different ${field} on each side (source=${JSON.stringify(incoming)}, destination=${JSON.stringify(kept)}); a roster union cannot choose between two values for one field` };
+      return {
+        ok: false,
+        reason: `person ${destination.personId} declares a different ${field} on each side (source=${JSON.stringify(incoming)}, destination=${JSON.stringify(kept)}); a roster union cannot choose between two values for one field`,
+      };
     }
     if (field !== "displayName") {
       const resolved = kept ?? incoming;
@@ -207,7 +239,13 @@ function mergePerson(destination: PersonProfile, source: PersonProfile): { reado
     credentials.push(credential);
     held.add(credentialKey(credential));
   }
-  const person: PersonProfile = { personId: destination.personId, displayName: destination.displayName || source.displayName, ...scalars, roles, credentials };
+  const person: PersonProfile = {
+    personId: destination.personId,
+    displayName: destination.displayName || source.displayName,
+    ...scalars,
+    roles,
+    credentials,
+  };
   return { ok: true, person, changed: serializePerson(person) !== serializePerson(destination) };
 }
 
@@ -222,7 +260,7 @@ function orderedPerson(person: PersonProfile): Readonly<Record<string, unknown>>
     ...(person.primaryEmail === undefined ? {} : { primaryEmail: person.primaryEmail }),
     roles: [...person.roles],
     credentials: person.credentials.map(({ kind, issuer, subject }) => ({ kind, issuer, subject })),
-    ...(person.disabled === undefined ? {} : { disabled: person.disabled })
+    ...(person.disabled === undefined ? {} : { disabled: person.disabled }),
   };
 }
 
@@ -235,7 +273,8 @@ function rosterShapeError(roster: ParsedRoster): string | null {
   for (const person of roster.people) {
     if (!person || typeof person.personId !== "string" || !person.personId) return "every person needs a personId";
     if (typeof person.displayName !== "string") return `person ${person.personId} needs a displayName`;
-    if (!Array.isArray(person.roles) || !Array.isArray(person.credentials)) return `person ${person.personId} needs list-valued roles and credentials`;
+    if (!Array.isArray(person.roles) || !Array.isArray(person.credentials))
+      return `person ${person.personId} needs list-valued roles and credentials`;
   }
   for (const role of roster.roles) {
     if (!role || typeof role.roleId !== "string" || !role.roleId) return "every role needs a roleId";
@@ -254,9 +293,18 @@ function label(schema: string): string {
 
 type ParsedRoster = { readonly schema: string; readonly people: PersonProfile[]; readonly roles: RolePolicy[] };
 
-function parsePeopleYaml(body: string): { readonly schema: string; readonly people: PersonProfile[]; readonly roles: RolePolicy[] } {
+function parsePeopleYaml(body: string): {
+  readonly schema: string;
+  readonly people: PersonProfile[];
+  readonly roles: RolePolicy[];
+} {
   const trimmed = body.trimStart();
-  if (trimmed.startsWith("{")) return JSON.parse(body) as { readonly schema: string; readonly people: PersonProfile[]; readonly roles: RolePolicy[] };
+  if (trimmed.startsWith("{"))
+    return JSON.parse(body) as {
+      readonly schema: string;
+      readonly people: PersonProfile[];
+      readonly roles: RolePolicy[];
+    };
 
   let schema = "";
   let section: "people" | "roles" | undefined;
@@ -345,7 +393,7 @@ function parseInlineArray(rawValue: string): string[] {
 
 function unquoteRosterValue(value: string): string {
   const trimmed = value.trim();
-  if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
     return trimmed.slice(1, -1);
   }
   return trimmed;

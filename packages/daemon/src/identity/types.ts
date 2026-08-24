@@ -41,7 +41,10 @@ export interface PeopleRoster {
   readonly schema: "harness-people/v1";
   readonly people: ReadonlyArray<PersonProfile>;
   readonly roles: ReadonlyArray<RolePolicy>;
-  readonly resolveCredential: (credential: CredentialRef, providerId: string) => IdentityProviderSuccess | IdentityProviderFailure;
+  readonly resolveCredential: (
+    credential: CredentialRef,
+    providerId: string,
+  ) => IdentityProviderSuccess | IdentityProviderFailure;
   readonly roleAllows: (roleId: RoleId, commandClass: DaemonCommandClass) => boolean;
 }
 
@@ -93,7 +96,9 @@ export interface IdentityProviderSuccess {
 
 export interface IdentityProvider {
   readonly providerId: string;
-  readonly resolveActor: (input: IdentityProviderResolveInput) => Promise<IdentityProviderSuccess | IdentityProviderFailure>;
+  readonly resolveActor: (
+    input: IdentityProviderResolveInput,
+  ) => Promise<IdentityProviderSuccess | IdentityProviderFailure>;
 }
 
 export interface GitCommitAuthor {
@@ -111,7 +116,7 @@ export function actorStamp(actor: AuthenticatedActor): ActorStamp {
     displayName: actor.displayName,
     ...(actor.primaryEmail ? { primaryEmail: actor.primaryEmail } : {}),
     providerId: actor.providerId,
-    credential: actor.resolvedCredential
+    credential: actor.resolvedCredential,
   };
 }
 
@@ -125,8 +130,8 @@ export function actorStampJson(actor: AuthenticatedActor): JsonObject {
     credential: {
       kind: stamp.credential.kind,
       issuer: stamp.credential.issuer,
-      subject: stamp.credential.subject
-    }
+      subject: stamp.credential.subject,
+    },
   };
 }
 
@@ -135,6 +140,6 @@ export function actorGitCommitAuthor(actor: AuthenticatedActor): GitCommitAuthor
   if (!email) throw new Error(`Actor ${actor.personId} requires primaryEmail for git author attribution.`);
   return {
     name: actor.displayName,
-    email
+    email,
   };
 }
