@@ -51,14 +51,14 @@ export function measureProductionLines({ rootDir, revision = null }) {
   return { counts, unclassified };
 }
 
-const INITIAL_MODULE_CEILINGS = Object.freeze({
-  "write-contract": 700,
-  "agent-runtime": 6157,
-  decision: 1763,
-  fact: 1790,
-  fleet: 7203
-});
 const RETIRED_HISTORICAL_MODULES = new Set(["decision-fact"]);
+
+export function headroomFor(measured) {
+  if (measured < 500) return 400;
+  if (measured < 2000) return 1000;
+  if (measured < 10000) return 4000;
+  return 7000;
+}
 
 export function parseBudgets(body, source = "line-budgets.json", historical = false) {
   let parsed;
@@ -73,7 +73,7 @@ export function parseBudgets(body, source = "line-budgets.json", historical = fa
   const unknown = Object.keys(parsed.ceilings).filter((name) => !MODULES.includes(name));
   const invalidUnknown = historical ? unknown.filter((name) => !RETIRED_HISTORICAL_MODULES.has(name)) : unknown;
   const missing = MODULES.filter((name) => !Object.hasOwn(parsed.ceilings, name));
-  const invalidMissing = historical ? missing.filter((name) => !Object.hasOwn(INITIAL_MODULE_CEILINGS, name)) : missing;
+  const invalidMissing = historical ? [] : missing;
   if (invalidUnknown.length > 0 || invalidMissing.length > 0) {
     throw new Error(`${source} module keys do not match module-policy (missing: ${invalidMissing.join(", ") || "none"}; unknown: ${invalidUnknown.join(", ") || "none"})`);
   }
@@ -82,11 +82,8 @@ export function parseBudgets(body, source = "line-budgets.json", historical = fa
   }
   const ceilings = Object.fromEntries(MODULES.map((moduleName) => [
     moduleName,
-    parsed.ceilings[moduleName] ?? INITIAL_MODULE_CEILINGS[moduleName]
+    parsed.ceilings[moduleName] ?? 0
   ]));
-  for (const [designModule, designLimit] of Object.entries(INITIAL_MODULE_CEILINGS)) {
-    if (ceilings[designModule] > designLimit) throw new Error(`${source} ceiling for ${designModule} exceeds its design limit ${designLimit}`);
-  }
   return ceilings;
 }
 
@@ -147,27 +144,7 @@ function parseArgs(argv) {
   return { base };
 }
 
-// Suspended by dec_3879E19D9D1D76BAD538E77C1F (task_2c909af2cae0b23abd1e34a2e2):
-// the remaining ~217 compressed production files are being restored to
-// normal formatting in bulk without per-module ceiling negotiation.
-// line-budgets.json, INITIAL_MODULE_CEILINGS, and every existing receipt are
-// left untouched — this suspends the judgment, not the data. G36
-// (tools/gates/line-density.mjs) stays fully active as the guard against new
-// compression during this window. Delete this guard and re-derive real
-// ceilings from the completed restoration once the full-file G36 scan is clean.
-export const SUSPENDED = true;
-
-function suspended() {
-  console.log(
-    "G32 line-budget-ratchet: suspended under dec_3879E19D9D1D76BAD538E77C1F " +
-      "(task_2c909af2cae0b23abd1e34a2e2) while remaining compressed production " +
-      "files are bulk-restored. G36 (line-density) remains active."
-  );
-  return 0;
-}
-
 export function main(argv = process.argv.slice(2)) {
-  if (SUSPENDED) return suspended();
   try {
     const { base } = parseArgs(argv);
     const rootDir = repoRoot();

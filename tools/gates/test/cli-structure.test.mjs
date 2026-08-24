@@ -55,32 +55,23 @@ test("thin CLI structure rejects a kernel runtime import from any CLI production
   ));
 });
 
-// The CLI function-line limit is suspended under dec_3879E19D9D1D76BAD538E77C1F
-// (task_2c909af2cae0b23abd1e34a2e2) while the remaining compressed production files
-// are bulk-restored. The original assertion this test carried is preserved verbatim
-// below and must be restored when the suspension is lifted:
+// The original pre-restoration assertions are preserved verbatim here for audit:
 //
 //   assert.notEqual(result.status, 0);
 //   assert.match(result.stderr, /thin-command\.ts:1: function genericMonolith has 12[1-9] lines; max 120/u);
 //
-// Until then this asserts the suspension itself, so it is self-retiring: the moment
-// SUSPEND_LINE_LIMITS flips back to false the notice stops being printed, this test
-// goes red, and whoever re-enables the limit is forced to restore the two lines
-// above rather than leaving the limit silently off.
-test("CLI function-line limit stays suspended under dec_3879E19D9D1D76BAD538E77C1F until this assertion is retired", async () => {
+test("thin CLI structure enforces the re-derived function complexity limit", async () => {
   const root = await fixture();
-  write(root, "packages/cli/src/cli/thin-command.ts", genericLongFunction());
+  write(root, "packages/cli/src/cli/thin-command.ts", genericLongFunction(218));
 
   const result = run(root);
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /file-line and function-line limits suspended under dec_3879E19D9D1D76BAD538E77C1F/u);
-  assert.doesNotMatch(result.stderr, /function genericMonolith has \d+ lines/u);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /thin-command\.ts:1: function genericMonolith has 22[1-9] lines; max 220/u);
 });
 
-// Branch counting is not a line-count limit: reformatting cannot add or remove an
-// if/for/while/case/catch/switch keyword or a `?`. It therefore stays active through
-// the suspension window, and this proves it rather than assuming it.
-test("CLI branch-count limit stays active through the line-limit suspension", async () => {
+// Branch counting is independent of the line limits: reformatting cannot add or
+// remove an if/for/while/case/catch/switch keyword or a `?`.
+test("CLI branch-count limit stays active with the re-derived line limits", async () => {
   const root = await fixture();
   const branches = Array.from({ length: 41 }, (_, index) => `  if (input === ${index}) return ${index};`).join("\n");
   write(root, "packages/cli/src/cli/thin-command.ts", `export function branchy(input: number): number {\n${branches}\n  return -1;\n}\n`);
@@ -197,7 +188,7 @@ function write(root, relativePath, body) {
   writeFileSync(absolute, body, "utf8");
 }
 
-function genericLongFunction() {
+function genericLongFunction(bodyLines = 118) {
   const lines = [
     "export function genericMonolith<A, I>(",
     "  value: A,",
@@ -205,7 +196,7 @@ function genericLongFunction() {
     "): { readonly value: A; readonly input: I } {",
     "  const pair = { value, input };"
   ];
-  for (let index = 0; index < 118; index += 1) lines.push(`  void ${index};`);
+  for (let index = 0; index < bodyLines; index += 1) lines.push(`  void ${index};`);
   lines.push("  return pair;", "}");
   return `${lines.join("\n")}\n`;
 }

@@ -2,7 +2,7 @@
   "decisionId": "dec_402DC87500A06C7B4A81F00CCB",
   "scope": "module:agent-runtime",
   "kind": "line-budget",
-  "limit": 6157,
+  "limit": 7719,
   "expiry": "2027-08-31T00:00:00Z",
-  "signature": "bb87f607cedc01f300651747c853797668a7363570517b2c95ad7cd608d7114a"
+  "signature": "b42c01cca1db133b704d3ca7a50fbe4c1aab2c4aebc17ad1c4d1eb63002beace"
 }

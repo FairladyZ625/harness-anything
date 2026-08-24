@@ -2,7 +2,7 @@
   "decisionId": "dec_D848EF980B86800CFC6BD82125",
   "scope": "module:identity-rbac",
   "kind": "line-budget",
-  "limit": 1563,
+  "limit": 1616,
   "expiry": "2027-08-31T00:00:00Z",
-  "signature": "676e072d557330ce7ecdde3bd74cb4fad709d13caed507a0eaac3048cb45e01b"
+  "signature": "d2b53d3e261efe9a642f672b183fe88316b080341311516315ba9c4996f6345c"
 }
