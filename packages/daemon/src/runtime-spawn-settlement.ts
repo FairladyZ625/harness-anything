@@ -3,6 +3,7 @@ import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } fro
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
+import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 
 export async function publishExit(context: any, active: ActiveRuntime, code: number | null): Promise<void> {
@@ -15,6 +16,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
   const cancelled = active.cancelRequested,
     eventBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding;
   try {
+    await consumeDurableOutput(context, active);
     if (!cancelled && code === null)
       context.input.stream.publish(active.runtimeSessionId, {
         type: "error",
