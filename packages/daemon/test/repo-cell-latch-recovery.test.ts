@@ -33,6 +33,10 @@ test("task identity lookup remains available while the projection catches up", (
 
 test("projection recovery names and carries the reachable rebuild command", () => {
   assert.equal(causeClassOf(new Error("lifecycle document projection mismatch for INDEX.md")), "projection");
+  assert.equal(
+    causeClassOf(new Error("projection cache ledger identity mismatch; run daemon projection rebuild")),
+    "projection",
+  );
   assert.equal(causeClassOf(new Error("kernel projection schema 999 is newer than daemon schema 3")), "data-shape");
   assert.deepEqual(recoveryCommandPolicy("projection-rebuild", "projection"), { causes: ["projection"], settlesLatch: true });
   assert.equal(recoveryCommandPolicy("projection-rebuild", "data-shape"), null);

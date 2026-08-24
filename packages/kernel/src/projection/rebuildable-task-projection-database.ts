@@ -23,6 +23,13 @@ interface ProjectionDatabaseOwner {
   readonly reset: () => void;
   readonly close: () => void;
 }
+
+export class ProjectionIdentityMismatchError extends Error {
+  constructor() {
+    super("projection cache ledger identity mismatch; run daemon projection rebuild");
+    this.name = "ProjectionIdentityMismatchError";
+  }
+}
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
 const projectionClosers = new Map<string, Set<() => void>>();
 
@@ -114,24 +121,26 @@ function projectionDatabaseOwner(
     localRuntimeStateFileSystem.remove(projectionPath);
   };
   const reset = () => {
-    use((database) => transaction(database, () => {
+    closeProjectionHandlesAt(resolvedProjectionPath);
+    initialize();
+    transaction(db!, () => {
       const tables = queryRows(
-        database,
+        db!,
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name DESC",
       );
       for (const row of tables) {
         const name = String(row.name);
         if (name === "projection_meta" || name.includes("_fts_")) continue;
-        runSql(database, `DELETE FROM "${name.replaceAll('"', '""')}"`);
+        runSql(db!, `DELETE FROM "${name.replaceAll('"', '""')}"`);
       }
       runSql(
-        database,
+        db!,
         [
           "UPDATE projection_meta SET watermark = 0, scan_cursor = NULL, scanned_revision = 0,",
           "head_digest = NULL, state_digest = NULL WHERE singleton = 1",
         ].join(" "),
       );
-    }));
+    });
   };
   const initialize = () => {
     open();
@@ -144,10 +153,7 @@ function projectionDatabaseOwner(
   const use = <A>(operation: (database: DatabaseSync) => A): A => {
     if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
     if (db === null) initialize();
-    if (!matchesLedgerIdentity(db!, readHead())) {
-      discard();
-      initialize();
-    }
+    if (!matchesLedgerIdentity(db!, readHead())) throw new ProjectionIdentityMismatchError();
     return operation(db!);
   };
   const owner = { use, discard, reset, close };
