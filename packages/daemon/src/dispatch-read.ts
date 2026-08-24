@@ -1,39 +1,26 @@
-import { consumeKnownError, type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
+import { consumeKnownError, resolveHarnessLayout, type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
 import { readDispatchStream, type DispatchStreamHeader } from "./dispatch-stream.ts";
 import type { DaemonTaskDispatchesPayload, DaemonTaskDispatchesResult, TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 
 export function readTaskDispatches(input: { readonly rootDir: string; readonly projection: TaskProjection } & DaemonTaskDispatchesPayload): DaemonTaskDispatchesResult {
-  const singleTaskId = input.taskId, query = singleTaskId === undefined ? { taskIds: input.taskIds, ...(input.limit === undefined ? {} : { limit: input.limit }), ...(input.cursor === undefined ? {} : { cursor: input.cursor }) } : { taskIds: [singleTaskId] }, batch = input.projection.readTaskRuntimeBatch(query), tasks = new Map(batch.rows.map((row) => [row.taskId, row]));
+  const singleTaskId = input.taskId, query = singleTaskId === undefined ? { taskIds: input.taskIds, ...(input.limit === undefined ? {} : { limit: input.limit }), ...(input.cursor === undefined ? {} : { cursor: input.cursor }) } : { taskIds: [singleTaskId] }, batch = input.projection.readTaskRuntimeBatch(query), tasks = new Map(batch.rows.map((row) => [row.taskId, row])), packageTasks = new Map(batch.rows.flatMap((row) => row.packagePath ? [[row.packagePath, row.taskId] as const] : []));
   if (singleTaskId !== undefined && !batch.rows[0]?.packagePath) throw new Error(`Task ${singleTaskId} has no projected package path.`);
-  const candidates = new Map<string, { readonly session: RuntimeSession; readonly packagePaths: readonly string[] }>();
-  for (const task of batch.rows) for (const session of task.sessions) {
-    const event = input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-    if (!event) continue;
-    const dispatchId = event.payload.dispatchId,
-      known = candidates.get(dispatchId),
-      packagePaths = task.packagePath === null ? [] : [task.packagePath];
-    candidates.set(dispatchId, {
-      session,
-      packagePaths: [...new Set([...(known?.packagePaths ?? []), ...packagePaths])],
-    });
-  }
+  const sessions = new Map(batch.rows.flatMap((task) => task.sessions.map((session) => [session.runtimeSessionId, session] as const)));
   const rows = new Map<string, TaskDispatchRow>();
-  for (const [dispatchId, candidate] of candidates) {
-    for (const packagePath of candidate.packagePaths) {
-      const read = input.projection.readDocument(`${packagePath}/artifacts/dispatches/${dispatchId}.json`),
-        archive = read.document ? parseArchive(read.document.body) : null;
-      if (archive?.taskId && tasks.has(String(archive.taskId))) {
-        rows.set(dispatchId, archiveRow(archive, candidate.session));
-        break;
-      }
+  for (const document of input.projection.readReplicaBasis(null).documents) {
+    const target = String(document.path), marker = "/artifacts/dispatches/"; if (!target.endsWith(".json") || !target.includes(marker)) continue;
+    const taskId = packageTasks.get(target.slice(0, target.indexOf(marker))); if (!taskId) continue;
+    const read = input.projection.readDocument(target), archive = read.document ? parseArchive(read.document.body) : null; if (archive?.taskId === taskId) rows.set(String(archive.dispatchId), archiveRow(archive, sessions.get(String(archive.runtimeSessionId))));
+  }
+  const streamRoot = path.join(resolveHarnessLayout(input.rootDir).localRoot, "runtime", "dispatches");
+  if (existsSync(streamRoot) && statSync(streamRoot).isDirectory()) for (const name of readdirSync(streamRoot).filter((value) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(value))) {
+    const dispatchId = name.slice(0, -6), stream = readDispatchStream(input.rootDir, dispatchId); if (!stream?.header?.taskId || !tasks.has(stream.header.taskId)) continue;
+    const current = sessions.get(stream.header.runtimeSessionId);
+    if (!rows.has(dispatchId)) {
+      rows.set(dispatchId, liveRow(stream.header, stream.providerSessionId, current, stream.process?.exited === false));
     }
-    if (rows.has(dispatchId) || !/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) continue;
-    const stream = readDispatchStream(input.rootDir, dispatchId);
-    if (!stream?.header?.taskId || !tasks.has(stream.header.taskId)) continue;
-    rows.set(
-      dispatchId,
-      liveRow(stream.header, stream.providerSessionId, candidate.session, stream.process?.exited === false),
-    );
   }
   const dispatches = [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
   return singleTaskId === undefined
