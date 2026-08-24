@@ -40,6 +40,8 @@ type StoreOptions = Parameters<typeof makeGitEventStore>[0] & {
   readonly walFlushMs?: number;
   readonly walRetryLimit?: number;
   readonly walRetryBaseMs?: number;
+  /** Runs after a WAL cut is durable and Git state has been reloaded. */
+  readonly afterFlush?: () => void;
 };
 
 export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventStore {
@@ -95,6 +97,15 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     try {
       flushWalToGit(wal, git, options);
       reloadGit();
+      // Authored settlement observes the durable cut. It is intentionally outside the
+      // materialization transaction: an ineligible edit must remain visible for doc status,
+      // but can never make an already durable WAL cut fail.
+      try {
+        options.afterFlush?.();
+      } catch (error) {
+        console.warn(`[wal-materializer] authored settlement failed: ${walShadowErrorMessage(error)}`);
+        consumeKnownError(error);
+      }
       console.info(
         `[wal-materializer] materialized revisions ${first}-${last} (${context}, attempt ${consecutiveFailures + 1})`,
       );

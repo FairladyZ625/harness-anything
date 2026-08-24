@@ -3,7 +3,9 @@ import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-s
 import { blockingOf, closeoutReadiness, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
+import { localRepairBinding } from "./daemon-host-binding.ts";
 import { makeDecisionActions } from "./decision-actions.ts";
+import { runDocAction } from "./doc-sync-actions.ts";
 import { makeFactActions } from "./fact-actions.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
@@ -27,19 +29,53 @@ export const repoCellTaskQueryJudgments: TaskQueryJudgments = {
 };
 
 export function initializeRepoCell(context: any): any {
+  let projection: ReturnType<typeof makeTaskProjection> | null = null;
+  const settleAuthoredCandidates = (): void => {
+    const currentProjection = projection;
+    if (currentProjection === null) return;
+    void runDocAction({
+      action: { kind: "doc-submit", paths: [] },
+      binding: localRepairBinding,
+      workspaceId: context.input.repoId,
+      rootDir: context.rootDir,
+      store,
+      projection: currentProjection,
+      now: context.now,
+      killpoint: context.input.killpoint,
+    })
+      .then((receipt) => {
+        const blocked = [
+          ...(receipt.detail?.unresolvedTouches ?? []).map(
+            (touch) => `${touch.path} (${touch.requiredRoute})`,
+          ),
+          ...(receipt.detail?.deletions ?? []).map((deletion) => `${deletion.path} (deletion)`),
+        ];
+        if (blocked.length)
+          console.warn(
+            `[wal-materializer] authored doc candidates blocked; run ha doc status: ${blocked.join(", ")}`,
+          );
+      })
+      .catch((error) => {
+        console.warn(
+          `[wal-materializer] authored doc scan failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+  };
   const store = makeTaskEventStore({
       repoId: context.input.repoId,
       rootDir: context.rootDir,
       authoredBranch: context.authoredBranch,
       killpoint: context.input.killpoint,
+      afterFlush: settleAuthoredCandidates,
       beforeAppend: () => context.activeWriterEpochGuard?.(),
       withAppendFence: (operation) =>
         context.activeWriterEpochFence ? context.activeWriterEpochFence(operation) : operation(),
       rejectPreparedRecovery: context.mode === "remote-center",
     }),
-    recovery = store.recover(),
-    projection = makeTaskProjection({ rootDir: context.rootDir, eventStore: store, now: context.now }),
-    currentSessionIdentity = (binding: RepoCellBinding) => resolveWriteSessionIdentity(binding, projection);
+    recovery = store.recover();
+  projection = makeTaskProjection({ rootDir: context.rootDir, eventStore: store, now: context.now });
+  if (recovery.status === "committed" || recovery.status === "already_committed") settleAuthoredCandidates();
+  const currentSessionIdentity = (binding: RepoCellBinding) => resolveWriteSessionIdentity(binding, projection!);
   const factActions = makeFactActions({
       store,
       projection,
