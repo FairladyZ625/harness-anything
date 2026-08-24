@@ -91,7 +91,7 @@ export function executionExecutorDeclarationCandidates(
   if (
     !task ||
     task.taskId !== taskId ||
-    task.status !== "in_review" ||
+    !["active", "in_review"].includes(task.status) ||
     task.currentNode !== "review" ||
     snapshot.lease !== null ||
     actor.executor === null
@@ -100,8 +100,7 @@ export function executionExecutorDeclarationCandidates(
   return currentSubmittedExecutions(snapshot).filter(
     (value) =>
       value.actor.executor === null &&
-      isSamePerson(value.actor, actor) &&
-      !snapshot.reviews.some((review) => review.executionId === value.executionId),
+      isSamePerson(value.actor, actor),
   );
 }
 export function takeEdge(

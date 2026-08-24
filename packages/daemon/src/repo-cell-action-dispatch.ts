@@ -409,7 +409,10 @@ export function declareExecutionExecutor(cell: any, action: RepoTaskAction, bind
       cell.uniqueDerivedExecutionId(
         executionExecutorDeclarationCandidates(snapshot, taskId, binding.actor),
         "Eligible executor-declaration execution",
-        `Run ha task show ${taskId}, then retry after one unreviewed submitted execution is eligible.`,
+        [
+          `Run ha task show ${taskId}; unblock the Task if needed, then retry when`,
+          "one submitted review-node execution with no executor is eligible.",
+        ].join(" "),
         (candidate: string) => `ha task declare-executor ${taskId} --execution-id ${candidate} --reason <reason>`,
       ),
     opId = cell.operationId(action, binding, cell.input.repoId, snapshot.revision),
