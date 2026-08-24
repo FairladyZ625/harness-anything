@@ -1,4 +1,13 @@
-export { thinCliLocalErrorCodes } from "./thin-command-help.ts";
+export const thinCliLocalErrorCodes = Object.freeze([
+  "daemon_disconnect",
+  "daemon_target_conflict",
+  "duplicate_field",
+  "invalid_field",
+  "missing_field",
+  "unknown_field",
+  "unsupported_command",
+]);
+
 export { deriveCliCapabilities } from "./thin-command-help.ts";
 export { runtimeBatchDeclarationFields } from "./thin-command-help.ts";
 export { runtimeRunEfforts } from "./thin-command-help.ts";

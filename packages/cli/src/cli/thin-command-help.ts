@@ -1,15 +1,5 @@
 import { daemonProtocolCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 
-export const thinCliLocalErrorCodes = Object.freeze([
-  "daemon_disconnect",
-  "daemon_target_conflict",
-  "duplicate_field",
-  "invalid_field",
-  "missing_field",
-  "unknown_field",
-  "unsupported_command",
-]);
-
 export type ThinHelpCatalogEntry = {
   readonly id: string;
   readonly title: string;
