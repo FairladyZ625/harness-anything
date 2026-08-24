@@ -29,6 +29,12 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 export { resolveCliVersion } from "./cli-meta.ts";
 
+const repositoryDiffContract = [
+  "contract: repository-diff requires a committable public-repository diff, ",
+  "real CI, and a code-doc reconciliation witness. ",
+  "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
+].join("");
+
 export async function main(
   argv: readonly string[] = process.argv.slice(2),
 ): Promise<number> {
@@ -123,7 +129,18 @@ export function emit(receipt: Record<string, unknown>, json: boolean): void {
       typeof receipt.summary === "string")
   ) {
     const summary = contractMigrationDryRunSummary(receipt);
-    if (Array.isArray(receipt.dispatches))
+    if (
+      receipt.command === "task-create" &&
+      typeof receipt.presetId === "string" &&
+      typeof receipt.profileId === "string" &&
+      typeof receipt.outputShape === "string" &&
+      Array.isArray(receipt.completionGates) &&
+      typeof receipt.nextAction === "string"
+    )
+      console.log(renderTaskCreateReceipt(receipt));
+    else if (receipt.command === "preset-list")
+      console.log(renderPresetListReceipt(receipt));
+    else if (Array.isArray(receipt.dispatches))
       console.log(
         receipt.dispatches.length
           ? receipt.dispatches.map(renderDispatchRow).join("\n")
@@ -153,6 +170,41 @@ export function emit(receipt: Record<string, unknown>, json: boolean): void {
     const error = humanError(receipt);
     console.error(`error code=${error.code} hint=${error.hint}`);
   }
+}
+
+function renderTaskCreateReceipt(receipt: Record<string, unknown>): string {
+  const contract =
+    receipt.outputShape === "repository-diff"
+      ? [repositoryDiffContract]
+      : [];
+  return [
+    String(receipt.summary),
+    `preset: ${String(receipt.presetId)}/${String(receipt.profileId)}`,
+    `outputShape: ${String(receipt.outputShape)}`,
+    `completionGates: ${JSON.stringify(receipt.completionGates)}`,
+    ...contract,
+    `next: ${String(receipt.nextAction)}`,
+  ].join("\n");
+}
+
+function renderPresetListReceipt(receipt: Record<string, unknown>): string {
+  const rows = JSON.parse(String(receipt.evidence)) as Array<
+    Record<string, unknown>
+  >;
+  return rows
+    .map((row) => {
+      const gates = Array.isArray(row.completionGates)
+        ? JSON.stringify(row.completionGates)
+        : "unavailable";
+      return [
+        `${String(row.id)} — ${String(row.title)} — ${String(row.description)}`,
+        `  validity: ${String(row.validity)}`,
+        `  defaultProfile: ${String(row.defaultProfile ?? "unavailable")}`,
+        `  outputShape: ${String(row.outputShape ?? "unavailable")}`,
+        `  completionGates: ${gates}`,
+      ].join("\n");
+    })
+    .join("\n");
 }
 
 function emitSquadRun(

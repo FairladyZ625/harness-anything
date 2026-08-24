@@ -50,6 +50,8 @@ test("generic list, inspect, check, install, and uninstall actions share the can
         version: "3.0.0",
         kind: "template-content",
         defaultProfile: "baseline",
+        outputShape: "repository-diff",
+        completionGates: ["ci", "code-doc-reconciliation"],
         entrypoints: [],
         issues: [],
         issueCount: 0,

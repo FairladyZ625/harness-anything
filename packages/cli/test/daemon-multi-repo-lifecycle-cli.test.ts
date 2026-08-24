@@ -94,7 +94,16 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.equal(textPreview.status, 0, textPreview.stderr);
     assert.equal(
       textPreview.stdout.trim(),
-      "would create task task-alpha at tasks/task-alpha-alpha",
+      [
+        "would create task task-alpha at tasks/task-alpha-alpha",
+        "preset: standard-task/baseline",
+        "outputShape: repository-diff",
+        'completionGates: ["ci","code-doc-reconciliation"]',
+        "contract: repository-diff requires a committable public-repository diff, " +
+          "real CI, and a code-doc reconciliation witness. For a task-package-only " +
+          "report or decision, use the task-package-artifact preset docs-task.",
+        "next: remove --dry-run to publish this exact resolved scaffold",
+      ].join("\n"),
     );
     const alpha = run(fixture.alpha, fixture.userRoot, [
       "task",

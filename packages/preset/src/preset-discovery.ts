@@ -11,6 +11,11 @@ import type { Candidate, PresetFailure } from "./preset-resolver-types.ts";
 import type { PresetCatalogEntryV1 } from "./preset.contract.ts";
 import path from "node:path";
 
+type PresetCatalogDisplayEntry = PresetCatalogEntryV1 & {
+  readonly outputShape?: string;
+  readonly completionGates?: readonly string[];
+};
+
 export function runBuiltinDiscoveryAction(
   action: Readonly<Record<string, unknown>> & { readonly kind: string },
   assetsRoot = defaultAssets,
@@ -105,11 +110,11 @@ export function runBuiltinDiscoveryAction(
 export function listCatalog(
   catalog: Map<string, Candidate>,
   verticalId: string,
-): PresetCatalogEntryV1[] {
+): PresetCatalogDisplayEntry[] {
   return [...catalog.values()]
     .filter((item) => item.verticalId === verticalId)
     .map(
-      (item): PresetCatalogEntryV1 =>
+      (item): PresetCatalogDisplayEntry =>
         item.decoded
           ? {
               id: item.id,
@@ -122,6 +127,10 @@ export function listCatalog(
               version: item.decoded.manifest.version,
               kind: item.decoded.manifest.kind,
               defaultProfile: item.decoded.manifest.defaultProfile,
+              outputShape: item.decoded.manifest.outputShape,
+              completionGates: item.decoded.manifest.profiles.find(
+                ({ id }) => id === item.decoded?.manifest.defaultProfile,
+              )!.completionGates,
               entrypoints: Object.keys(
                 item.decoded.manifest.entrypoints ?? {},
               ).sort(),
