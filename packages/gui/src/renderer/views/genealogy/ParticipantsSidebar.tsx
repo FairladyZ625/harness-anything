@@ -93,7 +93,10 @@ export function ParticipantsSidebar({
             type="button"
             data-testid="genealogy-participants-more"
             onClick={() => setRowsVisible((count) => Math.min(count + ROW_BATCH_SIZE, filtered.length))}
-            className="w-full rounded px-2 py-1 text-center font-mono text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
+            className={
+              "w-full rounded px-2 py-1 text-center font-mono text-[11px] text-text-muted "
+              + "hover:bg-surface-raised hover:text-text"
+            }
           >
             再显示 {Math.min(ROW_BATCH_SIZE, hidden)} 条 · 还有 {hidden} 条
           </button>
