@@ -64,10 +64,20 @@ export function scanDocCandidates(input: {
   readonly source: WriteSource;
   readonly now: string;
   readonly selection?: readonly string[];
+  readonly taskId?: string;
   readonly executionId?: string;
 }): DocCandidateScan {
   const layout = resolveHarnessLayout(input.rootDir),
     ledger = resolveLedgerGitLayout(input.rootDir),
+    task = input.taskId === undefined ? null : input.projection.read(input.taskId),
+    taskPrefix =
+      input.taskId === undefined
+        ? null
+        : task?.snapshot.task && task.packagePath
+          ? `${task.packagePath}/`
+          : (() => {
+              throw docSyncError("task_not_found", `Task ${input.taskId} has no projected package path.`);
+            })(),
     selected = input.selection?.map((value) => documentPath(value)),
     events = input.store.read().events,
     pendingPaths = events
@@ -75,7 +85,8 @@ export function scanDocCandidates(input: {
       .flatMap((event) => canonicalDocumentClaims(event).map((claim) => claim.path)),
     candidates = selected?.length
       ? [...new Set(selected)]
-      : [...new Set([...dirtyPaths(ledger.rootDir, ledger.authoredPrefix), ...pendingPaths])],
+      : [...new Set([...dirtyPaths(ledger.rootDir, ledger.authoredPrefix), ...pendingPaths])]
+          .filter((value) => taskPrefix === null || value.startsWith(taskPrefix)),
     paths = candidates
       .filter(
         (value) =>

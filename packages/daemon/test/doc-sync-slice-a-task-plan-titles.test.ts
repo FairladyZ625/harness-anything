@@ -34,8 +34,8 @@ import {
 } from "./doc-sync-slice-a.fixtures.ts";
 // F-42D28979/F-F4814511: a task plan whose H1 no longer matches the ledger
 // title is the highest-frequency doc-sync block; the receipt must name the
-// mechanical fix, and following it verbatim must apply.
-test("a renamed task plan H1 receipt names the exact title restore and the fix applies", async () => {
+// mechanical fix, and following it verbatim must leave the healed task idempotent.
+test("a renamed task plan H1 receipt names the exact title restore and the heal is idempotent", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-h1-restore-"));
   initRepo(rootDir);
   const repoId = workspaceId("h1-restore"),
@@ -87,10 +87,9 @@ test("a renamed task plan H1 receipt names the exact title restore and the fix a
       target,
       readFileSync(target, "utf8").replace("# 好读的短标题", `# ${title}`),
     );
-    assert.equal(
-      (await cell.run({ kind: "doc-submit", paths: [plan] }, binding)).outcome,
-      "applied",
-    );
+    const healed = await cell.run({ kind: "doc-submit", taskId }, binding);
+    assert.equal(healed.outcome, "op_rejected", JSON.stringify(healed));
+    assert.equal(healed.code, "no_changes", JSON.stringify(healed));
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -221,10 +220,9 @@ test("a no-op title amend heals a plan whose canonical base still holds the pre-
       packagePath = created.packagePath!,
       plan = `${packagePath}/task_plan.md`,
       target = path.join(rootDir, "harness", plan);
-    assert.equal(
-      (await cell.run({ kind: "doc-submit", paths: [plan] }, binding)).outcome,
-      "applied",
-    );
+    const initialSync = await cell.run({ kind: "doc-submit", taskId }, binding);
+    assert.equal(initialSync.outcome, "op_rejected", JSON.stringify(initialSync));
+    assert.equal(initialSync.code, "no_changes", JSON.stringify(initialSync));
     // Seed the stock shape directly: a title amend whose ledger was written before the typed
     // retitle existed (claims INDEX + contract only), so canonical keeps the old-H1 plan base
     // while the ledger title — and the worker's local H1 — already moved on.

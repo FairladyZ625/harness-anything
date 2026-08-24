@@ -56,12 +56,9 @@ export function scanReceipt(input: Input, scan: DocCandidateScan): WriteReceipt 
 export function scanDetail(input: Input, scan: DocCandidateScan, code: string): DocSyncReceiptDetail {
   const hasConflict = scan.rows.some((row) => row.conflicts.length),
     deletion = scan.rows.find((row) => row.state === "deletion"),
-    executionCommands = scan.executionCandidates
-      .map((executionId) => `ha doc sync --submit --execution-id ${executionId}`)
-      .join(" or "),
     executionChoice =
       scan.executionCandidates.length > 1
-        ? ["choose one matching execution explicitly: ", executionCommands, ""].join("")
+        ? "run the task command for the matching execution; task documents are discovered automatically"
         : null,
     leaseConflict =
       executionChoice !== null
@@ -135,7 +132,7 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
 
 // dec_01KXGDXZG03JZRGTW8V91H11ER CH1(二): a lease_conflict receipt must name the
 // command that actually unblocks this caller. The old single hint ("rerun with
-// --execution-id") was itself a dead end for every non-holder, and for a
+// an explicit execution id was itself a dead end for every non-holder, and for a
 // lapsed runtime lease the working recovery is the same release+re-enter
 // round `ha task progress append` already names (task-progress-event.ts).
 export function leaseConflictNextAction(input: Input, scan: DocCandidateScan): string | null {
@@ -143,12 +140,11 @@ export function leaseConflictNextAction(input: Input, scan: DocCandidateScan): s
   if (row === undefined) return null;
   if (runtimeSessionIdFromActor(input.binding.actor) === null)
     return scan.executionId === null
-      ? "rerun ha doc sync --submit without --execution-id to submit through the repository prose channel"
+      ? "rerun ha doc sync --submit to submit through the repository prose channel"
       : [
           "execution ",
           `${scan.executionId}`,
-          " is not held by this principal; rerun ha doc sync --submit without ",
-          "--execution-id to submit through the repository prose channel",
+          " is not held by this principal; rerun ha doc sync --submit to submit through the repository prose channel",
         ].join("");
   const taskId = input.projection.taskIdForDocumentPath(row.path),
     lease = taskId === null ? null : input.projection.currentLease(taskId, input.now());
@@ -218,19 +214,6 @@ export function taskPlanHeadingRestore(input: Input, scan: DocCandidateScan): st
 export function noOp(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
   const revision = input.store.readHead()?.revision ?? 0,
     nextAction = "no eligible document changes to submit";
-  // Lifecycle-owned task plans may be clean after an H1 heal already published by task amend.
-  // Keep that idempotent acknowledgement applied; ordinary zero-write scans reject below.
-  if (scan.rows.length > 0 && scan.rows.every((row) => row.path.endsWith("/task_plan.md")))
-    return {
-      outcome: "applied",
-      opId: `noop:${scan.baseLedgerSha.headDigest}`,
-      revision,
-      evidence: "doc-sync:no-op",
-      visibility: "center",
-      proof: proof(revision, revision, true, true),
-      detail: scanDetail(input, scan, "no_op"),
-      summary: submitSummary("applied", [], scan),
-    };
   return {
     outcome: "op_rejected",
     opId: `noop:${scan.baseLedgerSha.headDigest}`,

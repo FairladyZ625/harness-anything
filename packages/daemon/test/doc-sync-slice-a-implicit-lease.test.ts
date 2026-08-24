@@ -241,7 +241,7 @@ test("a runtime session with multiple matching held executions rejects with exac
     assert.equal(rejected.code, "lease_conflict");
     assert.match(
       rejected.nextAction ?? "",
-      /ha doc sync --submit --execution-id exec-route-a[\s\S]*ha doc sync --submit --execution-id exec-route-b/u,
+      /run the task command for the matching execution/u,
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -372,7 +372,7 @@ test("path and implicit submits ride the repository prose channel when the task 
     assert.equal(explicit.code, "lease_conflict");
     assert.match(
       explicit.nextAction ?? "",
-      /execution exec-path-prose is not held by this principal; rerun ha doc sync --submit without --execution-id to submit through the repository prose channel/u,
+      /execution exec-path-prose is not held by this principal; rerun ha doc sync --submit to submit through the repository prose channel/u,
     );
     const unnamed = (await cell.run(
       {

@@ -156,10 +156,8 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
         "doc",
         "sync",
         "--submit",
-        "--execution-id",
-        executionId,
-        "--path",
-        closeoutPath,
+        "--task",
+        taskId,
       ],
       "agent:worker",
     );

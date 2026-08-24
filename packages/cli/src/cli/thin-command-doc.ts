@@ -37,6 +37,13 @@ export function parseDoc(
     f = readFlags(id, args.slice(sync ? 3 : 2), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
   const paths = f.many.get("--path") ?? [];
+  const taskId = f.one.get("--task");
+  if (taskId && paths.length)
+    return rejected(
+      "invalid_field",
+      "Use either --task <task-id> or --path for doc sync; task sync discovers its package paths automatically.",
+      json,
+    );
   if (id === "doc-show")
     return accepted(rootDir, repoId, json, {
       kind: id,
@@ -49,13 +56,17 @@ export function parseDoc(
       reason: f.one.get("--reason"),
     });
   if (id === "doc-status")
-    return accepted(rootDir, repoId, json, { kind: id, paths });
+    return accepted(rootDir, repoId, json, {
+      kind: id,
+      ...(taskId ? { taskId } : { paths }),
+    });
   if (id === "doc-sync-dry-run")
-    return accepted(rootDir, repoId, json, { kind: "doc-dry-run", paths });
-  const executionId = f.one.get("--execution-id");
+    return accepted(rootDir, repoId, json, {
+      kind: "doc-dry-run",
+      ...(taskId ? { taskId } : { paths }),
+    });
   return accepted(rootDir, repoId, json, {
     kind: "doc-submit",
-    ...(executionId ? { executionId } : {}),
-    paths,
+    ...(taskId ? { taskId } : { paths }),
   });
 }

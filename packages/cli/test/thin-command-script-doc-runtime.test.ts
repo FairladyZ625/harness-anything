@@ -88,13 +88,12 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
       "doc",
       "sync",
       "--submit",
-      "--execution-id",
-      "exec-1",
       "--path",
       "context/a.md",
       "--path",
       "context/b.md",
-    ]);
+    ]),
+    taskSubmit = parseThinCommand(["doc", "sync", "--submit", "--task", "task-1"]);
   assert.equal(status.ok, true);
   assert.equal(selectedStatus.ok, true);
   assert.equal(dryRun.ok, true);
@@ -102,6 +101,7 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
   assert.equal(show.ok, true);
   assert.equal(retire.ok, true);
   assert.equal(submit.ok, true);
+  assert.equal(taskSubmit.ok, true);
   if (status.ok)
     assert.deepEqual(status.command.action, { kind: "doc-status", paths: [] });
   if (selectedStatus.ok)
@@ -130,15 +130,23 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
   if (submit.ok) {
     assert.deepEqual(submit.command.action, {
       kind: "doc-submit",
-      executionId: "exec-1",
       paths: ["context/a.md", "context/b.md"],
     });
-    assert.deepEqual(Object.keys(submit.command.action).sort(), [
-      "executionId",
-      "kind",
-      "paths",
-    ]);
+    assert.deepEqual(Object.keys(submit.command.action).sort(), ["kind", "paths"]);
   }
+  if (taskSubmit.ok)
+    assert.deepEqual(taskSubmit.command.action, {
+      kind: "doc-submit",
+      taskId: "task-1",
+    });
+  assert.equal(
+    parseThinCommand(["doc", "sync", "--submit", "--task", "task-1", "--path", "tasks/task-1/task_plan.md"]).ok,
+    false,
+  );
+  assert.equal(
+    parseThinCommand(["doc", "sync", "--submit", "--execution-id", "exec-1"]).ok,
+    false,
+  );
   assert.equal(
     parseThinCommand(["doc", "show", "--path", "INDEX.md", "--body", "inline"])
       .ok,

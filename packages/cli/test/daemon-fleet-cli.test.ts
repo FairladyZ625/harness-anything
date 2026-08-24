@@ -19,7 +19,7 @@ test("fleet center start and edge sync mirror the authoritative ledger through t
     assert.equal(run(fixture, "center", ["task", "start", "task-fleet", "--execution-id", "exec-fleet"]).outcome, "applied");
     const docPath = "tasks/task-fleet-fleet/notes.md", docBody = "# Fleet mirror note\n\nfirst cut\n";
     writeFileSync(path.join(fixture.repo, "harness", docPath), docBody);
-    assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--execution-id", "exec-fleet", "--path", docPath]).outcome, "applied");
+    assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--task", "task-fleet"]).outcome, "applied");
     const missing = maybeRun(fixture, "center", ["daemon", "fleet", "center", "start"]);
     assert.equal(missing.status, 2); assert.equal(missing.receipt.code, "missing_field"); assert.match(String(missing.receipt.nextAction), /--port --key --cert --roster --quota-bytes/u);
     const rejected = maybeRun(fixture, "center", ["daemon", "fleet", "center", "start", "--port", "0", "--key", fixture.key, "--cert", fixture.cert, "--roster", fixture.badRoster, "--quota-bytes", String(quotaBytes)]);
@@ -55,7 +55,7 @@ test("fleet center start and edge sync mirror the authoritative ledger through t
     assert.equal(refused.status, 1); assert.equal(refused.receipt.code, "authentication_failed"); assert.match(String(refused.receipt.nextAction), /Reissue the credential in the center roster/u);
     assert.doesNotMatch(JSON.stringify(refused), /edge-one-machine-secret/u);
     const deltaBody = "# Fleet mirror note\n\nsecond cut\n"; writeFileSync(path.join(fixture.repo, "harness", docPath), deltaBody);
-    assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--execution-id", "exec-fleet", "--path", docPath]).outcome, "applied");
+    assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--task", "task-fleet"]).outcome, "applied");
     const delta = retryReplicaPending(sync);
     assert.equal(delta.status, "fleet.ack.result/v1"); assert.ok((delta.ackCut as number) > (pulled.ackCut as number));
     assert.equal(readFileSync(path.join(viewRoot, "cuts", String(delta.ackCut), "files", docPath), "utf8"), deltaBody);

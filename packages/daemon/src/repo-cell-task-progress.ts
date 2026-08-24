@@ -222,7 +222,7 @@ export async function completeTask(cell: any, action: RepoTaskAction, binding: R
       let step: WriteReceipt;
       try {
         step = await runDocAction({
-          action: { kind: "doc-submit", paths: completion.eligibleDirtyPaths },
+          action: { kind: "doc-submit", taskId },
           binding,
           workspaceId: cell.input.repoId,
           rootDir: cell.rootDir,
@@ -236,7 +236,7 @@ export async function completeTask(cell: any, action: RepoTaskAction, binding: R
         consumeKnownError(error);
       }
       steps.push(step);
-      if (step.outcome === "applied") continue;
+      if (step.outcome === "applied" || step.code === "no_changes") continue;
       return cell.completionSettlement(step, current.snapshot, executionId, steps, "doc-sync-settlement");
     }
     return cell.completionStopped(facadeOpId, current.snapshot, executionId, blocker, steps);
@@ -332,10 +332,9 @@ export function completionContext(
       actor: binding.actor,
       source: binding.source,
       now: cell.now(),
-      selection: undefined,
+      taskId,
     }),
-    relevant = scan.rows.filter((row) => row.path === closeoutPath || row.path.startsWith(`${packagePath}/artifacts/`)),
-    eligibleDirtyPaths = relevant.filter((row) => row.state === "eligible").map((row) => row.path),
+    eligibleDirtyPaths = scan.rows.filter((row) => row.state === "eligible").map((row) => row.path),
     closeout = eligibleDirtyPaths.includes(closeoutPath)
       ? "dirty_eligible"
       : projected.document === null
