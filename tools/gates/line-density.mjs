@@ -8,8 +8,8 @@ const STANDARD_PATH = "harness/governance/standards/file-complexity-structural-d
 const REPORT_LIMIT = 20;
 
 /**
- * Parse `git diff -U0` output into the added lines it introduces, keeping each
- * line's destination path and line number so a violation can be pointed at.
+ * Parse `git diff -U0` output into changed hunks, keeping each hunk's
+ * destination path and starting line so a violation can be pointed at.
  */
 export function parseHunks(diffText) {
   const hunks = [];
@@ -45,25 +45,35 @@ export function parseHunks(diffText) {
   return hunks;
 }
 
+function measureOverlongCorpus(lines, limit) {
+  let characters = 0, maximum = 0;
+  for (const text of lines) {
+    if (text.length <= limit) continue;
+    characters += text.length;
+    maximum = Math.max(maximum, text.length);
+  }
+  return { characters, maximum };
+}
+
 export function findViolations(diffText, limit = MAX_LINE_LENGTH) {
   const violations = [];
 
   for (const hunk of parseHunks(diffText)) {
     if (!isProductionPath(hunk.filePath)) continue;
-    for (const [index, text] of hunk.added.entries()) {
-      if (text.length <= limit) continue;
-      // A modified line is paired positionally with the line it replaced. Editing an
-      // already-long line is allowed as long as it does not grow: the corpus can only
-      // shrink, and nobody is forced to refactor a line they did not write.
-      const replaced = hunk.removed[index];
-      if (replaced !== undefined && text.length <= replaced.length) continue;
-      violations.push({
-        filePath: hunk.filePath,
-        lineNumber: hunk.startLine + index,
-        length: text.length,
-        previousLength: replaced === undefined ? null : replaced.length
-      });
-    }
+    const added = measureOverlongCorpus(hunk.added, limit);
+    const removed = measureOverlongCorpus(hunk.removed, limit);
+    // Compare the overlong corpus within the whole hunk. Formatting can split one
+    // compressed source line into many lines without positionally pairing them, but
+    // neither the corpus size nor its longest line may grow.
+    if (added.characters <= removed.characters && added.maximum <= removed.maximum) continue;
+    violations.push({
+      filePath: hunk.filePath,
+      lineNumber: hunk.startLine,
+      addedLongCharacters: added.characters,
+      removedLongCharacters: removed.characters,
+      addedMaxLineLength: added.maximum,
+      removedMaxLineLength: removed.maximum
+    });
   }
 
   return violations;
@@ -71,24 +81,24 @@ export function findViolations(diffText, limit = MAX_LINE_LENGTH) {
 
 export function explain(violations, limit = MAX_LINE_LENGTH) {
   const shown = violations.slice(0, REPORT_LIMIT);
-  const found = shown.map((v) => v.previousLength === null
-    ? `  ${v.filePath}:${v.lineNumber}  new line, ${v.length} characters`
-    : `  ${v.filePath}:${v.lineNumber}  grew ${v.previousLength} -> ${v.length} characters`);
+  const found = shown.map((v) => `  ${v.filePath}:${v.lineNumber}  overlong characters ${v.removedLongCharacters} -> ${v.addedLongCharacters}; longest line ${v.removedMaxLineLength} -> ${v.addedMaxLineLength}`);
   if (violations.length > shown.length) {
     found.push(`  ... and ${violations.length - shown.length} more (${violations.length} total)`);
   }
 
   return [
     "=".repeat(78),
-    `G36 line-density FAILED — ${violations.length} added production line(s) over ${limit} characters`,
+    `G36 line-density FAILED — ${violations.length} production hunk(s) increased overlong content`,
     "=".repeat(78),
     "",
     "WHAT FAILED",
     ...found,
     "",
     "THE RULE",
-    `  A production line you create, or make longer, must be at most ${limit} characters.`,
-    "  Editing an existing long line is fine as long as you do not make it longer.",
+    `  In each production diff hunk, added lines longer than ${limit} characters may`,
+    "  increase neither their total characters nor their longest line. Total means the",
+    `  complete line length: a ${limit + 1}-character line contributes ${limit + 1}, not 1.`,
+    `  An all-new hunk starts from zero, so every added line must be at most ${limit} characters.`,
     "  You are never asked to refactor a line you did not write.",
     "",
     "IF YOU DID NOT COMPRESS ANYTHING, YOU ARE PROBABLY STILL RIGHT",
@@ -98,7 +108,7 @@ export function explain(violations, limit = MAX_LINE_LENGTH) {
     "  this repository, not a mistake you made, and this gate does not ask you to fix",
     "  it. Restoring the existing compressed code is its own tracked work (PLT-LineHonesty,",
     "  task_7fc88830d00f0b8157a498a85c); doing it opportunistically inside an unrelated",
-    "  change will collide with it. Your obligation is bounded to the lines listed above.",
+    "  change will collide with it. Your obligation is bounded to the hunks listed above.",
     "",
     "WHY THIS GATE EXISTS — read this before you try to satisfy it",
     "  G32 (line-budget) enforces a per-module ceiling on production lines. It counts",
@@ -156,7 +166,7 @@ export function explain(violations, limit = MAX_LINE_LENGTH) {
     "WHAT NOT TO DO",
     "  Do not lower the threshold, add an ignore entry, or skip this gate. Do not move",
     "  code into a non-production path to get it out of scope. Do not reformat unrelated",
-    "  lines to buy budget — this gate is a ratchet precisely so that never helps.",
+    "  lines in the same hunk to offset new overlong content; that is not a legitimate fix.",
     "",
     "AUTHORITY",
     "  dec_12BE7EB602461E84F6F0BA019B — establishes this gate (standing policy)",
