@@ -18,7 +18,7 @@ export const relationTypes = [
   "evidenced-by",
   "refuted-by",
   "invalidated-by",
-  "supersedes-fact"
+  "supersedes-fact",
 ] as const;
 
 export const relationStrengths = ["strong", "weak"] as const;
@@ -26,11 +26,11 @@ export const relationDirections = ["directed", "undirected"] as const;
 export const relationOrigins = ["declared", "imported_snapshot", "generated", "inferred"] as const;
 export const relationStates = ["active", "edge_retired", "deleted"] as const;
 
-export type RelationType = typeof relationTypes[number];
-export type RelationStrength = typeof relationStrengths[number];
-export type RelationDirection = typeof relationDirections[number];
-export type RelationOrigin = typeof relationOrigins[number];
-export type RelationState = typeof relationStates[number];
+export type RelationType = (typeof relationTypes)[number];
+export type RelationStrength = (typeof relationStrengths)[number];
+export type RelationDirection = (typeof relationDirections)[number];
+export type RelationOrigin = (typeof relationOrigins)[number];
+export type RelationState = (typeof relationStates)[number];
 
 export interface EntityRelationRecord {
   readonly relation_id: string;
@@ -58,11 +58,15 @@ export interface EntityRelationValidationIssue {
   readonly message: string;
 }
 
-export function canonicalRelationIdentityInput(record: Pick<EntityRelationRecord, "source" | "target" | "type" | "direction">): string {
+export function canonicalRelationIdentityInput(
+  record: Pick<EntityRelationRecord, "source" | "target" | "type" | "direction">,
+): string {
   return `${record.source}|${record.target}|${record.type}|${record.direction}`;
 }
 
-export function deriveRelationId(record: Pick<EntityRelationRecord, "source" | "target" | "type" | "direction">): string {
+export function deriveRelationId(
+  record: Pick<EntityRelationRecord, "source" | "target" | "type" | "direction">,
+): string {
   const suffix = sha256Text(canonicalRelationIdentityInput(record)).slice(0, 16);
   return `rel_${suffix}`;
 }
@@ -71,13 +75,16 @@ export function formatRelationFlowRecord(record: EntityRelationRecord): string {
   return `- {relation_id: ${record.relation_id}, source: ${record.source}, target: ${record.target}, type: ${record.type}, strength: ${record.strength}, direction: ${record.direction}, origin: ${record.origin}, rationale: ${quoteFlowString(record.rationale)}, state: ${record.state}}`;
 }
 
-export function validateRelationRecordsForHost(host: string, records: ReadonlyArray<EntityRelationRecord>): ReadonlyArray<EntityRelationValidationIssue> {
+export function validateRelationRecordsForHost(
+  host: string,
+  records: ReadonlyArray<EntityRelationRecord>,
+): ReadonlyArray<EntityRelationValidationIssue> {
   const issues: EntityRelationValidationIssue[] = [];
   const hostRef = parseEntityRef(host);
   if (!hostRef || hostRef.externalHarness) {
     issues.push({
       code: "invalid_relation_endpoint",
-      message: `Invalid relation host: ${host}`
+      message: `Invalid relation host: ${host}`,
     });
     return issues;
   }
@@ -90,7 +97,7 @@ export function validateRelationRecordsForHost(host: string, records: ReadonlyAr
       issues.push({
         code: "invalid_relation_endpoint",
         relationId: record.relation_id,
-        message: `Invalid relation endpoint for ${record.relation_id}`
+        message: `Invalid relation endpoint for ${record.relation_id}`,
       });
       continue;
     }
@@ -102,7 +109,7 @@ export function validateRelationRecordsForHost(host: string, records: ReadonlyAr
       issues.push({
         code: "invalid_relation_type_subset",
         relationId: record.relation_id,
-        message: `Relation ${record.relation_id} type ${record.type} is not allowed for ${source.kind}->${target.kind}`
+        message: `Relation ${record.relation_id} type ${record.type} is not allowed for ${source.kind}->${target.kind}`,
       });
     }
 
@@ -110,7 +117,7 @@ export function validateRelationRecordsForHost(host: string, records: ReadonlyAr
       issues.push({
         code: "relation_host_source_mismatch",
         relationId: record.relation_id,
-        message: `Relation ${record.relation_id} is hosted by ${host}, but source is ${record.source}`
+        message: `Relation ${record.relation_id} is hosted by ${host}, but source is ${record.source}`,
       });
     }
 
@@ -119,7 +126,7 @@ export function validateRelationRecordsForHost(host: string, records: ReadonlyAr
       issues.push({
         code: "relation_id_mismatch",
         relationId: record.relation_id,
-        message: `Relation ${record.relation_id} should be ${expectedRelationId}`
+        message: `Relation ${record.relation_id} should be ${expectedRelationId}`,
       });
     }
 
@@ -127,7 +134,7 @@ export function validateRelationRecordsForHost(host: string, records: ReadonlyAr
       issues.push({
         code: "duplicate_relation_id",
         relationId: record.relation_id,
-        message: `Duplicate relation_id ${record.relation_id}`
+        message: `Duplicate relation_id ${record.relation_id}`,
       });
     }
     seenRelationIds.add(record.relation_id);
@@ -136,7 +143,7 @@ export function validateRelationRecordsForHost(host: string, records: ReadonlyAr
       issues.push({
         code: "relation_rationale_missing",
         relationId: record.relation_id,
-        message: `Relation ${record.relation_id} requires a non-blank rationale`
+        message: `Relation ${record.relation_id} requires a non-blank rationale`,
       });
     }
   }
@@ -147,7 +154,7 @@ export function validateRelationRecordsForHost(host: string, records: ReadonlyAr
 export function isAllowedRelationKindTriple(
   sourceKind: ParsedEntityRef["kind"],
   type: RelationType,
-  targetKind: ParsedEntityRef["kind"]
+  targetKind: ParsedEntityRef["kind"],
 ): boolean {
   // Ratified convention (dec_mr74sbka, 2026-07-05): every edge reads as one sentence,
   // `source <verb> target`, in the physical (host -> target) direction — no cell whose
@@ -159,12 +166,14 @@ export function isAllowedRelationKindTriple(
   // aliases remain parse-only vocabulary and reverse questions go through
   // `incomingRelations` in relation-direction.ts.
   return canonicalRelationDirections.some(
-    (direction) => direction.sourceKind === sourceKind && direction.type === type && direction.targetKind === targetKind
+    (direction) =>
+      direction.sourceKind === sourceKind && direction.type === type && direction.targetKind === targetKind,
   );
 }
 
 function requiresRationale(record: EntityRelationRecord): boolean {
-  return record.strength === "strong" ||
+  return (
+    record.strength === "strong" ||
     record.type === "supports" ||
     record.type === "evidenced-by" ||
     record.type === "refuted-by" ||
@@ -173,16 +182,16 @@ function requiresRationale(record: EntityRelationRecord): boolean {
     record.type === "supersedes" ||
     record.type === "refines" ||
     record.type === "narrows" ||
-    record.type === "supersedes-fact";
+    record.type === "supersedes-fact"
+  );
 }
 
 function hostOwnsSource(host: ParsedEntityRef, source: ParsedEntityRef): boolean {
   if (host.kind !== source.kind) return false;
   if (host.kind === "fact" || source.kind === "fact") {
-    return host.kind === "fact" &&
-      source.kind === "fact" &&
-      host.ownerTaskId === source.ownerTaskId &&
-      host.id === source.id;
+    return (
+      host.kind === "fact" && source.kind === "fact" && host.ownerTaskId === source.ownerTaskId && host.id === source.id
+    );
   }
   return host.id === source.id;
 }

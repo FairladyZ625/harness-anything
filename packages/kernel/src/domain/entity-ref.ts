@@ -14,7 +14,8 @@ const entityRefPrefixPattern = /^(?:(?<alias>[A-Za-z][A-Za-z0-9_-]*):)?(?<body>.
 const taskOrDecisionRefPattern = /^(?<kind>task|decision)\/(?<id>[A-Za-z0-9_-]+)(?:\/(?<anchor>[A-Za-z0-9_-]+))?$/u;
 const factRefPattern = /^fact\/(?<ownerTaskId>[A-Za-z0-9_-]+)\/(?<factId>[A-Za-z0-9_-]+)$/u;
 const relationRefPattern = /^relation\/(?<relationId>rel_[a-f0-9]{16})$/u;
-const entityRefSearchPattern = /(?<![A-Za-z0-9_/-])(?:[A-Za-z][A-Za-z0-9_-]*:)?(?:fact\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|relation\/rel_[a-f0-9]{16}|(?:task|decision)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?)\b(?!\/)/gu;
+const entityRefSearchPattern =
+  /(?<![A-Za-z0-9_/-])(?:[A-Za-z][A-Za-z0-9_-]*:)?(?:fact\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|relation\/rel_[a-f0-9]{16}|(?:task|decision)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?)\b(?!\/)/gu;
 
 function isPlausibleTaskRefId(id: string): boolean {
   return id.startsWith("task_") || id.includes("-");
@@ -47,7 +48,7 @@ export function parseEntityRef(value: string): ParsedEntityRef | null {
       id: fact.groups.factId,
       ownerTaskId: fact.groups.ownerTaskId,
       ...(harnessAlias ? { harnessAlias } : {}),
-      externalHarness: Boolean(harnessAlias)
+      externalHarness: Boolean(harnessAlias),
     };
   }
 
@@ -59,7 +60,7 @@ export function parseEntityRef(value: string): ParsedEntityRef | null {
       kind: "relation",
       id: relation.groups.relationId,
       ...(harnessAlias ? { harnessAlias } : {}),
-      externalHarness: Boolean(harnessAlias)
+      externalHarness: Boolean(harnessAlias),
     };
   }
 
@@ -76,7 +77,7 @@ export function parseEntityRef(value: string): ParsedEntityRef | null {
     id,
     ...(anchor ? { anchor } : {}),
     ...(harnessAlias ? { harnessAlias } : {}),
-    externalHarness: Boolean(harnessAlias)
+    externalHarness: Boolean(harnessAlias),
   };
 }
 

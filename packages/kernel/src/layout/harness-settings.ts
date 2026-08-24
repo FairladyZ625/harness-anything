@@ -15,7 +15,8 @@
 const horizontal = "[^\\S\\r\\n]*";
 // The value must open with a non-blank, non-`#` character, so `wipLimit: # unset` reads as
 // absent rather than as a one-space string that every caller would then have to re-trim.
-const scalar = (indent: string, key: string) => new RegExp(`^${indent}${key}:${horizontal}([^#\\s][^#\\r\\n]*?)${horizontal}(?:#[^\\r\\n]*)?$`, "mu");
+const scalar = (indent: string, key: string) =>
+  new RegExp(`^${indent}${key}:${horizontal}([^#\\s][^#\\r\\n]*?)${horizontal}(?:#[^\\r\\n]*)?$`, "mu");
 
 /** Reads a scalar directly under `settings:`, for example `defaultVertical`. */
 export function setting(body: string, key: string): string | undefined {
@@ -24,6 +25,7 @@ export function setting(body: string, key: string): string | undefined {
 
 /** Reads a scalar nested under a named settings block, for example `settings.scaffolds.task` or `settings.tasks.wipLimit`. */
 export function settingBlockValue(body: string, block: string, key: string): string | undefined {
-  const section = new RegExp(`^  ${block}:[^\\S\\r\\n]*(?:\\r?\\n)((?:    [^\\r\\n]*(?:\\r?\\n|$))*)`, "mu").exec(body)?.[1] ?? "";
+  const section =
+    new RegExp(`^  ${block}:[^\\S\\r\\n]*(?:\\r?\\n)((?:    [^\\r\\n]*(?:\\r?\\n|$))*)`, "mu").exec(body)?.[1] ?? "";
   return scalar("    ", key).exec(section)?.[1];
 }

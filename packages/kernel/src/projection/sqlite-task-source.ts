@@ -9,11 +9,14 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readNestedScalar, readScalar } from "../markdown/frontmatter.ts";
-import {
-  deriveRelationTaskAuthoredSources,
-  type RelationAuthoredSourceKind
-} from "./relation-source-manifest.ts";
-import type { ProjectionCanonicalStatus, CoordinationStatus, ProjectionWarning, TaskFieldExtensionProjection, TaskProjectionRow } from "./types.ts";
+import { deriveRelationTaskAuthoredSources, type RelationAuthoredSourceKind } from "./relation-source-manifest.ts";
+import type {
+  ProjectionCanonicalStatus,
+  CoordinationStatus,
+  ProjectionWarning,
+  TaskFieldExtensionProjection,
+  TaskProjectionRow,
+} from "./types.ts";
 import { readDirNamesIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
 export function readMarkdownSource(rootInput: HarnessLayoutInput): {
@@ -25,15 +28,19 @@ export function readMarkdownSource(rootInput: HarnessLayoutInput): {
   return {
     entries: source.entries,
     hash: hashText(JSON.stringify(source.sourceInputs)),
-    warnings: source.warnings
+    warnings: source.warnings,
   };
 }
 
-export function readTaskProjectionSourceHashInputs(rootInput: HarnessLayoutInput): ReadonlyArray<TaskProjectionSourceHashInput> {
+export function readTaskProjectionSourceHashInputs(
+  rootInput: HarnessLayoutInput,
+): ReadonlyArray<TaskProjectionSourceHashInput> {
   return readTaskProjectionSource(rootInput).sourceInputs;
 }
 
-export function readRelationGraphSourceHashInputKinds(rootInput: HarnessLayoutInput): ReadonlyArray<RelationAuthoredSourceKind> {
+export function readRelationGraphSourceHashInputKinds(
+  rootInput: HarnessLayoutInput,
+): ReadonlyArray<RelationAuthoredSourceKind> {
   return [...new Set(readTaskProjectionSource(rootInput).relationSourceInputs.map((input) => input.kind))].sort();
 }
 
@@ -59,7 +66,7 @@ function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
         taskId: name,
         indexPath,
         body,
-        frontmatter: parseFrontmatter(body)
+        frontmatter: parseFrontmatter(body),
       });
     } catch (error) {
       consumeKnownError(error);
@@ -68,28 +75,27 @@ function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
         source: "source-package",
         severity: "hard-fail",
         message: error instanceof Error ? error.message : `Malformed task package: ${name}`,
-        repairHint: "Restore valid task-package/v2 frontmatter before running projection reads or post-merge checks."
+        repairHint: "Restore valid task-package/v2 frontmatter before running projection reads or post-merge checks.",
       });
     }
   }
 
   const relationSourceInputs = readRelationGraphSourceInputs(rootDir, entries);
   const supplementalSourceInputs = readTaskSupplementalSourceInputs(rootDir, entries);
-  const taskIndexInputs = entries.flatMap((entry) => relationSourceInputs.filter((input) =>
-    input.kind === "task-index" && input.taskId === entry.taskId
-  ));
+  const taskIndexInputs = entries.flatMap((entry) =>
+    relationSourceInputs.filter((input) => input.kind === "task-index" && input.taskId === entry.taskId),
+  );
   const remainingSourceInputs = [
     ...relationSourceInputs.filter((input) => input.kind !== "task-index"),
-    ...supplementalSourceInputs
+    ...supplementalSourceInputs,
   ].sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
   return {
     entries,
     sourceInputs: [...taskIndexInputs, ...remainingSourceInputs],
     relationSourceInputs,
-    warnings
+    warnings,
   };
 }
-
 
 export interface TaskSourceEntry {
   readonly taskId: string;
@@ -112,7 +118,7 @@ interface RelationSourceHashInput extends TaskProjectionSourceHashInput {
 export function taskEntryToRow(
   rootInput: HarnessLayoutInput,
   entry: TaskSourceEntry,
-  fieldExtensions: ReadonlyArray<TaskFieldExtensionProjection> = []
+  fieldExtensions: ReadonlyArray<TaskFieldExtensionProjection> = [],
 ): TaskProjectionRow {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const rawStatus = readScalar(entry.frontmatter, "  status") || "unknown";
@@ -142,11 +148,20 @@ export function taskEntryToRow(
     ...readTaskMetadata(entry.frontmatter),
     ...readModuleMetadata(taskDir),
     hasLessonCandidates: existsSync(path.join(taskDir, "lesson_candidates.md")),
-    ...readCreatedBy(entry.frontmatter)
+    ...readCreatedBy(entry.frontmatter),
   };
 }
 
-function readTaskTitle(frontmatter: string): string { const value = readScalar(frontmatter, "title"); if (!value.startsWith('"')) return value; try { const decoded = JSON.parse(value) as unknown; return typeof decoded === "string" ? decoded : value; } catch { return value; } }
+function readTaskTitle(frontmatter: string): string {
+  const value = readScalar(frontmatter, "title");
+  if (!value.startsWith('"')) return value;
+  try {
+    const decoded = JSON.parse(value) as unknown;
+    return typeof decoded === "string" ? decoded : value;
+  } catch {
+    return value;
+  }
+}
 
 function parseFrontmatter(body: string): string {
   const frontmatter = readFrontmatter(body);
@@ -154,7 +169,9 @@ function parseFrontmatter(body: string): string {
   return frontmatter;
 }
 
-function readCreatedBy(frontmatter: string): { readonly createdBy?: { readonly name: string; readonly email: string } } {
+function readCreatedBy(frontmatter: string): {
+  readonly createdBy?: { readonly name: string; readonly email: string };
+} {
   const block = frontmatter.match(/^createdBy:\n((?:[ \t]+[^\n]*\n?)*)/mu)?.[1];
   if (!block) return {};
   const name = readNestedScalar(block, "name");
@@ -167,29 +184,32 @@ function readParent(frontmatter: string): { readonly parentTaskId?: string } {
   return parentTaskId ? { parentTaskId } : {};
 }
 
-function readExtensionMetadata(frontmatter: string): { readonly vertical?: string; readonly preset?: string; readonly profile?: string } {
+function readExtensionMetadata(frontmatter: string): {
+  readonly vertical?: string;
+  readonly preset?: string;
+  readonly profile?: string;
+} {
   const vertical = readScalar(frontmatter, "vertical");
   const preset = readScalar(frontmatter, "preset");
   const profile = readScalar(frontmatter, "profile");
   return {
     ...(vertical ? { vertical } : {}),
     ...(preset ? { preset } : {}),
-    ...(profile ? { profile } : {})
+    ...(profile ? { profile } : {}),
   };
 }
 
 function readFieldExtensions(
   frontmatter: string,
-  extensions: ReadonlyArray<TaskFieldExtensionProjection>
+  extensions: ReadonlyArray<TaskFieldExtensionProjection>,
 ): { readonly fieldExtensions?: Readonly<Record<string, string | null>> } {
   if (extensions.length === 0) return {};
-  const values = Object.fromEntries(extensions.map((extension) => {
-    const rawValue = readScalar(frontmatter, extension.field);
-    return [
-      extension.field,
-      extension.values.includes(rawValue) ? rawValue : extension.default
-    ];
-  }));
+  const values = Object.fromEntries(
+    extensions.map((extension) => {
+      const rawValue = readScalar(frontmatter, extension.field);
+      return [extension.field, extension.values.includes(rawValue) ? rawValue : extension.default];
+    }),
+  );
   return Object.values(values).some((value) => value !== null) ? { fieldExtensions: values } : {};
 }
 
@@ -200,7 +220,7 @@ function readTaskMetadata(frontmatter: string): Pick<TaskProjectionRow, "workKin
   return {
     ...(isTaskWorkKind(workKind) ? { workKind } : {}),
     ...(isPriorityTier(riskTier) ? { riskTier } : {}),
-    ...(isPriorityTier(urgency) ? { urgency } : {})
+    ...(isPriorityTier(urgency) ? { urgency } : {}),
   };
 }
 
@@ -213,56 +233,62 @@ function readModuleMetadata(taskDir: string): { readonly moduleKey?: string; rea
   const moduleTitle = body.match(/^Module title:[ \t]*(.+)$/mu)?.[1]?.trim() ?? "";
   return {
     ...(moduleKey ? { moduleKey } : {}),
-    ...(moduleTitle ? { moduleTitle } : {})
+    ...(moduleTitle ? { moduleTitle } : {}),
   };
 }
 
 function readRelationGraphSourceInputs(
   rootDir: string,
-  entries: ReadonlyArray<TaskSourceEntry>
+  entries: ReadonlyArray<TaskSourceEntry>,
 ): ReadonlyArray<RelationSourceHashInput> {
   const taskDocumentInputs = entries
-    .flatMap((entry) => deriveRelationTaskAuthoredSources(path.dirname(entry.indexPath)).map((source) => ({
-      kind: source.kind,
-      path: source.filePath,
-      ...(source.kind === "task-index" ? { taskId: entry.taskId } : {}),
-      ...(source.filePath === entry.indexPath ? { body: entry.body } : {})
-    })))
+    .flatMap((entry) =>
+      deriveRelationTaskAuthoredSources(path.dirname(entry.indexPath)).map((source) => ({
+        kind: source.kind,
+        path: source.filePath,
+        ...(source.kind === "task-index" ? { taskId: entry.taskId } : {}),
+        ...(source.filePath === entry.indexPath ? { body: entry.body } : {}),
+      })),
+    )
     .filter((input) => input.body !== undefined || existsSync(input.path))
     .flatMap((input) => {
       const body = input.body ?? readTextFileIfPresent(input.path);
       return body === null
         ? []
-        : [{
-          kind: input.kind,
-          ...(input.taskId ? { taskId: input.taskId } : {}),
-          sourcePath: sourcePath(rootDir, input.path),
-          body
-        }];
+        : [
+            {
+              kind: input.kind,
+              ...(input.taskId ? { taskId: input.taskId } : {}),
+              sourcePath: sourcePath(rootDir, input.path),
+              body,
+            },
+          ];
     });
   return taskDocumentInputs;
 }
 
 function readTaskSupplementalSourceInputs(
   rootDir: string,
-  entries: ReadonlyArray<TaskSourceEntry>
+  entries: ReadonlyArray<TaskSourceEntry>,
 ): ReadonlyArray<TaskProjectionSourceHashInput> {
   return entries
     .flatMap((entry) => [
       { kind: "task-module", path: path.join(path.dirname(entry.indexPath), "module.md") },
       { kind: "task-review", path: path.join(path.dirname(entry.indexPath), "review.md") },
-      { kind: "task-closeout", path: path.join(path.dirname(entry.indexPath), "closeout.md") }
+      { kind: "task-closeout", path: path.join(path.dirname(entry.indexPath), "closeout.md") },
     ])
     .filter((input) => existsSync(input.path))
     .flatMap((input) => {
       const body = readTextFileIfPresent(input.path);
       return body === null
         ? []
-        : [{
-          kind: input.kind,
-          sourcePath: sourcePath(rootDir, input.path),
-          body
-        }];
+        : [
+            {
+              kind: input.kind,
+              sourcePath: sourcePath(rootDir, input.path),
+              body,
+            },
+          ];
     });
 }
 
@@ -275,7 +301,14 @@ function coordinationStatus(status: ProjectionCanonicalStatus): CoordinationStat
 
 function projectCloseoutReadiness(status: ProjectionCanonicalStatus): CloseoutReadiness {
   if (status === "unknown") return "missing";
-  return domainCloseoutReadiness({ task: { status, iteration: 0, completionGateIds: [] }, executions: [], reviews: [], consents: [], codeDocWitnesses: [], gateWitnesses: [] }).readiness;
+  return domainCloseoutReadiness({
+    task: { status, iteration: 0, completionGateIds: [] },
+    executions: [],
+    reviews: [],
+    consents: [],
+    codeDocWitnesses: [],
+    gateWitnesses: [],
+  }).readiness;
 }
 
 export function sourcePath(rootDir: string, filePath: string): string {
@@ -287,10 +320,16 @@ export function hashExactRows(rows: ReadonlyArray<TaskProjectionRow>): string {
 }
 
 export function hashTaskProjectionRows(rows: ReadonlyArray<TaskProjectionRow>): string {
-  return hashText(JSON.stringify([...rows].sort(compareRows).map((row) => canonicalTaskProjectionRow({
-    ...row,
-    updatedAt: "<derived-from-source-mtime>"
-  }))));
+  return hashText(
+    JSON.stringify(
+      [...rows].sort(compareRows).map((row) =>
+        canonicalTaskProjectionRow({
+          ...row,
+          updatedAt: "<derived-from-source-mtime>",
+        }),
+      ),
+    ),
+  );
 }
 
 function hashText(text: string): string {
@@ -327,7 +366,7 @@ function canonicalTaskProjectionRow(row: TaskProjectionRow): TaskProjectionRow {
     ...(row.moduleTitle ? { moduleTitle: row.moduleTitle } : {}),
     ...(row.hasLessonCandidates === undefined ? {} : { hasLessonCandidates: row.hasLessonCandidates }),
     ...(row.createdBy ? { createdBy: { name: row.createdBy.name, email: row.createdBy.email } } : {}),
-    ...(row.fieldExtensions ? { fieldExtensions: sortRecord(row.fieldExtensions) } : {})
+    ...(row.fieldExtensions ? { fieldExtensions: sortRecord(row.fieldExtensions) } : {}),
   };
 }
 

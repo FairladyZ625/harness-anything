@@ -5,10 +5,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { eventObjectRelativePath } from "../layout/ledger-object-layout.ts";
 import { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
-import {
-  localGitObjectRefStore,
-  localGitWorktreeSettlement,
-} from "./local-version-control-system.ts";
+import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import {
   canonicalDocumentClaims,
   canonicalDocumentRetirements,
@@ -28,11 +25,7 @@ import {
   type MaterializationReceipt,
   validateCanonicalWriteBundle,
 } from "./task-event-store.ts";
-import {
-  openWalEventLog,
-  type WalEventLog,
-  type WalEventRecord,
-} from "./wal-event-log.ts";
+import { openWalEventLog, type WalEventLog, type WalEventRecord } from "./wal-event-log.ts";
 import { flushWalToGit } from "./wal-git-materializer.ts";
 
 export { canonicalDocumentClaims, canonicalEventWritePlan, TaskEventStoreError };
@@ -51,8 +44,7 @@ type StoreOptions = Parameters<typeof makeGitEventStore>[0] & {
 
 export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventStore {
   const input = options.rootInput ?? options.rootDir;
-  if (input === undefined)
-    throw new Error("canonical event store requires rootInput or rootDir");
+  if (input === undefined) throw new Error("canonical event store requires rootInput or rootDir");
   const rootDir = resolveHarnessLayout(input).rootDir;
   const ledger = resolveLedgerGitLayout(input);
   const gitOptions = {
@@ -83,9 +75,10 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     gitBaseline = readGitBaseline(ledger, git.currentCommit().sha);
     gitStream = null;
   };
-  const readGitStream = (): CanonicalEventStreamV1 => gitStream ??= git.read();
+  const readGitStream = (): CanonicalEventStreamV1 => (gitStream ??= git.read());
   const stream = (): CanonicalEventStreamV1 => mergeStream(readGitStream(), wal.records());
-  const pendingCount = (): number => wal.records().filter((record) => record.revision > (gitHead?.revision ?? 0)).length;
+  const pendingCount = (): number =>
+    wal.records().filter((record) => record.revision > (gitHead?.revision ?? 0)).length;
   const hasWalRecords = (): boolean => wal.records().length > 0;
   const clearSchedule = (): void => {
     if (timer !== null) clearTimeout(timer);
@@ -168,17 +161,15 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   };
   const readBatch = (cursor: string | null, maxItems: number): EventFileBatch => {
     if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 64)
-      throw new TaskEventStoreError(
-        "invalid_store",
-        "event batch maxItems must be between 1 and 64",
-      );
+      throw new TaskEventStoreError("invalid_store", "event batch maxItems must be between 1 and 64");
     const records = wal.records().filter((record) => record.revision > (gitHead?.revision ?? 0));
     const walCursor = cursor === null ? -1 : records.findIndex((record) => cursorNames(record.event).includes(cursor));
     const directLayout = gitLayout;
     if (directLayout === "mixed") return git.readBatch(cursor, maxItems);
-    const directCursor = cursor !== null && gitBaseline.eventOids.has(cursor)
-      ? eventObjectRelativePath(cursor, directLayout).slice("events/".length)
-      : cursor;
+    const directCursor =
+      cursor !== null && gitBaseline.eventOids.has(cursor)
+        ? eventObjectRelativePath(cursor, directLayout).slice("events/".length)
+        : cursor;
     const gitBatch = walCursor >= 0 ? null : git.readBatch(directCursor, maxItems);
     const gitEvents = gitBatch?.events ?? [];
     const room = maxItems - gitEvents.length;
@@ -193,14 +184,18 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       cursor: walEvents.at(-1)?.opId ?? gitBatch?.cursor ?? cursor,
       done,
       accessedItems: (gitBatch?.accessedItems ?? 0) + walEvents.length,
-      prefetchContent: records.length === 0 && gitBatch?.prefetchContent !== undefined
-        ? gitBatch.prefetchContent
-        : (replay) =>
-          new Map(
-            replay
-              .flatMap((event) => canonicalEventContentClaims(event))
-              .map((claim) => [claim.sha256, wal.readContentBlob(claim.sha256) ?? git.readContentBlob(claim.sha256)]),
-          ),
+      prefetchContent:
+        records.length === 0 && gitBatch?.prefetchContent !== undefined
+          ? gitBatch.prefetchContent
+          : (replay) =>
+              new Map(
+                replay
+                  .flatMap((event) => canonicalEventContentClaims(event))
+                  .map((claim) => [
+                    claim.sha256,
+                    wal.readContentBlob(claim.sha256) ?? git.readContentBlob(claim.sha256),
+                  ]),
+              ),
     };
   };
   const append = (bundle: CanonicalWriteBundle): CanonicalEventAppendReceipt => {
@@ -211,12 +206,12 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     const existingGitOid = gitBaseline.eventOids.get(bundle.event.opId);
     if (existingWal !== null || existingGitOid !== undefined) {
       const existing = existingWal ?? bundle.event;
-      if (existingWal !== null && walShadowCanonicalBytes(existingWal) !== walShadowCanonicalBytes(bundle.event) ||
-          existingGitOid !== undefined && existingGitOid !== localGitObjectRefStore.blobOid(walShadowCanonicalBytes(bundle.event)))
-        throw new TaskEventStoreError(
-          "op_conflict",
-          `opId ${bundle.event.opId} already names different event bytes`,
-        );
+      if (
+        (existingWal !== null && walShadowCanonicalBytes(existingWal) !== walShadowCanonicalBytes(bundle.event)) ||
+        (existingGitOid !== undefined &&
+          existingGitOid !== localGitObjectRefStore.blobOid(walShadowCanonicalBytes(bundle.event)))
+      )
+        throw new TaskEventStoreError("op_conflict", `opId ${bundle.event.opId} already names different event bytes`);
       const priorPending = pendingEvents.filter((event) => event.workspaceRevision < existing.workspaceRevision);
       makeVisible(ledger, wal, priorPending, gitBaseline.files, bundle, options);
       return pendingReceipt(existing, gitHead?.revision ?? 0, git.currentCommit(), []);
@@ -241,8 +236,17 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     };
     if (options.withAppendFence) options.withAppendFence(publish);
     else publish();
-    const changedPaths = [...canonicalDocumentClaims(bundle.event).map((claim) => claim.path), ...canonicalDocumentRetirements(bundle.event).map((retirement) => retirement.path)].sort();
-    const receipt = pendingReceipt(bundle.event, gitHead?.revision ?? 0, git.currentCommit(), changedPaths, localGitObjectRefStore.processCount() - started);
+    const changedPaths = [
+      ...canonicalDocumentClaims(bundle.event).map((claim) => claim.path),
+      ...canonicalDocumentRetirements(bundle.event).map((retirement) => retirement.path),
+    ].sort();
+    const receipt = pendingReceipt(
+      bundle.event,
+      gitHead?.revision ?? 0,
+      git.currentCommit(),
+      changedPaths,
+      localGitObjectRefStore.processCount() - started,
+    );
     scheduleFlush(true);
     return receipt;
   };
@@ -264,7 +268,13 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         );
     } catch (error) {
       consumeKnownError(error);
-      return { status: "indeterminate", publications: 0, elapsedMs: performance.now() - started, error: walShadowErrorMessage(error), ...(error instanceof TaskEventStoreError ? { errorCode: error.code } : {}) };
+      return {
+        status: "indeterminate",
+        publications: 0,
+        elapsedMs: performance.now() - started,
+        error: walShadowErrorMessage(error),
+        ...(error instanceof TaskEventStoreError ? { errorCode: error.code } : {}),
+      };
     }
     consecutiveFailures = 0;
     const records = wal.records();
@@ -293,8 +303,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     consecutiveFailures = 0;
     for (let attempt = 1; hasWalRecords() && attempt <= retryLimit; attempt += 1) {
       if (runFlush("drain")) break;
-      if (attempt < retryLimit)
-        await wait(retryBaseMs * 2 ** (attempt - 1));
+      if (attempt < retryLimit) await wait(retryBaseMs * 2 ** (attempt - 1));
     }
     if (hasWalRecords())
       throw new TaskEventStoreError(
@@ -314,9 +323,13 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     layout: () => gitLayout,
     read: stream,
     readHead,
-    readEvent: (opId) => wal.records().find((record) => record.opId === opId)?.event ?? (gitBaseline.eventOids.has(opId) ? git.readEvent(opId) : null),
+    readEvent: (opId) =>
+      wal.records().find((record) => record.opId === opId)?.event ??
+      (gitBaseline.eventOids.has(opId) ? git.readEvent(opId) : null),
     readTaskEvent: (opId) => {
-      const event = wal.records().find((record) => record.opId === opId)?.event ?? (gitBaseline.eventOids.has(opId) ? git.readEvent(opId) : null);
+      const event =
+        wal.records().find((record) => record.opId === opId)?.event ??
+        (gitBaseline.eventOids.has(opId) ? git.readEvent(opId) : null);
       return event?.schema === "task-event/v1" ? event : null;
     },
     readBatch,
@@ -331,7 +344,9 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     },
     recover,
     materialize: () =>
-      materializeVisible(ledger, wal, stream().events, gitBaseline.files, git.currentCommit(), (sha256) => git.readContentBlob(sha256)),
+      materializeVisible(ledger, wal, stream().events, gitBaseline.files, git.currentCommit(), (sha256) =>
+        git.readContentBlob(sha256),
+      ),
     drain,
   };
 }
@@ -354,9 +369,10 @@ function makeVisible(
     if (local !== null && local.sha256 !== claim.sha256) {
       const prior = priorClaims.get(claim.path);
       const base = committed.get(target);
-      const matchesPrior = prior === undefined
-        ? base !== undefined && local.gitOid === base.oid && local.mode === base.mode
-        : local.sha256 === prior.sha256 && local.mode === prior.mode;
+      const matchesPrior =
+        prior === undefined
+          ? base !== undefined && local.gitOid === base.oid && local.mode === base.mode
+          : local.sha256 === prior.sha256 && local.mode === prior.mode;
       if (!matchesPrior)
         localGitWorktreeSettlement.preserveVisibleConflict(
           ledger.rootDir,
@@ -371,8 +387,23 @@ function makeVisible(
     beforeRename: () => options.killpoint?.("before_worktree_rename"),
     afterRename: () => options.killpoint?.("after_worktree_rename"),
   });
-  const deletions = canonicalDocumentRetirements(bundle.event).map((retirement) => { const target = ledgerGitPath(ledger, retirement.path), physical = pathFor(ledger.rootDir, target), local = localGitWorktreeSettlement.readNode(physical); if (local !== null && local.sha256 !== retirement.baseBlobSha256) localGitWorktreeSettlement.preserveVisibleConflict(ledger.rootDir, physical, target, `${bundle.event.workspaceRevision}:${bundle.event.opId}`); return target; });
-  localGitWorktreeSettlement.deleteVisible(ledger.rootDir, deletions, { beforeRename: () => options.killpoint?.("before_worktree_rename"), afterRename: () => options.killpoint?.("after_worktree_rename") });
+  const deletions = canonicalDocumentRetirements(bundle.event).map((retirement) => {
+    const target = ledgerGitPath(ledger, retirement.path),
+      physical = pathFor(ledger.rootDir, target),
+      local = localGitWorktreeSettlement.readNode(physical);
+    if (local !== null && local.sha256 !== retirement.baseBlobSha256)
+      localGitWorktreeSettlement.preserveVisibleConflict(
+        ledger.rootDir,
+        physical,
+        target,
+        `${bundle.event.workspaceRevision}:${bundle.event.opId}`,
+      );
+    return target;
+  });
+  localGitWorktreeSettlement.deleteVisible(ledger.rootDir, deletions, {
+    beforeRename: () => options.killpoint?.("before_worktree_rename"),
+    afterRename: () => options.killpoint?.("after_worktree_rename"),
+  });
   for (const claim of canonicalDocumentClaims(bundle.event)) {
     const supplied = bundle.blobs.find((blob) => blob.sha256 === claim.sha256);
     if (wal.readContentBlob(claim.sha256) === null && supplied === undefined)
@@ -401,7 +432,14 @@ function materializeVisible(
     if (local?.sha256 === claim.sha256 && local.mode === claim.mode) continue;
     const base = committed.get(target);
     if (local !== null && (base === undefined || local.gitOid !== base.oid || local.mode !== base.mode))
-      conflicts.push(localGitWorktreeSettlement.preserveVisibleConflict(ledger.rootDir, physical, target, `${events.at(-1)?.workspaceRevision ?? 0}:${claim.sha256}`));
+      conflicts.push(
+        localGitWorktreeSettlement.preserveVisibleConflict(
+          ledger.rootDir,
+          physical,
+          target,
+          `${events.at(-1)?.workspaceRevision ?? 0}:${claim.sha256}`,
+        ),
+      );
     changed.push(logical);
     writes.push({ target, body: Buffer.from(bytes).toString("utf8"), mode: claim.mode });
   }
@@ -409,7 +447,9 @@ function materializeVisible(
   return { status: "visible", commitSha, changed, conflicts };
 }
 
-function latestDocumentClaims(events: CanonicalEventStreamV1["events"]): Map<string, { sha256: string; mode: "100644" | "120000" }> {
+function latestDocumentClaims(
+  events: CanonicalEventStreamV1["events"],
+): Map<string, { sha256: string; mode: "100644" | "120000" }> {
   const latest = new Map<string, { sha256: string; mode: "100644" | "120000" }>();
   for (const event of events) {
     for (const retirement of canonicalDocumentRetirements(event)) latest.delete(retirement.path);
@@ -459,21 +499,13 @@ interface GitBaseline {
   readonly files: ReadonlyMap<string, GitBaselineNode>;
 }
 
-function readGitBaseline(
-  ledger: ReturnType<typeof resolveLedgerGitLayout>,
-  commit: string,
-): GitBaseline {
-  const entries = localGitObjectRefStore.listTree(
-    ledger.rootDir,
-    commit,
-    ledger.authoredPrefix || undefined,
-  );
+function readGitBaseline(ledger: ReturnType<typeof resolveLedgerGitLayout>, commit: string): GitBaseline {
+  const entries = localGitObjectRefStore.listTree(ledger.rootDir, commit, ledger.authoredPrefix || undefined);
   const files = new Map(entries.map(({ target, mode, oid }) => [target, { mode, oid }] as const));
   const eventOids = new Map<string, string>();
   const prefix = ledgerGitPath(ledger, "events/");
   for (const { target, oid } of entries) {
-    if (!target.startsWith(prefix) || target.endsWith("/head.json") || target === `${prefix}head.json`)
-      continue;
+    if (!target.startsWith(prefix) || target.endsWith("/head.json") || target === `${prefix}head.json`) continue;
     const relative = target.slice(prefix.length);
     const name = relative.includes("/") ? relative.slice(relative.lastIndexOf("/") + 1) : relative;
     if (name.endsWith(".json")) eventOids.set(name.slice(0, -5), oid);

@@ -5,13 +5,16 @@ export const relationAuthoredSourceManifest = [
     kind: "task-index",
     scope: "task",
     relativePath: "INDEX.md",
-    content: "frontmatter"
-  }
+    content: "frontmatter",
+  },
 ] as const;
 
 export type RelationAuthoredSourceDefinition = (typeof relationAuthoredSourceManifest)[number];
 export type RelationAuthoredSourceKind = RelationAuthoredSourceDefinition["kind"];
-export type RelationTaskAuthoredSourceDefinition = Extract<RelationAuthoredSourceDefinition, { readonly scope: "task" }>;
+export type RelationTaskAuthoredSourceDefinition = Extract<
+  RelationAuthoredSourceDefinition,
+  { readonly scope: "task" }
+>;
 
 export type RelationTaskAuthoredSource = RelationTaskAuthoredSourceDefinition & { readonly filePath: string };
 

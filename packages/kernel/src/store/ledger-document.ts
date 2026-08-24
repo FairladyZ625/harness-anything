@@ -12,12 +12,39 @@ import { canonicalDocumentClaims, canonicalDocumentRetirements } from "./task-ev
  * A projected document wins; historical ledger debt remains a document when
  * its authored path is a regular textual file tracked at the ledger Git HEAD.
  */
-export function resolveRetirableDocument(input: HarnessLayoutInput, logical: PortableDocumentPath, projected: DocumentState | null, events: readonly CanonicalEventV1[]): DocumentState | null {
+export function resolveRetirableDocument(
+  input: HarnessLayoutInput,
+  logical: PortableDocumentPath,
+  projected: DocumentState | null,
+  events: readonly CanonicalEventV1[],
+): DocumentState | null {
   if (projected !== null) return projected;
-  if (events.some((event) => canonicalDocumentClaims(event).some((claim) => claim.path === logical) || canonicalDocumentRetirements(event).some((retirement) => retirement.path === logical))) return null;
-  const classification = classifyTextualArtifactPath(logical); if (classification === null) return null;
-  const ledger = resolveLedgerGitLayout(input), target = ledgerGitPath(ledger, logical), head = localGitObjectRefStore.resolveCommit(ledger.rootDir, "HEAD"), entry = localGitObjectRefStore.listTree(ledger.rootDir, head, target).find((candidate) => candidate.target === target);
+  if (
+    events.some(
+      (event) =>
+        canonicalDocumentClaims(event).some((claim) => claim.path === logical) ||
+        canonicalDocumentRetirements(event).some((retirement) => retirement.path === logical),
+    )
+  )
+    return null;
+  const classification = classifyTextualArtifactPath(logical);
+  if (classification === null) return null;
+  const ledger = resolveLedgerGitLayout(input),
+    target = ledgerGitPath(ledger, logical),
+    head = localGitObjectRefStore.resolveCommit(ledger.rootDir, "HEAD"),
+    entry = localGitObjectRefStore
+      .listTree(ledger.rootDir, head, target)
+      .find((candidate) => candidate.target === target);
   if (entry?.mode !== "100644") return null;
-  const bytes = localGitObjectRefStore.readPath(ledger.rootDir, head, target); if (bytes === null) return null;
-  return { path: logical, blobSha256: sha256Bytes(bytes), body: bytes.toString("utf8"), size: docByteLength(bytes.byteLength), mediaType: classification.mediaType, policyId: classification.policyId, workspaceRevision: 0 };
+  const bytes = localGitObjectRefStore.readPath(ledger.rootDir, head, target);
+  if (bytes === null) return null;
+  return {
+    path: logical,
+    blobSha256: sha256Bytes(bytes),
+    body: bytes.toString("utf8"),
+    size: docByteLength(bytes.byteLength),
+    mediaType: classification.mediaType,
+    policyId: classification.policyId,
+    workspaceRevision: 0,
+  };
 }

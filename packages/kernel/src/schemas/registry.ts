@@ -16,7 +16,7 @@ export { FactEventSchema } from "./fact-event.ts";
 export {
   HarnessCheckReportSchema,
   ProjectionWarningCodeSchema,
-  ProjectionWarningSourceSchema
+  ProjectionWarningSourceSchema,
 } from "./harness-check-report.ts";
 export { SubtaskPlanSchema } from "./subtask-plan.ts";
 export {
@@ -26,13 +26,11 @@ export {
   RelationOriginSchema,
   RelationStateSchema,
   RelationStrengthSchema,
-  RelationTypeSchema
+  RelationTypeSchema,
 } from "./entity-relations.ts";
 export { VerticalDefinitionSchema } from "./vertical-definition.ts";
 
-export const DomainStatusSchema = Schema.Literal(
-  ...domainStatuses
-);
+export const DomainStatusSchema = Schema.Literal(...domainStatuses);
 
 export const SnapshotStatusSchema = Schema.Union(DomainStatusSchema, Schema.Literal("unknown"));
 export const FreshnessSchema = Schema.Literal("fresh", "stale-but-usable", "unavailable-no-cache");
@@ -42,7 +40,9 @@ const NullableString = Schema.NullOr(Schema.String);
 const StringArray = Schema.Array(Schema.String);
 const LocaleSchema = Schema.Literal("zh-CN", "en-US");
 const LegacyRootSchema = Schema.Literal("harness/legacy");
-const LegacyPathSchema = Schema.String.pipe(Schema.pattern(/^harness\/legacy\/(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*\/\/)(?!.*\\).+$/u));
+const LegacyPathSchema = Schema.String.pipe(
+  Schema.pattern(/^harness\/legacy\/(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*\/\/)(?!.*\\).+$/u),
+);
 const LegacyConfidenceSchema = Schema.Literal("high", "medium", "low");
 const StrictSha256Schema = Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{64}$/u));
 const ConfigIdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u));
@@ -52,7 +52,7 @@ export const HarnessConfigSchema = Schema.Struct({
   schema: Schema.Literal("harness/v2"),
   project: Schema.Struct({
     id: Schema.String,
-    locale: Schema.Literal("zh-CN", "en-US")
+    locale: Schema.Literal("zh-CN", "en-US"),
   }),
   lifecycle: Schema.Struct({
     default: Schema.String,
@@ -62,37 +62,45 @@ export const HarnessConfigSchema = Schema.Struct({
       value: Schema.Struct({
         kind: Schema.String,
         workspace: OptionalString,
-        project: OptionalString
-      })
-    })
+        project: OptionalString,
+      }),
+    }),
   }),
   vertical: Schema.Struct({
-    default: Schema.String
+    default: Schema.String,
   }),
   presets: Schema.Struct({
-    default: Schema.String
+    default: Schema.String,
   }),
-  settings: Schema.optional(Schema.Struct({
-    locale: Schema.optional(LocaleSchema),
-    defaultVertical: Schema.optional(ConfigIdentifierSchema),
-    defaultPreset: Schema.optional(ConfigIdentifierSchema),
-    defaultProfile: Schema.optional(ConfigIdentifierSchema),
-    tasks: Schema.optional(Schema.Struct({
-      wipLimit: Schema.optional(TaskWipLimitSchema)
-    })),
-    identity: Schema.optional(Schema.Struct({
-      personId: ConfigIdentifierSchema,
-      displayName: Schema.optional(Schema.String)
-    })),
-    customVerticals: Schema.optional(Schema.Struct({
-      enabled: Schema.Boolean
-    }))
-  })),
+  settings: Schema.optional(
+    Schema.Struct({
+      locale: Schema.optional(LocaleSchema),
+      defaultVertical: Schema.optional(ConfigIdentifierSchema),
+      defaultPreset: Schema.optional(ConfigIdentifierSchema),
+      defaultProfile: Schema.optional(ConfigIdentifierSchema),
+      tasks: Schema.optional(
+        Schema.Struct({
+          wipLimit: Schema.optional(TaskWipLimitSchema),
+        }),
+      ),
+      identity: Schema.optional(
+        Schema.Struct({
+          personId: ConfigIdentifierSchema,
+          displayName: Schema.optional(Schema.String),
+        }),
+      ),
+      customVerticals: Schema.optional(
+        Schema.Struct({
+          enabled: Schema.Boolean,
+        }),
+      ),
+    }),
+  ),
   storage: Schema.Struct({
     markdownRoot: Schema.String,
     sqlitePath: Schema.String,
-    journalPath: Schema.String
-  })
+    journalPath: Schema.String,
+  }),
 });
 
 export const Sha256FingerprintSchema = Schema.TemplateLiteral("sha256:", Schema.String);
@@ -105,7 +113,7 @@ export const LifecycleBindingSchema = Schema.Struct({
   titleSnapshot: NullableString,
   url: NullableString,
   bindingCreatedAt: Schema.String,
-  bindingFingerprint: Sha256FingerprintSchema
+  bindingFingerprint: Sha256FingerprintSchema,
 });
 
 // Compile-time anchor: the schema's decoded type and the domain's
@@ -132,7 +140,7 @@ export const TaskFrontmatterSchema = Schema.Struct({
   preset: Schema.String,
   provenance: Schema.Array(ProvenanceEntrySchema).pipe(Schema.minItems(1)),
   profile: Schema.optional(Schema.String),
-  createdBy: Schema.optional(CreatedBySchema)
+  createdBy: Schema.optional(CreatedBySchema),
 });
 
 export const TaskSnapshotSchema = Schema.Struct({
@@ -148,14 +156,14 @@ export const TaskSnapshotSchema = Schema.Struct({
   assignee: OptionalString,
   parentRef: OptionalString,
   url: OptionalString,
-  title: OptionalString
+  title: OptionalString,
 });
 
 export const RedactionFindingSchema = Schema.Struct({
   ruleId: Schema.String,
   severity: Schema.Literal("info", "warning", "error"),
   message: Schema.String,
-  path: OptionalString
+  path: OptionalString,
 });
 
 const PublishableLinkSchema = Schema.Struct({ label: Schema.String, href: Schema.String, kind: LinkKindSchema });
@@ -170,14 +178,14 @@ export const PublishableProjectionSchema = Schema.Struct({
     closeoutReadiness: Schema.Literal("passed"),
     reviewGate: Schema.Literal("passed"),
     ciGate: Schema.Literal("passed"),
-    evidenceLinks: Schema.Array(PublishableLinkSchema).pipe(Schema.minItems(1))
+    evidenceLinks: Schema.Array(PublishableLinkSchema).pipe(Schema.minItems(1)),
   }),
   redactionReport: Schema.Struct({
     scannerVersion: Schema.String,
     findings: Schema.Array(RedactionFindingSchema),
-    passed: Schema.Literal(true)
+    passed: Schema.Literal(true),
   }),
-  idempotencyKey: Schema.String
+  idempotencyKey: Schema.String,
 });
 
 export const TemplateCatalogSchema = Schema.Struct({
@@ -187,23 +195,27 @@ export const TemplateCatalogSchema = Schema.Struct({
     title: Schema.String,
     version: Schema.String,
     owner: Schema.String,
-    locales: Schema.Array(LocaleSchema).pipe(Schema.minItems(1))
+    locales: Schema.Array(LocaleSchema).pipe(Schema.minItems(1)),
   }),
-  documents: Schema.Array(Schema.Struct({
-    id: Schema.String,
-    version: Schema.String,
-    documentKind: Schema.String,
-    slot: Schema.String,
-    materializeAs: Schema.String,
-    frontmatterSchema: Schema.String,
-    requiredAnchors: StringArray,
-    fallbackLocale: LocaleSchema,
-    locales: Schema.Array(Schema.Struct({
-      locale: LocaleSchema,
-      anchors: StringArray,
-      bodyPath: Schema.String
-    })).pipe(Schema.minItems(1))
-  }))
+  documents: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      version: Schema.String,
+      documentKind: Schema.String,
+      slot: Schema.String,
+      materializeAs: Schema.String,
+      frontmatterSchema: Schema.String,
+      requiredAnchors: StringArray,
+      fallbackLocale: LocaleSchema,
+      locales: Schema.Array(
+        Schema.Struct({
+          locale: LocaleSchema,
+          anchors: StringArray,
+          bodyPath: Schema.String,
+        }),
+      ).pipe(Schema.minItems(1)),
+    }),
+  ),
 });
 
 export const TemplateSelectionSchema = Schema.Struct({
@@ -212,18 +224,20 @@ export const TemplateSelectionSchema = Schema.Struct({
   materializeAs: Schema.String,
   localePolicy: Schema.Struct({
     prefer: Schema.Literal("project", "preset", "explicit"),
-    fallback: LocaleSchema
+    fallback: LocaleSchema,
   }),
-  requiredWhen: Schema.optional(Schema.Record({
-    key: Schema.String,
-    value: Schema.String
-  }))
+  requiredWhen: Schema.optional(
+    Schema.Record({
+      key: Schema.String,
+      value: Schema.String,
+    }),
+  ),
 });
 
 export const LegacyEvidencePointerSchema = Schema.Struct({
   kind: Schema.Literal("progress", "review", "commit", "pr", "artifact", "note"),
   path: LegacyPathSchema,
-  label: OptionalString
+  label: OptionalString,
 });
 
 export const LegacyIndexEntrySchema = Schema.Struct({
@@ -233,13 +247,15 @@ export const LegacyIndexEntrySchema = Schema.Struct({
   storedPath: LegacyPathSchema,
   sourceDigest: StrictSha256Schema,
   title: OptionalString,
-  detectedStatus: Schema.optional(Schema.Struct({
-    raw: Schema.String,
-    confidence: LegacyConfidenceSchema
-  })),
+  detectedStatus: Schema.optional(
+    Schema.Struct({
+      raw: Schema.String,
+      confidence: LegacyConfidenceSchema,
+    }),
+  ),
   evidencePointers: Schema.Array(LegacyEvidencePointerSchema),
   recommendedTreatment: Schema.Literal("preserve", "rebuild-required", "supersede", "archive", "ignore"),
-  humanReviewRequired: Schema.Boolean
+  humanReviewRequired: Schema.Boolean,
 });
 
 export const LegacyIndexSchema = Schema.Struct({
@@ -252,8 +268,8 @@ export const LegacyIndexSchema = Schema.Struct({
     entryCount: Schema.Number,
     taskCount: Schema.Number,
     docCount: Schema.Number,
-    rebuildRequiredCount: Schema.Number
-  })
+    rebuildRequiredCount: Schema.Number,
+  }),
 });
 
 const LegacyCollisionEntrySchema = Schema.Struct({
@@ -262,13 +278,15 @@ const LegacyCollisionEntrySchema = Schema.Struct({
   targetPath: Schema.String,
   chosenPath: LegacyPathSchema,
   suffixIndex: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
-  reason: Schema.Literal("target-exists")
-}).pipe(Schema.filter((entry) => {
-  if (entry.targetPath === entry.chosenPath) return false;
-  const escapedIndex = String(entry.suffixIndex).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  if (entry.kind === "directory") return new RegExp(`-legacy-import-${escapedIndex}$`, "u").test(entry.chosenPath);
-  return new RegExp(`\\.legacy-import-${escapedIndex}(?:\\.[^/]+)?$`, "u").test(entry.chosenPath);
-}));
+  reason: Schema.Literal("target-exists"),
+}).pipe(
+  Schema.filter((entry) => {
+    if (entry.targetPath === entry.chosenPath) return false;
+    const escapedIndex = String(entry.suffixIndex).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    if (entry.kind === "directory") return new RegExp(`-legacy-import-${escapedIndex}$`, "u").test(entry.chosenPath);
+    return new RegExp(`\\.legacy-import-${escapedIndex}(?:\\.[^/]+)?$`, "u").test(entry.chosenPath);
+  }),
+);
 
 export const LegacyCollisionReportSchema = Schema.Struct({
   schema: Schema.Literal("legacy-collision-report/v1"),
@@ -277,9 +295,9 @@ export const LegacyCollisionReportSchema = Schema.Struct({
   policy: Schema.Struct({
     overwriteAllowed: Schema.Literal(false),
     directorySuffixPattern: Schema.Literal("-legacy-import-N"),
-    fileSuffixPattern: Schema.Literal(".legacy-import-N")
+    fileSuffixPattern: Schema.Literal(".legacy-import-N"),
   }),
-  entries: Schema.Array(LegacyCollisionEntrySchema)
+  entries: Schema.Array(LegacyCollisionEntrySchema),
 });
 
 export const SqliteTaskRowSchema = Schema.Struct({
@@ -299,7 +317,7 @@ export const SqliteTaskRowSchema = Schema.Struct({
   updatedAt: Schema.String,
   source: Schema.Literal("local-document", "external-engine", "snapshot-cache"),
   sourcePath: Schema.String,
-  createdBy: Schema.optional(CreatedBySchema)
+  createdBy: Schema.optional(CreatedBySchema),
 });
 
 export const DocsReleasePromotionBundleSchema = Schema.Struct({
@@ -307,12 +325,14 @@ export const DocsReleasePromotionBundleSchema = Schema.Struct({
   projectionVersion: Schema.String,
   sourceTaskId: Schema.String,
   generatedAt: Schema.String,
-  publicFiles: Schema.Array(Schema.Struct({
-    path: Schema.String,
-    sha256: Schema.String,
-    kind: Schema.Literal("guide", "reference", "release-note")
-  })),
-  redactionReport: PublishableProjectionSchema.fields.redactionReport
+  publicFiles: Schema.Array(
+    Schema.Struct({
+      path: Schema.String,
+      sha256: Schema.String,
+      kind: Schema.Literal("guide", "reference", "release-note"),
+    }),
+  ),
+  redactionReport: PublishableProjectionSchema.fields.redactionReport,
 });
 
 export type HarnessConfig = Schema.Schema.Type<typeof HarnessConfigSchema>;
@@ -338,106 +358,106 @@ export const schemaRegistry = [
     schema: HarnessConfigSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/harness-config.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/harness-config/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/harness-config/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/harness-config/invalid.json",
   },
   {
     id: "task-frontmatter",
     schema: TaskFrontmatterSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/task-frontmatter.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/task-frontmatter/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/task-frontmatter/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/task-frontmatter/invalid.json",
   },
   {
     id: "decision-package",
     schema: DecisionEventSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/decision-package.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/decision-package/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/decision-package/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/decision-package/invalid.json",
   },
   {
     id: "entity-relations",
     schema: EntityRelationsSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/entity-relations.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/entity-relations/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/entity-relations/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/entity-relations/invalid.json",
   },
   {
     id: "fact-event",
     schema: FactEventSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/fact-event.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/fact-event/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/fact-event/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/fact-event/invalid.json",
   },
   {
     id: "task-snapshot",
     schema: TaskSnapshotSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/task-snapshot.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/task-snapshot/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/task-snapshot/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/task-snapshot/invalid.json",
   },
   {
     id: "publishable-projection",
     schema: PublishableProjectionSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/publishable-projection.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/publishable-projection/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/publishable-projection/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/publishable-projection/invalid.json",
   },
   {
     id: "template-catalog",
     schema: TemplateCatalogSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/template-catalog.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/template-catalog/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/template-catalog/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/template-catalog/invalid.json",
   },
   {
     id: "vertical-definition",
     schema: VerticalDefinitionSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/vertical-definition.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/vertical-definition/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/vertical-definition/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/vertical-definition/invalid.json",
   },
   {
     id: "legacy-index",
     schema: LegacyIndexSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/legacy-index.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/legacy-index/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/legacy-index/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/legacy-index/invalid.json",
   },
   {
     id: "legacy-collision-report",
     schema: LegacyCollisionReportSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/legacy-collision-report.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/legacy-collision-report/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/legacy-collision-report/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/legacy-collision-report/invalid.json",
   },
   {
     id: "sqlite-task-row",
     schema: SqliteTaskRowSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/sqlite-task-row.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/sqlite-task-row/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/sqlite-task-row/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/sqlite-task-row/invalid.json",
   },
   {
     id: "harness-check-report",
     schema: HarnessCheckReportSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/harness-check-report.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/harness-check-report/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/harness-check-report/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/harness-check-report/invalid.json",
   },
   {
     id: "docs-release-promotion-bundle",
     schema: DocsReleasePromotionBundleSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/docs-release-promotion-bundle.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/docs-release-promotion-bundle/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/docs-release-promotion-bundle/invalid.json"
+    invalidFixturePath: "packages/kernel/fixtures/schemas/docs-release-promotion-bundle/invalid.json",
   },
   {
     id: "subtask-plan",
     schema: SubtaskPlanSchema,
     jsonSchemaPath: "packages/kernel/schemas/json/subtask-plan.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/subtask-plan/valid.json",
-    invalidFixturePath: "packages/kernel/fixtures/schemas/subtask-plan/invalid.json"
-  }
+    invalidFixturePath: "packages/kernel/fixtures/schemas/subtask-plan/invalid.json",
+  },
 ] as const;
 
 export const requiredSchemaIds = schemaRegistry.map((entry) => entry.id);

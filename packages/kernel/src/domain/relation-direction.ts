@@ -29,33 +29,138 @@ export interface CanonicalRelationDirection {
 
 /** decision → decision: policy lineage among decisions. */
 export const canonicalRelationDirections: readonly CanonicalRelationDirection[] = [
-  { type: "supersedes", sourceKind: "decision", targetKind: "decision", reads: "the decision supersedes the target decision", registration: "ratified" },
-  { type: "refines", sourceKind: "decision", targetKind: "decision", reads: "the decision refines the target decision", registration: "ratified" },
-  { type: "narrows", sourceKind: "decision", targetKind: "decision", reads: "the decision narrows the target decision", registration: "ratified" },
-  { type: "relates", sourceKind: "decision", targetKind: "decision", reads: "the decision relates to the target decision", registration: "ratified" },
-  { type: "derives", sourceKind: "decision", targetKind: "decision", reads: "the decision spawns the target decision", registration: "ratified" },
-  { type: "supports", sourceKind: "decision", targetKind: "decision", reads: "the decision supports the target decision", registration: "ratified" },
+  {
+    type: "supersedes",
+    sourceKind: "decision",
+    targetKind: "decision",
+    reads: "the decision supersedes the target decision",
+    registration: "ratified",
+  },
+  {
+    type: "refines",
+    sourceKind: "decision",
+    targetKind: "decision",
+    reads: "the decision refines the target decision",
+    registration: "ratified",
+  },
+  {
+    type: "narrows",
+    sourceKind: "decision",
+    targetKind: "decision",
+    reads: "the decision narrows the target decision",
+    registration: "ratified",
+  },
+  {
+    type: "relates",
+    sourceKind: "decision",
+    targetKind: "decision",
+    reads: "the decision relates to the target decision",
+    registration: "ratified",
+  },
+  {
+    type: "derives",
+    sourceKind: "decision",
+    targetKind: "decision",
+    reads: "the decision spawns the target decision",
+    registration: "ratified",
+  },
+  {
+    type: "supports",
+    sourceKind: "decision",
+    targetKind: "decision",
+    reads: "the decision supports the target decision",
+    registration: "ratified",
+  },
   // Allowed by the ratified sentence grammar; zero stored edges and no registered semantics.
-  { type: "blocks", sourceKind: "decision", targetKind: "decision", reads: "the decision blocks the target decision", registration: "unregistered" },
+  {
+    type: "blocks",
+    sourceKind: "decision",
+    targetKind: "decision",
+    reads: "the decision blocks the target decision",
+    registration: "unregistered",
+  },
   // decision → task
-  { type: "derives", sourceKind: "decision", targetKind: "task", reads: "the decision spawns the target task", registration: "ratified" },
-  { type: "relates", sourceKind: "decision", targetKind: "task", reads: "the decision was later found to relate to the target task", registration: "ratified" },
+  {
+    type: "derives",
+    sourceKind: "decision",
+    targetKind: "task",
+    reads: "the decision spawns the target task",
+    registration: "ratified",
+  },
+  {
+    type: "relates",
+    sourceKind: "decision",
+    targetKind: "task",
+    reads: "the decision was later found to relate to the target task",
+    registration: "ratified",
+  },
   // decision → fact: evidence verbs are authored from the decision side so the sentence
   // reads in the storage direction (dec_mr74sbka; the 2026-07-05 migration moved every
   // evidence edge off the retired "supports" alias).
-  { type: "evidenced-by", sourceKind: "decision", targetKind: "fact", reads: "the decision is evidenced-by the target fact", replacedReverseAlias: "supports", registration: "ratified" },
-  { type: "refuted-by", sourceKind: "decision", targetKind: "fact", reads: "the decision is refuted-by the target fact", replacedReverseAlias: "invalidated-by", registration: "ratified" },
+  {
+    type: "evidenced-by",
+    sourceKind: "decision",
+    targetKind: "fact",
+    reads: "the decision is evidenced-by the target fact",
+    replacedReverseAlias: "supports",
+    registration: "ratified",
+  },
+  {
+    type: "refuted-by",
+    sourceKind: "decision",
+    targetKind: "fact",
+    reads: "the decision is refuted-by the target fact",
+    replacedReverseAlias: "invalidated-by",
+    registration: "ratified",
+  },
   // task → decision
-  { type: "implements", sourceKind: "task", targetKind: "decision", reads: "the task implements the target decision", registration: "ratified" },
+  {
+    type: "implements",
+    sourceKind: "task",
+    targetKind: "decision",
+    reads: "the task implements the target decision",
+    registration: "ratified",
+  },
   // task → task: the source task is the blocked party; the mirrored "blocks" verb
   // (target blocked) is retired vocabulary, never a writable triple.
-  { type: "depends-on", sourceKind: "task", targetKind: "task", reads: "the source task depends on the target task", replacedReverseAlias: "blocks", registration: "ratified" },
-  { type: "relates", sourceKind: "task", targetKind: "task", reads: "the task relates to the target task", registration: "ratified" },
+  {
+    type: "depends-on",
+    sourceKind: "task",
+    targetKind: "task",
+    reads: "the source task depends on the target task",
+    replacedReverseAlias: "blocks",
+    registration: "ratified",
+  },
+  {
+    type: "relates",
+    sourceKind: "task",
+    targetKind: "task",
+    reads: "the task relates to the target task",
+    registration: "ratified",
+  },
   // task → fact
-  { type: "produces", sourceKind: "task", targetKind: "fact", reads: "the task produces the target fact", registration: "ratified" },
-  { type: "evidences", sourceKind: "task", targetKind: "fact", reads: "the task evidences the target fact", registration: "ratified" },
+  {
+    type: "produces",
+    sourceKind: "task",
+    targetKind: "fact",
+    reads: "the task produces the target fact",
+    registration: "ratified",
+  },
+  {
+    type: "evidences",
+    sourceKind: "task",
+    targetKind: "fact",
+    reads: "the task evidences the target fact",
+    registration: "ratified",
+  },
   // fact → fact: only the target is stale; the source is the replacement.
-  { type: "supersedes-fact", sourceKind: "fact", targetKind: "fact", reads: "the fact supersedes the target fact", registration: "ratified" }
+  {
+    type: "supersedes-fact",
+    sourceKind: "fact",
+    targetKind: "fact",
+    reads: "the fact supersedes the target fact",
+    registration: "ratified",
+  },
 ];
 
 /** Minimal structural shape the reverse query needs; callers keep their own richer rows. */
@@ -72,6 +177,10 @@ export interface DirectedRelationEdge {
  * is always "the edges of that type whose target it is". Consumers must call this
  * instead of re-deriving direction from endpoint shapes.
  */
-export function incomingRelations<E extends DirectedRelationEdge>(targetRef: string, type: RelationType, edges: readonly E[]): readonly E[] {
+export function incomingRelations<E extends DirectedRelationEdge>(
+  targetRef: string,
+  type: RelationType,
+  edges: readonly E[],
+): readonly E[] {
   return edges.filter((edge) => edge.target === targetRef && edge.type === type);
 }

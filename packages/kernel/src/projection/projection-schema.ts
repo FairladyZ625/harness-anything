@@ -15,7 +15,11 @@ export function readTaskProjectionSchemaVersion(projectionPath: string): number 
     if (tables.length === 0) return null;
     const columns = db.prepare("PRAGMA table_info(projection_meta)").all() as readonly { readonly name?: unknown }[];
     if (!columns.some(({ name }) => name === "schema_version")) return 0;
-    const row = db.prepare("SELECT schema_version FROM projection_meta WHERE singleton=1").get() as { readonly schema_version?: unknown } | undefined;
+    const row = db.prepare("SELECT schema_version FROM projection_meta WHERE singleton=1").get() as
+      | { readonly schema_version?: unknown }
+      | undefined;
     return row?.schema_version === undefined ? 0 : Number(row.schema_version);
-  } finally { db.close(); }
+  } finally {
+    db.close();
+  }
 }

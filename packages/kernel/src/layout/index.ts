@@ -12,7 +12,7 @@ export { setting, settingBlockValue } from "./harness-settings.ts";
 export {
   assertNoPortablePathCollisions,
   findPortablePathCollisions,
-  normalizeRelativeDocumentPath
+  normalizeRelativeDocumentPath,
 } from "./portable-path.ts";
 export type { EntityRootIntent, EntityRootResolution } from "./entity-root-resolver.ts";
 
@@ -96,11 +96,11 @@ interface HarnessLayoutSettings {
 
 export function createHarnessRuntimeContext(
   rootDir: string,
-  layoutOverrides?: HarnessLayoutOverrides
+  layoutOverrides?: HarnessLayoutOverrides,
 ): HarnessRuntimeContext {
   return {
     rootDir: path.resolve(rootDir),
-    ...(layoutOverrides && layoutOverrides.authoredRoot ? { layoutOverrides } : {})
+    ...(layoutOverrides && layoutOverrides.authoredRoot ? { layoutOverrides } : {}),
   };
 }
 
@@ -115,7 +115,7 @@ export function resolveHarnessLayout(input: HarnessLayoutInput): HarnessLayout {
 export function resolveEntityRoot(
   input: HarnessLayoutInput,
   ref: string | Parameters<typeof resolveEntityRootForLayout>[1],
-  intent?: EntityRootIntent
+  intent?: EntityRootIntent,
 ): EntityRootResolution {
   return resolveEntityRootForLayout(resolveHarnessLayout(input), ref, intent);
 }
@@ -123,9 +123,7 @@ export function resolveEntityRoot(
 function resolveHarnessLayoutSettings(input: HarnessLayoutInput): HarnessLayoutSettings {
   const rootDir = harnessRuntimeRoot(input);
   const { projectRoot, configPath, config } = resolveProjectRootAndConfig(rootDir);
-  const authoredRootSetting = layoutInputOverrides(input).authoredRoot
-    ?? config.authoredRoot
-    ?? defaultAuthoredRoot;
+  const authoredRootSetting = layoutInputOverrides(input).authoredRoot ?? config.authoredRoot ?? defaultAuthoredRoot;
   return {
     resolvedRoot: projectRoot,
     configPath,
@@ -136,16 +134,26 @@ function resolveHarnessLayoutSettings(input: HarnessLayoutInput): HarnessLayoutS
     adrRootSetting: config.adrRoot,
     milestonesRootSetting: config.milestonesRoot,
     tasksRootSetting: config.tasksRoot,
-    generatedRootSetting: config.generatedRoot
+    generatedRootSetting: config.generatedRoot,
   };
 }
 
 function layoutInputOverrides(input: HarnessLayoutInput): HarnessLayoutOverrides {
-  return typeof input === "string" ? {} : input.layoutOverrides ?? {};
+  return typeof input === "string" ? {} : (input.layoutOverrides ?? {});
 }
 
 function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
-  const { resolvedRoot, authoredRootSetting, localRootSetting, contextRootSetting, governanceRootSetting, adrRootSetting, milestonesRootSetting, tasksRootSetting, generatedRootSetting } = settings;
+  const {
+    resolvedRoot,
+    authoredRootSetting,
+    localRootSetting,
+    contextRootSetting,
+    governanceRootSetting,
+    adrRootSetting,
+    milestonesRootSetting,
+    tasksRootSetting,
+    generatedRootSetting,
+  } = settings;
   const authoredRoot = resolveRootRelativePath(resolvedRoot, authoredRootSetting, "layout.authoredRoot");
   const legacyRoot = path.join(authoredRoot, "legacy");
   const localRoot = resolveRootRelativePath(resolvedRoot, localRootSetting, "layout.localRoot");
@@ -154,10 +162,18 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     : path.join(authoredRoot, "tasks");
   const decisionsRoot = path.join(authoredRoot, "decisions");
   const sessionsRoot = path.join(authoredRoot, "sessions");
-  const contextRoot = contextRootSetting ? resolveRootRelativePath(resolvedRoot, contextRootSetting, "layout.contextRoot") : path.join(authoredRoot, "context");
-  const governanceRoot = governanceRootSetting ? resolveRootRelativePath(resolvedRoot, governanceRootSetting, "layout.governanceRoot") : path.join(authoredRoot, "governance");
-  const adrRoot = adrRootSetting ? resolveRootRelativePath(resolvedRoot, adrRootSetting, "layout.adrRoot") : path.join(authoredRoot, "adr");
-  const milestonesRoot = milestonesRootSetting ? resolveRootRelativePath(resolvedRoot, milestonesRootSetting, "layout.milestonesRoot") : path.join(authoredRoot, "milestones");
+  const contextRoot = contextRootSetting
+    ? resolveRootRelativePath(resolvedRoot, contextRootSetting, "layout.contextRoot")
+    : path.join(authoredRoot, "context");
+  const governanceRoot = governanceRootSetting
+    ? resolveRootRelativePath(resolvedRoot, governanceRootSetting, "layout.governanceRoot")
+    : path.join(authoredRoot, "governance");
+  const adrRoot = adrRootSetting
+    ? resolveRootRelativePath(resolvedRoot, adrRootSetting, "layout.adrRoot")
+    : path.join(authoredRoot, "adr");
+  const milestonesRoot = milestonesRootSetting
+    ? resolveRootRelativePath(resolvedRoot, milestonesRootSetting, "layout.milestonesRoot")
+    : path.join(authoredRoot, "milestones");
   const generatedRoot = generatedRootSetting
     ? resolveRootRelativePath(resolvedRoot, generatedRootSetting, "structure.generatedRoot")
     : path.join(localRoot, "generated");
@@ -208,7 +224,7 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     sessionDocumentPath: (sessionId) => {
       const safeSessionId = normalizeEntityRootSegment(sessionId, "session id");
       return path.join(sessionsRoot, `${safeSessionId}.md`);
-    }
+    },
   };
 }
 
@@ -223,7 +239,7 @@ function resolveProjectRootAndConfig(rootDir: string): {
   return {
     projectRoot: discovery.location.projectRoot,
     configPath: discovery.location.path,
-    config: readLayoutConfig(discovery.location)
+    config: readLayoutConfig(discovery.location),
   };
 }
 
@@ -282,7 +298,8 @@ function readLayoutConfig(location: HarnessConfigLocation): HarnessLayoutConfig 
     if (!withoutComment.trim()) continue;
     const topLevel = /^([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(withoutComment);
     if (topLevel) {
-      section = topLevel[1] === "layout" || topLevel[1] === "tasks" || topLevel[1] === "structure" ? topLevel[1] : undefined;
+      section =
+        topLevel[1] === "layout" || topLevel[1] === "tasks" || topLevel[1] === "structure" ? topLevel[1] : undefined;
       continue;
     }
     const nested = /^  ([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(withoutComment);
@@ -311,7 +328,12 @@ function structureRelativePath(location: HarnessConfigLocation, value: string): 
 
 function resolveRootRelativePath(rootDir: string, value: string, field: string): string {
   const normalized = path.normalize(value);
-  if (path.isAbsolute(value) || normalized === "." || normalized.startsWith("..") || normalized.includes(`..${path.sep}`)) {
+  if (
+    path.isAbsolute(value) ||
+    normalized === "." ||
+    normalized.startsWith("..") ||
+    normalized.includes(`..${path.sep}`)
+  ) {
     throw new Error(`${field} must be a relative path inside the project root: ${value}`);
   }
   return path.join(rootDir, normalized);
@@ -319,7 +341,7 @@ function resolveRootRelativePath(rootDir: string, value: string, field: string):
 
 function unquoteScalar(value: string): string {
   const trimmed = value.trim();
-  if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
     return trimmed.slice(1, -1);
   }
   return trimmed;
@@ -369,7 +391,8 @@ export function listTaskIndexPaths(input: HarnessLayoutInput): ReadonlyArray<str
 
 function listTaskIndexPathsInTasksRoot(tasksRoot: string): ReadonlyArray<string> {
   if (!layoutFileSystem.exists(tasksRoot)) return [];
-  return layoutFileSystem.readDirents(tasksRoot)
+  return layoutFileSystem
+    .readDirents(tasksRoot)
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.join(tasksRoot, entry.name, "INDEX.md"))
     .filter((indexPath) => layoutFileSystem.exists(indexPath))

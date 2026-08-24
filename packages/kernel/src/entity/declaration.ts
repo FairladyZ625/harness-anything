@@ -10,7 +10,7 @@ import {
   type EntityProjectionDeclaration,
   type EntityRegistration,
   type EntityRootResolverDeclaration,
-  type EntityStorageForm
+  type EntityStorageForm,
 } from "./registry.ts";
 
 export type EntityDeclaration = Omit<
@@ -43,7 +43,11 @@ function validateFiveTuple(candidate: Partial<EntityDeclaration>): void {
   if (!candidate.mutabilityContract || Object.keys(candidate.mutabilityContract).length === 0) {
     throw new Error("entity declaration mutability contract must not be empty");
   }
-  if (!candidate.anchors || typeof candidate.anchors.entityRef !== "string" || !Array.isArray(candidate.anchors.anchors)) {
+  if (
+    !candidate.anchors ||
+    typeof candidate.anchors.entityRef !== "string" ||
+    !Array.isArray(candidate.anchors.anchors)
+  ) {
     throw new Error("entity declaration anchors are required");
   }
   if (!candidate.dispositionMatrix || !candidate.dispositionMatrix.entries) {
@@ -55,29 +59,31 @@ export function decodeEntityPathDeclaration(input: unknown): EntityPathDeclarati
   const storageForm = valueAt(input, "storageForm");
   if (!isEntityStorageForm(storageForm)) throw new Error(`unsupported entity storage form: ${String(storageForm)}`);
   const candidate = input as Partial<EntityPathDeclaration>;
-  if (typeof candidate.kind !== "string" || candidate.kind.length === 0) throw new Error("entity declaration kind must be non-empty");
+  if (typeof candidate.kind !== "string" || candidate.kind.length === 0)
+    throw new Error("entity declaration kind must be non-empty");
   validateRootResolver(candidate.rootResolver, storageForm);
   return input as EntityPathDeclaration;
 }
 
 export const jsonEntityDocumentCodec: EntityDocumentCodec = {
   decode: (body) => JSON.parse(body) as unknown,
-  encode: (value) => `${JSON.stringify(value, null, 2)}\n`
+  encode: (value) => `${JSON.stringify(value, null, 2)}\n`,
 };
 
 export function resolveEntityDocumentPath(
   rootInput: HarnessLayoutInput,
   declaration: EntityPathDeclaration,
-  identity: Readonly<Record<string, string>>
+  identity: Readonly<Record<string, string>>,
 ): string {
   const layout = resolveHarnessLayout(rootInput);
   const resolver = declaration.rootResolver;
   if (declaration.storageForm === "hosted-entity") {
     const host = resolver.host!;
     const declaredHostPath = resolveDeclaredPath(layout.authoredRoot, host.pathTemplate, host.identity, identity);
-    const hostPath = !localLayoutFileSystem.exists(declaredHostPath) && host.entityKind === "task"
-      ? taskPackagePath(rootInput, identity[host.identity[0]!] ?? "")
-      : declaredHostPath;
+    const hostPath =
+      !localLayoutFileSystem.exists(declaredHostPath) && host.entityKind === "task"
+        ? taskPackagePath(rootInput, identity[host.identity[0]!] ?? "")
+        : declaredHostPath;
     if (!localLayoutFileSystem.exists(hostPath)) {
       throw new Error(`host entity package not found: ${host.entityKind}/${identity[host.identity[0]!] ?? "unknown"}`);
     }
@@ -88,11 +94,18 @@ export function resolveEntityDocumentPath(
   return resolveDeclaredPath(layout.authoredRoot, resolver.pathTemplate, resolver.identity, identity);
 }
 
-function validateRootResolver(rootResolver: EntityRootResolverDeclaration | undefined, storageForm: EntityStorageForm): void {
+function validateRootResolver(
+  rootResolver: EntityRootResolverDeclaration | undefined,
+  storageForm: EntityStorageForm,
+): void {
   if (!rootResolver || typeof rootResolver !== "object") throw new Error("entity declaration rootResolver is required");
   validatePathDeclaration(rootResolver.pathTemplate, rootResolver.identity, "rootResolver");
   if (storageForm === "hosted-entity") {
-    if (!rootResolver.host || typeof rootResolver.host.entityKind !== "string" || rootResolver.host.entityKind.length === 0) {
+    if (
+      !rootResolver.host ||
+      typeof rootResolver.host.entityKind !== "string" ||
+      rootResolver.host.entityKind.length === 0
+    ) {
       throw new Error("hosted-entity rootResolver must declare a host entity kind");
     }
     validatePathDeclaration(rootResolver.host.pathTemplate, rootResolver.host.identity, "rootResolver.host");
@@ -106,8 +119,10 @@ function validateDocumentCodec(codec: EntityDocumentCodec | undefined): void {
 }
 
 function validateProjection(projection: EntityProjectionDeclaration | undefined): void {
-  if (!projection || !isSqlIdentifier(projection.table)) throw new Error("entity projection table must be a SQLite identifier");
-  if (!Array.isArray(projection.columns) || projection.columns.length === 0) throw new Error("entity projection columns must not be empty");
+  if (!projection || !isSqlIdentifier(projection.table))
+    throw new Error("entity projection table must be a SQLite identifier");
+  if (!Array.isArray(projection.columns) || projection.columns.length === 0)
+    throw new Error("entity projection columns must not be empty");
   const names = projection.columns.map((column) => column.name);
   if (names.some((name) => !isSqlIdentifier(name)) || new Set(names).size !== names.length) {
     throw new Error("entity projection columns must have unique SQLite identifiers");
@@ -117,10 +132,20 @@ function validateProjection(projection: EntityProjectionDeclaration | undefined)
   }
 }
 
-function validateCompositeBlob(blob: CompositeManifestBlobDeclaration | undefined, storageForm: EntityStorageForm): void {
+function validateCompositeBlob(
+  blob: CompositeManifestBlobDeclaration | undefined,
+  storageForm: EntityStorageForm,
+): void {
   if (storageForm !== "composite-manifest-blob") return;
-  if (!blob || typeof blob.referenceField !== "string" || blob.referenceField.length === 0 || blob.store !== "content-addressed") {
-    throw new Error("composite-manifest-blob declaration must name its blob reference field and content-addressed store");
+  if (
+    !blob ||
+    typeof blob.referenceField !== "string" ||
+    blob.referenceField.length === 0 ||
+    blob.store !== "content-addressed"
+  ) {
+    throw new Error(
+      "composite-manifest-blob declaration must name its blob reference field and content-addressed store",
+    );
   }
 }
 
@@ -129,8 +154,13 @@ function isSqlIdentifier(value: unknown): value is string {
 }
 
 function validatePathDeclaration(pathTemplate: string, identity: ReadonlyArray<string>, label: string): void {
-  if (typeof pathTemplate !== "string" || pathTemplate.length === 0) throw new Error(`${label}.pathTemplate must be non-empty`);
-  if (!Array.isArray(identity) || identity.length === 0 || identity.some((key) => typeof key !== "string" || key.length === 0)) {
+  if (typeof pathTemplate !== "string" || pathTemplate.length === 0)
+    throw new Error(`${label}.pathTemplate must be non-empty`);
+  if (
+    !Array.isArray(identity) ||
+    identity.length === 0 ||
+    identity.some((key) => typeof key !== "string" || key.length === 0)
+  ) {
     throw new Error(`${label}.identity must declare non-empty keys`);
   }
   const placeholders = [...pathTemplate.matchAll(/\{([^{}]+)\}/gu)].map((match) => match[1]!);
@@ -145,7 +175,7 @@ function resolveDeclaredPath(
   authoredRoot: string,
   template: string,
   keys: ReadonlyArray<string>,
-  identity: Readonly<Record<string, string>>
+  identity: Readonly<Record<string, string>>,
 ): string {
   const values = Object.fromEntries(keys.map((key) => [key, normalizeIdentitySegment(identity[key], key)]));
   const relativePath = normalizeRelativeDocumentPath(renderPathTemplate(template, values));
@@ -159,14 +189,19 @@ function renderPathTemplate(template: string, values: Readonly<Record<string, st
 function normalizeIdentitySegment(value: string | undefined, key: string): string {
   if (!value) throw new Error(`entity identity is missing: ${key}`);
   const normalized = normalizeRelativeDocumentPath(value);
-  if (normalized !== value || normalized.includes("/")) throw new Error(`entity identity must be a portable path segment: ${key}`);
+  if (normalized !== value || normalized.includes("/"))
+    throw new Error(`entity identity must be a portable path segment: ${key}`);
   return normalized;
 }
 
 export function readField(entity: Readonly<Record<string, unknown>>, field: string): unknown {
-  return field.split(".").reduce<unknown>((value, segment) => (
-    value && typeof value === "object" ? (value as Record<string, unknown>)[segment] : undefined
-  ), entity);
+  return field
+    .split(".")
+    .reduce<unknown>(
+      (value, segment) =>
+        value && typeof value === "object" ? (value as Record<string, unknown>)[segment] : undefined,
+      entity,
+    );
 }
 
 function valueAt(input: unknown, key: string): unknown {

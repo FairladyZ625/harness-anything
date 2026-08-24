@@ -56,20 +56,30 @@ export interface WorkspaceSummary {
  */
 export function summarizeWorkspace(
   tasks: readonly WorkspaceSummaryTask[],
-  decisions: readonly WorkspaceSummaryDecision[]
+  decisions: readonly WorkspaceSummaryDecision[],
 ): WorkspaceSummary {
-  const boardTasks = tasks.filter((task) => task.packageDisposition === "active" && task.coordinationStatus !== "cancelled");
+  const boardTasks = tasks.filter(
+    (task) => task.packageDisposition === "active" && task.coordinationStatus !== "cancelled",
+  );
 
   const groups: Array<{ id: WorkspaceDecisionGroupId; states: DecisionState[]; decisionIds: string[] }> = [
     { id: "proposed", states: ["proposed"], decisionIds: [] },
     { id: "in_effect", states: ["in_effect"], decisionIds: [] },
     { id: "rejected", states: ["rejected"], decisionIds: [] },
     { id: "deferred", states: ["deferred"], decisionIds: [] },
-    { id: "retired", states: ["superseded", "outcome_retired"], decisionIds: [] }
+    { id: "retired", states: ["superseded", "outcome_retired"], decisionIds: [] },
   ];
   const groupByState = new Map(groups.flatMap((group) => group.states.map((state) => [state, group] as const)));
-  if (groupByState.size !== decisionStates.length) throw new Error("Workspace decision groups must cover every decision state exactly once.");
-  const byState: Record<DecisionState, number> = { proposed: 0, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0 };
+  if (groupByState.size !== decisionStates.length)
+    throw new Error("Workspace decision groups must cover every decision state exactly once.");
+  const byState: Record<DecisionState, number> = {
+    proposed: 0,
+    in_effect: 0,
+    rejected: 0,
+    deferred: 0,
+    superseded: 0,
+    outcome_retired: 0,
+  };
   for (const decision of decisions) {
     byState[decision.state] += 1;
     groupByState.get(decision.state)!.decisionIds.push(decision.decisionId);
@@ -82,8 +92,8 @@ export function summarizeWorkspace(
       total: decisions.length,
       inboxCount: publishedGroups[0]!.count,
       byState,
-      groups: publishedGroups
-    }
+      groups: publishedGroups,
+    },
   };
 }
 
@@ -95,7 +105,7 @@ function countTasks(tasks: readonly WorkspaceSummaryTask[]): WorkspaceTaskSummar
     in_review: 0,
     done: 0,
     cancelled: 0,
-    unknown: 0
+    unknown: 0,
   };
   for (const task of tasks) byStatus[task.coordinationStatus] += 1;
   return { total: tasks.length, byStatus };

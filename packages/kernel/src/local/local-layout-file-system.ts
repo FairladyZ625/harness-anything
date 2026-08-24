@@ -1,22 +1,38 @@
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import path from "node:path";
 import type { LayoutFileSystem } from "../layout/file-system.ts";
 
 export const localLayoutFileSystem: LayoutFileSystem = {
   exists: (inputPath) => existsSync(inputPath),
   readText: (inputPath) => readFileSync(inputPath, "utf8"),
-  readDirents: (inputPath) => readdirSync(inputPath, { withFileTypes: true })
+  readDirents: (inputPath) => readdirSync(inputPath, { withFileTypes: true }),
 };
 
 export const localEvidenceFileSystem = {
   exists: (inputPath: string) => existsSync(inputPath),
   readBytes: (inputPath: string): Uint8Array => readFileSync(inputPath),
-  realpath: (inputPath: string) => realpathSync(inputPath)
+  realpath: (inputPath: string) => realpathSync(inputPath),
 };
 
 export const localEventFileSystem = {
-  exists: (inputPath: string) => existsSync(inputPath), readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
-  readNames: (inputPath: string) => readdirSync(inputPath), realpath: (inputPath: string) => realpathSync.native(inputPath),
+  exists: (inputPath: string) => existsSync(inputPath),
+  readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
+  readNames: (inputPath: string) => readdirSync(inputPath),
+  realpath: (inputPath: string) => realpathSync.native(inputPath),
   remove: (inputPath: string) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-043 */
     rmSync(inputPath, { force: true }),
@@ -31,20 +47,26 @@ export const localEventFileSystem = {
       /* @gate-identity check-bypass-write-boundary/bypass-write-046 */
       writeSync(fd, body, null, "utf8");
       /* @gate-identity check-bypass-write-boundary/bypass-write-047 */
-      fsyncSync(fd); } finally {
+      fsyncSync(fd);
+    } finally {
       /* @gate-identity check-bypass-write-boundary/bypass-write-048 */
-      closeSync(fd); }
+      closeSync(fd);
+    }
     /* @gate-identity check-bypass-write-boundary/bypass-write-049 */
-    renameSync(tempPath, inputPath); if (process.platform === "win32") return 1;
+    renameSync(tempPath, inputPath);
+    if (process.platform === "win32") return 1;
     const dir =
       /* @gate-identity check-bypass-write-boundary/bypass-write-050 */
-      openSync(path.dirname(inputPath), "r"); try {
+      openSync(path.dirname(inputPath), "r");
+    try {
       /* @gate-identity check-bypass-write-boundary/bypass-write-051 */
-      fsyncSync(dir); } finally {
+      fsyncSync(dir);
+    } finally {
       /* @gate-identity check-bypass-write-boundary/bypass-write-052 */
-      closeSync(dir); }
+      closeSync(dir);
+    }
     return 2;
-  }
+  },
 };
 
 export const localRuntimeStateFileSystem = {
@@ -85,7 +107,7 @@ export const localRuntimeStateFileSystem = {
     rmSync(inputPath, { force: true }),
   writeText: (inputPath: string, value: string) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-059 */
-    writeFileSync(inputPath, value, "utf8")
+    writeFileSync(inputPath, value, "utf8"),
 };
 
 // An acknowledged write is durable only after its WAL segment, head, and content
@@ -146,7 +168,7 @@ export const localWalFileSystem = {
         closeSync(directory);
       }
     }
-  }
+  },
 };
 
 function isExclusiveCreateConflict(error: unknown): boolean {
