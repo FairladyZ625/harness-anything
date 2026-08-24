@@ -67,7 +67,12 @@ test("multi-path assignment produces a complete first snapshot and a scoped delt
   const firstSchemas: string[] = [], firstBodies = ["# A one\n", "# B one\n"], first = await runFleetRoundTrip({ port: center.port, ca: fixture.cert, nodeId: fixture.assignment.nodeId, credential: "machine-secret", assignmentId: fixture.assignment.assignmentId, viewRoot: edgeRoot, changes: paths.map((itemPath, index) => ({ path: itemPath, body: firstBodies[index]! })), onFrame: (frame) => firstSchemas.push(frame.schema) });
   assert.equal(first.replica.schema, "fleet.ack.result/v1"); assert.ok(firstSchemas.includes("fleet.delta.begin/v1")); for (const [index, itemPath] of paths.entries()) assert.equal(readFileSync(path.join(edgeRoot, "repos", fixture.assignment.repoId, "views", fixture.assignment.viewId, "cuts", String(first.center.revision), "files", itemPath), "utf8"), firstBodies[index]);
   const base = await ledgerBase(fixture), secondSchemas: string[] = [], nextBody = `${firstBodies[1]}Second.\n`, second = await runFleetRoundTrip({ port: center.port, ca: fixture.cert, nodeId: fixture.assignment.nodeId, credential: "machine-secret", assignmentId: fixture.assignment.assignmentId, viewRoot: edgeRoot, changes: [{ path: paths[1]!, body: nextBody, baseBlobSha256: sha256Bytes(Buffer.from(firstBodies[1]!)) }], baseLedgerSha: base.ledger, onFrame: (frame) => secondSchemas.push(frame.schema) });
-  assert.equal(second.replica.schema, "fleet.ack.result/v1"); assert.ok(secondSchemas.includes("fleet.delta.begin/v1")); assert.equal(readFileSync(path.join(edgeRoot, "repos", fixture.assignment.repoId, "views", fixture.assignment.viewId, "cuts", String(second.center.revision), "files", paths[0]!), "utf8"), firstBodies[0]); assert.equal(readFileSync(path.join(edgeRoot, "repos", fixture.assignment.repoId, "views", fixture.assignment.viewId, "cuts", String(second.center.revision), "files", paths[1]!), "utf8"), nextBody);
+  assert.equal(second.replica.schema, "fleet.ack.result/v1");
+  assert.ok(secondSchemas.includes("fleet.delta.begin/v1"));
+  const workspaceRoot = path.join(fixture.root, "multi-workspace");
+  assert.equal(applyFleetMirrorCut(edgeRoot, fixture.assignment.repoId, workspaceRoot, "pull").outcome, "applied");
+  assert.equal(readFileSync(path.join(workspaceRoot, "harness", paths[0]!), "utf8"), firstBodies[0]);
+  assert.equal(readFileSync(path.join(workspaceRoot, "harness", paths[1]!), "utf8"), nextBody);
 });
 
 test("more than 64 completed uploads remain bounded across center restart", { timeout: 120_000 }, async (t) => {

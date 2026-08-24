@@ -654,7 +654,16 @@ function fleetMirrorCutEntries(viewDir: string, revision: number): ReadonlyMap<s
 }
 function fleetMirrorCutFile(viewDir: string, revision: number, logical: string): Buffer | null {
   const file = path.join(viewDir, "cuts", String(revision), "files", ...logical.split("/"));
-  return existsSync(file) && statSync(file).isFile() ? readFileSync(file) : null;
+  if (existsSync(file) && statSync(file).isFile()) return readFileSync(file);
+  const blob = fleetMirrorCutEntries(viewDir, revision)?.get(logical);
+  if (blob === undefined) return null;
+  const repoRoot = path.dirname(path.dirname(viewDir)),
+    cas = path.join(repoRoot, "cas", "sha256", blob.sha256.slice(0, 2), blob.sha256);
+  if (!existsSync(cas) || !statSync(cas).isFile()) return null;
+  const bytes = readFileSync(cas);
+  if (bytes.byteLength !== blob.size || sha256Bytes(bytes) !== blob.sha256)
+    throw new FleetMirrorError("replica_corrupt", `Replica CAS blob ${blob.sha256} is corrupt.`);
+  return bytes;
 }
 function fleetMirrorMaterializedPaths(materializedRoot: string): string[] {
   const found: string[] = [];

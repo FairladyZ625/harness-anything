@@ -98,7 +98,11 @@ export function openFleetEdgeView(
   killpoint?: (point: "after_page" | "after_chunk" | "before_current_rename") => void,
 ): FleetEdgeView {
   if (!Number.isSafeInteger(diskQuotaBytes) || diskQuotaBytes <= 0) throw new Error("replica disk quota is required");
+  // Reopening a view recomputes durable usage. Within one receive session,
+  // account appended staging bytes instead of walking the full mirror per chunk.
+  let knownDiskBytes: number | null = null;
   const active = new Map<string, string>(),
+    accountedDiskBytes = () => (knownDiskBytes ??= diskUsage(rootDir)),
     repoRoot = (repoId: string) => path.join(rootDir, "repos", repoId),
     viewRoot = (repoId: string, viewId: string) => path.join(repoRoot(repoId), "views", viewId),
     current = (repoId: string, viewId: string): Current | null =>
@@ -112,7 +116,7 @@ export function openFleetEdgeView(
           activeCut = current(frame.repoId, frame.viewId);
         if (
           frame.schema === "fleet.snapshot.begin/v1" &&
-          diskUsage(rootDir) + frame.manifest.totalBytes + FLEET_SESSION_SEND_WINDOW_BYTES > diskQuotaBytes
+          accountedDiskBytes() + frame.manifest.totalBytes + FLEET_SESSION_SEND_WINDOW_BYTES > diskQuotaBytes
         )
           throw new Error("replica_quota_exceeded: incoming snapshot exceeds persistent quota");
         mkdirSync(staging, { recursive: true });
@@ -154,7 +158,8 @@ export function openFleetEdgeView(
           )
             throw new Error("chunk replay mismatch");
         } else {
-          if (diskUsage(rootDir) + bytes.byteLength > diskQuotaBytes)
+          const usedBytes = accountedDiskBytes();
+          if (usedBytes + bytes.byteLength > diskQuotaBytes)
             throw new Error("replica_quota_exceeded: staging chunk exceeds persistent quota");
           const fd = openSync(target, "a");
           try {
@@ -163,6 +168,7 @@ export function openFleetEdgeView(
           } finally {
             closeSync(fd);
           }
+          knownDiskBytes = usedBytes + bytes.byteLength;
         }
         killpoint?.("after_chunk");
         return null;
@@ -229,7 +235,9 @@ function finish(
     entries = [...prior.entries];
     changes = pages.flatMap((page) => (page.schema === "fleet.delta.page/v1" ? page.changes : []));
     if (changes.length !== begin.changeCount) throw new Error("delta change count mismatch");
-    cpSync(path.join(viewRoot, "cuts", String(previous.cut.revision), "files"), files, { recursive: true });
+    // Delta cuts keep a complete manifest and materialize only changed files;
+    // unchanged bytes remain addressable through the verified edge CAS.
+    mkdirSync(files, { recursive: true });
     for (const change of changes) {
       entries = entries.filter((entry) => entry.path !== change.path);
       const target = path.join(files, change.path);
@@ -238,7 +246,11 @@ function finish(
     }
   }
   entries.sort((a, b) => a.path.localeCompare(b.path));
+  const changedPaths = new Set(changes.filter((change) => change.op === "put").map((change) => change.path));
   for (const entry of entries) {
+    // A delta base is an immutable cut whose bytes were verified before its
+    // current pointer was published. Only incoming puts need CAS revalidation.
+    if (begin.schema === "fleet.delta.begin/v1" && !changedPaths.has(entry.path)) continue;
     const cas = path.join(casRoot, entry.blob.sha256.slice(0, 2), entry.blob.sha256),
       incoming = path.join(staging, "blobs", entry.blob.sha256);
     if (!existsSync(cas)) {
@@ -258,14 +270,8 @@ function finish(
     if (bytes.byteLength !== entry.blob.size || sha256Bytes(bytes) !== entry.blob.sha256)
       throw new Error("edge CAS blob mismatch");
     const target = path.join(files, entry.path);
-    if (
-      !existsSync(target) ||
-      changes.some((change) => change.op === "put" && change.path === entry.path) ||
-      begin.schema === "fleet.snapshot.begin/v1"
-    ) {
-      mkdirSync(path.dirname(target), { recursive: true });
-      cpSync(cas, target);
-    }
+    mkdirSync(path.dirname(target), { recursive: true });
+    cpSync(cas, target);
   }
   const digest = fleetManifestDigest(entries);
   if (digest !== expected) throw new Error("result manifest mismatch");

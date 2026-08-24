@@ -38,7 +38,13 @@ async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["ru
     try { const center = await listenFleetTls({ host, stateRoot, key, cert, ...(port === undefined ? {} : { port }), replicaDiskQuotaBytes: replicaQuota, authenticate: (nodeId, credential) => credential === `secret-${nodeId}`, resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null }); centers.push(center); return center; }
     finally { if (previousReap === undefined) delete process.env.HARNESS_LEASE_REAP_INTERVAL_MS; else process.env.HARNESS_LEASE_REAP_INTERVAL_MS = previousReap; }
   };
-  const openHost = (): Promise<DaemonHost> => openDaemonHost({ daemonId: "lease-center", userRoot }).then((host) => { const wrapped = wrapRun ? { ...host, run: wrapRun(host.run) } : host; hosts.push(wrapped); return wrapped; });
+  const openHost = async (): Promise<DaemonHost> => {
+    const host = await openDaemonHost({ daemonId: "lease-center", userRoot });
+    await host.attachmentsSettled();
+    const wrapped = wrapRun ? { ...host, run: wrapRun(host.run) } : host;
+    hosts.push(wrapped);
+    return wrapped;
+  };
   const closeHost = async (host: DaemonHost): Promise<void> => { const at = hosts.indexOf(host); if (at >= 0) hosts.splice(at, 1); await host.close(); };
   const host = await openHost(), center = await openCenter(host);
   const command = (nodeId: string, action: Record<string, unknown>, waitMs = 5_000, taskId: string | null = typeof action.taskId === "string" ? action.taskId : null) => runFleetTaskCommandClient({ port: center.port, ca: cert, servername: "localhost", nodeId, credential: `secret-${nodeId}`, assignmentId: `assignment-${nodeId}`, opId: randomUUID(), repoId: "lease-repo", taskId, action: action as never, waitMs });

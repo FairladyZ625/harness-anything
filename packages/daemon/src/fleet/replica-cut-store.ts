@@ -10,6 +10,7 @@ import {
   sha256Text,
   stableStringify,
   type CanonicalEventV1,
+  type LedgerCutIdentity,
   type ReplicaProjectionBasis,
 } from "../../../kernel/src/index.ts";
 import {
@@ -34,6 +35,7 @@ export interface ReplicaChangeLogEntry {
 }
 export interface ReplicaCutSource {
   readonly activate: () => SnapshotCut | null;
+  readonly ledgerCut: () => LedgerCutIdentity | null;
   readonly exactRevision: () => number | null;
   readonly kick: () => void;
   readonly waitForCut: (revision: number) => Promise<SnapshotCut>;
@@ -51,6 +53,7 @@ export interface ReplicaCutSourceOptions {
   readonly repoId: string;
   readonly localRoot: string;
   readonly readBasis: (afterRevision: number | null) => ReplicaProjectionBasis;
+  readonly readLedgerCut?: () => LedgerCutIdentity;
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly readEvent?: (opId: string) => CanonicalEventV1 | null;
   readonly readApplied?: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
@@ -366,6 +369,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   };
   return {
     activate,
+    ledgerCut: () => options.readLedgerCut?.() ?? null,
     exactRevision,
     kick,
     waitForCut,
