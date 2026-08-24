@@ -614,7 +614,6 @@
       "tierReason": null,
       "authoritySource": [
         "tsconfig.json",
-        "tsconfig.build.json",
         "package.json:scripts.typecheck"
       ],
       "consumerScope": [
@@ -1616,7 +1615,7 @@
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
-        "packages/cli/src/cli/error-codes.ts",
+        "packages/cli/src/cli/thin-command.ts",
         "tools/check-cli-error-codes.mjs"
       ],
       "consumerScope": [
@@ -1692,8 +1691,8 @@
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
-        "packages/kernel/src/errors",
-        "packages/cli/src/cli/error-codes.ts",
+        "packages/kernel/src/domain/errors.ts",
+        "packages/cli/src/cli/thin-command.ts",
         "tools/check-error-classification.mjs"
       ],
       "consumerScope": [
@@ -2242,8 +2241,8 @@
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
         "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u9886\u57df\u670d\u52a1\u8de8\u805a\u5408\u7684\u5224\u5b9a\u4ecd\u5728-domain-\u5c42",
         "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u5207\u7247-3--\u5224\u5b9a\u4e0b\u6c89",
-        "harness/adr/ADR-0027-task-completion-proof-and-gate-semantics.md#d7",
-        "harness/adr/ADR-0024-gui-architecture-and-trust-boundary.md#p4"
+        "harness/governance/standards/architecture-conformance-standard.md#\u9886\u57df\u6a21\u578b\u56db\u94c1\u5f8b\u4e0e-ddd-ratchet-\u95e82026-08-18-\u65b0\u589e",
+        "harness/adr/ADR-0024-gui-renderer-state-management.md#d5\u786c-p4p5-are-enforced-through-cache-discipline"
       ],
       "consumerScope": [
         "kernel transition and completion readiness",
@@ -3322,8 +3321,7 @@
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
-        "packages/cli/src/cli/command-registry.ts",
-        "packages/cli/src/commands/extensions/assets/software-coding/templates",
+        "packages/cli/src/cli/thin-command.ts",
         "tools/check-template-command-surface.mjs"
       ],
       "consumerScope": [
@@ -3399,7 +3397,7 @@
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
-        "packages/cli/src/commands/extensions/assets/software-coding/templates",
+        "packages/cli/src/cli/thin-command.ts",
         "tools/check-locale-content.mjs"
       ],
       "consumerScope": [
@@ -3474,8 +3472,8 @@
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
-        "packages/cli/src/commands/extensions/assets/software-coding/template-catalog.json",
-        "packages/cli/src/commands/extensions/assets/software-coding/templates",
+        "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+        "packages/cli/src/cli/thin-command.ts",
         "tools/check-catalog-schema.mjs"
       ],
       "consumerScope": [
@@ -4085,7 +4083,7 @@
       "tierReason": null,
       "authoritySource": [
         "docs-release/",
-        "packages/cli/src/commands/legacy",
+        "packages/cli/package.json",
         "tools/check-legacy-intake-readiness.mjs"
       ],
       "consumerScope": [
@@ -4160,7 +4158,6 @@
       "tierReason": null,
       "authoritySource": [
         "package-lock.json",
-        "docs-release/m2-5-runtime-release.md",
         "harness/governance/standards/ci-cd-standard.md#local-distribution-and-release"
       ],
       "consumerScope": [
