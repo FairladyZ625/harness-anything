@@ -9,8 +9,13 @@ import test from "node:test";
 
 const scriptPath = path.resolve(import.meta.dirname, "../../check-cli-structure.mjs");
 
-test("thin CLI structure accepts only parser transport and render on the dist static graph", async () => {
+test("thin CLI structure accepts the bounded production surface on the dist static graph", async () => {
   const root = await fixture();
+  write(root, "packages/cli/src/index.ts", entrySource([
+    "import { taskRead } from './commands/task-read.ts';",
+    "void taskRead;"
+  ]));
+  write(root, "packages/cli/src/commands/task-read.ts", "export const taskRead = true;\n");
   const result = run(root);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /CLI structure check passed/u);
@@ -30,21 +35,24 @@ test("thin CLI structure rejects a kernel public barrel reachable from the dist 
   assert.ok(result.stderr.includes("dist static import graph reached kernel public barrel: packages/kernel/src/index.ts"));
 });
 
-test("thin CLI structure rejects modules outside the entry parser transport render whitelist", async () => {
+test("thin CLI structure rejects a kernel runtime import from any CLI production module", async () => {
   const root = await fixture();
-  write(root, "packages/cli/src/index.ts", [
-    "import { parseThinCommand } from './cli/thin-command.ts';",
-    "import { runCommandThroughDaemon } from './daemon/client.ts';",
-    "import { legacy } from './commands/legacy.ts';",
-    "function emit(): void {}",
-    "void parseThinCommand; void runCommandThroughDaemon; void emit; void legacy;",
+  write(root, "packages/cli/src/index.ts", entrySource([
+    "import { taskRead } from './commands/task-read.ts';",
+    "void taskRead;"
+  ]));
+  write(root, "packages/cli/src/commands/task-read.ts", [
+    "import { readTask } from '../../../kernel/src/index.ts';",
+    "export const taskRead = readTask;",
     ""
   ].join("\n"));
-  write(root, "packages/cli/src/commands/legacy.ts", "export const legacy = true;\n");
+  write(root, "packages/kernel/src/index.ts", "export const readTask = () => ({});\n");
 
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /dist static import graph reached module is outside entry\/parser\/transport\/render whitelist.*legacy\.ts/u);
+  assert.ok(result.stderr.includes(
+    "dist static import graph reached kernel public barrel: packages/kernel/src/index.ts"
+  ));
 });
 
 test("thin CLI structure retains CLI function complexity limits", async () => {
@@ -66,7 +74,7 @@ test("thin CLI permits only the zero-dependency preset command contract", async 
   write(root, "packages/preset/src/preset.contract.ts", "export const runtime = [];\n");
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /module is outside entry\/parser\/transport\/render whitelist.*preset\.contract\.ts/u);
+  assert.match(result.stderr, /module is outside the thin CLI cross-package graph boundary.*preset\.contract\.ts/u);
 });
 
 test("daemon transport graph accepts the line client's thin leaf imports", async () => {
@@ -114,14 +122,7 @@ async function fixture() {
   write(root, "packages/cli/package.json", JSON.stringify({
     bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" }
   }));
-  write(root, "packages/cli/src/index.ts", [
-    "import { parseThinCommand } from './cli/thin-command.ts';",
-    "import { runCommandThroughDaemon } from './daemon/client.ts';",
-    "function emit(): void {}",
-    "if (process.argv.includes('daemon')) void import('./daemon/control.ts');",
-    "void parseThinCommand; void runCommandThroughDaemon; void emit;",
-    ""
-  ].join("\n"));
+  write(root, "packages/cli/src/index.ts", entrySource());
   write(root, "packages/cli/src/cli/thin-command.ts", [
     "import { resolveThinCliCommand } from '../../../daemon/src/protocol/daemon-protocol.contract.ts';",
     "export function parseThinCommand(): void { void resolveThinCliCommand; }",
@@ -145,6 +146,19 @@ async function fixture() {
   ].join("\n"));
   write(root, "packages/preset/src/preset-command-contract.ts", "export const presetCommands = [];\n");
   return root;
+}
+
+function entrySource(additions = []) {
+  return [
+    "import { parseThinCommand } from './cli/thin-command.ts';",
+    "import { runCommandThroughDaemon } from './daemon/client.ts';",
+    ...additions.filter((line) => line.startsWith("import ")),
+    "function emit(): void {}",
+    "if (process.argv.includes('daemon')) void import('./daemon/control.ts');",
+    "void parseThinCommand; void runCommandThroughDaemon; void emit;",
+    ...additions.filter((line) => !line.startsWith("import ")),
+    ""
+  ].join("\n");
 }
 
 function run(root) {

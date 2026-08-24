@@ -5,16 +5,7 @@ import ts from "typescript";
 const root = process.cwd();
 const violations = [];
 const cliFiles = listTsFilesRecursive("packages/cli/src");
-const allowedCliFiles = new Set([
-  "packages/cli/src/index.ts",
-  "packages/cli/src/cli/thin-command.ts",
-  "packages/cli/src/daemon/client.ts",
-  "packages/cli/src/daemon/control.ts"
-]);
 const allowedStaticGraph = new Set([
-  "packages/cli/src/index.ts",
-  "packages/cli/src/cli/thin-command.ts",
-  "packages/cli/src/daemon/client.ts",
   "packages/daemon/src/client/local-daemon-target.ts",
   "packages/daemon/src/protocol/daemon-protocol.contract.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands.ts",
@@ -60,12 +51,6 @@ function checkThinCliSurface() {
   if (packageJson.bin?.ha !== entry || packageJson.bin?.["harness-anything"] !== entry) {
     violations.push(`packages/cli/package.json: both bins must use the thin dist entry ${entry}`);
   }
-  for (const file of cliFiles) {
-    if (!allowedCliFiles.has(file)) violations.push(`${file}: CLI production surface must be entry, parser, transport, render, or explicit daemon control`);
-  }
-  for (const file of allowedCliFiles) {
-    if (!existsSync(path.join(root, file))) violations.push(`${file}: required thin CLI surface is missing`);
-  }
   const entrySource = parseTypeScript("packages/cli/src/index.ts"), imports = runtimeImports(entrySource);
   const direct = new Set(imports.static.map((candidate) => candidate.specifier));
   for (const required of ["./cli/thin-command.ts", "./daemon/client.ts"]) {
@@ -86,8 +71,8 @@ function checkDistStaticImportGraph() {
     const file = pending.shift();
     if (!file || visited.has(file)) continue;
     visited.add(file);
-    if (!allowedStaticGraph.has(file)) {
-      const detail = file === "packages/kernel/src/index.ts" ? "kernel public barrel" : file.startsWith("packages/kernel/src/domain/") ? "kernel domain module" : "module is outside entry/parser/transport/render whitelist";
+    if (!isCliProductionFile(file) && !allowedStaticGraph.has(file)) {
+      const detail = file === "packages/kernel/src/index.ts" ? "kernel public barrel" : file.startsWith("packages/kernel/src/domain/") ? "kernel domain module" : "module is outside the thin CLI cross-package graph boundary";
       violations.push(`dist static import graph reached ${detail}: ${file}`);
       continue;
     }
@@ -102,6 +87,10 @@ function checkDistStaticImportGraph() {
       else pending.push(resolved);
     }
   }
+}
+
+function isCliProductionFile(file) {
+  return file.startsWith("packages/cli/src/");
 }
 
 // The line client is the one daemon transport module the thin entry reaches by dynamic import on

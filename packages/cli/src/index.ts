@@ -1,104 +1,184 @@
 #!/usr/bin/env node
-import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import path from "node:path";
+import { cliFailure, emitMeta, taskCreateHelpCatalog } from "./cli-meta.ts";
+import {
+  contractMigrationDryRunSummary,
+  humanError,
+  renderDispatchRow,
+  renderRuntimeBatchRow,
+  renderSquadRunRow,
+} from "./cli-render.ts";
+import {
+  isRuntimeFacadeCommand,
+  runRuntimeFacadeCommand,
+} from "./cli-runtime-command.ts";
+import {
+  cliCommandDomains,
+  firstCliCommand,
+  helpDomain,
+  parseThinCommand,
+  renderThinHelp,
+  unsupportedCommandHint,
+} from "./cli/thin-command.ts";
+import {
+  daemonAutostartFailureCode,
+  daemonResponseTimeoutCode,
+  daemonTargetFailureCode,
+  runCommandThroughDaemon,
+} from "./daemon/client.ts";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { AgentRuntimeSessionResult } from "../../daemon/src/agent-runtime-contract.ts";
-import { unknownFieldViolation, type JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
-import { cliCommandDomains, deriveCliCapabilities, firstCliCommand, helpDomain, parseThinCommand, renderThinCapabilities, renderThinHelp, runtimeBatchDeclarationFields, runtimeRunEfforts, unsupportedCommandHint, type ThinCommand } from "./cli/thin-command.ts";
-import { consumeKnownError, daemonAutostartFailureCode, daemonResponseTimeoutCode, daemonTargetFailureCode, openRuntimeStatusReader, relayRuntimeAuthTerminal, runCommandThroughDaemon, streamRuntimeThroughDaemon } from "./daemon/client.ts";
+export { resolveCliVersion } from "./cli-meta.ts";
 
-type RuntimeCwd = Readonly<Record<string, string>>;
-type RuntimeBatchEntry = { readonly instance: string; readonly agent?: string; readonly to?: string; readonly model?: string; readonly effort?: string; readonly permissionMode?: string; readonly prompt?: string; readonly promptFile?: string; readonly cwd?: string | RuntimeCwd; readonly task?: string };
-type RuntimeBatchDeclaration = { readonly maxConcurrency: number; readonly dispatches: readonly RuntimeBatchEntry[] };
-type RuntimeBatchResult = { readonly index: number; readonly instance: string; readonly agent: string | null; readonly to: string | null; readonly status: "succeeded" | "failed" | "rejected" | "unknown"; readonly outcome: string | null; readonly dispatchId: string | null; readonly runtimeSessionId: string | null; readonly code: string | null; readonly reason: string | null; readonly reportPath: string | null; readonly resultText: string | null };
-type SquadDeclaration = { readonly id: string; readonly name: string; readonly leader: string; readonly workers: readonly string[]; readonly roster: string };
-type SquadRunAction = { readonly kind: "squad-run"; readonly squadId: string; readonly runtimeInstanceId: string; readonly prompt?: string; readonly promptFile?: string; readonly effort?: string; readonly model?: string; readonly cwd: Readonly<Record<string, string>>; readonly taskId: string };
-type SquadReadResult = { readonly squad: SquadDeclaration } | { readonly receipt: JsonObject };
-type SquadRunDispatch = RuntimeBatchResult & { readonly agentId: string | null; readonly delegatedByAgentId: string; readonly squadId: string };
-type AgentCreateAction = { readonly kind: "agent-create"; readonly runtimeInstanceId: string; readonly agentId: string; readonly prompt: string; readonly effort?: string; readonly model?: string; readonly cwd: Readonly<Record<string, string>>; readonly taskId?: string };
-const runtimeBatchDefaultConcurrency = 2, runtimeBatchMaxConcurrency = 32;
-
-export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
-  const command = firstCliCommand(argv); if (argv.includes("--version") || argv.includes("-v") || command === "version") return emitMeta("version", argv.includes("--json")); if (command === "capabilities") return emitMeta("capabilities", argv.includes("--json"));
-  if (argv.length === 0 || argv.includes("--help")) { const domain = helpDomain(argv);
-    if (domain !== undefined && !cliCommandDomains().includes(domain)) { emit(cliFailure("help", "unsupported_command", unsupportedCommandHint([domain])), argv.includes("--json")); return 2; }
-    const rows = await taskCreateHelpCatalog(argv); console.log(rows.length === 0 && domain === undefined ? renderThinHelp() : renderThinHelp(rows, domain)); return 0; }
-  if (command === "daemon" || command === "gui") { const { runDaemonControl } = await import("./daemon/control.ts"); return runDaemonControl(argv, emit); }
+export async function main(
+  argv: readonly string[] = process.argv.slice(2),
+): Promise<number> {
+  const command = firstCliCommand(argv);
+  if (
+    argv.includes("--version") ||
+    argv.includes("-v") ||
+    command === "version"
+  )
+    return emitMeta("version", argv.includes("--json"));
+  if (command === "capabilities")
+    return emitMeta("capabilities", argv.includes("--json"));
+  if (argv.length === 0 || argv.includes("--help")) {
+    const domain = helpDomain(argv);
+    if (domain !== undefined && !cliCommandDomains().includes(domain)) {
+      emit(
+        cliFailure(
+          "help",
+          "unsupported_command",
+          unsupportedCommandHint([domain]),
+        ),
+        argv.includes("--json"),
+      );
+      return 2;
+    }
+    const rows = await taskCreateHelpCatalog(argv);
+    console.log(
+      rows.length === 0 && domain === undefined
+        ? renderThinHelp()
+        : renderThinHelp(rows, domain),
+    );
+    return 0;
+  }
+  if (command === "daemon" || command === "gui") {
+    const { runDaemonControl } = await import("./daemon/control.ts");
+    return runDaemonControl(argv, emit);
+  }
   const parsed = parseThinCommand(argv);
-  if (!parsed.ok) { emit(cliFailure("parse", parsed.code, parsed.nextAction), parsed.json); return 2; }
-  try { const receipt = isRuntimeFacadeCommand(parsed.command) ? await runRuntimeFacadeCommand(parsed.command) : await runCommandThroughDaemon(parsed.command, (phase) => emit(phase, parsed.command.json)); if (parsed.command.action.kind === "squad-run") emitSquadRun(receipt, parsed.command.json); else emit(receipt, parsed.command.json); return Number.isInteger(receipt.exitCode) ? Number(receipt.exitCode) : receipt.ok === true ? 0 : 1; } catch (error) { const autostartCode = daemonAutostartFailureCode(error), timeoutCode = daemonResponseTimeoutCode(error), targetCode = daemonTargetFailureCode(error), direct = autostartCode ?? targetCode; emit(cliFailure(parsed.command.action.kind, direct ?? timeoutCode ?? "daemon_unavailable", direct ? error instanceof Error ? error.message : String(error) : `Local daemon request failed. Cause: ${error instanceof Error ? error.message : String(error)}`), parsed.command.json); return 1; }
+  if (!parsed.ok) {
+    emit(cliFailure("parse", parsed.code, parsed.nextAction), parsed.json);
+    return 2;
+  }
+  try {
+    const receipt = isRuntimeFacadeCommand(parsed.command)
+      ? await runRuntimeFacadeCommand(parsed.command)
+      : await runCommandThroughDaemon(parsed.command, (phase) =>
+          emit(phase, parsed.command.json),
+        );
+    if (parsed.command.action.kind === "squad-run")
+      emitSquadRun(receipt, parsed.command.json);
+    else emit(receipt, parsed.command.json);
+    return Number.isInteger(receipt.exitCode)
+      ? Number(receipt.exitCode)
+      : receipt.ok === true
+        ? 0
+        : 1;
+  } catch (error) {
+    const autostartCode = daemonAutostartFailureCode(error),
+      timeoutCode = daemonResponseTimeoutCode(error),
+      targetCode = daemonTargetFailureCode(error),
+      direct = autostartCode ?? targetCode;
+    emit(
+      cliFailure(
+        parsed.command.action.kind,
+        direct ?? timeoutCode ?? "daemon_unavailable",
+        direct
+          ? error instanceof Error
+            ? error.message
+            : String(error)
+          : `Local daemon request failed. Cause: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+      parsed.command.json,
+    );
+    return 1;
+  }
 }
 
-export function resolveCliVersion(): string { let dir = path.dirname(fileURLToPath(import.meta.url)); for (let depth = 0; depth < 8; depth += 1) { const candidate = path.join(dir, "package.json"); if (existsSync(candidate)) { const pkg = JSON.parse(readFileSync(candidate, "utf8")) as { readonly name?: unknown; readonly version?: unknown }; if (pkg.name === "@harness-anything/cli" && typeof pkg.version === "string") return pkg.version; } const parent = path.dirname(dir); if (parent === dir) break; dir = parent; } throw new Error("CLI version could not be derived from package.json."); }
-function emitMeta(command: "version" | "capabilities", json: boolean): number { if (command === "capabilities") { const capabilities = deriveCliCapabilities(); console.log(json ? JSON.stringify(capabilities) : renderThinCapabilities()); return 0; } const version = resolveCliVersion(); console.log(json ? JSON.stringify({ ok: true, command, version }) : version); return 0; }
-
-async function taskCreateHelpCatalog(argv: readonly string[]): Promise<Array<{ id: string; title: string; description: string; validity: string; errorCode?: string }>> { if (argv[0] !== "task" || argv[1] !== "create") return []; const globals = argv.flatMap((value, index) => value === "--json" ? [value] : value === "--root" || value === "--repo" ? [value, argv[index + 1] ?? ""] : []), parsed = parseThinCommand(["preset", "list", ...globals]); if (!parsed.ok) return []; try { const receipt = await runCommandThroughDaemon(parsed.command, undefined, { autostart: false }), rows = typeof receipt.evidence === "string" ? JSON.parse(receipt.evidence) as unknown : null; return Array.isArray(rows) ? rows.filter((row): row is { id: string; title: string; description: string; validity: string; errorCode?: string } => !!row && typeof row === "object" && ["id", "title", "description", "validity"].every((key) => typeof (row as Record<string, unknown>)[key] === "string")) : []; } catch { return []; } }
-function cliFailure(command: string, code: string, nextAction: string): Record<string, unknown> { return { schema: "command-receipt/v2", ok: false, command, outcome: "op_rejected", opId: "N/A", origin: "cli", code, evidence: `rejection:${code}`, error: { code, hint: nextAction }, nextAction }; }
 export function emit(receipt: Record<string, unknown>, json: boolean): void {
   if (json) console.log(JSON.stringify(receipt));
-  else if (receipt.command === "runtime-batch" && Array.isArray(receipt.dispatches)) console.log(receipt.dispatches.length ? receipt.dispatches.map(renderRuntimeBatchRow).join("\n") : "No batch dispatches.");
-  else if (receipt.ok === true || receipt.command === "migrate-import" && typeof receipt.summary === "string") { const summary = contractMigrationDryRunSummary(receipt); if (Array.isArray(receipt.dispatches)) console.log(receipt.dispatches.length ? receipt.dispatches.map((row) => `${String(row.dispatchId)}\t${String(row.status)}\t${String(row.runtimeSessionId)}\t${String(row.outcome ?? "-")}\tworker:${String(row.agentId ?? "-")}\tleader:${String(row.delegatedByAgentId ?? "-")}\tsquad:${String(row.squadId ?? "-")}\tcode:${String(row.code ?? "-")}\treason:${String(row.reason ?? "-")}`).join("\n") : "No dispatches."); else console.log(String(summary ?? (receipt.command === "doc-show" ? receipt.evidence : receipt.command === "init" ? [String(receipt.summary), `outcome: ${receipt.outcome ?? "applied"}`, ...["created", "updated", "preserved", "drifted"].map((key) => `${key}: ${JSON.stringify(receipt[key] ?? [])}`), `commit: ${String(receipt.commit ?? "none")}`, `next: ${String(receipt.next ?? "")}`].join("\n") : receipt.summary ?? `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`))); }
-  else { const error = humanError(receipt); console.error(`error code=${error.code} hint=${error.hint}`); }
+  else if (
+    receipt.command === "runtime-batch" &&
+    Array.isArray(receipt.dispatches)
+  )
+    console.log(
+      receipt.dispatches.length
+        ? receipt.dispatches.map(renderRuntimeBatchRow).join("\n")
+        : "No batch dispatches.",
+    );
+  else if (
+    receipt.ok === true ||
+    (receipt.command === "migrate-import" &&
+      typeof receipt.summary === "string")
+  ) {
+    const summary = contractMigrationDryRunSummary(receipt);
+    if (Array.isArray(receipt.dispatches))
+      console.log(
+        receipt.dispatches.length
+          ? receipt.dispatches.map(renderDispatchRow).join("\n")
+          : "No dispatches.",
+      );
+    else
+      console.log(
+        String(
+          summary ??
+            (receipt.command === "doc-show"
+              ? receipt.evidence
+              : receipt.command === "init"
+                ? [
+                    String(receipt.summary),
+                    `outcome: ${receipt.outcome ?? "applied"}`,
+                    ...["created", "updated", "preserved", "drifted"].map(
+                      (key) => `${key}: ${JSON.stringify(receipt[key] ?? [])}`,
+                    ),
+                    `commit: ${String(receipt.commit ?? "none")}`,
+                    `next: ${String(receipt.next ?? "")}`,
+                  ].join("\n")
+                : (receipt.summary ??
+                  `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`)),
+        ),
+      );
+  } else {
+    const error = humanError(receipt);
+    console.error(`error code=${error.code} hint=${error.hint}`);
+  }
 }
-function humanError(receipt: Record<string, unknown>): { readonly code: string; readonly hint: string } { const outer = receipt.error && typeof receipt.error === "object" ? receipt.error as Record<string, unknown> : {}, code = typeof outer.code === "string" ? outer.code : typeof receipt.code === "string" ? receipt.code : "unknown", hint = typeof outer.hint === "string" ? outer.hint : typeof receipt.nextAction === "string" ? receipt.nextAction : typeof receipt.next === "string" ? receipt.next : "Command failed.", leader = receipt.leader && typeof receipt.leader === "object" ? receipt.leader as Record<string, unknown> : null, nested = leader ? humanError(leader) : null; return code === "squad_leader_failed" && nested && nested.code !== "unknown" ? { code, hint: `Leader dispatch rejected: code=${nested.code} hint=${nested.hint}` } : { code, hint }; }
-function isRuntimeFacadeCommand(command: ThinCommand): boolean { return command.method.startsWith("repo.agentRuntime.") || command.method.startsWith("repo.runtimeInstance.auth."); }
-async function runRuntimeFacadeCommand(command: ThinCommand, writeActivity: (text: string) => void = (text) => process.stderr.write(text)): Promise<JsonObject> { const action = command.action;
-  if (command.method.startsWith("repo.runtimeInstance.auth.")) return runRuntimeAuthCommand(command, writeActivity);
-  if (action.kind === "runtime-batch") return runRuntimeBatch(command, writeActivity);
-  if (action.kind === "squad-run") return runSquadRun(command, writeActivity);
-  if (action.kind === "agent-create") return runAgentCreate(command, writeActivity);
-  if (action.kind === "runtime-status") { if (action.wait === true) return waitForRuntime(command, String(action.runtimeSessionId), !command.json && action.noStream !== true, writeActivity); const { wait: _wait, noStream: _noStream, ...readAction } = action, result = await runCommandThroughDaemon({ ...command, action: readAction }); return result.ok === true ? { ...result, command: action.kind, summary: renderRuntimeStatus(result) } : result; }
-  if (action.kind === "runtime-cancel") { const { noStream: _noStream, ...rpcAction } = action; const result = await runCommandThroughDaemon({ ...command, action: rpcAction }); return result.ok === true ? { ...result, summary: `runtime-cancel: ${String(result.detail ?? "cancelled")}` } : result; }
-  let prompt: string | undefined; try { prompt = typeof action.prompt === "string" ? action.prompt : typeof action.promptFile === "string" ? readFileSync(path.resolve(command.rootDir, action.promptFile), "utf8") : undefined; } catch (error) { return runtimeRejected(action.kind, "prompt_file_unreadable", `Could not read --prompt-file: ${error instanceof Error ? error.message : String(error)}`); }
-  const { promptFile: _promptFile, noStream: _noStream, detach = false, ...spawnAction } = action, spawned = await runCommandThroughDaemon({ ...command, action: { ...spawnAction, ...(prompt !== undefined ? { prompt } : {}), ...(typeof action.promptFile === "string" ? { promptSource: action.promptFile } : {}), idempotencyKey: action.idempotencyKey ?? `runtime-cli-${randomUUID()}` } }); if (spawned.ok !== true || typeof spawned.runtimeSessionId !== "string") return spawned; if (detach === true) { const nextAction = `ha runtime status ${spawned.runtimeSessionId} --wait`; return { ...spawned, command: "runtime-run", outcome: "running", nextAction, summary: `runtime-run: detached ${String(spawned.dispatchId)}; next: ${nextAction}`, exitCode: 0 }; }
-  return waitForRuntime(command, spawned.runtimeSessionId, !command.json && action.noStream !== true, writeActivity, spawned);
+
+function emitSquadRun(
+  receipt: Record<string, unknown>,
+  json: boolean,
+): void {
+  if (json) return emit(receipt, true);
+  const dispatches = receipt.dispatches;
+  if (Array.isArray(dispatches))
+    console.log(
+      dispatches.length
+        ? dispatches.map(renderSquadRunRow).join("\n")
+        : "No squad dispatches.",
+    );
+  else emit(receipt, false);
 }
-async function runAgentCreate(command: ThinCommand, writeActivity: (text: string) => void): Promise<JsonObject> { const action = command.action as AgentCreateAction, designerPrompt = [`# Agent declaration protocol`, `Return exactly one JSON object and no Markdown, code fences, or prose.`, `The object must contain schema exactly "agent-declaration/v1", plus id, name, instructions, runtime_type, and optional role (worker or commander) and model. Do not omit schema.`, `The harness will validate and install the declaration; do not run commands or install it yourself.`, `# Agent requirement`, action.prompt].join("\n\n"), spawned = await runCommandThroughDaemon({ ...command, method: "repo.agentRuntime.spawn", action: { kind: "runtime-run", runtimeInstanceId: action.runtimeInstanceId, agentId: action.agentId, prompt: designerPrompt, cwd: action.cwd, taskId: action.taskId ?? null, ...(action.effort ? { effort: action.effort } : {}), ...(action.model ? { model: action.model } : {}), idempotencyKey: `agent-create-${randomUUID()}` } }); if (spawned.ok !== true || typeof spawned.runtimeSessionId !== "string") return spawned; const settled = await waitForRuntime(command, spawned.runtimeSessionId, !command.json, writeActivity, spawned); if (settled.outcome !== "succeeded" || !settled.result || typeof settled.result !== "object" || typeof (settled.result as Record<string, unknown>).text !== "string") return runtimeRejected("agent-create", "agent_declaration_missing", "The designer did not return a succeeded structured declaration; rerun ha agent create with a requirement that asks for one JSON object."); let declaration: Record<string, unknown>; try { const parsed = JSON.parse(String((settled.result as Record<string, unknown>).text)); if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("declaration must be a JSON object"); declaration = parsed as Record<string, unknown>; } catch (error) { consumeKnownError(error); return runtimeRejected("agent-create", "agent_declaration_invalid", "The designer result was not one JSON object; rerun ha agent create and require exactly one agent-declaration/v1 JSON object."); } const validation = await runCommandThroughDaemon({ ...command, method: "repo.task.run", action: { kind: "agent-validate", declaration, declarationSource: "runtime-result" } }); if (validation.ok !== true || typeof validation.evidence !== "string") return runtimeRejected("agent-create", "agent_validation_failed", "ha agent validate could not produce a validation report; rerun ha agent create after checking the daemon."); const validationReport = JSON.parse(validation.evidence) as Record<string, unknown>; if (validationReport.valid !== true) return runtimeRejected("agent-create", "agent_declaration_invalid", `ha agent validate rejected the declaration; fix the reported fields and rerun ha agent create. ${JSON.stringify(validationReport.issues ?? [])}`); const installation = await runCommandThroughDaemon({ ...command, method: "repo.task.run", action: { kind: "agent-install", declaration, declarationSource: "runtime-result", generatedOnly: true, validated: true } }); if (installation.ok !== true) return installation; return { schema: "command-receipt/v2", ok: true, command: "agent-create", outcome: "succeeded", designerAgentId: action.agentId, runtimeSessionId: spawned.runtimeSessionId, dispatchId: spawned.dispatchId, declaration: declaration as JsonObject, validation: validationReport as JsonObject, installation, result: settled.result, summary: `agent-create: installed ${String(declaration.id)}`, exitCode: 0 }; }
-async function waitForRuntime(command: ThinCommand, runtimeSessionId: string, stream: boolean, writeActivity: (text: string) => void, spawned?: JsonObject): Promise<JsonObject> { const readCommand = { ...command, method: "repo.agentRuntime.sessions.read", action: { kind: "runtime-status", runtimeSessionId } }, read = () => runCommandThroughDaemon(readCommand), attaching = stream ? streamRuntimeThroughDaemon(command, runtimeSessionId, (value) => renderRuntimeFrames(value, writeActivity)).then((detach) => ({ detach }), (error: unknown) => ({ error })) : undefined; let current = await read(); if (current.ok !== true) { const attached = await attaching; if (attached && "detach" in attached) attached.detach(); return current; } let detach: (() => void) | undefined;
-  if (attaching) { const attached = await attaching; if ("detach" in attached) detach = attached.detach; else try { detach = await streamRuntimeThroughDaemon(command, runtimeSessionId, (value) => renderRuntimeFrames(value, writeActivity)); } catch (error) { consumeKnownError(error); writeActivity(`[stream] ${error instanceof Error ? error.message : String(error)}\n`); } }
-  let statusReader: Awaited<ReturnType<typeof openRuntimeStatusReader>> | undefined; if (((current as unknown as AgentRuntimeSessionResult).session.activity.outcome) === null) try { statusReader = await openRuntimeStatusReader(command, runtimeSessionId); } catch (error) { consumeKnownError(error); }
-  const readNext = async (): Promise<JsonObject> => { if (!statusReader) return read(); try { return await statusReader.read(); } catch (error) { consumeKnownError(error); statusReader.close(); statusReader = undefined; return read(); } };
-  try { while (((current as unknown as AgentRuntimeSessionResult).session.activity.outcome) === null) { await new Promise((resolve) => setTimeout(resolve, 250)); current = await readNext(); if (current.ok !== true) return current; } } finally { statusReader?.close(); detach?.(); }
-  const result = current as unknown as AgentRuntimeSessionResult, outcome = result.session.activity.outcome!, text = result.result?.text ?? "", commandName = spawned ? "runtime-run" : "runtime-status", providerExit = Number.isInteger(result.session.activity.exitCode), reason = outcome === "succeeded" ? null : text || (providerExit ? `Provider exited with code ${String(result.session.activity.exitCode)} without a diagnostic.` : `${commandName}: ${outcome}`); return { ...current, command: commandName, outcome, runtimeSessionId, ...(spawned ? { spawn: spawned } : {}), ...(reason ? { code: providerExit ? "provider_exit" : "runtime_failed", reason } : {}), summary: text || reason || `${commandName}: ${outcome}`, exitCode: outcome === "succeeded" ? 0 : 1 };
+
+function isCliEntrypoint(): boolean {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  try {
+    return (
+      realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url))
+    );
+  } catch {
+    return invoked.endsWith("packages/cli/src/index.ts");
+  }
 }
-function renderRuntimeFrames(value: unknown, write: (text: string) => void): void { if (!value || typeof value !== "object") return; const record = value as Record<string, unknown>; if (Array.isArray(record.events)) { for (const event of record.events) renderRuntimeFrames(event, write); return; } if (record.type === "activity" && typeof record.content === "string") write(`[${String(record.activity)}] ${record.content}\n`); }
-async function runRuntimeBatch(command: ThinCommand, writeActivity: (text: string) => void): Promise<JsonObject> { let declaration: RuntimeBatchDeclaration; try { declaration = readRuntimeBatch(command); } catch (error) { consumeKnownError(error); return runtimeRejected("runtime-batch", "batch_file_invalid", error instanceof Error ? error.message : String(error)); } return runRuntimeBatchDeclaration(command, declaration, writeActivity); }
-async function runRuntimeBatchDeclaration(command: ThinCommand, declaration: RuntimeBatchDeclaration, writeActivity: (text: string) => void): Promise<JsonObject> { const results: RuntimeBatchResult[] = []; let next = 0; const worker = async (): Promise<void> => { while (true) { const index = next++; if (index >= declaration.dispatches.length) return; const entry = declaration.dispatches[index]!; let receipt: JsonObject; try { receipt = await runRuntimeFacadeCommand({ ...command, method: "repo.agentRuntime.spawn", action: runtimeBatchSpawnAction(entry) }, writeActivity); } catch (error) { consumeKnownError(error); receipt = runtimeRejected("runtime-run", "batch_dispatch_failed", error instanceof Error ? error.message : String(error)); } results[index] = runtimeBatchResult(index, entry, receipt); } }; await Promise.all(Array.from({ length: Math.min(declaration.maxConcurrency, declaration.dispatches.length) }, () => worker())); const failed = results.filter((result) => result.status !== "succeeded"), unknown = results.some((result) => result.status === "unknown"), outcome = failed.length === 0 ? "succeeded" : unknown ? "unknown" : "partial_failure"; return { schema: "command-receipt/v2", ok: true, command: "runtime-batch", outcome, dispatches: results, maxConcurrency: declaration.maxConcurrency, summary: `runtime-batch: ${results.length - failed.length} succeeded, ${failed.length} failed`, exitCode: failed.length ? 1 : 0 }; }
-async function runSquadRun(command: ThinCommand, writeActivity: (text: string) => void): Promise<JsonObject> { const action = command.action as SquadRunAction, inspected = await readSquadDeclarationThroughDaemon(command, action.squadId); if ("receipt" in inspected) return { ...inspected.receipt, command: "squad-run", exitCode: 1 }; let mission: string; try { mission = typeof action.prompt === "string" ? action.prompt : readFileSync(path.resolve(command.rootDir, String(action.promptFile)), "utf8"); } catch (error) { return runtimeRejected("squad-run", "prompt_file_unreadable", `Could not read --prompt-file: ${error instanceof Error ? error.message : String(error)}`); } const squad = inspected.squad, leaderPrompt = squadLeaderPrompt(squad, action.runtimeInstanceId, mission), leader = await runRuntimeFacadeCommand({ ...command, method: "repo.agentRuntime.spawn", action: { kind: "runtime-run", runtimeInstanceId: action.runtimeInstanceId, agentId: squad.leader, prompt: leaderPrompt, cwd: action.cwd, taskId: action.taskId, ...(action.effort ? { effort: action.effort } : {}), ...(action.model ? { model: action.model } : {}), noStream: true } }, writeActivity), leaderResult = leader.result && typeof leader.result === "object" ? leader.result as Record<string, unknown> : null, leaderText = typeof leaderResult?.text === "string" ? leaderResult.text : ""; if (leader.outcome !== "succeeded" || !leaderText) return { ...runtimeRejected("squad-run", "squad_leader_failed", String(leader.reason ?? leader.summary ?? "Leader did not produce a structured plan.")), leader, squadId: squad.id, leaderAgentId: squad.leader }; let plan: RuntimeBatchDeclaration; try { plan = parseSquadPlan(leaderText, action.runtimeInstanceId, squad); } catch (error) { consumeKnownError(error); return { ...runtimeRejected("squad-run", "squad_plan_invalid", error instanceof Error ? error.message : String(error)), leader, squadId: squad.id, leaderAgentId: squad.leader, rawPlan: leaderText }; } const rosterCoverage = squadRosterCoverage(squad, plan), declaration = { maxConcurrency: plan.maxConcurrency, dispatches: plan.dispatches.map((entry) => ({ ...entry, agent: squad.leader, task: action.taskId, cwd: action.cwd })) }, workers = await runRuntimeBatchDeclaration(command, declaration, writeActivity), packagePath = await readTaskPackagePath(command, action.taskId), dispatches = Array.isArray(workers.dispatches) ? workers.dispatches.map((row) => squadReportRow(row, packagePath, squad)) : [], unknown = dispatches.some((row) => row.status === "unknown"), failed = dispatches.some((row) => row.status !== "succeeded"), outcome = failed ? unknown ? "unknown" : "partial_failure" : "succeeded"; return { schema: "command-receipt/v2", ok: true, command: "squad-run", outcome, squadId: squad.id, leaderAgentId: squad.leader, leader, leaderPlan: leaderText, rosterCoverage, dispatches, summary: `squad-run ${squad.id}: ${dispatches.filter((row) => row.status === "succeeded").length} succeeded, ${dispatches.filter((row) => row.status !== "succeeded").length} failed`, exitCode: outcome === "succeeded" ? 0 : 1 }; }
-function squadRosterCoverage(squad: SquadDeclaration, plan: RuntimeBatchDeclaration): { readonly rosterWorkerIds: readonly string[]; readonly rosterWorkerCount: number; readonly plannedWorkerIds: readonly string[]; readonly plannedWorkerCount: number; readonly omittedWorkerIds: readonly string[] } { const plannedWorkerIds = plan.dispatches.flatMap((entry) => entry.to ? [entry.to] : []); return { rosterWorkerIds: squad.workers, rosterWorkerCount: squad.workers.length, plannedWorkerIds, plannedWorkerCount: plannedWorkerIds.length, omittedWorkerIds: squad.workers.filter((worker) => !plannedWorkerIds.includes(worker)) }; }
-function squadReportRow(value: unknown, packagePath: string | null, squad: SquadDeclaration): SquadRunDispatch { const row = value as RuntimeBatchResult; return { ...row, agentId: row.to, delegatedByAgentId: squad.leader, squadId: squad.id, reportPath: packagePath && row.dispatchId ? `${packagePath}/artifacts/reports/${row.dispatchId}.md` : null }; }
-function emitSquadRun(receipt: Record<string, unknown>, json: boolean): void { if (json) return emit(receipt, true); const dispatches = receipt.dispatches; if (Array.isArray(dispatches)) console.log(dispatches.length ? dispatches.map(renderSquadRunRow).join("\n") : "No squad dispatches."); else emit(receipt, false); }
-async function readSquadDeclarationThroughDaemon(command: ThinCommand, squadId: string): Promise<SquadReadResult> { const result = await runCommandThroughDaemon({ ...command, method: "repo.task.run", action: { kind: "squad-inspect", squadId } }); if (result.ok !== true) return { receipt: result }; try { if (typeof result.evidence !== "string") throw new Error(`Squad ${squadId} inspection is malformed.`); const value = JSON.parse(result.evidence) as Record<string, unknown>, squad = value.squad; if (!squad || typeof squad !== "object" || Array.isArray(squad)) throw new Error(`Squad ${squadId} inspection is malformed.`); const row = squad as Record<string, unknown>; if (typeof row.id !== "string" || typeof row.name !== "string" || typeof row.leader !== "string" || !Array.isArray(row.workers) || row.workers.some((worker) => typeof worker !== "string") || typeof row.roster !== "string") throw new Error(`Squad ${squadId} inspection is malformed.`); return { squad: { id: row.id, name: row.name, leader: row.leader, workers: row.workers as string[], roster: row.roster } }; } catch (error) { consumeKnownError(error); return { receipt: runtimeRejected("squad-run", "squad_inspection_invalid", error instanceof Error ? error.message : String(error)) }; } }
-function squadLeaderPrompt(squad: SquadDeclaration, runtimeInstanceId: string, mission: string): string { return [`# Squad dispatch protocol`, `Return exactly one JSON object and no Markdown:`, `{"schema":"runtime-batch/v1","maxConcurrency":${runtimeBatchDefaultConcurrency},"dispatches":[{"instance":"${runtimeInstanceId}","to":"worker-id","prompt":"worker mission"}]}`, `Choose workers only from the declared roster workers; harness owns every spawn. Each dispatch must contain instance, to, and prompt. Do not include unknown fields, prose, or code fences.`, `# Squad roster (load-bearing, human-editable)`, squad.roster, `# User mission`, mission].join("\n\n"); }
-function parseSquadPlan(text: string, instance: string, squad: SquadDeclaration): RuntimeBatchDeclaration { const raw = JSON.parse(text) as Record<string, unknown>, rawDispatches = Array.isArray(raw.dispatches) ? raw.dispatches : [], invalidAgent = rawDispatches.some((entry) => entry && typeof entry === "object" && !Array.isArray(entry) && Object.hasOwn(entry, "agent")); if (invalidAgent) throw new Error("Squad plan must leave agent ownership to the harness."); const dispatches = rawDispatches.map((entry) => entry && typeof entry === "object" && !Array.isArray(entry) ? { ...(entry as Record<string, unknown>), agent: squad.leader } : entry), plan = parseRuntimeBatchDeclaration({ ...raw, dispatches }, "Squad plan"), seen = new Set<string>(); if (plan.dispatches.some((entry) => entry.instance !== instance || !entry.to || !entry.prompt || entry.agent !== squad.leader || entry.promptFile !== undefined || entry.task !== undefined || entry.cwd !== undefined || seen.has(entry.to) || !squad.workers.includes(entry.to) || (seen.add(entry.to), false))) throw new Error(`Squad plan must name each worker at most once, use instance ${instance}, and select only declared roster workers.`); return plan; }
-async function readTaskPackagePath(command: ThinCommand, taskId: string): Promise<string | null> { try { const result = await runCommandThroughDaemon({ ...command, method: "repo.task.run", action: { kind: "task-list" } }); if (result.ok !== true || typeof result.evidence !== "string") return null; const value = JSON.parse(result.evidence) as Record<string, unknown>, rows = Array.isArray(value.rows) ? value.rows : []; const row = rows.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).taskId === taskId) as Record<string, unknown> | undefined; return typeof row?.packagePath === "string" ? row.packagePath : null; } catch (error) { consumeKnownError(error); return null; } }
-function readRuntimeBatch(command: ThinCommand): RuntimeBatchDeclaration { let value: unknown; try { value = JSON.parse(readFileSync(path.resolve(command.rootDir, String(command.action.batchFile)), "utf8")); } catch (error) { throw new Error(`Could not read batch declaration: ${error instanceof Error ? error.message : String(error)}`); } return parseRuntimeBatchDeclaration(value, "Batch"); }
-function parseRuntimeBatchDeclaration(value: unknown, label: string): RuntimeBatchDeclaration { if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} declaration must be a JSON object.`); const record = value as Record<string, unknown>, allowed = ["schema", "maxConcurrency", "dispatches"], unknownField = unknownFieldViolation(record, allowed); if (unknownField) throw new Error(`${label} declaration contains an ${unknownField}`); if (record.schema !== "runtime-batch/v1") throw new Error(`${label} declaration schema must be runtime-batch/v1.`); const maxConcurrency = record.maxConcurrency === undefined ? runtimeBatchDefaultConcurrency : record.maxConcurrency; if (!Number.isSafeInteger(maxConcurrency) || Number(maxConcurrency) < 1 || Number(maxConcurrency) > runtimeBatchMaxConcurrency) throw new Error(`${label} maxConcurrency must be an integer from 1 to ${runtimeBatchMaxConcurrency}.`); if (!Array.isArray(record.dispatches) || record.dispatches.length === 0) throw new Error(`${label} declaration dispatches must be a non-empty array.`); return { maxConcurrency: Number(maxConcurrency), dispatches: record.dispatches.map((entry, index) => parseRuntimeBatchEntry(entry, index)) }; }
-function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBatchEntry { if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Batch dispatch ${index} must be an object.`); const record = value as Record<string, unknown>, allowed = runtimeBatchDeclarationFields(), unknownField = unknownFieldViolation(record, allowed); if (unknownField) throw new Error(`Batch dispatch ${index} contains an ${unknownField}`); const text = (field: string): string | undefined => { const item = record[field]; if (item === undefined) return undefined; if (typeof item !== "string" || item.trim().length === 0) throw new Error(`Batch dispatch ${index} field ${field} must be a non-empty string.`); return item; }; const instance = text("instance"), prompt = text("prompt"), promptFile = text("prompt-file"), agent = text("agent"), to = text("to"), model = text("model"), effort = text("effort"), permissionMode = text("permission-mode"), cwd = text("cwd"), task = text("task"); if (!instance) throw new Error(`Batch dispatch ${index} requires instance.`); if (Boolean(prompt) === Boolean(promptFile)) throw new Error(`Batch dispatch ${index} requires exactly one of prompt or prompt-file.`); if (to && !agent) throw new Error(`Batch dispatch ${index} uses to without agent.`); if (effort && !runtimeRunEfforts().includes(effort)) throw new Error(`Batch dispatch ${index} effort must be minimal, low, medium, high, or xhigh.`); if (permissionMode && !["bypass", "workspace-write", "read-only"].includes(permissionMode)) throw new Error(`Batch dispatch ${index} permission-mode must be bypass, workspace-write, or read-only.`); return { instance, ...(agent ? { agent } : {}), ...(to ? { to } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(permissionMode ? { permissionMode } : {}), ...(prompt ? { prompt } : {}), ...(promptFile ? { promptFile } : {}), ...(cwd ? { cwd } : {}), ...(task ? { task } : {}) }; }
-function runtimeBatchSpawnAction(entry: RuntimeBatchEntry): ThinCommand["action"] { return { kind: "runtime-run", runtimeInstanceId: entry.instance, ...(entry.agent ? { agentId: entry.agent } : {}), ...(entry.to ? { targetAgentId: entry.to } : {}), ...(entry.model ? { model: entry.model } : {}), ...(entry.effort ? { effort: entry.effort } : {}), ...(entry.permissionMode ? { permissionMode: entry.permissionMode } : {}), ...(entry.prompt ? { prompt: entry.prompt } : { promptFile: entry.promptFile }), cwd: typeof entry.cwd === "object" ? entry.cwd : entry.cwd && entry.cwd !== "." ? { scope: "repo-relative", path: entry.cwd } : { scope: "repo-root" }, taskId: entry.task ?? null, noStream: true }; }
-function runtimeBatchResult(index: number, entry: RuntimeBatchEntry, receipt: JsonObject): RuntimeBatchResult { const spawn = receipt.spawn && typeof receipt.spawn === "object" ? receipt.spawn as Record<string, unknown> : receipt, error = receipt.error && typeof receipt.error === "object" ? receipt.error as Record<string, unknown> : undefined, result = receipt.result && typeof receipt.result === "object" ? receipt.result as Record<string, unknown> : undefined, outcome = typeof receipt.outcome === "string" ? receipt.outcome : null, status = receipt.ok !== true ? "rejected" : outcome === "succeeded" ? "succeeded" : outcome === "unknown" ? "unknown" : "failed"; return { index, instance: entry.instance, agent: entry.agent ?? null, to: entry.to ?? null, status, outcome, dispatchId: typeof spawn.dispatchId === "string" ? spawn.dispatchId : null, runtimeSessionId: typeof receipt.runtimeSessionId === "string" ? receipt.runtimeSessionId : typeof spawn.runtimeSessionId === "string" ? spawn.runtimeSessionId : null, code: typeof receipt.code === "string" ? receipt.code : typeof error?.code === "string" ? error.code : status === "failed" || status === "unknown" ? "runtime_failed" : null, reason: typeof receipt.reason === "string" ? receipt.reason : typeof error?.hint === "string" ? error.hint : typeof receipt.nextAction === "string" ? receipt.nextAction : typeof receipt.summary === "string" ? receipt.summary : null, reportPath: null, resultText: typeof result?.text === "string" ? result.text : null }; }
-function renderRuntimeBatchRow(value: unknown): string { const row = value as Partial<RuntimeBatchResult>; return `${String(row.index)}\t${String(row.instance)}\t${String(row.status)}\tdispatch:${String(row.dispatchId ?? "-")}\tsession:${String(row.runtimeSessionId ?? "-")}\tcode:${String(row.code ?? "-")}\treason:${String(row.reason ?? "-")}${row.reportPath ? `\treport:${row.reportPath}` : ""}`; }
-function renderSquadRunRow(value: unknown): string { const row = value as Partial<SquadRunDispatch>; return `${String(row.dispatchId ?? "-")}\t${String(row.status)}\t${String(row.runtimeSessionId ?? "-")}\t${String(row.outcome ?? "-")}\tworker:${String(row.agentId ?? "-")}\tleader:${String(row.delegatedByAgentId ?? "-")}\tsquad:${String(row.squadId ?? "-")}\tcode:${String(row.code ?? "-")}\treason:${String(row.reason ?? "-")}${row.reportPath ? `\treport:${row.reportPath}` : ""}`; }
-// Sign-in is interactive by design: the daemon spawns the provider CLI on the instance's isolated
-// state root inside a daemon-owned PTY, and this bridge puts the operator's terminal in front of
-// it. The person completes the provider's own prompts; the CLI never sees or handles credentials.
-async function runRuntimeAuthCommand(command: ThinCommand, writeActivity: (text: string) => void): Promise<JsonObject> { const spawned = await runCommandThroughDaemon({ ...command, action: { ...command.action, idempotencyKey: typeof command.action.idempotencyKey === "string" ? command.action.idempotencyKey : `runtime-auth-${randomUUID()}` } });
-  if (spawned.ok !== true || typeof spawned.sessionId !== "string") return spawned;
-  try { const exitCode = await relayRuntimeAuthTerminal(command, spawned.sessionId, writeActivity); return { ...spawned, command: command.action.kind, exitCode, summary: `${command.action.kind}: provider terminal exited ${exitCode}` }; }
-  catch (error) { return runtimeRejected(command.action.kind, "daemon_disconnect", `The sign-in terminal stream failed: ${error instanceof Error ? error.message : String(error)}. The isolated state root keeps whatever the provider already stored; re-run the command to try again.`); }
-}
-function renderRuntimeStatus(value: JsonObject): string { if (value.session && typeof value.session === "object") { const session = value.session as Record<string, unknown>, activity = session.activity as Record<string, unknown>; return [`session: ${session.runtimeSessionId}`, `instance: ${session.instanceId}`, `provider-session: ${session.providerSessionId ?? "-"}`, `liveness: ${session.liveness}`, `outcome: ${activity.outcome ?? "-"}`, `result: ${activity.resultRef ?? "-"}`].join("\n"); } const sessions = Array.isArray(value.sessions) ? value.sessions as Record<string, unknown>[] : []; return sessions.length ? ["SESSION\tINSTANCE\tLIVENESS\tOUTCOME\tRESULT", ...sessions.map((session) => { const activity = session.activity as Record<string, unknown>; return `${session.runtimeSessionId}\t${session.instanceId}\t${session.liveness}\t${activity.outcome ?? "-"}\t${activity.resultRef ?? "-"}`; })].join("\n") : "No runtime sessions."; }
-function runtimeRejected(command: string, code: string, hint: string): JsonObject { return { schema: "command-receipt/v2", ok: false, command, outcome: "op_rejected", opId: "N/A", origin: "cli", code, evidence: `rejection:${code}`, error: { code, hint }, nextAction: hint }; }
-function contractMigrationDryRunSummary(receipt: Record<string, unknown>): string | undefined {
-  if (receipt.command !== "task-contract-migrate" || typeof receipt.evidence !== "string") return undefined;
-  let payload: unknown; try { payload = JSON.parse(receipt.evidence); } catch (error) { consumeKnownError(error); return undefined; }
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
-  const report = (payload as Record<string, unknown>).report, manual = (payload as Record<string, unknown>).manual;
-  if ((payload as Record<string, unknown>).applied !== false || !Array.isArray(report) || !Array.isArray(manual)) return undefined;
-  const rows = report.map(renderReceiptRow), scalars = Object.entries(payload).filter(([key, value]) => key !== "report" && key !== "manual" && (value === null || typeof value !== "object")).map(([key, value]) => `${key}=${String(value)}`).join("  ");
-  return [`report:\n${rows.length ? rows.join("\n") : "(none)"}`, scalars].filter(Boolean).join("\n");
-}
-function renderReceiptRow(row: unknown): string { return row && typeof row === "object" && !Array.isArray(row) ? Object.values(row).filter((value) => value === null || typeof value !== "object").map((value) => String(value)).join("\t") : String(row); }
-function isCliEntrypoint(): boolean { const invoked = process.argv[1]; if (!invoked) return false; try { return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url)); } catch { return invoked.endsWith("packages/cli/src/index.ts"); } }
 if (isCliEntrypoint()) process.exitCode = await main();
