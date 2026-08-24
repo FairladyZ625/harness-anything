@@ -1,69 +1,22 @@
-import {
-  daemonProtocolCommands,
-  resolveThinCliCommand,
-  safePath,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
 import {
   accepted,
-  globalOption,
   nonEmpty,
   readFlags,
   rejected,
-  stripGlobals,
 } from "./thin-command-flags.ts";
-import { unsupportedCommandHint } from "./thin-command-help.ts";
-import { deriveInputDirectory } from "./thin-command-inputs.ts";
 import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
 import { parseRuntimeInstance } from "./thin-command-runtime-instance.ts";
-import { parseResumeDispatch, parseRuntime } from "./thin-command-runtime.ts";
-import { parseTask } from "./thin-command-task.ts";
+import { parseRuntime } from "./thin-command-runtime.ts";
 import type {
   ProtocolCommand,
   ThinCliInputDirectory,
   ThinParseResult,
 } from "./thin-command-types.ts";
-
-export function parseThinCommand(
-  argv: readonly string[],
-  cwd = process.cwd(),
-  commands: readonly ProtocolCommand[] = daemonProtocolCommands,
-): ThinParseResult {
-  const rootDir = safePath(globalOption(argv, "--root") ?? cwd),
-    repoId = globalOption(argv, "--repo"),
-    json = argv.includes("--json"),
-    args = stripGlobals(argv),
-    route =
-      commands === daemonProtocolCommands
-        ? resolveThinCliCommand(args)
-        : commands.find((entry) =>
-            entry.path.every((token, index) => args[index] === token),
-          ),
-    inputs = deriveInputDirectory(route);
-  if (
-    route?.id === "runtime-run" &&
-    args[2]?.startsWith("--") &&
-    args.includes("--resume-dispatch")
-  )
-    return parseResumeDispatch(rootDir, repoId, json, args, inputs);
-  if (route?.id === "task-dispatches" && nonEmpty(args[2]) && args.length === 3)
-    return accepted(
-      rootDir,
-      repoId,
-      json,
-      { kind: "task-dispatches", taskId: args[2] },
-      "repo.task.dispatches",
-    );
-  const routed = parseRouted(route, args, rootDir, repoId, json, inputs);
-  if (routed) return routed;
-  if (!route || args[0] !== "task")
-    return rejected("unsupported_command", unsupportedCommandHint(args), json);
-  return parseTask(route.id, args, rootDir, repoId, json, inputs);
-}
 
 export function parseRouted(
   route: ProtocolCommand | undefined,

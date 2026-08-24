@@ -58,6 +58,6 @@
     "packages/kernel/src/projection/sqlite-projection-store.ts",
     "packages/kernel/src/store/local-version-control-system.ts",
     "packages/preset/src/preset-process-service.ts",
-    "packages/preset/src/preset-resolver.ts"
+    "packages/preset/src/preset-installation.ts"
   ]
 }
