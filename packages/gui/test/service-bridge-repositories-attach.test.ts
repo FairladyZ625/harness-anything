@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -233,25 +233,5 @@ test("GUI attach reconnects after transport loss from the last delivered cursor 
     server.close();
     await once(server, "close");
     rmSync(parent, { recursive: true, force: true });
-  }
-});
-
-test("local GUI bridge fails closed without explicit daemon registration and never autostarts", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-explicit-daemon-")),
-    userRoot = path.join(rootDir, "user-daemon");
-  const previous = process.env.HARNESS_DAEMON_USER_ROOT;
-  process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
-  try {
-    const result = (await createLocalGuiServiceBridge(rootDir).invoke(
-      "getTasks",
-      { repoId: "missing-repo" },
-    )) as Failure;
-    assert.equal(result.ok, false);
-    assert.equal(result.error?.code, "daemon_unavailable");
-    assert.match(result.error?.hint ?? "", /workspace is not registered/u);
-    assert.equal(existsSync(path.join(userRoot, "registry.json")), false);
-  } finally {
-    restoreEnv("HARNESS_DAEMON_USER_ROOT", previous);
-    rmSync(rootDir, { recursive: true, force: true });
   }
 });

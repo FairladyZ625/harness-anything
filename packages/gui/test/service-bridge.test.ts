@@ -1,6 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
@@ -16,9 +23,10 @@ import {
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
+import type { Failure } from "./service-bridge.fixtures.ts";
+import { restoreEnv } from "./service-bridge.fixtures.ts";
 
 import {
-  restoreEnv,
   seedEntityDeclarations,
   seedRuntime,
 } from "./service-bridge.fixtures.ts";
@@ -455,5 +463,25 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot);
     restoreEnv("HARNESS_DAEMON_ID", previous.daemonId);
     restoreEnv("HARNESS_DAEMON_REPO_ID", previous.repoId);
+  }
+});
+
+test("local GUI bridge fails closed without explicit daemon registration and never autostarts", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-explicit-daemon-")),
+    userRoot = path.join(rootDir, "user-daemon");
+  const previous = process.env.HARNESS_DAEMON_USER_ROOT;
+  process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
+  try {
+    const result = (await createLocalGuiServiceBridge(rootDir).invoke(
+      "getTasks",
+      { repoId: "missing-repo" },
+    )) as Failure;
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "daemon_unavailable");
+    assert.match(result.error?.hint ?? "", /workspace is not registered/u);
+    assert.equal(existsSync(path.join(userRoot, "registry.json")), false);
+  } finally {
+    restoreEnv("HARNESS_DAEMON_USER_ROOT", previous);
+    rmSync(rootDir, { recursive: true, force: true });
   }
 });
