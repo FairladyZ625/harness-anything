@@ -1,42 +1,19 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { availableParallelism, hostname, loadavg, tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+import { rmSync } from "node:fs";
+import { availableParallelism, loadavg } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../../daemon/src/repo-cell.ts";
-import { readDaemonPid } from "../../daemon/src/runtime.ts";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
 
 import {
   builtCli,
-  cli,
-  git,
-  initialize,
-  makeCanary,
   median,
   register,
   run,
-  runMaybe,
   runNoop,
   setup,
-  setupEmpty,
   stop,
-  waitForRun,
 } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 test("resident daemon CLI write p50 includes process startup through parsed receipt", async (context) => {
   const fixture = setup();

@@ -6,14 +6,12 @@ import {
   daemonProtocolCommands,
   thinCliCommands,
 } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { main, resolveCliVersion } from "../src/index.ts";
 import {
   deriveCliCapabilities,
-  firstCliCommand,
-  firstCliCommandIndex,
   parseThinCommand,
   renderThinHelp,
 } from "../src/cli/thin-command.ts";
+import { main, resolveCliVersion } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();

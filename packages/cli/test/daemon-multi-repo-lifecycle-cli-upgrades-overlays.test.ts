@@ -1,42 +1,23 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { availableParallelism, hostname, loadavg, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../../daemon/src/repo-cell.ts";
-import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
 
 import {
-  builtCli,
-  cli,
   git,
-  initialize,
-  makeCanary,
-  median,
-  register,
   run,
   runMaybe,
-  runNoop,
   setup,
   setupEmpty,
   stop,
-  waitForRun,
 } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 test("U-12 Configure-Verify failure keeps the canonical publication and returns an honest partial receipt", () => {
   const fixture = setup(),

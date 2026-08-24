@@ -1,18 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
-  daemonProtocolCommands,
-  thinCliCommands,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { main, resolveCliVersion } from "../src/index.ts";
-import {
-  deriveCliCapabilities,
   firstCliCommand,
   firstCliCommandIndex,
   parseThinCommand,
-  renderThinHelp,
 } from "../src/cli/thin-command.ts";
 
 test("lifecycle CLI maps explicit selectors and accepts every derivable execution or Review selector", () => {

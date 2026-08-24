@@ -1,25 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { availableParallelism, hostname, loadavg, tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../../daemon/src/repo-cell.ts";
-import { readDaemonPid } from "../../daemon/src/runtime.ts";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
 
 export const cli = path.resolve("packages/cli/src/index.ts");
 export const builtCli = path.resolve("packages/cli/dist/cli/src/index.js");
