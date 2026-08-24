@@ -676,7 +676,7 @@ export function TaskCloseoutTab({
                 key={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
                 id={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
                 state={
-                  witness.schema === "code-doc-witness/v1" || witness.disposition === "repointed"
+                  witness.schema === "code-doc-witness/v1" || witness.paths.length > 0
                     ? "reconciled"
                     : "known-invalid"
                 }
