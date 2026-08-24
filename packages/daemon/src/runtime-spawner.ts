@@ -106,6 +106,12 @@ export function makeRuntimeSpawner(input: {
   readonly resolveSquadDispatchTarget?: (leaderId: string, workerId: string) => SquadDispatchTarget;
   readonly launch?: RuntimeLauncher;
   readonly schedule: (work: () => void | Promise<void>) => void;
+  readonly onRuntimeOutcome?: (
+    event: Extract<
+      AgentRuntimeEventV1,
+      { readonly type: "runtime_session_outcome_observed" }
+    >,
+  ) => void;
 }) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),

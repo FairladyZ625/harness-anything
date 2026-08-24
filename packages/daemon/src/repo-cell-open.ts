@@ -64,6 +64,7 @@ import {
   type RuntimeLauncher,
 } from "./runtime-spawn.ts";
 import { openTerminalHost } from "./terminal-host.ts";
+import { makeSquadCoordinator } from "./squad-coordinator.ts";
 
 export function publicPublication(
   value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">,
@@ -327,9 +328,19 @@ export async function openRepoCell(input: {
     resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId }),
     resolveSquadDispatchTarget: (leaderId, workerId) =>
       resolveSquadDispatchTarget({ rootDir, leaderId, workerId }),
+    onRuntimeOutcome: (event) => {
+      schedule(() => squadCoordinator.observeOutcome(event));
+    },
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });
+  const squadCoordinator = makeSquadCoordinator({
+    rootDir,
+    projection: () => projection,
+    store: () => store,
+    runtimeSpawner: () => runtimeSpawner,
+  });
   await runtimeSpawner.adopt();
+  schedule(() => squadCoordinator.reconcile());
   function assertRuntimeAdmission(force = false): void {
     runtimeAdmission.assert(rootDir, force);
   }
@@ -394,6 +405,7 @@ export async function openRepoCell(input: {
     setKnownTaskIds: (value) => {
       knownTaskIds = value;
     },
+    getSquadCoordinator: () => squadCoordinator,
   });
 
   const apiContext = {
@@ -479,6 +491,7 @@ export async function openRepoCell(input: {
     },
     now,
     executeAction: extracted.executeAction,
+    squadCoordinator: extracted.squadCoordinator,
     presetProcess,
     get runtimeReads() {
       return runtimeReads;

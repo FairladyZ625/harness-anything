@@ -115,7 +115,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
       `${active.dispatchOpId}-exited`,
       eventBinding,
     );
-    await context.publishRuntimeEvent(
+    const outcomeEvent = await context.publishRuntimeEvent(
       "runtime_session_outcome_observed",
       {
         runtimeSessionId: active.runtimeSessionId,
@@ -128,6 +128,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
       eventBinding,
       body,
     );
+    context.input.onRuntimeOutcome?.(outcomeEvent.event);
     const notification =
       active.onExitCommand === null
         ? null

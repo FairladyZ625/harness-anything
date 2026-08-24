@@ -115,6 +115,7 @@ export function createRepoCellActionContext(bindings: {
   readonly setRecoveryUncertain: (value: boolean) => void;
   readonly getKnownTaskIds: () => Set<string> | null;
   readonly setKnownTaskIds: (value: Set<string> | null) => void;
+  readonly getSquadCoordinator: () => any;
 }): any {
   const bind =
     <Args extends readonly unknown[], Result>(
@@ -175,6 +176,9 @@ export function createRepoCellActionContext(bindings: {
     lifecycleAction: bind(lifecycleActionImpl),
     get service() {
       return bindings.getService();
+    },
+    get squadCoordinator() {
+      return bindings.getSquadCoordinator();
     },
     workspaceText,
     buildCommand,

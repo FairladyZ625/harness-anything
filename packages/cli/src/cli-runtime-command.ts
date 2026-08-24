@@ -16,6 +16,7 @@ import path from "node:path";
 
 export function isRuntimeFacadeCommand(command: ThinCommand): boolean {
   return (
+    command.action.kind === "squad-run" ||
     command.method.startsWith("repo.agentRuntime.") ||
     command.method.startsWith("repo.runtimeInstance.auth.")
   );

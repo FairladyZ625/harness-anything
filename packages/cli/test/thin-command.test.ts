@@ -15,7 +15,7 @@ import { emit, main, resolveCliVersion } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 110);
+  assert.equal(thinCliCommands.length, 111);
   for (const domain of [
     ...new Set(daemonProtocolCommands.map((command) => command.path[0])),
   ]
@@ -171,6 +171,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "squad-install",
       "squad-list",
       "squad-run",
+      "squad-status",
       "squad-validate",
     ],
     task: [

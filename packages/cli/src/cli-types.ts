@@ -1,5 +1,3 @@
-import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
-
 export type RuntimeCwd = Readonly<Record<string, string>>;
 
 export type RuntimeBatchEntry = {
@@ -35,14 +33,6 @@ export type RuntimeBatchResult = {
   readonly resultText: string | null;
 };
 
-export type SquadDeclaration = {
-  readonly id: string;
-  readonly name: string;
-  readonly leader: string;
-  readonly workers: readonly string[];
-  readonly roster: string;
-};
-
 export type SquadRunAction = {
   readonly kind: "squad-run";
   readonly squadId: string;
@@ -53,16 +43,6 @@ export type SquadRunAction = {
   readonly model?: string;
   readonly cwd: Readonly<Record<string, string>>;
   readonly taskId: string;
-};
-
-export type SquadReadResult =
-  | { readonly squad: SquadDeclaration }
-  | { readonly receipt: JsonObject };
-
-export type SquadRunDispatch = RuntimeBatchResult & {
-  readonly agentId: string | null;
-  readonly delegatedByAgentId: string;
-  readonly squadId: string;
 };
 
 export type AgentCreateAction = {
