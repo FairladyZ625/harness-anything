@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
@@ -125,6 +125,205 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
     assert.equal(consent.code, "actor_unauthorized");
     assert.match(String(consent.nextAction), /personId=0/u);
     assert.match(String(consent.nextAction), /executor=none/u);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a reviewed bare-invocation execution can declare its executor and complete after cold replay", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-bare-reviewed-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  const repoId = workspaceId("review-bare-reviewed"),
+    taskId = "task-bare-reviewed",
+    executionId = "exec-bare-reviewed",
+    bare = {
+      actor: { principal: { personId: "person-owner" }, executor: null },
+      source: "local" as const,
+      roles: ["$arbiter"],
+    },
+    agent = {
+      actor: {
+        principal: { personId: "person-owner" },
+        executor: { kind: "agent" as const, id: "recovering-agent" },
+      },
+      source: "local" as const,
+      roles: ["$arbiter"],
+    },
+    wrongPrincipal = {
+      actor: {
+        principal: { personId: "person-outsider" },
+        executor: { kind: "agent" as const, id: "recovering-agent" },
+      },
+      source: "local" as const,
+      roles: ["$arbiter"],
+    };
+  try {
+    initRepo(rootDir);
+    writeFileSync(path.join(rootDir, "README.md"), "# Reviewed executor repair fixture\n");
+    git(rootDir, "add", "README.md");
+    git(rootDir, "commit", "--quiet", "-m", "fixture output");
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "review-bare-reviewed" });
+    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Bare reviewed" }, bare)).outcome, "applied");
+    const packagePath = "tasks/task-bare-reviewed-bare-reviewed",
+      closeoutPath = path.join(rootDir, "harness", packagePath, "closeout.md"),
+      commitSha = git(rootDir, "rev-parse", "HEAD"),
+      submission = {
+        completionClaim: "The reviewed executor repair fixture is complete.",
+        deliverables: ["reviewed executor repair"],
+        outputs: ["README.md"],
+        verificationNotes: ["daemon integration"],
+        knownGaps: [],
+        residualRisks: [],
+        commitSha,
+      };
+    writeFileSync(
+      closeoutPath,
+      "# Closeout\n\n## Summary\n\nReviewed executor repair.\n\n## Verification\n\nDaemon integration.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the declaration audit.\n",
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, bare)).outcome, "applied");
+    writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify(submission));
+    assert.equal(
+      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, bare)).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["daemon integration"] }),
+    );
+    const reviewer = {
+      actor: {
+        principal: { personId: "person-reviewer" },
+        executor: { kind: "agent" as const, id: "reviewer-agent" },
+      },
+      source: "local" as const,
+      roles: ["$arbiter"],
+    };
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-review-execution", taskId, executionId, reviewId: "review-approved", fromFile: "review.json" },
+          reviewer,
+        )
+      ).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-transition", taskId, status: "blocked", reason: "Executor attribution must be repaired." },
+          bare,
+        )
+      ).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "judgment.json"),
+      JSON.stringify({
+        submission,
+        review: { verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["daemon integration"] },
+        consent: { approved: true },
+        completion: { ci: "passed", codeDocPaths: ["README.md"] },
+      }),
+    );
+
+    const negativeControl = {
+      complete: await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, agent),
+      consent: await cell.run(
+        { kind: "task-review-consent", taskId, executionId, reviewId: "review-approved", consentId: "consent-approved" },
+        bare,
+      ),
+      closeout: await cell.run(
+        { kind: "task-closeout", taskId, executionId, fromFile: "judgment.json" },
+        agent,
+      ),
+      start: await cell.run({ kind: "task-start", taskId, executionId }, agent),
+      declareWrongPrincipal: await cell.run(
+        { kind: "task-declare-executor", taskId, executionId, reason: "An outsider must not claim this execution." },
+        wrongPrincipal,
+      ),
+    };
+    console.log(`executor-null-negative-control=${JSON.stringify(negativeControl)}`);
+    assert.deepEqual(
+      Object.values(negativeControl).map((receipt) => receipt.outcome),
+      ["op_rejected", "op_rejected", "op_rejected", "op_rejected", "op_rejected"],
+    );
+    assert.equal(negativeControl.complete.code, "task_blocked");
+    assert.match(String(negativeControl.complete.nextAction), /ha task transition task-bare-reviewed active/u);
+    assert.match(String(negativeControl.closeout.nextAction), /ha task transition task-bare-reviewed active/u);
+    assert.match(String(negativeControl.closeout.nextAction), /ha task declare-executor task-bare-reviewed/u);
+
+    const unblocked = await cell.run({ kind: "task-transition", taskId, status: "active" }, bare);
+    assert.equal(unblocked.outcome, "applied", JSON.stringify(unblocked));
+    const completeRepair = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, agent),
+      closeoutRepair = await cell.run(
+        { kind: "task-closeout", taskId, executionId, fromFile: "judgment.json" },
+        agent,
+      );
+    assert.equal(completeRepair.code, "executor_missing", JSON.stringify(completeRepair));
+    assert.match(String(completeRepair.nextAction), /ha task declare-executor task-bare-reviewed/u);
+    assert.equal(closeoutRepair.code, "executor_missing", JSON.stringify(closeoutRepair));
+    assert.match(String(closeoutRepair.nextAction), /ha task declare-executor task-bare-reviewed/u);
+    const denied = await cell.run(
+      { kind: "task-declare-executor", taskId, executionId, reason: "An outsider must not claim this execution." },
+      wrongPrincipal,
+    );
+    assert.equal(denied.code, "invalid_proof", JSON.stringify(denied));
+
+    const declared = await cell.run(
+      {
+        kind: "task-declare-executor",
+        taskId,
+        executionId,
+        reason: "The original principal names the agent that completed the already approved execution.",
+      },
+      agent,
+    ) as Record<string, unknown>;
+    assert.equal(declared.outcome, "applied", JSON.stringify(declared));
+    const declaration = makeTaskEventStore({ repoId, rootDir }).readEvent(String(declared.opId));
+    assert.equal(declaration?.type, "execution_executor_declared");
+    if (declaration?.type === "execution_executor_declared") {
+      assert.deepEqual(declaration.payload.previousActor, bare.actor);
+      assert.deepEqual(declaration.payload.execution.actor, agent.actor);
+      assert.equal(declaration.payload.task.status, "in_review");
+      assert.equal(declaration.payload.task.currentNode, "review");
+    }
+
+    await cell.close();
+    cell = undefined;
+    const projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId, rootDir }) });
+    projection.close();
+    rmSync(projection.path, { force: true });
+    projection.rebuild();
+    assert.equal(projection.read(taskId).snapshot.task?.status, "in_review");
+    assert.deepEqual(
+      projection.read(taskId).snapshot.executions.find((execution) => execution.executionId === executionId)?.actor,
+      agent.actor,
+    );
+    projection.close();
+
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "review-bare-reviewed-reopened" });
+    const consented = await cell.run(
+      { kind: "task-review-consent", taskId, executionId, reviewId: "review-approved", consentId: "consent-approved" },
+      bare,
+    );
+    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
+    const completed = await cell.run(
+      { kind: "task-complete", taskId, executionId, ci: "passed", paths: ["README.md"] },
+      bare,
+    ) as Record<string, unknown>;
+    console.log(
+      `executor-null-positive-control=${JSON.stringify({ completeRepair, closeoutRepair, denied, declared, consented, completed })}`,
+    );
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    const shown = await cell.run({ kind: "task-show", taskId }, bare);
+    assert.match(String(shown.evidence), /"status":"done"/u);
+    assert.equal(
+      makeTaskEventStore({ repoId, rootDir }).read().events.some(
+        (event) => event.type === "review_recorded" && event.payload.review.verdict === "changes_requested",
+      ),
+      false,
+    );
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

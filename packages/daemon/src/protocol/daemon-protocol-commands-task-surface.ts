@@ -28,7 +28,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     id: "task-declare-executor",
     phase: "W3",
     path: ["task", "declare-executor", "<task-id>"],
-    summary: "Auditably declare the agent executor omitted from an unreviewed submitted Execution.",
+    summary: "Auditably declare the agent executor omitted from a submitted Execution at the review node.",
     method: "repo.task.run",
     commandClass: "repo-write",
     inputs: [

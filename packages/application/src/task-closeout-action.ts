@@ -36,9 +36,29 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   catch (error) { return reject(opId, "invalid_judgment", `${error instanceof Error ? error.message : String(error)} Repair the packet, then run ${invocation}.`); }
   const snapshot = await dependencies.read(), task = snapshot.task;
   if (!task || task.taskId !== taskId) return reject(opId, "task_not_found", `Run ha task list, choose an existing task id, then run ${invocation}.`);
+  const repairCandidates = currentExecutionCuts(snapshot).filter((candidate) =>
+      candidate.state === "submitted" &&
+      candidate.actor.executor === null &&
+      (executionId === undefined || candidate.executionId === executionId),
+    ),
+    executorRepair = task.currentNode === "review" && repairCandidates.length === 1 ? repairCandidates[0] : undefined,
+    declareExecutor = executorRepair
+      ? [
+          `ha task declare-executor ${taskId}`,
+          `--execution-id ${executorRepair.executionId}`,
+          "--reason <auditable-recovery-reason>",
+        ].join(" ")
+      : null;
   if (task.status === "done") { const shown = await dependencies.invoke("task-show", { kind: "task-show", taskId }, caller); return { ...shown, taskId, summary: `task ${taskId} is already done`, steps: [] } as WriteReceipt; }
   if (task.status === "planned") return reject(opId, "not_started", `Run ha task start ${taskId} --execution-id <execution-id>, then run ${invocation}.`);
-  if (task.status === "blocked") return reject(opId, "task_blocked", `Run ha task transition ${taskId} active, then run ${invocation}.`);
+  if (task.status === "blocked")
+    return reject(
+      opId,
+      "task_blocked",
+      declareExecutor
+        ? `Run ha task transition ${taskId} active, then run ${declareExecutor}, then run ${invocation}.`
+        : `Run ha task transition ${taskId} active, then run ${invocation}.`,
+    );
   if (task.status === "cancelled") return reject(opId, "terminal_task", `Run ha task supersede ${taskId} --title <follow-up-title> to create new work; the cancelled task cannot be closed out.`);
   if (task.status !== "active" && task.status !== "in_review") return reject(opId, "invalid_transition", `Run ha task show ${taskId}, repair its lifecycle state, then run ${invocation}.`);
   const ciIssue = ciJudgmentIssue(task.completionGateIds, judgment.completion.ci);
@@ -46,6 +66,8 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   if (task.createdBy.principal.personId !== caller.principal.personId) return reject(opId, "actor_unauthorized", `The Task owner (${task.createdBy.principal.personId}) must run ${invocation}.`);
 
   const reviewId = deterministicId("review-closeout", taskId, String(task.iteration), judgment.submission.commitSha, judgment.review), consentId = deterministicId("consent-closeout", taskId, String(task.iteration), judgment.submission.commitSha, reviewId);
+  if (task.status === "active" && declareExecutor)
+    return reject(opId, "executor_missing", `Run ${declareExecutor}, then run ${invocation}.`);
   let stage = 0, submitActor: ActorIdentity | null = null;
   if (task.status === "active") {
     if (!snapshot.lease) return reject(opId, "lease_required", `Run ha task start ${taskId} --execution-id <execution-id>, then run ${invocation}.`);

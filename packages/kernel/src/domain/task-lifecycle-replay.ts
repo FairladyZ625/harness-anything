@@ -136,11 +136,12 @@ export function compileExecutionExecutorDeclaration(input: {
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue(
         "invalid_executor_declaration",
-        "executor declaration requires the same principal to name an agent for the current unreviewed submitted " +
-          "Execution that originally declared no executor",
+        "executor declaration requires the same principal to name an agent for a submitted Execution at the " +
+          "review node that originally declared no executor; unblock a blocked task before retrying",
       ),
     ]);
-  const nextExecution: ExecutionV1 = { ...current, actor: input.actor },
+  const nextTask = { ...task, status: "in_review" as const },
+    nextExecution: ExecutionV1 = { ...current, actor: input.actor },
     event: ExecutionExecutorDeclaredEvent = {
       schema: "task-event/v1",
       eventId: input.eventId,
@@ -152,7 +153,7 @@ export function compileExecutionExecutorDeclaration(input: {
       source: input.source,
       occurredAt: input.occurredAt,
       payload: {
-        task,
+        task: nextTask,
         execution: nextExecution,
         previousActor: current.actor,
         reason: input.reason,
@@ -207,6 +208,7 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
     next = {
       ...snapshot,
       revision: event.workspaceRevision,
+      task: event.payload.task,
       executions: replaceExecution(snapshot.executions, event.payload.execution),
     };
   else if (event.type === "review_recorded")
@@ -285,26 +287,26 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     ]);
   if (event.type === "execution_executor_declared") {
     const current = execution(snapshot, event.payload.execution.executionId),
-      expected = current ? { ...current, actor: event.actor } : null;
+      expected = current ? { ...current, actor: event.actor } : null,
+      expectedTask = snapshot.task ? { ...snapshot.task, status: "in_review" as const } : null;
     if (
       !current ||
-      stableStringify(event.payload.task) !== stableStringify(snapshot.task) ||
+      stableStringify(event.payload.task) !== stableStringify(expectedTask) ||
       stableStringify(event.payload.previousActor) !== stableStringify(current.actor) ||
       stableStringify(event.payload.execution) !== stableStringify(expected) ||
       current.actor.executor !== null ||
       event.actor.executor === null ||
       !isSamePerson(current.actor, event.actor) ||
-      snapshot.task?.status !== "in_review" ||
-      snapshot.task.currentNode !== "review" ||
+      !["active", "in_review"].includes(String(snapshot.task?.status)) ||
+      snapshot.task?.currentNode !== "review" ||
       snapshot.lease !== null ||
       current.state !== "submitted" ||
-      !current.submission ||
-      snapshot.reviews.some((value) => value.executionId === current.executionId)
+      !current.submission
     )
       throw new TaskLifecycleContractError("invalid_proof", [
         lifecycleContractIssue(
           "invalid_executor_declaration",
-          "replayed executor declaration is not a same-principal repair of an unreviewed submitted execution",
+          "replayed executor declaration is not a same-principal repair of a submitted execution at review",
         ),
       ]);
   }

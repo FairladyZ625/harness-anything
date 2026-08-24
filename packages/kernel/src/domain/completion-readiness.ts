@@ -2,14 +2,48 @@ import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import { closeoutReadiness } from "./closeout-readiness.ts";
 import { approvedReviewsForCut } from "./review.ts";
 
-export type CompletionBlockerCode = "not_in_review" | "closeout_placeholder" | "review_missing" | "consent_missing" | "ci_missing" | "code_doc_missing" | "decision_lineage_missing" | "lease_held" | "doc_sync_required" | "gate_witness_missing";
+export type CompletionBlockerCode =
+  | "not_in_review"
+  | "task_blocked"
+  | "executor_missing"
+  | "closeout_placeholder"
+  | "review_missing"
+  | "consent_missing"
+  | "ci_missing"
+  | "code_doc_missing"
+  | "decision_lineage_missing"
+  | "lease_held"
+  | "doc_sync_required"
+  | "gate_witness_missing";
 export interface CompletionNext { readonly command: string; readonly reason: string }
 export interface CompletionBlocker { readonly code: CompletionBlockerCode; readonly gate: string; readonly next: CompletionNext }
 export interface CompletionReadinessContext { readonly closeout: "ready" | "placeholder" | "dirty_eligible" | "missing"; readonly closeoutPath: string; readonly eligibleDirtyPaths: readonly string[] }
 
 export function completionBlockers(snapshot: TaskLifecycleSnapshot, executionId: string, context: CompletionReadinessContext): readonly CompletionBlocker[] {
   const task = snapshot.task, execution = snapshot.executions.find((value) => value.executionId === executionId && value.iteration === task?.iteration), one = (code: CompletionBlockerCode, gate: string, command: string, reason: string) => [{ code, gate, next: { command, reason } }] as const;
-  if (!task || task.status !== "in_review" || task.currentNode !== "review" || execution?.state !== "submitted" || !execution.submission) return one("not_in_review", "lifecycle", task?.status === "active" ? `ha task submit ${task.taskId} --execution-id ${executionId} --from-file <submission.json>` : `ha task start ${task?.taskId ?? "<task-id>"} --execution-id ${executionId}`, "Complete never submits or starts an execution; reach in_review first.");
+  if (!task || task.currentNode !== "review" || execution?.state !== "submitted" || !execution.submission) return one("not_in_review", "lifecycle", task?.status === "active" ? `ha task submit ${task.taskId} --execution-id ${executionId} --from-file <submission.json>` : `ha task start ${task?.taskId ?? "<task-id>"} --execution-id ${executionId}`, "Complete never submits or starts an execution; reach in_review first.");
+  if (task.status === "blocked") return one(
+    "task_blocked",
+    "lifecycle",
+    `ha task transition ${task.taskId} active`,
+    "The submitted execution is at the review node, but the Task is explicitly blocked; clear that block.",
+  );
+  if (task.status === "active" && execution.actor.executor === null) return one(
+    "executor_missing",
+    "lifecycle",
+    [
+      `ha task declare-executor ${task.taskId}`,
+      `--execution-id ${executionId}`,
+      "--reason <auditable-recovery-reason>",
+    ].join(" "),
+    "The submitted execution is already at review; restore its omitted executor instead of restarting it.",
+  );
+  if (task.status !== "in_review") return one(
+    "not_in_review",
+    "lifecycle",
+    `ha task show ${task.taskId}`,
+    "The Task status does not match its review node; inspect the lifecycle record before completion.",
+  );
   const submission = execution.submission;
   if (snapshot.lease !== null) return one("lease_held", "lease", `ha task submit ${task.taskId} --execution-id ${snapshot.lease.executionId} --from-file <submission.json>`, "Release the held execution lease through canonical submit.");
   const assessment = closeoutReadiness(snapshot);
