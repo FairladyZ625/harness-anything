@@ -1,418 +1,911 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { consumeKnownError, makeTaskEventStore, makeTaskProjection, registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
-import { launchExitNotification } from "../src/runtime-spawn.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
-const cli = path.resolve("packages/cli/src/index.ts");
-const definition: AgentDefinitionSnapshot = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "codex-review", installationId: "installation-codex", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: "https://api.example.test/", authMode: "api-key" };
-const installation: RuntimeInstallationWitness = { installationId: definition.installationId, kindId: definition.kindId, executablePath: "/opt/witnessed/codex", version: "1.0.0", observedAt: "2026-08-14T00:00:00.000Z" };
-
-test("runtime spawn publishes a canonical session and makes it visible in overview", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-"));
+const definition: AgentDefinitionSnapshot = {
+  schema: "agent-definition-snapshot/v1",
+  configVersion: 1,
+  instanceId: "codex-review",
+  installationId: "installation-codex",
+  kindId: "codex",
+  providerId: "openai",
+  model: "gpt-5.6-sol",
+  reasoningEffort: "high",
+  baseUrl: "https://api.example.test/",
+  authMode: "api-key",
+};
+test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible installation", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-claude-"));
+  try {
+    git(root, "init", "-q");
+    git(root, "config", "user.name", "Spawn Test");
+    git(root, "config", "user.email", "spawn@example.invalid");
+    git(root, "commit", "--allow-empty", "-qm", "base");
+    const claudeDefinition: AgentDefinitionSnapshot = {
+      ...definition,
+      instanceId: "claude-review",
+      installationId: "installation-claude",
+      kindId: "claude",
+      providerId: "anthropic",
+      model: "claude-fable-5",
+      reasoningEffort: null,
+      baseUrl: null,
+      authMode: "subscription",
+    };
+    const claudeInstallation: RuntimeInstallationWitness = {
+      installationId: claudeDefinition.installationId,
+      kindId: claudeDefinition.kindId,
+      executablePath: "/opt/witnessed/claude",
+      version: "1.0.0",
+      observedAt: "2026-08-14T00:00:00.000Z",
+    };
+    let executablePath: string | undefined;
+    const cell = await openRepoCell({
+      repoId: workspaceId("runtime-spawn-claude"),
+      rootDir: canonicalRoot(root),
+      ownerId: "spawn-test",
+      runtimeInstances: () => [],
+      prepareRuntimeLaunch: (_instanceId, request) => ({
+        definition: claudeDefinition,
+        installation: claudeInstallation,
+        executablePath: claudeInstallation.executablePath,
+        args: ["-p", "--verbose", "--output-format", "stream-json", "--model", claudeDefinition.model],
+        env: { HOME: "/isolated/claude-review/home" },
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: (input) => {
+        executablePath = input.executablePath;
+        return {
+          pid: 124,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        };
+      },
+    });
     try {
-      git(root, "init", "-q"); git(root, "config", "user.name", "Spawn Test"); git(root, "config", "user.email", "spawn@example.invalid"); git(root, "commit", "--allow-empty", "-qm", "base");
-      let launched: unknown, intentWasDurable = false;
-      const cell = await openRepoCell({ repoId: workspaceId("runtime-spawn"), rootDir: canonicalRoot(root), ownerId: "spawn-test", runtimeInstances: () => [{ schemaVersion: 2, instanceId: definition.instanceId, name: "Codex Review", kindId: "codex", installationId: definition.installationId, providerId: definition.providerId, models: [definition.model, "gpt-5.6-terra"], defaultModel: definition.model, enabled: true, permissionMode: "bypass", codex: { reasoningEffort: definition.reasoningEffort, baseUrl: definition.baseUrl, baseUrlConfigured: true, wire_api: null, requires_openai_auth: null, http_headers: null }, authMode: definition.authMode, authState: "configured", authReadiness: { status: "ready", code: null, hint: null }, isolationState: "enforced" }], prepareRuntimeLaunch: (instanceId, request) => ({ definition: { ...definition, model: request.model ?? definition.model, reasoningEffort: request.effort ?? definition.reasoningEffort }, installation, executablePath: installation.executablePath, args: ["exec", "--json", ...(request.permissionMode ? ["--sandbox", request.permissionMode] : []), "--model", request.model ?? definition.model, ...(request.effort ? ["--config", `model_reasoning_effort=${JSON.stringify(request.effort)}`] : []), "-"], env: { HOME: "/isolated/codex-review/home", OPENAI_API_KEY: "resolved-only-in-daemon" }, cwd: request.cwd, prompt: request.prompt }), runtimeLaunch: (input) => { intentWasDurable = makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root }).read().events.some((candidate) => candidate.type === "runtime_dispatch_requested"); launched = input; return { pid: 123, onOutput: () => undefined, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });
-      try {
-        const binding = { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" as const };
-        await assert.rejects(cell.spawnRuntime({ runtimeInstanceId: "codex-review", permission_mode: "read-only", cwd: { scope: "repo-root" }, prompt: "Reject the misspelled field", taskId: null, idempotencyKey: "spawn-unknown-field" }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_spawn" && error.message === 'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "runtimeInstanceId", "dispatchId", "agentId", "targetAgentId", "model", "effort", "permissionMode", "cwd", "prompt", "promptSource", "onExitCommand", "taskId", "idempotencyKey", "providerSessionId".');
-        await assert.rejects(cell.cancelRuntime({ runtimeSessionId: "missing", force: true }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_cancel" && error.message === 'Runtime cancel payload contains an unknown field "force"; allowed fields: "runtimeSessionId".');
-        const receipt = await cell.spawnRuntime({ runtimeInstanceId: "codex-review", cwd: { scope: "repo-root" }, prompt: "Inspect the repository", taskId: null, idempotencyKey: "spawn-once" }, { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" });
-        assert.equal(receipt.outcome, "applied");
-        assert.equal(intentWasDurable, true); assert.deepEqual(launched, { definition, installation, executablePath: "/opt/witnessed/codex", args: ["exec", "--json", "--model", "gpt-5.6-sol", "-"], env: { HOME: "/isolated/codex-review/home", OPENAI_API_KEY: "resolved-only-in-daemon" }, cwd: canonicalRoot(root), prompt: "Inspect the repository" });
-        const events = makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root }).read().events, observed = events.find((candidate) => candidate.type === "runtime_installation_observed"), dispatch = events.find((candidate) => candidate.type === "runtime_dispatch_requested"), started = events.find((candidate) => candidate.type === "runtime_session_started");
-        assert.equal(observed?.type === "runtime_installation_observed" && observed.payload.installationId, definition.installationId); assert.equal(observed?.type === "runtime_installation_observed" && observed.payload.version, installation.version); assert.equal(events.indexOf(observed!), 0); assert.equal(events.indexOf(dispatch!), 1);
-        assert.equal(dispatch?.type === "runtime_dispatch_requested" && dispatch.payload.instanceId, definition.instanceId); assert.equal(dispatch?.type === "runtime_dispatch_requested" && dispatch.payload.installationId, definition.installationId); assert.deepEqual(dispatch?.type === "runtime_dispatch_requested" && dispatch.payload.definitionSnapshot, definition);
-        assert.equal(started?.type === "runtime_session_started" && started.payload.instanceId, definition.instanceId); assert.equal(started?.type === "runtime_session_started" && started.payload.installationId, definition.installationId); assert.equal(started?.type === "runtime_session_started" && started.payload.definitionSnapshotRef, dispatch?.type === "runtime_dispatch_requested" && dispatch.payload.definitionSnapshotRef);
-        const overview = await cell.read("repo.agentRuntime.overview", {});
-        const session = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId); assert.equal(session?.instanceId, definition.instanceId); assert.deepEqual(session?.definitionSnapshot, definition);
-        const alternate = await cell.spawnRuntime({ runtimeInstanceId: "codex-review", model: "gpt-5.6-terra", cwd: { scope: "repo-root" }, prompt: "Inspect with alternate model", taskId: null, idempotencyKey: "spawn-terra" }, { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" });
-        assert.equal(alternate.outcome, "applied"); assert.deepEqual(launched, { definition: { ...definition, model: "gpt-5.6-terra" }, installation, executablePath: "/opt/witnessed/codex", args: ["exec", "--json", "--model", "gpt-5.6-terra", "-"], env: { HOME: "/isolated/codex-review/home", OPENAI_API_KEY: "resolved-only-in-daemon" }, cwd: canonicalRoot(root), prompt: "Inspect with alternate model" });
-        const low = await cell.spawnRuntime({ runtimeInstanceId: "codex-review", effort: "low", cwd: { scope: "repo-root" }, prompt: "Mechanical task", taskId: null, idempotencyKey: "spawn-low" }, { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" });
-        assert.equal(low.outcome, "applied"); assert.deepEqual(launched, { definition: { ...definition, reasoningEffort: "low" }, installation, executablePath: "/opt/witnessed/codex", args: ["exec", "--json", "--model", "gpt-5.6-sol", "--config", "model_reasoning_effort=\"low\"", "-"], env: { HOME: "/isolated/codex-review/home", OPENAI_API_KEY: "resolved-only-in-daemon" }, cwd: canonicalRoot(root), prompt: "Mechanical task" });
-        const locked = await cell.spawnRuntime({ runtimeInstanceId: "codex-review", permissionMode: "read-only", cwd: { scope: "repo-root" }, prompt: "Locked task", taskId: null, idempotencyKey: "spawn-locked" }, { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" });
-        assert.equal(locked.outcome, "applied"); assert.deepEqual((launched as { args: string[] }).args, ["exec", "--json", "--sandbox", "read-only", "--model", "gpt-5.6-sol", "-"]);
-        const xhigh = await cell.spawnRuntime({ runtimeInstanceId: "codex-review", effort: "xhigh", cwd: { scope: "repo-root" }, prompt: "Hard task", taskId: null, idempotencyKey: "spawn-xhigh" }, { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" });
-        assert.equal(xhigh.outcome, "applied"); assert.deepEqual(launched, { definition: { ...definition, reasoningEffort: "xhigh" }, installation, executablePath: "/opt/witnessed/codex", args: ["exec", "--json", "--model", "gpt-5.6-sol", "--config", "model_reasoning_effort=\"xhigh\"", "-"], env: { HOME: "/isolated/codex-review/home", OPENAI_API_KEY: "resolved-only-in-daemon" }, cwd: canonicalRoot(root), prompt: "Hard task" }); const current = (await cell.read("repo.agentRuntime.overview", {})).instances[0]; assert.equal(current?.kindId, "codex"); if (current?.kindId === "codex") assert.equal(current.codex.reasoningEffort, "high");
-        await assert.rejects(cell.spawnRuntime({ kindId: "codex", installationId: "installation-codex", profileId: "default", cwd: { scope: "repo-root" }, prompt: "Legacy", taskId: null, idempotencyKey: "legacy" }, { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" }), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_spawn");
-      } finally { await cell.close(); }
-    } finally { rmSync(root, { recursive: true, force: true }); }
+      const receipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: "claude-review",
+          cwd: { scope: "repo-root" },
+          prompt: "Inspect the repository",
+          taskId: null,
+          idempotencyKey: "spawn-claude-once",
+        },
+        {
+          actor: { principal: { personId: "person-spawn" }, executor: null },
+          source: "local",
+        },
+      );
+      assert.equal(receipt.outcome, "applied");
+      assert.equal(executablePath, "/opt/witnessed/claude");
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
-test("repo-cell restart re-adopts a live native runtime and settles an exit recorded while absent", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-re-adopt-")), root = path.join(parent, "repo"), release = path.join(parent, "release"), pidFile = path.join(parent, "provider.pid"), repoId = "runtime-re-adopt", executablePath = writeProviderExecutable(path.join(parent, "re-adopt-provider.mjs"), `import fs from "node:fs";\nfs.readFileSync(0, "utf8");\nfs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: "provider-re-adopt-session" }));\nconst timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "survived daemon restart" } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); }, 10);\n`), installation = installationFixture("codex", executablePath), definition = { instanceId: "codex-re-adopt", name: "Codex Re-adopt", kindId: "codex" as const, installationId: installation.installationId, providerId: "openai", models: ["codex-model"], defaultModel: "codex-model", enabled: true, permissionMode: "read-only" as const, codex: {}, authMode: "subscription" as const, authState: "configured" as const, authReadiness: { status: "ready" as const, code: null, hint: null }, isolationState: "enforced" as const, schemaVersion: 2 as const }, preparedDefinition: AgentDefinitionSnapshot = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: definition.instanceId, installationId: installation.installationId, kindId: "codex", providerId: "openai", model: "codex-model", reasoningEffort: null, baseUrl: null, authMode: "subscription" };
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined, providerPid = 0;
+test("runtime spawn resolves command model, Agent model, then instance default without silent fallback", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-agent-model-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    executablePath = writeProviderExecutable(path.join(parent, "codex-agent-model-stub.mjs"), "process.exit(0)\n"),
+    repoId = "runtime-agent-model",
+    models = ["instance-default", "agent-declared", "command-override"] as const,
+    runtimeInstallation = {
+      installationId: "installation-codex-agent-model",
+      kindId: "codex" as const,
+      executablePath,
+      version: "1.0.0",
+      observedAt: "2026-08-20T00:00:00.000Z",
+    },
+    claudeInstallation = {
+      ...runtimeInstallation,
+      installationId: "installation-claude-agent-model",
+      kindId: "claude" as const,
+    },
+    agyInstallation = {
+      ...runtimeInstallation,
+      installationId: "installation-agy-agent-model",
+      kindId: "agy" as const,
+    };
+  mkdirSync(root);
+  initIngressRepo(root, 4306);
+  mkdirSync(path.join(root, "harness", "agents"), { recursive: true });
+  writeFileSync(
+    path.join(root, "harness", "agents", "declared-model.json"),
+    `${JSON.stringify({ schema: "agent-declaration/v1", id: "declared-model", name: "Declared Model", instructions: "Include the identity marker exactly: AGENT_INSTRUCTIONS_WITNESS.", runtime_type: "codex", role: "worker", model: "agent-declared", prompts: ["PROMPT_FRAGMENT_FIRST", "PROMPT_FRAGMENT_SECOND"], preset: "standard-task" })}\n`,
+  );
+  writeFileSync(
+    path.join(root, "harness", "agents", "default-model.json"),
+    `${JSON.stringify({ schema: "agent-declaration/v1", id: "default-model", name: "Default Model", instructions: "Use instance default.", runtime_type: "codex", role: "commander" })}\n`,
+  );
+  writeFileSync(
+    path.join(root, "harness", "agents", "any-model.json"),
+    `${JSON.stringify({ schema: "agent-declaration/v1", id: "any-model", name: "Any Model", instructions: "Use any compatible runtime.", runtime_type: "any" })}\n`,
+  );
+  writeFileSync(
+    path.join(root, "harness", "agents", "opencode-model.json"),
+    `${JSON.stringify({ schema: "agent-declaration/v1", id: "opencode-model", name: "OpenCode Model", instructions: "Use OpenCode only.", runtime_type: "opencode" })}\n`,
+  );
+  writeFileSync(
+    path.join(root, "harness", "agents", "missing-preset.json"),
+    `${JSON.stringify({ schema: "agent-declaration/v1", id: "missing-preset", name: "Missing Preset", instructions: "Do not dispatch without the preset.", runtime_type: "codex", preset: "missing-preset" })}\n`,
+  );
+  mkdirSync(path.join(root, "harness", "squads"), { recursive: true });
+  writeFileSync(
+    path.join(root, "harness", "squads", "persona-squad.json"),
+    `${JSON.stringify({ schema: "squad-declaration/v1", id: "persona-squad", name: "Persona Squad", leader: "default-model", workers: ["declared-model"], roster: "persona work -> declared-model" })}\n`,
+  );
+  const probed: string[] = [],
+    unavailableReadiness = {
+      status: "not-ready" as const,
+      code: "runtime_subscription_required",
+      hint: "Subscription is not ready.",
+    },
+    instances = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [runtimeInstallation, claudeInstallation, agyInstallation],
+      subscriptionReady: ({ env }) => {
+        const instanceId = path.basename(path.dirname(path.dirname(env.CODEX_HOME ?? "")));
+        probed.push(instanceId);
+        return ["codex-not-ready", "codex-unchecked-not-ready"].includes(instanceId)
+          ? unavailableReadiness
+          : { status: "ready", code: null, hint: null };
+      },
+    });
+  instances.create({
+    schemaVersion: 2,
+    instanceId: "codex-agent-model",
+    name: "Codex Agent Model",
+    kindId: "codex",
+    installationId: runtimeInstallation.installationId,
+    providerId: "openai",
+    models: [...models],
+    defaultModel: "instance-default",
+    enabled: true,
+    codex: {},
+    auth: { mode: "subscription" },
+  });
+  instances.create({
+    schemaVersion: 2,
+    instanceId: "codex-agent-model-b",
+    name: "Codex Agent Model B",
+    kindId: "codex",
+    installationId: runtimeInstallation.installationId,
+    providerId: "openai",
+    models: [...models],
+    defaultModel: "instance-default",
+    enabled: true,
+    codex: {},
+    auth: { mode: "subscription" },
+  });
+  instances.create({
+    schemaVersion: 2,
+    instanceId: "codex-not-ready",
+    name: "Codex Not Ready",
+    kindId: "codex",
+    installationId: runtimeInstallation.installationId,
+    providerId: "openai",
+    models: ["not-ready-only"],
+    defaultModel: "not-ready-only",
+    enabled: true,
+    codex: {},
+    auth: { mode: "subscription" },
+  });
+  instances.create({
+    schemaVersion: 2,
+    instanceId: "codex-unchecked-not-ready",
+    name: "Codex Unchecked Not Ready",
+    kindId: "codex",
+    installationId: runtimeInstallation.installationId,
+    providerId: "openai",
+    models: ["unchecked-not-ready-only"],
+    defaultModel: "unchecked-not-ready-only",
+    enabled: true,
+    codex: {},
+    auth: { mode: "subscription" },
+  });
+  instances.create({
+    schemaVersion: 2,
+    instanceId: "claude-agent-model",
+    name: "Claude Agent Model",
+    kindId: "claude",
+    installationId: claudeInstallation.installationId,
+    providerId: "anthropic",
+    models: ["claude-default"],
+    defaultModel: "claude-default",
+    enabled: true,
+    claude: {},
+    auth: { mode: "subscription" },
+  });
+  instances.create({
+    schemaVersion: 2,
+    instanceId: "agy-agent-model",
+    name: "AGY Agent Model",
+    kindId: "agy",
+    installationId: agyInstallation.installationId,
+    providerId: "google",
+    models: ["agy-default"],
+    defaultModel: "agy-default",
+    enabled: true,
+    agy: {},
+    auth: { mode: "subscription" },
+  });
+  await instances.authStatus("codex-not-ready");
+  probed.length = 0;
+  let launched: {
+    readonly definition: AgentDefinitionSnapshot;
+    readonly prompt: string;
+  } | null = null;
+  const cell = await openRepoCell({
+    repoId: workspaceId(repoId),
+    rootDir: canonicalRoot(root),
+    ownerId: "agent-model-test",
+    runtimeInstances: instances.listPublic,
+    prepareRuntimeLaunch: instances.prepareLaunch,
+    runtimeLaunch: (prepared) => {
+      launched = { definition: prepared.definition, prompt: prepared.prompt };
+      return {
+        pid: 4306,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+      };
+    },
+  });
   try {
-    initIngressRepo(root, 4309);
-    const open = (ownerId: string) => openRepoCell({ repoId: workspaceId(repoId), rootDir: canonicalRoot(root), ownerId, runtimeInstances: () => [definition], prepareRuntimeLaunch: async (_instanceId, request) => ({ definition: preparedDefinition, installation, executablePath, args: ["exec", "--json", "--model", "codex-model", "-"], env: process.env, cwd: request.cwd, prompt: request.prompt }) });
-    cell = await open("re-adopt-before");
-    const receipt = await cell.spawnRuntime({ runtimeInstanceId: definition.instanceId, cwd: { scope: "repo-root" }, prompt: "Stay alive across restart", taskId: null, idempotencyKey: "re-adopt" }, { actor: { principal: { personId: "person-re-adopt" }, executor: null }, source: "local" });
-    providerPid = await eventuallyValue(() => { try { const value = Number(readFileSync(pidFile, "utf8")); return Number.isInteger(value) && value > 0 ? value : null; } catch { return null; } });
-    await eventually(() => readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${String(receipt.dispatchId)}.jsonl`), "utf8").includes("provider-re-adopt-session"));
-    await cell.close(); cell = undefined;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.doesNotThrow(() => process.kill(providerPid, 0), "repo-cell close must not terminate its runtime worker");
-    cell = await open("re-adopt-after");
-    writeFileSync(release, "release");
-    await eventually(() => makeTaskEventStore({ repoId, rootDir: root }).read().events.some((event) => event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === receipt.runtimeSessionId));
-    const projection = makeTaskProjection({ rootDir: root, eventStore: makeTaskEventStore({ repoId, rootDir: root }) }), settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!; projection.close();
-    assert.deepEqual({ liveness: settled.liveness, outcome: settled.outcome, exitCode: settled.exitCode }, { liveness: "exited", outcome: "succeeded", exitCode: 0 });
-    assert.match(readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${String(receipt.dispatchId)}.jsonl`), "utf8"), /survived daemon restart/u);
-    rmSync(release, { force: true }); const absentReceipt = await cell.spawnRuntime({ runtimeInstanceId: definition.instanceId, cwd: { scope: "repo-root" }, prompt: "Exit while daemon is absent", taskId: null, idempotencyKey: "re-adopt-absent-exit" }, { actor: { principal: { personId: "person-re-adopt" }, executor: null }, source: "local" });
-    providerPid = await eventuallyValue(() => { try { const value = Number(readFileSync(pidFile, "utf8")); return Number.isInteger(value) && value > 0 && value !== providerPid ? value : null; } catch { return null; } }); await eventually(() => readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${String(absentReceipt.dispatchId)}.jsonl`), "utf8").includes("provider-re-adopt-session"));
-    await cell.close(); cell = undefined; writeFileSync(release, "release"); await eventually(() => readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${String(absentReceipt.dispatchId)}.jsonl`), "utf8").includes('"kind":"process_exit"'));
-    cell = await open("re-adopt-dead"); await eventually(() => makeTaskEventStore({ repoId, rootDir: root }).read().events.some((event) => event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === absentReceipt.runtimeSessionId));
-    const reopenedProjection = makeTaskProjection({ rootDir: root, eventStore: makeTaskEventStore({ repoId, rootDir: root }) }), daemonlessSettlement = reopenedProjection.readRuntimeSession(String(absentReceipt.runtimeSessionId))!; reopenedProjection.close(); assert.deepEqual({ liveness: daemonlessSettlement.liveness, outcome: daemonlessSettlement.outcome, exitCode: daemonlessSettlement.exitCode }, { liveness: "exited", outcome: "succeeded", exitCode: 0 });
+    const binding = {
+      actor: { principal: { personId: "person-agent-model" }, executor: null },
+      source: "local" as const,
+    };
+    assert.deepEqual(
+      instances
+        .listPublic()
+        .filter((instance) => ["codex-agent-model", "codex-agent-model-b"].includes(instance.instanceId))
+        .map((instance) => instance.authReadiness.code),
+      ["runtime_auth_not_checked", "runtime_auth_not_checked"],
+    );
+    await cell.spawnRuntime(
+      {
+        agentId: "declared-model",
+        cwd: { scope: "repo-root" },
+        prompt: "Auto route one.",
+        taskId: null,
+        idempotencyKey: "auto-route-one",
+      },
+      binding,
+    );
+    assert.equal(launched?.definition.instanceId, "codex-agent-model");
+    assert.deepEqual(probed, ["codex-agent-model"]);
+    await cell.spawnRuntime(
+      {
+        agentId: "declared-model",
+        cwd: { scope: "repo-root" },
+        prompt: "Auto route two.",
+        taskId: null,
+        idempotencyKey: "auto-route-two",
+      },
+      binding,
+    );
+    assert.equal(launched?.definition.instanceId, "codex-agent-model-b");
+    assert.deepEqual(probed, ["codex-agent-model", "codex-agent-model-b"]);
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          agentId: "default-model",
+          model: "missing-model",
+          cwd: { scope: "repo-root" },
+          prompt: "Missing model.",
+          taskId: null,
+          idempotencyKey: "auto-route-missing",
+        },
+        binding,
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "agent_model_unavailable" &&
+        error.message.includes("No enabled runtime instance declares model missing-model"),
+    );
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          agentId: "opencode-model",
+          cwd: { scope: "repo-root" },
+          prompt: "No compatible runtime.",
+          taskId: null,
+          idempotencyKey: "auto-route-missing-type",
+        },
+        binding,
+      ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "agent_runtime_unavailable",
+    );
+    const probesBeforeKnownUnavailable = probed.length;
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          agentId: "default-model",
+          model: "not-ready-only",
+          cwd: { scope: "repo-root" },
+          prompt: "Not ready model.",
+          taskId: null,
+          idempotencyKey: "auto-route-not-ready",
+        },
+        binding,
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "runtime_model_not_ready" &&
+        error.message.includes("declare model not-ready-only, but none are authentication-ready"),
+    );
+    assert.equal(probed.length, probesBeforeKnownUnavailable);
+    const probesBeforeUncheckedUnavailable = probed.length;
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          agentId: "default-model",
+          model: "unchecked-not-ready-only",
+          cwd: { scope: "repo-root" },
+          prompt: "Unchecked unavailable model.",
+          taskId: null,
+          idempotencyKey: "auto-route-unchecked-not-ready",
+        },
+        binding,
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "runtime_subscription_required" &&
+        error.message === unavailableReadiness.hint,
+    );
+    assert.deepEqual(probed.slice(probesBeforeUncheckedUnavailable), ["codex-unchecked-not-ready"]);
+    await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "codex-agent-model",
+        agentId: "declared-model",
+        cwd: { scope: "repo-root" },
+        prompt: "Do the work.",
+        taskId: null,
+        idempotencyKey: "agent-model",
+      },
+      binding,
+    );
+    assert.equal(launched?.definition.model, "agent-declared");
+    assert.match(launched?.prompt ?? "", /AGENT_INSTRUCTIONS_WITNESS/u);
+    assert.match(
+      launched?.prompt ?? "",
+      /# Harness Execution Discipline.*configured commit identity.*conventional type prefix.*do not mention AI.*Do not push, open a PR, merge.*# Worker Role.*bounded implementation.*local commit.*residual risks/su,
+    );
+    assert.match(launched?.prompt ?? "", /# Standard Task/u);
+    assert.ok(
+      (launched?.prompt ?? "").indexOf("# Worker Role") < (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_FIRST") &&
+        (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_FIRST") <
+          (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_SECOND") &&
+        (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_SECOND") <
+          (launched?.prompt ?? "").indexOf("# Standard Task") &&
+        (launched?.prompt ?? "").indexOf("# Standard Task") < (launched?.prompt ?? "").indexOf("# Mission"),
+    );
+    await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "codex-agent-model",
+        agentId: "default-model",
+        targetAgentId: "declared-model",
+        cwd: { scope: "repo-root" },
+        prompt: "Squad member keeps its persona.",
+        taskId: null,
+        idempotencyKey: "squad-persona",
+      },
+      binding,
+    );
+    assert.ok(
+      (launched?.prompt ?? "").indexOf("# Worker Role") < (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_FIRST") &&
+        (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_FIRST") <
+          (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_SECOND") &&
+        (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_SECOND") <
+          (launched?.prompt ?? "").indexOf("# Standard Task"),
+      "a squad-delegated worker must keep the role, prompts, and preset it declares",
+    );
+    await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "codex-agent-model",
+        agentId: "declared-model",
+        model: "command-override",
+        cwd: { scope: "repo-root" },
+        prompt: "Override the work.",
+        taskId: null,
+        idempotencyKey: "command-model",
+      },
+      binding,
+    );
+    assert.equal(launched?.definition.model, "command-override");
+    await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "codex-agent-model",
+        agentId: "default-model",
+        cwd: { scope: "repo-root" },
+        prompt: "Default the work.",
+        taskId: null,
+        idempotencyKey: "default-model",
+      },
+      binding,
+    );
+    assert.equal(launched?.definition.model, "instance-default");
+    assert.match(
+      launched?.prompt ?? "",
+      /# Harness Execution Discipline.*# Commander Role.*bounded missions.*independently inspect.*CEO-owned/su,
+    );
+    for (const kindId of ["claude", "codex", "agy"] as const) {
+      await cell.spawnRuntime(
+        {
+          runtimeInstanceId: `${kindId}-agent-model`,
+          agentId: "any-model",
+          cwd: { scope: "repo-root" },
+          prompt: `Wildcard ${kindId}.`,
+          taskId: null,
+          idempotencyKey: `any-model-${kindId}`,
+        },
+        binding,
+      );
+      assert.equal(launched?.definition.kindId, kindId);
+      assert.match(launched?.prompt ?? "", /# Worker Role/u);
+    }
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          runtimeInstanceId: "codex-agent-model",
+          agentId: "opencode-model",
+          cwd: { scope: "repo-root" },
+          prompt: "Reject unknown runtime.",
+          taskId: null,
+          idempotencyKey: "opencode-model",
+        },
+        binding,
+      ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "agent_runtime_type_mismatch",
+    );
+    writeFileSync(
+      path.join(root, "harness", "agents", "declared-model.json"),
+      `${JSON.stringify({ schema: "agent-declaration/v1", id: "declared-model", name: "Declared Model", instructions: "Include the identity marker exactly: AGENT_INSTRUCTIONS_WITNESS.", runtime_type: "codex", model: "unavailable-model" })}\n`,
+    );
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          runtimeInstanceId: "codex-agent-model",
+          agentId: "declared-model",
+          cwd: { scope: "repo-root" },
+          prompt: "Reject unavailable model.",
+          taskId: null,
+          idempotencyKey: "unavailable-model",
+        },
+        binding,
+      ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_model",
+    );
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          runtimeInstanceId: "codex-agent-model",
+          agentId: "missing-preset",
+          cwd: { scope: "repo-root" },
+          prompt: "Reject missing preset.",
+          taskId: null,
+          idempotencyKey: "missing-preset",
+        },
+        binding,
+      ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "preset_not_found",
+    );
   } finally {
-    writeFileSync(release, "release");
-    await cell?.close();
-    if (providerPid > 0) try { process.kill(providerPid, "SIGTERM"); } catch (error) { consumeKnownError(error); }
+    await cell.close();
     rmSync(parent, { recursive: true, force: true });
   }
 });
 
-test("explicit runtime cancel terminates a detached native provider process tree", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-detached-cancel-")), root = path.join(parent, "repo"), pidFile = path.join(parent, "provider-pids.json"), repoId = "runtime-detached-cancel", executablePath = writeProviderExecutable(path.join(parent, "cancel-tree-provider.mjs"), `import fs from "node:fs"; import { spawn } from "node:child_process";\nfs.readFileSync(0, "utf8"); const child = spawn(process.execPath, ["-e", "setInterval(() => undefined, 1000)"], { stdio: "ignore" }); fs.writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify([process.pid, child.pid])); console.log(JSON.stringify({ type: "thread.started", thread_id: "provider-cancel-tree" })); setInterval(() => undefined, 1000);\n`), installation = installationFixture("codex", executablePath), instance = { schemaVersion: 2 as const, instanceId: "codex-cancel-tree", name: "Codex Cancel Tree", kindId: "codex" as const, installationId: installation.installationId, providerId: "openai", models: ["codex-model"], defaultModel: "codex-model", enabled: true, permissionMode: "read-only" as const, codex: {}, authMode: "subscription" as const, authState: "configured" as const, authReadiness: { status: "ready" as const, code: null, hint: null }, isolationState: "enforced" as const }, preparedDefinition: AgentDefinitionSnapshot = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "codex-cancel-tree", installationId: installation.installationId, kindId: "codex", providerId: "openai", model: "codex-model", reasoningEffort: null, baseUrl: null, authMode: "subscription" };
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined, runtimeSessionId = "", pids: number[] = [];
+test("a squad-delegated worker injects selected absolute skill paths into every provider prompt", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-squad-worker-")),
+    root = path.join(parent, "repo"),
+    skillDir = path.join(parent, "user-skills", "squad-witness"),
+    launches: Array<{
+      readonly kindId: "claude" | "codex" | "agy";
+      readonly prompt: string;
+      readonly request: Record<string, unknown>;
+    }> = [],
+    kinds = ["claude", "codex", "agy"] as const;
+  mkdirSync(root);
+  initIngressRepo(root, 4308);
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    "---\nname: squad-witness\ndescription: Squad witness\n---\nSQUAD_SKILL_WITNESS\n",
+  );
+  mkdirSync(path.join(root, "harness", "agents"), { recursive: true });
+  mkdirSync(path.join(root, "harness", "squads"), { recursive: true });
+  writeFileSync(
+    path.join(root, "harness", "agents", "squad-leader.json"),
+    `${JSON.stringify({ schema: "agent-declaration/v1", id: "squad-leader", name: "Squad Leader", instructions: "Delegate work.", runtime_type: "codex" })}\n`,
+  );
+  writeFileSync(
+    path.join(root, "harness", "agents", "squad-worker.json"),
+    `${JSON.stringify({ schema: "agent-declaration/v1", id: "squad-worker", name: "Squad Worker", instructions: "Use the squad skill.", runtime_type: "any", skills: [{ id: "squad-witness", path: skillDir }] })}\n`,
+  );
+  writeFileSync(
+    path.join(root, "harness", "squads", "runtime-squad.json"),
+    `${JSON.stringify({ schema: "squad-declaration/v1", id: "runtime-squad", name: "Runtime Squad", leader: "squad-leader", workers: ["squad-worker"], roster: "# Runtime Squad" })}\n`,
+  );
+  const cell = await openRepoCell({
+    repoId: workspaceId("runtime-squad-worker"),
+    rootDir: canonicalRoot(root),
+    ownerId: "squad-worker-test",
+    prepareRuntimeLaunch: (instanceId, request) => {
+      const kindId = instanceId.replace(/-squad$/u, "") as "claude" | "codex" | "agy",
+        preparedDefinition = {
+          ...definition,
+          instanceId,
+          installationId: `installation-${kindId}-squad`,
+          kindId,
+          providerId: kindId === "claude" ? "anthropic" : kindId === "agy" ? "google" : "openai",
+          model: `${kindId}-model`,
+        },
+        installation = {
+          installationId: preparedDefinition.installationId,
+          kindId,
+          executablePath: `/opt/witnessed/${kindId}`,
+          version: "1.0.0",
+          observedAt: "2026-08-20T00:00:00.000Z",
+        };
+      launches.push({
+        kindId,
+        prompt: request.prompt,
+        request: request as unknown as Record<string, unknown>,
+      });
+      return {
+        definition: preparedDefinition,
+        installation,
+        executablePath: installation.executablePath,
+        args: [],
+        env: {},
+        cwd: request.cwd,
+        prompt: request.prompt,
+      };
+    },
+    runtimeLaunch: () => ({
+      pid: 4308,
+      onOutput: () => undefined,
+      onErrorOutput: () => undefined,
+      onExit: () => undefined,
+      terminate: () => undefined,
+    }),
+  });
   try {
-    initIngressRepo(root, 4310); cell = await openRepoCell({ repoId: workspaceId(repoId), rootDir: canonicalRoot(root), ownerId: "cancel-tree", runtimeInstances: () => [instance], prepareRuntimeLaunch: async (_instanceId, request) => ({ definition: preparedDefinition, installation, executablePath, args: ["exec", "--json", "--model", "codex-model", "-"], env: process.env, cwd: request.cwd, prompt: request.prompt }) });
-    const spawned = await cell.spawnRuntime({ runtimeInstanceId: instance.instanceId, cwd: { scope: "repo-root" }, prompt: "Wait for cancellation", taskId: null, idempotencyKey: "cancel-tree" }, { actor: { principal: { personId: "person-cancel-tree" }, executor: null }, source: "local" }); runtimeSessionId = String(spawned.runtimeSessionId);
-    pids = await eventuallyValue(() => { try { const values = JSON.parse(readFileSync(pidFile, "utf8")) as number[]; return values.length === 2 && values.every((pid) => Number.isInteger(pid) && pid > 0) ? values : null; } catch { return null; } });
-    const hostPid = await eventuallyValue(() => { try { const records = readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${String(spawned.dispatchId)}.jsonl`), "utf8").trim().split(/\r?\n/u).map((line) => JSON.parse(line) as Record<string, unknown>), pid = records.find((record) => record.kind === "process_started")?.pid; return Number.isInteger(pid) && Number(pid) > 0 ? Number(pid) : null; } catch { return null; } }); pids = [hostPid, ...pids];
-    assert.equal((await cell.cancelRuntime({ runtimeSessionId }, { actor: { principal: { personId: "person-cancel-tree" }, executor: null }, source: "local" })).detail, "cancelled");
-    await eventually(() => pids.every((pid) => { try { process.kill(pid, 0); return false; } catch { return true; } }));
+    const binding = {
+        actor: {
+          principal: { personId: "person-squad-worker" },
+          executor: null,
+        },
+        source: "local" as const,
+      },
+      skillFile = realpathSync(path.join(skillDir, "SKILL.md"));
+    for (const kindId of kinds) {
+      const receipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: `${kindId}-squad`,
+          agentId: "squad-leader",
+          targetAgentId: "squad-worker",
+          cwd: { scope: "repo-root" },
+          prompt: `Delegate to ${kindId}.`,
+          taskId: null,
+          idempotencyKey: `squad-worker-${kindId}`,
+        },
+        binding,
+      );
+      assert.equal(receipt.outcome, "applied", kindId);
+    }
+    for (const launch of launches) {
+      assert.match(
+        launch.prompt,
+        new RegExp(`# Required Skills[\\s\\S]*squad-witness: ${skillFile.replaceAll("\\", "\\\\")}`, "u"),
+        launch.kindId,
+      );
+      assert.equal(Object.hasOwn(launch.request, "skillRoot"), false);
+      assert.equal(Object.hasOwn(launch.request, "skills"), false);
+    }
   } finally {
-    if (runtimeSessionId) try { await cell?.cancelRuntime({ runtimeSessionId }, { actor: { principal: { personId: "person-cancel-tree" }, executor: null }, source: "local" }); } catch (error) { consumeKnownError(error); }
-    await cell?.close(); for (const pid of pids) try { process.kill(pid, "SIGTERM"); } catch (error) { consumeKnownError(error); } rmSync(parent, { recursive: true, force: true });
+    await cell.close();
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 
-test("runtime exit notification records a bounded timeout", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-exit-notification-")), executablePath = writeProviderExecutable(path.join(root, "hold-notification.mjs"), "setInterval(() => undefined, 1_000)\n"), records: Array<Record<string, unknown>> = [];
-  try {
-    launchExitNotification({ command: executablePath, cwd: root, stream: { appendExitNotification: (value, occurredAt) => records.push({ ...value, occurredAt }) }, payload: { schema: "runtime-session-exited/v1", runtimeSessionId: "runtime-timeout", outcome: "succeeded", exitCode: 0, nextAction: "ha runtime status runtime-timeout --wait" }, now: () => "2026-08-23T00:00:00.000Z", timeoutMs: 50 });
-    const finished = await eventuallyValue(() => records.find((record) => record.phase === "finished") ?? null);
-    assert.deepEqual(records.map(({ phase, started, exitCode, timedOut }) => ({ phase, started, exitCode, timedOut })), [{ phase: "started", started: true, exitCode: null, timedOut: false }, { phase: "finished", started: true, exitCode: null, timedOut: true }]);
-    assert.equal(finished.occurredAt, "2026-08-23T00:00:00.000Z");
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible installation", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-claude-"));
-    try {
-      git(root, "init", "-q"); git(root, "config", "user.name", "Spawn Test"); git(root, "config", "user.email", "spawn@example.invalid"); git(root, "commit", "--allow-empty", "-qm", "base");
-      const claudeDefinition: AgentDefinitionSnapshot = { ...definition, instanceId: "claude-review", installationId: "installation-claude", kindId: "claude", providerId: "anthropic", model: "claude-fable-5", reasoningEffort: null, baseUrl: null, authMode: "subscription" };
-      const claudeInstallation: RuntimeInstallationWitness = { installationId: claudeDefinition.installationId, kindId: claudeDefinition.kindId, executablePath: "/opt/witnessed/claude", version: "1.0.0", observedAt: "2026-08-14T00:00:00.000Z" }; let executablePath: string | undefined;
-      const cell = await openRepoCell({ repoId: workspaceId("runtime-spawn-claude"), rootDir: canonicalRoot(root), ownerId: "spawn-test", runtimeInstances: () => [], prepareRuntimeLaunch: (_instanceId, request) => ({ definition: claudeDefinition, installation: claudeInstallation, executablePath: claudeInstallation.executablePath, args: ["-p", "--verbose", "--output-format", "stream-json", "--model", claudeDefinition.model], env: { HOME: "/isolated/claude-review/home" }, cwd: request.cwd, prompt: request.prompt }), runtimeLaunch: (input) => { executablePath = input.executablePath; return { pid: 124, onOutput: () => undefined, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });
-      try {
-        const receipt = await cell.spawnRuntime({ runtimeInstanceId: "claude-review", cwd: { scope: "repo-root" }, prompt: "Inspect the repository", taskId: null, idempotencyKey: "spawn-claude-once" }, { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" });
-        assert.equal(receipt.outcome, "applied"); assert.equal(executablePath, "/opt/witnessed/claude");
-      } finally { await cell.close(); }
-    } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("runtime spawn resolves command model, Agent model, then instance default without silent fallback", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-agent-model-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), executablePath = writeProviderExecutable(path.join(parent, "codex-agent-model-stub.mjs"), "process.exit(0)\n"), repoId = "runtime-agent-model", models = ["instance-default", "agent-declared", "command-override"] as const, runtimeInstallation = { installationId: "installation-codex-agent-model", kindId: "codex" as const, executablePath, version: "1.0.0", observedAt: "2026-08-20T00:00:00.000Z" }, claudeInstallation = { ...runtimeInstallation, installationId: "installation-claude-agent-model", kindId: "claude" as const }, agyInstallation = { ...runtimeInstallation, installationId: "installation-agy-agent-model", kindId: "agy" as const };
-  mkdirSync(root); initIngressRepo(root, 4306); mkdirSync(path.join(root, "harness", "agents"), { recursive: true }); writeFileSync(path.join(root, "harness", "agents", "declared-model.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "declared-model", name: "Declared Model", instructions: "Include the identity marker exactly: AGENT_INSTRUCTIONS_WITNESS.", runtime_type: "codex", role: "worker", model: "agent-declared", prompts: ["PROMPT_FRAGMENT_FIRST", "PROMPT_FRAGMENT_SECOND"], preset: "standard-task" })}\n`); writeFileSync(path.join(root, "harness", "agents", "default-model.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "default-model", name: "Default Model", instructions: "Use instance default.", runtime_type: "codex", role: "commander" })}\n`); writeFileSync(path.join(root, "harness", "agents", "any-model.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "any-model", name: "Any Model", instructions: "Use any compatible runtime.", runtime_type: "any" })}\n`); writeFileSync(path.join(root, "harness", "agents", "opencode-model.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "opencode-model", name: "OpenCode Model", instructions: "Use OpenCode only.", runtime_type: "opencode" })}\n`); writeFileSync(path.join(root, "harness", "agents", "missing-preset.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "missing-preset", name: "Missing Preset", instructions: "Do not dispatch without the preset.", runtime_type: "codex", preset: "missing-preset" })}\n`); mkdirSync(path.join(root, "harness", "squads"), { recursive: true }); writeFileSync(path.join(root, "harness", "squads", "persona-squad.json"), `${JSON.stringify({ schema: "squad-declaration/v1", id: "persona-squad", name: "Persona Squad", leader: "default-model", workers: ["declared-model"], roster: "persona work -> declared-model" })}\n`);
-  const probed: string[] = [], unavailableReadiness = { status: "not-ready" as const, code: "runtime_subscription_required", hint: "Subscription is not ready." }, instances = openRuntimeInstanceStore({ userRoot, discover: () => [runtimeInstallation, claudeInstallation, agyInstallation], subscriptionReady: ({ env }) => { const instanceId = path.basename(path.dirname(path.dirname(env.CODEX_HOME ?? ""))); probed.push(instanceId); return ["codex-not-ready", "codex-unchecked-not-ready"].includes(instanceId) ? unavailableReadiness : { status: "ready", code: null, hint: null }; } }); instances.create({ schemaVersion: 2, instanceId: "codex-agent-model", name: "Codex Agent Model", kindId: "codex", installationId: runtimeInstallation.installationId, providerId: "openai", models: [...models], defaultModel: "instance-default", enabled: true, codex: {}, auth: { mode: "subscription" } }); instances.create({ schemaVersion: 2, instanceId: "codex-agent-model-b", name: "Codex Agent Model B", kindId: "codex", installationId: runtimeInstallation.installationId, providerId: "openai", models: [...models], defaultModel: "instance-default", enabled: true, codex: {}, auth: { mode: "subscription" } }); instances.create({ schemaVersion: 2, instanceId: "codex-not-ready", name: "Codex Not Ready", kindId: "codex", installationId: runtimeInstallation.installationId, providerId: "openai", models: ["not-ready-only"], defaultModel: "not-ready-only", enabled: true, codex: {}, auth: { mode: "subscription" } }); instances.create({ schemaVersion: 2, instanceId: "codex-unchecked-not-ready", name: "Codex Unchecked Not Ready", kindId: "codex", installationId: runtimeInstallation.installationId, providerId: "openai", models: ["unchecked-not-ready-only"], defaultModel: "unchecked-not-ready-only", enabled: true, codex: {}, auth: { mode: "subscription" } }); instances.create({ schemaVersion: 2, instanceId: "claude-agent-model", name: "Claude Agent Model", kindId: "claude", installationId: claudeInstallation.installationId, providerId: "anthropic", models: ["claude-default"], defaultModel: "claude-default", enabled: true, claude: {}, auth: { mode: "subscription" } }); instances.create({ schemaVersion: 2, instanceId: "agy-agent-model", name: "AGY Agent Model", kindId: "agy", installationId: agyInstallation.installationId, providerId: "google", models: ["agy-default"], defaultModel: "agy-default", enabled: true, agy: {}, auth: { mode: "subscription" } }); await instances.authStatus("codex-not-ready"); probed.length = 0; let launched: { readonly definition: AgentDefinitionSnapshot; readonly prompt: string } | null = null;
-  const cell = await openRepoCell({ repoId: workspaceId(repoId), rootDir: canonicalRoot(root), ownerId: "agent-model-test", runtimeInstances: instances.listPublic, prepareRuntimeLaunch: instances.prepareLaunch, runtimeLaunch: (prepared) => { launched = { definition: prepared.definition, prompt: prepared.prompt }; return { pid: 4306, onOutput: () => undefined, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });
-  try {
-    const binding = { actor: { principal: { personId: "person-agent-model" }, executor: null }, source: "local" as const };
-    assert.deepEqual(instances.listPublic().filter((instance) => ["codex-agent-model", "codex-agent-model-b"].includes(instance.instanceId)).map((instance) => instance.authReadiness.code), ["runtime_auth_not_checked", "runtime_auth_not_checked"]);
-    await cell.spawnRuntime({ agentId: "declared-model", cwd: { scope: "repo-root" }, prompt: "Auto route one.", taskId: null, idempotencyKey: "auto-route-one" }, binding); assert.equal(launched?.definition.instanceId, "codex-agent-model"); assert.deepEqual(probed, ["codex-agent-model"]);
-    await cell.spawnRuntime({ agentId: "declared-model", cwd: { scope: "repo-root" }, prompt: "Auto route two.", taskId: null, idempotencyKey: "auto-route-two" }, binding); assert.equal(launched?.definition.instanceId, "codex-agent-model-b"); assert.deepEqual(probed, ["codex-agent-model", "codex-agent-model-b"]);
-    await assert.rejects(cell.spawnRuntime({ agentId: "default-model", model: "missing-model", cwd: { scope: "repo-root" }, prompt: "Missing model.", taskId: null, idempotencyKey: "auto-route-missing" }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "agent_model_unavailable" && error.message.includes("No enabled runtime instance declares model missing-model"));
-    await assert.rejects(cell.spawnRuntime({ agentId: "opencode-model", cwd: { scope: "repo-root" }, prompt: "No compatible runtime.", taskId: null, idempotencyKey: "auto-route-missing-type" }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "agent_runtime_unavailable");
-    const probesBeforeKnownUnavailable = probed.length; await assert.rejects(cell.spawnRuntime({ agentId: "default-model", model: "not-ready-only", cwd: { scope: "repo-root" }, prompt: "Not ready model.", taskId: null, idempotencyKey: "auto-route-not-ready" }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_model_not_ready" && error.message.includes("declare model not-ready-only, but none are authentication-ready")); assert.equal(probed.length, probesBeforeKnownUnavailable);
-    const probesBeforeUncheckedUnavailable = probed.length; await assert.rejects(cell.spawnRuntime({ agentId: "default-model", model: "unchecked-not-ready-only", cwd: { scope: "repo-root" }, prompt: "Unchecked unavailable model.", taskId: null, idempotencyKey: "auto-route-unchecked-not-ready" }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_subscription_required" && error.message === unavailableReadiness.hint); assert.deepEqual(probed.slice(probesBeforeUncheckedUnavailable), ["codex-unchecked-not-ready"]);
-    await cell.spawnRuntime({ runtimeInstanceId: "codex-agent-model", agentId: "declared-model", cwd: { scope: "repo-root" }, prompt: "Do the work.", taskId: null, idempotencyKey: "agent-model" }, binding); assert.equal(launched?.definition.model, "agent-declared"); assert.match(launched?.prompt ?? "", /AGENT_INSTRUCTIONS_WITNESS/u); assert.match(launched?.prompt ?? "", /# Harness Execution Discipline.*configured commit identity.*conventional type prefix.*do not mention AI.*Do not push, open a PR, merge.*# Worker Role.*bounded implementation.*local commit.*residual risks/su); assert.match(launched?.prompt ?? "", /# Standard Task/u); assert.ok((launched?.prompt ?? "").indexOf("# Worker Role") < (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_FIRST") && (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_FIRST") < (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_SECOND") && (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_SECOND") < (launched?.prompt ?? "").indexOf("# Standard Task") && (launched?.prompt ?? "").indexOf("# Standard Task") < (launched?.prompt ?? "").indexOf("# Mission")); await cell.spawnRuntime({ runtimeInstanceId: "codex-agent-model", agentId: "default-model", targetAgentId: "declared-model", cwd: { scope: "repo-root" }, prompt: "Squad member keeps its persona.", taskId: null, idempotencyKey: "squad-persona" }, binding); assert.ok((launched?.prompt ?? "").indexOf("# Worker Role") < (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_FIRST") && (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_FIRST") < (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_SECOND") && (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_SECOND") < (launched?.prompt ?? "").indexOf("# Standard Task"), "a squad-delegated worker must keep the role, prompts, and preset it declares");
-    await cell.spawnRuntime({ runtimeInstanceId: "codex-agent-model", agentId: "declared-model", model: "command-override", cwd: { scope: "repo-root" }, prompt: "Override the work.", taskId: null, idempotencyKey: "command-model" }, binding); assert.equal(launched?.definition.model, "command-override");
-    await cell.spawnRuntime({ runtimeInstanceId: "codex-agent-model", agentId: "default-model", cwd: { scope: "repo-root" }, prompt: "Default the work.", taskId: null, idempotencyKey: "default-model" }, binding); assert.equal(launched?.definition.model, "instance-default"); assert.match(launched?.prompt ?? "", /# Harness Execution Discipline.*# Commander Role.*bounded missions.*independently inspect.*CEO-owned/su);
-    for (const kindId of ["claude", "codex", "agy"] as const) { await cell.spawnRuntime({ runtimeInstanceId: `${kindId}-agent-model`, agentId: "any-model", cwd: { scope: "repo-root" }, prompt: `Wildcard ${kindId}.`, taskId: null, idempotencyKey: `any-model-${kindId}` }, binding); assert.equal(launched?.definition.kindId, kindId); assert.match(launched?.prompt ?? "", /# Worker Role/u); }
-    await assert.rejects(cell.spawnRuntime({ runtimeInstanceId: "codex-agent-model", agentId: "opencode-model", cwd: { scope: "repo-root" }, prompt: "Reject unknown runtime.", taskId: null, idempotencyKey: "opencode-model" }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "agent_runtime_type_mismatch");
-    writeFileSync(path.join(root, "harness", "agents", "declared-model.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "declared-model", name: "Declared Model", instructions: "Include the identity marker exactly: AGENT_INSTRUCTIONS_WITNESS.", runtime_type: "codex", model: "unavailable-model" })}\n`); await assert.rejects(cell.spawnRuntime({ runtimeInstanceId: "codex-agent-model", agentId: "declared-model", cwd: { scope: "repo-root" }, prompt: "Reject unavailable model.", taskId: null, idempotencyKey: "unavailable-model" }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_model"); await assert.rejects(cell.spawnRuntime({ runtimeInstanceId: "codex-agent-model", agentId: "missing-preset", cwd: { scope: "repo-root" }, prompt: "Reject missing preset.", taskId: null, idempotencyKey: "missing-preset" }, binding), (error: unknown) => error instanceof Error && "code" in error && error.code === "preset_not_found");
-  } finally { await cell.close(); rmSync(parent, { recursive: true, force: true }); }
-});
-
-test("a squad-delegated worker injects selected absolute skill paths into every provider prompt", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-squad-worker-")), root = path.join(parent, "repo"), skillDir = path.join(parent, "user-skills", "squad-witness"), launches: Array<{ readonly kindId: "claude" | "codex" | "agy"; readonly prompt: string; readonly request: Record<string, unknown> }> = [], kinds = ["claude", "codex", "agy"] as const;
-  mkdirSync(root); initIngressRepo(root, 4308); mkdirSync(skillDir, { recursive: true }); writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: squad-witness\ndescription: Squad witness\n---\nSQUAD_SKILL_WITNESS\n"); mkdirSync(path.join(root, "harness", "agents"), { recursive: true }); mkdirSync(path.join(root, "harness", "squads"), { recursive: true }); writeFileSync(path.join(root, "harness", "agents", "squad-leader.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "squad-leader", name: "Squad Leader", instructions: "Delegate work.", runtime_type: "codex" })}\n`); writeFileSync(path.join(root, "harness", "agents", "squad-worker.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "squad-worker", name: "Squad Worker", instructions: "Use the squad skill.", runtime_type: "any", skills: [{ id: "squad-witness", path: skillDir }] })}\n`); writeFileSync(path.join(root, "harness", "squads", "runtime-squad.json"), `${JSON.stringify({ schema: "squad-declaration/v1", id: "runtime-squad", name: "Runtime Squad", leader: "squad-leader", workers: ["squad-worker"], roster: "# Runtime Squad" })}\n`);
-  const cell = await openRepoCell({ repoId: workspaceId("runtime-squad-worker"), rootDir: canonicalRoot(root), ownerId: "squad-worker-test", prepareRuntimeLaunch: (instanceId, request) => { const kindId = instanceId.replace(/-squad$/u, "") as "claude" | "codex" | "agy", preparedDefinition = { ...definition, instanceId, installationId: `installation-${kindId}-squad`, kindId, providerId: kindId === "claude" ? "anthropic" : kindId === "agy" ? "google" : "openai", model: `${kindId}-model` }, installation = { installationId: preparedDefinition.installationId, kindId, executablePath: `/opt/witnessed/${kindId}`, version: "1.0.0", observedAt: "2026-08-20T00:00:00.000Z" }; launches.push({ kindId, prompt: request.prompt, request: request as unknown as Record<string, unknown> }); return { definition: preparedDefinition, installation, executablePath: installation.executablePath, args: [], env: {}, cwd: request.cwd, prompt: request.prompt }; }, runtimeLaunch: () => ({ pid: 4308, onOutput: () => undefined, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }) });
-  try { const binding = { actor: { principal: { personId: "person-squad-worker" }, executor: null }, source: "local" as const }, skillFile = realpathSync(path.join(skillDir, "SKILL.md")); for (const kindId of kinds) { const receipt = await cell.spawnRuntime({ runtimeInstanceId: `${kindId}-squad`, agentId: "squad-leader", targetAgentId: "squad-worker", cwd: { scope: "repo-root" }, prompt: `Delegate to ${kindId}.`, taskId: null, idempotencyKey: `squad-worker-${kindId}` }, binding); assert.equal(receipt.outcome, "applied", kindId); } for (const launch of launches) { assert.match(launch.prompt, new RegExp(`# Required Skills[\\s\\S]*squad-witness: ${skillFile.replaceAll("\\", "\\\\")}`, "u"), launch.kindId); assert.equal(Object.hasOwn(launch.request, "skillRoot"), false); assert.equal(Object.hasOwn(launch.request, "skills"), false); } }
-  finally { await cell.close(); rmSync(parent, { recursive: true, force: true }); }
-});
-
 test("Agent skill is really read by the provider from the absolute path in its final prompt", async (context) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-agent-skill-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), repoId = "runtime-agent-skill", uid = 4307;
-  const executablePath = writeProviderExecutable(path.join(parent, "codex-skill-provider.mjs"), `import fs from "node:fs";\nif (process.argv[2] === "login") process.exit(0);\nlet prompt = ""; for await (const chunk of process.stdin) prompt += chunk; const match = prompt.match(/provider-witness: (.+\\/SKILL\\.md)/u), skill = match ? fs.readFileSync(match[1], "utf8") : "", witness = skill.includes("SKILL_PROVIDER_WITNESS"), frames = [{ type: "thread.started", thread_id: "provider-session" }, { type: "item.completed", item: { id: "provider-witness", type: "agent_message", text: "provider-witness:" + witness, skill_witness: witness, prompt_witness: match?.[0] ?? null, final_prompt: prompt } }, { type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "provider-result.txt", kind: "add" }], status: "completed" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; process.stdout.write(frames.map((frame) => JSON.stringify(frame)).join("\\n") + "\\n");\n`), installation = { installationId: "installation-codex-skill", kindId: "codex" as const, executablePath, version: "1.0.0", observedAt: "2026-08-20T00:00:00.000Z" };
-  initIngressRepo(root, uid); mkdirSync(path.join(root, "harness", "skills", "provider-witness"), { recursive: true }); writeFileSync(path.join(root, "harness", "skills", "provider-witness", "SKILL.md"), "---\nname: provider-witness\ndescription: Provider witness\n---\nSKILL_PROVIDER_WITNESS\n"); mkdirSync(path.join(root, "harness", "agents"), { recursive: true }); writeFileSync(path.join(root, "harness", "agents", "skill-agent.json"), `${JSON.stringify({ schema: "agent-declaration/v1", id: "skill-agent", name: "Skill Agent", instructions: "Use the provider skill.", runtime_type: "codex", skills: [{ id: "provider-witness", path: "skills/provider-witness" }] })}\n`); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
-  const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const, host = await openDaemonHost({ daemonId: "runtime-agent-skill", userRoot, runtimeDiscover: () => [installation] }); await host.attachmentsSettled();
-  try { host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: "codex-skill", name: "Codex Skill", kindId: "codex", installationId: installation.installationId, providerId: "openai", models: ["skill-model"], authMode: "subscription" }, auth); const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: "codex-skill", agentId: "skill-agent", cwd: { scope: "repo-root" }, prompt: "Use the skill.", taskId: null, idempotencyKey: "agent-skill-provider-witness" } }); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`), stream = await eventuallyValue(() => { try { const value = readFileSync(streamPath, "utf8"); return value.includes("provider_event") ? value : null; } catch { return null; } }), records = stream.trim().split(/\r?\n/u).map((line) => JSON.parse(line) as Record<string, unknown>), witness = records.find((record) => record.kind === "provider_event" && ((record.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined)?.skill_witness === true), item = (witness?.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined; assert.equal(item?.skill_witness, true, stream); assert.match(String(item?.prompt_witness), /^provider-witness: .*\/harness\/skills\/provider-witness\/SKILL\.md$/u); assert.match(stream, /"text":"provider-witness:true"/u); assert.doesNotMatch(stream, /SKILL_PROVIDER_WITNESS/u); context.diagnostic(`FINAL_RUNTIME_PROMPT_BEGIN\n${String(item?.final_prompt)}\nFINAL_RUNTIME_PROMPT_END`); } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-agent-skill-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    repoId = "runtime-agent-skill",
+    uid = 4307;
+  const executablePath = writeProviderExecutable(
+      path.join(parent, "codex-skill-provider.mjs"),
+      `import fs from "node:fs";\nif (process.argv[2] === "login") process.exit(0);\nlet prompt = ""; for await (const chunk of process.stdin) prompt += chunk; const match = prompt.match(/provider-witness: (.+\\/SKILL\\.md)/u), skill = match ? fs.readFileSync(match[1], "utf8") : "", witness = skill.includes("SKILL_PROVIDER_WITNESS"), frames = [{ type: "thread.started", thread_id: "provider-session" }, { type: "item.completed", item: { id: "provider-witness", type: "agent_message", text: "provider-witness:" + witness, skill_witness: witness, prompt_witness: match?.[0] ?? null, final_prompt: prompt } }, { type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "provider-result.txt", kind: "add" }], status: "completed" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; process.stdout.write(frames.map((frame) => JSON.stringify(frame)).join("\\n") + "\\n");\n`,
+    ),
+    installation = {
+      installationId: "installation-codex-skill",
+      kindId: "codex" as const,
+      executablePath,
+      version: "1.0.0",
+      observedAt: "2026-08-20T00:00:00.000Z",
+    };
+  initIngressRepo(root, uid);
+  mkdirSync(path.join(root, "harness", "skills", "provider-witness"), {
+    recursive: true,
+  });
+  writeFileSync(
+    path.join(root, "harness", "skills", "provider-witness", "SKILL.md"),
+    "---\nname: provider-witness\ndescription: Provider witness\n---\nSKILL_PROVIDER_WITNESS\n",
+  );
+  mkdirSync(path.join(root, "harness", "agents"), { recursive: true });
+  writeFileSync(
+    path.join(root, "harness", "agents", "skill-agent.json"),
+    `${JSON.stringify({ schema: "agent-declaration/v1", id: "skill-agent", name: "Skill Agent", instructions: "Use the provider skill.", runtime_type: "codex", skills: [{ id: "provider-witness", path: "skills/provider-witness" }] })}\n`,
+  );
+  registerDaemonRepo({
+    canonicalRoot: root,
+    repoId,
+    userRoot,
+    createConvenienceLinks: false,
+  });
+  const auth = {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: {
+        ownerUid: uid,
+        source: "unix-socket-filesystem-owner-boundary",
+      },
+    } as const,
+    host = await openDaemonHost({
+      daemonId: "runtime-agent-skill",
+      userRoot,
+      runtimeDiscover: () => [installation],
+    });
+  await host.attachmentsSettled();
+  try {
+    host.runtimeInstance(
+      "daemon.runtimeInstance.create",
+      {
+        instanceId: "codex-skill",
+        name: "Codex Skill",
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["skill-model"],
+        authMode: "subscription",
+      },
+      auth,
+    );
+    const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
+      repo: { repoId },
+      payload: {
+        runtimeInstanceId: "codex-skill",
+        agentId: "skill-agent",
+        cwd: { scope: "repo-root" },
+        prompt: "Use the skill.",
+        taskId: null,
+        idempotencyKey: "agent-skill-provider-witness",
+      },
+    });
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`),
+      stream = await eventuallyValue(() => {
+        try {
+          const value = readFileSync(streamPath, "utf8");
+          return value.includes("provider_event") ? value : null;
+        } catch {
+          return null;
+        }
+      }),
+      records = stream
+        .trim()
+        .split(/\r?\n/u)
+        .map((line) => JSON.parse(line) as Record<string, unknown>),
+      witness = records.find(
+        (record) =>
+          record.kind === "provider_event" &&
+          ((record.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined)
+            ?.skill_witness === true,
+      ),
+      item = (witness?.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined;
+    assert.equal(item?.skill_witness, true, stream);
+    assert.match(String(item?.prompt_witness), /^provider-witness: .*\/harness\/skills\/provider-witness\/SKILL\.md$/u);
+    assert.match(stream, /"text":"provider-witness:true"/u);
+    assert.doesNotMatch(stream, /SKILL_PROVIDER_WITNESS/u);
+    context.diagnostic(`FINAL_RUNTIME_PROMPT_BEGIN\n${String(item?.final_prompt)}\nFINAL_RUNTIME_PROMPT_END`);
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
 
 test("Codex API-key bearer remains confined to the private provider config", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-bearer-confidentiality-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), secret = "api-key-only-in-private-config", installation = { ...definition, installationId: "installation-codex-private", executablePath: "/opt/witnessed/codex-private", version: "1.0.0", observedAt: "2026-08-19T00:00:00.000Z" } as RuntimeInstallationWitness;
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-bearer-confidentiality-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    secret = "api-key-only-in-private-config",
+    installation = {
+      ...definition,
+      installationId: "installation-codex-private",
+      executablePath: "/opt/witnessed/codex-private",
+      version: "1.0.0",
+      observedAt: "2026-08-19T00:00:00.000Z",
+    } as RuntimeInstallationWitness;
   try {
-    mkdirSync(root); git(root, "init", "-q"); git(root, "config", "user.name", "Spawn Test"); git(root, "config", "user.email", "spawn@example.invalid"); git(root, "commit", "--allow-empty", "-qm", "base");
-    const instances = openRuntimeInstanceStore({ userRoot, discover: () => [installation], resolveCredential: () => secret }); instances.create({ schemaVersion: 2, instanceId: "codex-private", name: "Codex Private", kindId: "codex", installationId: installation.installationId, providerId: "codex_local_access", models: [definition.model], defaultModel: definition.model, enabled: true, codex: { baseUrl: "http://127.0.0.1:50818/v1", wireApi: "responses", requiresOpenAiAuth: true }, auth: { mode: "api-key", credentialRef: "credential:v1:codex-private" } });
-    const cell = await openRepoCell({ repoId: workspaceId("runtime-bearer-confidentiality"), rootDir: canonicalRoot(root), ownerId: "spawn-test", runtimeInstances: instances.listPublic, prepareRuntimeLaunch: instances.prepareLaunch, runtimeLaunch: (prepared) => { assert.doesNotMatch(JSON.stringify(prepared), new RegExp(secret, "u")); return { pid: 456, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: "private-provider-session" })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "private final result" } })}\n${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })}\n`)); }, onErrorOutput: () => undefined, onExit: (listener) => { queueMicrotask(() => listener(0)); }, terminate: () => undefined }; } });
+    mkdirSync(root);
+    git(root, "init", "-q");
+    git(root, "config", "user.name", "Spawn Test");
+    git(root, "config", "user.email", "spawn@example.invalid");
+    git(root, "commit", "--allow-empty", "-qm", "base");
+    const instances = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [installation],
+      resolveCredential: () => secret,
+    });
+    instances.create({
+      schemaVersion: 2,
+      instanceId: "codex-private",
+      name: "Codex Private",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "codex_local_access",
+      models: [definition.model],
+      defaultModel: definition.model,
+      enabled: true,
+      codex: {
+        baseUrl: "http://127.0.0.1:50818/v1",
+        wireApi: "responses",
+        requiresOpenAiAuth: true,
+      },
+      auth: { mode: "api-key", credentialRef: "credential:v1:codex-private" },
+    });
+    const cell = await openRepoCell({
+      repoId: workspaceId("runtime-bearer-confidentiality"),
+      rootDir: canonicalRoot(root),
+      ownerId: "spawn-test",
+      runtimeInstances: instances.listPublic,
+      prepareRuntimeLaunch: instances.prepareLaunch,
+      runtimeLaunch: (prepared) => {
+        assert.doesNotMatch(JSON.stringify(prepared), new RegExp(secret, "u"));
+        return {
+          pid: 456,
+          onOutput: (listener) => {
+            queueMicrotask(() =>
+              listener(
+                `${JSON.stringify({ type: "thread.started", thread_id: "private-provider-session" })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "private final result" } })}\n${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })}\n`,
+              ),
+            );
+          },
+          onErrorOutput: () => undefined,
+          onExit: (listener) => {
+            queueMicrotask(() => listener(0));
+          },
+          terminate: () => undefined,
+        };
+      },
+    });
     try {
-      const receipt = await cell.spawnRuntime({ runtimeInstanceId: "codex-private", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "private-bearer" }, { actor: { principal: { personId: "person-spawn" }, executor: null }, source: "local" }), read = await eventuallyValue(async () => { const value = await cell.read("repo.agentRuntime.sessions.read", { runtimeSessionId: receipt.runtimeSessionId }); return value.result ? value : null; }), events = makeTaskEventStore({ repoId: "runtime-bearer-confidentiality", rootDir: root }).read().events, stream = readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`), "utf8"), config = readFileSync(path.join(userRoot, "runtime-instances", "codex-private", "home", ".codex", "config.toml"), "utf8");
-      assert.match(config, new RegExp(`experimental_bearer_token = ${JSON.stringify(secret)}`, "u")); for (const value of [receipt, read, events, stream]) assert.doesNotMatch(JSON.stringify(value), new RegExp(secret, "u"));
-    } finally { await cell.close(); }
-  } finally { rmSync(parent, { recursive: true, force: true }); }
-});
-
-test("daemon ingress preserves executor-scoped task-bound runtime spawn", async (t) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), workerRoot = path.join(root, ".worktrees", "worker"), executablePath = writeProviderExecutable(path.join(parent, "codex-stub.mjs"), "process.exit(0);\n"), repoId = "runtime-spawn-ingress", uid = process.getuid?.() ?? 0;
-  initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
-  mkdirSync(path.join(workerRoot, "packages", "cli", "src"), { recursive: true }); writeFileSync(path.join(workerRoot, "packages", "cli", "src", "index.ts"), "export {};\n");
-  const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const;
-  const ingressDefinition = { ...definition, authMode: "subscription" as const }, ingressInstallation = { ...installation, executablePath }; let launchedEnv: NodeJS.ProcessEnv | null = null, launchedPrompt = "", launchCount = 0;
-  const host = await openDaemonHost({ daemonId: "runtime-spawn-ingress", userRoot, runtimeDiscover: () => [ingressInstallation], runtimeLaunch: (prepared) => { launchedEnv = prepared.env; launchedPrompt = prepared.prompt; launchCount += 1; return { pid: 4310, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-task-session" })}\n`)); }, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }; } });
-  await host.attachmentsSettled();
-  let transportConnections = 0;
-  const endpoint = localUserDaemonEndpoint(userRoot, "runtime-spawn-ingress"), transport = createUnixSocketTransportServer({ daemonId: "runtime-spawn-ingress", socketPath: endpoint, createProtocolServer: (authContext, emit) => { transportConnections += 1; return createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }); } });
-  await transport.start();
-  try {
-    host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: ingressDefinition.instanceId, name: "Codex Review", kindId: ingressDefinition.kindId, installationId: ingressDefinition.installationId, providerId: ingressDefinition.providerId, models: [ingressDefinition.model], codex: { reasoningEffort: ingressDefinition.reasoningEffort }, authMode: ingressDefinition.authMode }, auth);
-    await t.test("matching agent executor writes the task and execution join", async () => {
-      const taskId = "task-runtime-agent", executionId = "exec-runtime-agent", executor = { kind: "agent", id: "codex-worker" } as const;
-      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Agent runtime" }, auth)).outcome, "applied");
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome, "applied");
-      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-relative", path: ".worktrees/worker" }, prompt: "Inspect the task.\n\n```sh\nnode packages/cli/src/index.ts --version\n```", taskId, idempotencyKey: "agent-task-bound", executor } });
-      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.equal(launchedEnv?.HARNESS_ACTOR, `agent:runtime-session:${receipt.runtimeSessionId}`);
-      assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, userRoot); assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "runtime-spawn-ingress"); assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, repoId); assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /harness-anything/u);
-      assert.match(launchedPrompt, new RegExp(`Repository id: ${repoId}`, "u")); assert.ok(launchedPrompt.includes("Repository registration: enabled")); assert.ok(launchedPrompt.includes(`Canonical repository root: ${realpathSync(root)}`)); assert.ok(launchedPrompt.includes(`Worker repository root: ${realpathSync(workerRoot)}`)); assert.ok(launchedPrompt.includes(`Task package root: ${path.join(realpathSync(root), "harness", "tasks", "task-runtime-agent-agent-runtime")}`)); assert.match(launchedPrompt, new RegExp(`Runtime actor: agent:runtime-session:${receipt.runtimeSessionId}`, "u")); assert.ok(launchedPrompt.includes(`Daemon user root: ${userRoot}`)); assert.ok(launchedPrompt.includes("Daemon id: runtime-spawn-ingress")); assert.ok(launchedPrompt.includes(`Daemon endpoint: ${launchedEnv?.HARNESS_DAEMON_ENDPOINT}`));
-      const bound = await eventuallyValue(async () => makeTaskEventStore({ repoId, rootDir: root }).read().events.find((event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === receipt.runtimeSessionId) ?? null);
-      assert.equal(bound?.type, "runtime_session_task_bound"); assert.deepEqual(bound?.actor.executor, executor);
-      assert.deepEqual(bound?.type === "runtime_session_task_bound" && { taskId: bound.payload.taskId, executionId: bound.payload.executionId }, { taskId, executionId });
-      const overview = await host.read(repoId, "repo.agentRuntime.overview", {}, auth), session = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
-      assert.equal(session?.associations.some((association) => association.taskId === taskId && association.executionId === executionId), true);
-    });
-    await t.test("a worker that changes its user root is rejected before it can reach the parent daemon", async () => {
-      const scratchUserRoot = path.join(parent, "isolated-user");
-      registerDaemonRepo({ canonicalRoot: root, repoId, userRoot: scratchUserRoot, createConvenienceLinks: false });
-      const before = transportConnections;
-      const result = await spawnCli(["--root", workerRoot, "--json", "task", "list"], { ...launchedEnv, HARNESS_DAEMON_USER_ROOT: scratchUserRoot, HARNESS_DAEMON_ID: "isolated" });
-      assert.equal(result.status, 1, `${result.stderr}\n${result.stdout}`);
-      const receipt = JSON.parse(result.stdout) as Record<string, unknown>;
-      assert.equal(receipt.code, "daemon_target_conflict", JSON.stringify(receipt));
-      assert.equal(transportConnections, before, "a conflicting target must be rejected before opening the parent daemon socket");
-    });
-    await t.test("task mission rejects an unmatched shell glob before provider launch", async () => {
-      const taskId = "task-runtime-invalid-glob", executionId = "exec-runtime-invalid-glob", executor = { kind: "agent", id: "codex-worker" } as const;
-      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Invalid glob" }, auth)).outcome, "applied");
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome, "applied");
-      writeFileSync(path.join(root, "harness", "tasks", "task-runtime-invalid-glob-invalid-glob", "task_plan.md"), "# Invalid glob\n\n```sh\nprintf 'inspect manifest' && rg runtime tools/test-tier-manifest.*.mjs\n```\n");
-      const before = launchCount, receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-relative", path: ".worktrees/worker" }, taskId, idempotencyKey: "invalid-glob", executor } });
-      assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "runtime_mission_invalid"); assert.match(String(receipt.nextAction), /tools\/test-tier-manifest\.\*\.mjs/u); assert.equal(launchCount, before);
-    });
-    await t.test("task mission rejects a missing Node entry before provider launch", async () => {
-      const taskId = "task-runtime-missing-entry", executionId = "exec-runtime-missing-entry", executor = { kind: "agent", id: "codex-worker" } as const;
-      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Missing entry" }, auth)).outcome, "applied");
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome, "applied");
-      writeFileSync(path.join(root, "harness", "tasks", "task-runtime-missing-entry-missing-entry", "task_plan.md"), "# Missing entry\n\n```bash\nnode tools/missing-entry.mjs\n```\n");
-      const before = launchCount, receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-relative", path: ".worktrees/worker" }, taskId, idempotencyKey: "missing-entry", executor } });
-      assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "runtime_mission_invalid"); assert.match(String(receipt.nextAction), /tools\/missing-entry\.mjs/u); assert.equal(launchCount, before);
-    });
-    await t.test("mismatched agent executor remains rejected", async () => {
-      const taskId = "task-runtime-mismatch", executionId = "exec-runtime-mismatch", holder = { kind: "agent", id: "codex-holder" } as const, caller = { kind: "agent", id: "codex-other" } as const;
-      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Mismatched runtime" }, auth)).outcome, "applied");
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor: holder }, auth)).outcome, "applied");
-      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Wrong executor", taskId, idempotencyKey: "agent-task-mismatch", executor: caller } });
-      assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "runtime_task_lease_required");
-      assert.match(String(receipt.nextAction), new RegExp(`holder \\(personId=owner, executor=agent:codex-holder\\) must run ha task release ${taskId}, then this caller can run ha task start ${taskId}`, "u"));
-      assert.equal((await host.run(repoId, { kind: "task-release", taskId, executor: holder }, auth)).outcome, "applied");
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executor: caller }, auth)).outcome, "applied");
-      assert.equal((await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Recovered executor", taskId, idempotencyKey: "agent-task-recovered", executor: caller } })).outcome, "applied");
-    });
-    await t.test("task-bound runtime without a lease is told to start the task and that command terminates", async () => {
-      const taskId = "task-runtime-no-lease", executor = { kind: "agent", id: "codex-no-lease" } as const;
-      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Runtime no lease" }, auth)).outcome, "applied");
-      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Needs a lease", taskId, idempotencyKey: "runtime-no-lease", executor } });
-      assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "runtime_task_lease_required");
-      assert.equal(receipt.nextAction, `Task-bound runtime spawn requires the caller's active execution lease; run ha task start ${taskId}, then retry the task-bound runtime command.`);
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executor }, auth)).outcome, "applied");
-      assert.equal((await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Lease acquired", taskId, idempotencyKey: "runtime-with-lease", executor } })).outcome, "applied");
-    });
-    await t.test("human lease remains task-bindable without an executor", async () => {
-      const taskId = "task-runtime-human", executionId = "exec-runtime-human";
-      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Human runtime" }, auth)).outcome, "applied");
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
-      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Inspect the human task", taskId, idempotencyKey: "human-task-bound" } });
-      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.equal(launchedEnv?.HARNESS_ACTOR, `agent:runtime-session:${receipt.runtimeSessionId}`);
-      const bound = await eventuallyValue(async () => makeTaskEventStore({ repoId, rootDir: root }).read().events.find((event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === receipt.runtimeSessionId) ?? null);
-      assert.equal(bound?.type, "runtime_session_task_bound"); assert.equal(bound?.actor.executor, null);
-      assert.deepEqual(bound?.type === "runtime_session_task_bound" && { taskId: bound.payload.taskId, executionId: bound.payload.executionId }, { taskId, executionId });
-    });
-    await t.test("the bound runtime appends attributed progress while an unrelated executor stays rejected", async () => {
-      const taskId = "task-runtime-progress", executionId = "exec-runtime-progress", holder = { kind: "agent", id: "dispatch-holder" } as const;
-      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Runtime progress" }, auth)).outcome, "applied");
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor: holder }, auth)).outcome, "applied");
-      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Record progress", taskId, idempotencyKey: "runtime-progress", executor: holder } });
-      await eventuallyValue(async () => makeTaskEventStore({ repoId, rootDir: root }).read().events.find((event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === receipt.runtimeSessionId) ?? null);
-      const worker = { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` } as const, evidence = [{ type: "test", path: "reports/runtime-progress.txt", summary: "worker checkpoint" }];
-      assert.equal((await host.run(repoId, { kind: "task-progress-append", taskId, text: "Worker checkpoint one.", evidence, executor: worker }, auth)).outcome, "applied");
-      assert.equal((await host.run(repoId, { kind: "task-progress-append", taskId, text: "Worker checkpoint two.", evidence, executor: worker }, auth)).outcome, "applied");
-      const rejected = await host.run(repoId, { kind: "task-progress-append", taskId, text: "Unrelated writer.", evidence, executor: { kind: "agent", id: "unrelated-worker" } }, auth); assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, "progress_lease_mismatch");
-      const progress = makeTaskEventStore({ repoId, rootDir: root }).read().events.filter((event) => event.schema === "task-progress-event/v1" && event.payload.taskId === taskId);
-      assert.deepEqual(progress.map((event) => event.payload.text), ["Worker checkpoint one.", "Worker checkpoint two."]);
-      assert.deepEqual(progress.map((event) => event.actor.executor), [worker, worker]); assert.deepEqual(progress.map((event) => event.payload.runtimeSessionId), [receipt.runtimeSessionId, receipt.runtimeSessionId]);
-      assert.match(readFileSync(path.join(root, "harness/tasks/task-runtime-progress-runtime-progress/progress.md"), "utf8"), /Worker checkpoint one\.[\s\S]*Worker checkpoint two\./u);
-      const replayStore = makeTaskEventStore({ repoId, rootDir: root }), replay = makeTaskProjection({ rootDir: root, eventStore: replayStore, projectionPath: path.join(parent, "runtime-progress-replay.sqlite") }); try { replay.rebuild(); assert.deepEqual(replay.readProgress(taskId).rows.map((event) => ({ text: event.payload.text, actor: event.actor.executor, runtimeSessionId: event.payload.runtimeSessionId })), [{ text: "Worker checkpoint one.", actor: worker, runtimeSessionId: receipt.runtimeSessionId }, { text: "Worker checkpoint two.", actor: worker, runtimeSessionId: receipt.runtimeSessionId }]); } finally { replay.close(); }
-    });
-    await t.test("the live task-bound runtime publishes only its assigned artifacts while lifecycle authority stays holder-only", async () => {
-      const taskId = "task-runtime-artifact", executionId = "exec-runtime-artifact", otherTaskId = "task-runtime-artifact-other", otherExecutionId = "exec-runtime-artifact-other", holder = { kind: "agent", id: "dispatch-holder" } as const;
-      assert.equal((await host.run(repoId, { kind: "task-create", taskId, title: "Runtime artifact" }, auth)).outcome, "applied");
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId, executor: holder }, auth)).outcome, "applied");
-      assert.equal((await host.run(repoId, { kind: "task-create", taskId: otherTaskId, title: "Runtime artifact other" }, auth)).outcome, "applied");
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId: otherTaskId, executionId: otherExecutionId, executor: holder }, auth)).outcome, "applied");
-      const spawned = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: ingressDefinition.instanceId, cwd: { scope: "repo-root" }, prompt: "Publish the report", taskId, idempotencyKey: "runtime-artifact", executor: holder } });
-      await eventuallyValue(async () => makeTaskEventStore({ repoId, rootDir: root }).read().events.find((event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === spawned.runtimeSessionId) ?? null);
-      const worker = { kind: "agent", id: `runtime-session:${spawned.runtimeSessionId}` } as const, source = "runtime-artifact.md", ownDestination = "reports/runtime-artifact.md"; writeFileSync(path.join(root, source), "# Runtime artifact\n");
-      const published = await host.run(repoId, { kind: "task-artifact-add", taskId, source, destination: ownDestination, executor: worker }, auth); assert.equal(published.outcome, "applied", JSON.stringify(published)); assert.equal(published.destination, `tasks/task-runtime-artifact-runtime-artifact/artifacts/${ownDestination}`);
-      const syncedPath = "tasks/task-runtime-artifact-runtime-artifact/artifacts/reports/runtime-doc-sync.md", syncedTarget = path.join(root, "harness", syncedPath); mkdirSync(path.dirname(syncedTarget), { recursive: true }); writeFileSync(syncedTarget, "# Runtime doc sync artifact\n"); const synced = await host.run(repoId, { kind: "doc-submit", paths: [], executor: worker }, auth); assert.equal(synced.outcome, "applied", JSON.stringify(synced)); assert.match(String(synced.summary), new RegExp(`applied:[\\s\\S]*${syncedPath}`, "u"));
-
-      const crossTask = await host.run(repoId, { kind: "task-artifact-add", taskId: otherTaskId, source, destination: "reports/cross-task.md", executor: worker }, auth); assert.deepEqual({ outcome: crossTask.outcome, code: crossTask.code, origin: crossTask.origin }, { outcome: "op_rejected", code: "lease_conflict", origin: "doc-sync-contract" });
-      const otherPath = "tasks/task-runtime-artifact-other-runtime-artifact-other/artifacts/reports/cross-task-doc-sync.md", otherTarget = path.join(root, "harness", otherPath); mkdirSync(path.dirname(otherTarget), { recursive: true }); writeFileSync(otherTarget, "# Cross-task report\n"); const crossTaskDoc = await host.run(repoId, { kind: "doc-submit", paths: [otherPath], executor: worker }, auth); assert.equal(crossTaskDoc.outcome, "op_rejected"); assert.equal(crossTaskDoc.code, "lease_conflict"); assert.match(crossTaskDoc.nextAction ?? "", /no live execution lease covers tasks\/task-runtime-artifact-other-runtime-artifact-other\/artifacts\/reports\/cross-task-doc-sync\.md for this runtime session; submit through the lease-brokered task command for a bound execution, or have the dispatcher re-dispatch \(a non-runtime principal may rerun ha doc sync --submit through the repository prose channel\)/u);
-      const planPath = "tasks/task-runtime-artifact-runtime-artifact/task_plan.md", planTarget = path.join(root, "harness", planPath), planBody = readFileSync(planTarget, "utf8"); writeFileSync(planTarget, `${planBody}\nRuntime worker prose.\n`);
-      const taskProse = await host.run(repoId, { kind: "doc-submit", paths: [planPath], executor: worker }, auth); assert.equal(taskProse.outcome, "op_rejected"); assert.equal(taskProse.code, "preview_blocked"); assert.equal(taskProse.detail?.unresolvedTouches[0]?.requiredRoute, "task-bound-runtime-artifacts"); writeFileSync(planTarget, planBody);
-      const submission = { completionClaim: "Runtime worker must not submit.", deliverables: ["artifact"], outputs: [String(published.destination)], verificationNotes: ["integration"], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) };
-      const lifecycle = await host.run(repoId, { kind: "task-submit", taskId, executionId, submission, executor: worker }, auth); assert.deepEqual({ outcome: lifecycle.outcome, code: lifecycle.code }, { outcome: "op_rejected", code: "lease_required" }, JSON.stringify(lifecycle));
-      assert.match(String(lifecycle.nextAction), new RegExp(`authenticated holder \\(personId=owner, executor=agent:dispatch-holder\\) must run ha task submit ${taskId} --execution-id ${executionId} --from-file <submission.json>, or ha task release ${taskId}`, "u"));
-      writeFileSync(path.join(root, "submission.json"), JSON.stringify(submission));
-      assert.equal((await host.run(repoId, { kind: "task-submit", taskId, executionId, fromFile: "submission.json", executor: holder }, auth)).outcome, "applied");
-    });
-  } finally { await transport.stop(); await host.close(); rmSync(parent, { recursive: true, force: true }); }
-});
-
-test("daemon ingress persists scrubbed provider JSONL while returning canonical results for both runtime kinds", async (t) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-provider-events-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), repoId = "runtime-provider-events", uid = 4302;
-  initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
-  const installations = (["claude", "codex"] as const).map((kindId) => { const executablePath = writeProviderStub(path.join(parent, `${kindId}-stub.mjs`), kindId); return { installationId: `installation-${kindId}`, kindId, executablePath, version: "1.0.0", observedAt: "2026-08-19T00:00:00.000Z" } as const; });
-  const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const, host = await openDaemonHost({ daemonId: "runtime-provider-events", userRoot, runtimeDiscover: () => installations });
-  await host.attachmentsSettled();
-  try {
-    for (const kindId of ["claude", "codex"] as const) host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: `${kindId}-provider`, name: `${kindId} provider`, kindId, installationId: `installation-${kindId}`, providerId: kindId === "claude" ? "anthropic" : "openai", models: [`${kindId}-model`], authMode: "subscription" }, auth);
-    host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: "codex-read-only", name: "codex read only", kindId: "codex", installationId: "installation-codex", providerId: "openai", models: ["codex-model"], permissionMode: "read-only", authMode: "subscription" }, auth);
-    for (const kindId of ["claude", "codex"] as const) await t.test(kindId, async () => {
-      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: `${kindId}-provider`, cwd: { scope: "repo-root" }, prompt: `Run ${kindId}`, taskId: null, idempotencyKey: `${kindId}-provider-events` } });
-      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); const frames: Record<string, unknown>[] = [], attached = await rpcAttach(host, auth, repoId, String(receipt.runtimeSessionId), frames);
-      try { await eventually(async () => frames.some((frame) => frame.type === "activity" && frame.activity === "message" && frame.content === `${kindId} live content`));
-        const read = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: receipt.runtimeSessionId } }); return value.result ? value : null; });
-        assert.equal((read.session as Record<string, unknown>).providerSessionId, `${kindId}-provider-session`); assert.deepEqual((read.session as { activity: unknown }).activity, { lastObservedAt: (read.session as { activity: { lastObservedAt: string } }).activity.lastObservedAt, outcome: "succeeded", exitCode: 0, resultRef: (read.result as Record<string, unknown>).ref });
-        assert.deepEqual(read.result, { ref: (read.result as Record<string, unknown>).ref, text: `${kindId} final result` }); assert.match(String((read.result as Record<string, unknown>).ref), /^artifact:runtime-result\/sha256\/[0-9a-f]{64}$/u);
-        const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`), stream = await eventuallyValue(() => { try { return readFileSync(streamPath, "utf8"); } catch { return null; } });
-        assert.match(stream, /"kind":"provider_event"/u); if (kindId === "codex") { assert.doesNotMatch(stream, /credentialRef|executablePath|apiToken|sk-provider-secret|\/provider\/private/u); }
-        const outcome = makeTaskEventStore({ repoId, rootDir: root }).read().events.find((event) => event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === receipt.runtimeSessionId); assert.equal(outcome?.type, "runtime_session_outcome_observed");
-        if (outcome?.type === "runtime_session_outcome_observed") assert.equal(Buffer.from(makeTaskEventStore({ repoId, rootDir: root }).readContentBlob(outcome.payload.result.sha256)!).toString("utf8"), `${kindId} final result`);
-      } finally { attached.close(); }
-    });
-    const readOnly = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: "codex-read-only", cwd: { scope: "repo-root" }, prompt: "read-only", taskId: null, idempotencyKey: "codex-read-only" } }), readOnlyRead = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: readOnly.runtimeSessionId } }); return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null; }); assert.deepEqual((readOnlyRead.session as { activity: { outcome: unknown; exitCode: unknown } }).activity && { outcome: (readOnlyRead.session as { activity: { outcome: unknown } }).activity.outcome, exitCode: (readOnlyRead.session as { activity: { exitCode: unknown } }).activity.exitCode }, { outcome: "succeeded", exitCode: 0 });
-    const noAction = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: "codex-provider", cwd: { scope: "repo-root" }, prompt: "no-action", taskId: null, idempotencyKey: "codex-no-action" } }), noActionRead = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: noAction.runtimeSessionId } }); return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null; }); assert.deepEqual((noActionRead.session as { activity: { outcome: unknown; exitCode: unknown } }).activity && { outcome: (noActionRead.session as { activity: { outcome: unknown } }).activity.outcome, exitCode: (noActionRead.session as { activity: { exitCode: unknown } }).activity.exitCode }, { outcome: "unknown", exitCode: 0 });
-    const noWrite = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: "codex-provider", cwd: { scope: "repo-root" }, prompt: "no-write", taskId: null, idempotencyKey: "codex-no-write" } }), noWriteRead = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: noWrite.runtimeSessionId } }); return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null; }); assert.deepEqual((noWriteRead.session as { activity: { outcome: unknown; exitCode: unknown } }).activity && { outcome: (noWriteRead.session as { activity: { outcome: unknown } }).activity.outcome, exitCode: (noWriteRead.session as { activity: { exitCode: unknown } }).activity.exitCode }, { outcome: "unknown", exitCode: 0 });
-    const denied = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: "claude-provider", cwd: { scope: "repo-root" }, prompt: "permission-denied", taskId: null, idempotencyKey: "claude-permission-denied" } }), deniedRead = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: denied.runtimeSessionId } }); return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null; }); assert.deepEqual((deniedRead.session as { activity: { outcome: unknown; exitCode: unknown } }).activity && { outcome: (deniedRead.session as { activity: { outcome: unknown } }).activity.outcome, exitCode: (deniedRead.session as { activity: { exitCode: unknown } }).activity.exitCode }, { outcome: "unknown", exitCode: 0 });
-    const empty = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: "codex-provider", cwd: { scope: "repo-root" }, prompt: "failure:empty", taskId: null, idempotencyKey: "codex-empty-failure" } });
-    const emptyRead = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: empty.runtimeSessionId } }); return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null; });
-    assert.deepEqual((emptyRead.session as { activity: { outcome: unknown; exitCode: unknown } }).activity && { outcome: (emptyRead.session as { activity: { outcome: unknown } }).activity.outcome, exitCode: (emptyRead.session as { activity: { exitCode: unknown } }).activity.exitCode }, { outcome: "unknown", exitCode: 1 }); assert.equal((emptyRead.result as Record<string, unknown>).text, "Provider exited with code 1 and produced no output.");
-    const secret = "sk-runtime-secret-1234567890", stderrFailure = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: "codex-provider", cwd: { scope: "repo-root" }, prompt: "failure:secret", taskId: null, idempotencyKey: "codex-stderr-failure" } });
-    const stderrRead = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: stderrFailure.runtimeSessionId } }); return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null; });
-    assert.match(String((stderrRead.result as Record<string, unknown>).text), /Provider exited with code 1.*OPENAI_API_KEY=\[REDACTED\]/u); assert.doesNotMatch(JSON.stringify(stderrRead), new RegExp(secret, "u")); assert.doesNotMatch(readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${stderrFailure.dispatchId}.jsonl`), "utf8"), new RegExp(secret, "u"));
-    const structured = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: "codex-provider", cwd: { scope: "repo-root" }, prompt: "failure:structured", taskId: null, idempotencyKey: "codex-structured-failure" } });
-    const structuredRead = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: structured.runtimeSessionId } }); return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null; });
-    assert.match(String((structuredRead.result as Record<string, unknown>).text), /structured provider failure/u); assert.doesNotMatch(JSON.stringify(structuredRead), new RegExp(secret, "u"));
-  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
-});
-
-test("daemon ingress resumes the same provider session for Claude and Codex", async (t) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-resume-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), repoId = "runtime-resume", uid = 4303;
-  initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
-  const launches: { readonly kindId: string; readonly args: readonly string[] }[] = [], installations = ( ["claude", "codex"] as const).map((kindId) => { const executablePath = writeProviderStub(path.join(parent, `${kindId}-resume-stub.mjs`), kindId); return { installationId: `installation-${kindId}`, kindId, executablePath, version: "1.0.0", observedAt: "2026-08-19T00:00:00.000Z" } as const; });
-  const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const, host = await openDaemonHost({ daemonId: "runtime-resume", userRoot, runtimeDiscover: () => installations, runtimeLaunch: (prepared) => { const kindId = prepared.definition.kindId, resumed = prepared.args.includes("--resume") || prepared.args.includes("resume"), providerSessionId = kindId === "claude" ? "claude-resume-session" : "codex-resume-session"; launches.push({ kindId, args: prepared.args }); const output = kindId === "claude" ? [{ type: "system", subtype: "init", session_id: providerSessionId }, { type: "assistant", session_id: providerSessionId, message: { content: [{ type: "text", text: resumed ? "claude second turn" : "claude first turn" }] } }, { type: "result", subtype: "success", is_error: false, session_id: providerSessionId, result: resumed ? "claude second result" : "claude first result" }] : [{ type: "thread.started", thread_id: providerSessionId }, { type: "item.completed", item: { id: "resume-item", type: "agent_message", text: resumed ? "codex second turn" : "codex first turn" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; return { pid: 4400 + launches.length, onOutput: (listener) => { queueMicrotask(() => output.forEach((frame) => listener(`${JSON.stringify(frame)}\n`))); }, onErrorOutput: () => undefined, onExit: (listener) => { queueMicrotask(() => listener(0)); }, terminate: () => undefined }; } });
-  try {
-    for (const kindId of ["claude", "codex"] as const) await t.test(kindId, async () => {
-      const definition = { instanceId: `${kindId}-resume`, name: `${kindId} resume`, kindId, installationId: `installation-${kindId}`, providerId: kindId === "claude" ? "anthropic" : "openai", models: [`${kindId}-model`], authMode: "subscription" };
-      host.runtimeInstance("daemon.runtimeInstance.create", definition, auth);
-      const first = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: definition.instanceId, cwd: { scope: "repo-root" }, prompt: "First turn", taskId: null, idempotencyKey: `${kindId}-resume-first` } }); assert.equal(first.outcome, "applied", JSON.stringify(first));
-      await eventually(async () => makeTaskEventStore({ repoId, rootDir: root }).read().events.some((event) => event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === first.runtimeSessionId));
-      const providerSessionId = kindId === "claude" ? "claude-resume-session" : "codex-resume-session", second = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: definition.instanceId, cwd: { scope: "repo-root" }, prompt: "Second turn", providerSessionId, taskId: null, idempotencyKey: `${kindId}-resume-second` } });
-      await eventually(async () => makeTaskEventStore({ repoId, rootDir: root }).read().events.some((event) => event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === second.runtimeSessionId));
-      const read = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: second.runtimeSessionId } });
-      assert.equal((read.session as Record<string, unknown>).providerSessionId, providerSessionId); assert.equal((read.result as Record<string, unknown>).text, kindId === "claude" ? "claude second result" : "codex second turn");
-      const secondLaunch = launches.findLast((launch) => launch.kindId === kindId)!; if (kindId === "claude") assert.deepEqual(secondLaunch.args.slice(-2), ["--resume", providerSessionId]); else { assert.deepEqual(secondLaunch.args.slice(0, 2), ["exec", "resume"]); assert.equal(secondLaunch.args.at(-2), providerSessionId); }
-    });
-  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
-});
-
-test("daemon ingress cancellation is explicit and idempotent for an active runtime", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), executablePath = path.join(parent, "cancel-stub.mjs"), repoId = "runtime-cancel", uid = 4304;
-  initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false }); const installation = installationFixture("codex", writeProviderStub(executablePath, "codex"));
-  const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const, host = await openDaemonHost({ daemonId: "runtime-cancel", userRoot, runtimeDiscover: () => [installation], runtimeLaunch: () => ({ pid: 4501, onOutput: () => undefined, onErrorOutput: () => undefined, onExit: () => undefined, terminate: () => undefined }) });
-  try {
-    const definition = { instanceId: "codex-cancel", name: "codex cancel", kindId: "codex" as const, installationId: installation.installationId, providerId: "openai", models: ["codex-model"], authMode: "subscription" as const }; host.runtimeInstance("daemon.runtimeInstance.create", definition, auth);
-    const spawned = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: definition.instanceId, cwd: { scope: "repo-root" }, prompt: "Keep running", taskId: null, idempotencyKey: "cancel-active" } }); assert.equal(spawned.outcome, "applied", JSON.stringify(spawned)); const frames: Record<string, unknown>[] = [], attached = await rpcAttach(host, auth, repoId, String(spawned.runtimeSessionId), frames);
-    try {
-      const cancelled = await rpc(host, auth, "repo.agentRuntime.cancel", { repo: { repoId }, payload: { runtimeSessionId: spawned.runtimeSessionId } }); assert.equal(cancelled.outcome, "applied"); assert.equal(cancelled.command, "runtime-cancel");
-      const read = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: spawned.runtimeSessionId } }); return (value.session as Record<string, unknown>).liveness === "exited" ? value : null; }); assert.equal((read.session as Record<string, unknown>).activity && ((read.session as Record<string, unknown>).activity as Record<string, unknown>).outcome, "cancelled"); await eventually(() => frames.some((frame) => frame.type === "exit" && frame.outcome === "cancelled"));
-      const events = makeTaskEventStore({ repoId, rootDir: root }).read().events.filter((event) => "runtimeSessionId" in event.payload && event.payload.runtimeSessionId === spawned.runtimeSessionId); assert.equal(events.some((event) => event.type === "runtime_session_cancelled"), true); const repeat = await rpc(host, auth, "repo.agentRuntime.cancel", { repo: { repoId }, payload: { runtimeSessionId: spawned.runtimeSessionId } }); assert.equal(repeat.outcome, "applied"); assert.equal(repeat.detail, "already-exited"); const missing = await rpc(host, auth, "repo.agentRuntime.cancel", { repo: { repoId }, payload: { runtimeSessionId: "runtime_missing" } }); assert.equal(missing.outcome, "pending"); assert.equal((missing.proof as Record<string, unknown>).canonicalVisible, false);
-    } finally { attached.close(); }
-  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
-});
-
-test("agy consumes only its closed stream-json event protocol", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-events-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), repoId = "runtime-agy-events", uid = 4305; let installation = { installationId: "installation-agy", kindId: "agy" as const, executablePath: "/opt/witnessed/agy", version: "1.1.15", observedAt: "2026-08-19T00:00:00.000Z" };
-  initIngressRepo(root, uid); registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false }); const agyStub = writeProviderExecutable(path.join(parent, "agy-stub"), "process.exit(0)\n"); installation = { ...installation, executablePath: agyStub };
-  let unknown = false; const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" } } as const, host = await openDaemonHost({ daemonId: "runtime-agy-events", userRoot, runtimeDiscover: () => [installation], runtimeLaunch: (prepared) => { assert.deepEqual(prepared.args, ["-p", unknown ? "Unknown event" : "Structured result", "--output-format", "stream-json", "--model", "gemini-3.1-pro-low", "--effort", "low"]); const output = unknown ? [{ event: "future_event", text: "must not become a result" }] : [{ event: "init", conversation_id: "agy-conversation" }, { event: "step_update", step_update: { conversation_id: "agy-conversation", step_index: 1, state: "ACTIVE", step_type: "agent_response", text_delta: "live" } }, { event: "result", result: { conversation_id: "agy-conversation", status: "SUCCESS", response: "AGY-OK" } }]; return { pid: 4601, onOutput: (listener) => { queueMicrotask(() => output.forEach((frame) => listener(`${JSON.stringify(frame)}\n`))); }, onErrorOutput: () => undefined, onExit: (listener) => { queueMicrotask(() => listener(0)); }, terminate: () => undefined }; } });
-  try {
-    host.runtimeInstance("daemon.runtimeInstance.create", { instanceId: "agy-provider", name: "agy provider", kindId: "agy", installationId: installation.installationId, providerId: "google", models: ["gemini-3.1-pro-low"], agy: { effort: "low" }, authMode: "subscription" }, auth);
-    const succeeded = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: "agy-provider", cwd: { scope: "repo-root" }, prompt: "Structured result", effort: "low", taskId: null, idempotencyKey: "agy-structured" } });
-    const read = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: succeeded.runtimeSessionId } }); return value.result ? value : null; });
-    assert.equal((read.session as Record<string, unknown>).providerSessionId, "agy-conversation"); assert.equal((read.result as Record<string, unknown>).text, "AGY-OK"); assert.equal(((read.session as { activity: { outcome: string } }).activity).outcome, "succeeded");
-    unknown = true; const rejected = await rpc(host, auth, "repo.agentRuntime.spawn", { repo: { repoId }, payload: { runtimeInstanceId: "agy-provider", cwd: { scope: "repo-root" }, prompt: "Unknown event", effort: "low", taskId: null, idempotencyKey: "agy-unknown" } });
-    const rejectedRead = await eventuallyValue(async () => { const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", { repo: { repoId }, payload: { runtimeSessionId: rejected.runtimeSessionId } }); return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null; });
-    assert.equal((rejectedRead.session as { activity: { outcome: string } }).activity.outcome, "unknown"); assert.equal((rejectedRead.result as Record<string, unknown>).text, "");
-  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+      const receipt = await cell.spawnRuntime(
+          {
+            runtimeInstanceId: "codex-private",
+            cwd: { scope: "repo-root" },
+            prompt: "Inspect",
+            taskId: null,
+            idempotencyKey: "private-bearer",
+          },
+          {
+            actor: { principal: { personId: "person-spawn" }, executor: null },
+            source: "local",
+          },
+        ),
+        read = await eventuallyValue(async () => {
+          const value = await cell.read("repo.agentRuntime.sessions.read", {
+            runtimeSessionId: receipt.runtimeSessionId,
+          });
+          return value.result ? value : null;
+        }),
+        events = makeTaskEventStore({
+          repoId: "runtime-bearer-confidentiality",
+          rootDir: root,
+        }).read().events,
+        stream = readFileSync(
+          path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`),
+          "utf8",
+        ),
+        config = readFileSync(
+          path.join(userRoot, "runtime-instances", "codex-private", "home", ".codex", "config.toml"),
+          "utf8",
+        );
+      assert.match(config, new RegExp(`experimental_bearer_token = ${JSON.stringify(secret)}`, "u"));
+      for (const value of [receipt, read, events, stream])
+        assert.doesNotMatch(JSON.stringify(value), new RegExp(secret, "u"));
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
 
 function initIngressRepo(root: string, uid: number): void {
-  mkdirSync(path.join(root, "harness"), { recursive: true }); git(root, "init", "-q"); git(root, "config", "user.name", "Spawn Test"); git(root, "config", "user.email", "spawn@example.invalid");
-  writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nname: runtime-spawn-ingress\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
-  writeFileSync(path.join(root, "harness/people.yaml"), `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "owner", displayName: "Owner", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }] }], roles: [{ roleId: "owner", commandClasses: ["repo-read", "repo-write"] }] }, null, 2)}\n`);
-  git(root, "add", "harness"); git(root, "commit", "-qm", "fixture");
+  mkdirSync(path.join(root, "harness"), { recursive: true });
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Spawn Test");
+  git(root, "config", "user.email", "spawn@example.invalid");
+  writeFileSync(
+    path.join(root, "harness/harness.yaml"),
+    "schema: harness-anything/v1\nname: runtime-spawn-ingress\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  writeFileSync(
+    path.join(root, "harness/people.yaml"),
+    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "owner", displayName: "Owner", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }] }], roles: [{ roleId: "owner", commandClasses: ["repo-read", "repo-write"] }] }, null, 2)}\n`,
+  );
+  git(root, "add", "harness");
+  git(root, "commit", "-qm", "fixture");
 }
-async function rpc(host: Awaited<ReturnType<typeof openDaemonHost>>, auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2], method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const server = createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: auth, emit: async () => undefined });
-  try { await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method, params }); assert.ok(response && !Array.isArray(response) && "result" in response); return (response as { result: Record<string, unknown> }).result; }
-  finally { server.close(); }
+
+async function rpc(
+  host: Awaited<ReturnType<typeof openDaemonHost>>,
+  auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2],
+  method: string,
+  params: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const server = createJsonRpcProtocolServer({
+    host,
+    build: { commit: null },
+    authContext: auth,
+    emit: async () => undefined,
+  });
+  try {
+    await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion },
+    });
+    const response = await server.handle({
+      jsonrpc: "2.0",
+      id: 2,
+      method,
+      params,
+    });
+    assert.ok(response && !Array.isArray(response) && "result" in response);
+    return (response as { result: Record<string, unknown> }).result;
+  } finally {
+    server.close();
+  }
 }
-async function rpcAttach(host: Awaited<ReturnType<typeof openDaemonHost>>, auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2], repoId: string, runtimeSessionId: string, frames: Record<string, unknown>[]): Promise<{ readonly close: () => void }> {
-  const server = createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: auth, emit: async (_method, params) => { frames.push(params); } });
-  await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.agentRuntime.attach", params: { repo: { repoId }, payload: { runtimeSessionId, afterCursor: "stream:0" } } }); assert.ok(response && !Array.isArray(response) && "result" in response); assert.equal((response as { result: { ok: boolean } }).result.ok, true, JSON.stringify(response)); return { close: server.close };
+
+async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const value = await read();
+    if (value !== null) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("runtime provider event did not arrive");
 }
-async function eventually(check: () => boolean | Promise<boolean>): Promise<void> { await eventuallyValue(async () => await check() ? true : null); }
-async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> { for (let attempt = 0; attempt < 100; attempt += 1) { const value = await read(); if (value !== null) return value; await new Promise((resolve) => setTimeout(resolve, 10)); } throw new Error("runtime provider event did not arrive"); }
-function writeProviderStub(target: string, kindId: "claude" | "codex"): string { const lines = kindId === "claude"
-  ? [{ type: "system", subtype: "init", session_id: "claude-provider-session" }, { type: "assistant", session_id: "claude-provider-session", message: { content: [{ type: "text", text: "claude live content" }, { type: "tool_use", id: "write-1", name: "Write", input: { file_path: "result.txt", content: "written" } }] } }, { type: "user", session_id: "claude-provider-session", tool_use_result: { type: "create", filePath: "result.txt" }, message: { content: [{ type: "tool_result", tool_use_id: "write-1", content: "created" }] } }, { type: "result", subtype: "success", is_error: false, session_id: "claude-provider-session", result: "claude final result", permission_denials: [] }]
-  : [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "item-1", type: "agent_message", text: "codex live content", credentialRef: "credential-secret", executablePath: "/provider/private", apiToken: "sk-provider-secret" } }, { type: "item.completed", item: { id: "write-1", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } }, { type: "item.completed", item: { id: "item-2", type: "agent_message", text: "codex final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; const structuredFlag = kindId === "claude" ? `process.argv.includes("--output-format") && process.argv.includes("stream-json") && process.argv.includes("--verbose")` : `process.argv[2] === "exec" && process.argv.includes("--json")`;
-  return writeProviderExecutable(target, `import fs from "node:fs";\nconst auth = process.argv[2] === "auth" || process.argv[2] === "login";\nif (auth) process.exit(0);\nif (!(${structuredFlag})) process.exit(9);\nconst prompt = fs.readFileSync(0, "utf8"), secret = "sk-runtime-secret-1234567890";\nif (prompt === "failure:empty") process.exit(1);\nelse if (prompt === "failure:secret") process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (prompt === "failure:structured") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "codex-provider-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse if (prompt === "permission-denied") process.stdout.write([JSON.stringify({ type: "system", subtype: "init", session_id: "claude-provider-session" }), JSON.stringify({ type: "assistant", session_id: "claude-provider-session", message: { content: [{ type: "tool_use", id: "denied-write", name: "Write", input: { file_path: "/tmp/outside", content: "denied" } }] } }), JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "claude-provider-session", result: "write denied", permission_denials: [{ tool_name: "Write", tool_use_id: "denied-write" }] })].join("\\n") + "\\n");\nelse { let emitted = ${JSON.stringify(lines)}; if (prompt === "read-only") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "read-only final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-action") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "no-action final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-write") emitted.splice(1, 0, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.updated", item: { id: "plan", type: "todo_list", items: [{ text: "locate cause", status: "completed" }, { text: "write fix", status: "in_progress" }] } }); emitted.forEach((line, index) => setTimeout(() => console.log(JSON.stringify(line)), index * 40)); }\n`); }
-function installationFixture(kindId: "claude" | "codex", executablePath: string): RuntimeInstallationWitness { return { installationId: `installation-${kindId}`, kindId, executablePath, version: "1.0.0", observedAt: "2026-08-19T00:00:00.000Z" }; }
-function spawnCli(args: readonly string[], env: NodeJS.ProcessEnv): Promise<{ readonly status: number | null; readonly stdout: string; readonly stderr: string }> {
-  return new Promise((resolve, reject) => { const child = spawn(process.execPath, [cli, ...args], { env, stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; const timeout = setTimeout(() => child.kill(), 10_000); child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; }); child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; }); child.once("error", reject); child.once("close", (status) => { clearTimeout(timeout); resolve({ status, stdout, stderr }); }); });
+
+function git(root: string, ...args: string[]): void {
+  execFileSync("git", ["-C", root, ...args]);
 }
-function git(root: string, ...args: string[]): void { execFileSync("git", ["-C", root, ...args]); }
