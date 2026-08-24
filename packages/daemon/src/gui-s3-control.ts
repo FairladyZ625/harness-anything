@@ -3,7 +3,23 @@ import { isJsonObject, rejectSecretKeys, type JsonObject } from "./protocol/json
 export interface DaemonControlReceipt extends JsonObject { readonly schema: "daemon-control-receipt/v1"; readonly ok: boolean; readonly outcome: "pending" | "op_rejected" | "applied"; readonly kind: "refresh" | "restart"; readonly operationId: string; readonly phase: "queued" | "draining" | "starting" | "settled" | "failed"; readonly requestedAt: string; readonly completedAt: string | null; readonly before: JsonObject | null; readonly after: JsonObject | null; readonly error: JsonObject | null; readonly nextAction: string | null }
 export interface CatalogRereadReceipt extends JsonObject { readonly schema: "catalog-reread-receipt/v1"; readonly ok: boolean; readonly outcome: "applied" | "op_rejected"; readonly operationId: string; readonly repoId: string; readonly beforeDigest: string; readonly afterDigest: string; readonly observedAt: string; readonly error: JsonObject | null }
 export interface TerminalControlReceipt extends JsonObject { readonly schema: "terminal-control-receipt/v1"; readonly ok: boolean; readonly outcome: "applied" | "op_rejected"; readonly operationId: string; readonly sessionId: string | null; readonly daemonGeneration: number; readonly state: string; readonly error: JsonObject | null }
-export interface TerminalSessionRow extends JsonObject { readonly sessionId: string; readonly repoId: string; readonly name: string; readonly cwd: string; readonly shellProfile: string; readonly requestedBackend: "direct-pty" | "tmux"; readonly backend: "direct-pty" | "tmux"; readonly status: "running" | "exited" | "unknown"; readonly createdAt: string; readonly lastActivityAt: string; readonly exitCode: number | null; readonly outputSeq: number; readonly durability: "daemon-process" | "daemon-restart"; readonly warning: "tmux-unavailable" | null; readonly attachable: boolean }
+export interface TerminalSessionRow extends JsonObject {
+  readonly sessionId: string;
+  readonly repoId: string;
+  readonly name: string;
+  readonly cwd: string;
+  readonly shellProfile: string;
+  readonly requestedBackend: "direct-pty" | "tmux";
+  readonly backend: "direct-pty" | "tmux";
+  readonly status: "running" | "exited" | "unknown";
+  readonly createdAt: string;
+  readonly lastActivityAt: string;
+  readonly exitCode: number | null;
+  readonly outputSeq: number;
+  readonly durability: "daemon-process" | "daemon-restart";
+  readonly warning: "tmux-unavailable" | null;
+  readonly attachable: boolean;
+}
 export interface TerminalAttachSubscription { readonly initial: JsonObject; readonly next: () => Promise<JsonObject | null>; readonly detach: () => void }
 
 export class GuiS3ContractError extends Error { readonly code = "invalid_result"; constructor(message: string) { super(message); this.name = "GuiS3ContractError"; } }
@@ -52,7 +68,51 @@ export function validateCatalogPreset(value: unknown): readonly string[] { const
 export function validateCatalogRereadReceipt(value: unknown): readonly string[] { const errors = closed(value, { schema: "string", ok: "boolean", outcome: "string", operationId: "string", repoId: "string", beforeDigest: "string", afterDigest: "string", observedAt: "string", error: "nullable-object" }, "catalog reread receipt"); if (!record(value)) return errors; errors.push(...errorShape(value.error, "catalog reread error")); if (value.schema !== "catalog-reread-receipt/v1" || !["applied", "op_rejected"].includes(String(value.outcome)) || !digest(value.beforeDigest) || !digest(value.afterDigest)) errors.push("catalog reread receipt identity is invalid"); return errors; }
 export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] { const errors = closed(value, { schema: "string", ok: "boolean", command: "string", outcome: "string", opId: "string", runtimeSessionId: "null-string", dispatchId: "null-string", revision: "number", evidence: "string", visibility: "string", proof: "object", nextAction: "null-string" }, "runtime spawn receipt"); if (!record(value)) return errors; if (value.schema !== "command-receipt/v2") errors.push("runtime spawn receipt schema is invalid"); return errors; }
 
-export function validateTerminalSessionList(value: unknown): readonly string[] { const errors = closed(value, { schema: "string", ok: "boolean", repoId: "string", daemonGeneration: "number", sessions: "array" }, "terminal session list"); if (!record(value)) return errors; if (value.schema !== "terminal-session-list/v1" || !integer(value.daemonGeneration)) errors.push("terminal session list schema is invalid"); for (const row of Array.isArray(value.sessions) ? value.sessions : []) { errors.push(...closed(row, { sessionId: "string", repoId: "string", name: "string", cwd: "string", shellProfile: "string", requestedBackend: "string", backend: "string", status: "string", createdAt: "string", lastActivityAt: "string", exitCode: "null-number", outputSeq: "number", durability: "string", warning: "null-string", attachable: "boolean" }, "terminal session")); if (record(row) && (!['direct-pty', 'tmux'].includes(String(row.requestedBackend)) || !['direct-pty', 'tmux'].includes(String(row.backend)) || !['running', 'exited', 'unknown'].includes(String(row.status)) || !['daemon-process', 'daemon-restart'].includes(String(row.durability)) || row.warning !== null && row.warning !== "tmux-unavailable" || !integer(row.outputSeq))) errors.push("terminal session state is invalid"); } return errors; }
+export function validateTerminalSessionList(value: unknown): readonly string[] {
+  const errors = closed(
+    value,
+    { schema: "string", ok: "boolean", repoId: "string", daemonGeneration: "number", sessions: "array" },
+    "terminal session list",
+  );
+  if (!record(value)) return errors;
+  if (value.schema !== "terminal-session-list/v1" || !integer(value.daemonGeneration))
+    errors.push("terminal session list schema is invalid");
+  for (const row of Array.isArray(value.sessions) ? value.sessions : []) {
+    errors.push(
+      ...closed(
+        row,
+        {
+          sessionId: "string",
+          repoId: "string",
+          name: "string",
+          cwd: "string",
+          shellProfile: "string",
+          requestedBackend: "string",
+          backend: "string",
+          status: "string",
+          createdAt: "string",
+          lastActivityAt: "string",
+          exitCode: "null-number",
+          outputSeq: "number",
+          durability: "string",
+          warning: "null-string",
+          attachable: "boolean",
+        },
+        "terminal session",
+      ),
+    );
+    const invalidState =
+      record(row) &&
+      (!["direct-pty", "tmux"].includes(String(row.requestedBackend)) ||
+        !["direct-pty", "tmux"].includes(String(row.backend)) ||
+        !["running", "exited", "unknown"].includes(String(row.status)) ||
+        !["daemon-process", "daemon-restart"].includes(String(row.durability)) ||
+        (row.warning !== null && row.warning !== "tmux-unavailable") ||
+        !integer(row.outputSeq));
+    if (invalidState) errors.push("terminal session state is invalid");
+  }
+  return errors;
+}
 export function validateTerminalControlReceipt(value: unknown): readonly string[] { const errors = closed(value, { schema: "string", ok: "boolean", outcome: "string", operationId: "string", sessionId: "null-string", daemonGeneration: "number", state: "string", error: "nullable-object" }, "terminal control receipt"); if (!record(value)) return errors; errors.push(...errorShape(value.error, "terminal control error")); if (value.schema !== "terminal-control-receipt/v1" || !['applied', 'op_rejected'].includes(String(value.outcome)) || !integer(value.daemonGeneration)) errors.push("terminal control receipt schema is invalid"); return errors; }
 export function validateTerminalInputAck(value: unknown): readonly string[] { const errors = closed(value, { schema: "string", ok: "boolean", sessionId: "string", acceptedThrough: "number" }, "terminal input ack"); if (record(value) && (value.schema !== "terminal-input-ack/v1" || !integer(value.acceptedThrough))) errors.push("terminal input ack schema is invalid"); return errors; }
 export function validateTerminalDetachAck(value: unknown): readonly string[] { const errors = closed(value, { schema: "string", ok: "boolean", sessionId: "string", attachmentId: "string", state: "string" }, "terminal detach ack"); if (record(value) && (value.schema !== "terminal-detach-ack/v1" || value.state !== "detached")) errors.push("terminal detach ack schema is invalid"); return errors; }

@@ -5,97 +5,497 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { writeTerminalAttach, writeTerminalAttachEvent, writeTerminalControlReceipt, writeTerminalDetachAck, writeTerminalInputAck, writeTerminalSessionList, type TerminalAttachSubscription, type TerminalControlReceipt, type TerminalSessionRow } from "./gui-s3-control.ts";
 import { ensurePtySpawnHelperExecutable } from "./terminal-spawn-helper.ts";
 import { loadTmuxSessionRegistry, saveTmuxSessionRegistry, type StoredTmuxSession } from "./terminal-session-store.ts";
-import { selectLocalTerminalBackend, systemTmuxController, terminalTmuxNamespace, type LocalTerminalBackend, type LocalTerminalDurability, type TerminalBackendWarningCode, type TmuxController } from "./terminal-tmux.ts";
+import {
+  selectLocalTerminalBackend,
+  systemTmuxController,
+  terminalTmuxNamespace,
+  type LocalTerminalBackend,
+  type LocalTerminalDurability,
+  type TerminalBackendWarningCode,
+  type TmuxController
+} from "./terminal-tmux.ts";
 
 const scrollbackLimit = 1024 * 1024, replayLimit = 256 * 1024, subscriberLimit = 256 * 1024, ptyExitDrainMs = 5_000;
 type Frame = JsonObject & { readonly schema: "terminal-attach-event/v1"; readonly sessionId: string; readonly seq: number; readonly kind: "output" | "gap" | "exit"; readonly utf8: string; readonly droppedThrough: number | null; readonly occurredAt: string };
 type TerminalSessionStatus = "running" | "exited" | "unknown";
-type Session = { readonly sessionId: string; readonly idempotencyKey: string; readonly name: string; readonly cwd: string; readonly spawnCwd: string; readonly shellProfile: string; readonly requestedBackend: LocalTerminalBackend; readonly backend: LocalTerminalBackend; readonly durability: LocalTerminalDurability; readonly tmuxNamespace: string | null; readonly createdAt: string; child: pty.IPty | null; childExited: Promise<void> | null; status: TerminalSessionStatus; attachable: boolean; warning: TerminalBackendWarningCode | null; lastActivityAt: string; exitCode: number | null; exitPublished: boolean; outputSeq: number; acceptedThrough: number; frames: Frame[]; frameBytes: number; readonly subscribers: Map<string, Subscriber> };
+type Session = {
+  readonly sessionId: string;
+  readonly idempotencyKey: string;
+  readonly name: string;
+  readonly cwd: string;
+  readonly spawnCwd: string;
+  readonly shellProfile: string;
+  readonly requestedBackend: LocalTerminalBackend;
+  readonly backend: LocalTerminalBackend;
+  readonly durability: LocalTerminalDurability;
+  readonly tmuxNamespace: string | null;
+  readonly createdAt: string;
+  child: pty.IPty | null;
+  childExited: Promise<void> | null;
+  status: TerminalSessionStatus;
+  attachable: boolean;
+  warning: TerminalBackendWarningCode | null;
+  lastActivityAt: string;
+  exitCode: number | null;
+  exitPublished: boolean;
+  outputSeq: number;
+  acceptedThrough: number;
+  frames: Frame[];
+  frameBytes: number;
+  readonly subscribers: Map<string, Subscriber>;
+};
 type Subscriber = { readonly id: string; readonly queue: Frame[]; bytes: number; waiter: ((frame: Frame | null) => void) | null; closed: boolean };
+type OpenTerminalHostInput = {
+  readonly repoId: string;
+  readonly rootDir: string;
+  readonly daemonGeneration: number;
+  readonly now?: () => string;
+  readonly spawnPty?: typeof pty.spawn;
+  readonly platform?: NodeJS.Platform;
+  readonly tmux?: TmuxController;
+  readonly registryFilePath?: string;
+};
+type SpawnLaunch = {
+  readonly key: string;
+  readonly name: string;
+  readonly command: string;
+  readonly args: readonly string[] | string;
+  readonly env: Readonly<Record<string, string>>;
+  readonly cwd: string;
+  readonly publicCwd: string;
+  readonly profile: string;
+  readonly sessionId: string;
+  readonly createdAt: string;
+  readonly requestedBackend: LocalTerminalBackend;
+  readonly backend: LocalTerminalBackend;
+  readonly durability: LocalTerminalDurability;
+  readonly warning: TerminalBackendWarningCode | null;
+  readonly tmuxNamespace: string | null;
+};
 
 export interface TerminalHost {
   readonly list: () => JsonObject; readonly spawn: (payload: JsonObject) => TerminalControlReceipt; readonly spawnTrusted: (input: TrustedTerminalLaunch) => TerminalControlReceipt; readonly input: (payload: JsonObject) => JsonObject; readonly resize: (payload: JsonObject) => TerminalControlReceipt; readonly detach: (payload: JsonObject) => JsonObject; readonly terminate: (payload: JsonObject) => TerminalControlReceipt; readonly attach: (sessionId: string, afterSeq: number) => TerminalAttachSubscription; readonly close: () => Promise<void>;
 }
 export interface TrustedTerminalLaunch { readonly idempotencyKey: string; readonly name: string; readonly executablePath: string; readonly args: readonly string[]; readonly env: Readonly<Record<string, string>>; readonly cwd: string; readonly publicCwd: string; readonly profile: "runtime-auth" }
-export function openTerminalHost(input: { readonly repoId: string; readonly rootDir: string; readonly daemonGeneration: number; readonly now?: () => string; readonly spawnPty?: typeof pty.spawn; readonly platform?: NodeJS.Platform; readonly tmux?: TmuxController; readonly registryFilePath?: string }): TerminalHost {
+export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
   ensurePtySpawnHelperExecutable();
-  const sessions = new Map<string, Session>(), idempotency = new Map<string, string>(), now = input.now ?? (() => new Date().toISOString()), spawnPty = input.spawnPty ?? pty.spawn, platform = input.platform ?? process.platform, tmux = input.tmux ?? systemTmuxController, tmuxProbe = tmux.probe(), registryFilePath = input.registryFilePath ?? path.join(input.rootDir, ".harness", "generated", "terminal-sessions.json"), restored = loadTmuxSessionRegistry(registryFilePath);
+  const sessions = new Map<string, Session>(), idempotency = new Map<string, string>();
+  const now = input.now ?? (() => new Date().toISOString()), spawnPty = input.spawnPty ?? pty.spawn;
+  const platform = input.platform ?? process.platform, tmux = input.tmux ?? systemTmuxController;
+  const tmuxProbe = tmux.probe();
+  const registryFilePath = input.registryFilePath
+    ?? path.join(input.rootDir, ".harness", "generated", "terminal-sessions.json");
+  const restored = loadTmuxSessionRegistry(registryFilePath);
   let registryTouched = restored.length > 0;
-  for (const stored of restored) { const session = restoreSession(stored); sessions.set(session.sessionId, session); idempotency.set(session.idempotencyKey, session.sessionId); }
+  for (const stored of restored) {
+    const session = restoreSession(stored);
+    sessions.set(session.sessionId, session);
+    idempotency.set(session.idempotencyKey, session.sessionId);
+  }
   if (restored.some((entry) => sessions.get(entry.sessionId)?.status === "exited")) persistSessions();
 
   const list = (): JsonObject => writeTerminalSessionList({ schema: "terminal-session-list/v1", ok: true, repoId: input.repoId, daemonGeneration: input.daemonGeneration, sessions: [...sessions.values()].map((session) => ({ ...terminalSessionRow(session), repoId: input.repoId })).sort((a, b) => a.createdAt.localeCompare(b.createdAt)) });
   const spawnTerminal = (payload: JsonObject): TerminalControlReceipt => {
-    const key = requiredTerminalText(payload.idempotencyKey, "idempotencyKey"), existing = idempotency.get(key); if (existing) { const session = requiredSession(existing); return control("applied", existing, terminalState(session), key); }
-    const cwd = resolveTerminalCwd(input.rootDir, payload.cwd), profile = optional(payload.shellProfileId) ?? "default", command = shell(profile, platform), sessionId = `terminal_${createHash("sha256").update(`${input.repoId}\0${key}`).digest("hex").slice(0, 24)}`, createdAt = now(), selection = selectLocalTerminalBackend(terminalBackend(payload.backend), tmuxProbe), namespace = selection.backend === "tmux" ? terminalTmuxNamespace(input.repoId, sessionId) : null;
-    const executable = selection.backend === "tmux" ? tmuxProbe.executable! : command, args = selection.backend === "tmux" ? ["-u", "new-session", "-A", "-s", namespace!, "-c", cwd, command] : [];
-    return spawnProcess({ key, name: optional(payload.name) ?? "Terminal", command: executable, args, env: terminalEnvironment(platform), cwd, publicCwd: path.relative(input.rootDir, cwd) || ".", profile, sessionId, createdAt, ...selection, tmuxNamespace: namespace });
+    const key = requiredTerminalText(payload.idempotencyKey, "idempotencyKey"), existing = idempotency.get(key);
+    if (existing) {
+      const session = requiredSession(existing);
+      return control("applied", existing, terminalState(session), key);
+    }
+    const cwd = resolveTerminalCwd(input.rootDir, payload.cwd);
+    const profile = optional(payload.shellProfileId) ?? "default", command = shell(profile, platform);
+    const sessionId = terminalSessionId(input.repoId, key), createdAt = now();
+    const selection = selectLocalTerminalBackend(terminalBackend(payload.backend), tmuxProbe);
+    const namespace = selection.backend === "tmux" ? terminalTmuxNamespace(input.repoId, sessionId) : null;
+    const executable = selection.backend === "tmux" ? tmuxProbe.executable! : command;
+    const args = selection.backend === "tmux"
+      ? ["-u", "new-session", "-A", "-s", namespace!, "-c", cwd, command]
+      : [];
+    return spawnProcess({
+      key,
+      name: optional(payload.name) ?? "Terminal",
+      command: executable,
+      args,
+      env: terminalEnvironment(platform),
+      cwd,
+      publicCwd: path.relative(input.rootDir, cwd) || ".",
+      profile,
+      sessionId,
+      createdAt,
+      ...selection,
+      tmuxNamespace: namespace
+    });
   };
   const attach = (sessionId: string, afterSeq: number): TerminalAttachSubscription => {
-    const session = requiredSession(sessionId); if (session.status === "running") ensureChannel(session); else if (session.status === "unknown") throw terminalHostError("terminal_backend_unavailable", "TMUX is unavailable; this durable session cannot be attached right now.");
-    const attachmentId = `attach_${randomUUID()}`, subscriber: Subscriber = { id: attachmentId, queue: [], bytes: 0, waiter: null, closed: false }, earliest = session.frames[0]?.seq ?? session.outputSeq + 1, replayState = afterSeq < earliest - 1 ? "gap" : "attached";
+    const session = requiredSession(sessionId);
+    if (session.status === "running") ensureChannel(session);
+    else if (session.status === "unknown")
+      throw terminalHostError(
+        "terminal_backend_unavailable",
+        "TMUX is unavailable; this durable session cannot be attached right now."
+      );
+    const attachmentId = `attach_${randomUUID()}`;
+    const subscriber: Subscriber = { id: attachmentId, queue: [], bytes: 0, waiter: null, closed: false };
+    const earliest = session.frames[0]?.seq ?? session.outputSeq + 1;
+    const replayState = afterSeq < earliest - 1 ? "gap" : "attached";
     if (replayState === "gap") subscriber.queue.push(writeTerminalAttachEvent<Frame>({ schema: "terminal-attach-event/v1", sessionId, seq: earliest - 1, kind: "gap", utf8: "", droppedThrough: earliest - 1, occurredAt: now() }));
     const selected: Frame[] = []; let bytes = 0; for (const item of session.frames.filter((candidate) => candidate.seq > afterSeq).reverse()) { const size = frameSize(item); if (bytes + size > replayLimit) break; selected.unshift(item); bytes += size; } subscriber.queue.push(...selected); subscriber.bytes = subscriber.queue.reduce((total, item) => total + frameSize(item), 0); session.subscribers.set(attachmentId, subscriber);
     return { initial: writeTerminalAttach({ schema: "terminal-attach/v1", ok: true, sessionId, attachmentId, daemonGeneration: input.daemonGeneration, status: replayState, replayFromSeq: selected[0]?.seq ?? session.outputSeq + 1, outputSeq: session.outputSeq }), next: () => next(subscriber), detach: () => detachSubscriber(session, subscriber) };
   };
   return {
-    list, spawn: spawnTerminal, spawnTrusted: (launch) => { const existing = idempotency.get(launch.idempotencyKey); if (existing) { const session = requiredSession(existing); return control("applied", existing, terminalState(session), launch.idempotencyKey); } const sessionId = `terminal_${createHash("sha256").update(`${input.repoId}\0${launch.idempotencyKey}`).digest("hex").slice(0, 24)}`, command = terminalCommand(launch.executablePath, launch.args, launch.env, platform); return spawnProcess({ key: launch.idempotencyKey, name: launch.name, command: command.executablePath, args: command.args, env: launch.env, cwd: launch.cwd, publicCwd: launch.publicCwd, profile: launch.profile, sessionId, createdAt: now(), requestedBackend: "direct-pty", backend: "direct-pty", durability: "daemon-process", warning: null, tmuxNamespace: null }); }, attach,
-    input: (payload) => { const session = requiredSession(requiredTerminalText(payload.sessionId, "sessionId")), clientSeq = positiveInteger(payload.clientSeq, "clientSeq"), utf8 = requiredTerminalText(payload.utf8, "utf8"); if (session.status === "exited") throw terminalHostError("terminal_exited", "Terminal session has exited."); if (session.status === "unknown") throw terminalHostError("terminal_backend_unavailable", "TMUX is unavailable; this durable session cannot accept input right now."); if (clientSeq > session.acceptedThrough + 1) throw terminalHostError("terminal_input_gap", `Expected clientSeq ${session.acceptedThrough + 1}.`); if (clientSeq > session.acceptedThrough) { ensureChannel(session).write(utf8); session.acceptedThrough = clientSeq; session.lastActivityAt = now(); persistSessions(); } return writeTerminalInputAck({ schema: "terminal-input-ack/v1", ok: true, sessionId: session.sessionId, acceptedThrough: session.acceptedThrough }); },
-    resize: (payload) => { const session = requiredSession(requiredTerminalText(payload.sessionId, "sessionId")); if (session.status !== "running") return control("op_rejected", session.sessionId, terminalState(session), String(payload.sessionId), "terminal_exited", "Start a new terminal session."); ensureChannel(session).resize(dimension(payload.cols, "cols"), dimension(payload.rows, "rows")); session.lastActivityAt = now(); persistSessions(); return control("applied", session.sessionId, "running", `${session.sessionId}:resize:${payload.cols}x${payload.rows}`); },
+    list,
+    spawn: spawnTerminal,
+    spawnTrusted: (launch) => {
+      const existing = idempotency.get(launch.idempotencyKey);
+      if (existing) {
+        const session = requiredSession(existing);
+        return control("applied", existing, terminalState(session), launch.idempotencyKey);
+      }
+      const sessionId = terminalSessionId(input.repoId, launch.idempotencyKey);
+      const command = terminalCommand(launch.executablePath, launch.args, launch.env, platform);
+      return spawnProcess({
+        key: launch.idempotencyKey,
+        name: launch.name,
+        command: command.executablePath,
+        args: command.args,
+        env: launch.env,
+        cwd: launch.cwd,
+        publicCwd: launch.publicCwd,
+        profile: launch.profile,
+        sessionId,
+        createdAt: now(),
+        requestedBackend: "direct-pty",
+        backend: "direct-pty",
+        durability: "daemon-process",
+        warning: null,
+        tmuxNamespace: null
+      });
+    },
+    attach,
+    input: (payload) => {
+      const session = requiredSession(requiredTerminalText(payload.sessionId, "sessionId"));
+      const clientSeq = positiveInteger(payload.clientSeq, "clientSeq");
+      const utf8 = requiredTerminalText(payload.utf8, "utf8");
+      if (session.status === "exited") throw terminalHostError("terminal_exited", "Terminal session has exited.");
+      if (session.status === "unknown")
+        throw terminalHostError(
+          "terminal_backend_unavailable",
+          "TMUX is unavailable; this durable session cannot accept input right now."
+        );
+      if (clientSeq > session.acceptedThrough + 1)
+        throw terminalHostError("terminal_input_gap", `Expected clientSeq ${session.acceptedThrough + 1}.`);
+      if (clientSeq > session.acceptedThrough) {
+        ensureChannel(session).write(utf8);
+        session.acceptedThrough = clientSeq;
+        session.lastActivityAt = now();
+        persistSessions();
+      }
+      return writeTerminalInputAck({
+        schema: "terminal-input-ack/v1",
+        ok: true,
+        sessionId: session.sessionId,
+        acceptedThrough: session.acceptedThrough
+      });
+    },
+    resize: (payload) => {
+      const session = requiredSession(requiredTerminalText(payload.sessionId, "sessionId"));
+      if (session.status !== "running")
+        return control(
+          "op_rejected",
+          session.sessionId,
+          terminalState(session),
+          String(payload.sessionId),
+          "terminal_exited",
+          "Start a new terminal session."
+        );
+      ensureChannel(session).resize(dimension(payload.cols, "cols"), dimension(payload.rows, "rows"));
+      session.lastActivityAt = now();
+      persistSessions();
+      const resizeSeed = `${session.sessionId}:resize:${payload.cols}x${payload.rows}`;
+      return control("applied", session.sessionId, "running", resizeSeed);
+    },
     detach: (payload) => { const session = requiredSession(requiredTerminalText(payload.sessionId, "sessionId")), attachmentId = requiredTerminalText(payload.attachmentId, "attachmentId"), subscriber = session.subscribers.get(attachmentId); if (!subscriber) throw terminalHostError("terminal_attachment_unknown", "Terminal attachment is not active."); detachSubscriber(session, subscriber); return writeTerminalDetachAck({ schema: "terminal-detach-ack/v1", ok: true, sessionId: session.sessionId, attachmentId, state: "detached" }); },
-    terminate: (payload) => { const session = requiredSession(requiredTerminalText(payload.sessionId, "sessionId")); if (payload.confirmed !== true) return control("op_rejected", session.sessionId, terminalState(session), `${session.sessionId}:terminate`, "confirmation_required", "Confirm terminal termination explicitly."); if (session.status !== "exited") terminateSession(session); return control("applied", session.sessionId, "exited", `${session.sessionId}:terminate`); },
-    close: async () => { const drains: Promise<void>[] = []; for (const session of sessions.values()) { for (const subscriber of session.subscribers.values()) detachSubscriber(session, subscriber); const child = session.child, exited = session.childExited; session.child = null; session.childExited = null; if (session.backend === "direct-pty") { session.status = "exited"; session.attachable = false; } if (child) { child.kill(); if (platform === "win32" && session.backend === "direct-pty" && exited) drains.push(exited); } } persistSessions(); if (drains.length) await Promise.race([Promise.all(drains), drainDeadline()]); sessions.clear(); }
+    terminate: (payload) => {
+      const session = requiredSession(requiredTerminalText(payload.sessionId, "sessionId"));
+      if (payload.confirmed !== true)
+        return control(
+          "op_rejected",
+          session.sessionId,
+          terminalState(session),
+          `${session.sessionId}:terminate`,
+          "confirmation_required",
+          "Confirm terminal termination explicitly."
+        );
+      if (session.status !== "exited") terminateSession(session);
+      return control("applied", session.sessionId, "exited", `${session.sessionId}:terminate`);
+    },
+    close: async () => {
+      const drains: Promise<void>[] = [];
+      for (const session of sessions.values()) {
+        for (const subscriber of session.subscribers.values()) detachSubscriber(session, subscriber);
+        const child = session.child, exited = session.childExited;
+        session.child = null;
+        session.childExited = null;
+        if (session.backend === "direct-pty") {
+          session.status = "exited";
+          session.attachable = false;
+        }
+        if (child) {
+          child.kill();
+          if (platform === "win32" && session.backend === "direct-pty" && exited) drains.push(exited);
+        }
+      }
+      persistSessions();
+      if (drains.length) await Promise.race([Promise.all(drains), drainDeadline()]);
+      sessions.clear();
+    }
   };
 
   function drainDeadline(): Promise<void> { return new Promise((resolve) => { const timer = setTimeout(resolve, ptyExitDrainMs); timer.unref?.(); }); }
   function publishTerminalFrame(session: Session, kind: Frame["kind"], utf8: string, droppedThrough: number | null): void { const item = frame(session, kind, utf8, droppedThrough); session.lastActivityAt = item.occurredAt; session.frames.push(item); session.frameBytes += frameSize(item); while (session.frameBytes > scrollbackLimit && session.frames.length > 1) session.frameBytes -= frameSize(session.frames.shift()!); for (const subscriber of session.subscribers.values()) push(subscriber, item); }
-  function spawnProcess(launch: { readonly key: string; readonly name: string; readonly command: string; readonly args: readonly string[] | string; readonly env: Readonly<Record<string, string>>; readonly cwd: string; readonly publicCwd: string; readonly profile: string; readonly sessionId: string; readonly createdAt: string; readonly requestedBackend: LocalTerminalBackend; readonly backend: LocalTerminalBackend; readonly durability: LocalTerminalDurability; readonly warning: TerminalBackendWarningCode | null; readonly tmuxNamespace: string | null }): TerminalControlReceipt {
-    const child = spawnPty(launch.command, typeof launch.args === "string" ? launch.args : [...launch.args], { name: "xterm-256color", cols: 80, rows: 24, cwd: launch.cwd, env: { ...launch.env, TERM: "xterm-256color" } }), session: Session = { sessionId: launch.sessionId, idempotencyKey: launch.key, name: launch.name, cwd: launch.publicCwd, spawnCwd: launch.cwd, shellProfile: launch.profile, requestedBackend: launch.requestedBackend, backend: launch.backend, durability: launch.durability, warning: launch.warning, tmuxNamespace: launch.tmuxNamespace, createdAt: launch.createdAt, child: null, childExited: null, status: "running", attachable: true, lastActivityAt: launch.createdAt, exitCode: null, exitPublished: false, outputSeq: 0, acceptedThrough: 0, frames: [], frameBytes: 0, subscribers: new Map() };
-    sessions.set(session.sessionId, session); idempotency.set(launch.key, session.sessionId); bindChild(session, child); if (session.backend === "tmux") { registryTouched = true; persistSessions(); } return control("applied", session.sessionId, "running", launch.key);
+  function spawnProcess(launch: SpawnLaunch): TerminalControlReceipt {
+    const child = spawnPty(
+      launch.command,
+      typeof launch.args === "string" ? launch.args : [...launch.args],
+      {
+        name: "xterm-256color",
+        cols: 80,
+        rows: 24,
+        cwd: launch.cwd,
+        env: { ...launch.env, TERM: "xterm-256color" }
+      }
+    );
+    const session: Session = {
+      sessionId: launch.sessionId,
+      idempotencyKey: launch.key,
+      name: launch.name,
+      cwd: launch.publicCwd,
+      spawnCwd: launch.cwd,
+      shellProfile: launch.profile,
+      requestedBackend: launch.requestedBackend,
+      backend: launch.backend,
+      durability: launch.durability,
+      warning: launch.warning,
+      tmuxNamespace: launch.tmuxNamespace,
+      createdAt: launch.createdAt,
+      child: null,
+      childExited: null,
+      status: "running",
+      attachable: true,
+      lastActivityAt: launch.createdAt,
+      exitCode: null,
+      exitPublished: false,
+      outputSeq: 0,
+      acceptedThrough: 0,
+      frames: [],
+      frameBytes: 0,
+      subscribers: new Map()
+    };
+    sessions.set(session.sessionId, session);
+    idempotency.set(launch.key, session.sessionId);
+    bindChild(session, child);
+    if (session.backend === "tmux") {
+      registryTouched = true;
+      persistSessions();
+    }
+    return control("applied", session.sessionId, "running", launch.key);
   }
   function bindChild(session: Session, child: pty.IPty): void {
-    let resolveExit!: () => void; session.child = child; session.childExited = new Promise<void>((resolve) => { resolveExit = resolve; });
+    let resolveExit!: () => void;
+    session.child = child;
+    session.childExited = new Promise<void>((resolve) => { resolveExit = resolve; });
     child.onData((utf8) => publishTerminalFrame(session, "output", utf8, null));
-    child.onExit(({ exitCode }) => { resolveExit(); if (session.child !== child) return; session.child = null; session.childExited = null; const naturalExit = session.status === "running"; if (session.backend === "tmux" && naturalExit && tmuxProbe.executable && session.tmuxNamespace && tmux.hasSession(tmuxProbe.executable, session.tmuxNamespace)) { session.attachable = true; return; } markSessionExited(session, exitCode); if (naturalExit && platform === "win32") child.kill(); });
+    child.onExit(({ exitCode }) => {
+      resolveExit();
+      if (session.child !== child) return;
+      session.child = null;
+      session.childExited = null;
+      const naturalExit = session.status === "running";
+      const durableSessionLives =
+        session.backend === "tmux" &&
+        naturalExit &&
+        tmuxProbe.executable &&
+        session.tmuxNamespace &&
+        tmux.hasSession(tmuxProbe.executable, session.tmuxNamespace);
+      if (durableSessionLives) {
+        session.attachable = true;
+        return;
+      }
+      markSessionExited(session, exitCode);
+      if (naturalExit && platform === "win32") child.kill();
+    });
   }
   function ensureChannel(session: Session): pty.IPty {
     if (session.child) return session.child;
-    if (session.status !== "running") throw terminalHostError("terminal_process_unavailable", "Terminal session is not currently attachable.");
-    if (session.backend !== "tmux" || !session.tmuxNamespace || !tmuxProbe.available || !tmuxProbe.executable) { session.status = "unknown"; session.attachable = false; session.warning = "tmux-unavailable"; persistSessions(); throw terminalHostError("terminal_backend_unavailable", "TMUX is unavailable; this durable session cannot be attached right now."); }
-    if (!tmux.hasSession(tmuxProbe.executable, session.tmuxNamespace)) { markSessionExited(session, 0); throw terminalHostError("terminal_process_unavailable", "The TMUX session no longer exists."); }
-    const child = spawnPty(tmuxProbe.executable, ["-u", "attach-session", "-t", session.tmuxNamespace], { name: "xterm-256color", cols: 80, rows: 24, cwd: session.spawnCwd, env: terminalEnvironment(platform) }); bindChild(session, child); session.attachable = true; session.warning = null; return child;
+    if (session.status !== "running")
+      throw terminalHostError("terminal_process_unavailable", "Terminal session is not currently attachable.");
+    if (session.backend !== "tmux" || !session.tmuxNamespace || !tmuxProbe.available || !tmuxProbe.executable) {
+      session.status = "unknown";
+      session.attachable = false;
+      session.warning = "tmux-unavailable";
+      persistSessions();
+      throw terminalHostError(
+        "terminal_backend_unavailable",
+        "TMUX is unavailable; this durable session cannot be attached right now."
+      );
+    }
+    if (!tmux.hasSession(tmuxProbe.executable, session.tmuxNamespace)) {
+      markSessionExited(session, 0);
+      throw terminalHostError("terminal_process_unavailable", "The TMUX session no longer exists.");
+    }
+    const child = spawnPty(
+      tmuxProbe.executable,
+      ["-u", "attach-session", "-t", session.tmuxNamespace],
+      {
+        name: "xterm-256color",
+        cols: 80,
+        rows: 24,
+        cwd: session.spawnCwd,
+        env: terminalEnvironment(platform)
+      }
+    );
+    bindChild(session, child);
+    session.attachable = true;
+    session.warning = null;
+    return child;
   }
   function terminateSession(session: Session): void {
-    if (session.backend === "tmux") { if (!tmuxProbe.executable || !session.tmuxNamespace) throw terminalHostError("terminal_backend_unavailable", "TMUX is unavailable; the session was not terminated."); tmux.killSession(tmuxProbe.executable, session.tmuxNamespace); }
-    const child = session.child; session.child = null; session.childExited = null; child?.kill(); markSessionExited(session, 0);
+    if (session.backend === "tmux") {
+      if (!tmuxProbe.executable || !session.tmuxNamespace)
+        throw terminalHostError(
+          "terminal_backend_unavailable",
+          "TMUX is unavailable; the session was not terminated."
+        );
+      tmux.killSession(tmuxProbe.executable, session.tmuxNamespace);
+    }
+    const child = session.child;
+    session.child = null;
+    session.childExited = null;
+    child?.kill();
+    markSessionExited(session, 0);
   }
-  function markSessionExited(session: Session, exitCode: number): void { session.status = "exited"; session.attachable = false; session.exitCode = exitCode; if (!session.exitPublished) { session.exitPublished = true; publishTerminalFrame(session, "exit", "", null); } if (session.backend === "tmux") persistSessions(); }
+  function markSessionExited(session: Session, exitCode: number): void {
+    session.status = "exited";
+    session.attachable = false;
+    session.exitCode = exitCode;
+    if (!session.exitPublished) {
+      session.exitPublished = true;
+      publishTerminalFrame(session, "exit", "", null);
+    }
+    if (session.backend === "tmux") persistSessions();
+  }
   function restoreSession(stored: StoredTmuxSession): Session {
-    const spawnCwd = restoreTerminalCwd(input.rootDir, stored.cwd), canProbe = tmuxProbe.available && Boolean(tmuxProbe.executable), exists = canProbe && tmux.hasSession(tmuxProbe.executable!, stored.tmuxNamespace), status: TerminalSessionStatus = !canProbe ? "unknown" : exists ? "running" : "exited";
-    return { sessionId: stored.sessionId, idempotencyKey: stored.idempotencyKey, name: stored.name, cwd: stored.cwd, spawnCwd, shellProfile: stored.shellProfile, requestedBackend: "tmux", backend: "tmux", durability: "daemon-restart", warning: status === "unknown" ? "tmux-unavailable" : null, tmuxNamespace: stored.tmuxNamespace, createdAt: stored.createdAt, child: null, childExited: null, status, attachable: status === "running", lastActivityAt: stored.lastActivityAt, exitCode: status === "exited" ? 0 : null, exitPublished: false, outputSeq: 0, acceptedThrough: 0, frames: [], frameBytes: 0, subscribers: new Map() };
+    const spawnCwd = restoreTerminalCwd(input.rootDir, stored.cwd);
+    const canProbe = tmuxProbe.available && Boolean(tmuxProbe.executable);
+    const exists = canProbe && tmux.hasSession(tmuxProbe.executable!, stored.tmuxNamespace);
+    const status: TerminalSessionStatus = !canProbe ? "unknown" : exists ? "running" : "exited";
+    return {
+      sessionId: stored.sessionId,
+      idempotencyKey: stored.idempotencyKey,
+      name: stored.name,
+      cwd: stored.cwd,
+      spawnCwd,
+      shellProfile: stored.shellProfile,
+      requestedBackend: "tmux",
+      backend: "tmux",
+      durability: "daemon-restart",
+      warning: status === "unknown" ? "tmux-unavailable" : null,
+      tmuxNamespace: stored.tmuxNamespace,
+      createdAt: stored.createdAt,
+      child: null,
+      childExited: null,
+      status,
+      attachable: status === "running",
+      lastActivityAt: stored.lastActivityAt,
+      exitCode: status === "exited" ? 0 : null,
+      exitPublished: false,
+      outputSeq: 0,
+      acceptedThrough: 0,
+      frames: [],
+      frameBytes: 0,
+      subscribers: new Map()
+    };
   }
   function persistSessions(): void {
-    const durable = [...sessions.values()].filter((session) => session.backend === "tmux" && session.status !== "exited").map((session): StoredTmuxSession => ({ sessionId: session.sessionId, idempotencyKey: session.idempotencyKey, name: session.name, cwd: session.cwd, shellProfile: session.shellProfile, tmuxNamespace: session.tmuxNamespace!, createdAt: session.createdAt, lastActivityAt: session.lastActivityAt }));
-    if (!registryTouched && durable.length === 0) return; registryTouched = true; saveTmuxSessionRegistry(registryFilePath, durable);
+    const durable = [...sessions.values()]
+      .filter((session) => session.backend === "tmux" && session.status !== "exited")
+      .map((session): StoredTmuxSession => ({
+        sessionId: session.sessionId,
+        idempotencyKey: session.idempotencyKey,
+        name: session.name,
+        cwd: session.cwd,
+        shellProfile: session.shellProfile,
+        tmuxNamespace: session.tmuxNamespace!,
+        createdAt: session.createdAt,
+        lastActivityAt: session.lastActivityAt
+      }));
+    if (!registryTouched && durable.length === 0) return;
+    registryTouched = true;
+    saveTmuxSessionRegistry(registryFilePath, durable);
   }
   function frame(session: Session, kind: Frame["kind"], utf8: string, droppedThrough: number | null): Frame { session.outputSeq += 1; return writeTerminalAttachEvent<Frame>({ schema: "terminal-attach-event/v1", sessionId: session.sessionId, seq: session.outputSeq, kind, utf8, droppedThrough, occurredAt: now() }); }
   function push(subscriber: Subscriber, item: Frame): void { if (subscriber.closed) return; if (subscriber.waiter) { const waiter = subscriber.waiter; subscriber.waiter = null; waiter(item); return; } subscriber.queue.push(item); subscriber.bytes += frameSize(item); if (subscriber.bytes <= subscriberLimit) return; const dropped = subscriber.queue.at(-1)?.seq ?? item.seq; subscriber.queue.splice(0); subscriber.bytes = 0; subscriber.queue.push(writeTerminalAttachEvent<Frame>({ ...item, kind: "gap", utf8: "", droppedThrough: dropped })); }
   function control(outcome: "applied" | "op_rejected", sessionId: string | null, state: string, seed: string, code?: string, hint?: string): TerminalControlReceipt { return writeTerminalControlReceipt<TerminalControlReceipt>({ schema: "terminal-control-receipt/v1", ok: outcome === "applied", outcome, operationId: `terminal-op-${createHash("sha256").update(`${input.repoId}\0${seed}`).digest("hex").slice(0, 20)}`, sessionId, daemonGeneration: input.daemonGeneration, state, error: code && hint ? { code, hint } : null }); }
-  function requiredSession(sessionId: string): Session { const session = sessions.get(sessionId); if (!session) throw terminalHostError("terminal_session_unknown", "This terminal belongs to another repo or no longer exists."); return session; }
+  function requiredSession(sessionId: string): Session {
+    const session = sessions.get(sessionId);
+    if (!session)
+      throw terminalHostError(
+        "terminal_session_unknown",
+        "This terminal belongs to another repo or no longer exists."
+      );
+    return session;
+  }
 }
 
 function next(subscriber: Subscriber): Promise<Frame | null> { if (subscriber.closed) return Promise.resolve(null); const item = subscriber.queue.shift(); if (item) { subscriber.bytes -= frameSize(item); return Promise.resolve(item); } return new Promise((resolve) => { subscriber.waiter = resolve; }); }
 function detachSubscriber(session: Session, subscriber: Subscriber): void { if (subscriber.closed) return; subscriber.closed = true; session.subscribers.delete(subscriber.id); subscriber.waiter?.(null); subscriber.waiter = null; }
-function terminalSessionRow(session: Session): TerminalSessionRow { return { sessionId: session.sessionId, repoId: "", name: session.name, cwd: session.cwd, shellProfile: session.shellProfile, requestedBackend: session.requestedBackend, backend: session.backend, status: terminalState(session), createdAt: session.createdAt, lastActivityAt: session.lastActivityAt, exitCode: session.exitCode, outputSeq: session.outputSeq, durability: session.durability, warning: session.warning, attachable: session.attachable }; }
+function terminalSessionRow(session: Session): TerminalSessionRow {
+  return {
+    sessionId: session.sessionId,
+    repoId: "",
+    name: session.name,
+    cwd: session.cwd,
+    shellProfile: session.shellProfile,
+    requestedBackend: session.requestedBackend,
+    backend: session.backend,
+    status: terminalState(session),
+    createdAt: session.createdAt,
+    lastActivityAt: session.lastActivityAt,
+    exitCode: session.exitCode,
+    outputSeq: session.outputSeq,
+    durability: session.durability,
+    warning: session.warning,
+    attachable: session.attachable
+  };
+}
 function terminalState(session: Session): TerminalSessionStatus { return session.status; }
 function resolveTerminalCwd(rootDir: string, value: unknown): string { if (!value || typeof value !== "object" || Array.isArray(value)) throw terminalHostError("invalid_cwd", "cwd requires a closed scope object."); const cwd = value as Record<string, unknown>, allowed = cwd.scope === "repo-root" ? ["scope"] : ["scope", "path"]; if (Object.keys(cwd).some((key) => !allowed.includes(key)) || !["repo-root", "repo-relative"].includes(String(cwd.scope))) throw terminalHostError("invalid_cwd", "cwd scope is invalid."); const resolved = cwd.scope === "repo-root" ? rootDir : path.resolve(rootDir, requiredTerminalText(cwd.path, "cwd.path")); if (resolved !== rootDir && !resolved.startsWith(`${rootDir}${path.sep}`)) throw terminalHostError("invalid_cwd", "cwd must stay inside the repository."); return resolved; }
-function restoreTerminalCwd(rootDir: string, stored: string): string { const resolved = stored === "." ? rootDir : path.resolve(rootDir, stored); if (resolved !== rootDir && !resolved.startsWith(`${rootDir}${path.sep}`)) throw new Error("invalid terminal session registry cwd"); return resolved; }
+function restoreTerminalCwd(rootDir: string, stored: string): string {
+  const resolved = stored === "." ? rootDir : path.resolve(rootDir, stored);
+  if (resolved !== rootDir && !resolved.startsWith(`${rootDir}${path.sep}`))
+    throw new Error("invalid terminal session registry cwd");
+  return resolved;
+}
 function shell(profile: string, platform: NodeJS.Platform): string { if (platform === "win32") { if (profile !== "default" && profile !== "powershell") throw terminalHostError("shell_profile_unknown", "Use the default PowerShell profile."); return "powershell.exe"; } const selected = profile === "default" ? path.basename(process.env.SHELL ?? "zsh") : profile; if (!["zsh", "bash", "sh", "fish"].includes(selected)) throw terminalHostError("shell_profile_unknown", "Shell profile is not allowlisted."); return `/bin/${selected}`; }
-function terminalCommand(executablePath: string, args: readonly string[], env: Readonly<Record<string, string>>, platform: NodeJS.Platform): { readonly executablePath: string; readonly args: readonly string[] | string } { if (platform !== "win32" || !/\.(?:cmd|bat)$/iu.test(executablePath)) return { executablePath, args }; const command = `""${executablePath}"${args.length ? ` ${args.map(quoteCmdArgument).join(" ")}` : ""}"`; return { executablePath: env.COMSPEC ?? env.ComSpec ?? "cmd.exe", args: `/d /s /c ${command}` }; }
+function terminalCommand(
+  executablePath: string,
+  args: readonly string[],
+  env: Readonly<Record<string, string>>,
+  platform: NodeJS.Platform
+): { readonly executablePath: string; readonly args: readonly string[] | string } {
+  if (platform !== "win32" || !/\.(?:cmd|bat)$/iu.test(executablePath)) return { executablePath, args };
+  const command = `""${executablePath}"${args.length ? ` ${args.map(quoteCmdArgument).join(" ")}` : ""}"`;
+  return { executablePath: env.COMSPEC ?? env.ComSpec ?? "cmd.exe", args: `/d /s /c ${command}` };
+}
 function quoteCmdArgument(value: string): string { return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '""')}"`; }
 function terminalEnvironment(platform: NodeJS.Platform): Record<string, string> { const result: Record<string, string> = { TERM: "xterm-256color" }, keys = ["PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", ...(platform === "win32" ? ["SystemRoot"] : [])]; for (const key of keys) if (process.env[key]) result[key] = process.env[key]!; return result; }
 function frameSize(frame: Frame): number { return Buffer.byteLength(frame.utf8, "utf8") + 96; }
-function terminalBackend(value: unknown): LocalTerminalBackend { if (value === "direct-pty" || value === "tmux") return value; throw terminalHostError("invalid_terminal_request", "backend must be direct-pty or tmux."); }
+function terminalBackend(value: unknown): LocalTerminalBackend {
+  if (value === "direct-pty" || value === "tmux") return value;
+  throw terminalHostError("invalid_terminal_request", "backend must be direct-pty or tmux.");
+}
+function terminalSessionId(repoId: string, idempotencyKey: string): string {
+  return `terminal_${createHash("sha256").update(`${repoId}\0${idempotencyKey}`).digest("hex").slice(0, 24)}`;
+}
 function requiredTerminalText(value: unknown, field: string): string { if (typeof value === "string" && value.length) return value; throw terminalHostError("invalid_terminal_request", `${field} is required.`); }
 function optional(value: unknown): string | undefined { return typeof value === "string" && value.length ? value : undefined; }
 function positiveInteger(value: unknown, field: string): number { if (Number.isSafeInteger(value) && Number(value) >= 0) return Number(value); throw terminalHostError("invalid_terminal_request", `${field} must be a non-negative integer.`); }

@@ -27,19 +27,37 @@ export interface LocalTerminalBackendSelection {
 
 export const systemTmuxController: TmuxController = {
   probe: () => {
-    try { return { available: true, executable: "tmux", version: runProcessText("tmux", ["-V"]).trim() }; }
-    catch { return { available: false, reason: "tmux capability probe failed" }; }
+    try {
+      return { available: true, executable: "tmux", version: runProcessText("tmux", ["-V"]).trim() };
+    } catch {
+      return { available: false, reason: "tmux capability probe failed" };
+    }
   },
-  hasSession: (executable, namespace) => { try { runProcessText(executable, ["has-session", "-t", namespace]); return true; } catch { return false; } },
+  hasSession: (executable, namespace) => {
+    try {
+      runProcessText(executable, ["has-session", "-t", namespace]);
+      return true;
+    } catch {
+      return false;
+    }
+  },
   killSession: (executable, namespace) => {
-    try { runProcessText(executable, ["kill-session", "-t", namespace]); }
-    catch (cause) { throw new Error("tmux session is unavailable", { cause }); }
-  }
+    try {
+      runProcessText(executable, ["kill-session", "-t", namespace]);
+    } catch (cause) {
+      throw new Error("tmux session is unavailable", { cause });
+    }
+  },
 };
 
-export function selectLocalTerminalBackend(requestedBackend: LocalTerminalBackend, probe: TmuxProbe): LocalTerminalBackendSelection {
-  if (requestedBackend === "direct-pty") return { requestedBackend, backend: "direct-pty", durability: "daemon-process", warning: null };
-  if (probe.available && probe.executable) return { requestedBackend, backend: "tmux", durability: "daemon-restart", warning: null };
+export function selectLocalTerminalBackend(
+  requestedBackend: LocalTerminalBackend,
+  probe: TmuxProbe,
+): LocalTerminalBackendSelection {
+  if (requestedBackend === "direct-pty")
+    return { requestedBackend, backend: "direct-pty", durability: "daemon-process", warning: null };
+  if (probe.available && probe.executable)
+    return { requestedBackend, backend: "tmux", durability: "daemon-restart", warning: null };
   return { requestedBackend, backend: "direct-pty", durability: "daemon-process", warning: "tmux-unavailable" };
 }
 
