@@ -1,46 +1,18 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { rmSync } from "node:fs";
 import test from "node:test";
-import { makeDecisionService, makeFactService } from "../src/index.ts";
-import {
-  compileDecisionWrite,
-  compileFactWrite,
-  deriveRelationId,
-  isTaskEvent,
-  makeTaskEventStore,
-  makeTaskProjection,
-  taskLifecycleWritePlan,
-  type CanonicalEventStore,
-  type CanonicalEventV1,
-  type CanonicalWriteBundle,
-  type DecisionEventDraftV1,
-  type FactEventDraftV1,
-  type FactEventV1,
-  type TaskProjection,
-} from "../../kernel/src/index.ts";
-import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
+import { type DecisionEventDraftV1 } from "../../kernel/src/index.ts";
 
 import {
   actor,
-  bundle,
   code,
-  compile,
   compileDecision,
   decisionAt,
   decisionEvent,
-  factBacklog,
-  factEvent,
-  git,
-  memoryFactStore,
   recordDecision,
-  recordFact,
   relationRecord,
   withDecisionFixture,
-  withFixture,
 } from "./fact-event-service.fixtures.ts";
 test("Decision transition matrix, transport arbiter, claims, relation retirement, and replay are canonical", () => {
   withDecisionFixture(({ service, projection, store }) => {

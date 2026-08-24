@@ -3,8 +3,6 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
-import { makeDecisionService, makeFactService } from "../src/index.ts";
 import {
   compileDecisionWrite,
   compileFactWrite,
@@ -21,7 +19,7 @@ import {
   type FactEventV1,
   type TaskProjection,
 } from "../../kernel/src/index.ts";
-import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
+import { makeDecisionService, makeFactService } from "../src/index.ts";
 
 export const actor = {
   principal: { personId: "person-fact" },
