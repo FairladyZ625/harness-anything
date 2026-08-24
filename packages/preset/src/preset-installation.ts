@@ -104,7 +104,12 @@ export function installPresetPackage(input: {
     input.killpoint?.("after-object");
     writeFileSync(
       temporaryPointer,
-      `${JSON.stringify({ schema: "preset-active-pointer/v1", presetId: decoded.manifest.id, verticalId: decoded.manifest.vertical, digest: decoded.packageDigest })}\n`,
+      `${JSON.stringify({
+        schema: "preset-active-pointer/v1",
+        presetId: decoded.manifest.id,
+        verticalId: decoded.manifest.vertical,
+        digest: decoded.packageDigest,
+      })}\n`,
     );
     renameSync(temporaryPointer, pointer);
     input.killpoint?.("after-pointer");

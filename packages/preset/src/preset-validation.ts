@@ -63,7 +63,8 @@ export function validatePresetPackage(input: { readonly source: string }) {
     issues.push(
       presetFailure(
         "missing_preset_document",
-        `Preset package is missing PRESET.md; expected schema: preset-document/v1 YAML frontmatter and a markdown body.`,
+        "Preset package is missing PRESET.md; expected schema: " +
+          "preset-document/v1 YAML frontmatter and a markdown body.",
       ),
     );
   else

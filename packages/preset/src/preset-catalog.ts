@@ -34,7 +34,11 @@ export function effectiveCatalog(
                 : {}),
               error: presetFailure(
                 "shadow_invalid",
-                `${item.error?.message ?? "User package is invalid"}${shadowed ? `; bundled ${shadowed.id} remains blocked` : ""}.`,
+                `${item.error?.message ?? "User package is invalid"}${
+                  shadowed
+                    ? `; bundled ${shadowed.id} remains blocked`
+                    : ""
+                }.`,
               ),
             },
       );

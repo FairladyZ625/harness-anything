@@ -113,7 +113,8 @@ export function presetPackageScripts(
       if (entry.isSymbolicLink() || !entry.isFile())
         throw presetFailure(
           "invalid_preset_scripts",
-          `Preset scripts entry scripts/${entry.name} is not a regular file; subdirectories and other node kinds are not materialized.`,
+          `Preset scripts entry scripts/${entry.name} is not a regular file; ` +
+            "subdirectories and other node kinds are not materialized.",
         );
       return {
         name: entry.name,

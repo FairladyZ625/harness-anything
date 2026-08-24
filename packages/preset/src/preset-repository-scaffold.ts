@@ -196,7 +196,10 @@ export function composeAgentsSelection(
     base = layer("repository.agent.base", entry.baseRef),
     overlay = layer("repository.agent.overlay", entry.overlayRef),
     anchor = entry.repoSpecificsAnchor ?? "## Repository Specifics",
-    body = `${base.body.trimEnd()}\n\n${overlay.body.trimEnd()}\n\n${anchor}\n\nRepository-specific rules may be added here after explicit diagnosis; the deterministic base and vertical overlay above remain unchanged.\n`;
+    body =
+      `${base.body.trimEnd()}\n\n${overlay.body.trimEnd()}\n\n${anchor}\n\n` +
+      "Repository-specific rules may be added here after explicit diagnosis; " +
+      "the deterministic base and vertical overlay above remain unchanged.\n";
   return {
     selection: {
       slot: "repository.agent.entry",

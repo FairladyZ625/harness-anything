@@ -10,6 +10,9 @@ import type {
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+const reservedMaterializedPath =
+  /^(?:(?:index|facts|progress)\.md|(?:task-contract|code-doc-anchors)\.json|(?:executions|reviews)(?:\/|$))$/iu;
+
 export function materializeSelections(
   entries: readonly ResolverScaffoldSelection[],
   locale: "zh-CN" | "en-US",
@@ -128,9 +131,7 @@ export function catalogAnchors(
 }
 
 export function taskOverlayPath(value: string): boolean {
-  return !/^(?:index\.md|task-contract\.json|facts\.md|progress\.md|code-doc-anchors\.json|executions(?:\/|$)|reviews(?:\/|$))$/iu.test(
-    value,
-  );
+  return !reservedMaterializedPath.test(value);
 }
 
 export function safeMaterializedPath(value: string, used: Set<string>): void {
@@ -143,9 +144,7 @@ export function safeMaterializedPath(value: string, used: Set<string>): void {
     value.includes("\\") ||
     parts.some((part) => !part || part === "." || part === "..") ||
     /^(?:harness\/)?(?:events|objects)\//u.test(value) ||
-    /^(?:index\.md|task-contract\.json|facts\.md|progress\.md|code-doc-anchors\.json|executions(?:\/|$)|reviews(?:\/|$))$/iu.test(
-      value,
-    ) ||
+    reservedMaterializedPath.test(value) ||
     used.has(folded)
   )
     throw presetFailure(

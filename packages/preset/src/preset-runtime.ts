@@ -260,8 +260,19 @@ export function createRuntime(options: PresetResolverOptions): {
           missing,
         );
     }
-    const resolvedSelectionDigest =
-        `sha256:${resolverContentHash(canonicalPresetBytes(documents.map((item) => ({ slot: item.selection.slot, path: item.selection.materializeAs, templateRef: item.selection.templateRef, locale: item.locale, owner: item.owner, requiredAnchors: item.requiredAnchors, sha256: resolverContentHash(item.body) }))))}` as const,
+    const resolvedSelectionDigest = `sha256:${resolverContentHash(
+        canonicalPresetBytes(
+          documents.map((item) => ({
+            slot: item.selection.slot,
+            path: item.selection.materializeAs,
+            templateRef: item.selection.templateRef,
+            locale: item.locale,
+            owner: item.owner,
+            requiredAnchors: item.requiredAnchors,
+            sha256: resolverContentHash(item.body),
+          })),
+        ),
+      )}` as const,
       withoutDigest = {
         schema: "preset-snapshot/v1" as const,
         identity: {
