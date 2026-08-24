@@ -14,7 +14,12 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { classifyTextualArtifactPath, consumeKnownError, DOC_POLICY_ID, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import {
+  classifyTextualArtifactPath,
+  consumeKnownError,
+  DOC_POLICY_ID,
+  resolveHarnessLayout,
+} from "../../kernel/src/index.ts";
 import { FleetRemoteError, runFleetReplicaPullClient, runFleetTaskCommandClient, runFleetUploadClient } from "./fleet/edge.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
 import { fleetCredentialFromRoster, readFleetRosterFile } from "./fleet-center-admission.ts";
@@ -72,7 +77,11 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
   // staged, unhandled divergence, its transitions stay blocked — the edge
   // refuses before any upload or center round-trip.
   if (workspaceRoot !== null && taskId !== null && action.kind !== "task-create") {
-    const view = locateFleetMirrorView(payload.viewRoot, payload.repoId), exactPackage = view === null ? null : fleetExactTaskPackagePath(view, workspaceRoot, taskId), belongs = (conflictPath: string): boolean => exactPackage === null ? fleetDocPathInTaskPackage(conflictPath, taskId) : conflictPath.startsWith(`${exactPackage}/`);
+    const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
+    const exactPackage = view === null ? null : fleetExactTaskPackagePath(view, workspaceRoot, taskId);
+    const belongs = (conflictPath: string): boolean => exactPackage === null
+      ? fleetDocPathInTaskPackage(conflictPath, taskId)
+      : conflictPath.startsWith(`${exactPackage}/`);
     const open = readFleetUnresolvedConflicts(workspaceRoot, payload.repoId).flatMap((record) => record.paths.map((row) => row.path)).filter(belongs);
     if (open.length > 0) return { schema: "command-receipt/v2", ok: false, command: action.kind, outcome: "op_rejected", opId: `conflict-open:${taskId}`, canonicalOutcome: "op_rejected", mirrorOutcome: "conflict_open", code: "conflict_open", taskId, error: { code: "conflict_open", hint: `An unresolved staged conflict covers ${[...new Set(open)].sort().join(", ")}; exit explicitly with ha doc conflict resolve|discard-local|overwrite-center before rerunning this task's commands.` } } as Record<string, unknown>;
   }
@@ -115,7 +124,10 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
     const packagePath = fleetExactTaskPackagePath(view, workspaceRoot, taskId);
     if (packagePath === null) return null;
     const scope = fleetEdgeScopePaths(payload.assignmentId, payload.rosterPath);
-    const candidates = scanFleetMirrorWorktree(view, workspaceRoot).changes.filter((change) => change.path.startsWith(`${packagePath}/`) && (scope === null || scope.some((allowed) => change.path === allowed || change.path.startsWith(`${allowed}/`))));
+    const inScope = (changePath: string): boolean => scope === null
+      || scope.some((allowed) => changePath === allowed || changePath.startsWith(`${allowed}/`));
+    const candidates = scanFleetMirrorWorktree(view, workspaceRoot).changes
+      .filter((change) => change.path.startsWith(`${packagePath}/`) && inScope(change.path));
     if (candidates.length === 0) return null;
     const descriptors = await runFleetUploadClient({ ...peer, timeoutMs: 60_000, changes: candidates.map((change) => ({ path: change.path, body: Buffer.from(change.bytes), mediaType: change.mediaType })) });
     return { docChanges: candidates.map((change, index) => ({ path: change.path, baseBlobSha256: change.baseBlobSha256, policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID, candidate: descriptors[index]! })), mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest } };

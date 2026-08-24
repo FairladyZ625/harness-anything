@@ -111,12 +111,18 @@ export async function fleetTaskRoute(command: ThinCommand, env: NodeJS.ProcessEn
 // fleet channel when fleet-edge.json names it AND its canonical root is
 // registered in remote-edge mode (adversarial F7 discipline, shared by the
 // task and doc surfaces).
-async function fleetEdgeRegistration(command: ThinCommand, env: NodeJS.ProcessEnv): Promise<(import("../../../daemon/src/client/fleet-edge-config.ts").FleetEdgeConfig & { readonly workspaceRoot: string }) | null> {
+type FleetEdgeConfigModule = import("../../../daemon/src/client/fleet-edge-config.ts").FleetEdgeConfig;
+async function fleetEdgeRegistration(
+  command: ThinCommand,
+  env: NodeJS.ProcessEnv,
+): Promise<(FleetEdgeConfigModule & { readonly workspaceRoot: string }) | null> {
   const { readFleetEdgeConfig } = await import("../../../daemon/src/client/fleet-edge-config.ts");
   const commandRoot = path.resolve(command.rootDir), registered = readRegisteredRepos(daemonUserRoot(env)).filter((repo) => repo.state === "enabled" && (commandRoot === path.resolve(repo.canonicalRoot) || commandRoot.startsWith(`${path.resolve(repo.canonicalRoot)}${path.sep}`))).sort((left, right) => path.resolve(right.canonicalRoot).length - path.resolve(left.canonicalRoot).length)[0];
   if (registered?.mode !== "remote-edge") return null;
   const config = readFleetEdgeConfig(registered.canonicalRoot);
-  return config?.repoId === registered.repoId ? { ...config, workspaceRoot: path.resolve(registered.canonicalRoot) } : null;
+  return config?.repoId === registered.repoId
+    ? { ...config, workspaceRoot: path.resolve(registered.canonicalRoot) }
+    : null;
 }
 // Class-B surface on a remote-edge workspace: `ha doc sync` becomes one
 // compare→push/pull fleet round, and the three conflict exits become fleet

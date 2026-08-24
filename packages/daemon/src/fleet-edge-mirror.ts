@@ -20,7 +20,9 @@ export interface FleetConflictPathRow { readonly path: string; readonly baseBlob
 export interface FleetConflictRecord { readonly schema: "fleet-conflict/v1"; readonly conflictId: string; readonly kind: "task-docs" | "shared-docs" | "pull-blocked"; readonly trigger: FleetConflictTrigger; readonly code: string; readonly repoId: string; readonly taskId: string | null; readonly executionId: string | null; readonly mirrorBaseRevision: number | null; readonly centerRevision: number | null; readonly createdAt: string; readonly paths: readonly FleetConflictPathRow[]; readonly state: "staged" | "resolved"; readonly resolvedVia: string | null; readonly exits: readonly string[] }
 export interface FleetStagedConflict { readonly conflictId: string; readonly paths: readonly string[]; readonly dir: string }
 export interface FleetMirrorApplyResult { readonly outcome: "applied" | "pull_blocked" | "no_view"; readonly fromRevision: number | null; readonly toRevision: number | null; readonly dirtyPaths: readonly string[]; readonly conflicts: readonly FleetStagedConflict[] }
-const materializationMarker = ".materialized-cut.json", materializationBaseCache = ".materialized-base-cache", conflictPrefix = "cflt-";
+const materializationMarker = ".materialized-cut.json";
+const materializationBaseCache = ".materialized-base-cache";
+const conflictPrefix = "cflt-";
 
 export class FleetMirrorError extends Error { readonly code: string; constructor(code: string, message: string) { super(message); this.name = "FleetMirrorError"; this.code = code; } }
 
@@ -118,7 +120,11 @@ export function cacheFleetMirrorDirtyBases(viewRoot: string, repoId: string, wor
   if (dirty.length > 0) fleetMirrorRefreshBaseCache(view, dirty);
 }
 
-export function scanFleetMirrorWorktree(view: FleetMirrorView, workspaceRoot: string, selection?: readonly string[]): FleetMirrorScan {
+export function scanFleetMirrorWorktree(
+  view: FleetMirrorView,
+  workspaceRoot: string,
+  selection?: readonly string[],
+): FleetMirrorScan {
   const materializedRoot = fleetMirrorMaterializedRoot(workspaceRoot);
   if (!existsSync(materializedRoot)) return { changes: [], cleanCount: 0, blocked: [] };
   const wanted = selection === undefined ? null : new Set(selection), changes: FleetMirrorDirtyFile[] = [], blocked: { readonly path: string; readonly reason: string }[] = [];
@@ -134,7 +140,13 @@ export function scanFleetMirrorWorktree(view: FleetMirrorView, workspaceRoot: st
   }
   for (const logical of view.entries.keys()) {
     if (!fleetMirrorProsePath(logical) || wanted !== null && !wanted.has(logical)) continue;
-    if (!existsSync(path.join(materializedRoot, ...logical.split("/")))) blocked.push({ path: logical, reason: "canonical document is missing from the registered harness; rerun the sync so the cut is materialized, then restore any locally deleted document" });
+    if (!existsSync(path.join(materializedRoot, ...logical.split("/")))) {
+      blocked.push({
+        path: logical,
+        reason: "canonical document is missing from the registered harness;"
+          + " rerun the sync so the cut is materialized, then restore any locally deleted document",
+      });
+    }
   }
   return { changes, cleanCount, blocked };
 }
@@ -152,7 +164,9 @@ export function applyFleetMirrorCut(viewRoot: string, repoId: string, workspaceR
   const view = locateFleetMirrorView(viewRoot, repoId, context.viewId);
   if (view === null) return { outcome: "no_view", fromRevision: null, toRevision: null, dirtyPaths: [], conflicts: [] };
   const materializedRoot = fleetMirrorMaterializedRoot(workspaceRoot);
-  const marker = fleetMirrorReadJson<{ revision: number; manifestDigest: string; blobs: Record<string, string> }>(path.join(view.viewDir, materializationMarker));
+  const marker = fleetMirrorReadJson<{ revision: number; manifestDigest: string; blobs: Record<string, string> }>(
+    path.join(view.viewDir, materializationMarker),
+  );
   const baseOf = marker?.blobs ?? {};
   mkdirSync(materializedRoot, { recursive: true });
   const rows: FleetConflictPathRow[] = [], stage: { readonly path: string; readonly base: Uint8Array | null; readonly local: Uint8Array | null; readonly center: Uint8Array | null }[] = [], dirtyPaths: string[] = [], nextBlobs: Record<string, string> = {};
@@ -185,14 +199,20 @@ export function applyFleetMirrorCut(viewRoot: string, repoId: string, workspaceR
     rows.push({ path: logical, baseBlobSha256: oldSha, localBlobSha256: localSha, centerBlobSha256: null });
     stage.push({ path: logical, base: fleetMirrorBaseBytes(view, marker?.revision ?? null, logical), local: localBytes, center: null });
   }
-  for (const logical of fleetMirrorMaterializedPaths(materializedRoot)) if (!view.entries.has(logical) && baseOf[logical] === undefined && fleetMirrorProsePath(logical)) dirtyPaths.push(logical);
+  for (const logical of fleetMirrorMaterializedPaths(materializedRoot)) {
+    if (!view.entries.has(logical) && baseOf[logical] === undefined && fleetMirrorProsePath(logical))
+      dirtyPaths.push(logical);
+  }
   // Cache base bytes for every dirty/diverged path while they are still
   // obtainable: the replica view retains only two cuts, so a later pull that
   // jumps several revisions can collect the base cut before the divergence is
   // detected (F3).
   fleetMirrorRefreshBaseCache(view, dirtyPaths);
   const conflicts = fleetStageOrReuseDivergence(workspaceRoot, repoId, view, marker?.revision ?? null, trigger, context, rows, stage);
-  fleetMirrorWriteJson(path.join(view.viewDir, materializationMarker), { revision: view.revision, manifestDigest: view.manifestDigest, blobs: nextBlobs });
+  fleetMirrorWriteJson(
+    path.join(view.viewDir, materializationMarker),
+    { revision: view.revision, manifestDigest: view.manifestDigest, blobs: nextBlobs },
+  );
   rmSync(path.join(view.viewDir, "worktree"), { recursive: true, force: true });
   return { outcome: conflicts.length > 0 ? "pull_blocked" : "applied", fromRevision: marker?.revision ?? null, toRevision: view.revision, dirtyPaths: [...new Set(dirtyPaths)].sort(), conflicts };
 }
@@ -245,7 +265,8 @@ export function fleetConflictSideFile(workspaceRoot: string, conflictId: string,
 // removes the local file instead. The next materialize converges the path and
 // adopts the center digest as the new common base.
 export function restoreFleetConflictCenterBytes(workspaceRoot: string, conflictId: string, row: FleetConflictPathRow): void {
-  const source = fleetConflictSideFile(workspaceRoot, conflictId, row.path, "center"), target = path.join(fleetMirrorMaterializedRoot(workspaceRoot), ...row.path.split("/"));
+  const source = fleetConflictSideFile(workspaceRoot, conflictId, row.path, "center");
+  const target = path.join(fleetMirrorMaterializedRoot(workspaceRoot), ...row.path.split("/"));
   if (source !== null) { mkdirSync(path.dirname(target), { recursive: true }); fleetMirrorWriteBytes(target, readFileSync(source)); }
   else rmSync(target, { force: true });
 }
@@ -285,17 +306,54 @@ function fleetMirrorRefreshBaseCache(view: FleetMirrorView, dirtyPaths: readonly
     const target = path.join(cacheRoot, ...logical.split("/"));
     if (!existsSync(target) || !readFileSync(target).equals(bytes)) { mkdirSync(path.dirname(target), { recursive: true }); fleetMirrorWriteBytes(target, bytes); }
   }
-  if (existsSync(cacheRoot)) for (const stale of fleetMirrorMaterializedPaths(cacheRoot)) if (!keep.has(stale)) rmSync(path.join(cacheRoot, ...stale.split("/")), { force: true });
+  if (existsSync(cacheRoot)) {
+    for (const stale of fleetMirrorMaterializedPaths(cacheRoot))
+      if (!keep.has(stale)) rmSync(path.join(cacheRoot, ...stale.split("/")), { force: true });
+  }
 }
-function locateFleetMirrorMarkerRevision(view: FleetMirrorView): number | null { const marker = fleetMirrorReadJson<{ revision: number }>(path.join(view.viewDir, materializationMarker)); return marker?.revision ?? null; }
+function locateFleetMirrorMarkerRevision(view: FleetMirrorView): number | null {
+  const marker = fleetMirrorReadJson<{ revision: number }>(path.join(view.viewDir, materializationMarker));
+  return marker?.revision ?? null;
+}
 function fleetMirrorConflictRoot(workspaceRoot: string): string { return path.join(resolveHarnessLayout(workspaceRoot).localRoot, "conflicts"); }
-function fleetMirrorMaterializedRoot(workspaceRoot: string): string { return resolveHarnessLayout(workspaceRoot).authoredRoot; }
+function fleetMirrorMaterializedRoot(workspaceRoot: string): string {
+  return resolveHarnessLayout(workspaceRoot).authoredRoot;
+}
 function fleetMirrorCutEntries(viewDir: string, revision: number): ReadonlyMap<string, FleetMirrorBlob> | null { const manifest = fleetMirrorReadJson<{ entries: { path: string; blob: FleetMirrorBlob }[] }>(path.join(viewDir, "cuts", String(revision), "manifest.json")); return manifest === null ? null : new Map(manifest.entries.map((entry) => [entry.path, entry.blob])); }
 function fleetMirrorCutFile(viewDir: string, revision: number, logical: string): Buffer | null { const file = path.join(viewDir, "cuts", String(revision), "files", ...logical.split("/")); return existsSync(file) && statSync(file).isFile() ? readFileSync(file) : null; }
-function fleetMirrorMaterializedPaths(materializedRoot: string): string[] { const found: string[] = []; if (!existsSync(materializedRoot)) return found; const visit = (directory: string, depth: number): void => { for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) { const target = path.join(directory, entry.name); if (entry.isDirectory()) { if (depth === 0 && [".git", ".harness", ".worktrees"].includes(entry.name)) continue; visit(target, depth + 1); } else if (entry.isFile()) { const logical = path.relative(materializedRoot, target).split(path.sep).join("/"); if (!logical.startsWith("..") && !path.isAbsolute(logical)) found.push(logical); } } }; visit(materializedRoot, 0); return found; }
+function fleetMirrorMaterializedPaths(materializedRoot: string): string[] {
+  const found: string[] = [];
+  if (!existsSync(materializedRoot)) return found;
+  const visit = (directory: string, depth: number): void => {
+    const entries = readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (depth === 0 && [".git", ".harness", ".worktrees"].includes(entry.name)) continue;
+        visit(target, depth + 1);
+      } else if (entry.isFile()) {
+        const logical = path.relative(materializedRoot, target).split(path.sep).join("/");
+        if (!logical.startsWith("..") && !path.isAbsolute(logical)) found.push(logical);
+      }
+    }
+  };
+  visit(materializedRoot, 0);
+  return found;
+}
 function fleetMirrorProsePath(value: string): boolean { return value.endsWith(".md") || value.endsWith(".txt"); }
 function fleetMirrorRoute(logical: string): { readonly allowed: boolean; readonly requiredRoute: string } | null { try { return resolveDocRoute(documentPath(logical)); } catch (error) { consumeKnownError(error); return null; } }
-function fleetMirrorAssertLogical(value: string): void { if (value.startsWith("/") || value.split("/").some((part) => part === "" || part === "." || part === ".." || part === ".git" || part === ".harness" || part === ".worktrees" || part.startsWith(".mirror-"))) throw new FleetMirrorError("unsafe_conflict_path", "A staged document path is not a safe relative path."); }
+function fleetMirrorAssertLogical(value: string): void {
+  const unsafePart = (part: string): boolean => part === ""
+    || part === "."
+    || part === ".."
+    || part === ".git"
+    || part === ".harness"
+    || part === ".worktrees"
+    || part.startsWith(".mirror-");
+  if (value.startsWith("/") || value.split("/").some(unsafePart))
+    throw new FleetMirrorError("unsafe_conflict_path", "A staged document path is not a safe relative path.");
+}
 function fleetMirrorWriteBytes(file: string, bytes: Uint8Array): void { mkdirSync(path.dirname(file), { recursive: true }); const temp = `${file}.${process.pid}.tmp`, fd = openSync(temp, "w"); try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); } renameSync(temp, file); }
 function fleetMirrorWriteJson(file: string, value: unknown): void { fleetMirrorWriteBytes(file, Buffer.from(`${JSON.stringify(value, null, 2)}\n`)); }
 function fleetMirrorReadJson<T>(file: string): T | null { if (!existsSync(file) || !statSync(file).isFile()) return null; try { return JSON.parse(readFileSync(file, "utf8")) as T; } catch (error) { consumeKnownError(error); return null; } }

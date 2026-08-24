@@ -55,8 +55,40 @@ async function fleetControl(argv: readonly string[], at: number, userRoot: strin
   if (edge && (credential === undefined) === (roster === undefined)) return reject("invalid_field", "Use exactly one of --credential or --roster for edge sync.");
   if (!fleetNumber.port.test(flag("--port")!) || !fleetNumber.quota.test(flag("--quota-bytes")!)) return reject("invalid_field", "Use a TCP port from 0 to 65535 and a positive integer byte count for --quota-bytes.");
   const edgeTarget = edge ? resolveLocalDaemonTarget({ rootDir: path.resolve(flag("--root") ?? process.cwd()), repoIdOverride: flag("--repo"), userRoot, daemonId }) : null;
-  const payload = (center ? { port: Number(flag("--port")), keyPath: path.resolve(flag("--key")!), certPath: path.resolve(flag("--cert")!), rosterPath: path.resolve(flag("--roster")!), quotaBytes: Number(flag("--quota-bytes")), ...(flag("--bind") ? { bind: flag("--bind") } : {}), ...(flag("--state-root") ? { stateRoot: path.resolve(flag("--state-root")!) } : {}) } : { host: flag("--host"), port: Number(flag("--port")), caPath: path.resolve(flag("--ca")!), nodeId: flag("--node-id"), ...(credential ? { credential } : {}), ...(roster ? { rosterPath: path.resolve(roster) } : {}), assignmentId: flag("--assignment"), repoId: edgeTarget!.repoId, viewRoot: path.resolve(flag("--view-root")!), quotaBytes: Number(flag("--quota-bytes")), workspaceRoot: edgeTarget!.canonicalRoot, ...(flag("--servername") ? { servername: flag("--servername") } : {}), timeoutMs: flag("--timeout-ms") ? Number(flag("--timeout-ms")) : 60_000 }) as JsonObject;
-  try { const result = await requestDaemonJsonRpcAt(edgeTarget?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId), center ? "daemon.fleet.center.start" : "daemon.fleet.edge.sync", { payload }, 75); return finish(result, result.ok === true ? 0 : 1); }
+  const centerPayload = () => ({
+    port: Number(flag("--port")),
+    keyPath: path.resolve(flag("--key")!),
+    certPath: path.resolve(flag("--cert")!),
+    rosterPath: path.resolve(flag("--roster")!),
+    quotaBytes: Number(flag("--quota-bytes")),
+    ...(flag("--bind") ? { bind: flag("--bind") } : {}),
+    ...(flag("--state-root") ? { stateRoot: path.resolve(flag("--state-root")!) } : {}),
+  });
+  const edgePayload = () => ({
+    host: flag("--host"),
+    port: Number(flag("--port")),
+    caPath: path.resolve(flag("--ca")!),
+    nodeId: flag("--node-id"),
+    ...(credential ? { credential } : {}),
+    ...(roster ? { rosterPath: path.resolve(roster) } : {}),
+    assignmentId: flag("--assignment"),
+    repoId: edgeTarget!.repoId,
+    viewRoot: path.resolve(flag("--view-root")!),
+    quotaBytes: Number(flag("--quota-bytes")),
+    workspaceRoot: edgeTarget!.canonicalRoot,
+    ...(flag("--servername") ? { servername: flag("--servername") } : {}),
+    timeoutMs: flag("--timeout-ms") ? Number(flag("--timeout-ms")) : 60_000,
+  });
+  const payload = (center ? centerPayload() : edgePayload()) as JsonObject;
+  try {
+    const result = await requestDaemonJsonRpcAt(
+      edgeTarget?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
+      center ? "daemon.fleet.center.start" : "daemon.fleet.edge.sync",
+      { payload },
+      75,
+    );
+    return finish(result, result.ok === true ? 0 : 1);
+  }
   catch { return finish(daemonFailure(command, "daemon_unavailable", `Start the resident daemon with \`ha daemon start --service\`, then retry ${command.replace("daemon-", "ha daemon ").replaceAll("-", " ")}.`), 1); }
 }
 async function serve(userRoot: string, daemonId: string, finish: ControlFinisher): Promise<number> {

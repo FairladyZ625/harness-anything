@@ -275,7 +275,8 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       ),
       cliInput("--view-root", "single", true, {
         code: "missing_field",
-        nextAction: "Edge sync requires --view-root for transport state; ledger files materialize in the registered workspace harness.",
+        nextAction: "Edge sync requires --view-root for transport state;"
+          + " ledger files materialize in the registered workspace harness.",
       }),
       cliInput(
         "--quota-bytes",

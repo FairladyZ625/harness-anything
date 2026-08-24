@@ -92,7 +92,20 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
   return withFleetMirrorLock(payload.viewRoot, payload.repoId, async () => {
     const record = readFleetConflictRecord(payload.workspaceRoot, payload.conflictId);
     if (record.state === "resolved") return { schema: "command-receipt/v2", ok: true, command: `doc-conflict-${payload.action}`, outcome: "applied", conflictId: record.conflictId, state: record.state, resolvedVia: record.resolvedVia, nextAction: "This conflict is already resolved." };
-    if (payload.action === "resolve") { const settled = settleFleetConflictRecord(payload.workspaceRoot, payload.conflictId, "resolve"); return { schema: "command-receipt/v2", ok: true, command: "doc-conflict-resolve", outcome: "applied", conflictId: settled.conflictId, state: settled.state, paths: settled.paths.map((row) => row.path), nextAction: "Record closed. Merge base/local/center into the registered harness yourself, then rerun ha doc sync (or the task command) on the fresh base." }; }
+    if (payload.action === "resolve") {
+      const settled = settleFleetConflictRecord(payload.workspaceRoot, payload.conflictId, "resolve");
+      return {
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "doc-conflict-resolve",
+        outcome: "applied",
+        conflictId: settled.conflictId,
+        state: settled.state,
+        paths: settled.paths.map((row) => row.path),
+        nextAction: "Record closed. Merge base/local/center into the registered harness yourself,"
+          + " then rerun ha doc sync (or the task command) on the fresh base.",
+      };
+    }
     const credential = fleetEdgeCredential(payload.nodeId, payload.credential, payload.rosterPath);
     const peer = { hostname: payload.host, port: payload.port, ca: readFileSync(payload.caPath, "utf8"), servername: payload.servername, nodeId: payload.nodeId, credential, assignmentId: payload.assignmentId };
     const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
