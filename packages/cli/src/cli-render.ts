@@ -67,7 +67,12 @@ export function renderSquadRunRow(value: unknown): string {
 }
 
 export function renderDispatchRow(value: unknown): string {
-  const row = value as Partial<SquadRunDispatch>;
+  const row = value as Partial<SquadRunDispatch> & {
+    readonly exitCode?: number | null;
+    readonly resultRef?: string | null;
+    readonly dispatchPath?: string | null;
+    readonly reportPath?: string | null;
+  };
   return [
     String(row.dispatchId),
     String(row.status),
@@ -78,6 +83,10 @@ export function renderDispatchRow(value: unknown): string {
     `squad:${String(row.squadId ?? "-")}`,
     `code:${String(row.code ?? "-")}`,
     `reason:${String(row.reason ?? "-")}`,
+    `exit:${String(row.exitCode ?? "-")}`,
+    `result:${String(row.resultRef ?? "-")}`,
+    `dispatch:${String(row.dispatchPath ?? "-")}`,
+    `report:${String(row.reportPath ?? "-")}`,
   ].join("\t");
 }
 

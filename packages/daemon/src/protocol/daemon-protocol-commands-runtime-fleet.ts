@@ -9,7 +9,8 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       "Dispatch work through an optional declared Agent, deriving the mission ",
       "from --task when no prompt is supplied; stream and wait by default, or ",
       "use --detach and retrieve the result with ha runtime status ",
-      "<runtime-session-id> --wait.",
+      "<runtime-session-id> --wait, or wait for all task dispatches with ",
+      "ha runtime status --task <task-id> --wait.",
     ].join(""),
     method: "repo.agentRuntime.spawn",
     commandClass: "repo-write",
@@ -121,11 +122,11 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --task only when listing runtime sessions.",
+        nextAction: "Use --task to list dispatches, or combine it with --wait to wait for all task dispatches.",
       }),
       cliInput("--wait", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --wait once with a runtime session id.",
+        nextAction: "Use --wait once with a runtime session id or --task.",
       }),
       cliInput("--no-stream", "boolean", false, {
         code: "invalid_field",

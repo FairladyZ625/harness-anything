@@ -6,7 +6,7 @@ import {
   runtimeRejected,
 } from "./cli-runtime-auth.ts";
 import { runRuntimeBatch } from "./cli-runtime-batch.ts";
-import { waitForRuntime } from "./cli-runtime-wait.ts";
+import { waitForRuntime, waitForTaskDispatches } from "./cli-runtime-wait.ts";
 import { runSquadRun } from "./cli-squad-run.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import { runCommandThroughDaemon } from "./daemon/client.ts";
@@ -35,12 +35,14 @@ export async function runRuntimeFacadeCommand(
     return runAgentCreate(command, writeActivity);
   if (action.kind === "runtime-status") {
     if (action.wait === true)
-      return waitForRuntime(
-        command,
-        String(action.runtimeSessionId),
-        !command.json && action.noStream !== true,
-        writeActivity,
-      );
+      return typeof action.taskId === "string"
+        ? waitForTaskDispatches(command, action.taskId)
+        : waitForRuntime(
+            command,
+            String(action.runtimeSessionId),
+            !command.json && action.noStream !== true,
+            writeActivity,
+          );
     const { wait: _wait, noStream: _noStream, ...readAction } = action,
       result = await runCommandThroughDaemon({
         ...command,

@@ -258,6 +258,11 @@ export interface TaskDispatchRow {
   readonly endedAt: string | null;
   readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
   readonly status: "running" | "succeeded" | "failed" | "unknown" | "cancelled";
+  /** Terminal result and durable task-package artifact locations, when settled. */
+  readonly resultRef?: string | null;
+  readonly exitCode?: number | null;
+  readonly dispatchPath?: string | null;
+  readonly reportPath?: string | null;
 }
 
 export type DaemonTaskDispatchesResultBase = {
