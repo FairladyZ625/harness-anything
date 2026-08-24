@@ -25,40 +25,76 @@ test("hunks carry their destination path and start line", () => {
   assert.deepEqual(parsed[0].added, ["one", "two"]);
 });
 
-test("a newly created long line is rejected and reported as new", () => {
+test("a purely added overlong line is rejected", () => {
   const violations = findViolations(hunk("packages/kernel/src/a.ts", 5, { added: [LONG] }));
   assert.deepEqual(violations, [{
     filePath: "packages/kernel/src/a.ts",
     lineNumber: 5,
-    length: LONG.length,
-    previousLength: null
+    addedLongCharacters: LONG.length,
+    removedLongCharacters: 0,
+    addedMaxLineLength: LONG.length,
+    removedMaxLineLength: 0
   }]);
-  assert.match(explain(violations), /new line, \d+ characters/u);
+  assert.match(explain(violations), /overlong characters 0 -> 121; longest line 0 -> 121/u);
 });
 
 test("a line exactly at the limit passes", () => {
   assert.deepEqual(findViolations(hunk("packages/kernel/src/a.ts", 5, { added: ["x".repeat(MAX_LINE_LENGTH)] })), []);
 });
 
-test("editing an existing long line without growing it is allowed", () => {
-  assert.deepEqual(findViolations(hunk("packages/kernel/src/a.ts", 5, { added: [LONG], removed: [LONG] })), []);
+test("a one-to-one edit that shortens an overlong line is allowed", () => {
   assert.deepEqual(findViolations(hunk("packages/kernel/src/a.ts", 5, { added: [LONG], removed: [LONGER] })), []);
 });
 
-test("growing an already-long line is rejected and names both lengths", () => {
+test("a one-to-one edit that lengthens an overlong line is rejected", () => {
   const violations = findViolations(hunk("packages/kernel/src/a.ts", 5, { added: [LONGER], removed: [LONG] }));
   assert.deepEqual(violations, [{
     filePath: "packages/kernel/src/a.ts",
     lineNumber: 5,
-    length: LONGER.length,
-    previousLength: LONG.length
+    addedLongCharacters: LONGER.length,
+    removedLongCharacters: LONG.length,
+    addedMaxLineLength: LONGER.length,
+    removedMaxLineLength: LONG.length
   }]);
-  assert.match(explain(violations), /grew \d+ -> \d+ characters/u);
 });
 
-test("an added line beyond the replaced ones is new, not a pairing", () => {
-  const violations = findViolations(hunk("packages/kernel/src/a.ts", 5, { added: [LONG, LONG], removed: [LONG] }));
-  assert.deepEqual(violations.map((v) => [v.lineNumber, v.previousLength]), [[6, null]]);
+test("a one-to-many restoration with less overlong content is allowed", () => {
+  assert.deepEqual(findViolations(hunk("packages/kernel/src/a.ts", 5, {
+    added: ["x".repeat(200), LONG],
+    removed: ["x".repeat(400)]
+  })), []);
+});
+
+test("a one-to-many change with more overlong content is rejected", () => {
+  const violations = findViolations(hunk("packages/kernel/src/a.ts", 5, {
+    added: [LONG, LONG],
+    removed: ["x".repeat(200)]
+  }));
+  assert.equal(violations.length, 1);
+  assert.deepEqual(violations[0], {
+    filePath: "packages/kernel/src/a.ts",
+    lineNumber: 5,
+    addedLongCharacters: LONG.length * 2,
+    removedLongCharacters: 200,
+    addedMaxLineLength: LONG.length,
+    removedMaxLineLength: 200
+  });
+});
+
+test("a many-to-one compression is rejected when the longest line grows even as the total shrinks", () => {
+  const violations = findViolations(hunk("packages/kernel/src/a.ts", 5, {
+    added: ["x".repeat(1200)],
+    removed: Array.from({ length: 10 }, () => "x".repeat(130))
+  }));
+  assert.equal(violations.length, 1);
+  assert.deepEqual(violations[0], {
+    filePath: "packages/kernel/src/a.ts",
+    lineNumber: 5,
+    addedLongCharacters: 1200,
+    removedLongCharacters: 1300,
+    addedMaxLineLength: 1200,
+    removedMaxLineLength: 130
+  });
 });
 
 test("non-production paths are out of scope", () => {
@@ -71,11 +107,19 @@ test("a pure deletion contributes no violations", () => {
 });
 
 test("the rejection carries the whole specification, not just a pointer", () => {
-  const message = explain([{ filePath: "packages/kernel/src/a.ts", lineNumber: 5, length: 400, previousLength: null }]);
+  const message = explain([{
+    filePath: "packages/kernel/src/a.ts",
+    lineNumber: 5,
+    addedLongCharacters: 400,
+    removedLongCharacters: 0,
+    addedMaxLineLength: 400,
+    removedMaxLineLength: 0
+  }]);
 
   // what failed, and the rule
   assert.match(message, /packages\/kernel\/src\/a\.ts:5/u);
   assert.match(message, /must be at most 120 characters/u);
+  assert.match(message, /complete line length: a 121-character line contributes 121, not 1/u);
   assert.match(message, /never asked to refactor a line you did not write/u);
 
   // the mechanism it closes, with the measurement that proves the pressure is real
@@ -101,7 +145,7 @@ test("the rejection carries the whole specification, not just a pointer", () => 
   assert.match(message, /writing new code in the style of the code already around it/u);
   assert.match(message, /not a mistake you made/u);
   assert.match(message, /task_7fc88830d00f0b8157a498a85c/u);
-  assert.match(message, /obligation is bounded to the lines listed above/u);
+  assert.match(message, /obligation is bounded to the hunks listed above/u);
 
   // preempt the reflex the gate is most likely to provoke
   assert.match(message, /ceiling and design limit was doubled/u);
@@ -117,10 +161,12 @@ test("a truncated report still states the true total", () => {
   const many = Array.from({ length: 25 }, (unused, index) => ({
     filePath: "packages/kernel/src/a.ts",
     lineNumber: index + 1,
-    length: 400,
-    previousLength: null
+    addedLongCharacters: 400,
+    removedLongCharacters: 0,
+    addedMaxLineLength: 400,
+    removedMaxLineLength: 0
   }));
   const message = explain(many);
-  assert.match(message, /25 added production line\(s\) over 120 characters/u);
+  assert.match(message, /25 production hunk\(s\) increased overlong content/u);
   assert.match(message, /and 5 more \(25 total\)/u);
 });
