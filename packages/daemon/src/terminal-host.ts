@@ -92,7 +92,11 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     sessions.set(session.sessionId, session);
     idempotency.set(session.idempotencyKey, session.sessionId);
   }
-  if (restored.some((entry) => sessions.get(entry.sessionId)?.status === "exited")) persistSessions();
+  const registryHasExitedSession = restored.some((entry) => {
+    const session = sessions.get(entry.sessionId);
+    return session ? isExitedSession(session) : false;
+  });
+  if (registryHasExitedSession) persistSessions();
 
   const list = (): JsonObject => writeTerminalSessionList({ schema: "terminal-session-list/v1", ok: true, repoId: input.repoId, daemonGeneration: input.daemonGeneration, sessions: [...sessions.values()].map((session) => ({ ...terminalSessionRow(session), repoId: input.repoId })).sort((a, b) => a.createdAt.localeCompare(b.createdAt)) });
   const spawnTerminal = (payload: JsonObject): TerminalControlReceipt => {
@@ -127,8 +131,8 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
   };
   const attach = (sessionId: string, afterSeq: number): TerminalAttachSubscription => {
     const session = requiredSession(sessionId);
-    if (session.status === "running") ensureChannel(session);
-    else if (session.status === "unknown")
+    if (isRunningSession(session)) ensureChannel(session);
+    else if (isUnknownSession(session))
       throw terminalHostError(
         "terminal_backend_unavailable",
         "TMUX is unavailable; this durable session cannot be attached right now."
@@ -175,8 +179,8 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
       const session = requiredSession(requiredTerminalText(payload.sessionId, "sessionId"));
       const clientSeq = positiveInteger(payload.clientSeq, "clientSeq");
       const utf8 = requiredTerminalText(payload.utf8, "utf8");
-      if (session.status === "exited") throw terminalHostError("terminal_exited", "Terminal session has exited.");
-      if (session.status === "unknown")
+      if (isExitedSession(session)) throw terminalHostError("terminal_exited", "Terminal session has exited.");
+      if (isUnknownSession(session))
         throw terminalHostError(
           "terminal_backend_unavailable",
           "TMUX is unavailable; this durable session cannot accept input right now."
@@ -198,7 +202,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     },
     resize: (payload) => {
       const session = requiredSession(requiredTerminalText(payload.sessionId, "sessionId"));
-      if (session.status !== "running")
+      if (!isRunningSession(session))
         return control(
           "op_rejected",
           session.sessionId,
@@ -225,7 +229,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
           "confirmation_required",
           "Confirm terminal termination explicitly."
         );
-      if (session.status !== "exited") terminateSession(session);
+      if (!isExitedSession(session)) terminateSession(session);
       return control("applied", session.sessionId, "exited", `${session.sessionId}:terminate`);
     },
     close: async () => {
@@ -326,7 +330,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
   }
   function ensureChannel(session: Session): pty.IPty {
     if (session.child) return session.child;
-    if (session.status !== "running")
+    if (!isRunningSession(session))
       throw terminalHostError("terminal_process_unavailable", "Terminal session is not currently attachable.");
     if (session.backend !== "tmux" || !session.tmuxNamespace || !tmuxProbe.available || !tmuxProbe.executable) {
       session.status = "unknown";
@@ -468,6 +472,9 @@ function terminalSessionRow(session: Session): TerminalSessionRow {
   };
 }
 function terminalState(session: Session): TerminalSessionStatus { return session.status; }
+function isRunningSession(session: Session): boolean { return terminalState(session) === "running"; }
+function isUnknownSession(session: Session): boolean { return terminalState(session) === "unknown"; }
+function isExitedSession(session: Session): boolean { return terminalState(session) === "exited"; }
 function resolveTerminalCwd(rootDir: string, value: unknown): string { if (!value || typeof value !== "object" || Array.isArray(value)) throw terminalHostError("invalid_cwd", "cwd requires a closed scope object."); const cwd = value as Record<string, unknown>, allowed = cwd.scope === "repo-root" ? ["scope"] : ["scope", "path"]; if (Object.keys(cwd).some((key) => !allowed.includes(key)) || !["repo-root", "repo-relative"].includes(String(cwd.scope))) throw terminalHostError("invalid_cwd", "cwd scope is invalid."); const resolved = cwd.scope === "repo-root" ? rootDir : path.resolve(rootDir, requiredTerminalText(cwd.path, "cwd.path")); if (resolved !== rootDir && !resolved.startsWith(`${rootDir}${path.sep}`)) throw terminalHostError("invalid_cwd", "cwd must stay inside the repository."); return resolved; }
 function restoreTerminalCwd(rootDir: string, stored: string): string {
   const resolved = stored === "." ? rootDir : path.resolve(rootDir, stored);
