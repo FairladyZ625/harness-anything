@@ -1,127 +1,25 @@
+import {
+  /* @gate-identity check-sync-subprocess/sync-subprocess-014 */
+  execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, renameSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { open as openAsync } from "node:fs/promises";
 import path from "node:path";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import { consumeKnownError } from "../error-consumption.ts";
-import type { VersionControlSystem } from "../ports/version-control-system.ts";
-import {
-  localGitBytes,
-  localGitProcessCount,
-  recordLocalGitProcess,
-  runGit,
-  runGitAs,
-  runGitIndexUpdate
-} from "./local-git-process.ts";
-export { localGitText } from "./local-git-process.ts";
+import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
+import { VcsCommandError } from "../ports/version-control-system.ts";
+import { makeLocalVersionControlCommands } from "./local-version-control-commands.ts";
+
+const gitMaxBuffer = 256 * 1024 * 1024;
 
 export function makeLocalVersionControlSystem(): VersionControlSystem {
-  return {
+  return makeLocalVersionControlCommands({
     normalizePath: normalizeLocalPath,
     topLevel: gitTopLevel,
-    isIgnored: (repoRoot, relativePath) => {
-      try {
-        runGit(repoRoot, "check-ignore", "--no-index", "-q", "--", relativePath);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    add: (repoRoot, input) => {
-      if (input.paths.length === 0) return;
-      runGit(repoRoot, "add", "-A", ...(input.force ? ["-f"] : []), "--", ...input.paths);
-    },
-    workingTreeFiles: (repoRoot, paths) => runGit(repoRoot, "status", "--porcelain", "-uall", "--", ...paths),
-    stagedFiles: (repoRoot, paths) => runGit(repoRoot, "diff", "--cached", "--name-only", "--", ...paths),
-    commit: (repoRoot, message, author) => {
-      runGitAs(repoRoot, author, "commit", "-m", message);
-    },
-    currentHead: (repoRoot) => {
-      try {
-        return runGit(repoRoot, "rev-parse", "HEAD").trim();
-      } catch {
-        return "no-git-head";
-      }
-    },
-    currentBranch: (repoRoot) => {
-      try {
-        const name = runGit(repoRoot, "rev-parse", "--abbrev-ref", "HEAD").trim();
-        return name.length > 0 && name !== "HEAD" ? name : null;
-      } catch (error) {
-        consumeKnownError(error);
-        return null;
-      }
-    },
-    originHeadBranch: (repoRoot) => {
-      try {
-        const ref = runGit(repoRoot, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").trim();
-        if (ref.length === 0) return null;
-        const slash = ref.indexOf("/");
-        return slash >= 0 ? ref.slice(slash + 1) : ref;
-      } catch (error) {
-        consumeKnownError(error);
-        return null;
-      }
-    },
-    refExists: (repoRoot, ref) => {
-      try {
-        runGit(repoRoot, "rev-parse", "--verify", "--quiet", ref);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    commitExists: (repoRoot, sha) => {
-      try {
-        runGit(repoRoot, "cat-file", "-e", `${sha}^{commit}`);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    pathExistsAtCommit: (repoRoot, sha, relativePath) => {
-      try {
-        runGit(repoRoot, "cat-file", "-e", `${sha}:${relativePath}`);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    checkout: (repoRoot, ref) => {
-      runGit(repoRoot, "checkout", ref);
-    },
-    createBranch: (repoRoot, branch) => {
-      runGit(repoRoot, "branch", branch);
-    },
-    mergeNoFf: (repoRoot, branch, message) => {
-      runGit(repoRoot, "merge", "--no-ff", branch, "-m", message);
-    },
-    deleteBranch: (repoRoot, branch) => {
-      runGit(repoRoot, "branch", "-d", branch);
-    },
-    abortMerge: (repoRoot) => {
-      runGit(repoRoot, "merge", "--abort");
-    },
-    sessionBranches: (repoRoot) => runGit(repoRoot, "for-each-ref", "--sort=creatordate", "--format=%(refname:short)", "refs/heads/sessions")
-      .split(/\r?\n/u)
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.startsWith("sessions/")),
-    commitsNotInTrunk: (repoRoot, trunkBranch, branch) => runGit(repoRoot, "log", `${trunkBranch}..${branch}`, "--oneline")
-      .split(/\r?\n/u)
-      .map((entry) => entry.trim())
-      .filter(Boolean),
-    changedFilesBetween: (repoRoot, before, after) => {
-      if (before === after) return [];
-      return runGit(repoRoot, "diff", "--name-only", before, after)
-        .split(/\r?\n/u)
-        .map((entry) => entry.trim())
-        .filter(Boolean);
-    },
-    resetQuiet: (repoRoot, pathspecs) => {
-      if (pathspecs.length === 0) return;
-      runGit(repoRoot, "reset", "-q", "--", ...pathspecs);
-    }
-  };
+    execute: runGit,
+    executeAs: runGitAs,
+  });
 }
 
 const geometricMaintenanceFloor = Object.freeze([2, 52, 0]);
@@ -167,8 +65,91 @@ export function normalizeLocalPath(inputPath: string): string {
   return path.join(realpathSync.native(current), ...pendingSegments);
 }
 
+function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
+  return runGitAs(repoRoot, undefined, ...args);
+}
+
+function runGitAs(repoRoot: string, author: VcsCommitAuthor | undefined, ...args: ReadonlyArray<string>): string {
+  localGitProcesses += 1;
+  const invocation = gitInvocation(repoRoot, args);
+  try {
+    return (
+      /* @gate-identity check-sync-subprocess/sync-subprocess-015 */
+      execFileSync(invocation.command, invocation.args, {
+        encoding: "utf8",
+        maxBuffer: gitMaxBuffer,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        ...(process.platform === "win32" ? { windowsVerbatimArguments: true } : {}),
+        env: {
+          ...process.env,
+          ...(author ? {
+            GIT_AUTHOR_NAME: author.name,
+            GIT_AUTHOR_EMAIL: author.email,
+            GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? author.name,
+            GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? author.email
+          } : {})
+        }
+      })
+    );
+  } catch (error) {
+    throw new VcsCommandError({
+      command: args[0] ?? "command",
+      cwd: repoRoot,
+      exitCode: commandErrorCode(error),
+      signal: commandErrorSignal(error),
+      stderrSummary: commandErrorSummary(error)
+    });
+  }
+}
+
+function commandErrorCode(error: unknown): string | number | undefined {
+  if (typeof error === "object" && error && "status" in error) {
+    const status = (error as { readonly status?: unknown }).status;
+    if (typeof status === "number" || typeof status === "string") return status;
+  }
+  if (typeof error === "object" && error && "code" in error) {
+    const code = (error as { readonly code?: unknown }).code;
+    if (typeof code === "number" || typeof code === "string") return code;
+  }
+  return undefined;
+}
+
+function commandErrorSignal(error: unknown): string | undefined {
+  if (typeof error === "object" && error && "signal" in error) {
+    const signal = (error as { readonly signal?: unknown }).signal;
+    if (typeof signal === "string" && signal.length > 0) return signal;
+  }
+  return undefined;
+}
+
+export function localGitText(repoRoot: string, ...args: readonly string[]): string { return runGit(repoRoot, ...args); }
+function gitInvocation(repoRoot: string, args: readonly string[]): { readonly command: string; readonly args: readonly string[] } {
+  if (process.platform !== "win32") return { command: "git", args: ["-C", repoRoot, ...args] };
+  const command = ["git", "-C", repoRoot, ...args].map(quoteWindowsCommandArgument).join(" ");
+  return { command: process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe", args: ["/d", "/s", "/c", command] };
+}
+function quoteWindowsCommandArgument(value: string): string { return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`; }
+function localGitBytes(repoRoot: string, args: readonly string[], input?: Uint8Array): Buffer {
+  localGitProcesses += 1;
+  const invocation = gitInvocation(repoRoot, args);
+  try {
+    return (
+      /* @gate-identity check-sync-subprocess/sync-subprocess-016 */
+      execFileSync(invocation.command, invocation.args, {
+        input,
+        encoding: "buffer",
+        maxBuffer: gitMaxBuffer,
+        stdio: [input ? "pipe" : "ignore", "pipe", "pipe"],
+        windowsHide: true,
+        ...(process.platform === "win32" ? { windowsVerbatimArguments: true } : {})
+      })
+    );
+  }
+  catch (error) { throw new VcsCommandError({ command: args[0] ?? "command", cwd: repoRoot, exitCode: commandErrorCode(error), signal: commandErrorSignal(error), stderrSummary: commandErrorSummary(error) }); }
+}
 export const localGitObjectRefStore = Object.freeze({
-  processCount: localGitProcessCount, blobOid: (body: string | Uint8Array) => gitBlobOidBytes(typeof body === "string" ? Buffer.from(body) : body), resolveCommit: (repoRoot: string, revision: string) => runGit(repoRoot, "rev-parse", revision).trim(),
+  processCount: () => localGitProcesses, blobOid: (body: string | Uint8Array) => gitBlobOidBytes(typeof body === "string" ? Buffer.from(body) : body), resolveCommit: (repoRoot: string, revision: string) => runGit(repoRoot, "rev-parse", revision).trim(),
   currentBranch: (repoRoot: string): string | null => { try { const dotGit = path.join(repoRoot, ".git"), gitDir = statSync(dotGit).isDirectory() ? dotGit : path.resolve(repoRoot, /^gitdir: (.+)$/mu.exec(readFileSync(dotGit, "utf8"))?.[1] ?? ""), ref = /^ref: refs\/heads\/(.+)$/mu.exec(readFileSync(path.join(gitDir, "HEAD"), "utf8"))?.[1]; return ref ?? null; } catch (error) { consumeKnownError(error); return null; } },
   readPath: (repoRoot: string, commit: string, target: string): Buffer | null => { try { return localGitBytes(repoRoot, ["show", `${commit}:${target}`]); } catch (error) { try { if (localGitBytes(repoRoot, ["ls-tree", "--name-only", "-z", commit, "--", target]).length === 0) return null; } catch (classificationError) { consumeKnownError(classificationError); } throw error; } },
   isAncestor: (repoRoot: string, ancestor: string, current: string): boolean => { try { runGit(repoRoot, "merge-base", "--is-ancestor", ancestor, current); return true; } catch (error) { consumeKnownError(error); return false; } },
@@ -261,7 +242,7 @@ export const localGitWorktreeSettlement = Object.freeze({
             : `${file.mode ?? "100644"} ${gitBlobOid(file.body)}\t${file.target}\0`,
         )
         .join("");
-    recordLocalGitProcess();
+    localGitProcesses += 1;
     awaitDurableSettlement(
       beginDurableSettlement({ index: { repoRoot, input: indexInput } }),
     );
@@ -385,7 +366,7 @@ export const localGitWorktreeSettlement = Object.freeze({
       .map((file) =>
         `0 ${zero}\t${file.fromLogical}\0${file.node.mode} ${gitBlobOid(file.node.body)}\t${file.toLogical}\0`)
       .join("")}${deletions.map((file) => `0 ${zero}\t${file.logical}\0`).join("")}`;
-    if (files.length) recordLocalGitProcess();
+    if (files.length) localGitProcesses += 1;
     awaitDurableSettlement(
       beginDurableSettlement({
         index: files.length ? { repoRoot, input: indexInput } : undefined,
@@ -478,6 +459,16 @@ function durableWrite(target: string, body: Uint8Array): void {
   }
 }
 
+function commandErrorSummary(error: unknown): string | undefined {
+  if (typeof error === "object" && error && "stderr" in error) {
+    const stderr = (error as { readonly stderr?: unknown }).stderr;
+    const text = Buffer.isBuffer(stderr) ? stderr.toString("utf8") : typeof stderr === "string" ? stderr : "";
+    const firstLine = text.trim().split(/\r?\n/u).find((line) => line.trim().length > 0);
+    if (firstLine) return firstLine;
+  }
+  if (error instanceof Error) return error.message.split(/\r?\n/u)[0] ?? error.message;
+  return String(error);
+}
 const settlementWorkerKind = "harness-durable-settlement/v1"; let settlementWorker: Worker | null = null;
 interface DurableSettlementInput { readonly files?: readonly { readonly temporary: string; readonly body: string }[]; readonly directories?: readonly string[]; readonly index?: { readonly repoRoot: string; readonly input: string } } interface DurableSettlementWait { readonly state: Int32Array; readonly errorBytes: Uint8Array; readonly worker: Worker } function beginDurableSettlement(input: DurableSettlementInput): DurableSettlementWait | null { if (!input.files?.length && !input.directories?.length && !input.index) return null; const state = new Int32Array(new SharedArrayBuffer(8)), errorBytes = new Uint8Array(new SharedArrayBuffer(4096)), worker = getSettlementWorker(); worker.ref(); worker.postMessage({ ...input, state, errorBytes }); return { state, errorBytes, worker }; }
 function awaitDurableSettlement(pending: DurableSettlementWait | null): void { if (!pending) return; const wait = Atomics.wait(pending.state, 0, 0, 30_000); pending.worker.unref(); if (wait === "timed-out") throw new Error("durable settlement worker timed out"); if (Atomics.load(pending.state, 0) !== 1) throw new Error(new TextDecoder().decode(pending.errorBytes.subarray(0, Atomics.load(pending.state, 1))) || "durable settlement worker failed"); }
@@ -519,7 +510,20 @@ if (!isMainThread && workerData?.kind === settlementWorkerKind) {
               })),
         ];
         if (request.index) {
-          runGitIndexUpdate(request.index.repoRoot, request.index.input);
+          const invocation = gitInvocation(request.index.repoRoot, [
+            "update-index",
+            "-z",
+            "--index-info",
+          ]);
+          /* @gate-identity check-sync-subprocess/sync-subprocess-017 */
+          execFileSync(invocation.command, invocation.args, {
+            input: Buffer.from(request.index.input),
+            stdio: ["pipe", "pipe", "pipe"],
+            windowsHide: true,
+            ...(process.platform === "win32"
+              ? { windowsVerbatimArguments: true }
+              : {}),
+          });
         }
         await Promise.all(durability);
         Atomics.store(request.state, 0, 1);
@@ -540,3 +544,5 @@ if (!isMainThread && workerData?.kind === settlementWorkerKind) {
   Atomics.store(ready, 0, 1);
   Atomics.notify(ready, 0);
 }
+let localGitProcesses = 0;
+export function localGitProcessCount(): number { return localGitProcesses; }
