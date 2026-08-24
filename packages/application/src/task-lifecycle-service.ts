@@ -133,6 +133,7 @@ export function makeTaskLifecycleService(options: {
       return receiptFromRead(await read(command.taskId), existing, plan, existing);
     }
     const current = await read(command.taskId);
+    const projectionWasPending = current.status !== "ready";
     if (current.status !== "ready" && (command.type !== "CreateReplayTask" || current.snapshot.task !== null))
       return {
         outcome: "indeterminate",
@@ -212,6 +213,18 @@ export function makeTaskLifecycleService(options: {
     if (applied.metrics.reducedItems === 0)
       return pendingReceipt(
         { ...current, sourceRevision: event.workspaceRevision },
+        plan,
+        command.opId,
+        "projection catch-up is pending",
+        event,
+        options.eventStore.readTaskEvent(event.opId),
+      );
+    // A write admitted while L2 was already warming may advance only one bounded
+    // replay round. Do not perform a second catch-up read to turn that receipt into
+    // applied; the next retry owns the following round.
+    if (projectionWasPending)
+      return pendingReceipt(
+        current,
         plan,
         command.opId,
         "projection catch-up is pending",

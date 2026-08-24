@@ -205,16 +205,16 @@ test("Fact admission never appends against a projection more than one catch-up r
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-backlog-"));
   let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
-    const backlog = factBacklog(65, "task-backlog");
+    const backlog = factBacklog(4097, "task-backlog");
     const store = memoryFactStore(backlog);
     projection = makeTaskProjection({ rootDir, eventStore: store });
     const service = makeFactService({ eventStore: store, projection });
-    const collision = factEvent(66, "task-backlog", "F-00000065"),
+    const collision = factEvent(4098, "task-backlog", "F-00000065"),
       first = projection.searchFacts({ taskId: "task-backlog" });
     assert.equal(first.status, "pending");
     assert.equal(
       store.readHead()?.revision,
-      65,
+      4097,
       "pending admission must not append",
     );
     assert.equal(
@@ -227,7 +227,7 @@ test("Fact admission never appends against a projection more than one catch-up r
     );
     assert.equal(
       store.readHead()?.revision,
-      65,
+      4097,
       "collision must be found before append",
     );
   } finally {
