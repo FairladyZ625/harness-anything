@@ -451,7 +451,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     assert.equal(launched?.definition.model, "instance-default");
     assert.match(
       launched?.prompt ?? "",
-      /# Harness Execution Discipline.*# Commander Role.*bounded missions.*independently inspect.*CEO-owned/su,
+      /# Harness Execution Discipline.*<very_important>.*# Commander Context.*attention.*run the gate yourself.*<\/very_important>/su,
     );
     for (const kindId of ["claude", "codex", "agy"] as const) {
       await cell.spawnRuntime(
