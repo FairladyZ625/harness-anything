@@ -21,6 +21,7 @@ export type ViewId =
   | "board"
   | "decisions"
   | "decisionPool"
+  | "freshness"
   | "decisionDetail"
   | "factDetail"
   | "graph"

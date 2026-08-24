@@ -10,6 +10,7 @@ import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
 import { DecisionDetailView } from "./components/decisionDetail/DecisionDetailView.tsx";
+import { FreshnessView } from "./views/FreshnessView.tsx";
 import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
@@ -501,6 +502,13 @@ function AppShell() {
                 onFocusGraph={focusEntityInGraph}
                 onNavigateDecision={navigateToDecision}
               /> : <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
+            ) : view === "freshness" ? (
+              <FreshnessView
+                decisions={decisions}
+                coverageRows={coverageRows}
+                relationState={triadicQuery.relationState}
+                onNavigateEntity={navigateToEntity}
+              />
             ) : view === "presets" ? (
               <PresetsView repoId={projectId} />
             ) : view === "adapters" ? (
