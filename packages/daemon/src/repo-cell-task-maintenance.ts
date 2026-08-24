@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { compileAgentEntityWrite, type WriteReceipt } from "../../kernel/src/index.ts";
-import { prepareAgentEntityInstall } from "./agent-entities.ts";
+import { createEntityStore, requireEntityKindContract, type WriteReceipt } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 
 export function archiveTasks(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
@@ -146,12 +145,17 @@ export function migrateTaskContracts(cell: any, action: RepoTaskAction, binding:
   );
 }
 
-export function installAgentEntity(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
-  const prepared = prepareAgentEntityInstall({
-      rootDir: cell.rootDir,
-      action,
-      runtimeInstances: cell.input.runtimeInstances?.(),
-    }),
+export function upsertEntity(
+  cell: any,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  prepared: {
+    readonly entityKind: string;
+    readonly entity: unknown;
+    readonly report: Readonly<Record<string, unknown>>;
+  },
+): WriteReceipt {
+  const contract = requireEntityKindContract(prepared.entityKind),
     currentRevision = cell.store.readHead()?.revision ?? 0,
     canonicalAction = cell.withoutDryRun(action),
     canonicalOpId = cell.operationId(canonicalAction, binding, cell.input.repoId, currentRevision);
@@ -171,10 +175,9 @@ export function installAgentEntity(cell: any, action: RepoTaskAction, binding: R
       },
       nextAction: "Remove --dry-run to publish this declaration through the canonical event stream.",
     };
-  const compiled = compileAgentEntityWrite({
-      entityKind: prepared.kind,
-      entityId: prepared.declaration.id,
-      body: prepared.body,
+  const compiled = createEntityStore(cell.store).upsert({
+      entityKind: prepared.entityKind,
+      entity: prepared.entity,
       eventId: `event-${createHash("sha256").update(canonicalOpId).digest("hex")}`,
       opId: canonicalOpId,
       workspaceRevision: currentRevision + 1,
@@ -211,6 +214,13 @@ export function installAgentEntity(cell: any, action: RepoTaskAction, binding: R
       }),
       visibility: "center" as const,
       proof,
+      detail: {
+        kind: "entity_upsert" as const,
+        entityKind: compiled.event.payload.entityKind,
+        entityId: compiled.event.payload.entityId,
+        schemaId: contract.schema.$id,
+        path: compiled.event.payload.declarationDocumentClaim.path,
+      },
       ...publication,
     };
   cell.input.killpoint?.("before_response_write");

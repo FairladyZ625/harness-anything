@@ -1,4 +1,4 @@
-import { assertAgentEntityWritePlan, isAgentEntityEvent } from "../domain/agent-entity-event.ts";
+import { assertEntityUpsertInputs, isEntityEvent } from "../domain/entity-event.ts";
 import {
   assertDocSyncWritePlan,
   isDecisionEvent,
@@ -64,13 +64,13 @@ export function assertBundle(bundle: CanonicalWriteBundle): void {
       "invalid_write_plan",
       `canonical write requires the current event shape: ${currentErrors.join("; ")}`,
     );
-  if (isAgentEntityEvent(event))
+  if (isEntityEvent(event))
     try {
-      assertAgentEntityWritePlan(event, plan as FrozenWritePlan<"AgentEntityWrite">);
+      assertEntityUpsertInputs(event, plan as FrozenWritePlan<"EntityUpsert">, blobs);
     } catch {
       throw new TaskEventStoreError(
         "invalid_write_plan",
-        "agent entity write plan must exactly declare event, declaration, projection, and content targets",
+        "entity upsert must carry a schema-valid declaration and exact write plan",
       );
     }
   if (isTaskEvent(event))

@@ -1,35 +1,20 @@
 import {
   bindWriterGenerationToken,
   consumeKnownError,
+  createEntityStore,
   type CanonicalEventAppendReceipt,
   type DaemonRepoMode,
   type EventPublicationKillpoint,
   type WriterGeneration,
 } from "../../kernel/src/index.ts";
-import {
-  createPresetProcessService,
-  presetUserRoot,
-} from "../../preset/src/index.ts";
-import {
-  readAgentDeclaration,
-  resolveSquadDispatchTarget,
-} from "./agent-entities.ts";
-import type {
-  PreparedRuntimeLaunch,
-  RuntimeInstanceSummary,
-} from "./agent-runtime-instances.ts";
+import { createPresetProcessService, presetUserRoot } from "../../preset/src/index.ts";
+import { readAgentDeclaration, resolveSquadDispatchTarget } from "./agent-entities.ts";
+import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
-import {
-  type CanonicalRoot,
-  type WorkspaceId,
-} from "./protocol/daemon-protocol.contract.ts";
+import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
-import {
-  bootstrapRepo,
-  type RepoBootstrapInput,
-  type RepoBootstrapReceipt,
-} from "./repo-bootstrap.ts";
+import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { createRepoCellActionContext } from "./repo-cell-action-context.ts";
 import { createRepoCellApi } from "./repo-cell-api.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
@@ -42,11 +27,7 @@ import {
   unavailableRuntimeInstanceStore,
 } from "./repo-cell-errors.ts";
 import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
-import {
-  acquireWorkspaceLock,
-  causeClassOf,
-  latchReprobeThrottleMs,
-} from "./repo-cell-lock.ts";
+import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
@@ -58,17 +39,11 @@ import type {
 } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { makeDaemonRuntimeAdmissionGuard } from "./runtime-admission.ts";
-import {
-  makeRuntimeSpawner,
-  type RuntimeDaemonRoute,
-  type RuntimeLauncher,
-} from "./runtime-spawn.ts";
+import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
 
-export function publicPublication(
-  value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">,
-): PublicPublication {
+export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
   return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };
 }
 
@@ -117,12 +92,7 @@ export async function openRepoCell(input: {
     bootstrapReceipt: RepoBootstrapReceipt | undefined;
   try {
     if (input.bootstrap) {
-      bootstrapReceipt = bootstrapRepo(
-        input.bootstrap,
-        activeWriter,
-        writerToken,
-        authoredBranch,
-      );
+      bootstrapReceipt = bootstrapRepo(input.bootstrap, activeWriter, writerToken, authoredBranch);
       authoredBranch = bootstrapReceipt.authoredBranch;
       input.onBootstrap?.(bootstrapReceipt);
     }
@@ -141,11 +111,7 @@ export async function openRepoCell(input: {
     },
     canAttach: (session) =>
       session.attachable &&
-      Boolean(
-        projection
-          .readRuntimeInstallation(session.installationId)
-          ?.effectiveCapabilities.includes("attach"),
-      ),
+      Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
     now: () => new Date(now()),
   });
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
@@ -176,34 +142,18 @@ export async function openRepoCell(input: {
     await lock.close();
     throw error;
   }
-  let {
-    store,
-    recovery,
-    projection,
-    factActions,
-    decisionActions,
-    runtimeReads,
-    service,
-    replica,
-  } = core;
+  let { store, recovery, projection, factActions, decisionActions, runtimeReads, service, replica } = core;
   let knownTaskIds: Set<string> | null = null,
-    state: RepoCellStatus["state"] =
-      recovery.status === "indeterminate" ? "unavailable" : "attached",
+    state: RepoCellStatus["state"] = recovery.status === "indeterminate" ? "unavailable" : "attached",
     recoveryUncertain = recovery.status === "indeterminate";
   let lastError: string | null =
     state === "attached"
       ? null
-      : (recovery.error ??
-        `startup recovery ${recovery.status} after ${recovery.elapsedMs.toFixed(3)}ms`);
+      : (recovery.error ?? `startup recovery ${recovery.status} after ${recovery.elapsedMs.toFixed(3)}ms`);
   let causeClass: RepoCellStatus["causeClass"] =
     state === "attached"
       ? null
-      : causeClassOf(
-          cellCodedError(
-            recovery.errorCode ?? "publication_indeterminate",
-            lastError!,
-          ),
-        );
+      : causeClassOf(cellCodedError(recovery.errorCode ?? "publication_indeterminate", lastError!));
   let queueDepth = 0,
     tail = Promise.resolve();
   const recoveryProbe = makeRecoveryProbe(latchReprobeThrottleMs);
@@ -270,16 +220,7 @@ export async function openRepoCell(input: {
       candidate.projection.list();
       replica.close();
       projection.close();
-      ({
-        store,
-        recovery,
-        projection,
-        factActions,
-        decisionActions,
-        runtimeReads,
-        service,
-        replica,
-      } = candidate);
+      ({ store, recovery, projection, factActions, decisionActions, runtimeReads, service, replica } = candidate);
       knownTaskIds = null;
       state = "attached";
       lastError = null;
@@ -314,20 +255,17 @@ export async function openRepoCell(input: {
     repoId: input.repoId,
     rootDir,
     daemonGeneration: generation,
-    ...(input.runtimeDaemonRoute
-      ? { runtimeDaemonRoute: input.runtimeDaemonRoute }
-      : {}),
+    ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}),
     store: () => store,
     projection: () => projection,
     stream: runtimeStream,
     now,
     schedule,
     runtimeInstances: input.runtimeInstances,
-    prepareLaunch:
-      input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
-    resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId }),
+    prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
+    resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId, entityStore: createEntityStore(store) }),
     resolveSquadDispatchTarget: (leaderId, workerId) =>
-      resolveSquadDispatchTarget({ rootDir, leaderId, workerId }),
+      resolveSquadDispatchTarget({ rootDir, leaderId, workerId, entityStore: createEntityStore(store) }),
     onRuntimeOutcome: (event) => {
       schedule(() => squadCoordinator.observeOutcome(event));
     },
@@ -353,11 +291,9 @@ export async function openRepoCell(input: {
     });
   const admitTerminalWrite = (binding: RepoCellBinding): void => {
     const admission = admitRepoMode(mode, "repo-write", binding.source);
-    if (!admission.ok)
-      throw cellCodedError(admission.code, admission.nextAction);
+    if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction);
     if (state !== "attached") attemptRecovery();
-    if (state !== "attached")
-      throw cellCodedError("repo_unavailable", latched());
+    if (state !== "attached") throw cellCodedError("repo_unavailable", latched());
     recheckRuntime();
   };
   const terminal: RepoCellTerminal = {

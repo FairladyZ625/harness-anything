@@ -1,6 +1,6 @@
-import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { consumeKnownError, openEntityStore, type EntityStore } from "../../kernel/src/index.ts";
 import {
   entitySlug,
   parseAgentDeclarationV1,
@@ -96,6 +96,7 @@ export interface PreparedAgentEntityInstall {
 const manifestName = { agent: "agent.json", squad: "squad.json" } as const;
 export function runAgentEntityAction(input: {
   readonly rootDir: string;
+  readonly entityStore?: EntityStore;
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
   readonly runtimeInstances?: readonly {
     readonly kindId: string;
@@ -112,18 +113,27 @@ export function runAgentEntityAction(input: {
       "coordinated_write_required",
       "Agent and squad declarations must be installed through the repository write coordinator.",
     );
+  const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
   if (action.kind === "agent-list")
-    return { schema: "agent-list/v1", agents: listStoredEntities(input.rootDir, "agent") };
+    return { schema: "agent-list/v1", agents: listStoredEntities(input.rootDir, "agent", entityStore) };
   if (action.kind === "squad-list")
-    return { schema: "squad-list/v1", squads: listStoredEntities(input.rootDir, "squad") };
+    return { schema: "squad-list/v1", squads: listStoredEntities(input.rootDir, "squad", entityStore) };
   return kind === "agent"
     ? {
         schema: "agent-inspection/v1",
-        agent: readAgentDeclaration({ rootDir: input.rootDir, agentId: requiredEntityText(action.agentId, "agentId") }),
+        agent: readAgentDeclaration({
+          rootDir: input.rootDir,
+          agentId: requiredEntityText(action.agentId, "agentId"),
+          entityStore,
+        }),
       }
     : {
         schema: "squad-inspection/v1",
-        squad: readSquadDeclaration({ rootDir: input.rootDir, squadId: requiredEntityText(action.squadId, "squadId") }),
+        squad: readSquadDeclaration({
+          rootDir: input.rootDir,
+          squadId: requiredEntityText(action.squadId, "squadId"),
+          entityStore,
+        }),
       };
 }
 export function readAgentEntityGuiProjection<
@@ -132,6 +142,7 @@ export function readAgentEntityGuiProjection<
   readonly rootDir: string;
   readonly kind: K;
   readonly entityId?: string;
+  readonly entityStore?: EntityStore;
 }): K extends "agent-list"
   ? Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-catalog/v1" }>
   : K extends "squad-list"
@@ -145,7 +156,9 @@ export function readAgentEntityGuiProjection<
           [input.kind === "agent-inspect" ? "agentId" : "squadId"]: requiredEntityText(input.entityId, "entityId"),
         }
       : { kind: input.kind },
-    evidence = agentEntityRecord(runAgentEntityAction({ rootDir: input.rootDir, action }));
+    evidence = agentEntityRecord(
+      runAgentEntityAction({ rootDir: input.rootDir, entityStore: input.entityStore, action }),
+    );
   if (input.kind === "agent-list")
     return {
       schema: "agent-entity-catalog/v1",
@@ -192,17 +205,20 @@ export function readAgentEntityGuiProjection<
 export function readAgentDeclaration(input: {
   readonly rootDir: string;
   readonly agentId: string;
+  readonly entityStore?: EntityStore;
 }): AgentDeclarationV1 {
-  return parseAgentDeclarationV1(readStoredDeclaration(input.rootDir, "agent", input.agentId));
+  return parseAgentDeclarationV1(readStoredDeclaration(input.rootDir, "agent", input.agentId, input.entityStore));
 }
 export function readSquadDeclaration(input: {
   readonly rootDir: string;
   readonly squadId: string;
+  readonly entityStore?: EntityStore;
 }): SquadDeclarationV1 {
-  const squad = parseSquadDeclarationV1(readStoredDeclaration(input.rootDir, "squad", input.squadId)),
+  const entityStore = input.entityStore ?? openEntityStore(input.rootDir),
+    squad = parseSquadDeclarationV1(readStoredDeclaration(input.rootDir, "squad", input.squadId, entityStore)),
     missing = [squad.leader, ...squad.workers].filter((id) => {
       try {
-        readAgentDeclaration({ rootDir: input.rootDir, agentId: id });
+        readAgentDeclaration({ rootDir: input.rootDir, agentId: id, entityStore });
         return false;
       } catch (error) {
         consumeKnownError(error);
@@ -225,34 +241,18 @@ export function resolveSquadDispatchTarget(input: {
   readonly rootDir: string;
   readonly leaderId: string;
   readonly workerId: string;
+  readonly entityStore?: EntityStore;
 }): SquadDispatchTarget {
-  const store = entityStore(input.rootDir, "squad"),
-    matches: SquadDispatchTarget[] = [],
-    invalid: string[] = [];
-  if (existsSync(store) && lstatSync(store).isDirectory())
-    for (const entry of readdirSync(store, { withFileTypes: true }).filter(
-      (candidate) => candidate.isFile() && !candidate.isSymbolicLink() && candidate.name.endsWith(".json"),
-    )) {
-      const squadId = entry.name.replace(/\.json$/u, "");
-      let squad: SquadDeclarationV1;
-      try {
-        squad = parseSquadDeclarationV1(readStoredDeclaration(input.rootDir, "squad", squadId));
-      } catch (error) {
-        consumeKnownError(error);
-        invalid.push(squadId);
-        continue;
-      }
-      if (squad.leader !== input.leaderId || !squad.workers.includes(input.workerId)) continue;
-      const leader = readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader }),
-        worker = readAgentDeclaration({ rootDir: input.rootDir, agentId: input.workerId });
-      readSquadDeclaration({ rootDir: input.rootDir, squadId });
-      matches.push({ squadId, leader, worker });
-    }
-  if (invalid.length)
-    throw entityError(
-      "invalid_squad_roster",
-      `Squad roster resolution is blocked by invalid declarations: ${invalid.join(", ")}.`,
-    );
+  const entityStore = input.entityStore ?? openEntityStore(input.rootDir),
+    matches: SquadDispatchTarget[] = [];
+  for (const { id: squadId, value } of entityStore.list<SquadDeclarationV1>("squad")) {
+    const squad = parseSquadDeclarationV1(value);
+    if (squad.leader !== input.leaderId || !squad.workers.includes(input.workerId)) continue;
+    const leader = readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader, entityStore }),
+      worker = readAgentDeclaration({ rootDir: input.rootDir, agentId: input.workerId, entityStore });
+    readSquadDeclaration({ rootDir: input.rootDir, squadId, entityStore });
+    matches.push({ squadId, leader, worker });
+  }
   if (matches.length === 0)
     throw entityError(
       "squad_member_not_found",
@@ -299,6 +299,7 @@ function validateEntityDeclarationSource(input: {
 export function prepareAgentEntityInstall(input: {
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
   readonly rootDir: string;
+  readonly entityStore?: EntityStore;
   readonly runtimeInstances?: readonly {
     readonly kindId: string;
     readonly models: readonly string[];
@@ -321,12 +322,12 @@ export function prepareAgentEntityInstall(input: {
       "Generated Agent output must pass ha agent validate before install; rerun ha agent create so the harness can validate the structured declaration.",
     );
   const declaration = decoded.declaration,
-    target = entityPath(input.rootDir, kind, declaration.id);
-  if (input.action.generatedOnly === true && existsSync(target)) throw generatedAgentConflict(declaration.id);
+    current = (input.entityStore ?? openEntityStore(input.rootDir)).get(kind, declaration.id);
+  if (input.action.generatedOnly === true && current) throw generatedAgentConflict(declaration.id);
   if (input.action.generatedOnly === true && kind === "agent")
     admitGeneratedAgent(declaration as AgentDeclarationV1, input.runtimeInstances);
   const body = `${JSON.stringify(declaration, null, 2)}\n`,
-    changed = !existsSync(target) || readFileSync(target, "utf8") !== body;
+    changed = current === null || `${JSON.stringify(current.value, null, 2)}\n` !== body;
   return {
     kind,
     declaration,
@@ -357,24 +358,15 @@ function declarationSource(
     decoded = decodeSourcePackage(source, entityKind(String(action.kind)));
   return "issues" in decoded ? { ...decoded, source } : { ...decoded, source };
 }
-function listStoredEntities(rootDir: string, kind: AgentEntityKind): readonly (AgentCatalogRow | SquadCatalogRow)[] {
-  const store = entityStore(rootDir, kind);
-  if (!existsSync(store) || !lstatSync(store).isDirectory()) return [];
-  return readdirSync(store, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && !entry.isSymbolicLink() && entry.name.endsWith(".json"))
-    .map((entry) => {
-      const source = path.join(store, entry.name),
-        fallbackId = entry.name.replace(/\.json$/u, "");
-      let value: unknown;
-      try {
-        value = JSON.parse(readFileSync(source, "utf8"));
-      } catch {
-        return blockedRow(kind, fallbackId, source, "invalid_manifest", `${entry.name} is not valid JSON.`);
-      }
-      const issues = kind === "agent" ? validateAgentDeclarationV1(value) : validateSquadDeclarationV1(value);
-      if (issues.length) return blockedRow(kind, fallbackId, source, "invalid_manifest", issues.join("; "));
-      const declaration = value as AgentDeclarationV1 & SquadDeclarationV1,
-        { instructions: _instructions, roster: _roster, ...row } = declaration;
+function listStoredEntities(
+  rootDir: string,
+  kind: AgentEntityKind,
+  entityStore = openEntityStore(rootDir),
+): readonly (AgentCatalogRow | SquadCatalogRow)[] {
+  return entityStore
+    .list<AgentDeclarationV1 & SquadDeclarationV1>(kind)
+    .map(({ value: declaration, documentPath: source }) => {
+      const { instructions: _instructions, roster: _roster, ...row } = declaration;
       return { ...row, layer: "user" as const, source, validity: "valid" as const, issues: [] as const };
     })
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -429,23 +421,6 @@ function entityText(value: unknown): string {
 function agentEntityRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
-function blockedRow(
-  kind: AgentEntityKind,
-  id: string,
-  source: string,
-  code: string,
-  message: string,
-): AgentCatalogRow & SquadCatalogRow {
-  return {
-    id,
-    name: id,
-    ...(kind === "agent" ? { runtime_type: "" } : { leader: "", workers: [] }),
-    layer: "user",
-    source,
-    validity: "blocked",
-    issues: [{ code, message }],
-  } as unknown as AgentCatalogRow & SquadCatalogRow;
-}
 function decodeSourcePackage(
   source: string,
   kind: AgentEntityKind,
@@ -492,18 +467,11 @@ function decodeDeclaration(
     ? { issues: issues.map((message) => ({ code: "invalid_manifest", message })), source }
     : { declaration: value as AgentDeclarationV1 & SquadDeclarationV1, source };
 }
-function readStoredDeclaration(rootDir: string, kind: AgentEntityKind, id: string): unknown {
+function readStoredDeclaration(rootDir: string, kind: AgentEntityKind, id: string, entityStore?: EntityStore): unknown {
   if (!entitySlug(id)) throw entityError(`${kind}_not_found`, `${id} is not a valid ${kind} id.`);
-  const target = entityPath(rootDir, kind, id);
-  if (!existsSync(target) || !lstatSync(target).isFile() || lstatSync(target).isSymbolicLink())
-    throw entityError(`${kind}_not_found`, `${id} is not an installed ${kind}.`);
-  return JSON.parse(readFileSync(target, "utf8"));
-}
-function entityPath(rootDir: string, kind: AgentEntityKind, id: string): string {
-  return path.join(entityStore(rootDir, kind), `${id}.json`);
-}
-function entityStore(rootDir: string, kind: AgentEntityKind): string {
-  return path.join(resolveHarnessLayout(rootDir).authoredRoot, `${kind}s`);
+  const stored = (entityStore ?? openEntityStore(rootDir)).get(kind, id);
+  if (!stored) throw entityError(`${kind}_not_found`, `${id} is not an installed ${kind}.`);
+  return stored.value;
 }
 function entityKind(actionKind: string): AgentEntityKind {
   if (!/^(?:agent|squad)-(?:list|inspect|validate|install)$/u.test(actionKind))

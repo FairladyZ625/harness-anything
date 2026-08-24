@@ -1,7 +1,8 @@
 import {
-  isAgentEntityEvent,
+  isEntityEvent,
   isTaskEvent,
   isTaskProgressEvent,
+  requireEntityKindContract,
   type CanonicalEventV1,
   type TaskProgressEventV1,
   type WriteReceipt,
@@ -61,9 +62,16 @@ export function receiptForOperation(cell: any, opId: string, binding: RepoCellBi
       canonicalVisible: visible,
       worktreeVisible: isTaskEvent(event) || event.schema === "decision-event/v1" ? true : null,
     };
-  if (isAgentEntityEvent(event)) {
+  if (isEntityEvent(event)) {
     const claim = event.payload.declarationDocumentClaim,
-      declarationProof = { ...proof, worktreeVisible: true };
+      declarationProof = { ...proof, worktreeVisible: true },
+      detail = {
+        kind: "entity_upsert" as const,
+        entityKind: event.payload.entityKind,
+        entityId: event.payload.entityId,
+        schemaId: requireEntityKindContract(event.payload.entityKind).schema.$id,
+        path: claim.path,
+      };
     return visible
       ? {
           outcome: "applied",
@@ -79,6 +87,7 @@ export function receiptForOperation(cell: any, opId: string, binding: RepoCellBi
           }),
           visibility: "center",
           proof: declarationProof,
+          detail,
           ...publication,
         }
       : {
@@ -88,6 +97,7 @@ export function receiptForOperation(cell: any, opId: string, binding: RepoCellBi
           evidence: `event-object:${opId}`,
           visibility: "center",
           proof: declarationProof,
+          detail,
           ...publication,
           nextAction: `Retry after the projection records declaration event ${opId}.`,
         };

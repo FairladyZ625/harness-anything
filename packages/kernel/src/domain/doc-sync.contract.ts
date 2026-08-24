@@ -26,11 +26,8 @@ export {
   resolveDocRoute,
   verifyDocEventChange,
 } from "./doc-sync-writer.ts";
-export {
-  validateCurrentDocEvent,
-  validateDocEvent,
-} from "./doc-sync-validation.ts";
-export { isAgentEntityEvent } from "./agent-entity-event.ts";
+export { validateCurrentDocEvent, validateDocEvent } from "./doc-sync-validation.ts";
+export { isEntityEvent } from "./entity-event.ts";
 export { isDecisionEvent } from "./decision-event.ts";
 export { isFactEvent } from "./fact-event.ts";
 export { isLedgerLayoutMigrationEvent } from "./ledger-layout-migration-event.ts";

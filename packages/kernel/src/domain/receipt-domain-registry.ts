@@ -65,8 +65,18 @@ export interface DocSyncReceiptDetail {
   readonly deletions: readonly DocSyncDeletion[];
   readonly nextAction: string;
 }
-export const receiptDetailRegistry = Object.freeze([{ kind: "doc_sync", validate: validateDocSyncDetail }] as const);
-export type WriteReceiptDetail = DocSyncReceiptDetail;
+export interface EntityUpsertReceiptDetail {
+  readonly kind: "entity_upsert";
+  readonly entityKind: string;
+  readonly entityId: string;
+  readonly schemaId: string;
+  readonly path: string;
+}
+export const receiptDetailRegistry = Object.freeze([
+  { kind: "doc_sync", validate: validateDocSyncDetail },
+  { kind: "entity_upsert", validate: validateEntityUpsertDetail },
+] as const);
+export type WriteReceiptDetail = DocSyncReceiptDetail | EntityUpsertReceiptDetail;
 export interface WriteReceipt {
   readonly outcome: "applied" | "pending" | "no_changes" | "indeterminate" | "op_rejected";
   readonly opId: string;
@@ -263,6 +273,17 @@ function validateDocSyncDetail(value: Readonly<Record<string, unknown>>): boolea
         row.baseBlobSha256 !== null &&
         row.source === "intent",
     )
+  );
+}
+
+function validateEntityUpsertDetail(value: Readonly<Record<string, unknown>>): boolean {
+  return (
+    exact(value, ["kind", "entityKind", "entityId", "schemaId", "path"]) &&
+    value.kind === "entity_upsert" &&
+    text(value.entityKind) &&
+    text(value.entityId) &&
+    text(value.schemaId) &&
+    text(value.path)
   );
 }
 function isReceiptDomainRecord(value: unknown): value is Readonly<Record<string, unknown>> {

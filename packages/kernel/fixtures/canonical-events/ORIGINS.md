@@ -1,6 +1,6 @@
 # Canonical event fixture origins
 
-The ledger-derived events below were de-identified and then reserialized with the production `serializeCanonicalEvent` implementation. The `agent-entity-event/v1` fixture was produced by the production compiler because the canonical ledger did not yet contain that schema. Every JSON file in this directory is protected by `packages/*/fixtures/** -text` in `.gitattributes`.
+The ledger-derived events below were de-identified and then reserialized with the production `serializeCanonicalEvent` implementation. The `entity-event/v1` fixture was produced by the production compiler because the canonical ledger did not yet contain that schema. Every JSON file in this directory is protected by `packages/*/fixtures/** -text` in `.gitattributes`.
 
 | Schema | Frozen sample | Source | Source blob |
 | --- | --- | --- | --- |
@@ -14,4 +14,4 @@ The ledger-derived events below were de-identified and then reserialized with th
 | `task-progress-event/v1` | `packages/kernel/fixtures/canonical-events/task-progress-event-v1/accepted.json` | `canonical ledger refs/ha/canonical:events/e6/op_807bff628649092eafaab4c0b4880fb25176cccd13d3f3231ddfdf8037caa5c1.json` | `8c4804e03b8d86f62b8ca41e8dd72a0ea5ff1628` |
 | `ledger-layout-event/v1` | `packages/kernel/fixtures/canonical-events/ledger-layout-event-v1/accepted.json` | `canonical ledger refs/ha/canonical:events/9f/op_73c908af2852b5ccafefa8eade5ad7fb045c4cd4435f16771bac6cc8071b287b.json` | `afe448f4450735a2a60338d45293081c554f519e` |
 | `doc-event/v1` | `packages/kernel/fixtures/canonical-events/doc-event-v1/legacy-ledger-identity.json` | `packages/kernel/fixtures/events/doc-event-v1-legacy-ledger-identity.json` | `0948c1ba15338d108edd4bae136b9840a3e5d78a` |
-| `agent-entity-event/v1` | `packages/kernel/fixtures/canonical-events/agent-entity-event-v1/accepted.json` | `compileAgentEntityWrite production compiler (no canonical event existed yet)` | N/A (compiler-generated) |
+| `entity-event/v1` | `packages/kernel/fixtures/canonical-events/entity-event-v1/accepted.json` | `compileEntityUpsert production compiler (no canonical event existed yet)` | N/A (compiler-generated) |

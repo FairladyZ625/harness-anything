@@ -1,18 +1,12 @@
 import type { PortableDocumentPath } from "../layout/portable-path.ts";
-import type { AgentEntityEventV1 } from "./agent-entity-event.ts";
+import type { EntityEventV1 } from "./entity-event.ts";
 import type { AgentRuntimeEventV1 } from "./agent-runtime.ts";
-import {
-  OPAQUE_TEXTUAL_POLICY_ID,
-  type OpaqueTextualMediaType,
-} from "./artifact-text-classification.ts";
+import { OPAQUE_TEXTUAL_POLICY_ID, type OpaqueTextualMediaType } from "./artifact-text-classification.ts";
 import type { DecisionEventV1 } from "./decision-event.ts";
 import type { LeaseV1 } from "./execution.ts";
 import type { FactEventV1 } from "./fact-event.ts";
 import type { LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-event.ts";
-import type {
-  MigrationDocumentClaim,
-  MigrationImportEventV1,
-} from "./migration-import-event.ts";
+import type { MigrationDocumentClaim, MigrationImportEventV1 } from "./migration-import-event.ts";
 import type { PresetSnapshotUpgradeEventV1 } from "./preset-snapshot-upgrade-event.ts";
 import type {
   DocSyncReceiptDetail,
@@ -24,24 +18,14 @@ import type { TaskBootstrapEventV1 } from "./task-bootstrap-event.ts";
 import type { LiveTaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
 import type { TaskEventV1 } from "./task-lifecycle.contract.ts";
 import type { TaskProgressEventV1 } from "./task-progress-event.ts";
-import type {
-  ActorIdentity,
-  EventEnvelope,
-  FrozenWritePlan,
-  WriteSource,
-} from "./write-chain.contract.ts";
+import type { ActorIdentity, EventEnvelope, FrozenWritePlan, WriteSource } from "./write-chain.contract.ts";
 
 export const DOC_POLICY_ID = "markdown-body-replaceable/v1",
   DOC_CODEC_ID = "markdown-regions/v1";
 
 export const DOC_WRITE_INTENT_SCHEMA = Object.freeze({
   id: "doc-write-intent/v1",
-  required: Object.freeze([
-    "schema",
-    "executionId",
-    "baseLedgerSha",
-    "changes",
-  ]),
+  required: Object.freeze(["schema", "executionId", "baseLedgerSha", "changes"]),
 });
 
 export const DOC_EVENT_SCHEMA = Object.freeze({
@@ -89,9 +73,7 @@ export const docRegionPolicyRegistry = Object.freeze([
   },
 ] as const);
 
-declare const ledgerCommitShaBrand: unique symbol,
-  docClaimRefBrand: unique symbol,
-  docByteLengthBrand: unique symbol;
+declare const ledgerCommitShaBrand: unique symbol, docClaimRefBrand: unique symbol, docByteLengthBrand: unique symbol;
 
 export interface LedgerCommitSha extends LedgerCommitIdentity {
   readonly [ledgerCommitShaBrand]: true;
@@ -184,7 +166,7 @@ export type CanonicalEventV1 =
   | TaskEventV1
   | DocEventV1
   | AgentRuntimeEventV1
-  | AgentEntityEventV1
+  | EntityEventV1
   | TaskBootstrapEventV1
   | TaskProgressEventV1
   | PresetSnapshotUpgradeEventV1

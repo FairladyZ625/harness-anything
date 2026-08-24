@@ -17,7 +17,7 @@ import {
   isLedgerLayoutMigrationEvent,
 } from "../domain/ledger-layout-migration-event.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
-import { assertAgentEntityWritePlan, isAgentEntityEvent } from "../domain/agent-entity-event.ts";
+import { assertEntityUpsertWritePlan, isEntityEvent } from "../domain/entity-event.ts";
 import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
 import { assertTaskProgressWritePlan, isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import {
@@ -105,7 +105,7 @@ export function makeTaskProjection(options: {
     close: closeProjection,
     apply: (event, plan) => {
       if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">);
-      if (isAgentEntityEvent(event)) assertAgentEntityWritePlan(event, plan as FrozenWritePlan<"AgentEntityWrite">);
+      if (isEntityEvent(event)) assertEntityUpsertWritePlan(event, plan as FrozenWritePlan<"EntityUpsert">);
       if (
         isTaskEvent(event) &&
         ((event.payload.documentClaims?.length ?? 0) > 0 || (event.payload.carriedDocumentClaims?.length ?? 0) > 0)
