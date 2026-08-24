@@ -48,6 +48,62 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });
 
+test("autostart daemon does not inherit runtime worker environment", (context) => {
+  const fixture = setup(),
+    repoId = "clean-autostart",
+    endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),
+    workerEnv = {
+      ...cliEnv(fixture.root, fixture.userRoot),
+      CODEX_HOME: path.join(fixture.parent, "worker", ".codex"),
+      CLAUDE_CONFIG_DIR: path.join(fixture.parent, "worker", ".claude"),
+      ANTHROPIC_API_KEY: "worker-anthropic-secret",
+      ANTHROPIC_BASE_URL: "https://anthropic.worker.invalid",
+      OPENAI_API_KEY: "worker-openai-secret",
+      OPENAI_BASE_URL: "https://openai.worker.invalid",
+      CLAUDE_CODE_SESSION_ID: "claude-worker-session",
+      CODEX_THREAD_ID: "codex-worker-thread",
+      CODEX_SESSION_ID: "codex-worker-session",
+      HARNESS_ACTOR: "agent:runtime-session:worker-env",
+      HARNESS_DAEMON_ENDPOINT: endpoint,
+      HARNESS_DAEMON_ID: "default",
+      HARNESS_DAEMON_REPO_ID: repoId,
+    };
+  try {
+    registerDaemonRepo({ canonicalRoot: fixture.root, repoId, userRoot: fixture.userRoot, createConvenienceLinks: false });
+    const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "task", "list"], {
+      encoding: "utf8",
+      env: workerEnv,
+    });
+    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+    assert.equal((JSON.parse(result.stdout) as { readonly outcome?: string }).outcome, "applied");
+    const pid = readDaemonPid(fixture.userRoot, "default");
+    assert.ok(pid, "autostart must leave a resident daemon pid file");
+    const processEnvironment = execFileSync("ps", ["eww", "-p", String(pid)], { encoding: "utf8" });
+    const forbidden = [
+      "CODEX_HOME",
+      "CLAUDE_CONFIG_DIR",
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_BASE_URL",
+      "OPENAI_API_KEY",
+      "OPENAI_BASE_URL",
+      "CLAUDE_CODE_SESSION_ID",
+      "CODEX_THREAD_ID",
+      "CODEX_SESSION_ID",
+      "HARNESS_ACTOR",
+      "HARNESS_DAEMON_ENDPOINT",
+      "HARNESS_DAEMON_ID",
+      "HARNESS_DAEMON_REPO_ID",
+      "HARNESS_DAEMON_USER_ROOT",
+    ],
+      leaked = forbidden.filter((name) => new RegExp(`(?:^|\\s)${name}=`, "u").test(processEnvironment));
+    context.diagnostic(`ps eww -p ${pid} runtime-scoped env matches: ${JSON.stringify(leaked)}`);
+    assert.deepEqual(leaked, []);
+  } finally {
+    stop(fixture.root, fixture.userRoot);
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
 test("a blocked vertical script keeps handshakes, snapshots, and same-repo writes live", async (context) => {
   const fixture = setup(), repoId = "vertical-wedge", taskId = "task-vertical-wedge", blocker = path.join(fixture.parent, "vertical-script.block"), started = `${blocker}.started`, endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
   let client: JsonRpcLineClient | undefined, readClient: JsonRpcLineClient | undefined, queuedClient: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined, queuedWrite: Promise<Record<string, unknown>> | undefined;
