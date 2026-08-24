@@ -108,6 +108,20 @@ export function createRepoCellApi(context: any): RepoCell {
       );
       return pending.catch(failAction);
     };
+    if (action.kind === "squad-run")
+      return enqueuePublication(
+        () =>
+          context.squadCoordinator.start(
+            action,
+            binding,
+          ) as unknown as WriteReceipt,
+      );
+    if (action.kind === "squad-status")
+      return Promise.resolve(
+        context.squadCoordinator.status(
+          context.requiredCellText(action.squadRunId, "squadRunId"),
+        ) as unknown as WriteReceipt,
+      );
     if (action.kind === "script-run")
       return Promise.resolve()
         .then(() =>

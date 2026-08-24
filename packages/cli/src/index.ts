@@ -5,7 +5,6 @@ import {
   humanError,
   renderDispatchRow,
   renderRuntimeBatchRow,
-  renderSquadRunRow,
 } from "./cli-render.ts";
 import {
   isRuntimeFacadeCommand,
@@ -83,9 +82,7 @@ export async function main(
       : await runCommandThroughDaemon(parsed.command, (phase) =>
           emit(phase, parsed.command.json),
         );
-    if (parsed.command.action.kind === "squad-run")
-      emitSquadRun(receipt, parsed.command.json);
-    else emit(receipt, parsed.command.json);
+    emit(receipt, parsed.command.json);
     return Number.isInteger(receipt.exitCode)
       ? Number(receipt.exitCode)
       : receipt.ok === true
@@ -205,21 +202,6 @@ function renderPresetListReceipt(receipt: Record<string, unknown>): string {
       ].join("\n");
     })
     .join("\n");
-}
-
-function emitSquadRun(
-  receipt: Record<string, unknown>,
-  json: boolean,
-): void {
-  if (json) return emit(receipt, true);
-  const dispatches = receipt.dispatches;
-  if (Array.isArray(dispatches))
-    console.log(
-      dispatches.length
-        ? dispatches.map(renderSquadRunRow).join("\n")
-        : "No squad dispatches.",
-    );
-  else emit(receipt, false);
 }
 
 function isCliEntrypoint(): boolean {

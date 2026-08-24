@@ -77,6 +77,7 @@ test("Agent and Squad declaration commands route through the daemon entity lifec
     [["agent", "install", "--source", "terra", "--dry-run"], "agent-install"],
     [["squad", "list"], "squad-list"],
     [["squad", "inspect", "core-squad"], "squad-inspect"],
+    [["squad", "status", "squad_0123456789abcdef01234567"], "squad-status"],
     [["squad", "validate", "--source", "core-squad"], "squad-validate"],
     [["squad", "install", "--source", "core-squad"], "squad-install"],
   ];
@@ -88,6 +89,7 @@ test("Agent and Squad declaration commands route through the daemon entity lifec
       assert.equal(parsed.command.action.kind, kind);
     }
   }
+  assert.equal(parseThinCommand(["squad", "status"]).ok, false);
   const create = parseThinCommand([
     "agent",
     "create",

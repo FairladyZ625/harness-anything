@@ -1,4 +1,4 @@
-import type { RuntimeBatchResult, SquadRunDispatch } from "./cli-types.ts";
+import type { RuntimeBatchResult } from "./cli-types.ts";
 import { consumeKnownError } from "./daemon/client.ts";
 
 export function humanError(receipt: Record<string, unknown>): {
@@ -50,24 +50,8 @@ export function renderRuntimeBatchRow(value: unknown): string {
   return `${fields.map(String).join("\t")}${row.reportPath ? `\treport:${row.reportPath}` : ""}`;
 }
 
-export function renderSquadRunRow(value: unknown): string {
-  const row = value as Partial<SquadRunDispatch>;
-  const fields = [
-    row.dispatchId ?? "-",
-    row.status,
-    row.runtimeSessionId ?? "-",
-    row.outcome ?? "-",
-    `worker:${String(row.agentId ?? "-")}`,
-    `leader:${String(row.delegatedByAgentId ?? "-")}`,
-    `squad:${String(row.squadId ?? "-")}`,
-    `code:${String(row.code ?? "-")}`,
-    `reason:${String(row.reason ?? "-")}`,
-  ];
-  return `${fields.map(String).join("\t")}${row.reportPath ? `\treport:${row.reportPath}` : ""}`;
-}
-
 export function renderDispatchRow(value: unknown): string {
-  const row = value as Partial<SquadRunDispatch> & {
+  const row = value as Partial<Record<string, unknown>> & {
     readonly exitCode?: number | null;
     readonly resultRef?: string | null;
     readonly dispatchPath?: string | null;

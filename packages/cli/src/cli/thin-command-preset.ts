@@ -65,6 +65,18 @@ export function parsePreset(
       route.method,
     );
   }
+  if (route.id === "squad-status") {
+    const squadRunId = args[2];
+    return nonEmpty(squadRunId)
+      ? accepted(
+          rootDir,
+          repoId,
+          json,
+          { kind: "squad-status", squadRunId },
+          route.method,
+        )
+      : rejected("missing_field", "squad run id is required.", json);
+  }
   const positionalField = "positional" in route ? route.positional : undefined,
     positionalFields =
       "positionalFields" in route ? route.positionalFields : undefined,

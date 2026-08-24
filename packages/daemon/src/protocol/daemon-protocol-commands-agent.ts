@@ -143,6 +143,16 @@ export const agentProtocolCommands = Object.freeze([
     ],
   }),
   defineCliCommand({
+    id: "squad-status",
+    phase: "Runtime-B",
+    path: ["squad", "status", "<squad-run-id>"],
+    summary: "Read a durable Squad run and its leader and worker dispatches.",
+    method: "repo.task.run",
+    commandClass: "repo-read",
+    positional: "squadRunId",
+    inputs: [],
+  }),
+  defineCliCommand({
     id: "ledger-migrate",
     phase: "Migration-A",
     path: ["migrate", "ledger"],
@@ -234,8 +244,8 @@ export const agentProtocolCommands = Object.freeze([
     id: "squad-run",
     phase: "Runtime-B",
     path: ["squad", "run", "<id>"],
-    summary: "Ask a Squad leader for a roster-driven runtime-batch/v1 plan, then fan it out through the daemon.",
-    method: "repo.agentRuntime.spawn",
+    summary: "Start a durable Squad run supervised by callback-driven leader turns.",
+    method: "repo.task.run",
     commandClass: "repo-write",
     positional: "squadId",
     inputs: [
