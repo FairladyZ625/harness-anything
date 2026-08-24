@@ -334,8 +334,7 @@ export function completionContext(
       now: cell.now(),
       taskId,
     }),
-    relevant = scan.rows.filter((row) => row.path === closeoutPath || row.path.startsWith(`${packagePath}/artifacts/`)),
-    eligibleDirtyPaths = relevant.filter((row) => row.state === "eligible").map((row) => row.path),
+    eligibleDirtyPaths = scan.rows.filter((row) => row.state === "eligible").map((row) => row.path),
     closeout = eligibleDirtyPaths.includes(closeoutPath)
       ? "dirty_eligible"
       : projected.document === null
