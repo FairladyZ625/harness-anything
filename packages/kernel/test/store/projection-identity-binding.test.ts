@@ -13,9 +13,10 @@ import { withTempStoreAsync } from "./helpers.ts";
 
 // Two ledgers at the same revision with different content is exactly the shape a genesis replay
 // produces: the whole ledger is rewritten while the head revision stays put. A projection cache
-// scanned from one ledger must not be able to impersonate the other's cache, so opening a cache
-// against a same-revision ledger with a different head eventDigest must cold-rebuild it.
-test("projection cache from a same-revision different-content ledger is discarded and cold-rebuilt", async () => {
+// scanned from one ledger must not be able to impersonate the other's cache. Opening a cache
+// against a same-revision ledger with a different head eventDigest must fail closed until an
+// explicit rebuild clears it in place.
+test("projection cache identity mismatch is explicit and rebuild remains available", async () => {
   await withTempStoreAsync(async (rootA) => {
     await withTempStoreAsync(async (rootB) => {
       const bodyA = "# Notes\n\nLedger A generation prose.\n", bodyB = "# Notes\n\nLedger B generation prose.\n";
@@ -24,16 +25,23 @@ test("projection cache from a same-revision different-content ledger is discarde
       const warmed = projectionA.readDocument("context/notes.md");
       assert.equal(warmed.status, "ready");
       assert.equal(warmed.document?.body, bodyA);
+      projectionA.close();
 
       // Reuse ledger A's warmed cache file for ledger B: same revision (1), different content.
       const projectionBOnStaleCache = makeTaskProjection({ rootDir: rootB, eventStore: storeB, projectionPath: projectionA.path });
+      assert.throws(() => projectionBOnStaleCache.readDocument("context/notes.md"), /projection cache ledger identity mismatch/iu);
+      const rebuiltB = projectionBOnStaleCache.rebuild();
+      assert.equal(rebuiltB.watermark, 1);
       const readB = projectionBOnStaleCache.readDocument("context/notes.md");
       assert.equal(readB.status, "ready");
       assert.equal(readB.document?.body, bodyB);
       assert.equal(readB.sourceRevision, 1);
+      projectionBOnStaleCache.close();
 
       // Swap back: the cache now carries ledger B's identity, so ledger A must rebuild it again.
       const projectionAOnStaleCache = makeTaskProjection({ rootDir: rootA, eventStore: storeA, projectionPath: projectionA.path });
+      assert.throws(() => projectionAOnStaleCache.readDocument("context/notes.md"), /projection cache ledger identity mismatch/iu);
+      projectionAOnStaleCache.rebuild();
       const readA = projectionAOnStaleCache.readDocument("context/notes.md");
       assert.equal(readA.status, "ready");
       assert.equal(readA.document?.body, bodyA);
@@ -44,10 +52,13 @@ test("projection cache from a same-revision different-content ledger is discarde
 
 test("event relation truth cannot cross a same-revision ledger identity", async () => {
   await withTempStoreAsync(async (rootA) => { await withTempStoreAsync(async (rootB) => {
-    const storeA = seedFactLedger(rootA), storeB = seedLedger(rootB, "relation-empty", "# Empty\n"), projectionA = makeTaskProjection({ rootDir: rootA, eventStore: storeA });
+    const storeA = seedFactLedger(rootA), storeB = seedLedger(rootB, "relation-empty", "# Notes\n\nEmpty ledger.\n"), projectionA = makeTaskProjection({ rootDir: rootA, eventStore: storeA });
     projectionA.readFactGraph();
     assert.deepEqual(projectionA.readRelationTruth().factAnchors.map(({ factRef }) => factRef), ["fact/task-identity/F-12345678"]);
+    projectionA.close();
     const projectionB = makeTaskProjection({ rootDir: rootB, eventStore: storeB, projectionPath: projectionA.path });
+    assert.throws(() => projectionB.readRelationTruth(), /projection cache ledger identity mismatch/iu);
+    projectionB.rebuild();
     assert.deepEqual(projectionB.readRelationTruth(), { factAnchors: [], decisionAnchors: [], edges: [], coverageRows: [] });
   }); });
 });
@@ -58,6 +69,8 @@ test("a cache ahead of a replacement source history is discarded before staged e
     assert.equal(projectionA.read("task-1").watermark, 6);
 
     const projectionB = makeTaskProjection({ rootDir: rootB, eventStore: storeB, projectionPath: projectionA.path });
+    assert.throws(() => projectionB.read("task-1"), /projection cache ledger identity mismatch/iu);
+    projectionB.rebuild();
     const recovered = projectionB.read("task-1");
     assert.deepEqual({ status: recovered.status, watermark: recovered.watermark, sourceRevision: recovered.sourceRevision }, { status: "ready", watermark: 2, sourceRevision: 2 });
     assert.equal(recovered.snapshot.task?.status, "active");

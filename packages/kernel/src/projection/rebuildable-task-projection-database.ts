@@ -8,7 +8,11 @@ import { createRelationGraphProjectionTables } from "./relation-graph-projection
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
-import { queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import {
+  queryRows,
+  runSql,
+  transaction,
+} from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -16,7 +20,15 @@ export type { TaskProjection } from "./task-projection-port.ts";
 interface ProjectionDatabaseOwner {
   readonly use: <A>(operation: (db: DatabaseSync) => A) => A;
   readonly discard: () => void;
+  readonly reset: () => void;
   readonly close: () => void;
+}
+
+export class ProjectionIdentityMismatchError extends Error {
+  constructor() {
+    super("projection cache ledger identity mismatch; run daemon projection rebuild");
+    this.name = "ProjectionIdentityMismatchError";
+  }
 }
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
 const projectionClosers = new Map<string, Set<() => void>>();
@@ -52,6 +64,9 @@ export function withDatabase<A>(
 }
 export function discardDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void {
   projectionDatabaseOwner(projectionPath, readHead).discard();
+}
+export function resetDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void {
+  projectionDatabaseOwner(projectionPath, readHead).reset();
 }
 // close() shares discard()'s invariant: callers close a projection so they can remove its file, and
 // a handle held by any other owner blocks that on Windows. Closing only the caller's owner made
@@ -105,6 +120,28 @@ function projectionDatabaseOwner(
     closeProjectionHandlesAt(resolvedProjectionPath);
     localRuntimeStateFileSystem.remove(projectionPath);
   };
+  const reset = () => {
+    closeProjectionHandlesAt(resolvedProjectionPath);
+    initialize();
+    transaction(db!, () => {
+      const tables = queryRows(
+        db!,
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name DESC",
+      );
+      for (const row of tables) {
+        const name = String(row.name);
+        if (name === "projection_meta" || name.includes("_fts_")) continue;
+        runSql(db!, `DELETE FROM "${name.replaceAll('"', '""')}"`);
+      }
+      runSql(
+        db!,
+        [
+          "UPDATE projection_meta SET watermark = 0, scan_cursor = NULL, scanned_revision = 0,",
+          "head_digest = NULL, state_digest = NULL WHERE singleton = 1",
+        ].join(" "),
+      );
+    });
+  };
   const initialize = () => {
     open();
     if (projectionSchemaVersion(db!) !== null && projectionSchemaVersion(db!) !== taskProjectionSchemaVersion) {
@@ -116,13 +153,10 @@ function projectionDatabaseOwner(
   const use = <A>(operation: (database: DatabaseSync) => A): A => {
     if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
     if (db === null) initialize();
-    if (!matchesLedgerIdentity(db!, readHead())) {
-      discard();
-      initialize();
-    }
+    if (!matchesLedgerIdentity(db!, readHead())) throw new ProjectionIdentityMismatchError();
     return operation(db!);
   };
-  const owner = { use, discard, close };
+  const owner = { use, discard, reset, close };
   owners.set(projectionPath, owner);
   return owner;
 }

@@ -3,8 +3,11 @@ import { VcsCommandError, consumeKnownError } from "../../kernel/src/index.ts";
 import { type CanonicalRoot } from "./protocol/daemon-protocol.contract.ts";
 import { cellCodedError, cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 
-const projectionFailurePattern =
-  /(?:document projection mismatch|projection (?:rebuild did not reach|digest refresh lost|snapshot mismatch))/iu;
+const projectionFailurePatterns = [
+  /document projection mismatch/iu,
+  /projection cache ledger identity mismatch/iu,
+  /projection (?:rebuild did not reach|digest refresh lost|snapshot mismatch)/iu,
+];
 
 /** Ledger-shape judgments (layout, projection replay, revision bases) point the repair at the data;
  * Git/lock failures (publication CAS, writer lock) point it at the workspace infrastructure. */
@@ -12,7 +15,7 @@ export function causeClassOf(error: unknown): "data-shape" | "infrastructure" | 
   return error instanceof VcsCommandError ||
     ["writer_rejected", "publication_indeterminate"].includes(cellErrorCode(error))
     ? "infrastructure"
-    : error instanceof Error && projectionFailurePattern.test(error.message)
+    : error instanceof Error && projectionFailurePatterns.some((pattern) => pattern.test(error.message))
       ? "projection"
       : "data-shape";
 }

@@ -23,7 +23,6 @@ import {
   type EventEntry,
   eventEntries,
   eventObjectPaths,
-  firstEntryAfter,
   readFirstPathAt,
   safeOpId,
 } from "./task-event-store-layout.ts";
@@ -99,13 +98,14 @@ export function readBatch(
   cursor: string | null,
   maxItems: number,
 ): EventFileBatch {
-  if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 64)
-    throw new TaskEventStoreError("invalid_store", "event batch maxItems must be between 1 and 64");
-  const entries = cachedBatchEventEntries(ledger, commit),
-    start = cursor === null ? 0 : firstEntryAfter(entries, cursor),
+  if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 4096)
+    throw new TaskEventStoreError("invalid_store", "event batch maxItems must be between 1 and 4096");
+  const ordered = revisionOrderedEventBatch(ledger, commit),
+    entries = ordered.entries,
+    start = cursor === null ? 0 : firstRevisionEntryAfter(entries, cursor),
     selected = entries.slice(start, start + maxItems),
     sourceRevision = head?.revision ?? 0,
-    events = readEventsAt(ledger, commit, selected).filter((event) => event.workspaceRevision <= sourceRevision);
+    events = ordered.events.slice(start, start + maxItems).filter((event) => event.workspaceRevision <= sourceRevision);
   return {
     sourceRevision,
     events,
@@ -114,6 +114,31 @@ export function readBatch(
     accessedItems: selected.length,
     prefetchContent: (replay) => prefetchEventContent(ledger, commit, replay),
   };
+}
+
+const revisionEntryCache = new WeakMap<LedgerGitLayout, {
+  readonly commit: string;
+  readonly entries: readonly EventEntry[];
+  readonly events: readonly CanonicalEventV1[];
+}>();
+function revisionOrderedEventBatch(
+  ledger: LedgerGitLayout,
+  commit: string,
+): { readonly entries: readonly EventEntry[]; readonly events: readonly CanonicalEventV1[] } {
+  const cached = revisionEntryCache.get(ledger);
+  if (cached?.commit === commit) return cached;
+  const entries = cachedBatchEventEntries(ledger, commit),
+    events = readEventsAt(ledger, commit, entries),
+    ordered = events.map((event, index) => ({ event, entry: entries[index]! })).sort(
+      (left, right) => left.event.workspaceRevision - right.event.workspaceRevision,
+    ),
+    result = { commit, entries: ordered.map(({ entry }) => entry), events: ordered.map(({ event }) => event) };
+  revisionEntryCache.set(ledger, result);
+  return result;
+}
+function firstRevisionEntryAfter(entries: readonly EventEntry[], cursor: string): number {
+  const index = entries.findIndex((entry) => entry.name === cursor);
+  return index < 0 ? 0 : index + 1;
 }
 export function readEventsAt(
   ledger: LedgerGitLayout,

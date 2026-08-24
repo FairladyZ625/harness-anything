@@ -9,12 +9,34 @@ import test from "node:test";
 import { makeTaskEventStore, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { causeClassOf, openRepoCell, type RepoCell } from "../src/repo-cell.ts";
+import { projectedTaskIds } from "../src/repo-cell-receipts.ts";
 import { recoveryCommandPolicy } from "../src/recovery-state.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
 
+test("task identity lookup remains available while the projection catches up", () => {
+  const cell = {
+    knownTaskIds: null,
+    projection: { list: () => ({ watermark: 2, sourceRevision: 4, rows: [] }) },
+    store: {
+      readBatch: (cursor: string | null, _maxItems: number) => ({
+        sourceRevision: 4,
+        events: cursor === null ? [{ schema: "task-event/v1", type: "task_created", taskId: "task-existing" } as never] : [],
+        cursor: "done",
+        done: true,
+        accessedItems: 1,
+      }),
+    },
+  } as any;
+  assert.deepEqual([...projectedTaskIds(cell)], ["task-existing"]);
+});
+
 test("projection recovery names and carries the reachable rebuild command", () => {
   assert.equal(causeClassOf(new Error("lifecycle document projection mismatch for INDEX.md")), "projection");
+  assert.equal(
+    causeClassOf(new Error("projection cache ledger identity mismatch; run daemon projection rebuild")),
+    "projection",
+  );
   assert.equal(causeClassOf(new Error("kernel projection schema 999 is newer than daemon schema 3")), "data-shape");
   assert.deepEqual(recoveryCommandPolicy("projection-rebuild", "projection"), { causes: ["projection"], settlesLatch: true });
   assert.equal(recoveryCommandPolicy("projection-rebuild", "data-shape"), null);

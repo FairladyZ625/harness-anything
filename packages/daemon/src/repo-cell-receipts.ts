@@ -2,6 +2,7 @@ import {
   isAgentEntityEvent,
   isTaskEvent,
   isTaskProgressEvent,
+  type CanonicalEventV1,
   type TaskProgressEventV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -154,7 +155,25 @@ export function canonicalSettlement(
 export function projectedTaskIds(cell: any): Set<string> {
   if (cell.knownTaskIds) return cell.knownTaskIds;
   const read = cell.projection.list();
-  if (read.watermark !== read.sourceRevision)
+  if (read.watermark === read.sourceRevision) {
+    cell.knownTaskIds = new Set(read.rows.map(({ taskId }: { readonly taskId: string }) => taskId));
+    return cell.knownTaskIds;
+  }
+  const taskIds = new Set<string>();
+  let cursor: string | null = null;
+  try {
+    for (;;) {
+      const batch = cell.store.readBatch(cursor, 4096) as {
+        readonly events: readonly CanonicalEventV1[];
+        readonly cursor: string | null;
+        readonly done: boolean;
+      };
+      for (const event of batch.events) if (isTaskEvent(event)) taskIds.add(event.taskId);
+      if (batch.done) break;
+      if (batch.cursor === cursor) throw new Error("canonical task event scan did not advance");
+      cursor = batch.cursor;
+    }
+  } catch {
     throw cell.cellCodedError(
       "content_not_ready",
       [
@@ -162,10 +181,11 @@ export function projectedTaskIds(cell: any): Set<string> {
         `${read.watermark}`,
         " to ",
         `${read.sourceRevision}`,
-        "; retry after it is ready.",
+        "; task identity cannot be determined until the canonical event stream is readable.",
       ].join(""),
     );
-  cell.knownTaskIds = new Set(read.rows.map(({ taskId }: { readonly taskId: string }) => taskId));
+  }
+  cell.knownTaskIds = taskIds;
   return cell.knownTaskIds;
 }
 

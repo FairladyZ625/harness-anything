@@ -1,5 +1,6 @@
 // @write-boundary-exemption rebuildable-projection
 import path from "node:path";
+import { consumeKnownError } from "../error-consumption.ts";
 import {
   assertDocSyncWritePlan,
   isDecisionEvent,
@@ -29,7 +30,12 @@ import { assertTaskLifecycleWritePlan } from "../domain/task-lifecycle-publicati
 import { sha256Text } from "../integrity/stable-hash.ts";
 import type { TaskProjection } from "./task-projection-port.ts";
 import type { EventStreamPort, ProjectionContext } from "./rebuildable-task-projection-types.ts";
-import { closeDatabase, withDatabase } from "./rebuildable-task-projection-database.ts";
+import {
+  closeDatabase,
+  ProjectionIdentityMismatchError,
+  resetDatabase,
+  withDatabase,
+} from "./rebuildable-task-projection-database.ts";
 import { reduceBatch } from "./rebuildable-task-projection-catch-up.ts";
 import { listProjection, readProjection, rebuildProjection } from "./rebuildable-task-projection-reads.ts";
 import { knowledgeQueryApi } from "./rebuildable-task-projection-knowledge-queries.ts";
@@ -52,7 +58,7 @@ export function makeTaskProjection(options: {
   readonly now?: () => string;
 }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
-  const limit = options.catchUpLimit ?? 64,
+  const limit = options.catchUpLimit ?? 4096,
     now = options.now ?? (() => new Date().toISOString()),
     sourceReadHead = options.eventStore.readHead;
   let observedSourceHead = false,
@@ -70,12 +76,19 @@ export function makeTaskProjection(options: {
   };
   if (!Number.isInteger(limit) || limit < 1 || limit > 4096)
     throw new Error("task projection catch-up limit must be between 1 and 4096");
-  if (localRuntimeStateFileSystem.exists(projectionPath))
-    withDatabase(projectionPath, readHead, (db) =>
-      transaction(db, () => {
-        if (markRuntimeSessionsUnknown(db) > 0) refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
-      }),
-    );
+  if (localRuntimeStateFileSystem.exists(projectionPath)) {
+    try {
+      withDatabase(projectionPath, readHead, (db) =>
+        transaction(db, () => {
+          if (markRuntimeSessionsUnknown(db) > 0) refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
+        }),
+      );
+    } catch (error) {
+      if (!(error instanceof ProjectionIdentityMismatchError)) throw error;
+      if (readHead() === null) resetDatabase(projectionPath, readHead);
+      else consumeKnownError(error);
+    }
+  }
   const closeProjection = () => {
     hotAppliedHead = null;
     closeDatabase(projectionPath, readHead);

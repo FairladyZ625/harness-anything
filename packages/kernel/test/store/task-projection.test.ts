@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -11,7 +11,7 @@ import { makeWalShadowEventStore } from "../../src/store/wal-shadow-event-store.
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
-import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, decideDocWrite, parseDocWriteIntent, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
+import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, decideDocWrite, parseDocWriteIntent, serializeCanonicalEvent, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import { MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, migrationImportWritePlan, type MigrationImportEventV1 } from "../../src/domain/migration-import-event.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
@@ -80,6 +80,79 @@ test("cold projection reuses one batch tree scan and its verified blob prefetch"
   });
 });
 
+test("event batches are revision ordered even when the Git tree is hash ordered", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const writer = makeTaskEventStore({ repoId: "revision-ordered-batch", rootDir });
+    for (const event of lifecycleFixture().events) writer.append(taskBundle(event));
+    const batch = writer.readBatch(null, 4096);
+    assert.deepEqual(batch.events.map((event) => event.workspaceRevision), [1, 2, 3, 4, 5, 6]);
+  });
+});
+
+test("projection rebuild crosses a missing workspace revision after the source scan completes", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const fixture = lifecycleFixture().events,
+      first = fixture[0]!,
+      second = { ...fixture[1]!, workspaceRevision: 3 },
+      source = {
+        readHead: () => ({
+          revision: second.workspaceRevision,
+          eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(second))}`,
+        }),
+        readBatch: (_cursor: string | null, _maxItems: number) => ({
+          sourceRevision: second.workspaceRevision,
+          events: [first, second],
+          cursor: "done",
+          done: true,
+          accessedItems: 2,
+          prefetchContent: () => new Map<string, Uint8Array | null>(),
+        }),
+        readContentBlob: () => null,
+      },
+      projection = makeTaskProjection({ rootDir, eventStore: source });
+    const rebuilt = projection.rebuild();
+    assert.equal(rebuilt.watermark, 3);
+    assert.equal(projection.read(first.taskId).status, "ready");
+    projection.close();
+  });
+});
+
+test("cold replay still rejects a missing claimed blob after batch verification", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const writer = makeTaskEventStore({ repoId: "missing-prefetch", rootDir });
+    writer.append(batchDocumentBundle(writer, 1));
+    const source = makeTaskEventStore({ repoId: "missing-prefetch", rootDir }),
+      broken = {
+        ...source,
+        readBatch: (cursor: string | null, maxItems: number) => {
+          const batch = source.readBatch(cursor, maxItems);
+          return { ...batch, prefetchContent: () => new Map<string, Uint8Array | null>() };
+        },
+      },
+      projection = makeTaskProjection({ rootDir, eventStore: broken });
+    assert.throws(() => projection.rebuild(), /blob .* unavailable|not reachable/u);
+  });
+});
+
+test("cold rebuild resets the projection in place and accepts a larger bounded replay window", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "in-place-rebuild", rootDir }), projection = makeTaskProjection({ rootDir, eventStore });
+    const first = lifecycleFixture().events[0]!;
+    eventStore.append(taskBundle(first));
+    projection.apply(first, taskLifecycleWritePlan(first));
+    const before = statSync(projection.path).ino;
+    const rebuilt = projection.rebuild();
+    const after = statSync(projection.path).ino;
+    assert.equal(rebuilt.watermark, 1);
+    assert.equal(after, before);
+    assert.equal(rebuilt.metrics.maxBatchItems <= 4096, true);
+  });
+});
+
 test("WAL-shadow cold projection preserves Git batch content prefetch", async (t) => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir); const writer = makeTaskEventStore({ repoId: "wal-shadow-batch-prefetch", rootDir }), count = 128;
@@ -104,7 +177,7 @@ test("a fresh projection prefetches deferred staged content in one batch before 
     first.close();
 
     const second = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId: "deferred-prefetch", rootDir }), catchUpLimit: 1 });
-    assert.equal(second.readDocument(batchDocumentPath(1)).watermark, 1);
+    assert.equal(second.readDocument(batchDocumentPath(1)).watermark, 2);
     second.close();
 
     const third = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId: "deferred-prefetch", rootDir }), catchUpLimit: 1 });

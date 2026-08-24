@@ -160,8 +160,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     return pending === undefined ? gitHead : eventHead(pending);
   };
   const readBatch = (cursor: string | null, maxItems: number): EventFileBatch => {
-    if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 64)
-      throw new TaskEventStoreError("invalid_store", "event batch maxItems must be between 1 and 64");
+    if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 4096)
+      throw new TaskEventStoreError("invalid_store", "event batch maxItems must be between 1 and 4096");
     const records = wal.records().filter((record) => record.revision > (gitHead?.revision ?? 0));
     const walCursor = cursor === null ? -1 : records.findIndex((record) => cursorNames(record.event).includes(cursor));
     const directLayout = gitLayout;
