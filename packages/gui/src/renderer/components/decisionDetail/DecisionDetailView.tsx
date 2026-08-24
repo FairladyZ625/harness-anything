@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CaretRight, CirclesFour, FileText, LinkSimple, SealCheck, WarningCircle } from "@phosphor-icons/react";
+import {
+  ArrowLeft,
+  CaretRight,
+  CirclesFour,
+  FileText,
+  LinkSimple,
+  SealCheck,
+  WarningCircle,
+} from "@phosphor-icons/react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { harnessClient } from "../../api-client.ts";
@@ -101,7 +109,12 @@ export function DecisionDetailView({
             <div className="flex min-w-0 items-center gap-1 font-mono text-[9px] leading-3 text-text-faint">
               <button type="button" onClick={onBack} className="truncate hover:text-text-muted">{projectName}</button>
               <CaretRight weight="bold" className="shrink-0" />
-              {fromViewLabel && <><button type="button" onClick={onBack} className="truncate hover:text-text-muted">{fromViewLabel}</button><CaretRight weight="bold" className="shrink-0" /></>}
+              {fromViewLabel && (
+                <>
+                  <button type="button" onClick={onBack} className="truncate hover:text-text-muted">{fromViewLabel}</button>
+                  <CaretRight weight="bold" className="shrink-0" />
+                </>
+              )}
               <EntityRefLink
                 entityRef={`decision/${decision.decisionId}`}
                 onNavigate={onNavigateEntity}
@@ -136,13 +149,23 @@ export function DecisionDetailView({
           <dl data-testid="decision-identity-strip" className="grid w-full grid-cols-2 gap-px border-t border-border bg-border sm:grid-cols-3 lg:grid-cols-6">
             <IdentityItem label={t("views.decisionDetailView.identityDecision")} value={decision.legacyId ? `${decision.decisionId} · ${decision.legacyId}` : decision.decisionId} onClick={() => onNavigateEntity(`decision/${decision.decisionId}`)} />
             <IdentityItem label={t("views.decisionDetailView.identityVertical")} value={`${decision.vertical ?? "—"} · ${decision.preset ?? "—"}`} />
-            <IdentityItem label={t("views.decisionDetailView.identityScope")} value={`${decision.appliesTo?.modules.join(",") || "—"} · ${decision.appliesTo?.productLines.join(",") || "—"}`} />
-            <IdentityItem label={t("views.decisionDetailView.identityActors")} value={actorsLabel(decision)} content={<span className="flex flex-wrap items-center gap-x-1.5">
-              <ActorRef actor={decision.proposedBy} onNavigateEntity={onNavigateEntity} />
-              <span className="text-text-faint">·</span>
-              <ActorRef actor={decision.arbiter ?? null} onNavigateEntity={onNavigateEntity} />
-            </span>} />
-            <IdentityItem label={t("views.decisionDetailView.identityTimeline")} value={`${localDateTime(decision.proposedAt ?? "") ?? "—"} · ${localDateTime(decision.decidedAt ?? "") ?? "—"}`} />
+            <IdentityItem
+              label={t("views.decisionDetailView.identityScope")}
+              value={`${decision.appliesTo?.modules.join(",") || "—"} · ${decision.appliesTo?.productLines.join(",") || "—"}`}
+            />
+            <IdentityItem
+              label={t("views.decisionDetailView.identityActors")}
+              value={actorsLabel(decision)}
+              content={<span className="flex flex-wrap items-center gap-x-1.5">
+                <ActorRef actor={decision.proposedBy} onNavigateEntity={onNavigateEntity} />
+                <span className="text-text-faint">·</span>
+                <ActorRef actor={decision.arbiter ?? null} onNavigateEntity={onNavigateEntity} />
+              </span>}
+            />
+            <IdentityItem
+              label={t("views.decisionDetailView.identityTimeline")}
+              value={`${localDateTime(decision.proposedAt ?? "") ?? "—"} · ${localDateTime(decision.decidedAt ?? "") ?? "—"}`}
+            />
             <IdentityItem label={t("views.decisionDetailView.identityClass")} value={`${decision.decisionClass ?? "—"} · rev ${decision.workspaceRevision ?? "—"}`} />
           </dl>
         </details>
@@ -173,7 +196,13 @@ export function DecisionDetailView({
 
       <main className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
         <div className="mx-auto h-full w-full max-w-[72rem]">
-          <section id={`decision-panel-${activeTab}`} role="tabpanel" aria-labelledby={`decision-tab-${activeTab}`} className="min-h-0" data-testid={`decision-panel-${activeTab}`}>
+          <section
+            id={`decision-panel-${activeTab}`}
+            role="tabpanel"
+            aria-labelledby={`decision-tab-${activeTab}`}
+            className="min-h-0"
+            data-testid={`decision-panel-${activeTab}`}
+          >
             {activeTab === "body" ? <DecisionBodyPanel repoId={repoId} decisionId={decision.decisionId} />
               : activeTab === "overview" ? <OverviewPanel decision={decision} />
               : activeTab === "claims" ? <ClaimsPanel decision={decision} />
@@ -192,17 +221,27 @@ function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; decisionId:
     enabled: decisionId !== "",
     staleTime: 10_000,
   });
-  if (query.isPending) return <p data-testid="decision-body-loading" className="font-mono text-[12px] text-text-faint">{t("views.decisionDetailView.bodyLoading")}</p>;
-  if (query.isError) return <p data-testid="decision-body-error" className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 font-mono text-[12px] text-danger">
-    {t("views.decisionDetailView.bodyFailed", { detail: query.error instanceof Error ? query.error.message : String(query.error) })}
-  </p>;
-  if (query.data.status === "pending") return <p data-testid="decision-body-pending" className="rounded-md border border-stale/40 bg-stale/5 px-3 py-2 font-mono text-[12px] text-stale">
-    {t("views.decisionDetailView.bodyPending")}{query.data.hint ? ` · ${query.data.hint}` : ""}
-  </p>;
+  if (query.isPending) {
+    return <p data-testid="decision-body-loading" className="font-mono text-[12px] text-text-faint">
+      {t("views.decisionDetailView.bodyLoading")}
+    </p>;
+  }
+  if (query.isError) {
+    return <p data-testid="decision-body-error" className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 font-mono text-[12px] text-danger">
+      {t("views.decisionDetailView.bodyFailed", { detail: query.error instanceof Error ? query.error.message : String(query.error) })}
+    </p>;
+  }
+  if (query.data.status === "pending") {
+    return <p data-testid="decision-body-pending" className="rounded-md border border-stale/40 bg-stale/5 px-3 py-2 font-mono text-[12px] text-stale">
+      {t("views.decisionDetailView.bodyPending")}{query.data.hint ? ` · ${query.data.hint}` : ""}
+    </p>;
+  }
   const body = query.data.decision.body;
-  if (!body) return <p data-testid="decision-body-unavailable" className="rounded-md border border-border bg-surface-raised px-3 py-2 font-mono text-[12px] text-text-muted">
-    {t("views.decisionDetailView.bodyUnavailable")}
-  </p>;
+  if (!body) {
+    return <p data-testid="decision-body-unavailable" className="rounded-md border border-border bg-surface-raised px-3 py-2 font-mono text-[12px] text-text-muted">
+      {t("views.decisionDetailView.bodyUnavailable")}
+    </p>;
+  }
   return <DecisionBodyDocument source={body.body} resetKey={decisionId} />;
 }
 
@@ -219,11 +258,16 @@ function DecisionBodyDocument({ source, resetKey }: { source: string; resetKey: 
         </div>
       ))}
     </div>
-    {hidden > 0 && <button type="button" data-testid="decision-body-more"
-      onClick={() => setVisible((count) => Math.min(count + BODY_BLOCK_BATCH_SIZE, blocks.length))}
-      className="mt-3 w-full rounded-lg border border-dashed border-border px-4 py-2 font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text">
-      {t("views.decisionDetailView.bodyShowMore", { count: Math.min(BODY_BLOCK_BATCH_SIZE, hidden), remaining: hidden })}
-    </button>}
+    {hidden > 0 && (
+      <button
+        type="button"
+        data-testid="decision-body-more"
+        onClick={() => setVisible((count) => Math.min(count + BODY_BLOCK_BATCH_SIZE, blocks.length))}
+        className="mt-3 w-full rounded-lg border border-dashed border-border px-4 py-2 font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text"
+      >
+        {t("views.decisionDetailView.bodyShowMore", { count: Math.min(BODY_BLOCK_BATCH_SIZE, hidden), remaining: hidden })}
+      </button>
+    )}
   </div>;
 }
 
@@ -254,22 +298,30 @@ function OverviewPanel({ decision }: { decision: DecisionRow }) {
       <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">{t("views.decisionDetailView.question")}</span>
       <p className="mt-1 text-[13px] font-medium text-text">{decision.question}</p>
     </div>
-    {decision.chosen.length > 0 && <div className="rounded-md border border-accent/30 bg-accent/5 px-3 py-2">
-      <span className="font-mono text-[11px] uppercase tracking-wide text-accent">{t("views.decisionsVerdict.chosen")}</span>
-      {decision.chosen.map((option) => <div key={option.id} className="mt-1 text-[12px] leading-relaxed">
-        <span className="font-mono text-text-faint">{option.id} </span>
-        <span className="text-text">{option.text}</span>
-        {option.rationale && <p className="ml-4 text-[11px] text-text-muted">{option.rationale}</p>}
-      </div>)}
-    </div>}
-    {decision.rejected.length > 0 && <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2">
-      <span className="font-mono text-[11px] uppercase tracking-wide text-danger">{t("views.decisionsVerdict.rejected")}</span>
-      {decision.rejected.map((option) => <div key={option.id} className="mt-1 text-[12px] leading-relaxed">
-        <span className="font-mono text-text-faint">{option.id} </span>
-        <span className="text-text line-through opacity-70">{option.text}</span>
-        {option.whyNot && <p className="ml-4 text-[11px] italic text-text-muted">{t("views.decisionDetailView.whyNot")}: {option.whyNot}</p>}
-      </div>)}
-    </div>}
+    {decision.chosen.length > 0 && (
+      <div className="rounded-md border border-accent/30 bg-accent/5 px-3 py-2">
+        <span className="font-mono text-[11px] uppercase tracking-wide text-accent">{t("views.decisionsVerdict.chosen")}</span>
+        {decision.chosen.map((option) => (
+          <div key={option.id} className="mt-1 text-[12px] leading-relaxed">
+            <span className="font-mono text-text-faint">{option.id} </span>
+            <span className="text-text">{option.text}</span>
+            {option.rationale && <p className="ml-4 text-[11px] text-text-muted">{option.rationale}</p>}
+          </div>
+        ))}
+      </div>
+    )}
+    {decision.rejected.length > 0 && (
+      <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2">
+        <span className="font-mono text-[11px] uppercase tracking-wide text-danger">{t("views.decisionsVerdict.rejected")}</span>
+        {decision.rejected.map((option) => (
+          <div key={option.id} className="mt-1 text-[12px] leading-relaxed">
+            <span className="font-mono text-text-faint">{option.id} </span>
+            <span className="text-text line-through opacity-70">{option.text}</span>
+            {option.whyNot && <p className="ml-4 text-[11px] italic text-text-muted">{t("views.decisionDetailView.whyNot")}: {option.whyNot}</p>}
+          </div>
+        ))}
+      </div>
+    )}
   </div>;
 }
 
@@ -280,10 +332,14 @@ function ClaimsPanel({ decision }: { decision: DecisionRow }) {
       {decision.claims.length === 0
         ? <p className="mt-1 text-[12px] text-text-faint">{t("views.decisionDetailView.claimsEmpty")}</p>
         : <ul className="mt-1 list-inside list-disc text-[12px] text-text-muted">
-          {decision.claims.map((claim) => <li key={claim.id}>
-            <span className="font-mono text-text-faint">{claim.id} </span>{claim.text}
-            <span className="ml-1 font-mono text-[11px] text-text-faint">{t("views.decisionDetailView.fulfillment")}: {claim.fulfillment ?? "—"}{claim.loadBearing ? " · load-bearing" : ""}</span>
-          </li>)}
+          {decision.claims.map((claim) => (
+            <li key={claim.id}>
+              <span className="font-mono text-text-faint">{claim.id} </span>{claim.text}
+              <span className="ml-1 font-mono text-[11px] text-text-faint">
+                {t("views.decisionDetailView.fulfillment")}: {claim.fulfillment ?? "—"}{claim.loadBearing ? " · load-bearing" : ""}
+              </span>
+            </li>
+          ))}
         </ul>}
     </section>
     <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
@@ -291,17 +347,21 @@ function ClaimsPanel({ decision }: { decision: DecisionRow }) {
       {decision.judgmentConsents.length === 0
         ? <p className="mt-1 text-[12px] text-text-faint">{t("views.decisionDetailView.consentsEmpty")}</p>
         : <ul className="mt-1 space-y-1 font-mono text-[11px] text-text-muted">
-          {decision.judgmentConsents.map((consent) => <li key={consent.consentId}>
-            {consent.action} · {consent.consentId} · {consent.consentedAt}
-          </li>)}
+          {decision.judgmentConsents.map((consent) => (
+            <li key={consent.consentId}>{consent.action} · {consent.consentId} · {consent.consentedAt}</li>
+          ))}
         </ul>}
     </section>
-    {(decision.provenance?.length ?? 0) > 0 && <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
-      <h2 className="font-mono text-[11px] uppercase tracking-wide text-text-faint">{t("views.decisionsVerdict.provenance")}</h2>
-      <ul className="mt-1 space-y-1 font-mono text-[11px] text-text-muted">
-        {decision.provenance!.map((entry) => <li key={entry.sessionId}>{entry.runtime}:{entry.sessionId} · {localDateTime(entry.boundAt) ?? "—"}</li>)}
-      </ul>
-    </section>}
+    {(decision.provenance?.length ?? 0) > 0 && (
+      <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
+        <h2 className="font-mono text-[11px] uppercase tracking-wide text-text-faint">{t("views.decisionsVerdict.provenance")}</h2>
+        <ul className="mt-1 space-y-1 font-mono text-[11px] text-text-muted">
+          {decision.provenance!.map((entry) => (
+            <li key={entry.sessionId}>{entry.runtime}:{entry.sessionId} · {localDateTime(entry.boundAt) ?? "—"}</li>
+          ))}
+        </ul>
+      </section>
+    )}
   </div>;
 }
 
@@ -319,38 +379,54 @@ function RelationsPanel({ decision, tasks, relations, onNavigateDecision, onNavi
   const chain = supersedeChain(decision, relations);
   const derived = derivedTasks(decision, relations, tasks);
   return <div className="flex flex-col gap-3">
-    {(chain.supersedes.length > 0 || chain.supersededBy.length > 0) && <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-        {chain.supersedes.length > 0 && <span className="inline-flex items-center gap-1 font-mono text-danger">
-          {chain.supersedes.map((id) => <EntityRefLink key={id} entityRef={`decision/${id}`} onNavigate={() => onNavigateDecision(id)} title={id} className="text-danger hover:underline" />)}
-        </span>}
-        {chain.supersededBy.length > 0 && <span className="inline-flex items-center gap-1 font-mono text-stale">
-          {chain.supersededBy.map((id) => <EntityRefLink key={id} entityRef={`decision/${id}`} onNavigate={() => onNavigateDecision(id)} title={id} className="text-stale hover:underline" />)}
-        </span>}
-      </div>
-    </section>}
-    {derived.length > 0 && <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
-      <h2 className="font-mono text-[11px] uppercase tracking-wide text-text-faint">{t("views.decisionDetailView.derivedTasks")}</h2>
-      <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
-        {derived.map((task) => <span key={task.taskId} className="inline-flex items-center gap-1 font-mono text-text-muted">
-          {onNavigateTask
-            ? <EntityRefLink entityRef={`task/${task.taskId}`} onNavigate={() => onNavigateTask(task.taskId)} title={task.taskId} className="rounded bg-surface px-1 text-text-muted hover:text-accent hover:underline" />
-            : <span className="rounded bg-surface px-1">{task.taskId}</span>}
-          <span className="text-text-faint">{task.title}</span>
-        </span>)}
-      </div>
-    </section>}
+    {(chain.supersedes.length > 0 || chain.supersededBy.length > 0) && (
+      <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          {chain.supersedes.length > 0 && (
+            <span className="inline-flex items-center gap-1 font-mono text-danger">
+              {chain.supersedes.map((id) => (
+                <EntityRefLink key={id} entityRef={`decision/${id}`} onNavigate={() => onNavigateDecision(id)} title={id} className="text-danger hover:underline" />
+              ))}
+            </span>
+          )}
+          {chain.supersededBy.length > 0 && (
+            <span className="inline-flex items-center gap-1 font-mono text-stale">
+              {chain.supersededBy.map((id) => (
+                <EntityRefLink key={id} entityRef={`decision/${id}`} onNavigate={() => onNavigateDecision(id)} title={id} className="text-stale hover:underline" />
+              ))}
+            </span>
+          )}
+        </div>
+      </section>
+    )}
+    {derived.length > 0 && (
+      <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
+        <h2 className="font-mono text-[11px] uppercase tracking-wide text-text-faint">{t("views.decisionDetailView.derivedTasks")}</h2>
+        <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
+          {derived.map((task) => (
+            <span key={task.taskId} className="inline-flex items-center gap-1 font-mono text-text-muted">
+              {onNavigateTask
+                ? <EntityRefLink entityRef={`task/${task.taskId}`} onNavigate={() => onNavigateTask(task.taskId)} title={task.taskId} className="rounded bg-surface px-1 text-text-muted hover:text-accent hover:underline" />
+                : <span className="rounded bg-surface px-1">{task.taskId}</span>}
+              <span className="text-text-faint">{task.title}</span>
+            </span>
+          ))}
+        </div>
+      </section>
+    )}
     <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
       <h2 className="font-mono text-[11px] uppercase tracking-wide text-text-faint">{t("views.decisionDetailView.tabRelations")}</h2>
       {edges.length === 0
         ? <p className="mt-1 text-[12px] text-text-faint">{t("views.decisionDetailView.relationsEmpty")}</p>
         : <ul className="mt-1 space-y-1 font-mono text-[11px] text-text-muted">
-          {edges.map((edge) => <li key={edge.relationId} className="break-all">
-            <RefLink ref_={edge.from} self={self} onNavigateEntity={onNavigateEntity} onNavigateDecision={onNavigateDecision} />
-            <span className="mx-1 text-accent">--{edge.kind}--&gt;</span>
-            <RefLink ref_={edge.to} self={self} onNavigateEntity={onNavigateEntity} onNavigateDecision={onNavigateDecision} />
-            {edge.rationale && <span className="ml-1 text-text-faint">({edge.rationale})</span>}
-          </li>)}
+          {edges.map((edge) => (
+            <li key={edge.relationId} className="break-all">
+              <RefLink ref_={edge.from} self={self} onNavigateEntity={onNavigateEntity} onNavigateDecision={onNavigateDecision} />
+              <span className="mx-1 text-accent">--{edge.kind}--&gt;</span>
+              <RefLink ref_={edge.to} self={self} onNavigateEntity={onNavigateEntity} onNavigateDecision={onNavigateDecision} />
+              {edge.rationale && <span className="ml-1 text-text-faint">({edge.rationale})</span>}
+            </li>
+          ))}
         </ul>}
     </section>
   </div>;
@@ -381,11 +457,20 @@ function IdentityItem({ label, value, content, onClick }: { label: string; value
 function ActorRef({ actor, onNavigateEntity }: { actor: { kind: "agent" | "human" | "system"; id: string } | null | undefined; onNavigateEntity: (ref: string) => void }) {
   if (!actor) return <span className="text-text-muted">—</span>;
   if (actor.kind !== "agent") return <span className="text-text-muted">{`${actor.kind}:${actor.id}`}</span>;
-  return <EntityRefLink entityRef={`agent/${actor.id}`} onNavigate={() => onNavigateEntity(`agent/${actor.id}`)} title={actor.id} className="text-text-muted hover:text-accent hover:underline">
-    {`agent:${actor.id}`}
-  </EntityRefLink>;
+  return (
+    <EntityRefLink
+      entityRef={`agent/${actor.id}`}
+      onNavigate={() => onNavigateEntity(`agent/${actor.id}`)}
+      title={actor.id}
+      className="text-text-muted hover:text-accent hover:underline"
+    >
+      {`agent:${actor.id}`}
+    </EntityRefLink>
+  );
 }
 
 function actorsLabel(decision: DecisionRow): string {
-  return `${decision.proposedBy ? `${decision.proposedBy.kind}:${decision.proposedBy.id}` : "—"} · ${decision.arbiter ? `${decision.arbiter.kind}:${decision.arbiter.id}` : "—"}`;
+  const proposed = decision.proposedBy ? `${decision.proposedBy.kind}:${decision.proposedBy.id}` : "—";
+  const arbitrated = decision.arbiter ? `${decision.arbiter.kind}:${decision.arbiter.id}` : "—";
+  return `${proposed} · ${arbitrated}`;
 }
