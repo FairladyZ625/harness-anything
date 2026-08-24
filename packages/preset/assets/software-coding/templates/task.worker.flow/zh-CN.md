@@ -30,4 +30,6 @@
 
 - 只提交本次派活负责的文件。
 - 回报 commit、变更文件、验证结果和残余风险。
-- 除非派活明确授权，否则不要 push、merge 或创建 pull request。
+- 交付前先 rebase 到最新 `origin/main`，再重跑证据命令。
+- 本地 integration shard 必须带 `--exclude mergify-queue-metadata-edit-noop`。
+- 回执只经 `ha doc sync --submit --path tasks/<pkg>/artifacts/reports/<file>.md` 提交。

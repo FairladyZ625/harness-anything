@@ -30,4 +30,6 @@ Stop and report when scope, authority, required input, or a destructive choice i
 
 - Commit only files owned by this assignment.
 - Report the commit, changed files, verification, and residual risks.
-- Do not push, merge, or open a pull request unless explicitly authorized.
+- Before handoff, rebase onto the latest `origin/main` and rerun the evidence commands.
+- Run local integration shards with `--exclude mergify-queue-metadata-edit-noop`.
+- Submit receipts only through `ha doc sync --submit --path tasks/<pkg>/artifacts/reports/<file>.md`.
