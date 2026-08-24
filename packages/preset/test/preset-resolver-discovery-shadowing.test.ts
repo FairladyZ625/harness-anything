@@ -1,53 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  eventObjectTarget,
-  makeTaskEventStore,
-  makeTaskProjection,
-  serializeCanonicalEvent,
-  serializeEventHead,
-  sha256Text,
-  type TaskEventV1,
-} from "../../kernel/src/index.ts";
-import {
-  acceptBuiltinVerticalScriptPlan,
-  compilePresetSnapshotUpgrade,
   compileRepoTaskPackage,
-  compileRepositoryScaffold,
-  compileTaskBootstrap,
-  createCanonicalPresetResolver,
   installPresetPackage,
-  prepareBuiltinVerticalScriptExecution,
   runPresetAction,
-  uninstallPresetPackage,
 } from "../src/index.ts";
-import {
-  createRuntime,
-  decodePresetPackageV3,
-} from "../src/preset-resolver.ts";
 
-import {
-  git,
-  makeFixture,
-  templateCatalog,
-  write,
-  writePackage,
-} from "./preset-resolver.fixtures.ts";
+import { write, writePackage } from "./preset-resolver.fixtures.ts";
 test("template and script discovery expose builtin content with typed vertical execution", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-discovery-"));
   try {

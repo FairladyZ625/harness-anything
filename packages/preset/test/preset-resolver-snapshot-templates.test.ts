@@ -1,15 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,16 +22,10 @@ import {
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
 import {
-  acceptBuiltinVerticalScriptPlan,
   compilePresetSnapshotUpgrade,
-  compileRepoTaskPackage,
-  compileRepositoryScaffold,
   compileTaskBootstrap,
-  createCanonicalPresetResolver,
   installPresetPackage,
-  prepareBuiltinVerticalScriptExecution,
   runPresetAction,
-  uninstallPresetPackage,
 } from "../src/index.ts";
 import {
   createRuntime,
