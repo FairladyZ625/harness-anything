@@ -1,5 +1,8 @@
 // harness-test-tier: integration
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+import { beforeAll, describe, expect, it } from "vitest";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import type { DecisionRow, RelationEdge } from "../src/renderer/model/types.ts";
 import {
   buildGenealogyEdges,
@@ -10,6 +13,7 @@ import {
   findGenealogyCycles,
   timeMsOf,
 } from "../src/renderer/graph/genealogy.ts";
+import { ParticipantsSidebar } from "../src/renderer/views/genealogy/ParticipantsSidebar.tsx";
 
 function dec(overrides: Partial<DecisionRow> = {}): DecisionRow {
   return {
@@ -187,5 +191,134 @@ describe("genealogy time helpers", () => {
   it("dayKeyOf slices the date portion", () => {
     expect(dayKeyOf(dec({ proposedAt: "2026-08-13T10:00:00Z" }))).toBe("2026-08-13");
     expect(dayKeyOf(dec({ proposedAt: undefined } as any))).toBe("NO_TIME");
+  });
+});
+
+// 参与者侧栏 = 「出现在任意谱系边端点上的决策」去重,规模随台账谱系边被动累积
+// (本仓实测 252 行,见 ParticipantsSidebar 的 ROW_BATCH_SIZE 注释)。分批让 DOM 节点数
+// 与决策总量脱钩;标题计数报真实总数,按钮报出剩余条数,搜索仍在全量上过滤。
+describe("genealogy participants sidebar: row set is bounded", () => {
+  const noop = () => {};
+  beforeAll(() => { globalThis.IS_REACT_ACT_ENVIRONMENT = true; });
+
+  function sidebarRow(patch: Partial<DecisionRow>): DecisionRow {
+    // state 必须是 DecisionStateBadge 认识的词(单元夹具里的 "active" 不进 DOM 渲染路径)。
+    return { ...dec({ state: "in_effect" as DecisionRow["state"], ...patch }) } as DecisionRow;
+  }
+
+  async function renderSidebar(participants: ReadonlyArray<DecisionRow>) {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+      root.render(createElement(ParticipantsSidebar, {
+        participants, focusId: null, lineageSize: new Map(), onFocus: noop,
+      }));
+    });
+    const scope = () => container.querySelector('[data-testid="genealogy-participants-rows"]')!;
+    return {
+      container,
+      // 批量按钮也是容器的直接子 button,行数要把它排除掉。
+      rows: () => [...scope().querySelectorAll<HTMLButtonElement>(":scope > button")]
+        .filter((button) => button.dataset.testid !== "genealogy-participants-more"),
+      more: () => container.querySelector<HTMLButtonElement>('[data-testid="genealogy-participants-more"]'),
+      header: () => container.querySelector("aside > div")!.textContent ?? "",
+      input: () => container.querySelector<HTMLInputElement>("input")!,
+      async type(text: string) {
+        const input = container.querySelector<HTMLInputElement>("input")!;
+        await act(async () => {
+          const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+          set.call(input, text);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      },
+      async clickMore() {
+        await act(async () => { more(container)!.click(); });
+      },
+      unmount() {
+        act(() => { root.unmount(); });
+        container.remove();
+      },
+    };
+  }
+  function more(container: HTMLElement) {
+    return container.querySelector<HTMLButtonElement>('[data-testid="genealogy-participants-more"]');
+  }
+
+  it("bounds the initial row DOM and states how many rows it deferred", async () => {
+    const participants = Array.from({ length: 45 }, (_, index) =>
+      sidebarRow({ decisionId: `dec_${index}`, title: `Decision ${index}` }));
+    const view = await renderSidebar(participants);
+    try {
+      expect(view.rows()).toHaveLength(12);
+      expect(view.more()?.textContent?.trim()).toBe("再显示 12 条 · 还有 33 条");
+      // 标题计数报真实总数,不是渲染出来的行数——被推迟的行在界面上有交代。
+      expect(view.header()).toMatch(/参与者\s*45/u);
+    } finally { view.unmount(); }
+  });
+
+  // 负向断言:没超出一批时不许出现批量按钮。没有它,「无脑常显按钮」也能让上面那条变绿。
+  it("shows no batch button when the participants fit in one batch", async () => {
+    const participants = Array.from({ length: 5 }, (_, index) =>
+      sidebarRow({ decisionId: `dec_${index}`, title: `Decision ${index}` }));
+    const view = await renderSidebar(participants);
+    try {
+      expect(view.rows()).toHaveLength(5);
+      expect(view.more()).toBeNull();
+    } finally { view.unmount(); }
+  });
+
+  // 搜索语义不许变:needle 过滤发生在**全量** participants 上,再对过滤结果分批。
+  // 做成「先分批后搜索」的话,这里会渲染成「无匹配」——用户会以为搜不到。
+  it("filters the full participant list before batching", async () => {
+    const participants = [
+      ...Array.from({ length: 12 }, (_, index) =>
+        sidebarRow({ decisionId: `dec_alpha_${index}`, title: `Alpha ${index}` })),
+      ...Array.from({ length: 18 }, (_, index) =>
+        sidebarRow({ decisionId: `dec_probe_${index}`, title: `Probe ${index}` })),
+    ];
+    const view = await renderSidebar(participants);
+    try {
+      await view.type("probe");
+      // 命中的 18 行全部来自第一批之外,只有全量过滤才看得见它们。
+      const rows = view.rows().map((row) => row.textContent ?? "");
+      expect(rows).toHaveLength(12);
+      for (const text of rows) expect(text).toContain("Probe");
+      expect(view.more()?.textContent?.trim()).toBe("再显示 6 条 · 还有 6 条");
+      // 标题计数仍是全量参与者总数,不随搜索收窄。
+      expect(view.header()).toMatch(/参与者\s*30/u);
+    } finally { view.unmount(); }
+  });
+
+  it("reveals the next batch on click until the list is exhausted", async () => {
+    const participants = Array.from({ length: 30 }, (_, index) =>
+      sidebarRow({ decisionId: `dec_${index}`, title: `Decision ${index}` }));
+    const view = await renderSidebar(participants);
+    try {
+      await view.clickMore();
+      expect(view.rows()).toHaveLength(24);
+      expect(view.more()?.textContent?.trim()).toBe("再显示 6 条 · 还有 6 条");
+      await view.clickMore();
+      expect(view.rows()).toHaveLength(30);
+      expect(view.more()).toBeNull();
+    } finally { view.unmount(); }
+  });
+
+  // 展开状态不能跟着搜索词过去:换词 = 换掉行集全部组员,回到第一批。
+  it("resets the visible batch when the search query changes", async () => {
+    const participants = [
+      ...Array.from({ length: 12 }, (_, index) =>
+        sidebarRow({ decisionId: `dec_alpha_${index}`, title: `Alpha ${index}` })),
+      ...Array.from({ length: 18 }, (_, index) =>
+        sidebarRow({ decisionId: `dec_probe_${index}`, title: `Probe ${index}` })),
+    ];
+    const view = await renderSidebar(participants);
+    try {
+      await view.clickMore();
+      expect(view.rows()).toHaveLength(24);
+      await view.type("probe");
+      expect(view.rows()).toHaveLength(12);
+      expect(view.more()?.textContent?.trim()).toBe("再显示 6 条 · 还有 6 条");
+    } finally { view.unmount(); }
   });
 });
