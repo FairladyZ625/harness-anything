@@ -113,7 +113,7 @@ test("same-instance API-key launches keep the previous bearer during the next cr
         credentialLookups += 1;
         if (credentialLookups === 2)
           await new Promise((resolve) => setTimeout(resolve, 50));
-        return "instance-secret";
+        return credentialLookups === 1 ? "instance-secret" : "worker-secret";
       },
     });
     store.create({
@@ -129,11 +129,6 @@ test("same-instance API-key launches keep the previous bearer during the next cr
       codex: { baseUrl: "https://example.invalid/v1" },
       auth: { mode: "api-key", credentialRef: "credential:v1:codex-api-fanout" },
     });
-
-    await store.prepareLaunch("codex-api-fanout", {
-      cwd: "/workspace/repo",
-      prompt: "leader",
-    });
     const configPath = path.join(
       userRoot,
       "runtime-instances",
@@ -142,6 +137,13 @@ test("same-instance API-key launches keep the previous bearer during the next cr
       ".codex",
       "config.toml",
     );
+    assert.equal(existsSync(configPath), true);
+    assert.doesNotMatch(readFileSync(configPath, "utf8"), /experimental_bearer_token\s*=/u);
+
+    await store.prepareLaunch("codex-api-fanout", {
+      cwd: "/workspace/repo",
+      prompt: "leader",
+    });
     const workerLaunch = store.prepareLaunch("codex-api-fanout", {
       cwd: "/workspace/repo",
       prompt: "worker",
@@ -153,6 +155,14 @@ test("same-instance API-key launches keep the previous bearer during the next cr
       /experimental_bearer_token = "instance-secret"/u,
     );
     await workerLaunch;
+    assert.match(
+      readFileSync(configPath, "utf8"),
+      /experimental_bearer_token = "instance-secret"/u,
+    );
+    assert.doesNotMatch(
+      readFileSync(configPath, "utf8"),
+      /experimental_bearer_token = "worker-secret"/u,
+    );
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

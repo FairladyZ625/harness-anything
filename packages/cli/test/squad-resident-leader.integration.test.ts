@@ -233,6 +233,137 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
   }
 });
 
+test("same-instance API-key squad workers reuse the materialized bearer", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-squad-api-key-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    binRoot = path.join(parent, "bin");
+  mkdirSync(root, { recursive: true });
+  mkdirSync(binRoot, { recursive: true });
+  writeApiKeyProvider(path.join(binRoot, "codex"));
+  const credentialTool = writeCredentialTool(path.join(binRoot, "secret-tool"));
+  const env = {
+    ...process.env,
+    HOME: path.join(parent, "home"),
+    PATH: [
+      binRoot,
+      ...(process.env.PATH ?? "")
+        .split(path.delimiter)
+        .filter((entry) =>
+          ["codex", "codex.cmd", "codex.exe", "secret-tool"].every(
+            (name) => !existsSync(path.join(entry, name)),
+          ),
+        ),
+    ].join(path.delimiter),
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_ID: "squad-api-key-test",
+    HARNESS_ACTOR: "agent:squad-api-key-test",
+  };
+  try {
+    const stored = spawnSync(credentialTool, ["store", "squad-key"], {
+      encoding: "utf8",
+      env,
+      input: "squad-secret",
+    });
+    assert.equal(stored.status, 0, stored.stderr);
+    run(root, env, ["daemon", "start", "--service"]);
+    run(root, env, [
+      "init",
+      "--repo-id",
+      "squad-api-key",
+      "--person-id",
+      "owner",
+      "--display-name",
+      "Owner",
+    ]);
+    for (const id of ["fable", "terra", "luna"]) {
+      const source = path.join(parent, id);
+      writeIdentity(source, id, id === "fable" ? "Fable" : id === "terra" ? "Terra" : "Luna");
+      run(root, env, ["agent", "install", "--source", source]);
+    }
+    const squadSource = path.join(parent, "core-squad");
+    mkdirSync(squadSource, { recursive: true });
+    writeFileSync(
+      path.join(squadSource, "squad.json"),
+      JSON.stringify({
+        schema: "squad-declaration/v1",
+        id: "core-squad",
+        name: "Core Squad",
+        leader: "fable",
+        workers: ["terra", "luna"],
+        roster: "terra -> backend\nluna -> frontend",
+      }),
+    );
+    run(root, env, ["squad", "install", "--source", squadSource]);
+    run(root, env, [
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      "squad-api",
+      "--name",
+      "Squad API",
+      "--kind",
+      "codex",
+      "--provider",
+      "codex_local_access",
+      "--model",
+      "runtime-test-model",
+      "--base-url",
+      "http://127.0.0.1:1/v1",
+      "--wire-api",
+      "responses",
+      "--requires-openai-auth",
+      "--auth",
+      "api-key",
+      "--credential-ref",
+      "credential:v1:squad-key",
+    ]);
+    run(root, env, ["task", "create", "--id", "squad-api-task", "--admin", "--title", "Squad API run"]);
+    const withoutLease = runMaybe(root, env, [
+      "squad",
+      "run",
+      "core-squad",
+      "--instance",
+      "squad-api",
+      "--cwd",
+      ".",
+      "--task",
+      "squad-api-task",
+      "--prompt",
+      "ship without lease",
+    ]);
+    assert.equal(withoutLease.status, 1, JSON.stringify(withoutLease));
+    assert.equal(withoutLease.receipt.code, "runtime_task_lease_required");
+    run(root, env, ["task", "start", "squad-api-task", "--execution-id", "squad-api-execution"]);
+    const started = run(root, env, [
+      "squad",
+      "run",
+      "core-squad",
+      "--instance",
+      "squad-api",
+      "--cwd",
+      ".",
+      "--task",
+      "squad-api-task",
+      "--prompt",
+      "ship the API-key mission",
+    ]);
+    assert.equal(started.outcome, "running", JSON.stringify(started));
+    const current = pollSquadStatus(root, env, String(started.squadRunId));
+    assert.equal(current.status, "converged", JSON.stringify(current));
+    const workers = current.workers as Array<Record<string, unknown>>;
+    assert.deepEqual(workers.map((worker) => worker.workerId), ["terra", "luna"]);
+    assert.equal(workers.every((worker) => worker.status === "succeeded" && worker.exitCode === 0), true);
+    const configPath = path.join(userRoot, "runtime-instances", "squad-api", "home", ".codex", "config.toml");
+    assert.match(readFileSync(configPath, "utf8"), /experimental_bearer_token = "squad-secret"/u);
+    process.stdout.write(`squad-api-key-flow ${JSON.stringify({ squadRunId: current.squadRunId, workers })}\n`);
+  } finally {
+    runMaybe(root, env, ["daemon", "stop"]);
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 function pollSquadStatus(
   root: string,
   env: NodeJS.ProcessEnv,
@@ -414,6 +545,57 @@ if (initialLeader) {
   });
 }
 frame({ type: "turn.completed" });
+`,
+  );
+}
+
+function writeApiKeyProvider(target: string): void {
+  writeProviderExecutable(
+    target,
+    `const fs = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("codex api-key-test"); process.exit(0); }
+const prompt = fs.readFileSync(0, "utf8");
+const config = fs.readFileSync((process.env.CODEX_HOME || "") + "/config.toml", "utf8");
+if (!config.includes("experimental_bearer_token = \\"squad-secret\\"")) {
+  process.stderr.write("HTTP 401 API_KEY_REQUIRED\\n");
+  process.exit(1);
+}
+const frame = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
+const leader = prompt.includes("# Squad dispatch protocol") || prompt.includes("# Squad worker callback");
+const terra = prompt.includes("# Agent Identity: Terra (terra)");
+const luna = prompt.includes("# Agent Identity: Luna (luna)");
+frame({ type: "thread.started", thread_id: leader ? "leader-api-session" : terra ? "terra-api-session" : "luna-api-session" });
+if (prompt.includes("# Squad dispatch protocol")) {
+  frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ schema: "runtime-batch/v1", dispatches: [{ instance: "squad-api", to: "terra", prompt: "terra API mission" }, { instance: "squad-api", to: "luna", prompt: "luna API mission" }] }) } });
+} else if (prompt.includes("# Squad worker callback")) {
+  const running = /^worker .*status=running/mu.test(prompt);
+  frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(running ? { schema: "runtime-batch/v1", dispatches: [] } : { schema: "squad-decision/v1", action: "converged" }) } });
+} else {
+  frame({ type: "item.completed", item: { type: "agent_message", text: "worker output" } });
+  frame({ type: "item.completed", item: { type: "file_change", status: "completed", changes: [] } });
+}
+frame({ type: "turn.completed" });
+`,
+  );
+}
+
+function writeCredentialTool(target: string): string {
+  return writeProviderExecutable(
+    target,
+    `const fs = require("node:fs");
+const path = require("node:path");
+const file = path.join(path.dirname(process.argv[1]), "credential-store.json");
+const id = process.argv.at(-1);
+if (process.argv[2] === "store") {
+  let value = "";
+  process.stdin.on("data", (chunk) => value += chunk);
+  process.stdin.on("end", () => { fs.writeFileSync(file, JSON.stringify({ [id]: value })); });
+} else if (process.argv[2] === "lookup" && id) {
+  const values = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+  if (typeof values[id] !== "string") process.exit(1);
+  process.stdout.write(values[id]);
+} else process.exit(1);
 `,
   );
 }
