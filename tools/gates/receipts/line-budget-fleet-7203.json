@@ -1,0 +1,8 @@
+{
+  "decisionId": "dec_0F89CCF2438AACE2356F416CA0",
+  "scope": "module:fleet",
+  "kind": "line-budget",
+  "limit": 7203,
+  "expiry": "2027-08-24T00:00:00.000Z",
+  "signature": "70819ea56b029936821e9fc8edc9cc6086707a65dc0b0db0388980fe15a6d6ab"
+}
