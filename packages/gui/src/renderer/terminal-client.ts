@@ -22,6 +22,7 @@ export interface TerminalAttachInitial {
 }
 export interface TerminalSpawnInput {
   readonly idempotencyKey: string;
+  readonly backend: "direct-pty" | "tmux";
   readonly name?: string;
   readonly cwd: { readonly scope: "repo-root" } | { readonly scope: "repo-relative"; readonly path: string };
   readonly shellProfileId?: string;

@@ -1,86 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 
-/**
- * 终端 dock 拖拽 resize(移植老 main 线 dock-resize.ts,bottom 停靠特化)。
- *
- * 手柄在 dock 上缘:向上拖 = 变大。地板值保证 dock 永远不会缩成读不了的
- * 一条缝;天花板给主视图留出空间。键盘步进让无指针用户同样可操作。
- */
+export const DOCK_DEFAULT_HEIGHT = 352, DOCK_MIN_HEIGHT = 120, DOCK_RESERVE_HEIGHT = 160, DOCK_DEFAULT_WIDTH = 560, DOCK_MIN_WIDTH = 384, DOCK_RESERVE_WIDTH = 320, DOCK_KEYBOARD_STEP = 16;
 
-export const DOCK_DEFAULT_HEIGHT = 352;
-export const DOCK_MIN_HEIGHT = 120;
-/** 主视图保留高度:dock 再拖也吞不掉主内容区。 */
-export const DOCK_RESERVE_HEIGHT = 160;
-export const DOCK_KEYBOARD_STEP = 16;
+export function clampDockHeight(height: number, viewportHeight: number): number { return clamp(height, DOCK_MIN_HEIGHT, Math.max(DOCK_MIN_HEIGHT, viewportHeight - DOCK_RESERVE_HEIGHT)); }
+export function clampDockWidth(width: number, viewportWidth: number): number { return clamp(width, DOCK_MIN_WIDTH, Math.max(DOCK_MIN_WIDTH, viewportWidth - DOCK_RESERVE_WIDTH)); }
 
-export function clampDockHeight(height: number, viewportHeight: number): number {
-  const ceiling = Math.max(DOCK_MIN_HEIGHT, viewportHeight - DOCK_RESERVE_HEIGHT);
-  return Math.round(Math.min(Math.max(height, DOCK_MIN_HEIGHT), ceiling));
-}
-
-interface DragOrigin {
-  readonly pointerId: number;
-  readonly startY: number;
-  readonly startHeight: number;
-}
-
+interface DragOrigin { readonly pointerId: number; readonly coordinate: number; readonly size: number; readonly position: "bottom" | "right" }
+interface DockSizes { readonly height: number; readonly width: number }
 export interface DockResize {
-  readonly height: number;
-  readonly resizing: boolean;
+  readonly height: number; readonly width: number; readonly resizing: boolean;
   readonly onHandlePointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   readonly onHandlePointerMove: (event: ReactPointerEvent<HTMLElement>) => void;
   readonly onHandlePointerUp: (event: ReactPointerEvent<HTMLElement>) => void;
   readonly onHandleKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
 }
 
-export function useDockResize(): DockResize {
-  const [height, setHeight] = useState(DOCK_DEFAULT_HEIGHT);
-  const [resizing, setResizing] = useState(false);
-  const dragRef = useRef<DragOrigin | null>(null);
+export function useDockResize(input: { readonly position: "bottom" | "right"; readonly initialHeight?: number; readonly initialWidth?: number; readonly onSizesChange?: (sizes: DockSizes) => void }): DockResize {
+  const [sizes, setSizes] = useState<DockSizes>(() => ({ height: clampDockHeight(input.initialHeight ?? DOCK_DEFAULT_HEIGHT, window.innerHeight), width: clampDockWidth(input.initialWidth ?? DOCK_DEFAULT_WIDTH, window.innerWidth) })), [resizing, setResizing] = useState(false), dragRef = useRef<DragOrigin | null>(null), onSizesChangeRef = useRef(input.onSizesChange);
+  onSizesChangeRef.current = input.onSizesChange;
+  useEffect(() => { onSizesChangeRef.current?.(sizes); }, [sizes]);
+  useEffect(() => { const reclamp = () => setSizes((current) => ({ height: clampDockHeight(current.height, window.innerHeight), width: clampDockWidth(current.width, window.innerWidth) })); window.addEventListener("resize", reclamp); return () => window.removeEventListener("resize", reclamp); }, []);
+  useEffect(() => { dragRef.current = null; setResizing(false); }, [input.position]);
 
-  // 窗口缩小后 dock 不得超过新天花板。
-  useEffect(() => {
-    const reclamp = () => setHeight((current) => clampDockHeight(current, window.innerHeight));
-    window.addEventListener("resize", reclamp);
-    return () => window.removeEventListener("resize", reclamp);
-  }, []);
-
-  const onHandlePointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    event.preventDefault();
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startY: event.clientY,
-      startHeight: height,
-    };
-    setResizing(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }, [height]);
-
-  const onHandlePointerMove = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    setHeight(clampDockHeight(drag.startHeight + (drag.startY - event.clientY), window.innerHeight));
-  }, []);
-
-  const onHandlePointerUp = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    dragRef.current = null;
-    setResizing(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
-
-  const onHandleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
-    const grow = event.key === "ArrowUp";
-    const shrink = event.key === "ArrowDown";
-    if (!grow && !shrink) return;
-    event.preventDefault();
-    const delta = grow ? DOCK_KEYBOARD_STEP : -DOCK_KEYBOARD_STEP;
-    setHeight((current) => clampDockHeight(current + delta, window.innerHeight));
-  }, []);
-
-  return { height, resizing, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp, onHandleKeyDown };
+  const onHandlePointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => { event.preventDefault(); dragRef.current = { pointerId: event.pointerId, coordinate: input.position === "bottom" ? event.clientY : event.clientX, size: input.position === "bottom" ? sizes.height : sizes.width, position: input.position }; setResizing(true); event.currentTarget.setPointerCapture(event.pointerId); }, [input.position, sizes]);
+  const onHandlePointerMove = useCallback((event: ReactPointerEvent<HTMLElement>) => { const drag = dragRef.current; if (!drag || drag.pointerId !== event.pointerId) return; const coordinate = drag.position === "bottom" ? event.clientY : event.clientX, next = drag.size + drag.coordinate - coordinate; setSizes((current) => drag.position === "bottom" ? { ...current, height: clampDockHeight(next, window.innerHeight) } : { ...current, width: clampDockWidth(next, window.innerWidth) }); }, []);
+  const onHandlePointerUp = useCallback((event: ReactPointerEvent<HTMLElement>) => { const drag = dragRef.current; if (!drag || drag.pointerId !== event.pointerId) return; dragRef.current = null; setResizing(false); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }, []);
+  const onHandleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => { const grow = input.position === "bottom" ? event.key === "ArrowUp" : event.key === "ArrowLeft", shrink = input.position === "bottom" ? event.key === "ArrowDown" : event.key === "ArrowRight"; if (!grow && !shrink) return; event.preventDefault(); const delta = grow ? DOCK_KEYBOARD_STEP : -DOCK_KEYBOARD_STEP; setSizes((current) => input.position === "bottom" ? { ...current, height: clampDockHeight(current.height + delta, window.innerHeight) } : { ...current, width: clampDockWidth(current.width + delta, window.innerWidth) }); }, [input.position]);
+  return { height: sizes.height, width: sizes.width, resizing, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp, onHandleKeyDown };
 }
+
+function clamp(value: number, floor: number, ceiling: number): number { return Math.round(Math.min(Math.max(value, floor), ceiling)); }

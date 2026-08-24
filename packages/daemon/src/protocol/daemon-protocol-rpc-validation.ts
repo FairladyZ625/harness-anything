@@ -312,7 +312,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
     errors.push("runtime cancel request is invalid");
   if (method === "repo.gui.catalog.reread" && value.expectedDigest !== undefined && !digest(value.expectedDigest))
     errors.push("catalog reread digest is invalid");
-  if (method === "repo.terminal.spawn" && !exactCwd(value.cwd)) errors.push("terminal spawn cwd is invalid");
+  if (method === "repo.terminal.spawn" && (!exactCwd(value.cwd) || !["direct-pty", "tmux"].includes(String(value.backend)))) errors.push("terminal spawn request is invalid");
   if (method === "repo.terminal.input" && (!integer(value.clientSeq) || Number(value.clientSeq) < 0))
     errors.push("terminal input sequence is invalid");
   if (
