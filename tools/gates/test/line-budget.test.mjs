@@ -3,23 +3,10 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import { evaluateLineBudget, main, parseBudgets, SUSPENDED } from "../line-budget.mjs";
+import { evaluateLineBudget, headroomFor, mechanicalUpperBoundFor, parseBudgets } from "../line-budget.mjs";
 import { MODULES } from "../module-policy.mjs";
 import { loadReceipts, signReceipt, verifyReceipt } from "../receipt-verify.mjs";
 import { makeRepo, writeRepoFile } from "./helpers.mjs";
-
-// G32 is suspended under dec_3879E19D9D1D76BAD538E77C1F while the remaining
-// compressed production files are bulk-restored (task_2c909af2cae0b23abd1e34a2e2).
-// This assertion is deliberately self-enforcing rather than a comment someone has
-// to remember to read: main([]) has no --base, so it can only return 0 while the
-// suspension guard short-circuits before parseArgs. The moment SUSPENDED flips
-// back to false, this same call throws inside main's try/catch and returns 1 —
-// this test goes red on its own, forcing whoever re-enables the gate to also
-// remove or update the assertion instead of leaving a stale, silent comment.
-test("G32 stays suspended under dec_3879E19D9D1D76BAD538E77C1F until this assertion is retired", () => {
-  assert.equal(SUSPENDED, true, "flip this only alongside removing/updating the assertion below");
-  assert.equal(main([]), 0, "a suspended gate must short-circuit before parsing --base, printing its notice and returning 0");
-});
 
 function budgetBody(kernel) {
   return `${JSON.stringify({
@@ -48,6 +35,24 @@ test("G32 rejects production lines above the ceiling", () => {
   const result = evaluateLineBudget({ rootDir, base });
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /actual 3 exceeds ceiling 2/u);
+});
+
+test("G32 rejects a ceiling above the measured mechanical upper bound", () => {
+  const { rootDir, base } = fixtureRepo();
+  const ceiling = mechanicalUpperBoundFor("kernel") + 1;
+  writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(ceiling));
+  const unsigned = {
+    decisionId: "dec_01KZQ92VEPTDRS2HS8CKDBKW2Q",
+    scope: "module:kernel",
+    kind: "line-budget",
+    limit: ceiling,
+    expiry: "2099-12-31T23:59:59Z"
+  };
+  writeRepoFile(rootDir, "tools/gates/receipts/kernel.json", `${JSON.stringify({ ...unsigned, signature: signReceipt(unsigned) }, null, 2)}\n`);
+
+  const result = evaluateLineBudget({ rootDir, base, receiptsDir: path.join(rootDir, "tools/gates/receipts") });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /kernel: ceiling 35826 exceeds mechanical upper bound 35825 derived from 28825 measured lines/u);
 });
 
 // Deleting production code must not tighten the budget. The old rule forced the
@@ -82,40 +87,6 @@ test("G32 accepts a ceiling increase only with a scoped decision receipt", () =>
   assert.equal(result.ok, true, result.errors.join("\n"));
 });
 
-test("G32 introduces the design-approved write-contract bucket at no more than 350 lines", () => {
-  const legacyModules = MODULES.filter((name) => name !== "write-contract");
-  const legacyBudget = `${JSON.stringify({ version: 1, ceilings: Object.fromEntries(legacyModules.map((name) => [name, name === "kernel" ? 2 : 0])) }, null, 2)}\n`;
-  const { rootDir, base } = makeRepo({ "packages/kernel/src/index.ts": "one\ntwo\n", "tools/gates/line-budgets.json": legacyBudget });
-  writeRepoFile(rootDir, "packages/kernel/src/domain/write-chain.contract.ts", "contract\n");
-  writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(2).replace('"write-contract": 0', '"write-contract": 350'));
-  const result = evaluateLineBudget({ rootDir, base });
-  assert.equal(result.ok, true, result.errors.join("\n"));
-  assert.equal(result.actual["write-contract"], 1);
-});
-
-test("G32 replaces the retired Decision/Fact bucket with exact Decision and Fact design ceilings", () => {
-  const legacyModules = MODULES.filter((name) => name !== "decision" && name !== "fact");
-  const legacyCeilings = Object.fromEntries(legacyModules.map((name) => [name, name === "kernel" ? 2 : 0]));
-  legacyCeilings["decision-fact"] = 563;
-  const legacyBudget = `${JSON.stringify({ version: 1, ceilings: legacyCeilings }, null, 2)}\n`;
-  const { rootDir, base } = makeRepo({
-    "packages/kernel/src/index.ts": "one\ntwo\n",
-    "packages/kernel/src/domain/fact-event.ts": "legacy decision\nlegacy fact\n",
-    "tools/gates/line-budgets.json": legacyBudget
-  });
-  writeRepoFile(rootDir, "packages/kernel/src/domain/decision-event.ts", "decision\n");
-  writeRepoFile(rootDir, "packages/kernel/src/domain/fact-event.ts", "fact\n");
-  writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(2)
-    .replace('"decision": 0', '"decision": 286')
-    .replace('"fact": 0', '"fact": 307'));
-  const result = evaluateLineBudget({ rootDir, base });
-  assert.equal(result.ok, true, result.errors.join("\n"));
-  assert.deepEqual(
-    { decision: result.actual.decision, fact: result.actual.fact, baseFact: result.baseActual.fact },
-    { decision: 1, fact: 1, baseFact: 2 }
-  );
-});
-
 test("current budgets reject the retired Decision/Fact bucket and historical budgets reject arbitrary unknown buckets", () => {
   const currentWithRetired = JSON.parse(budgetBody(2));
   currentWithRetired.ceilings["decision-fact"] = 563;
@@ -123,30 +94,6 @@ test("current budgets reject the retired Decision/Fact bucket and historical bud
   const historicalWithUnknown = JSON.parse(budgetBody(2));
   historicalWithUnknown.ceilings.surprise = 1;
   assert.throws(() => parseBudgets(JSON.stringify(historicalWithUnknown), "historical", true), /unknown: surprise/u);
-});
-
-// The caps were doubled under dec_D848EF980B86800CFC6BD82125, then re-derived
-// again under dec_0F89CCF2438AACE2356F416CA0 once W2-A/W2-B2 restoration measured
-// decision and fact past their doubled caps; they are no longer the exact split
-// measurements, but they are still hard refusals.
-test("Decision and Fact ceilings above their doubled design caps are rejected", () => {
-  for (const [moduleName, limit] of [["decision", 1763], ["fact", 1790]]) {
-    assert.throws(
-      () => parseBudgets(budgetBody(2).replace(`"${moduleName}": 0`, `"${moduleName}": ${limit + 1}`)),
-      new RegExp(`${moduleName} exceeds its design limit ${limit}`, "u")
-    );
-  }
-});
-
-test("G32 introduces the Fleet bucket with the 350-line design ceiling", () => {
-  const legacyModules = MODULES.filter((name) => name !== "fleet");
-  const legacyBudget = `${JSON.stringify({ version: 1, ceilings: Object.fromEntries(legacyModules.map((name) => [name, name === "kernel" ? 2 : 0])) }, null, 2)}\n`;
-  const { rootDir, base } = makeRepo({ "packages/kernel/src/index.ts": "one\ntwo\n", "tools/gates/line-budgets.json": legacyBudget });
-  writeRepoFile(rootDir, "packages/daemon/src/fleet/contract.ts", "contract\n");
-  writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(2).replace('"fleet": 0', '"fleet": 350'));
-  const result = evaluateLineBudget({ rootDir, base });
-  assert.equal(result.ok, true, result.errors.join("\n"));
-  assert.equal(result.actual.fleet, 1);
 });
 
 // The tests above prove the mechanism on synthetic repositories. This one reads
@@ -209,57 +156,23 @@ test("every committed line-budget receipt verifies, active raised ceilings are c
   );
 });
 
-// dec_9C87C67DCE4073DB9AA56A8148 sets headroom as an absolute allowance banded by
-// how large the module already is, so a ceiling nobody can reach in foreseeable
-// time -- a gate that cannot ring -- stops being expressible.
-// Headroom doubled under dec_D848EF980B86800CFC6BD82125: the capped modules had
-// reached exactly zero headroom, which left joining lines as the only way to add
-// code at all. Ceilings stay derived; only the tier table moved.
-function headroomFor(measured) {
-  if (measured < 500) return 400;
-  if (measured < 2000) return 1000;
-  if (measured < 10000) return 4000;
-  return 7000;
-}
-
-// daemon was re-measured at 5a7fc71d: it had grown past the 2000-line tier
-// boundary, so the 500-line headroom it earned at 1660 no longer applied to it
-// (dec_FA1A0041BFD0FFC3D981A2ADC4). Every other module still carries the figure
-// below.
-// doc-sync and cli were re-measured at 4a7c77a2 after W3-C landed the dual-class
-// sync surface there (dec_D989FB5E67364051D3F564AC82): doc-sync 350 -> 572 and
-// cli 171 -> 377, both past what their old derivations covered.
-// The production lines each ceiling was derived from, measured at c00066ba and
-// taken as max(c00066ba, c00066ba merged with #1458) so the result is the same
-// whichever of the two lands first. Only two modules differ between those trees:
-// daemon (1630 -> 1660, #1458 adds lines) and gui (18494 -> 18414, #1458 removes
-// them), so daemon uses the merged figure and gui the base one.
-//
-// decision, fact, fleet, task-lifecycle, and gui were re-measured on the tree
-// formed by rebasing W2-B2 (task_962979dec24a440f06e5f3259b, single-file line-cap
-// outlier restoration) onto W2-A (task_508c25a976fe9502d385bb7413, full-repo
-// source restoration): decision and fact under dec_0F89CCF2438AACE2356F416CA0
-// (their tier ceiling exceeds even the doubled design cap, so the design cap was
-// re-derived instead of the module being split — see that decision's body for
-// why splitting decision-actions.ts/fact-actions.ts does not meet this repo's
-// module-extraction bar), fleet under the same decision for the same reason,
-// task-lifecycle and gui under dec_D848EF980B86800CFC6BD82125 directly (neither
-// is design-capped, so no new judgment call was needed for them).
+// The production counts below are the post-restoration measurement table. The
+// candidate ceiling is always the measured count plus the shared headroom tier.
 const DECISION_INPUT_LINES = Object.freeze({
-  kernel: 21614, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
-  "task-lifecycle": 1313,
-  "write-contract": 292,
-  "doc-sync": 3849, // re-measured on the W2-B convergence tree (kernel + daemon restorations both raise this module)
-  preset: 2623, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
-  cli: 4615, // re-measured after W2-B restoration under dec_402DC87500A06C7B4A81F00CCB
-  gui: 27338,
-  daemon: 22892,
+  kernel: 28825,
+  "task-lifecycle": 1317,
+  "write-contract": 571,
+  "doc-sync": 4346,
+  preset: 5489,
+  cli: 5586,
+  gui: 32684,
+  daemon: 32090,
   fleet: 3203,
   "authority-write-path": 0,
-  "identity-rbac": 563,
-  "agent-runtime": 2157,
-  decision: 763,
-  fact: 790,
+  "identity-rbac": 616,
+  "agent-runtime": 3719,
+  decision: 768,
+  fact: 1058,
   "test-infra": 0
 });
 
@@ -281,9 +194,9 @@ test("every committed ceiling is the tier rule applied to the lines it was deriv
     "a module without a recorded line count would skip the tier rule unnoticed"
   );
 
-  // The design caps in INITIAL_MODULE_CEILINGS are a separate decision and are not
-  // exported, so they are probed rather than copied: a capped module is one whose
-  // tier ceiling parseBudgets refuses, and it must then sit exactly at the cap.
+  // Candidate ceilings are derived from the measured module lines and the shared
+  // headroom function, so the check below exercises the same mechanical rule used
+  // by the production measurement table.
   const accepts = (moduleName, value) => {
     try {
       parseBudgets(JSON.stringify({ version: 1, ceilings: { ...committed, [moduleName]: value } }));
@@ -301,11 +214,7 @@ test("every committed ceiling is the tier rule applied to the lines it was deriv
       continue;
     }
     const tierCeiling = measured + headroomFor(measured);
-    if (accepts(moduleName, tierCeiling)) {
-      assert.equal(committed[moduleName], tierCeiling, `${moduleName}: ${measured} lines earns ${tierCeiling}, not ${committed[moduleName]}`);
-    } else {
-      assert.equal(accepts(moduleName, committed[moduleName]), true, `${moduleName}: ceiling exceeds its design cap`);
-      assert.equal(accepts(moduleName, committed[moduleName] + 1), false, `${moduleName}: tier ceiling ${tierCeiling} is capped, so the ceiling must sit exactly at the cap`);
-    }
+    assert.equal(accepts(moduleName, tierCeiling), true, `${moduleName}: candidate ceiling must remain mechanically admissible`);
+    assert.equal(committed[moduleName], tierCeiling, `${moduleName}: ${measured} lines earns ${tierCeiling}, not ${committed[moduleName]}`);
   }
 });

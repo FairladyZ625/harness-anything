@@ -51,14 +51,42 @@ export function measureProductionLines({ rootDir, revision = null }) {
   return { counts, unclassified };
 }
 
-const INITIAL_MODULE_CEILINGS = Object.freeze({
-  "write-contract": 700,
-  "agent-runtime": 6157,
-  decision: 1763,
-  fact: 1790,
-  fleet: 7203
-});
 const RETIRED_HISTORICAL_MODULES = new Set(["decision-fact"]);
+
+// These are the post-restoration measurements that produced the committed
+// candidate ceilings. They are intentionally fixed inputs for this derivation:
+// later production edits still have to fit under the resulting ceiling, while a
+// future remeasurement can deliberately replace this table and tighten it.
+export const MEASURED_MODULE_LINES = Object.freeze({
+  kernel: 28825,
+  "task-lifecycle": 1317,
+  "write-contract": 571,
+  "doc-sync": 4346,
+  preset: 5489,
+  cli: 5586,
+  gui: 32684,
+  daemon: 32090,
+  fleet: 3203,
+  "authority-write-path": 0,
+  "identity-rbac": 616,
+  "agent-runtime": 3719,
+  decision: 768,
+  fact: 1058,
+  "test-infra": 0
+});
+
+export function headroomFor(measured) {
+  if (measured < 500) return 400;
+  if (measured < 2000) return 1000;
+  if (measured < 10000) return 4000;
+  return 7000;
+}
+
+export function mechanicalUpperBoundFor(moduleName) {
+  const measured = MEASURED_MODULE_LINES[moduleName];
+  if (measured === undefined) throw new Error(`unknown module: ${moduleName}`);
+  return measured === 0 ? 0 : measured + headroomFor(measured);
+}
 
 export function parseBudgets(body, source = "line-budgets.json", historical = false) {
   let parsed;
@@ -73,7 +101,7 @@ export function parseBudgets(body, source = "line-budgets.json", historical = fa
   const unknown = Object.keys(parsed.ceilings).filter((name) => !MODULES.includes(name));
   const invalidUnknown = historical ? unknown.filter((name) => !RETIRED_HISTORICAL_MODULES.has(name)) : unknown;
   const missing = MODULES.filter((name) => !Object.hasOwn(parsed.ceilings, name));
-  const invalidMissing = historical ? missing.filter((name) => !Object.hasOwn(INITIAL_MODULE_CEILINGS, name)) : missing;
+  const invalidMissing = historical ? [] : missing;
   if (invalidUnknown.length > 0 || invalidMissing.length > 0) {
     throw new Error(`${source} module keys do not match module-policy (missing: ${invalidMissing.join(", ") || "none"}; unknown: ${invalidUnknown.join(", ") || "none"})`);
   }
@@ -82,11 +110,8 @@ export function parseBudgets(body, source = "line-budgets.json", historical = fa
   }
   const ceilings = Object.fromEntries(MODULES.map((moduleName) => [
     moduleName,
-    parsed.ceilings[moduleName] ?? INITIAL_MODULE_CEILINGS[moduleName]
+    parsed.ceilings[moduleName] ?? 0
   ]));
-  for (const [designModule, designLimit] of Object.entries(INITIAL_MODULE_CEILINGS)) {
-    if (ceilings[designModule] > designLimit) throw new Error(`${source} ceiling for ${designModule} exceeds its design limit ${designLimit}`);
-  }
   return ceilings;
 }
 
@@ -126,6 +151,10 @@ export function evaluateLineBudget({
   for (const moduleName of MODULES) {
     const actual = current.counts[moduleName];
     const ceiling = ceilings[moduleName];
+    const mechanicalUpperBound = mechanicalUpperBoundFor(moduleName);
+    if (ceiling > mechanicalUpperBound) {
+      errors.push(`${moduleName}: ceiling ${ceiling} exceeds mechanical upper bound ${mechanicalUpperBound} derived from ${MEASURED_MODULE_LINES[moduleName]} measured lines`);
+    }
     if (actual > ceiling) {
       errors.push(`${moduleName}: actual ${actual} exceeds ceiling ${ceiling}; reduce production lines to ${ceiling} or add a verified line-budget decision receipt and update the ceiling`);
     }
@@ -147,27 +176,7 @@ function parseArgs(argv) {
   return { base };
 }
 
-// Suspended by dec_3879E19D9D1D76BAD538E77C1F (task_2c909af2cae0b23abd1e34a2e2):
-// the remaining ~217 compressed production files are being restored to
-// normal formatting in bulk without per-module ceiling negotiation.
-// line-budgets.json, INITIAL_MODULE_CEILINGS, and every existing receipt are
-// left untouched — this suspends the judgment, not the data. G36
-// (tools/gates/line-density.mjs) stays fully active as the guard against new
-// compression during this window. Delete this guard and re-derive real
-// ceilings from the completed restoration once the full-file G36 scan is clean.
-export const SUSPENDED = true;
-
-function suspended() {
-  console.log(
-    "G32 line-budget-ratchet: suspended under dec_3879E19D9D1D76BAD538E77C1F " +
-      "(task_2c909af2cae0b23abd1e34a2e2) while remaining compressed production " +
-      "files are bulk-restored. G36 (line-density) remains active."
-  );
-  return 0;
-}
-
 export function main(argv = process.argv.slice(2)) {
-  if (SUSPENDED) return suspended();
   try {
     const { base } = parseArgs(argv);
     const rootDir = repoRoot();

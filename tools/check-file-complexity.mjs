@@ -2,24 +2,11 @@ import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 
-// Suspended by dec_3879E19D9D1D76BAD538E77C1F (task_2c909af2cae0b23abd1e34a2e2):
-// the remaining ~217 compressed production files are being restored to normal
-// formatting in bulk without per-file line-cap negotiation. G36
-// (tools/gates/line-density.mjs) stays fully active as the guard against new
-// compression during this window. Delete this guard and re-derive real tiers
-// from the completed restoration once the full-file G36 scan is clean.
-console.log(
-  "File complexity check suspended under dec_3879E19D9D1D76BAD538E77C1F " +
-    "(task_2c909af2cae0b23abd1e34a2e2) while remaining compressed production " +
-    "files are bulk-restored. G36 (line-density) remains active."
-);
-process.exit(0);
-
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
-const sourceMaxLines = 900;
-const testMaxLines = 2000;
-const toolMaxLines = 900;
+const sourceMaxLines = 1100;
+const testMaxLines = 1900;
+const toolMaxLines = 700;
 const violations = [];
 
 function relative(filePath) {

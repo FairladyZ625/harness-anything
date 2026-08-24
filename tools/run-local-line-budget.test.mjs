@@ -44,21 +44,7 @@ test("local line-budget refuses a repository without the canonical remote and gi
   }
 });
 
-// G32 itself is suspended under dec_3879E19D9D1D76BAD538E77C1F
-// (task_2c909af2cae0b23abd1e34a2e2) while the remaining compressed production
-// files are bulk-restored, so this runner still resolves and reports the base but
-// the gate behind it short-circuits. The two assertions this test carried about
-// G32's own output are preserved verbatim and must be restored when the
-// suspension is lifted:
-//
-//   assert.match(result.stdout, /kernel: 1\/1/u);
-//   assert.match(result.stdout, /G32 line-budget-ratchet: pass/u);
-//
-// Until then this asserts the suspension, so it is self-retiring: the moment
-// SUSPENDED flips back to false the notice stops being printed, this test goes
-// red, and whoever re-enables the gate is forced to restore the two lines above.
-// The base-resolution assertion is unaffected by the suspension and stays live.
-test("local line-budget fetches canonical main and reports that exact base while G32 is suspended", () => {
+test("local line-budget fetches canonical main and runs G32 with that exact base", () => {
   const { rootDir, base } = makeRepo({
     "packages/kernel/src/index.ts": "one\n",
     "tools/gates/line-budgets.json": budgetBody(1)
@@ -68,7 +54,8 @@ test("local line-budget fetches canonical main and reports that exact base while
     const result = spawnSync(process.execPath, [runnerPath], { cwd: rootDir, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, new RegExp(`Local line-budget base: origin/main ${base}`, "u"));
-    assert.match(result.stdout, /G32 line-budget-ratchet: suspended under dec_3879E19D9D1D76BAD538E77C1F/u);
+    assert.match(result.stdout, /kernel: 1\/1/u);
+    assert.match(result.stdout, /G32 line-budget-ratchet: pass/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
     rmSync(remoteRoot, { recursive: true, force: true });
