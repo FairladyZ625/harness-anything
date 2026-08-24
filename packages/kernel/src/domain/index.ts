@@ -1,5 +1,14 @@
 export { createTaskIdentity } from "./task.ts";
-export type { ActorAxes, Task, TaskIdentity, TaskId, EngineId, ExternalRef, IsoTimestamp, Sha256Fingerprint } from "./task.ts";
+export type {
+  ActorAxes,
+  Task,
+  TaskIdentity,
+  TaskId,
+  EngineId,
+  ExternalRef,
+  IsoTimestamp,
+  Sha256Fingerprint,
+} from "./task.ts";
 export { REPLAY_TASK_GRAPH } from "./task-graph.ts";
 export { TASK_LIFECYCLE_COMMAND_CATALOG } from "./task-lifecycle.contract.ts";
 export type {
@@ -7,7 +16,7 @@ export type {
   CreateReplayTaskCommand,
   RecordReviewCommand,
   StartExecutionCommand,
-  SubmitExecutionCommand
+  SubmitExecutionCommand,
 } from "./task-lifecycle.contract.ts";
 export type { TaskLifecycleCommandType } from "./task-write-decision.ts";
 
@@ -17,12 +26,25 @@ export type { ReviewVerdict } from "./review.ts";
 export { isPriorityTier, isTaskWorkKind, priorityTiers, taskWorkKinds } from "./task-metadata.ts";
 export type { PriorityTier, TaskWorkKind } from "./task-metadata.ts";
 
-export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts"; export type { CanonicalStatus, DomainStatus, StatusCoarseClass, StatusTransitionExplanation, StatusTransitionRejectionReason } from "./lifecycle-status.ts";
+export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts";
+export type {
+  CanonicalStatus,
+  DomainStatus,
+  StatusCoarseClass,
+  StatusTransitionExplanation,
+  StatusTransitionRejectionReason,
+} from "./lifecycle-status.ts";
 
 export { immutableBindingFields, validateLifecycleBindingInvariant } from "./lifecycle-binding.ts";
 export type { LifecycleBinding, BindingInvariantResult, ImmutableBindingField } from "./lifecycle-binding.ts";
 
-export { closeoutReadiness, closeoutReadinesses, currentExecutionCuts, currentSubmittedExecutions, isCloseoutReadiness } from "./closeout-readiness.ts";
+export {
+  closeoutReadiness,
+  closeoutReadinesses,
+  currentExecutionCuts,
+  currentSubmittedExecutions,
+  isCloseoutReadiness,
+} from "./closeout-readiness.ts";
 export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
 export { blockingOf } from "./task-blocking.ts";
 
@@ -31,18 +53,52 @@ export type { FreshnessReason, FreshnessReasonInput } from "./decision-coverage.
 
 export { summarizeWorkspace, workspaceTaskStatus } from "./workspace-summary.ts";
 
-export { DEFAULT_TASK_ROOT_THRESHOLD, DEFAULT_TASK_WIP_LIMIT, admitTaskExecutionWip, deriveTaskRoot, hasCloseoutEvidence, parseTaskWipLimit, taskWipOccupyingStatuses } from "./task-wip-policy.ts";
+export {
+  DEFAULT_TASK_ROOT_THRESHOLD,
+  DEFAULT_TASK_WIP_LIMIT,
+  admitTaskExecutionWip,
+  deriveTaskRoot,
+  hasCloseoutEvidence,
+  parseTaskWipLimit,
+  taskWipOccupyingStatuses,
+} from "./task-wip-policy.ts";
 export type { TaskWipSnapshotEntryV1 } from "./task-wip-policy.ts";
 
 export { findEntityRefs, parseEntityRef } from "./entity-ref.ts";
 export type { EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 
-export { decisionEntityId, decisionIdFromEntityId, moduleEntityId, moduleKeyFromEntityId, parseWriteEntityId, taskEntityId, taskIdFromEntityId } from "./entity-id.ts";
+export {
+  decisionEntityId,
+  decisionIdFromEntityId,
+  moduleEntityId,
+  moduleKeyFromEntityId,
+  parseWriteEntityId,
+  taskEntityId,
+  taskIdFromEntityId,
+} from "./entity-id.ts";
 export type { EntityId, ParsedWriteEntityId } from "./entity-id.ts";
 
-export { compileDecisionWrite, decisionDocumentProse, decisionMachineDigest, decisionStates, decisionWritePlan } from "./decision-event.ts";
-export type { DecisionAmendableSnapshot, DecisionEventDraftV1, DecisionEventV1, DecisionState } from "./decision-event.ts";
-export { compileFactWrite, factConfidenceLevels, factMemoryClasses, factMemoryTags, factWritePlan, isFactId } from "./fact-event.ts";
+export {
+  compileDecisionWrite,
+  decisionDocumentProse,
+  decisionMachineDigest,
+  decisionStates,
+  decisionWritePlan,
+} from "./decision-event.ts";
+export type {
+  DecisionAmendableSnapshot,
+  DecisionEventDraftV1,
+  DecisionEventV1,
+  DecisionState,
+} from "./decision-event.ts";
+export {
+  compileFactWrite,
+  factConfidenceLevels,
+  factMemoryClasses,
+  factMemoryTags,
+  factWritePlan,
+  isFactId,
+} from "./fact-event.ts";
 export type { FactConfidence, FactEventDraftV1, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
 
 export { createEntityKindRegistry, getEntityKind } from "./entity-kind-registry.ts";
@@ -51,7 +107,7 @@ export type {
   EntityKindRegistration,
   EntityKindRegistry,
   EntityPackageScaffold,
-  EntityRepositoryRootScaffold
+  EntityRepositoryRootScaffold,
 } from "./entity-kind-registry.ts";
 
 export {
@@ -64,7 +120,7 @@ export {
   relationStates,
   relationStrengths,
   relationTypes,
-  validateRelationRecordsForHost
+  validateRelationRecordsForHost,
 } from "./entity-relation.ts";
 export type {
   EntityRelationRecord,
@@ -74,15 +130,10 @@ export type {
   RelationOrigin,
   RelationState,
   RelationStrength,
-  RelationType
+  RelationType,
 } from "./entity-relation.ts";
 
-export type {
-  EngineError,
-  BindingInvariantError,
-  ArtifactStoreError,
-  TemplateLibraryError
-} from "./errors.ts";
+export type { EngineError, BindingInvariantError, ArtifactStoreError, TemplateLibraryError } from "./errors.ts";
 
 export { compileAgentEntityWrite, isAgentEntityEvent } from "./agent-entity-event.ts";
 
@@ -91,7 +142,7 @@ export {
   validateTemplateCatalog,
   validateVerticalDefinition,
   planTemplateMaterialization,
-  formatTemplateRef
+  formatTemplateRef,
 } from "./extension-model.ts";
 export type {
   ExtensionValidationIssue,
@@ -100,5 +151,5 @@ export type {
   MaterializedTemplatePlan,
   MaterializationResult,
   ExtensionInputKind,
-  TemplateBodyResolver
+  TemplateBodyResolver,
 } from "./extension-model.ts";

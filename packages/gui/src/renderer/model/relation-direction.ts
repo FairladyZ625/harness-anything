@@ -10,7 +10,11 @@ import type { RelationEdge, RelationKind } from "./types";
  * ratchet gate (tools/check-relation-canonical-direction.mjs) asserts their
  * agreement against every registry row, so the mirror cannot drift.
  */
-export function incomingRelations(targetRef: string, kind: RelationKind, relations: ReadonlyArray<RelationEdge>): ReadonlyArray<RelationEdge> {
+export function incomingRelations(
+  targetRef: string,
+  kind: RelationKind,
+  relations: ReadonlyArray<RelationEdge>,
+): ReadonlyArray<RelationEdge> {
   return relations.filter((relation) => relation.to === targetRef && relation.kind === kind);
 }
 
@@ -22,8 +26,14 @@ export function incomingRelations(targetRef: string, kind: RelationKind, relatio
  * current (e.g. "this fact is superseded" or contradicted) must compose this
  * predicate instead of re-deriving the criterion, so the two layers cannot drift.
  */
-export function activeIncomingRelations(targetRef: string, kind: RelationKind, relations: ReadonlyArray<RelationEdge>): ReadonlyArray<RelationEdge> {
-  return incomingRelations(targetRef, kind, relations).filter((edge) =>
-    /* @gate-identity check-gui-status-judgments/gui-status-032 */
-    edge.state === "active");
+export function activeIncomingRelations(
+  targetRef: string,
+  kind: RelationKind,
+  relations: ReadonlyArray<RelationEdge>,
+): ReadonlyArray<RelationEdge> {
+  return incomingRelations(targetRef, kind, relations).filter(
+    (edge) =>
+      /* @gate-identity check-gui-status-judgments/gui-status-032 */
+      edge.state === "active",
+  );
 }

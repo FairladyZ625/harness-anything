@@ -3,10 +3,23 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import { evaluateLineBudget, parseBudgets } from "../line-budget.mjs";
+import { evaluateLineBudget, main, parseBudgets, SUSPENDED } from "../line-budget.mjs";
 import { MODULES } from "../module-policy.mjs";
 import { loadReceipts, signReceipt, verifyReceipt } from "../receipt-verify.mjs";
 import { makeRepo, writeRepoFile } from "./helpers.mjs";
+
+// G32 is suspended under dec_3879E19D9D1D76BAD538E77C1F while the remaining
+// compressed production files are bulk-restored (task_2c909af2cae0b23abd1e34a2e2).
+// This assertion is deliberately self-enforcing rather than a comment someone has
+// to remember to read: main([]) has no --base, so it can only return 0 while the
+// suspension guard short-circuits before parseArgs. The moment SUSPENDED flips
+// back to false, this same call throws inside main's try/catch and returns 1 —
+// this test goes red on its own, forcing whoever re-enables the gate to also
+// remove or update the assertion instead of leaving a stale, silent comment.
+test("G32 stays suspended under dec_3879E19D9D1D76BAD538E77C1F until this assertion is retired", () => {
+  assert.equal(SUSPENDED, true, "flip this only alongside removing/updating the assertion below");
+  assert.equal(main([]), 0, "a suspended gate must short-circuit before parsing --base, printing its notice and returning 0");
+});
 
 function budgetBody(kernel) {
   return `${JSON.stringify({

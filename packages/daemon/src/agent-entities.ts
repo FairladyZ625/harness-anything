@@ -261,9 +261,9 @@ export function resolveSquadDispatchTarget(input: {
   if (matches.length > 1)
     throw entityError(
       "squad_member_ambiguous",
-      `Agent ${input.workerId} is declared in multiple squads for leader ${input.leaderId}: ${
-        matches.map(({ squadId }) => squadId).join(", ")
-      }.`,
+      `Agent ${input.workerId} is declared in multiple squads for leader ${input.leaderId}: ${matches
+        .map(({ squadId }) => squadId)
+        .join(", ")}.`,
     );
   return matches[0]!;
 }
@@ -315,7 +315,11 @@ export function prepareAgentEntityInstall(input: {
       decoded.issues[0]?.code ?? "invalid_entity_package",
       decoded.issues[0]?.message ?? "Entity package is invalid.",
     );
-  if (input.action.generatedOnly === true && input.action.validated !== true) throw entityError("agent_validation_required", "Generated Agent output must pass ha agent validate before install; rerun ha agent create so the harness can validate the structured declaration.");
+  if (input.action.generatedOnly === true && input.action.validated !== true)
+    throw entityError(
+      "agent_validation_required",
+      "Generated Agent output must pass ha agent validate before install; rerun ha agent create so the harness can validate the structured declaration.",
+    );
   const declaration = decoded.declaration,
     target = entityPath(input.rootDir, kind, declaration.id);
   if (input.action.generatedOnly === true && existsSync(target)) throw generatedAgentConflict(declaration.id);

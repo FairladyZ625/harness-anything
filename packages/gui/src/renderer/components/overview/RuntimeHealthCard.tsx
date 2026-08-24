@@ -35,10 +35,17 @@ function HealthRow({
         )}
         {label}
       </div>
-      <div className={`mt-1 font-mono text-[13px] ${ok === false ? "text-danger" : ok === null ? "text-text-faint" : "text-text"}`} title={detail}>
+      <div
+        className={`mt-1 font-mono text-[13px] ${ok === false ? "text-danger" : ok === null ? "text-text-faint" : "text-text"}`}
+        title={detail}
+      >
         {value}
       </div>
-      {detail && <div className="mt-0.5 truncate font-mono text-[11px] text-text-faint" title={detail}>{detail}</div>}
+      {detail && (
+        <div className="mt-0.5 truncate font-mono text-[11px] text-text-faint" title={detail}>
+          {detail}
+        </div>
+      )}
     </div>
   );
 }
@@ -63,19 +70,20 @@ const CELL_LABEL: Record<string, string> = {
  * 信号面见 model/runtime-health.ts——全部来自现有可读面,零 daemon 改动;
  * 2026-08-21 daemon 冻死那类停摆会以「观测年龄持续增长 → 无响应」显影。
  */
-export function RuntimeHealthCard({
-  health,
-  onOpenSystem,
-}: {
-  health: RuntimeHealth;
-  onOpenSystem: () => void;
-}) {
+export function RuntimeHealthCard({ health, onOpenSystem }: { health: RuntimeHealth; onOpenSystem: () => void }) {
   const worst = runtimeHealthWorst(health);
   return (
     <div className="flex flex-col gap-2" data-testid="runtime-health-card">
       <div className="flex items-center gap-2">
-        <span className={`font-mono text-[12px] font-semibold ${HEALTH_TONE[worst]}`} data-testid="runtime-health-worst">
-          {worst === "ok" ? t("views.overviewView.healthAllGreen") : worst === "degraded" ? t("views.overviewView.healthDegraded") : t("views.overviewView.healthDown")}
+        <span
+          className={`font-mono text-[12px] font-semibold ${HEALTH_TONE[worst]}`}
+          data-testid="runtime-health-worst"
+        >
+          {worst === "ok"
+            ? t("views.overviewView.healthAllGreen")
+            : worst === "degraded"
+              ? t("views.overviewView.healthDegraded")
+              : t("views.overviewView.healthDown")}
         </span>
         <span className="font-mono text-[11px] text-text-faint">
           {t("views.overviewView.healthObservedAge", { age: ageText(health.daemon.observedAgeSec) })}
@@ -97,15 +105,21 @@ export function RuntimeHealthCard({
                 ? t("views.overviewView.healthUnresponsive")
                 : t("views.overviewView.healthUnknown")
           }
-          detail={health.daemon.uptimeMs === null ? undefined : `${t("views.overviewView.healthUptime")} ${formatUptimeMs(health.daemon.uptimeMs)}`}
+          detail={
+            health.daemon.uptimeMs === null
+              ? undefined
+              : `${t("views.overviewView.healthUptime")} ${formatUptimeMs(health.daemon.uptimeMs)}`
+          }
         />
         <HealthRow
           label={t("views.overviewView.healthCell")}
           ok={health.cell.state === "attached" ? true : health.cell.state === "unavailable" ? false : null}
           value={CELL_LABEL[health.cell.state] ?? health.cell.state}
           detail={
-            health.cell.problem
-              ?? (health.cell.queueDepth === null ? undefined : t("views.overviewView.healthQueueDepth", { depth: health.cell.queueDepth }))
+            health.cell.problem ??
+            (health.cell.queueDepth === null
+              ? undefined
+              : t("views.overviewView.healthQueueDepth", { depth: health.cell.queueDepth }))
           }
         />
         <HealthRow
@@ -130,7 +144,7 @@ export function RuntimeHealthCard({
           label={t("views.overviewView.healthLedgerChange")}
           ok={null}
           value={health.ledgerChange.at ? ageText(health.ledgerChange.ageSec) : t("views.overviewView.healthNever")}
-          detail={health.ledgerChange.at ? localDateTime(health.ledgerChange.at, true) ?? undefined : undefined}
+          detail={health.ledgerChange.at ? (localDateTime(health.ledgerChange.at, true) ?? undefined) : undefined}
         />
       </div>
     </div>

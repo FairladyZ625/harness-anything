@@ -71,7 +71,7 @@ export function evaluateFileTarget(policy: TrustPolicy, targetPath: string): Tru
   return {
     action: "deny",
     reason: "file_target_outside_allowed_roots",
-    detail: targetPath
+    detail: targetPath,
   };
 }
 
@@ -105,12 +105,15 @@ export function evaluateExternalUrlTarget(policy: TrustPolicy, targetUrl: string
   return { action: "deny", reason: "external_url_denied", detail: targetUrl };
 }
 
-export function evaluateTerminalOutputLink(policy: TrustPolicy, request: TerminalOutputLinkRequest): TrustPolicyDecision {
+export function evaluateTerminalOutputLink(
+  policy: TrustPolicy,
+  request: TerminalOutputLinkRequest,
+): TrustPolicyDecision {
   if (!request.userGesture) {
     return {
       action: "deny",
       reason: "terminal_link_requires_user_gesture",
-      detail: request.target
+      detail: request.target,
     };
   }
 
@@ -138,8 +141,8 @@ function invalidPolicy(hint: string): TrustPolicyValidationResult {
     ok: false,
     error: {
       code: "invalid_trust_policy",
-      hint
-    }
+      hint,
+    },
   };
 }
 

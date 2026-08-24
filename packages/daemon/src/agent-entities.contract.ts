@@ -78,7 +78,13 @@ export function validateAgentDeclarationV1(value: unknown): readonly string[] {
     errors.push('agent declaration field "name" must be a non-empty string.');
   if (Object.hasOwn(value, "instructions") && !entityNonEmpty(value.instructions))
     errors.push('agent declaration field "instructions" must be a non-empty string.');
-  if (Object.hasOwn(value, "runtime_type") && (typeof value.runtime_type !== "string" || !isRuntimeTypeIdentifier(value.runtime_type))) errors.push('agent declaration field "runtime_type" must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.');
+  if (
+    Object.hasOwn(value, "runtime_type") &&
+    (typeof value.runtime_type !== "string" || !isRuntimeTypeIdentifier(value.runtime_type))
+  )
+    errors.push(
+      'agent declaration field "runtime_type" must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.',
+    );
   if (value.role !== undefined && !["worker", "commander"].includes(String(value.role)))
     errors.push('agent declaration field "role" must be worker or commander.');
   if (value.model !== undefined && !entityNonEmpty(value.model))

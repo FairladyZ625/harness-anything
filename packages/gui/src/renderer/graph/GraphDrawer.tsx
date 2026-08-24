@@ -1,11 +1,6 @@
 import { X, GitBranch, ArrowSquareOut, ArrowsOutSimple } from "@phosphor-icons/react";
 import type { RelationEdge } from "../model/types";
-import {
-  StatusBadge,
-  CloseoutBadge,
-  EngineBadge,
-  FreshnessTag,
-} from "../components/badges";
+import { StatusBadge, CloseoutBadge, EngineBadge, FreshnessTag } from "../components/badges";
 import { isExternal } from "../model/types";
 import { KIND_LABEL, KIND_LABEL_IN } from "./constants";
 import { resolveTaskModule, moduleDisplayLabel } from "./moduleAssignment";
@@ -15,8 +10,7 @@ import type { DecisionRow, FactRef } from "../model/types";
 import { t } from "../i18n/index.tsx";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 
-const truncate = (s: string, n: number) =>
-  s.length > n ? `${s.slice(0, n - 1)}…` : s;
+const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 interface Props {
   focusNode?: NodePos;
@@ -51,9 +45,7 @@ export function GraphDrawer({
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
           <span className="font-mono text-xs text-text-muted">{t("graph.graphDrawer.edgeRelation")}</span>
-          <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-faint">
-            {focusEdge.kind}
-          </span>
+          <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-faint">{focusEdge.kind}</span>
           <button
             onClick={onClose}
             title={t("graph.graphDrawer.exitFocusEsc")}
@@ -67,45 +59,43 @@ export function GraphDrawer({
             {t("graph.graphDrawer.edgeKindMessage", { kind: KIND_LABEL[focusEdge.kind] ?? focusEdge.kind })}
           </p>
           <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 flex flex-col gap-2 text-[11px] text-text-muted">
-             <div className="flex min-w-0 flex-wrap items-center gap-1">
-               <span className="font-bold text-text">{t("graph.graphDrawer.from")}</span>{" "}
-               <EntityRefLink
-                 entityRef={focusEdge.from}
-                 onNavigate={onNavigateEntity ?? (() => onFocus(endpointToNodeId(focusEdge.from)))}
-                 title={focusEdge.from}
-                 className="break-all font-mono text-[11px] text-accent hover:underline"
-               />
-             </div>
-             <div className="flex min-w-0 flex-wrap items-center gap-1">
-               <span className="font-bold text-text">{t("graph.graphDrawer.to")}</span>{" "}
-               <EntityRefLink
-                 entityRef={focusEdge.to}
-                 onNavigate={onNavigateEntity ?? (() => onFocus(endpointToNodeId(focusEdge.to)))}
-                 title={focusEdge.to}
-                 className="break-all font-mono text-[11px] text-accent hover:underline"
-               />
-             </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
+              <span className="font-bold text-text">{t("graph.graphDrawer.from")}</span>{" "}
+              <EntityRefLink
+                entityRef={focusEdge.from}
+                onNavigate={onNavigateEntity ?? (() => onFocus(endpointToNodeId(focusEdge.from)))}
+                title={focusEdge.from}
+                className="break-all font-mono text-[11px] text-accent hover:underline"
+              />
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
+              <span className="font-bold text-text">{t("graph.graphDrawer.to")}</span>{" "}
+              <EntityRefLink
+                entityRef={focusEdge.to}
+                onNavigate={onNavigateEntity ?? (() => onFocus(endpointToNodeId(focusEdge.to)))}
+                title={focusEdge.to}
+                className="break-all font-mono text-[11px] text-accent hover:underline"
+              />
+            </div>
           </div>
           {focusEdge.provenance && (
-             <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 flex flex-col gap-1">
-               <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                 {t("graph.graphDrawer.provenance")}
-               </span>
-               <div className="font-mono text-[11px] text-text-muted">
-                 {focusEdge.provenance}
-               </div>
-             </div>
+            <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 flex flex-col gap-1">
+              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                {t("graph.graphDrawer.provenance")}
+              </span>
+              <div className="font-mono text-[11px] text-text-muted">{focusEdge.provenance}</div>
+            </div>
           )}
           <div className="flex gap-2">
-            <button 
-               onClick={() => onFocus(endpointToNodeId(focusEdge.from))}
-               className="flex-1 rounded border border-border px-2 py-1.5 text-xs text-text-muted hover:bg-surface-raised hover:text-text"
+            <button
+              onClick={() => onFocus(endpointToNodeId(focusEdge.from))}
+              className="flex-1 rounded border border-border px-2 py-1.5 text-xs text-text-muted hover:bg-surface-raised hover:text-text"
             >
               {t("graph.graphDrawer.jumpSourceNode")}
             </button>
-            <button 
-               onClick={() => onFocus(endpointToNodeId(focusEdge.to))}
-               className="flex-1 rounded border border-border px-2 py-1.5 text-xs text-text-muted hover:bg-surface-raised hover:text-text"
+            <button
+              onClick={() => onFocus(endpointToNodeId(focusEdge.to))}
+              className="flex-1 rounded border border-border px-2 py-1.5 text-xs text-text-muted hover:bg-surface-raised hover:text-text"
             >
               {t("graph.graphDrawer.jumpTargetNode")}
             </button>
@@ -135,18 +125,10 @@ export function GraphDrawer({
           title={focusNode.id}
           className="font-mono text-xs text-accent hover:underline"
         />
-        <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-faint">
-          {focusNode.entity}
-        </span>
+        <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-faint">{focusNode.entity}</span>
         {onNavigateEntity && (
           <button
-            onClick={() =>
-              onNavigateEntity(
-                focusNode.entity === "task"
-                  ? `task/${focusNode.id}`
-                  : focusNode.id,
-              )
-            }
+            onClick={() => onNavigateEntity(focusNode.entity === "task" ? `task/${focusNode.id}` : focusNode.id)}
             title={t("graph.graphDrawer.openSidebarTaskDetailsDecisionDecisionPool")}
             className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-strong hover:text-text"
           >
@@ -175,7 +157,11 @@ export function GraphDrawer({
             </div>
             <FreshnessTag freshness={focusTask.freshness} lastKnownAt={focusTask.lastKnownAt} />
             <div className="flex gap-3 font-mono text-[11px] text-text-muted">
-              <span>{t("graph.graphDrawer.moduleValue", { module: moduleDisplayLabel(resolveTaskModule(focusTask.module)) })}</span>
+              <span>
+                {t("graph.graphDrawer.moduleValue", {
+                  module: moduleDisplayLabel(resolveTaskModule(focusTask.module)),
+                })}
+              </span>
               <span>{t("graph.graphDrawer.rawValue", { raw: focusTask.rawStatus })}</span>
             </div>
           </>
@@ -186,10 +172,13 @@ export function GraphDrawer({
               return (
                 <>
                   <div className="flex items-center gap-2 font-mono text-[11px]">
-                    <span className="rounded bg-accent px-1.5 py-0.5 text-accent-fg">
-                      {dec.state}
+                    <span className="rounded bg-accent px-1.5 py-0.5 text-accent-fg">{dec.state}</span>
+                    <span className="text-text-muted">
+                      {t("graph.graphDrawer.riskUrgency", {
+                        risk: dec.riskTier ?? t("graph.graphDrawer.unknown"),
+                        urgency: dec.urgency ?? t("graph.graphDrawer.unknown"),
+                      })}
                     </span>
-                    <span className="text-text-muted">{t("graph.graphDrawer.riskUrgency", { risk: dec.riskTier ?? t("graph.graphDrawer.unknown"), urgency: dec.urgency ?? t("graph.graphDrawer.unknown") })}</span>
                   </div>
                   <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
                     <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
@@ -202,8 +191,10 @@ export function GraphDrawer({
                       <span className="font-mono text-[10px] uppercase tracking-wide text-accent">
                         {t("graph.graphDrawer.chosen")}
                       </span>
-                      {dec.chosen.map(c => (
-                        <p key={c.id} className="text-[12px] text-text mt-1">{c.text}</p>
+                      {dec.chosen.map((c) => (
+                        <p key={c.id} className="text-[12px] text-text mt-1">
+                          {c.text}
+                        </p>
                       ))}
                     </div>
                   )}
@@ -213,7 +204,7 @@ export function GraphDrawer({
                         {t("graph.graphDrawer.claims")}
                       </span>
                       <ul className="list-inside list-disc text-[12px] text-text-muted mt-1">
-                        {dec.claims.map(c => (
+                        {dec.claims.map((c) => (
                           <li key={c.id}>{c.text}</li>
                         ))}
                       </ul>
@@ -230,9 +221,7 @@ export function GraphDrawer({
               return (
                 <>
                   <div className="flex items-center gap-2 font-mono text-[11px]">
-                    <span className="rounded bg-stale px-1.5 py-0.5 text-stale-fg">
-                      {fact.category}
-                    </span>
+                    <span className="rounded bg-stale px-1.5 py-0.5 text-stale-fg">{fact.category}</span>
                     <span className="text-text-muted">@ {fact.at}</span>
                   </div>
                   <div className="rounded-md border border-stale/30 bg-stale/5 px-2.5 py-3">
@@ -246,26 +235,26 @@ export function GraphDrawer({
                       {t("graph.graphDrawer.anchorDetails")}
                     </span>
                     <div className="flex flex-col gap-0.5 font-mono text-[11px] text-text-muted">
-                       <div className="flex min-w-0 flex-wrap items-center gap-1">
-                         <span className="text-text-faint">{t("graph.graphDrawer.anchorTaskLabel")}</span>{" "}
-                         <EntityRefLink
-                           entityRef={`task/${fact.taskId}`}
-                           onNavigate={onNavigateEntity ?? (() => onFocus(focusId))}
-                           title={fact.taskId}
-                           className="text-accent hover:underline"
-                         />
-                       </div>
-                       <div className="flex min-w-0 flex-wrap items-center gap-1">
-                         <span className="text-text-faint">{t("graph.graphDrawer.anchorLabel")}</span>{" "}
-                         <EntityRefLink
-                           entityRef={`fact/${fact.taskId}/${fact.anchor.split("/")[1] ?? ""}`}
-                           onNavigate={onNavigateEntity ?? (() => onFocus(focusId))}
-                           title={fact.anchor}
-                           className="break-all text-accent hover:underline"
-                         >
-                           {fact.anchor}
-                         </EntityRefLink>
-                       </div>
+                      <div className="flex min-w-0 flex-wrap items-center gap-1">
+                        <span className="text-text-faint">{t("graph.graphDrawer.anchorTaskLabel")}</span>{" "}
+                        <EntityRefLink
+                          entityRef={`task/${fact.taskId}`}
+                          onNavigate={onNavigateEntity ?? (() => onFocus(focusId))}
+                          title={fact.taskId}
+                          className="text-accent hover:underline"
+                        />
+                      </div>
+                      <div className="flex min-w-0 flex-wrap items-center gap-1">
+                        <span className="text-text-faint">{t("graph.graphDrawer.anchorLabel")}</span>{" "}
+                        <EntityRefLink
+                          entityRef={`fact/${fact.taskId}/${fact.anchor.split("/")[1] ?? ""}`}
+                          onNavigate={onNavigateEntity ?? (() => onFocus(focusId))}
+                          title={fact.anchor}
+                          className="break-all text-accent hover:underline"
+                        >
+                          {fact.anchor}
+                        </EntityRefLink>
+                      </div>
                     </div>
                   </div>
                 </>
@@ -274,7 +263,8 @@ export function GraphDrawer({
           </div>
         ) : (
           <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 text-[11px] text-text-muted">
-            {focusNode.entity}{t("graph.graphDrawer.node")}
+            {focusNode.entity}
+            {t("graph.graphDrawer.node")}
           </div>
         )}
 

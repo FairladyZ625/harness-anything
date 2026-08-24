@@ -1,8 +1,4 @@
-import type {
-  ArtifactStore,
-  ProjectionWarning,
-  TaskProjectionRow
-} from "../../kernel/src/index.ts";
+import type { ArtifactStore, ProjectionWarning, TaskProjectionRow } from "../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
 export { commandReceiptEnvelope } from "./command-receipt.ts";
 export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope } from "./command-receipt.ts";
@@ -13,7 +9,7 @@ export type {
   TaskLeaseRenewInput,
   TaskLifecycleServiceProof,
   TaskLifecycleService,
-  TaskLifecycleServiceRead
+  TaskLifecycleServiceRead,
 } from "./task-lifecycle-service.ts";
 export { makeDecisionService } from "./decision-service.ts";
 export { FactServiceError, makeFactService } from "./fact-service.ts";
@@ -109,8 +105,16 @@ export interface ExecutionIdPayload {
   readonly executionId: string;
 }
 
-export interface ProjectionJsonObject { readonly [key: string]: ProjectionJsonValue }
-export type ProjectionJsonValue = string | number | boolean | null | ReadonlyArray<ProjectionJsonValue> | ProjectionJsonObject;
+export interface ProjectionJsonObject {
+  readonly [key: string]: ProjectionJsonValue;
+}
+export type ProjectionJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ReadonlyArray<ProjectionJsonValue>
+  | ProjectionJsonObject;
 
 export interface ExecutionProjectionRow {
   readonly executionId: string;

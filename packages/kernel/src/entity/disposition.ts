@@ -62,9 +62,19 @@ export function evaluateEntityDisposition(request: EntityDispositionRequest): En
   const childTasks = childTasksForEntity(request, request.entityRef);
   const cascade = cascadeImpactFromProjection(request.entityRef, graph.edges, graph.factAnchors, childTasks);
   const destructive = matrixEntry.level === "D3" || matrixEntry.level === "D4";
-  const blockedByLowerBound = destructive && (cascade.incoming.length > 0 || cascade.anchoredFacts.length > 0 || cascade.childTasks.length > 0);
+  const blockedByLowerBound =
+    destructive && (cascade.incoming.length > 0 || cascade.anchoredFacts.length > 0 || cascade.childTasks.length > 0);
   if (!matrixEntry.supported) {
-    return evaluation(request.entityRef, entityKind, request.action, matrixEntry.level, false, matrixEntry.reason, matrixEntry.writeOpKinds, cascade);
+    return evaluation(
+      request.entityRef,
+      entityKind,
+      request.action,
+      matrixEntry.level,
+      false,
+      matrixEntry.reason,
+      matrixEntry.writeOpKinds,
+      cascade,
+    );
   }
   if (blockedByLowerBound) {
     return evaluation(
@@ -75,35 +85,53 @@ export function evaluateEntityDisposition(request: EntityDispositionRequest): En
       false,
       [
         `${request.entityRef} has ${cascade.anchoredFacts.length} anchored fact(s), ${cascade.incoming.length} active incoming relation(s), and ${cascade.childTasks.length} child task(s); D3/D4 disposition is blocked by the lower-bound rule.`,
-        "E79 defines delete as stage containment: distill evidence into an anchor task, reconnect facts/decisions to that anchor, then run ha task archive <id> --reason <reason>; archive/delete/supersede child tasks before hard delete; hard delete has no --cascade escape hatch."
+        "E79 defines delete as stage containment: distill evidence into an anchor task, reconnect facts/decisions to that anchor, then run ha task archive <id> --reason <reason>; archive/delete/supersede child tasks before hard delete; hard delete has no --cascade escape hatch.",
       ].join(" "),
       matrixEntry.writeOpKinds,
-      cascade
+      cascade,
     );
   }
-  return evaluation(request.entityRef, entityKind, request.action, matrixEntry.level, true, matrixEntry.reason, matrixEntry.writeOpKinds, cascade);
+  return evaluation(
+    request.entityRef,
+    entityKind,
+    request.action,
+    matrixEntry.level,
+    true,
+    matrixEntry.reason,
+    matrixEntry.writeOpKinds,
+    cascade,
+  );
 }
 
-export function readEntityCascadeImpact(options: EntityDispositionOptions & { readonly entityRef: string }): EntityCascadeImpact {
+export function readEntityCascadeImpact(
+  options: EntityDispositionOptions & { readonly entityRef: string },
+): EntityCascadeImpact {
   const projection = readRelationGraphProjection(options);
-  return cascadeImpactFromProjection(options.entityRef, projection.edges, projection.factAnchors, childTasksForEntity(options, options.entityRef));
+  return cascadeImpactFromProjection(
+    options.entityRef,
+    projection.edges,
+    projection.factAnchors,
+    childTasksForEntity(options, options.entityRef),
+  );
 }
 
 export function evaluateImplicitDispositionRecommendations(
-  options: ImplicitDispositionEvaluation
+  options: ImplicitDispositionEvaluation,
 ): ReadonlyArray<ImplicitDispositionRecommendation> {
   const projection = readRelationGraphProjection(options);
   const activeEdges = projection.edges.filter((edge) => edge.state === "active");
   const recommendations: ImplicitDispositionRecommendation[] = [];
   for (const entityRef of uniqueSorted(options.affectedEntityRefs)) {
     const entityKind = entityKindFromRef(entityRef);
-    const incidentCount = activeEdges.filter((edge) => refMatchesEntity(edge.sourceRef, entityRef) || refMatchesEntity(edge.targetRef, entityRef)).length;
+    const incidentCount = activeEdges.filter(
+      (edge) => refMatchesEntity(edge.sourceRef, entityRef) || refMatchesEntity(edge.targetRef, entityRef),
+    ).length;
     if (incidentCount > 0) continue;
     recommendations.push({
       entityRef,
       entityKind,
       reason: `${entityRef} has no active relation after a relation graph change; disposition review is recommended, not automatic`,
-      recommendedActions: nonDestructiveSupportedActions(entityKind)
+      recommendedActions: nonDestructiveSupportedActions(entityKind),
     });
   }
   return recommendations;
@@ -117,7 +145,7 @@ function evaluation(
   allowed: boolean,
   reason: string,
   writeOpKinds: ReadonlyArray<string>,
-  cascade: EntityCascadeImpact
+  cascade: EntityCascadeImpact,
 ): EntityDispositionEvaluation {
   return {
     entityRef,
@@ -131,9 +159,10 @@ function evaluation(
       activeIncomingCount: cascade.incoming.length,
       activeAnchoredFactCount: cascade.anchoredFacts.length,
       childTaskCount: cascade.childTasks.length,
-      blocksDestructiveDisposition: cascade.incoming.length > 0 || cascade.anchoredFacts.length > 0 || cascade.childTasks.length > 0
+      blocksDestructiveDisposition:
+        cascade.incoming.length > 0 || cascade.anchoredFacts.length > 0 || cascade.childTasks.length > 0,
     },
-    cascade
+    cascade,
   };
 }
 
@@ -141,7 +170,7 @@ function cascadeImpactFromProjection(
   entityRef: string,
   edges: ReadonlyArray<RelationGraphEdgeRow>,
   factAnchors: ReadonlyArray<FactAnchorRow>,
-  childTasks: ReadonlyArray<TaskProjectionRow>
+  childTasks: ReadonlyArray<TaskProjectionRow>,
 ): EntityCascadeImpact {
   const incoming = activeSorted(edges.filter((edge) => edgeHasIncomingToEntity(edge, entityRef)));
   const outgoing = activeSorted(edges.filter((edge) => edgeHasOutgoingFromEntity(edge, entityRef)));
@@ -155,8 +184,8 @@ function cascadeImpactFromProjection(
     impactedRefs: uniqueSorted([
       ...anchoredFacts.map((fact) => fact.factRef),
       ...childTasks.map((child) => `task/${child.taskId}`),
-      ...[...incoming, ...outgoing].flatMap((edge) => otherEndpointRefs(edge, entityRef))
-    ])
+      ...[...incoming, ...outgoing].flatMap((edge) => otherEndpointRefs(edge, entityRef)),
+    ]),
   };
 }
 
@@ -166,7 +195,10 @@ function childTasksForEntity(options: EntityDispositionOptions, entityRef: strin
   return queryTaskChildren({ ...options, parentTaskId: entity.id }).rows;
 }
 
-function activeAnchoredFacts(entityRef: string, factAnchors: ReadonlyArray<FactAnchorRow>): ReadonlyArray<FactAnchorRow> {
+function activeAnchoredFacts(
+  entityRef: string,
+  factAnchors: ReadonlyArray<FactAnchorRow>,
+): ReadonlyArray<FactAnchorRow> {
   const entity = parseEntityRef(entityRef);
   if (!entity || entity.externalHarness || entity.kind !== "task") return [];
   return factAnchors

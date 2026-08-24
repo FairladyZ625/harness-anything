@@ -29,12 +29,7 @@ export const TimelinePlot = memo(function TimelinePlot({
   const { width, height, ticks, cycleWarning } = layout;
   return (
     <div className="relative min-w-full" style={{ width: Math.max(width, 480), minHeight: height }}>
-      <svg
-        className="absolute inset-0"
-        width={Math.max(width, 480)}
-        height={height}
-        style={{ pointerEvents: "none" }}
-      >
+      <svg className="absolute inset-0" width={Math.max(width, 480)} height={height} style={{ pointerEvents: "none" }}>
         {/* 深度刻度 */}
         {ticks.map((tick, i) => (
           <g key={`tick-${i}`}>
@@ -98,9 +93,7 @@ export const TimelinePlot = memo(function TimelinePlot({
             style={{ left: node.x, top: node.y, width: CLUSTER_W, height: CLUSTER_H }}
             title={`${node.clusterSize} 条同日决策 · 点击展开`}
           >
-            <span className="font-mono text-[20px] font-bold text-text-faint">
-              {node.clusterSize}
-            </span>
+            <span className="font-mono text-[20px] font-bold text-text-faint">{node.clusterSize}</span>
             <span className="font-mono text-[11px] text-text-faint">
               {(node.dayKey ?? "").slice(5)} · {expandedDays.has(node.dayKey!) ? "收起" : "展开"}
             </span>
@@ -142,9 +135,7 @@ const DecisionCard = memo(function DecisionCard({
         <DecisionStateBadge state={decision.state} />
         <span className="ml-auto font-mono text-[11px] text-text-faint">{node.dayKey?.slice(5)}</span>
       </div>
-      <span className="line-clamp-3 text-[11px] font-medium leading-snug text-text">
-        {decision.title}
-      </span>
+      <span className="line-clamp-3 text-[11px] font-medium leading-snug text-text">{decision.title}</span>
     </button>
   );
 });

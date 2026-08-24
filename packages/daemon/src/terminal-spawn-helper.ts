@@ -15,14 +15,28 @@ import { consumeKnownError } from "../../kernel/src/index.ts";
  * spawn error still surfaces through the terminal control receipt. Returns the
  * repaired path, or null when nothing needed repair or the helper is unreachable.
  */
-export function ensurePtySpawnHelperExecutable(input: { readonly anchorDir?: string; readonly platform?: NodeJS.Platform; readonly arch?: NodeJS.Architecture } = {}): string | null {
+export function ensurePtySpawnHelperExecutable(
+  input: { readonly anchorDir?: string; readonly platform?: NodeJS.Platform; readonly arch?: NodeJS.Architecture } = {},
+): string | null {
   try {
     // realpath: mkdtemp-style installs (and macOS /var symlinks) otherwise
     // produce a candidate path that never matches the file on disk.
-    const anchorDir = input.anchorDir ?? path.dirname(fileURLToPath(import.meta.url)), packageRoot = path.dirname(realpathSync(createRequire(path.join(anchorDir, "package.json")).resolve("node-pty/package.json")));
-    const helper = path.join(packageRoot, "prebuilds", `${input.platform ?? process.platform}-${input.arch ?? process.arch}`, "spawn-helper"), mode = statSync(helper).mode;
+    const anchorDir = input.anchorDir ?? path.dirname(fileURLToPath(import.meta.url)),
+      packageRoot = path.dirname(
+        realpathSync(createRequire(path.join(anchorDir, "package.json")).resolve("node-pty/package.json")),
+      );
+    const helper = path.join(
+        packageRoot,
+        "prebuilds",
+        `${input.platform ?? process.platform}-${input.arch ?? process.arch}`,
+        "spawn-helper",
+      ),
+      mode = statSync(helper).mode;
     if ((mode & 0o111) !== 0) return null;
     chmodSync(helper, mode | 0o111);
     return helper;
-  } catch (error) { consumeKnownError(error); return null; }
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
 }

@@ -1,6 +1,7 @@
 import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-012 */
-  execFileSync } from "node:child_process";
+  execFileSync,
+} from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { findEntityRefs } from "../domain/index.ts";
@@ -9,16 +10,39 @@ import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readScalar } from "../markdown/frontmatter.ts";
 import { readColdRebuildSource } from "./cold-rebuild-source.ts";
-import { buildRelationGraphProjection, detectRelationGraphCycles, validateRelationGraphRecords, type EventBackedRelationTruth } from "./relation-graph-projection.ts";
-import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
+import {
+  buildRelationGraphProjection,
+  detectRelationGraphCycles,
+  validateRelationGraphRecords,
+  type EventBackedRelationTruth,
+} from "./relation-graph-projection.ts";
+import type {
+  ProjectionCheckAxisReport,
+  ProjectionCheckReport,
+  ProjectionWarning,
+  ProjectionWarningCode,
+  ProjectionWarningSource,
+} from "./types.ts";
 import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
-export function runPostMergeChecks(rootInput: HarnessLayoutInput, eventTruth: EventBackedRelationTruth | null = null): ReadonlyArray<ProjectionWarning> {
+export function runPostMergeChecks(
+  rootInput: HarnessLayoutInput,
+  eventTruth: EventBackedRelationTruth | null = null,
+): ReadonlyArray<ProjectionWarning> {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
-  const source = readMarkdownSource(rootInput), relationTruth = convergeTruth(readColdRebuildSource(rootInput).truth, eventTruth ?? emptyEventTruth());
+  const source = readMarkdownSource(rootInput),
+    relationTruth = convergeTruth(readColdRebuildSource(rootInput).truth, eventTruth ?? emptyEventTruth());
   const warnings: ProjectionWarning[] = [];
-  if (eventTruth === null) warnings.push(hardFail("generated-cache", "relation_truth_unavailable", "Post-merge checks require an identity-bound TaskProjection relation truth source.", "Build or pass the current TaskProjection relation truth before running post-merge checks."));
+  if (eventTruth === null)
+    warnings.push(
+      hardFail(
+        "generated-cache",
+        "relation_truth_unavailable",
+        "Post-merge checks require an identity-bound TaskProjection relation truth source.",
+        "Build or pass the current TaskProjection relation truth before running post-merge checks.",
+      ),
+    );
   warnings.push(...findDuplicateTaskIds(rootDir, source.entries));
   warnings.push(...findDuplicateExternalBindings(source.entries));
   warnings.push(...findTrackedGeneratedFiles(rootDir));
@@ -31,31 +55,56 @@ export function runPostMergeChecks(rootInput: HarnessLayoutInput, eventTruth: Ev
   return warnings;
 }
 
-function emptyEventTruth(): EventBackedRelationTruth { return { factAnchors: [], decisionAnchors: [], edges: [], coverageRows: [] }; }
+function emptyEventTruth(): EventBackedRelationTruth {
+  return { factAnchors: [], decisionAnchors: [], edges: [], coverageRows: [] };
+}
 
-function convergeTruth(authored: EventBackedRelationTruth, event: EventBackedRelationTruth): EventBackedRelationTruth { const unique = <T>(rows: readonly T[], key: (row: T) => string): readonly T[] => [...new Map(rows.map((row) => [key(row), row])).values()]; return { factAnchors: unique([...authored.factAnchors, ...event.factAnchors], (row) => row.factRef), decisionAnchors: unique([...authored.decisionAnchors, ...event.decisionAnchors], (row) => row.decisionRef), edges: unique([...authored.edges, ...event.edges], (row) => row.relationId), coverageRows: unique([...authored.coverageRows, ...event.coverageRows], (row) => row.claimRef) }; }
+function convergeTruth(authored: EventBackedRelationTruth, event: EventBackedRelationTruth): EventBackedRelationTruth {
+  const unique = <T>(rows: readonly T[], key: (row: T) => string): readonly T[] => [
+    ...new Map(rows.map((row) => [key(row), row])).values(),
+  ];
+  return {
+    factAnchors: unique([...authored.factAnchors, ...event.factAnchors], (row) => row.factRef),
+    decisionAnchors: unique([...authored.decisionAnchors, ...event.decisionAnchors], (row) => row.decisionRef),
+    edges: unique([...authored.edges, ...event.edges], (row) => row.relationId),
+    coverageRows: unique([...authored.coverageRows, ...event.coverageRows], (row) => row.claimRef),
+  };
+}
 
-export function warning(source: ProjectionWarningSource, code: ProjectionWarningCode, message: string, repairHint: string): ProjectionWarning {
+export function warning(
+  source: ProjectionWarningSource,
+  code: ProjectionWarningCode,
+  message: string,
+  repairHint: string,
+): ProjectionWarning {
   return {
     code,
     source,
     severity: "warning",
     message,
-    repairHint
+    repairHint,
   };
 }
 
-export function hardFail(source: ProjectionWarningSource, code: ProjectionWarningCode, message: string, repairHint: string): ProjectionWarning {
+export function hardFail(
+  source: ProjectionWarningSource,
+  code: ProjectionWarningCode,
+  message: string,
+  repairHint: string,
+): ProjectionWarning {
   return {
     code,
     source,
     message,
     severity: "hard-fail",
-    repairHint
+    repairHint,
   };
 }
 
-function findDuplicateTaskIds(rootDir: string, entries: ReadonlyArray<TaskSourceEntry>): ReadonlyArray<ProjectionWarning> {
+function findDuplicateTaskIds(
+  rootDir: string,
+  entries: ReadonlyArray<TaskSourceEntry>,
+): ReadonlyArray<ProjectionWarning> {
   const seen = new Map<string, string>();
   const warnings: ProjectionWarning[] = [];
   for (const entry of entries) {
@@ -63,12 +112,14 @@ function findDuplicateTaskIds(rootDir: string, entries: ReadonlyArray<TaskSource
     const source = sourcePath(rootDir, entry.indexPath);
     const previous = seen.get(taskId);
     if (previous) {
-      warnings.push(hardFail(
-        "source-package",
-        "duplicate_task_id",
-        `Duplicate task_id ${taskId} in ${previous} and ${source}.`,
-        "Regenerate one task package with a new random task_<ULID> identity; do not hand-edit IDs to merge packages."
-      ));
+      warnings.push(
+        hardFail(
+          "source-package",
+          "duplicate_task_id",
+          `Duplicate task_id ${taskId} in ${previous} and ${source}.`,
+          "Regenerate one task package with a new random task_<ULID> identity; do not hand-edit IDs to merge packages.",
+        ),
+      );
     } else {
       seen.set(taskId, source);
     }
@@ -87,12 +138,14 @@ function findDuplicateExternalBindings(entries: ReadonlyArray<TaskSourceEntry>):
     const taskId = readScalar(entry.frontmatter, "task_id") || entry.taskId;
     const previous = seen.get(key);
     if (previous) {
-      warnings.push(hardFail(
-        "source-package",
-        "duplicate_external_binding",
-        `External binding ${key} is used by ${previous} and ${taskId}.`,
-        "Keep exactly one package for each external engine/ref binding and relink or remove the duplicate package."
-      ));
+      warnings.push(
+        hardFail(
+          "source-package",
+          "duplicate_external_binding",
+          `External binding ${key} is used by ${previous} and ${taskId}.`,
+          "Keep exactly one package for each external engine/ref binding and relink or remove the duplicate package.",
+        ),
+      );
     } else {
       seen.set(key, taskId);
     }
@@ -107,15 +160,17 @@ function findTrackedGeneratedFiles(rootDir: string): ReadonlyArray<ProjectionWar
       execFileSync(
         "git",
         ["-C", rootDir, "ls-files", "--", ".harness", ".journal", ".projection.sqlite", ".adopt-claims"],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
       ).trim();
     if (output.length === 0) return [];
-    return [hardFail(
-      "collaboration-gate",
-      "generated_tracked",
-      "Generated local harness files are tracked by git.",
-      "Remove .harness/, legacy .journal/, legacy .projection.sqlite, and legacy .adopt-claims/ files from git; rebuild generated projections locally."
-    )];
+    return [
+      hardFail(
+        "collaboration-gate",
+        "generated_tracked",
+        "Generated local harness files are tracked by git.",
+        "Remove .harness/, legacy .journal/, legacy .projection.sqlite, and legacy .adopt-claims/ files from git; rebuild generated projections locally.",
+      ),
+    ];
   } catch {
     return [];
   }
@@ -132,12 +187,14 @@ function findTamperedBindings(entries: ReadonlyArray<TaskSourceEntry>): Readonly
     const expected = `sha256:${stablePayloadHash({ engine, ref, bindingCreatedAt })}`;
     if (stored !== expected) {
       const taskId = readScalar(entry.frontmatter, "task_id") || entry.taskId;
-      warnings.push(hardFail(
-        "source-package",
-        "binding_tampered",
-        `Lifecycle binding fingerprint mismatch for ${taskId}.`,
-        "Do not mutate lifecycle identity fields in place; restore the original binding or create a fresh task/adoption package."
-      ));
+      warnings.push(
+        hardFail(
+          "source-package",
+          "binding_tampered",
+          `Lifecycle binding fingerprint mismatch for ${taskId}.`,
+          "Do not mutate lifecycle identity fields in place; restore the original binding or create a fresh task/adoption package.",
+        ),
+      );
     }
   }
   return warnings;
@@ -151,18 +208,24 @@ export function findConflictMarkerWarnings(rootInput: HarnessLayoutInput): Reado
     const body = readTextFileIfPresent(candidate);
     if (body === null) continue;
     if (/^<<<<<<<[^\n]*\n[\s\S]*?^=======$[\s\S]*?^>>>>>>>[^\n]*$/mu.test(body)) {
-      return [hardFail(
-        "collaboration-gate",
-        "conflict_marker_present",
-        `Git conflict marker found in ${sourcePath(rootDir, candidate)}.`,
-        "Resolve merge conflict markers before running post-merge checks again."
-      )];
+      return [
+        hardFail(
+          "collaboration-gate",
+          "conflict_marker_present",
+          `Git conflict marker found in ${sourcePath(rootDir, candidate)}.`,
+          "Resolve merge conflict markers before running post-merge checks again.",
+        ),
+      ];
     }
   }
   return [];
 }
 
-function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: ReadonlyArray<TaskSourceEntry>, truth: EventBackedRelationTruth): ReadonlyArray<ProjectionWarning> {
+function findDanglingEntityRefs(
+  rootInput: HarnessLayoutInput,
+  entries: ReadonlyArray<TaskSourceEntry>,
+  truth: EventBackedRelationTruth,
+): ReadonlyArray<ProjectionWarning> {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const knownRefs = buildEntityRefIndex(entries, truth);
@@ -176,22 +239,30 @@ function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: Readonly
     for (const ref of findEntityRefs(body)) {
       if (ref.externalHarness) continue;
       if (ref.kind === "task" && !knownRefs.taskIds.has(ref.id)) {
-        warnings.push(hardFail(
-          "source-package",
-          "dangling_entity_ref",
-          `Dangling task reference task/${ref.id} in ${sourcePath(rootDir, filePath)}.`,
-          "Update the reference to an existing task package or remove the stale relation."
-        ));
+        warnings.push(
+          hardFail(
+            "source-package",
+            "dangling_entity_ref",
+            `Dangling task reference task/${ref.id} in ${sourcePath(rootDir, filePath)}.`,
+            "Update the reference to an existing task package or remove the stale relation.",
+          ),
+        );
         return warnings;
       }
-      if (ref.kind === "decision" && (!knownRefs.decisionIds.has(ref.id) || (ref.anchor && !knownRefs.decisionAnchors.has(`${ref.id}/${ref.anchor}`)))) {
+      if (
+        ref.kind === "decision" &&
+        (!knownRefs.decisionIds.has(ref.id) ||
+          (ref.anchor && !knownRefs.decisionAnchors.has(`${ref.id}/${ref.anchor}`)))
+      ) {
         const rendered = ref.anchor ? `decision/${ref.id}/${ref.anchor}` : `decision/${ref.id}`;
-        warnings.push(hardFail(
-          "source-package",
-          "dangling_entity_ref",
-          `Dangling decision reference ${rendered} in ${sourcePath(rootDir, filePath)}.`,
-          "Update the reference to an existing decision package or remove the stale relation."
-        ));
+        warnings.push(
+          hardFail(
+            "source-package",
+            "dangling_entity_ref",
+            `Dangling decision reference ${rendered} in ${sourcePath(rootDir, filePath)}.`,
+            "Update the reference to an existing decision package or remove the stale relation.",
+          ),
+        );
         return warnings;
       }
     }
@@ -211,7 +282,9 @@ function isGeneratedArtifactCapture(tasksRoot: string, filePath: string): boolea
   const artifactIndex = parts.indexOf("artifacts");
   if (artifactIndex < 0) return false;
   const captureKind = parts[artifactIndex + 1];
-  return ["baseline", "before", "after", "captures", "snapshots", "transcripts", "raw", "orchestration"].includes(captureKind);
+  return ["baseline", "before", "after", "captures", "snapshots", "transcripts", "raw", "orchestration"].includes(
+    captureKind,
+  );
 }
 
 interface EntityRefIndex {
@@ -223,19 +296,26 @@ interface EntityRefIndex {
 function buildEntityRefIndex(entries: ReadonlyArray<TaskSourceEntry>, truth: EventBackedRelationTruth): EntityRefIndex {
   const taskIds = new Set(entries.map((entry) => readScalar(entry.frontmatter, "task_id") || entry.taskId));
   const decisionIds = new Set(truth.decisionAnchors.map((row) => row.decisionId));
-  const decisionAnchors = new Set(truth.decisionAnchors.flatMap((row) => row.anchorRefs.slice(1).map((ref) => ref.slice("decision/".length))));
+  const decisionAnchors = new Set(
+    truth.decisionAnchors.flatMap((row) => row.anchorRefs.slice(1).map((ref) => ref.slice("decision/".length))),
+  );
   return { taskIds, decisionIds, decisionAnchors };
 }
 
-function findRelationCycles(rootInput: HarnessLayoutInput, truth: EventBackedRelationTruth): ReadonlyArray<ProjectionWarning> {
+function findRelationCycles(
+  rootInput: HarnessLayoutInput,
+  truth: EventBackedRelationTruth,
+): ReadonlyArray<ProjectionWarning> {
   const cycle = detectRelationGraphCycles(buildRelationGraphProjection(rootInput, truth).edges)[0];
   if (!cycle) return [];
-  return [hardFail(
-    "source-package",
-    "relation_cycle_detected",
-    `Entity relation cycle detected: ${cycle.join(" -> ")}.`,
-    "Break the cyclic typed relation records before merging authored planning docs."
-  )];
+  return [
+    hardFail(
+      "source-package",
+      "relation_cycle_detected",
+      `Entity relation cycle detected: ${cycle.join(" -> ")}.`,
+      "Break the cyclic typed relation records before merging authored planning docs.",
+    ),
+  ];
 }
 
 function findParentCycles(rootDir: string, entries: ReadonlyArray<TaskSourceEntry>): ReadonlyArray<ProjectionWarning> {
@@ -269,23 +349,30 @@ function findParentCycles(rootDir: string, entries: ReadonlyArray<TaskSourceEntr
     const cycle = visit(taskId);
     if (!cycle) continue;
     const source = sources.get(cycle[0] ?? "") ?? "harness/tasks";
-    return [hardFail(
-      "source-package",
-      "relation_cycle_detected",
-      `Task parent cycle detected: ${cycle.join(" -> ")} (${source}).`,
-      "Break the cyclic parent fields before merging authored task packages."
-    )];
+    return [
+      hardFail(
+        "source-package",
+        "relation_cycle_detected",
+        `Task parent cycle detected: ${cycle.join(" -> ")} (${source}).`,
+        "Break the cyclic parent fields before merging authored task packages.",
+      ),
+    ];
   }
   return [];
 }
 
-function findRelationRecordIssues(rootInput: HarnessLayoutInput, truth: EventBackedRelationTruth): ReadonlyArray<ProjectionWarning> {
-  return validateRelationGraphRecords(rootInput, truth).map(({ entry, issue }) => hardFail(
-    "source-package",
-    issue.code,
-    `${issue.message} (${entry.sourcePath}:${entry.recordIndex + 1}).`,
-    relationRepairHint(issue.code)
-  ));
+function findRelationRecordIssues(
+  rootInput: HarnessLayoutInput,
+  truth: EventBackedRelationTruth,
+): ReadonlyArray<ProjectionWarning> {
+  return validateRelationGraphRecords(rootInput, truth).map(({ entry, issue }) =>
+    hardFail(
+      "source-package",
+      issue.code,
+      `${issue.message} (${entry.sourcePath}:${entry.recordIndex + 1}).`,
+      relationRepairHint(issue.code),
+    ),
+  );
 }
 
 function relationRepairHint(code: ProjectionWarningCode): string {
@@ -313,7 +400,7 @@ function relationRepairHint(code: ProjectionWarningCode): string {
 export function buildCheckReport(
   ok: boolean,
   rowCount: number,
-  warnings: ReadonlyArray<ProjectionWarning>
+  warnings: ReadonlyArray<ProjectionWarning>,
 ): ProjectionCheckReport {
   const axisReport = (axis: ProjectionWarningSource): ProjectionCheckAxisReport => {
     const axisWarnings = warnings.filter((item) => item.source === axis);
@@ -322,22 +409,18 @@ export function buildCheckReport(
       ok: axisWarnings.every((item) => item.severity !== "hard-fail"),
       warningCount: axisWarnings.length,
       hardFailCount: axisWarnings.filter((item) => item.severity === "hard-fail").length,
-      codes: [...new Set(axisWarnings.map((item) => item.code))].sort()
+      codes: [...new Set(axisWarnings.map((item) => item.code))].sort(),
     };
   };
   return {
     schema: "harness-check-report/v1",
     ok,
-    axes: [
-      axisReport("source-package"),
-      axisReport("generated-cache"),
-      axisReport("collaboration-gate")
-    ],
+    axes: [axisReport("source-package"), axisReport("generated-cache"), axisReport("collaboration-gate")],
     summary: {
       rowCount,
       warningCount: warnings.length,
-      hardFailCount: warnings.filter((item) => item.severity === "hard-fail").length
-    }
+      hardFailCount: warnings.filter((item) => item.severity === "hard-fail").length,
+    },
   };
 }
 

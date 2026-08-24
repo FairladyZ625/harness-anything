@@ -33,7 +33,7 @@ type ReaderFont = "sans" | "serif" | "mono";
 
 const readerFonts: Record<ReaderFont, string> = {
   sans: "var(--font-sans)",
-  serif: 'Iowan Old Style, Palatino Linotype, Noto Serif CJK SC, serif',
+  serif: "Iowan Old Style, Palatino Linotype, Noto Serif CJK SC, serif",
   mono: "var(--font-mono)",
 };
 
@@ -61,10 +61,7 @@ export function DocReader({ content }: { content: string }) {
     >
       <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
         <div className="flex w-56 max-w-full items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1">
-          <MagnifyingGlass
-            weight="bold"
-            className="shrink-0 text-[12px] text-text-faint"
-          />
+          <MagnifyingGlass weight="bold" className="shrink-0 text-[12px] text-text-faint" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -74,11 +71,7 @@ export function DocReader({ content }: { content: string }) {
           />
         </div>
         {matchCount !== null && (
-          <span
-            className={`shrink-0 font-mono text-[11px] ${
-              matchCount > 0 ? "text-text-muted" : "text-text-faint"
-            }`}
-          >
+          <span className={`shrink-0 font-mono text-[11px] ${matchCount > 0 ? "text-text-muted" : "text-text-faint"}`}>
             {matchCount} 处匹配
           </span>
         )}
@@ -128,10 +121,7 @@ export function DocReader({ content }: { content: string }) {
           >
             −
           </button>
-          <span
-            className="w-8 text-center font-mono text-[10px] text-text-faint"
-            aria-label={`字号 ${fontSize} 像素`}
-          >
+          <span className="w-8 text-center font-mono text-[10px] text-text-faint" aria-label={`字号 ${fontSize} 像素`}>
             {fontSize}
           </span>
           <button

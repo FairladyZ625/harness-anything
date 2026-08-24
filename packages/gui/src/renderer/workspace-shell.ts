@@ -19,9 +19,26 @@ export type WorkspacePaneViewState = "visible" | "detached" | "hidden";
 
 export type OpenTarget =
   | { readonly kind: "task"; readonly taskId: string; readonly projectId?: string }
-  | { readonly kind: "taskContext"; readonly taskId: string; readonly projectId: string; readonly perspective?: WorkspacePerspective }
-  | { readonly kind: "doc"; readonly path: string; readonly anchor?: string; readonly projectId?: string; readonly taskId?: string }
-  | { readonly kind: "file"; readonly path: string; readonly line?: number; readonly col?: number; readonly projectId?: string }
+  | {
+      readonly kind: "taskContext";
+      readonly taskId: string;
+      readonly projectId: string;
+      readonly perspective?: WorkspacePerspective;
+    }
+  | {
+      readonly kind: "doc";
+      readonly path: string;
+      readonly anchor?: string;
+      readonly projectId?: string;
+      readonly taskId?: string;
+    }
+  | {
+      readonly kind: "file";
+      readonly path: string;
+      readonly line?: number;
+      readonly col?: number;
+      readonly projectId?: string;
+    }
   | { readonly kind: "logs"; readonly projectId?: string; readonly taskId?: string; readonly stream?: string }
   | { readonly kind: "url"; readonly url: string; readonly projectId?: string };
 
@@ -62,7 +79,7 @@ export function createDefaultWorkspaceLayout(perspective: WorkspacePerspective =
     schema: "workspace-layout/v1",
     perspective,
     panes,
-    activePaneId: panes[0]?.id ?? "pane-empty"
+    activePaneId: panes[0]?.id ?? "pane-empty",
   };
 }
 
@@ -78,7 +95,7 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
         placement,
         projectId: target.projectId,
         taskId: target.taskId,
-        source: intent
+        source: intent,
       });
     case "taskContext":
       return pane({
@@ -89,7 +106,7 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
         projectId: target.projectId,
         taskId: target.taskId,
         source: intent,
-        state: { perspective: target.perspective ?? "operate" }
+        state: { perspective: target.perspective ?? "operate" },
       });
     case "doc":
       return pane({
@@ -99,7 +116,7 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
         placement,
         projectId: target.projectId,
         taskId: target.taskId,
-        source: intent
+        source: intent,
       });
     case "file":
       return pane({
@@ -109,7 +126,7 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
         placement,
         projectId: target.projectId,
         source: intent,
-        state: compactState({ line: target.line, col: target.col })
+        state: compactState({ line: target.line, col: target.col }),
       });
     case "logs":
       return pane({
@@ -120,7 +137,7 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
         projectId: target.projectId,
         taskId: target.taskId,
         source: intent,
-        state: compactState({ stream: target.stream })
+        state: compactState({ stream: target.stream }),
       });
     case "url":
       return pane({
@@ -130,7 +147,7 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
         placement: "external",
         projectId: target.projectId,
         source: intent,
-        state: { url: target.url, trustPolicy: "not-opened-by-p06" }
+        state: { url: target.url, trustPolicy: "not-opened-by-p06" },
       });
   }
 }
@@ -141,7 +158,7 @@ export function serializeWorkspaceLayout(layout: WorkspaceLayout): string {
 
 export function restoreWorkspaceLayout(
   serialized: string,
-  fallback: WorkspaceLayout = createDefaultWorkspaceLayout()
+  fallback: WorkspaceLayout = createDefaultWorkspaceLayout(),
 ): WorkspaceLayoutRestoreResult {
   try {
     const parsed = JSON.parse(serialized) as unknown;
@@ -160,8 +177,8 @@ export function detachPaneView(layout: WorkspaceLayout, paneId: string): Workspa
   return {
     ...layout,
     panes: layout.panes.map((paneDescriptor) =>
-      paneDescriptor.id === paneId ? { ...paneDescriptor, viewState: "detached" } : paneDescriptor
-    )
+      paneDescriptor.id === paneId ? { ...paneDescriptor, viewState: "detached" } : paneDescriptor,
+    ),
   };
 }
 
@@ -169,17 +186,17 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
   const taskPane = routeOpenIntent({
     source: "board",
     target: { kind: "task", projectId: "project-local", taskId: "TASK-001" },
-    disposition: perspective === "triage" ? "split" : "tab"
+    disposition: perspective === "triage" ? "split" : "tab",
   });
   const docPane = routeOpenIntent({
     source: "doc",
     target: { kind: "doc", projectId: "project-local", taskId: "TASK-001", path: "task_plan.md" },
-    disposition: "split"
+    disposition: "split",
   });
   const logsPane = routeOpenIntent({
     source: "review",
     target: { kind: "logs", projectId: "project-local", taskId: "TASK-001", stream: "checks" },
-    disposition: "dock"
+    disposition: "dock",
   });
 
   if (perspective === "review") {
@@ -190,12 +207,12 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
         title: "Review queue",
         placement: "tab",
         projectId: "project-local",
-        state: { role: "queue" }
+        state: { role: "queue" },
       }),
       routeOpenIntent({
         source: "review",
         target: { kind: "doc", projectId: "project-local", taskId: "TASK-001", path: "review-material.md" },
-        disposition: "split"
+        disposition: "split",
       }),
       taskPane,
       logsPane,
@@ -205,8 +222,8 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
         title: "Review checklist",
         placement: "dock",
         projectId: "project-local",
-        state: { role: "checklist" }
-      })
+        state: { role: "checklist" },
+      }),
     ];
   }
   if (perspective === "triage") {
@@ -217,7 +234,7 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
         title: "Triage board",
         placement: "tab",
         projectId: "project-local",
-        state: { role: "pressure" }
+        state: { role: "pressure" },
       }),
       pane({
         id: "list-project-local",
@@ -225,7 +242,7 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
         title: "Task list",
         placement: "split",
         projectId: "project-local",
-        state: { role: "queue" }
+        state: { role: "queue" },
       }),
       pane({
         id: "task-context-project-local",
@@ -234,10 +251,10 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
         placement: "dock",
         projectId: "project-local",
         taskId: "TASK-001",
-        state: { perspective, role: "filters" }
+        state: { perspective, role: "filters" },
       }),
       taskPane,
-      logsPane
+      logsPane,
     ];
   }
   return [taskPane, docPane, logsPane];
@@ -250,14 +267,18 @@ function defaultPlacementForTarget(target: OpenTarget): WorkspacePanePlacement {
   return "tab";
 }
 
-function pane(input: Omit<WorkspacePaneDescriptor, "viewState"> & { readonly viewState?: WorkspacePaneViewState }): WorkspacePaneDescriptor {
+function pane(
+  input: Omit<WorkspacePaneDescriptor, "viewState"> & { readonly viewState?: WorkspacePaneViewState },
+): WorkspacePaneDescriptor {
   return stripUndefined({ ...input, viewState: input.viewState ?? "visible" }) as unknown as WorkspacePaneDescriptor;
 }
 
 function compactState(
-  values: Readonly<Record<string, string | number | boolean | undefined>>
+  values: Readonly<Record<string, string | number | boolean | undefined>>,
 ): Readonly<Record<string, string | number | boolean>> | undefined {
-  const entries = Object.entries(values).filter((entry): entry is [string, string | number | boolean] => entry[1] !== undefined);
+  const entries = Object.entries(values).filter(
+    (entry): entry is [string, string | number | boolean] => entry[1] !== undefined,
+  );
   return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
 
@@ -266,7 +287,11 @@ function stripUndefined(input: Record<string, unknown>): Record<string, unknown>
 }
 
 function stableSegment(value: string): string {
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
   return normalized.length > 0 ? normalized.slice(0, 80) : "target";
 }
 
@@ -382,7 +407,12 @@ function isOpenTarget(value: unknown): value is OpenTarget {
         optionalString(value.taskId)
       );
     case "file":
-      return typeof value.path === "string" && optionalNumber(value.line) && optionalNumber(value.col) && optionalString(value.projectId);
+      return (
+        typeof value.path === "string" &&
+        optionalNumber(value.line) &&
+        optionalNumber(value.col) &&
+        optionalString(value.projectId)
+      );
     case "logs":
       return optionalString(value.projectId) && optionalString(value.taskId) && optionalString(value.stream);
     case "url":
@@ -394,7 +424,9 @@ function isOpenTarget(value: unknown): value is OpenTarget {
 
 function isPaneState(value: unknown): value is Readonly<Record<string, string | number | boolean>> {
   if (!isWorkspaceRecord(value)) return false;
-  return Object.values(value).every((entry) => typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean");
+  return Object.values(value).every(
+    (entry) => typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean",
+  );
 }
 
 function optionalString(value: unknown): boolean {

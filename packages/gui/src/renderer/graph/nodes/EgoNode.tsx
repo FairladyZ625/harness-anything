@@ -147,15 +147,14 @@ export function EgoNode({ data, selected }: any) {
         {entity === "task" && <EgoTaskBody task={data.raw as TaskRow} />}
         {entity === "decision" && <EgoDecisionBody decision={data.raw as DecisionRow} />}
         {entity === "fact" && (
-          <EgoFactBody
-            fact={data.raw as FactRef}
-            onNavigate={data.onNavigate as ((ref: string) => void) | undefined}
-          />
+          <EgoFactBody fact={data.raw as FactRef} onNavigate={data.onNavigate as ((ref: string) => void) | undefined} />
         )}
       </div>
 
       <div className="ui-micro flex shrink-0 items-center justify-between gap-2 border-t border-border px-2.5 py-1 font-mono text-text-faint">
-        <span className="min-w-0 truncate">度 {data.degree ?? 0} · 第 {data.hop ?? 0} 跳</span>
+        <span className="min-w-0 truncate">
+          度 {data.degree ?? 0} · 第 {data.hop ?? 0} 跳
+        </span>
         {data.hiddenCount > 0 && <span className="shrink-0">未铺开 {data.hiddenCount}</span>}
       </div>
     </div>
@@ -199,7 +198,9 @@ function EgoDecisionBody({ decision }: { decision: DecisionRow }) {
           <span className="ui-micro font-mono uppercase tracking-wide text-accent">采纳</span>
           <div className="mt-0.5 flex flex-col gap-1">
             {decision.chosen.map((claim) => (
-              <p key={claim.id} className="ui-meta text-text">{claim.text}</p>
+              <p key={claim.id} className="ui-meta text-text">
+                {claim.text}
+              </p>
             ))}
           </div>
         </div>
@@ -211,9 +212,7 @@ function EgoDecisionBody({ decision }: { decision: DecisionRow }) {
             {decision.rejected.map((claim) => (
               <div key={claim.id} className="text-text-muted">
                 <p className="ui-meta">{claim.text}</p>
-                {claim.whyNot && (
-                  <p className="ui-micro mt-0.5 leading-snug text-text-faint">↳ {claim.whyNot}</p>
-                )}
+                {claim.whyNot && <p className="ui-micro mt-0.5 leading-snug text-text-faint">↳ {claim.whyNot}</p>}
               </div>
             ))}
           </div>
@@ -240,24 +239,26 @@ function EgoFactBody({ fact, onNavigate }: { fact: FactRef; onNavigate?: (ref: s
         {fact.text ? (
           <p className="ui-meta mt-0.5 font-medium leading-relaxed text-text">{fact.text}</p>
         ) : (
-          <p className="ui-meta mt-0.5 italic leading-relaxed text-text-faint">
-            仅有锚点,正文未投影
-          </p>
+          <p className="ui-meta mt-0.5 italic leading-relaxed text-text-faint">仅有锚点,正文未投影</p>
         )}
       </div>
       <div className={EGO_FACT_ID_BOX}>
         <div>
-          task {onNavigate ? (
+          task{" "}
+          {onNavigate ? (
             <EntityRefLink
               entityRef={`task/${fact.taskId}`}
               onNavigate={onNavigate}
               title={fact.taskId}
               className="text-accent hover:underline"
             />
-          ) : fact.taskId}
+          ) : (
+            fact.taskId
+          )}
         </div>
         <div>
-          anchor {onNavigate ? (
+          anchor{" "}
+          {onNavigate ? (
             <EntityRefLink
               entityRef={`fact/${fact.taskId}/${fact.anchor.split("/")[1] ?? ""}`}
               onNavigate={onNavigate}
@@ -266,7 +267,9 @@ function EgoFactBody({ fact, onNavigate }: { fact: FactRef; onNavigate?: (ref: s
             >
               {fact.anchor}
             </EntityRefLink>
-          ) : fact.anchor}
+          ) : (
+            fact.anchor
+          )}
         </div>
       </div>
     </>

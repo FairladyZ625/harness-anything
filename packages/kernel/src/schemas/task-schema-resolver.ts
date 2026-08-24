@@ -12,9 +12,13 @@ export function resolveTaskSchema(vertical: VerticalDefinition): Schema.Schema<a
       throw new Error(`Unsupported task field extension kind: ${extension.kind}`);
     }
     const values = nonEmptyStringValues(extension.values, extension.field);
-    schema = schema.pipe(Schema.extend(Schema.Struct({
-      [extension.field]: Schema.optional(Schema.Literal(...values))
-    })));
+    schema = schema.pipe(
+      Schema.extend(
+        Schema.Struct({
+          [extension.field]: Schema.optional(Schema.Literal(...values)),
+        }),
+      ),
+    );
   }
   return schema;
 }

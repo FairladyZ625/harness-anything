@@ -34,13 +34,19 @@ interface Props {
 export function searchPaletteEntries(entries: ReadonlyArray<PaletteEntry>, query: string): PaletteEntry[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
-  return entries.filter((entry) => entry.label.toLowerCase().includes(needle) || entry.ref.toLowerCase().includes(needle) || (entry.sub?.toLowerCase().includes(needle) ?? false));
+  return entries.filter(
+    (entry) =>
+      entry.label.toLowerCase().includes(needle) ||
+      entry.ref.toLowerCase().includes(needle) ||
+      (entry.sub?.toLowerCase().includes(needle) ?? false),
+  );
 }
 
 export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPalette }: Props) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const trimmed = query.trim(), isSearching = trimmed.length > 0;
+  const trimmed = query.trim(),
+    isSearching = trimmed.length > 0;
 
   const byRef = useMemo(() => new Map(entries.map((entry) => [entry.ref, entry])), [entries]);
   // Recent 反解:索引外的 ref(已删除实体)自动过滤,顺序保持访问序。
@@ -53,20 +59,49 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
     }
     return out;
   }, [byRef, recentRefs]);
-  const searchHits = useMemo(() => (isSearching ? searchPaletteEntries(entries, trimmed).slice(0, SEARCH_MAX) : []), [entries, trimmed, isSearching]);
+  const searchHits = useMemo(
+    () => (isSearching ? searchPaletteEntries(entries, trimmed).slice(0, SEARCH_MAX) : []),
+    [entries, trimmed, isSearching],
+  );
   // 冷启动填充:Recent 为空时才出 Suggested,Recent 一旦有内容就让位(复访优先)。
-  const suggested = useMemo(() => (recent.length === 0 ? entries.slice(0, SUGGESTED_MAX) : []), [entries, recent.length]);
+  const suggested = useMemo(
+    () => (recent.length === 0 ? entries.slice(0, SUGGESTED_MAX) : []),
+    [entries, recent.length],
+  );
   const navHits: ReadonlyArray<PaletteEntry> = isSearching ? searchHits : recent.length > 0 ? recent : suggested;
 
-  useEffect(() => { setActiveIndex(0); }, [trimmed]);
-  useEffect(() => { if (activeIndex >= navHits.length) setActiveIndex(0); }, [navHits.length, activeIndex]);
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [trimmed]);
+  useEffect(() => {
+    if (activeIndex >= navHits.length) setActiveIndex(0);
+  }, [navHits.length, activeIndex]);
 
-  const selectHit = (hit: PaletteEntry) => { setQuery(""); onFocus(hit.ref); };
+  const selectHit = (hit: PaletteEntry) => {
+    setQuery("");
+    onFocus(hit.ref);
+  };
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown") { event.preventDefault(); setActiveIndex((i) => Math.min(i + 1, Math.max(0, navHits.length - 1))); return; }
-    if (event.key === "ArrowUp") { event.preventDefault(); setActiveIndex((i) => Math.max(0, i - 1)); return; }
-    if (event.key === "Enter") { event.preventDefault(); const hit = navHits[activeIndex]; if (hit) selectHit(hit); return; }
-    if (event.key === "Escape" && trimmed) { event.preventDefault(); setQuery(""); }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((i) => Math.min(i + 1, Math.max(0, navHits.length - 1)));
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((i) => Math.max(0, i - 1));
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const hit = navHits[activeIndex];
+      if (hit) selectHit(hit);
+      return;
+    }
+    if (event.key === "Escape" && trimmed) {
+      event.preventDefault();
+      setQuery("");
+    }
   };
 
   const renderItem = (hit: PaletteEntry, i: number, focused: boolean) => (
@@ -88,7 +123,9 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
   return (
     <aside data-testid="focus-switcher" className="flex w-64 shrink-0 flex-col border-r border-border bg-surface">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <span className="font-mono text-[11px] uppercase tracking-wide text-text-muted">{t("components.focusSwitcher.focusSwitch")}</span>
+        <span className="font-mono text-[11px] uppercase tracking-wide text-text-muted">
+          {t("components.focusSwitcher.focusSwitch")}
+        </span>
       </div>
       <div className="m-2">
         <label className="flex items-center gap-2 rounded-md border border-border bg-surface-raised px-2.5 py-1.5 transition-colors focus-within:border-border-strong">
@@ -104,31 +141,57 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
             autoComplete="off"
             spellCheck={false}
           />
-          <button type="button" onClick={onOpenPalette} data-testid="focus-switcher-palette-trigger" title={t("components.focusSwitcher.openPalette")} className="shrink-0 rounded font-mono text-[10px] text-text-faint transition-colors hover:text-text">⌘K</button>
+          <button
+            type="button"
+            onClick={onOpenPalette}
+            data-testid="focus-switcher-palette-trigger"
+            title={t("components.focusSwitcher.openPalette")}
+            className="shrink-0 rounded font-mono text-[10px] text-text-faint transition-colors hover:text-text"
+          >
+            ⌘K
+          </button>
         </label>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {isSearching ? (
           searchHits.length === 0 ? (
-            <div className="px-3 py-3 text-[12px] leading-relaxed text-text-faint">{t("components.focusSwitcher.noResults")}</div>
+            <div className="px-3 py-3 text-[12px] leading-relaxed text-text-faint">
+              {t("components.focusSwitcher.noResults")}
+            </div>
           ) : (
-            <ul className="flex flex-col py-1">{searchHits.map((hit, i) => renderItem(hit, i, i === activeIndex || hit.ref === focusRef))}</ul>
+            <ul className="flex flex-col py-1">
+              {searchHits.map((hit, i) => renderItem(hit, i, i === activeIndex || hit.ref === focusRef))}
+            </ul>
           )
         ) : recent.length > 0 ? (
           <>
             <div className="flex items-center justify-between px-3 pb-1 pt-1">
-              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{t("components.focusSwitcher.recent")}</span>
-              <span className="font-mono text-[10px] text-text-faint">{t("components.focusSwitcher.recentCount", { count: recent.length })}</span>
+              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                {t("components.focusSwitcher.recent")}
+              </span>
+              <span className="font-mono text-[10px] text-text-faint">
+                {t("components.focusSwitcher.recentCount", { count: recent.length })}
+              </span>
             </div>
-            <ul className="flex flex-col py-1">{recent.map((hit, i) => renderItem(hit, i, i === activeIndex || hit.ref === focusRef))}</ul>
+            <ul className="flex flex-col py-1">
+              {recent.map((hit, i) => renderItem(hit, i, i === activeIndex || hit.ref === focusRef))}
+            </ul>
           </>
         ) : (
           <>
-            <div className="px-3 pb-1 pt-1 text-[12px] leading-relaxed text-text-faint">{t("components.focusSwitcher.recentEmptyHint")}</div>
+            <div className="px-3 pb-1 pt-1 text-[12px] leading-relaxed text-text-faint">
+              {t("components.focusSwitcher.recentEmptyHint")}
+            </div>
             {suggested.length > 0 && (
               <>
-                <div className="px-3 pb-1 pt-2"><span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{t("components.focusSwitcher.suggested")}</span></div>
-                <ul className="flex flex-col py-1">{suggested.map((hit, i) => renderItem(hit, i, i === activeIndex || hit.ref === focusRef))}</ul>
+                <div className="px-3 pb-1 pt-2">
+                  <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                    {t("components.focusSwitcher.suggested")}
+                  </span>
+                </div>
+                <ul className="flex flex-col py-1">
+                  {suggested.map((hit, i) => renderItem(hit, i, i === activeIndex || hit.ref === focusRef))}
+                </ul>
               </>
             )}
           </>

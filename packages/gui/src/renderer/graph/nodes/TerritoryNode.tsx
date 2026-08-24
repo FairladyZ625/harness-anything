@@ -61,21 +61,13 @@ export function TerritoryZoneNode({ data }: NodeProps) {
       }}
     >
       {/* zone header:高度与布局常量同源,固定不死(negative flex 由 body 吸收) */}
-      <div
-        className="flex shrink-0 flex-col border-b border-border"
-        style={{ height: headerH }}
-      >
-        <div
-          className="flex min-h-0 flex-1 items-center gap-2 px-3 pt-2"
-          data-testid="territory-zone-header"
-        >
+      <div className="flex shrink-0 flex-col border-b border-border" style={{ height: headerH }}>
+        <div className="flex min-h-0 flex-1 items-center gap-2 px-3 pt-2" data-testid="territory-zone-header">
           <span
             className="inline-block size-2.5 shrink-0 rounded-sm"
             style={{ backgroundColor: axis, opacity: 0.75 }}
           />
-          <span className="ui-body min-w-0 flex-1 truncate text-[13px] font-semibold text-text">
-            {zone.title}
-          </span>
+          <span className="ui-body min-w-0 flex-1 truncate text-[13px] font-semibold text-text">{zone.title}</span>
           <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
             {zone.chips.length}
           </span>
@@ -90,9 +82,7 @@ export function TerritoryZoneNode({ data }: NodeProps) {
             {d.folded ? "▸" : "▾"}
           </button>
         </div>
-        {zone.progress && zone.progress.total > 0 && (
-          <ZoneProgressBar progress={zone.progress} />
-        )}
+        {zone.progress && zone.progress.total > 0 && <ZoneProgressBar progress={zone.progress} />}
       </div>
       {/* chip 底板:实际 chip 是独立 RF 节点叠在这里 */}
       <div className="min-h-0 flex-1" />
@@ -107,11 +97,7 @@ export function TerritoryZoneNode({ data }: NodeProps) {
  */
 function ZoneProgressBar({ progress }: { progress: ZoneProgress }) {
   return (
-    <div
-      className="flex flex-col gap-1 px-3 pb-2"
-      style={{ height: ZONE_PROGRESS_H }}
-      data-testid="zone-progress"
-    >
+    <div className="flex flex-col gap-1 px-3 pb-2" style={{ height: ZONE_PROGRESS_H }} data-testid="zone-progress">
       <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-raised">
         {PROGRESS_SEGMENTS.map((segment) => {
           const count = progress[segment.key] as number;
@@ -127,10 +113,10 @@ function ZoneProgressBar({ progress }: { progress: ZoneProgress }) {
       </div>
       <div className="ui-micro flex items-center gap-2 font-mono text-text-faint">
         <span data-testid="zone-done-ratio">{Math.round(progress.doneRatio * 100)}% 完成</span>
-        <span>{progress.done}/{progress.total}</span>
-        {progress.blocked > 0 && (
-          <span className="text-danger">阻塞 {progress.blocked}</span>
-        )}
+        <span>
+          {progress.done}/{progress.total}
+        </span>
+        {progress.blocked > 0 && <span className="text-danger">阻塞 {progress.blocked}</span>}
       </div>
     </div>
   );
@@ -196,9 +182,7 @@ export function TerritoryChipNode({ data }: NodeProps) {
                 : "var(--color-axis-evidence)",
         }}
       />
-      <span className="ui-body min-w-0 flex-1 truncate text-[12.5px] text-text">
-        {chip.label}
-      </span>
+      <span className="ui-body min-w-0 flex-1 truncate text-[12.5px] text-text">{chip.label}</span>
       {chip.sub && (
         <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
           {chip.sub}
@@ -212,12 +196,19 @@ export function TerritoryChipNode({ data }: NodeProps) {
 /** task 状态 → 状态色点(coordinationStatus 即 chip.sub);未知回落 planned。 */
 function statusDot(status: string | undefined): string {
   switch (status) {
-    case "blocked": return "var(--color-status-blocked)";
-    case "active": return "var(--color-status-active)";
-    case "in_review": return "var(--color-status-in-review)";
-    case "planned": return "var(--color-status-planned)";
-    case "done": return "var(--color-status-done)";
-    case "cancelled": return "var(--color-status-cancelled)";
-    default: return "var(--color-status-unknown)";
+    case "blocked":
+      return "var(--color-status-blocked)";
+    case "active":
+      return "var(--color-status-active)";
+    case "in_review":
+      return "var(--color-status-in-review)";
+    case "planned":
+      return "var(--color-status-planned)";
+    case "done":
+      return "var(--color-status-done)";
+    case "cancelled":
+      return "var(--color-status-cancelled)";
+    default:
+      return "var(--color-status-unknown)";
   }
 }

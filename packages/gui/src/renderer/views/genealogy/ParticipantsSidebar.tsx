@@ -31,12 +31,12 @@ export function ParticipantsSidebar({
   const [rowsVisible, setRowsVisible] = useState(ROW_BATCH_SIZE);
   const needle = query.trim().toLowerCase();
   const filtered = needle
-    ? participants.filter(
-        (d) => d.title.toLowerCase().includes(needle) || d.decisionId.toLowerCase().includes(needle),
-      )
+    ? participants.filter((d) => d.title.toLowerCase().includes(needle) || d.decisionId.toLowerCase().includes(needle))
     : participants;
   // 搜索词换了行集的全部组员,展开状态不能跟着过去。
-  useEffect(() => { setRowsVisible(ROW_BATCH_SIZE); }, [needle]);
+  useEffect(() => {
+    setRowsVisible(ROW_BATCH_SIZE);
+  }, [needle]);
   const shown = filtered.slice(0, rowsVisible);
   const hidden = filtered.length - shown.length;
 
@@ -45,9 +45,7 @@ export function ParticipantsSidebar({
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <ListChecks weight="duotone" className="text-text-muted" />
         <span className="font-mono text-[11px] font-semibold text-text">参与者</span>
-        <span className="ml-auto font-mono text-[11px] text-text-faint">
-          {participants.length}
-        </span>
+        <span className="ml-auto font-mono text-[11px] text-text-faint">{participants.length}</span>
       </div>
       <div className="border-b border-border px-2 py-1.5">
         <div className="flex items-center gap-1.5 rounded border border-border bg-surface-raised px-2 py-1">
@@ -80,9 +78,7 @@ export function ParticipantsSidebar({
                 <DecisionStateBadge state={d.state} />
                 <span className="font-mono text-[11px] text-text-faint">{dayKeyOf(d)}</span>
                 {size > 0 && (
-                  <span className="ml-auto rounded bg-surface px-1 font-mono text-[11px] text-text-faint">
-                    ±{size}
-                  </span>
+                  <span className="ml-auto rounded bg-surface px-1 font-mono text-[11px] text-text-faint">±{size}</span>
                 )}
               </div>
             </button>
@@ -94,16 +90,14 @@ export function ParticipantsSidebar({
             data-testid="genealogy-participants-more"
             onClick={() => setRowsVisible((count) => Math.min(count + ROW_BATCH_SIZE, filtered.length))}
             className={
-              "w-full rounded px-2 py-1 text-center font-mono text-[11px] text-text-muted "
-              + "hover:bg-surface-raised hover:text-text"
+              "w-full rounded px-2 py-1 text-center font-mono text-[11px] text-text-muted " +
+              "hover:bg-surface-raised hover:text-text"
             }
           >
             再显示 {Math.min(ROW_BATCH_SIZE, hidden)} 条 · 还有 {hidden} 条
           </button>
         )}
-        {filtered.length === 0 && (
-          <span className="px-2 py-4 text-center text-[11px] text-text-faint">无匹配</span>
-        )}
+        {filtered.length === 0 && <span className="px-2 py-4 text-center text-[11px] text-text-faint">无匹配</span>}
       </div>
     </aside>
   );

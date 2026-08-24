@@ -64,7 +64,10 @@ export function TaskDetailView({
   onNavigateDecision: (decisionId: string) => void;
   onNavigateEntity: (ref: string) => void;
   mutationFeedback?: TaskMutationFeedback;
-  onProgress?: (input: { text: string; evidence: ReadonlyArray<{ type: string; path: string; summary: string }> }) => Promise<unknown>;
+  onProgress?: (input: {
+    text: string;
+    evidence: ReadonlyArray<{ type: string; path: string; summary: string }>;
+  }) => Promise<unknown>;
   onSubmit?: (submission: GuiSubmissionV1) => Promise<unknown>;
 }) {
   const [activeTab, setActiveTab] = useState<TaskDetailTab>("overview");
@@ -110,9 +113,13 @@ export function TaskDetailView({
           </button>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1 font-mono text-[9px] leading-3 text-text-faint">
-              <button type="button" onClick={onBack} className="truncate hover:text-text-muted">{projectName}</button>
+              <button type="button" onClick={onBack} className="truncate hover:text-text-muted">
+                {projectName}
+              </button>
               <CaretRight weight="bold" className="shrink-0" />
-              <button type="button" onClick={onBack} className="truncate hover:text-text-muted">{fromViewLabel}</button>
+              <button type="button" onClick={onBack} className="truncate hover:text-text-muted">
+                {fromViewLabel}
+              </button>
               <CaretRight weight="bold" className="shrink-0" />
               <EntityRefLink
                 entityRef={`task/${task.taskId}`}
@@ -183,27 +190,30 @@ export function TaskDetailView({
         className="relative z-10 flex h-8 shrink-0 overflow-x-auto border-b border-border bg-surface px-2 sm:px-3"
       >
         {tabs.map((tab, index) => {
-          const Icon = tab.icon, active = activeTab === tab.id;
-          return <button
-            key={tab.id}
-            id={`task-tab-${tab.id}`}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            aria-controls={`task-panel-${tab.id}`}
-            tabIndex={active ? 0 : -1}
-            onClick={() => selectTab(tab.id)}
-            onKeyDown={(event) => navigateTabs(event, index, selectTab)}
-            className={[
-              "relative flex h-8 shrink-0 items-center gap-1 px-2 text-[11px] font-medium",
-              "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
-              active ? "text-text" : "text-text-faint hover:text-text-muted",
-            ].join(" ")}
-          >
-            <Icon weight={active ? "bold" : "regular"} className="text-[12px]" />
-            {tab.label}
-            {active ? <span className="absolute inset-x-2 bottom-0 h-0.5 bg-accent" /> : null}
-          </button>;
+          const Icon = tab.icon,
+            active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              id={`task-tab-${tab.id}`}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              aria-controls={`task-panel-${tab.id}`}
+              tabIndex={active ? 0 : -1}
+              onClick={() => selectTab(tab.id)}
+              onKeyDown={(event) => navigateTabs(event, index, selectTab)}
+              className={[
+                "relative flex h-8 shrink-0 items-center gap-1 px-2 text-[11px] font-medium",
+                "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+                active ? "text-text" : "text-text-faint hover:text-text-muted",
+              ].join(" ")}
+            >
+              <Icon weight={active ? "bold" : "regular"} className="text-[12px]" />
+              {tab.label}
+              {active ? <span className="absolute inset-x-2 bottom-0 h-0.5 bg-accent" /> : null}
+            </button>
+          );
         })}
       </nav>
 
@@ -227,42 +237,39 @@ export function TaskDetailView({
             className="min-h-0 min-w-0 overflow-y-auto px-4 py-5 lg:px-6"
             data-testid="task-detail-panel-scroll"
           >
-            {activeTab === "overview" ? <TaskOverviewTab task={task} />
-              : activeTab === "dispatch" ? (
-                <TaskDispatchTab
-                  task={task}
-                  focusedSessionId={focusedSessionId}
-                  onNavigateEntity={onNavigateEntity}
-                />
-              )
-                : activeTab === "evidence" ? (
-                    <TaskEvidenceTab
-                      task={task}
-                      tasks={tasks}
-                      relations={relations}
-                      decisions={decisions}
-                      onNavigateEntity={onNavigateEntity}
-                    />
-                  ) : activeTab === "relations" ? (
-                      <TaskRelationsTab
-                        task={task}
-                        tasks={tasks}
-                        relations={relations}
-                        decisions={decisions}
-                        onSelect={onSelect}
-                        onNavigateDecision={onNavigateDecision}
-                        onNavigateEntity={onNavigateEntity}
-                        onOpenSession={openSession}
-                      />
-                    ) : activeTab === "closeout" ? (
-                        <TaskCloseoutTab
-                          task={task}
-                          mutationFeedback={mutationFeedback}
-                          onProgress={onProgress}
-                          onSubmit={onSubmit}
-                        />
-                      )
-                      : <TaskFilesTab task={task} activeDoc={activeDoc} />}
+            {activeTab === "overview" ? (
+              <TaskOverviewTab task={task} />
+            ) : activeTab === "dispatch" ? (
+              <TaskDispatchTab task={task} focusedSessionId={focusedSessionId} onNavigateEntity={onNavigateEntity} />
+            ) : activeTab === "evidence" ? (
+              <TaskEvidenceTab
+                task={task}
+                tasks={tasks}
+                relations={relations}
+                decisions={decisions}
+                onNavigateEntity={onNavigateEntity}
+              />
+            ) : activeTab === "relations" ? (
+              <TaskRelationsTab
+                task={task}
+                tasks={tasks}
+                relations={relations}
+                decisions={decisions}
+                onSelect={onSelect}
+                onNavigateDecision={onNavigateDecision}
+                onNavigateEntity={onNavigateEntity}
+                onOpenSession={openSession}
+              />
+            ) : activeTab === "closeout" ? (
+              <TaskCloseoutTab
+                task={task}
+                mutationFeedback={mutationFeedback}
+                onProgress={onProgress}
+                onSubmit={onSubmit}
+              />
+            ) : (
+              <TaskFilesTab task={task} activeDoc={activeDoc} />
+            )}
           </section>
         </div>
       </main>
@@ -287,7 +294,9 @@ function IdentityItem({ label, value, detail, wide = false, onClick }: IdentityI
           <button type="button" onClick={onClick} className="text-accent hover:underline">
             {value}
           </button>
-        ) : value}
+        ) : (
+          value
+        )}
       </dd>
       {detail ? <div className="mt-2 min-w-0">{detail}</div> : null}
     </div>

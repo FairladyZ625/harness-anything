@@ -24,10 +24,12 @@ import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 
 const streamSchema = "runtime-dispatch-stream/v1" as const;
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
-const forbiddenKey = /(?:token|credential|password|secret|authorization|executablepath|api[-_ ]?key|private[-_ ]?key|cookie)/iu;
+const forbiddenKey =
+  /(?:token|credential|password|secret|authorization|executablepath|api[-_ ]?key|private[-_ ]?key|cookie)/iu;
 const bearer = /\bBearer\s+[^\s,;]+/giu;
 const knownToken = /\b(?:sk|rk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{8,}\b/giu;
-const sensitiveAssignment = /\b(?:authorization|cookie|credential(?:Ref)?|executablePath|api[-_ ]?key|accessToken|apiToken|password|private[-_ ]?key|secret|token)\s*[:=]\s*[^\s,;}]+/giu;
+const sensitiveAssignment =
+  /\b(?:authorization|cookie|credential(?:Ref)?|executablePath|api[-_ ]?key|accessToken|apiToken|password|private[-_ ]?key|secret|token)\s*[:=]\s*[^\s,;}]+/giu;
 
 export interface DispatchStreamHeader {
   readonly schema: typeof streamSchema;
@@ -69,7 +71,16 @@ export interface DispatchStreamWriter {
   readonly ref: string;
   readonly appendProviderEvent: (value: unknown, occurredAt: string) => void;
   readonly appendProviderBinding: (providerSessionId: string, occurredAt: string) => void;
-  readonly appendExitNotification: (value: { readonly phase: "started" | "finished"; readonly started: boolean; readonly exitCode: number | null; readonly timedOut: boolean; readonly errorCode?: string }, occurredAt: string) => void;
+  readonly appendExitNotification: (
+    value: {
+      readonly phase: "started" | "finished";
+      readonly started: boolean;
+      readonly exitCode: number | null;
+      readonly timedOut: boolean;
+      readonly errorCode?: string;
+    },
+    occurredAt: string,
+  ) => void;
 }
 
 export interface DispatchLiveIndexEntry {
@@ -83,8 +94,12 @@ export interface DispatchLiveIndex {
   readonly entries: readonly DispatchLiveIndexEntry[];
 }
 
-export function openDispatchStream(rootDir: string, header: Omit<DispatchStreamHeader, "schema" | "kind" | "eventStreamRef">): DispatchStreamWriter {
-  const ref = dispatchStreamRef(rootDir, header.dispatchId), target = dispatchStreamPath(rootDir, header.dispatchId);
+export function openDispatchStream(
+  rootDir: string,
+  header: Omit<DispatchStreamHeader, "schema" | "kind" | "eventStreamRef">,
+): DispatchStreamWriter {
+  const ref = dispatchStreamRef(rootDir, header.dispatchId),
+    target = dispatchStreamPath(rootDir, header.dispatchId);
   mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   if (!existsSync(target)) {
     const record = { schema: streamSchema, kind: "dispatch", ...header, eventStreamRef: ref };
@@ -102,7 +117,20 @@ export function openDispatchStream(rootDir: string, header: Omit<DispatchStreamH
       }
     }
   }
-  return { ref, appendProviderEvent: (value, occurredAt) => appendJsonl(target, { schema: streamSchema, kind: "provider_event", occurredAt, event: scrubProviderValue(value) }), appendProviderBinding: (providerSessionId, occurredAt) => appendJsonl(target, { schema: streamSchema, kind: "provider_binding", occurredAt, providerSessionId }), appendExitNotification: (value, occurredAt) => appendJsonl(target, { schema: streamSchema, kind: "exit_notification", occurredAt, ...value }) };
+  return {
+    ref,
+    appendProviderEvent: (value, occurredAt) =>
+      appendJsonl(target, {
+        schema: streamSchema,
+        kind: "provider_event",
+        occurredAt,
+        event: scrubProviderValue(value),
+      }),
+    appendProviderBinding: (providerSessionId, occurredAt) =>
+      appendJsonl(target, { schema: streamSchema, kind: "provider_binding", occurredAt, providerSessionId }),
+    appendExitNotification: (value, occurredAt) =>
+      appendJsonl(target, { schema: streamSchema, kind: "exit_notification", occurredAt, ...value }),
+  };
 }
 
 export function reopenDispatchStream(rootDir: string, header: DispatchStreamHeader): DispatchStreamWriter {
@@ -111,7 +139,8 @@ export function reopenDispatchStream(rootDir: string, header: DispatchStreamHead
 }
 
 export function removeDispatchStream(rootDir: string, dispatchId: string): void {
-  const target = dispatchStreamPath(rootDir, dispatchId), header = readDispatchStreamHeader(rootDir, dispatchId);
+  const target = dispatchStreamPath(rootDir, dispatchId),
+    header = readDispatchStreamHeader(rootDir, dispatchId);
   if (existsSync(target)) unlinkSync(target);
   if (!header?.taskId) return;
   const { taskId, runtimeSessionId } = header;
@@ -119,17 +148,20 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
 }
 
 export function readDispatchLiveIndex(rootDir: string, taskIds: readonly string[]): DispatchLiveIndex {
-  const entries: DispatchLiveIndexEntry[] = [], missing: string[] = [];
+  const entries: DispatchLiveIndexEntry[] = [],
+    missing: string[] = [];
   for (const taskId of new Set(taskIds)) {
     const stored = readStoredDispatchLiveIndex(dispatchLiveIndexPath(rootDir, taskId), taskId);
-    if (stored) entries.push(...stored.entries); else missing.push(taskId);
+    if (stored) entries.push(...stored.entries);
+    else missing.push(taskId);
   }
   if (missing.length > 0) entries.push(...rebuildDispatchLiveIndex(rootDir, missing).entries);
   return dispatchLiveIndex(entries);
 }
 
 export function rebuildDispatchLiveIndex(rootDir: string, taskIds: readonly string[]): DispatchLiveIndex {
-  const root = dispatchStreamRoot(rootDir), selected = new Set(taskIds);
+  const root = dispatchStreamRoot(rootDir),
+    selected = new Set(taskIds);
   const entries = new Map<string, DispatchLiveIndexEntry>();
   if (existsSync(root) && statSync(root).isDirectory()) {
     for (const name of readdirSync(root).filter((value) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(value))) {
@@ -166,16 +198,20 @@ export function removeDispatchLiveIndexEntries(rootDir: string, removals: readon
 export function readDispatchStreamHeader(rootDir: string, dispatchId: string): DispatchStreamHeader | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
   if (!existsSync(target) || !statSync(target).isFile()) return null;
-  const descriptor = openSync(target, fsConstants.O_RDONLY), chunks: Buffer[] = [];
+  const descriptor = openSync(target, fsConstants.O_RDONLY),
+    chunks: Buffer[] = [];
   try {
     while (true) {
-      const chunk = Buffer.alloc(4096), read = readSync(descriptor, chunk, 0, chunk.length, null);
+      const chunk = Buffer.alloc(4096),
+        read = readSync(descriptor, chunk, 0, chunk.length, null);
       if (read === 0) break;
       const newline = chunk.subarray(0, read).indexOf(10);
       chunks.push(chunk.subarray(0, newline === -1 ? read : newline));
       if (newline !== -1) break;
     }
-  } finally { closeSync(descriptor); }
+  } finally {
+    closeSync(descriptor);
+  }
   const first = parseRecord(Buffer.concat(chunks).toString("utf8").replace(/\r$/u, ""));
   return isHeader(first) && first.dispatchId === dispatchId ? first : null;
 }
@@ -191,10 +227,15 @@ export function readDispatchStream(
 } | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
   if (!existsSync(target) || !statSync(target).isFile()) return null;
-  const lines = readFileSync(target, "utf8").split(/\r?\n/u).filter(Boolean), first = parseRecord(lines[0]);
+  const lines = readFileSync(target, "utf8").split(/\r?\n/u).filter(Boolean),
+    first = parseRecord(lines[0]);
   if (!isHeader(first) || first.dispatchId !== dispatchId) return null;
-  let providerSessionId: string | null = null, processState: DispatchProcessState | null = null;
-  const records = lines.slice(1).map(parseRecord).filter((record): record is DispatchStreamRecord => record !== null);
+  let providerSessionId: string | null = null,
+    processState: DispatchProcessState | null = null;
+  const records = lines
+    .slice(1)
+    .map(parseRecord)
+    .filter((record): record is DispatchStreamRecord => record !== null);
   for (const record of records) {
     if (record.kind === "provider_binding" && typeof record.providerSessionId === "string") {
       providerSessionId = record.providerSessionId;
@@ -244,17 +285,32 @@ export function readRuntimeWorkerChunk(
     const bytes = Buffer.alloc(Math.min(size - offset, limit));
     const read = readSync(descriptor, bytes, 0, bytes.length, offset);
     return bytes.subarray(0, read);
+  } finally {
+    closeSync(descriptor);
   }
-  finally { closeSync(descriptor); }
 }
 
-export function dispatchStreamRef(rootDir: string, dispatchId: string): string { const relative = path.relative(resolveHarnessLayout(rootDir).rootDir, dispatchStreamPath(rootDir, dispatchId)).split(path.sep).join("/"); return `file:${relative}`; }
+export function dispatchStreamRef(rootDir: string, dispatchId: string): string {
+  const relative = path
+    .relative(resolveHarnessLayout(rootDir).rootDir, dispatchStreamPath(rootDir, dispatchId))
+    .split(path.sep)
+    .join("/");
+  return `file:${relative}`;
+}
 
 export function scrubProviderValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(scrubProviderValue);
-  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([key]) => !forbiddenKey.test(key)).map(([key, entry]) => [key, scrubProviderValue(entry)]));
+  if (value !== null && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !forbiddenKey.test(key))
+        .map(([key, entry]) => [key, scrubProviderValue(entry)]),
+    );
   if (typeof value !== "string") return value;
-  return value.replace(bearer, "Bearer [REDACTED]").replace(knownToken, "[REDACTED]").replace(sensitiveAssignment, "[REDACTED]");
+  return value
+    .replace(bearer, "Bearer [REDACTED]")
+    .replace(knownToken, "[REDACTED]")
+    .replace(sensitiveAssignment, "[REDACTED]");
 }
 
 export function dispatchStreamPath(rootDir: string, dispatchId: string): string {
@@ -279,12 +335,15 @@ function upsertDispatchLiveIndex(rootDir: string, entry: DispatchLiveIndexEntry)
   writeDispatchLiveIndex(rootDir, entry.taskId, dispatchLiveIndex([...entries.values()]));
 }
 function writeDispatchLiveIndex(rootDir: string, taskId: string, index: DispatchLiveIndex): void {
-  const target = dispatchLiveIndexPath(rootDir, taskId), temporary = `${target}.${process.pid}.tmp`;
+  const target = dispatchLiveIndexPath(rootDir, taskId),
+    temporary = `${target}.${process.pid}.tmp`;
   mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   try {
     writeFileSync(temporary, `${JSON.stringify(index, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     renameSync(temporary, target);
-  } finally { if (existsSync(temporary)) unlinkSync(temporary); }
+  } finally {
+    if (existsSync(temporary)) unlinkSync(temporary);
+  }
 }
 function readStoredDispatchLiveIndex(target: string, taskId: string): DispatchLiveIndex | null {
   if (!existsSync(target) || !statSync(target).isFile()) return null;
@@ -295,13 +354,17 @@ function readStoredDispatchLiveIndex(target: string, taskId: string): DispatchLi
     const entries: DispatchLiveIndexEntry[] = [];
     for (const value of parsed.entries) {
       if (!isDispatchIndexRecord(value) || value.taskId !== taskId) return null;
-      const dispatchId = String(value.dispatchId), runtimeSessionId = value.runtimeSessionId;
+      const dispatchId = String(value.dispatchId),
+        runtimeSessionId = value.runtimeSessionId;
       if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) return null;
       if (typeof runtimeSessionId !== "string") return null;
       entries.push({ dispatchId, taskId: value.taskId, runtimeSessionId });
     }
     return dispatchLiveIndex(entries);
-  } catch (error) { consumeKnownError(error); return null; }
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
 }
 function appendJsonl(target: string, value: unknown): void {
   const descriptor = openSync(target, fsConstants.O_APPEND | fsConstants.O_WRONLY);
@@ -311,8 +374,31 @@ function appendJsonl(target: string, value: unknown): void {
     closeSync(descriptor);
   }
 }
-function parseRecord(value: string | undefined): Record<string, unknown> | null { if (!value) return null; try { const parsed: unknown = JSON.parse(value); return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null; } catch (error) { consumeKnownError(error); return null; } }
+function parseRecord(value: string | undefined): Record<string, unknown> | null {
+  if (!value) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
 function isDispatchIndexRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function isHeader(value: Record<string, unknown> | null): value is Record<string, unknown> & DispatchStreamHeader { return value?.schema === streamSchema && value.kind === "dispatch" && typeof value.dispatchId === "string" && (value.taskId === null || typeof value.taskId === "string") && (value.executionId === null || typeof value.executionId === "string") && typeof value.runtimeSessionId === "string" && typeof value.instanceId === "string" && typeof value.startedAt === "string" && typeof value.eventStreamRef === "string"; }
+function isHeader(value: Record<string, unknown> | null): value is Record<string, unknown> & DispatchStreamHeader {
+  return (
+    value?.schema === streamSchema &&
+    value.kind === "dispatch" &&
+    typeof value.dispatchId === "string" &&
+    (value.taskId === null || typeof value.taskId === "string") &&
+    (value.executionId === null || typeof value.executionId === "string") &&
+    typeof value.runtimeSessionId === "string" &&
+    typeof value.instanceId === "string" &&
+    typeof value.startedAt === "string" &&
+    typeof value.eventStreamRef === "string"
+  );
+}

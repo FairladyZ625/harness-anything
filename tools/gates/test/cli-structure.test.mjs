@@ -55,13 +55,39 @@ test("thin CLI structure rejects a kernel runtime import from any CLI production
   ));
 });
 
-test("thin CLI structure retains CLI function complexity limits", async () => {
+// The CLI function-line limit is suspended under dec_3879E19D9D1D76BAD538E77C1F
+// (task_2c909af2cae0b23abd1e34a2e2) while the remaining compressed production files
+// are bulk-restored. The original assertion this test carried is preserved verbatim
+// below and must be restored when the suspension is lifted:
+//
+//   assert.notEqual(result.status, 0);
+//   assert.match(result.stderr, /thin-command\.ts:1: function genericMonolith has 12[1-9] lines; max 120/u);
+//
+// Until then this asserts the suspension itself, so it is self-retiring: the moment
+// SUSPEND_LINE_LIMITS flips back to false the notice stops being printed, this test
+// goes red, and whoever re-enables the limit is forced to restore the two lines
+// above rather than leaving the limit silently off.
+test("CLI function-line limit stays suspended under dec_3879E19D9D1D76BAD538E77C1F until this assertion is retired", async () => {
   const root = await fixture();
   write(root, "packages/cli/src/cli/thin-command.ts", genericLongFunction());
 
   const result = run(root);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /file-line and function-line limits suspended under dec_3879E19D9D1D76BAD538E77C1F/u);
+  assert.doesNotMatch(result.stderr, /function genericMonolith has \d+ lines/u);
+});
+
+// Branch counting is not a line-count limit: reformatting cannot add or remove an
+// if/for/while/case/catch/switch keyword or a `?`. It therefore stays active through
+// the suspension window, and this proves it rather than assuming it.
+test("CLI branch-count limit stays active through the line-limit suspension", async () => {
+  const root = await fixture();
+  const branches = Array.from({ length: 41 }, (_, index) => `  if (input === ${index}) return ${index};`).join("\n");
+  write(root, "packages/cli/src/cli/thin-command.ts", `export function branchy(input: number): number {\n${branches}\n  return -1;\n}\n`);
+
+  const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /thin-command\.ts:1: function genericMonolith has 12[1-9] lines; max 120/u);
+  assert.match(result.stderr, /function branchy has \d+ branch markers; max 40/u);
 });
 
 test("thin CLI permits only the zero-dependency preset command contract", async () => {

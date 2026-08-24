@@ -37,7 +37,17 @@ export interface NpmPublishDryRunContract {
 
 export interface LicensePolicyContract {
   readonly projectLicense: "AGPL-3.0-or-later";
-  readonly allowedDependencyLicenses: readonly ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0", "OFL-1.1"];
+  readonly allowedDependencyLicenses: readonly [
+    "0BSD",
+    "Apache-2.0",
+    "BlueOak-1.0.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "OFL-1.1",
+  ];
   readonly reviewedDependencyLicenseChoices: readonly ReviewedDependencyLicenseChoice[];
   readonly networkServiceReleaseNotesRequired: true;
   readonly networkServiceReleaseChecklist: readonly [
@@ -45,7 +55,7 @@ export interface LicensePolicyContract {
     "modified source corresponding to the network service",
     "deployment and service docs preserve AGPL notices",
     "release notes identify user-visible network-service changes",
-    "third-party license notices included with release evidence"
+    "third-party license notices included with release evidence",
   ];
   readonly agplNoticeRequired: true;
 }
@@ -91,7 +101,7 @@ export interface SupplyChainReleaseReadinessPolicy {
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
-    "packages/adapters/multica/package.json"
+    "packages/adapters/multica/package.json",
   ];
   readonly auditCommands: readonly [AuditCommandContract, AuditCommandContract];
   readonly sbom: SbomContract;
@@ -135,21 +145,21 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
-    "packages/adapters/multica/package.json"
+    "packages/adapters/multica/package.json",
   ],
   auditCommands: [
     {
       name: "npm-audit-all",
       command: "npm audit --audit-level=high",
       auditLevel: "high",
-      requiredInDefaultCheck: true
+      requiredInDefaultCheck: true,
     },
     {
       name: "npm-audit-production",
       command: "npm audit --omit=dev --audit-level=high",
       auditLevel: "high",
-      requiredInDefaultCheck: true
-    }
+      requiredInDefaultCheck: true,
+    },
   ],
   sbom: {
     format: "CycloneDX",
@@ -158,14 +168,14 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     releaseArtifactSbomRequiredBeforePublication: true,
     requiresComponentPurl: true,
     requiresComponentLicense: true,
-    requiresComponentHash: true
+    requiresComponentHash: true,
   },
   osv: {
     liveScanCommand: "npx --yes osv-scanner@latest --lockfile=package-lock.json",
     releaseEvidencePath: "release-evidence/osv/scan-result.json",
     requiredInDefaultCheck: false,
     releaseEvidenceRequiredBeforePublication: true,
-    deterministicDefaultGate: "package-lock-present-and-command-documented"
+    deterministicDefaultGate: "package-lock-present-and-command-documented",
   },
   npmPublishDryRun: {
     packageName: "@harness-anything/cli",
@@ -174,61 +184,78 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     command: "npm publish --dry-run --workspace @harness-anything/cli --access public",
     publishablePackages: ["@harness-anything/cli"],
     actualPublishPermitted: false,
-    requiredBeforePublication: true
+    requiredBeforePublication: true,
   },
   licensePolicy: {
     projectLicense: "AGPL-3.0-or-later",
-    allowedDependencyLicenses: ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0", "OFL-1.1"],
+    allowedDependencyLicenses: [
+      "0BSD",
+      "Apache-2.0",
+      "BlueOak-1.0.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC",
+      "MIT",
+      "MPL-2.0",
+      "OFL-1.1",
+    ],
     reviewedDependencyLicenseChoices: [
       {
         packageName: "expand-template",
         declaredLicenseExpression: "(MIT OR WTFPL)",
         electedLicense: "MIT",
         reviewedAt: "2026-07-04",
-        rationale: "Transitive dependency of @effect/sql-sqlite-node via better-sqlite3/prebuild tooling. The SPDX OR expression includes MIT; project elects the permissive MIT branch."
+        rationale:
+          "Transitive dependency of @effect/sql-sqlite-node via better-sqlite3/prebuild tooling. The SPDX OR expression includes MIT; project elects the permissive MIT branch.",
       },
       {
         packageName: "rc",
         declaredLicenseExpression: "(BSD-2-Clause OR MIT OR Apache-2.0)",
         electedLicense: "MIT",
         reviewedAt: "2026-07-04",
-        rationale: "Transitive dependency of @effect/sql-sqlite-node via better-sqlite3/prebuild tooling. The SPDX OR expression includes MIT; project elects the permissive MIT branch."
+        rationale:
+          "Transitive dependency of @effect/sql-sqlite-node via better-sqlite3/prebuild tooling. The SPDX OR expression includes MIT; project elects the permissive MIT branch.",
       },
       {
         packageName: "argparse",
         declaredLicenseExpression: "Python-2.0",
         electedLicense: "Python-2.0",
         reviewedAt: "2026-07-08",
-        rationale: "DevDependency-only transitive dependency introduced by electron-builder packaging tooling. Python-2.0 is a permissive license and this package is used for local build tooling, not the Harness runtime distribution."
+        rationale:
+          "DevDependency-only transitive dependency introduced by electron-builder packaging tooling. Python-2.0 is a permissive license and this package is used for local build tooling, not the Harness runtime distribution.",
       },
       {
         packageName: "sanitize-filename",
         declaredLicenseExpression: "WTFPL OR ISC",
         electedLicense: "ISC",
         reviewedAt: "2026-07-08",
-        rationale: "DevDependency-only transitive dependency introduced by electron-builder packaging tooling. The SPDX OR expression includes ISC; project elects the permissive ISC branch and the package is not part of the Harness runtime distribution."
+        rationale:
+          "DevDependency-only transitive dependency introduced by electron-builder packaging tooling. The SPDX OR expression includes ISC; project elects the permissive ISC branch and the package is not part of the Harness runtime distribution.",
       },
       {
         packageName: "truncate-utf8-bytes",
         declaredLicenseExpression: "WTFPL",
         electedLicense: "WTFPL",
         reviewedAt: "2026-07-08",
-        rationale: "DevDependency-only transitive dependency introduced by electron-builder packaging tooling through sanitize-filename. WTFPL is permissive and this package is used only in local build tooling, not the Harness runtime distribution."
+        rationale:
+          "DevDependency-only transitive dependency introduced by electron-builder packaging tooling through sanitize-filename. WTFPL is permissive and this package is used only in local build tooling, not the Harness runtime distribution.",
       },
       {
         packageName: "type-fest",
         declaredLicenseExpression: "(MIT OR CC0-1.0)",
         electedLicense: "MIT",
         reviewedAt: "2026-07-08",
-        rationale: "DevDependency-only transitive dependency introduced by electron-builder packaging tooling. The SPDX OR expression includes MIT; project elects the permissive MIT branch and the package is not part of the Harness runtime distribution."
+        rationale:
+          "DevDependency-only transitive dependency introduced by electron-builder packaging tooling. The SPDX OR expression includes MIT; project elects the permissive MIT branch and the package is not part of the Harness runtime distribution.",
       },
       {
         packageName: "utf8-byte-length",
         declaredLicenseExpression: "(WTFPL OR MIT)",
         electedLicense: "MIT",
         reviewedAt: "2026-07-08",
-        rationale: "DevDependency-only transitive dependency introduced by electron-builder packaging tooling through truncate-utf8-bytes. The SPDX OR expression includes MIT; project elects the permissive MIT branch and the package is not part of the Harness runtime distribution."
-      }
+        rationale:
+          "DevDependency-only transitive dependency introduced by electron-builder packaging tooling through truncate-utf8-bytes. The SPDX OR expression includes MIT; project elects the permissive MIT branch and the package is not part of the Harness runtime distribution.",
+      },
     ],
     networkServiceReleaseNotesRequired: true,
     networkServiceReleaseChecklist: [
@@ -236,19 +263,19 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
       "modified source corresponding to the network service",
       "deployment and service docs preserve AGPL notices",
       "release notes identify user-visible network-service changes",
-      "third-party license notices included with release evidence"
+      "third-party license notices included with release evidence",
     ],
-    agplNoticeRequired: true
+    agplNoticeRequired: true,
   },
   dependabot: {
     ecosystem: "npm",
     directories: ["/"],
-    requiredLabels: ["dependencies", "security"]
+    requiredLabels: ["dependencies", "security"],
   },
   electronUpgrade: {
     packageName: "electron",
     upgradeRequiresSecurityReview: true,
-    reviewDoc: "docs-release/release-posture.md"
+    reviewDoc: "docs-release/release-posture.md",
   },
   releaseBoundary: {
     packagesPrivateExceptCli: true,
@@ -257,12 +284,12 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     npmReleaseClaimed: false,
     releaseArtifactsPublished: false,
     signedInstallersShipped: false,
-    autoUpdateShipped: false
-  }
+    autoUpdateShipped: false,
+  },
 };
 
 export function validateSupplyChainReleaseReadiness(
-  policy: SupplyChainReleaseReadinessPolicy
+  policy: SupplyChainReleaseReadinessPolicy,
 ): SupplyChainReleaseReadinessValidationResult {
   const errors: SupplyChainReleaseReadinessValidationError[] = [];
 
@@ -272,7 +299,10 @@ export function validateSupplyChainReleaseReadiness(
     !policy.workspacePackagePaths.includes("packages/daemon/package.json") ||
     !policy.workspacePackagePaths.includes("packages/gui/package.json")
   ) {
-    errors.push({ code: "missing_workspace_package", message: "Supply-chain readiness must cover the root, CLI, daemon, and GUI workspace packages." });
+    errors.push({
+      code: "missing_workspace_package",
+      message: "Supply-chain readiness must cover the root, CLI, daemon, and GUI workspace packages.",
+    });
   }
 
   if (
@@ -280,7 +310,10 @@ export function validateSupplyChainReleaseReadiness(
     !policy.auditCommands.some((command) => command.command === "npm audit --audit-level=high") ||
     !policy.auditCommands.some((command) => command.command === "npm audit --omit=dev --audit-level=high")
   ) {
-    errors.push({ code: "invalid_audit_contract", message: "Supply-chain readiness must include full and production-only high-severity npm audit gates." });
+    errors.push({
+      code: "invalid_audit_contract",
+      message: "Supply-chain readiness must include full and production-only high-severity npm audit gates.",
+    });
   }
 
   if (
@@ -289,7 +322,10 @@ export function validateSupplyChainReleaseReadiness(
     policy.sbom.generationCommand !== "npm sbom --sbom-format=cyclonedx --sbom-type=application" ||
     policy.sbom.releaseArtifactSbomRequiredBeforePublication !== true
   ) {
-    errors.push({ code: "invalid_sbom_contract", message: "Supply-chain readiness must require CycloneDX 1.5 SBOM generation and release artifact SBOM gating." });
+    errors.push({
+      code: "invalid_sbom_contract",
+      message: "Supply-chain readiness must require CycloneDX 1.5 SBOM generation and release artifact SBOM gating.",
+    });
   }
 
   if (
@@ -298,7 +334,10 @@ export function validateSupplyChainReleaseReadiness(
     policy.osv.requiredInDefaultCheck !== false ||
     policy.osv.releaseEvidenceRequiredBeforePublication !== true
   ) {
-    errors.push({ code: "invalid_osv_contract", message: "OSV readiness must be explicit release evidence without becoming a flaky default local network gate." });
+    errors.push({
+      code: "invalid_osv_contract",
+      message: "OSV readiness must be explicit release evidence without becoming a flaky default local network gate.",
+    });
   }
 
   if (
@@ -313,7 +352,7 @@ export function validateSupplyChainReleaseReadiness(
   ) {
     errors.push({
       code: "invalid_npm_publish_dry_run_contract",
-      message: "NPM publish readiness must stay limited to a CLI-only dry-run command with no real publish permission."
+      message: "NPM publish readiness must stay limited to a CLI-only dry-run command with no real publish permission.",
     });
   }
 
@@ -321,26 +360,39 @@ export function validateSupplyChainReleaseReadiness(
     policy.licensePolicy.projectLicense !== "AGPL-3.0-or-later" ||
     !policy.licensePolicy.allowedDependencyLicenses.includes("BlueOak-1.0.0") ||
     !policy.licensePolicy.allowedDependencyLicenses.includes("MIT") ||
-    !policy.licensePolicy.reviewedDependencyLicenseChoices.every((choice) =>
-      choice.packageName.length > 0 &&
-      choice.declaredLicenseExpression.length > 0 &&
-      choice.electedLicense.length > 0 &&
-      choice.reviewedAt.length > 0 &&
-      choice.rationale.length > 0
+    !policy.licensePolicy.reviewedDependencyLicenseChoices.every(
+      (choice) =>
+        choice.packageName.length > 0 &&
+        choice.declaredLicenseExpression.length > 0 &&
+        choice.electedLicense.length > 0 &&
+        choice.reviewedAt.length > 0 &&
+        choice.rationale.length > 0,
     ) ||
     policy.licensePolicy.networkServiceReleaseNotesRequired !== true ||
     policy.licensePolicy.networkServiceReleaseChecklist.length !== 5 ||
     policy.licensePolicy.agplNoticeRequired !== true
   ) {
-    errors.push({ code: "invalid_license_policy", message: "License readiness must preserve AGPL project licensing and network-service release-note obligations." });
+    errors.push({
+      code: "invalid_license_policy",
+      message: "License readiness must preserve AGPL project licensing and network-service release-note obligations.",
+    });
   }
 
   if (policy.dependabot.directories.length !== 1 || !policy.dependabot.directories.includes("/")) {
-    errors.push({ code: "invalid_dependabot_contract", message: "Dependabot npm coverage must use the workspace root lockfile entry." });
+    errors.push({
+      code: "invalid_dependabot_contract",
+      message: "Dependabot npm coverage must use the workspace root lockfile entry.",
+    });
   }
 
-  if (policy.electronUpgrade.packageName !== "electron" || policy.electronUpgrade.upgradeRequiresSecurityReview !== true) {
-    errors.push({ code: "invalid_electron_upgrade_contract", message: "Electron upgrades must remain explicit security-review events." });
+  if (
+    policy.electronUpgrade.packageName !== "electron" ||
+    policy.electronUpgrade.upgradeRequiresSecurityReview !== true
+  ) {
+    errors.push({
+      code: "invalid_electron_upgrade_contract",
+      message: "Electron upgrades must remain explicit security-review events.",
+    });
   }
 
   const boundary = policy.releaseBoundary;
@@ -355,7 +407,8 @@ export function validateSupplyChainReleaseReadiness(
   ) {
     errors.push({
       code: "invalid_release_boundary",
-      message: "P11 supply-chain readiness cannot claim real npm release, release artifacts, signed installers, or auto-update."
+      message:
+        "P11 supply-chain readiness cannot claim real npm release, release artifacts, signed installers, or auto-update.",
     });
   }
 

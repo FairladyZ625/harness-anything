@@ -1,4 +1,11 @@
-import { relationDirections, relationOrigins, relationStates, relationStrengths, relationTypes, type EntityRelationRecord } from "../domain/index.ts";
+import {
+  relationDirections,
+  relationOrigins,
+  relationStates,
+  relationStrengths,
+  relationTypes,
+  type EntityRelationRecord,
+} from "../domain/index.ts";
 
 export function parseRelationFlowRecords(body: string): ReadonlyArray<EntityRelationRecord> {
   const records: EntityRelationRecord[] = [];
@@ -39,10 +46,16 @@ function parseRelationFlowLine(line: string): EntityRelationRecord | null {
     direction: fields.get("direction") ?? "",
     origin: fields.get("origin") ?? "",
     rationale: fields.get("rationale") ?? "",
-    state: fields.get("state") ?? ""
+    state: fields.get("state") ?? "",
   };
   if (!record.relation_id || !record.source || !record.target) return null;
-  if (!isRelationType(record.type) || !isRelationStrength(record.strength) || !isRelationDirection(record.direction) || !isRelationOrigin(record.origin) || !isRelationState(record.state)) {
+  if (
+    !isRelationType(record.type) ||
+    !isRelationStrength(record.strength) ||
+    !isRelationDirection(record.direction) ||
+    !isRelationOrigin(record.origin) ||
+    !isRelationState(record.state)
+  ) {
     return null;
   }
   return {
@@ -54,7 +67,7 @@ function parseRelationFlowLine(line: string): EntityRelationRecord | null {
     direction: record.direction,
     origin: record.origin,
     rationale: record.rationale,
-    state: record.state
+    state: record.state,
   };
 }
 
@@ -64,8 +77,8 @@ function splitFlowFields(body: string): ReadonlyArray<string> {
   let quote: string | null = null;
   for (let index = 0; index < body.length; index += 1) {
     const character = body[index] ?? "";
-    if ((character === "\"" || character === "'") && body[index - 1] !== "\\") {
-      quote = quote === character ? null : quote ?? character;
+    if ((character === '"' || character === "'") && body[index - 1] !== "\\") {
+      quote = quote === character ? null : (quote ?? character);
     }
     if (character === "," && !quote) {
       fields.push(current.trim());
@@ -79,7 +92,7 @@ function splitFlowFields(body: string): ReadonlyArray<string> {
 }
 
 function parseRelationFlowValue(value: string): string {
-  if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
     try {
       return JSON.parse(value);
     } catch {

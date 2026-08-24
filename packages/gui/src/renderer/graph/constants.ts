@@ -20,12 +20,7 @@ export const SWIM_GAP = 70;
  */
 export type SemanticAxis = "authority" | "evidence" | "execution" | "assoc";
 
-export const AXIS_ORDER: ReadonlyArray<SemanticAxis> = [
-  "authority",
-  "evidence",
-  "execution",
-  "assoc",
-];
+export const AXIS_ORDER: ReadonlyArray<SemanticAxis> = ["authority", "evidence", "execution", "assoc"];
 
 /** 轴名是给人读的散文,走 i18n(取值时求值,语言切换即时生效);下面的 SUBLABEL 是关系类型字面量,不翻译。 */
 export const axisLabel = (axis: SemanticAxis): string => t(`graph.axis.${axis}`);

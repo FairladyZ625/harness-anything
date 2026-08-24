@@ -115,19 +115,38 @@ export function checkerResultField(value: ExecutionEvidenceOutput["checkerResult
   return value === "unknown" ? UNKNOWN_EVIDENCE_FIELD : field(value);
 }
 
-function adaptExecution(row: ExecutionEvidenceSourceRow, execution: Execution, taskTitle: string): ExecutionEvidenceRow {
+function adaptExecution(
+  row: ExecutionEvidenceSourceRow,
+  execution: Execution,
+  taskTitle: string,
+): ExecutionEvidenceRow {
   const projections = row.executionEvidence.filter((item) => item.executionId === execution.executionId);
   const projection = projections.length === 1 ? projections[0] : undefined;
   const commitSha = text(execution.submission?.commitSha);
   const iteration = Number.isInteger(execution.iteration) ? execution.iteration : undefined;
-  const reviews = commitSha === undefined || iteration === undefined ? [] : row.snapshot.reviews.filter((review) =>
-    review.executionId === execution.executionId && review.commitSha === commitSha && review.iteration === iteration);
+  const reviews =
+    commitSha === undefined || iteration === undefined
+      ? []
+      : row.snapshot.reviews.filter(
+          (review) =>
+            review.executionId === execution.executionId &&
+            review.commitSha === commitSha &&
+            review.iteration === iteration,
+        );
   const reviewIds = new Set(reviews.map(({ reviewId }) => reviewId));
-  const consents = row.snapshot.consents.filter((consent) =>
-    consent.executionId === execution.executionId && reviewIds.has(consent.reviewId));
+  const consents = row.snapshot.consents.filter(
+    (consent) => consent.executionId === execution.executionId && reviewIds.has(consent.reviewId),
+  );
   const selectedConsent = consents.at(-1);
-  const gateWitnesses = commitSha === undefined || iteration === undefined ? [] : row.snapshot.gateWitnesses.filter((witness) =>
-    witness.executionId === execution.executionId && witness.commitSha === commitSha && witness.iteration === iteration);
+  const gateWitnesses =
+    commitSha === undefined || iteration === undefined
+      ? []
+      : row.snapshot.gateWitnesses.filter(
+          (witness) =>
+            witness.executionId === execution.executionId &&
+            witness.commitSha === commitSha &&
+            witness.iteration === iteration,
+        );
   return {
     taskId: row.taskId,
     taskTitle,
@@ -159,16 +178,26 @@ function adaptOutputs(execution: Execution, projection: ProjectedEvidence | unde
   return Array.from({ length: count }, (_, index) => adaptOutput(projected[index], submitted[index]));
 }
 
-function adaptOutput(output: ProjectedOutput | undefined, submittedLocator: string | undefined): ExecutionEvidenceOutput {
+function adaptOutput(
+  output: ProjectedOutput | undefined,
+  submittedLocator: string | undefined,
+): ExecutionEvidenceOutput {
   const candidate = output as Partial<ProjectedOutput> | undefined;
   const checkerReceiptRef = candidate?.checkerReceiptRef === null ? null : text(candidate?.checkerReceiptRef);
-  const checkerResult = candidate?.checkerResult === "pass" || candidate?.checkerResult === "fail" || candidate?.checkerResult === "unknown"
-    ? candidate.checkerResult : undefined;
+  const checkerResult =
+    candidate?.checkerResult === "pass" || candidate?.checkerResult === "fail" || candidate?.checkerResult === "unknown"
+      ? candidate.checkerResult
+      : undefined;
   return {
     evidenceId: text(candidate?.evidenceId),
     locator: text(candidate?.locator),
-    substrate: candidate?.substrate === "repository-path" || candidate?.substrate === "uri"
-      || candidate?.substrate === "canonical-event" || candidate?.substrate === "opaque" ? candidate.substrate : undefined,
+    substrate:
+      candidate?.substrate === "repository-path" ||
+      candidate?.substrate === "uri" ||
+      candidate?.substrate === "canonical-event" ||
+      candidate?.substrate === "opaque"
+        ? candidate.substrate
+        : undefined,
     checkerReceiptRef,
     checkerResult,
     isPassingReceipt: checkerReceiptRef !== undefined && checkerReceiptRef !== null && checkerResult === "pass",

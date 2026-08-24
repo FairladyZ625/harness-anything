@@ -15,9 +15,13 @@ function shortEndpoint(raw: string): string {
   return raw.replace(/^task\//, "");
 }
 
-
 /** 关系端点的裸引用也必须有路:按 kind 路由到对应实体的导航出口。 */
-function EndpointRef({ raw, onNavigateDecision, onNavigateTask, onFocusGraph }: {
+function EndpointRef({
+  raw,
+  onNavigateDecision,
+  onNavigateTask,
+  onFocusGraph,
+}: {
   readonly raw: string;
   readonly onNavigateDecision?: (decisionId: string) => void;
   readonly onNavigateTask?: (taskId: string) => void;
@@ -28,21 +32,23 @@ function EndpointRef({ raw, onNavigateDecision, onNavigateTask, onFocusGraph }: 
     else if (ref.startsWith("task/") && onNavigateTask) onNavigateTask(ref.slice(5).split("/")[0]);
     else if (onFocusGraph) onFocusGraph(ref);
   };
-  const routable = raw.startsWith("decision/") ? onNavigateDecision !== undefined
-    : raw.startsWith("task/") ? onNavigateTask !== undefined
+  const routable = raw.startsWith("decision/")
+    ? onNavigateDecision !== undefined
+    : raw.startsWith("task/")
+      ? onNavigateTask !== undefined
       : onFocusGraph !== undefined;
-  return routable
-    ? (
-      <EntityRefLink
-        entityRef={raw}
-        onNavigate={navigate}
-        title={raw}
-        className="text-text-faint hover:text-accent hover:underline"
-      >
-        {shortEndpoint(raw)}
-      </EntityRefLink>
-    )
-    : <span className="text-text-faint">{shortEndpoint(raw)}</span>;
+  return routable ? (
+    <EntityRefLink
+      entityRef={raw}
+      onNavigate={navigate}
+      title={raw}
+      className="text-text-faint hover:text-accent hover:underline"
+    >
+      {shortEndpoint(raw)}
+    </EntityRefLink>
+  ) : (
+    <span className="text-text-faint">{shortEndpoint(raw)}</span>
+  );
 }
 
 export function FactInspector({
@@ -85,8 +91,9 @@ export function FactInspector({
   // Kernel fact-liveness criterion: only an active supersedes-fact edge marks the
   // fact replaced; retired/deleted edges are audit history (see activeIncomingRelations).
   const supersedingRelations = activeIncomingRelations(fullRef, "supersedes-fact", relations);
-  const directlySupportedDecisionIds = incomingRelations(fullRef, "evidenced-by", relations)
-    .map((relation) => normalizeDecisionId(relation.from));
+  const directlySupportedDecisionIds = incomingRelations(fullRef, "evidenced-by", relations).map((relation) =>
+    normalizeDecisionId(relation.from),
+  );
   const coveredDecisionIds = coverageRows
     .filter(
       (row) =>
@@ -94,9 +101,7 @@ export function FactInspector({
         row.status === "covered" && row.coveringFactRef === fullRef,
     )
     .map((row) => normalizeDecisionId(row.decisionRef));
-  const supportedDecisionIds = [
-    ...new Set([...directlySupportedDecisionIds, ...coveredDecisionIds]),
-  ].sort();
+  const supportedDecisionIds = [...new Set([...directlySupportedDecisionIds, ...coveredDecisionIds])].sort();
 
   return (
     <aside
@@ -168,11 +173,11 @@ export function FactInspector({
                   title={factRef}
                   className="text-danger hover:underline"
                 />
-              ) : factRef}
+              ) : (
+                factRef
+              )}
             </div>
-            <p className="mt-1 leading-relaxed">
-              {t("components.factInspector.inv6WillDetectAnchorNotPresent")}
-            </p>
+            <p className="mt-1 leading-relaxed">{t("components.factInspector.inv6WillDetectAnchorNotPresent")}</p>
           </div>
         ) : (
           <>
@@ -182,7 +187,9 @@ export function FactInspector({
                   {fact.category}
                 </span>
                 <span className="font-mono text-[11px] text-text-faint">{fact.at}</span>
-                <span className="font-mono text-[11px] text-text-faint">{t("components.factInspector.confidenceValue", { confidence: fact.confidence })}</span>
+                <span className="font-mono text-[11px] text-text-faint">
+                  {t("components.factInspector.confidenceValue", { confidence: fact.confidence })}
+                </span>
                 {fact.invalidated && (
                   <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-stale">
                     <WarningCircle weight="bold" />
@@ -191,7 +198,11 @@ export function FactInspector({
                 )}
               </div>
               <p className="mt-2 text-[13px] font-medium leading-relaxed text-text">{fact.text}</p>
-              <div className="mt-1 font-mono text-[11px] text-text-faint">{t("components.factInspector.sourceValue", { source: fact.source ?? t("components.factInspector.unknown") })}</div>
+              <div className="mt-1 font-mono text-[11px] text-text-faint">
+                {t("components.factInspector.sourceValue", {
+                  source: fact.source ?? t("components.factInspector.unknown"),
+                })}
+              </div>
             </div>
 
             <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
@@ -221,7 +232,7 @@ export function FactInspector({
             </div>
 
             <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-            <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+              <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
                 {t("components.factInspector.provenance")}
               </div>
               {fact.provenance?.length ? (
@@ -233,9 +244,7 @@ export function FactInspector({
                   ))}
                 </div>
               ) : (
-                <p className="mt-1 text-[12px] text-text-faint">
-                  {t("components.factInspector.noProvenance")}
-                </p>
+                <p className="mt-1 text-[12px] text-text-faint">{t("components.factInspector.noProvenance")}</p>
               )}
             </div>
           </>
@@ -250,7 +259,10 @@ export function FactInspector({
           ) : (
             <div className="mt-1 space-y-1.5">
               {inbound.map((relation, index) => (
-                <div key={`${relation.from}-${relation.kind}-${index}`} className="rounded border border-border bg-surface px-2 py-1.5">
+                <div
+                  key={`${relation.from}-${relation.kind}-${index}`}
+                  className="rounded border border-border bg-surface px-2 py-1.5"
+                >
                   <div className="flex items-center gap-1.5 font-mono text-[11px]">
                     <EndpointRef
                       raw={relation.from}
@@ -259,18 +271,18 @@ export function FactInspector({
                       onFocusGraph={onFocusGraph}
                     />
                     <ArrowSquareOut weight="bold" className="text-[11px] text-text-faint" />
-                    <span className={
-                      relation.kind === "refuted-by" || relation.kind === "supersedes-fact"
-                        ? "text-stale"
-                        : "text-accent"
-                    }>
+                    <span
+                      className={
+                        relation.kind === "refuted-by" || relation.kind === "supersedes-fact"
+                          ? "text-stale"
+                          : "text-accent"
+                      }
+                    >
                       {relation.kind}
                     </span>
                   </div>
                   {relation.rationale && (
-                    <div className="mt-1 text-[11px] leading-snug text-text-muted">
-                      {relation.rationale}
-                    </div>
+                    <div className="mt-1 text-[11px] leading-snug text-text-muted">{relation.rationale}</div>
                   )}
                 </div>
               ))}
@@ -285,24 +297,24 @@ export function FactInspector({
             </div>
             <div className="mt-1 space-y-1">
               {supportedDecisionIds.map((decId) => {
-                const decision = decisions.find(
-                  (candidate) => candidate.decisionId === decId,
-                );
+                const decision = decisions.find((candidate) => candidate.decisionId === decId);
                 return (
-                <div key={decId} className="text-[12px]">
-                  {onNavigateDecision ? (
-                    <button
-                      onClick={() => onNavigateDecision(decId)}
-                      className="font-mono text-accent hover:underline"
-                      title={t("components.factInspector.jumpDecision")}
-                    >
-                      {decId}
-                    </button>
-                  ) : (
-                    <span className="font-mono text-accent">{decId}</span>
-                  )}
-                  <span className="ml-1 text-text-muted">{decision?.title ?? t("components.factInspector.unknownDecision")}</span>
-                </div>
+                  <div key={decId} className="text-[12px]">
+                    {onNavigateDecision ? (
+                      <button
+                        onClick={() => onNavigateDecision(decId)}
+                        className="font-mono text-accent hover:underline"
+                        title={t("components.factInspector.jumpDecision")}
+                      >
+                        {decId}
+                      </button>
+                    ) : (
+                      <span className="font-mono text-accent">{decId}</span>
+                    )}
+                    <span className="ml-1 text-text-muted">
+                      {decision?.title ?? t("components.factInspector.unknownDecision")}
+                    </span>
+                  </div>
                 );
               })}
             </div>
@@ -317,12 +329,16 @@ export function FactInspector({
             </div>
             {contradictions.length > 0 && (
               <div className="mt-1 font-mono text-[11px]">
-                {t("components.factInspector.contradictsValue", { value: contradictions.map((relation) => shortEndpoint(relation.from)).join(", ") })}
+                {t("components.factInspector.contradictsValue", {
+                  value: contradictions.map((relation) => shortEndpoint(relation.from)).join(", "),
+                })}
               </div>
             )}
             {supersedingRelations.length > 0 && (
               <div className="mt-1 font-mono text-[11px]">
-                {t("components.factInspector.replacedByValue", { value: supersedingRelations.map((relation) => shortEndpoint(relation.from)).join(", ") })}
+                {t("components.factInspector.replacedByValue", {
+                  value: supersedingRelations.map((relation) => shortEndpoint(relation.from)).join(", "),
+                })}
               </div>
             )}
           </div>

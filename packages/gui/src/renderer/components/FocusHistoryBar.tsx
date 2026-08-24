@@ -44,15 +44,11 @@ export function FocusHistoryBar({
       </button>
       {breadcrumb ? (
         <span className="min-w-0 flex-1 truncate font-mono text-text-muted">
-          <span className="rounded bg-surface-raised px-1.5 py-0.5 text-text-faint">
-            {breadcrumb.kindLabel}
-          </span>{" "}
+          <span className="rounded bg-surface-raised px-1.5 py-0.5 text-text-faint">{breadcrumb.kindLabel}</span>{" "}
           <span className="text-text">{breadcrumb.title}</span>
         </span>
       ) : (
-        <span className="flex-1 truncate font-mono text-text-faint">
-          无焦点 — 单击节点选中,双击设焦点
-        </span>
+        <span className="flex-1 truncate font-mono text-text-faint">无焦点 — 单击节点选中,双击设焦点</span>
       )}
       {breadcrumb && (
         <button

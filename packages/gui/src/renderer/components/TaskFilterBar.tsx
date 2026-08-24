@@ -1,20 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { CaretDown, Check, MagnifyingGlass, Star, X } from "@phosphor-icons/react";
-import type {
-  CloseoutReadiness,
-  EngineId,
-  Freshness,
-  SnapshotStatus,
-  TaskRow,
-} from "../model/types";
+import type { CloseoutReadiness, EngineId, Freshness, SnapshotStatus, TaskRow } from "../model/types";
 import { BOARD_COLUMNS } from "../model/types";
 import { STATUS_META } from "./badges";
-import {
-  DEFAULT_TASK_FILTERS,
-  hasActiveTaskFilters,
-  taskFilterSummary,
-  type TaskFilters,
-} from "../model/taskFilters";
+import { DEFAULT_TASK_FILTERS, hasActiveTaskFilters, taskFilterSummary, type TaskFilters } from "../model/taskFilters";
 import { t } from "../i18n/index.tsx";
 
 const CLOSEOUTS: (CloseoutReadiness | "all")[] = [
@@ -26,12 +15,7 @@ const CLOSEOUTS: (CloseoutReadiness | "all")[] = [
   "passed",
   "not_required",
 ];
-const FRESHNESS: (Freshness | "all")[] = [
-  "all",
-  "fresh",
-  "stale-but-usable",
-  "unavailable-no-cache",
-];
+const FRESHNESS: (Freshness | "all")[] = ["all", "fresh", "stale-but-usable", "unavailable-no-cache"];
 
 function Select<T extends string>({
   label,
@@ -89,11 +73,12 @@ function StatusMultiSelect({
     else onChange([...selected, status]);
   };
 
-  const label = selected.length === 0
-    ? t("components.taskFilterBar.all")
-    : selected.length === 1
-      ? STATUS_META[selected[0]]?.label ?? selected[0]
-      : t("components.taskFilterBar.countItems", { count: selected.length });
+  const label =
+    selected.length === 0
+      ? t("components.taskFilterBar.all")
+      : selected.length === 1
+        ? (STATUS_META[selected[0]]?.label ?? selected[0])
+        : t("components.taskFilterBar.countItems", { count: selected.length });
 
   return (
     <div ref={containerRef} className="relative">
@@ -166,7 +151,9 @@ export function TaskFilterBar({
   contextLabel: string;
   favorites?: ReadonlySet<string>;
 }) {
-  const modules = [...new Set(tasks.flatMap((task) => task.moduleKeys?.length ? task.moduleKeys : [task.module]))].sort();
+  const modules = [
+    ...new Set(tasks.flatMap((task) => (task.moduleKeys?.length ? task.moduleKeys : [task.module]))),
+  ].sort();
   const engines: (EngineId | "all")[] = ["all", ...new Set(tasks.map((task) => task.engine))];
   const chips = taskFilterSummary(filters);
   const active = hasActiveTaskFilters(filters);
@@ -193,11 +180,13 @@ export function TaskFilterBar({
           values={["all", ...modules]}
           onChange={(module) => patch({ module })}
         />
-        <Select label={t("components.taskFilterBar.engine")} value={filters.engine} values={engines} onChange={(engine) => patch({ engine })} />
-        <StatusMultiSelect
-          selected={filters.status}
-          onChange={(status) => patch({ status })}
+        <Select
+          label={t("components.taskFilterBar.engine")}
+          value={filters.engine}
+          values={engines}
+          onChange={(engine) => patch({ engine })}
         />
+        <StatusMultiSelect selected={filters.status} onChange={(status) => patch({ status })} />
         <Select
           label={t("components.taskFilterBar.closeout")}
           value={filters.closeout}
@@ -255,9 +244,7 @@ export function TaskFilterBar({
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[12px] text-text-faint">
-        <span>
-          {t("components.taskFilterBar.filteredTaskCount", { filteredCount, totalCount: tasks.length })}
-        </span>
+        <span>{t("components.taskFilterBar.filteredTaskCount", { filteredCount, totalCount: tasks.length })}</span>
         {chips.length > 0 ? (
           chips.map((chip) => (
             <span key={chip} className="rounded border border-border px-1.5 py-px">

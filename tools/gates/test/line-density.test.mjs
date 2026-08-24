@@ -97,6 +97,47 @@ test("a many-to-one compression is rejected when the longest line grows even as 
   });
 });
 
+// Measured on the real restoration of packages/kernel/src/entity/disposition.ts:
+// overlong total 1405 -> 280 (a large reduction, exactly what restoration should
+// do) while the longest line went 279 -> 280. The whole one-character delta was a
+// trailing comma prettier.config.mjs's `trailingComma: "all"` appends to a string
+// literal whose contents are byte-identical. Nothing was compressed, and there is
+// no way to compress code with a comma.
+test("a formatter's trailing comma on an otherwise untouched overlong line is not a longer longest line", () => {
+  const body = "x".repeat(279);
+  const violations = findViolations(hunk("packages/kernel/src/a.ts", 5, {
+    added: [`${body},`],
+    removed: [body]
+  }));
+  assert.deepEqual(violations, []);
+});
+
+// Same reasoning for indentation: it is a function of nesting depth, so deepening
+// a block grows its lines without joining anything onto them. Measured on the real
+// restoration of packages/kernel/src/projection/entity-declaration-projection.ts,
+// whose longest line went 124 -> 127 as prettier nested it two spaces deeper and
+// appended a comma to an otherwise byte-identical template literal.
+test("re-indenting an otherwise untouched overlong line is not an increase in either half", () => {
+  const body = "x".repeat(200);
+  const violations = findViolations(hunk("packages/kernel/src/a.ts", 5, {
+    added: [`      ${body},`],
+    removed: [`  ${body}`]
+  }));
+  assert.deepEqual(violations, []);
+});
+
+// The narrowing above must not become a general exemption: one more character of
+// real content past the baseline is still a longer longest line, comma or not.
+test("real content added past the baseline is still rejected despite the trailing-comma allowance", () => {
+  const violations = findViolations(hunk("packages/kernel/src/a.ts", 5, {
+    added: [`${"x".repeat(280)},`],
+    removed: ["x".repeat(279)]
+  }));
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].addedMaxLineLength, 280);
+  assert.equal(violations[0].removedMaxLineLength, 279);
+});
+
 test("a restoration split across git's own hunk boundaries is allowed", () => {
   // `git diff -U0` can put a removal in one hunk and the bulk of the matching
   // insertion in the very next hunk once the rewritten header no longer looks

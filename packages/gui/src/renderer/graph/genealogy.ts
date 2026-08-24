@@ -11,12 +11,7 @@ import type { DecisionRow, RelationEdge, RelationKind } from "../model/types";
  */
 
 /** 谱系四类边(仅 decision↔decision)。 */
-export const GENEALOGY_KINDS = new Set<RelationKind>([
-  "refines",
-  "narrows",
-  "supersedes",
-  "supports",
-]);
+export const GENEALOGY_KINDS = new Set<RelationKind>(["refines", "narrows", "supersedes", "supports"]);
 
 /** 边语义:色 + 线型。 */
 export const KIND_META: Record<
@@ -138,10 +133,7 @@ interface RawLineageNode {
  *
  * 双向 BFS;已访问不再更新 depth(首达即定层)。
  */
-export function collectLineage(
-  focusId: string,
-  edges: ReadonlyArray<GenealogyEdge>,
-): Map<string, number> {
+export function collectLineage(focusId: string, edges: ReadonlyArray<GenealogyEdge>): Map<string, number> {
   const outByFrom = new Map<string, GenealogyEdge[]>();
   const inByTo = new Map<string, GenealogyEdge[]>();
   for (const edge of edges) {
@@ -298,10 +290,7 @@ export function computeLayout(
   const ranks = [...byRank.keys()].sort((a, b) => a - b);
   const maxRank = ranks.length ? Math.max(...ranks) : 0;
   const plotW = Math.max(360, plotWidth - PAD_X * 2 - CARD_W);
-  const colStep =
-    maxRank <= 0
-      ? 0
-      : Math.max(CARD_W + LANE_STEP_MIN, Math.min(CARD_W + 80, plotW / maxRank));
+  const colStep = maxRank <= 0 ? 0 : Math.max(CARD_W + LANE_STEP_MIN, Math.min(CARD_W + 80, plotW / maxRank));
   const contentW = Math.max(plotW, maxRank * colStep);
 
   const placed: LaidOutNode[] = [];
@@ -349,8 +338,7 @@ export function computeLayout(
 
   const ticks = ranks.map((rank) => {
     const col = byRank.get(rank) ?? [];
-    const label =
-      rank === 0 ? "焦点" : rank === maxRank ? "后代" : `第 ${rank} 层`;
+    const label = rank === 0 ? "焦点" : rank === maxRank ? "后代" : `第 ${rank} 层`;
     const x = maxRank === 0 ? PAD_X + contentW / 2 : PAD_X + rank * colStep;
     const day = col[0]?.dayKey;
     const dayLabel = day && day !== "NO_TIME" ? day.slice(5) : "";
@@ -358,7 +346,10 @@ export function computeLayout(
   });
 
   const maxRight = placed.reduce((m, n) => Math.max(m, n.x + (n.isCluster ? CLUSTER_W : CARD_W)), PAD_X + 360);
-  const maxBottom = placed.reduce((m, n) => Math.max(m, n.y + (n.isCluster ? CLUSTER_H : CARD_H)), AXIS_H + PAD_Y + ROW_H);
+  const maxBottom = placed.reduce(
+    (m, n) => Math.max(m, n.y + (n.isCluster ? CLUSTER_H : CARD_H)),
+    AXIS_H + PAD_Y + ROW_H,
+  );
 
   return {
     nodes: placed,

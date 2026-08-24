@@ -1,22 +1,15 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type {
-  DecisionProjectionRow,
-  RelationCoverageRow,
-  RelationGraphEdgeRow
-} from "../api/renderer-dto.ts";
+import type { DecisionProjectionRow, RelationCoverageRow, RelationGraphEdgeRow } from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
-import type {
-  DecisionListSuccess,
-  RelationGraphSuccess
-} from "./api-client.ts";
+import type { DecisionListSuccess, RelationGraphSuccess } from "./api-client.ts";
 import { KIND_LABEL } from "./graph/constants.ts";
 import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge } from "./model/types.ts";
 
 export const triadicQueryKeys = {
   all: (repoId: string) => ["triadic", repoId] as const,
   graph: (repoId: string) => ["triadic", repoId, "relation-graph"] as const,
-  decisions: (repoId: string) => ["triadic", repoId, "decisions"] as const
+  decisions: (repoId: string) => ["triadic", repoId, "decisions"] as const,
 };
 
 export function useTriadicProjectionQuery(repoId: string | null) {
@@ -24,28 +17,35 @@ export function useTriadicProjectionQuery(repoId: string | null) {
     queryKey: triadicQueryKeys.graph(repoId ?? "unselected"),
     queryFn: () => harnessClient.getRelationGraph({ repoId: repoId! }),
     enabled: repoId !== null,
-    staleTime: 10_000
+    staleTime: 10_000,
   });
   const decisions = useQuery({
     queryKey: triadicQueryKeys.decisions(repoId ?? "unselected"),
     queryFn: () => harnessClient.getDecisions({ repoId: repoId! }),
     enabled: repoId !== null,
-    staleTime: 10_000
+    staleTime: 10_000,
   });
-  const rendererData = useMemo(() => buildTriadicRendererData({
-    graph: graph.data ?? emptyRelationGraph,
-    decisions: decisions.data ?? emptyDecisionList
-  }), [graph.data, decisions.data]);
+  const rendererData = useMemo(
+    () =>
+      buildTriadicRendererData({
+        graph: graph.data ?? emptyRelationGraph,
+        decisions: decisions.data ?? emptyDecisionList,
+      }),
+    [graph.data, decisions.data],
+  );
   const isLoading = graph.isLoading || decisions.isLoading;
   const isError = graph.isError || decisions.isError;
 
-  return useMemo(() => ({
-    isLoading,
-    isError,
-    relationState: graph.isError ? "error" as const : graph.isLoading ? "loading" as const : "ready" as const,
-    relationWarnings: graph.data?.warnings ?? [],
-    ...rendererData
-  }), [isLoading, isError, graph.isError, graph.isLoading, graph.data?.warnings, rendererData]);
+  return useMemo(
+    () => ({
+      isLoading,
+      isError,
+      relationState: graph.isError ? ("error" as const) : graph.isLoading ? ("loading" as const) : ("ready" as const),
+      relationWarnings: graph.data?.warnings ?? [],
+      ...rendererData,
+    }),
+    [isLoading, isError, graph.isError, graph.isLoading, graph.data?.warnings, rendererData],
+  );
 }
 
 export interface TriadicRendererData {
@@ -69,13 +69,23 @@ export function buildTriadicRendererData(input: {
   const relationRows = input.graph.edges;
   return {
     decisions: adaptDecisionRows(input.decisions.decisions, relationRows, input.graph.coverageRows),
-    facts: input.graph.facts.map((row) => ({ anchor: `${row.taskId}/${row.factId}`, taskId: row.taskId, category: row.memoryClass === "semantic" ? "lesson" : row.memoryClass === "procedural" ? "progress" : "finding", text: row.statement, at: row.observedAt, confidence: row.confidence, source: row.source, provenance: row.provenance, invalidated:
-      /* @gate-identity check-gui-status-judgments/gui-status-055 */
-      row.liveness === "superseded_fact" })),
+    facts: input.graph.facts.map((row) => ({
+      anchor: `${row.taskId}/${row.factId}`,
+      taskId: row.taskId,
+      category: row.memoryClass === "semantic" ? "lesson" : row.memoryClass === "procedural" ? "progress" : "finding",
+      text: row.statement,
+      at: row.observedAt,
+      confidence: row.confidence,
+      source: row.source,
+      provenance: row.provenance,
+      invalidated:
+        /* @gate-identity check-gui-status-judgments/gui-status-055 */
+        row.liveness === "superseded_fact",
+    })),
     relations: adaptRelationRows(relationRows),
     coverageRows: input.graph.coverageRows,
     factAnchors: input.graph.factAnchors,
-    warnings: [...input.graph.warnings, ...input.decisions.warnings]
+    warnings: [...input.graph.warnings, ...input.decisions.warnings],
   };
 }
 
@@ -83,14 +93,15 @@ const emptyRelationGraph: RelationGraphSuccess = {
   ok: true,
   edges: [],
   coverageRows: [],
-  factAnchors: [], facts: [],
-  warnings: []
+  factAnchors: [],
+  facts: [],
+  warnings: [],
 };
 
 const emptyDecisionList: DecisionListSuccess = {
   ok: true,
   decisions: [],
-  warnings: []
+  warnings: [],
 };
 
 function adaptRelationRows(rows: ReadonlyArray<RelationGraphEdgeRow>): RelationEdge[] {
@@ -98,7 +109,9 @@ function adaptRelationRows(rows: ReadonlyArray<RelationGraphEdgeRow>): RelationE
   for (const row of rows) {
     if (
       /* @gate-identity check-gui-status-judgments/gui-status-056 */
-      row.state !== "active") continue;
+      row.state !== "active"
+    )
+      continue;
     if (!isKernelRelationKind(row.relationType)) continue;
     edges.push({
       relationId: row.relationId,
@@ -108,7 +121,7 @@ function adaptRelationRows(rows: ReadonlyArray<RelationGraphEdgeRow>): RelationE
       direction: row.direction,
       state: row.state,
       provenance: row.origin === "imported_snapshot" ? "external-engine" : "local-document",
-      rationale: row.rationale
+      rationale: row.rationale,
     });
   }
   return edges;
@@ -121,13 +134,15 @@ function isKernelRelationKind(value: string): value is RelationEdge["kind"] {
 function adaptDecisionRows(
   rows: ReadonlyArray<DecisionProjectionRow>,
   relationRows: ReadonlyArray<RelationGraphEdgeRow>,
-  coverageRows: ReadonlyArray<RelationCoverageRow>
+  coverageRows: ReadonlyArray<RelationCoverageRow>,
 ): DecisionRow[] {
   const relationsBySource = new Map<string, string[]>();
   for (const row of relationRows) {
     if (
       /* @gate-identity check-gui-status-judgments/gui-status-057 */
-      row.state !== "active") continue;
+      row.state !== "active"
+    )
+      continue;
     if (!row.targetRef.startsWith("fact/")) continue;
     const values = relationsBySource.get(row.sourceRef) ?? [];
     values.push(row.targetRef);
@@ -143,11 +158,11 @@ function adaptDecisionRows(
   return rows.map((row) => {
     const chosen = row.chosen.map((entry) => ({
       ...decisionClaim(row.decisionId, entry.id, entry.text, relationsBySource),
-      ...(entry.rationale ? { rationale: entry.rationale } : {})
+      ...(entry.rationale ? { rationale: entry.rationale } : {}),
     }));
     const rejected = row.rejected.map((entry) => ({
       ...decisionClaim(row.decisionId, entry.id, entry.text, relationsBySource),
-      whyNot: entry.whyNot
+      whyNot: entry.whyNot,
     }));
     return {
       decisionId: row.decisionId,
@@ -168,12 +183,24 @@ function adaptDecisionRows(
       question: row.question,
       chosen,
       rejected,
-      claims: row.claims.map((claim) => ({ id: claim.id, text: claim.text, loadBearing: claim.loadBearing, fulfillment: claim.fulfillment })),
+      claims: row.claims.map((claim) => ({
+        id: claim.id,
+        text: claim.text,
+        loadBearing: claim.loadBearing,
+        fulfillment: claim.fulfillment,
+      })),
       judgmentConsents: row.judgmentConsents.map((consent) => ({ ...consent })),
       body: row.body ? { ...row.body } : null,
       appliesTo: { modules: [...row.appliesTo.modules], productLines: [...row.appliesTo.productLines] },
-      ...(row.readiness ? { readinessSignals: { appliesToDrift: { ...row.readiness.appliesToDrift, paths: [...row.readiness.appliesToDrift.paths] }, conflictMarker: { ...row.readiness.conflictMarker, paths: [...row.readiness.conflictMarker.paths] } } } : {}),
-      lastChangedAt: row.decidedAt ?? row.proposedAt
+      ...(row.readiness
+        ? {
+            readinessSignals: {
+              appliesToDrift: { ...row.readiness.appliesToDrift, paths: [...row.readiness.appliesToDrift.paths] },
+              conflictMarker: { ...row.readiness.conflictMarker, paths: [...row.readiness.conflictMarker.paths] },
+            },
+          }
+        : {}),
+      lastChangedAt: row.decidedAt ?? row.proposedAt,
     };
   });
 }
@@ -182,13 +209,13 @@ function decisionClaim(
   decisionId: string,
   id: string,
   text: string,
-  relationsBySource: ReadonlyMap<string, ReadonlyArray<string>>
+  relationsBySource: ReadonlyMap<string, ReadonlyArray<string>>,
 ): DecisionClaim {
   const ref = `decision/${decisionId}/${id}`;
   return {
     id,
     text,
-    evidence: [...new Set(relationsBySource.get(ref) ?? [])]
+    evidence: [...new Set(relationsBySource.get(ref) ?? [])],
   };
 }
 
@@ -196,8 +223,17 @@ function decisionClaim(
  * Kernel decision states pass through; anything else is unknown — never a plausible
  * neighbour (ADR-0020 D1: `superseded` is not "awaiting approval").
  */
-const kernelDecisionStates: ReadonlySet<string> = new Set(["proposed", "rejected", "deferred", "superseded", "in_effect", "outcome_retired"]);
+const kernelDecisionStates: ReadonlySet<string> = new Set([
+  "proposed",
+  "rejected",
+  "deferred",
+  "superseded",
+  "in_effect",
+  "outcome_retired",
+]);
 function decisionState(value: string): DecisionState {
-  return kernelDecisionStates.has(value) ? value as DecisionState : "unknown";
+  return kernelDecisionStates.has(value) ? (value as DecisionState) : "unknown";
 }
-function actorRef(value: DecisionProjectionRow["proposer"]): { readonly kind: "agent" | "human"; readonly id: string } { return value.executor ? { kind: "agent", id: value.executor.id } : { kind: "human", id: value.principal.personId }; }
+function actorRef(value: DecisionProjectionRow["proposer"]): { readonly kind: "agent" | "human"; readonly id: string } {
+  return value.executor ? { kind: "agent", id: value.executor.id } : { kind: "human", id: value.principal.personId };
+}

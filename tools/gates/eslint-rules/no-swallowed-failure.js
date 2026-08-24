@@ -13,11 +13,41 @@ function normalizedFilename(filename) {
   return relative.replaceAll("\\", "/");
 }
 
-function catchFingerprint(filename, node, sourceText) {
-  const location = `${node.loc.start.line}:${node.loc.start.column + 1}`;
+function contentHash(sourceText) {
   // Baselines are generated from LF sources; hashing a CRLF checkout's raw text would
   // never match them, failing lint on every Windows (core.autocrlf=true) checkout.
-  return `${normalizedFilename(filename)}:${location}#${createHash("sha256").update(sourceText.replaceAll("\r\n", "\n")).digest("hex")}`;
+  return createHash("sha256").update(sourceText.replaceAll("\r\n", "\n")).digest("hex");
+}
+
+function catchFingerprint(filename, node, sourceText) {
+  const location = `${node.loc.start.line}:${node.loc.start.column + 1}`;
+  return `${normalizedFilename(filename)}:${location}#${contentHash(sourceText)}`;
+}
+
+// Baseline membership deliberately ignores the line:column recorded in each stored
+// key. A pure reformat (Prettier, an unrelated edit earlier in the file) shifts every
+// catch clause's line number without touching its own text — the fingerprint's hash
+// component already proves identity; requiring position to match too turns any reflow
+// of the file into a false new violation for a catch clause nobody changed. Two catch
+// clauses in the same file that happen to share byte-identical bodies (and therefore a
+// hash collision) already both exist in the baseline today, so collapsing them to one
+// membership key changes nothing about what those specific clauses are allowed to do.
+function baselineLocationIndependentKey(filename, hash) {
+  return `${normalizedFilename(filename)}#${hash}`;
+}
+
+function baselineMembership(baselineEntries) {
+  const keys = new Set();
+  for (const entry of baselineEntries) {
+    const hashIndex = entry.indexOf("#");
+    if (hashIndex === -1) continue;
+    const pathAndLocation = entry.slice(0, hashIndex);
+    const hash = entry.slice(hashIndex + 1);
+    const colonIndex = pathAndLocation.lastIndexOf(":", pathAndLocation.lastIndexOf(":") - 1);
+    const filePath = colonIndex === -1 ? pathAndLocation : pathAndLocation.slice(0, colonIndex);
+    keys.add(baselineLocationIndependentKey(filePath, hash));
+  }
+  return keys;
 }
 
 function calleeName(callee) {
@@ -85,11 +115,13 @@ export default {
   },
   create(context) {
     const sourceCode = context.sourceCode;
-    const baseline = new Set(context.options[0]?.baseline ?? []);
+    const baselineKeys = baselineMembership(context.options[0]?.baseline ?? []);
     return {
       CatchClause(node) {
-        const fingerprint = catchFingerprint(context.filename, node, sourceCode.getText(node));
-        if (baseline.has(fingerprint)) return;
+        const catchSourceText = sourceCode.getText(node);
+        const fingerprint = catchFingerprint(context.filename, node, catchSourceText);
+        const locationIndependentKey = baselineLocationIndependentKey(context.filename, contentHash(catchSourceText));
+        if (baselineKeys.has(locationIndependentKey)) return;
 
         let explicitlyConsumed = false;
         const suspiciousReturns = [];

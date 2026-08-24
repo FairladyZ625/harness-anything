@@ -55,7 +55,10 @@ export function StreamBody({
   maxHeightClass?: string;
 }) {
   return (
-    <div className={`${maxHeightClass} space-y-0.5 overflow-y-auto pr-1 xl:min-h-0 xl:flex-1 xl:max-h-none`} data-testid={testId}>
+    <div
+      className={`${maxHeightClass} space-y-0.5 overflow-y-auto pr-1 xl:min-h-0 xl:flex-1 xl:max-h-none`}
+      data-testid={testId}
+    >
       {children}
     </div>
   );
@@ -82,4 +85,6 @@ export function StreamExitButton({ label, onClick, title }: { label: string; onC
 }
 
 export const streamTime = (iso: string | null | undefined) =>
-  iso ? localMonthDayTime(iso) ?? t("views.overviewView.streamCreatedUnknown") : t("views.overviewView.streamCreatedUnknown");
+  iso
+    ? (localMonthDayTime(iso) ?? t("views.overviewView.streamCreatedUnknown"))
+    : t("views.overviewView.streamCreatedUnknown");

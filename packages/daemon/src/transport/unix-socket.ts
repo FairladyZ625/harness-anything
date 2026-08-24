@@ -11,7 +11,12 @@ import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 export interface UnixSocketTransportOptions {
   readonly daemonId: string;
   readonly socketPath?: string;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext, emit: (method: string, params: Record<string, unknown>) => Promise<void>, connectionId: string, signal: AbortSignal) => JsonRpcProtocolServer;
+  readonly createProtocolServer: (
+    authContext: DaemonAuthenticationContext,
+    emit: (method: string, params: Record<string, unknown>) => Promise<void>,
+    connectionId: string,
+    signal: AbortSignal,
+  ) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
 }
@@ -34,7 +39,7 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
     // Windows endpoints are named pipes, which have no filesystem owner to
     // stat: statSync raises EBUSY on \\.\pipe\*. Fall back to the process uid,
     // the convention defaultUnixSocketPath already uses where getuid is absent.
-    const ownerUid = process.platform === "win32" ? process.getuid?.() ?? 0 : statSync(endpoint).uid;
+    const ownerUid = process.platform === "win32" ? (process.getuid?.() ?? 0) : statSync(endpoint).uid;
     const authContext: DaemonAuthenticationContext = {
       transportKind: "unix-socket",
       endpoint,
@@ -42,8 +47,8 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       // identifies that access boundary; it does not observe the client process.
       unixSocketOwnerBoundary: {
         ownerUid,
-        source: "unix-socket-filesystem-owner-boundary"
-      }
+        source: "unix-socket-filesystem-owner-boundary",
+      },
     };
     // One id per accepted socket, minted before the stream server exists so the transport
     // connection, its protocol server, and any per-connection log share a single correlation key.
@@ -54,7 +59,7 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       transportKind: "unix-socket",
       authContext,
       connectionId,
-      createProtocolServer: options.createProtocolServer
+      createProtocolServer: options.createProtocolServer,
     });
     connections.add(connection);
     options.onConnection?.(connection);
@@ -93,10 +98,10 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       // (notably on Windows named pipes, where half-close delivery is async).
       await Promise.all([...connections].map((connection) => connection.close()));
       await new Promise<void>((resolve, reject) => {
-        server.close((error) => error ? reject(error) : resolve());
+        server.close((error) => (error ? reject(error) : resolve()));
       });
       if (process.platform !== "win32") rmSync(endpoint, { force: true });
-    }
+    },
   };
 }
 

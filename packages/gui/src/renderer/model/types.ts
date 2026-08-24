@@ -8,26 +8,13 @@ export type CanonicalStatus = "planned" | "active" | "blocked" | "in_review" | "
  * column). Spelled out literally so the status-word register gate can lock this
  * mirror against the kernel vocabulary directly.
  */
-export type SnapshotStatus =
-  | "planned"
-  | "active"
-  | "blocked"
-  | "in_review"
-  | "done"
-  | "cancelled"
-  | "unknown";
+export type SnapshotStatus = "planned" | "active" | "blocked" | "in_review" | "done" | "cancelled" | "unknown";
 
 export type Freshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 
 export type PackageDisposition = "active" | "archived" | "tombstoned";
 
-export type CloseoutReadiness =
-  | "not_required"
-  | "missing"
-  | "incomplete"
-  | "ready"
-  | "passed"
-  | "failed";
+export type CloseoutReadiness = "not_required" | "missing" | "incomplete" | "ready" | "passed" | "failed";
 
 export type EngineId = string;
 
@@ -244,7 +231,12 @@ export interface DecisionRow {
    */
   readinessSignals?: {
     /** canonical commit cut 相对 proposedAt 的 applies_to 变化；无法解析 scope 时保持 unknown。 */
-    appliesToDrift?: { state: "clear" | "drift" | "unknown"; paths: string[]; lastCommitAt: string | null; summary: string };
+    appliesToDrift?: {
+      state: "clear" | "drift" | "unknown";
+      paths: string[];
+      lastCommitAt: string | null;
+      summary: string;
+    };
     /** 只扫描 canonical commit blobs,不读取未提交工作树。 */
     conflictMarker?: { state: "clear" | "conflict" | "unknown"; paths: string[]; summary: string };
     /** accept 成功后需正文回写(supersede/修订 canonical)→ 收件箱提示派生回写 task(42 §4)。 */

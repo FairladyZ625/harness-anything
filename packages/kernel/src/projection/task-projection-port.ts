@@ -8,33 +8,56 @@ import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import type { DecisionListFilters, DecisionPageQuery } from "./decision-event-projection.ts";
 import type { FactSearchFilters } from "./fact-event-projection.ts";
 import type {
-  DecisionAgendaProjectionPageRead, DecisionGraphProjectionRead, DecisionProjectionListRead, DecisionProjectionRead,
-  DocumentProjectionRead, FactAnchorProjectionRead, FactGraphProjectionRead, FactProjectionRead,
-  FactProjectionSearchRead, LeaseInterval, PresetSnapshotProjectionRead, ProjectionApplyReceipt,
-  ProjectionRebuildReceipt, ReplicaProjectionBasis, TaskProgressProjectionRead, TaskProjectionListRead,
-  TaskProjectionRead, TaskRelationProjectionRead, TaskRuntimeBatchQuery, TaskRuntimeBatchRead,
+  DecisionAgendaProjectionPageRead,
+  DecisionGraphProjectionRead,
+  DecisionProjectionListRead,
+  DecisionProjectionRead,
+  DocumentProjectionRead,
+  FactAnchorProjectionRead,
+  FactGraphProjectionRead,
+  FactProjectionRead,
+  FactProjectionSearchRead,
+  LeaseInterval,
+  PresetSnapshotProjectionRead,
+  ProjectionApplyReceipt,
+  ProjectionRebuildReceipt,
+  ReplicaProjectionBasis,
+  TaskProgressProjectionRead,
+  TaskProjectionListRead,
+  TaskProjectionRead,
+  TaskRelationProjectionRead,
+  TaskRuntimeBatchQuery,
+  TaskRuntimeBatchRead,
   WorkspaceSummaryProjectionRead,
 } from "./projection-reads.ts";
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 import type { TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 
-export interface RuntimeSessionPageQuery { readonly taskId?: string; readonly limit: number;
-  readonly afterRuntimeSessionId?: string }
-export interface RuntimeSessionPageRead { readonly rows: readonly RuntimeSession[];
-  readonly nextRuntimeSessionId: string | null; readonly remainingCount: number }
+export interface RuntimeSessionPageQuery {
+  readonly taskId?: string;
+  readonly limit: number;
+  readonly afterRuntimeSessionId?: string;
+}
+export interface RuntimeSessionPageRead {
+  readonly rows: readonly RuntimeSession[];
+  readonly nextRuntimeSessionId: string | null;
+  readonly remainingCount: number;
+}
 
 export interface TaskProjection {
-  readonly path: string; readonly close: () => void; readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt; readonly rebuild: () => ProjectionRebuildReceipt;
+  readonly path: string;
+  readonly close: () => void;
+  readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt;
+  readonly rebuild: () => ProjectionRebuildReceipt;
   readonly readStateDigest: () => `sha256:${string}` | null;
   readonly read: (taskId: string) => TaskProjectionRead;
   readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead;
   readonly readWorkspaceSummary: () => WorkspaceSummaryProjectionRead;
   readonly readTaskRelations: () => TaskRelationProjectionRead;
-  readonly readTaskDependencyClosure: (
-    sourceRefs: readonly string[], maxDepth?: number
-  ) => TaskRelationProjectionRead;
+  readonly readTaskDependencyClosure: (sourceRefs: readonly string[], maxDepth?: number) => TaskRelationProjectionRead;
   readonly readTaskRelationsByTargets: (
-    targetRefs: readonly string[], relationType: string
+    targetRefs: readonly string[],
+    relationType: string,
   ) => TaskRelationProjectionRead;
   readonly readTaskStatuses: (taskIds?: readonly string[]) => {
     readonly status: "ready" | "pending";
@@ -46,19 +69,48 @@ export interface TaskProjection {
   readonly readRelationQuery: (query?: TaskRelationQuery) => TaskRelationProjectionRead;
   readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly readRelationTruth: () => EventBackedRelationTruth;
-  readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null; readonly readDocument: (path: string) => DocumentProjectionRead; readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis; readonly taskIdForDocumentPath: (path: string) => string | null;
+  readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
+  readonly readDocument: (path: string) => DocumentProjectionRead;
+  readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis;
+  readonly taskIdForDocumentPath: (path: string) => string | null;
   readonly readTaskCompletion: (taskId: string, executionId: string) => TaskEventV1 | null;
-  readonly readRuntimeDispatch: (runtimeSessionIdValue: string, definitionSnapshotRef: string) => Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null;
-  readonly readRuntimeDispatches: () => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
-  readonly readRuntimeSessionEvents: (runtimeSessionIdValue: string, afterRevision: number, limit: number) => readonly AgentRuntimeEventV1[];
+  readonly readRuntimeDispatch: (
+    runtimeSessionIdValue: string,
+    definitionSnapshotRef: string,
+  ) => Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null;
+  readonly readRuntimeDispatches: () => readonly Extract<
+    AgentRuntimeEventV1,
+    { readonly type: "runtime_dispatch_requested" }
+  >[];
+  readonly readRuntimeSessionEvents: (
+    runtimeSessionIdValue: string,
+    afterRevision: number,
+    limit: number,
+  ) => readonly AgentRuntimeEventV1[];
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
-  readonly admitFact: (event: FactEventV1) => void; readonly readFact: (taskId: string, factId: string) => FactProjectionRead; readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead; readonly readFactAnchors: (refs?: readonly string[]) => FactAnchorProjectionRead; readonly readFactGraph: () => FactGraphProjectionRead;
-  readonly admitDecision: (event: DecisionEventV1) => void; readonly readDecision: (decisionId: string) => DecisionProjectionRead; readonly readDecisions: (decisionIds: readonly string[]) => DecisionProjectionListRead; readonly listDecisions: (filters: DecisionListFilters) => DecisionProjectionListRead; readonly listDecisionAgendaPage: (query: DecisionPageQuery) => DecisionAgendaProjectionPageRead; readonly readDecisionGraph: () => DecisionGraphProjectionRead;
-  readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[]; readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null; readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
-  readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1; readonly activateLease: (lease: LeaseV1) => LeaseV1;
-  readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1; readonly releaseLease: (lease: LeaseV1) => LeaseV1;
-  readonly readRuntimeInstallation: (installationId: string) => RuntimeInstallation | null; readonly readRuntimeInstallations: () => readonly RuntimeInstallation[]; readonly readRuntimeSession: (runtimeSessionId: string) => RuntimeSession | null;
-  readonly readRuntimeSessions: () => readonly RuntimeSession[]; readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
+  readonly admitFact: (event: FactEventV1) => void;
+  readonly readFact: (taskId: string, factId: string) => FactProjectionRead;
+  readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead;
+  readonly readFactAnchors: (refs?: readonly string[]) => FactAnchorProjectionRead;
+  readonly readFactGraph: () => FactGraphProjectionRead;
+  readonly admitDecision: (event: DecisionEventV1) => void;
+  readonly readDecision: (decisionId: string) => DecisionProjectionRead;
+  readonly readDecisions: (decisionIds: readonly string[]) => DecisionProjectionListRead;
+  readonly listDecisions: (filters: DecisionListFilters) => DecisionProjectionListRead;
+  readonly listDecisionAgendaPage: (query: DecisionPageQuery) => DecisionAgendaProjectionPageRead;
+  readonly readDecisionGraph: () => DecisionGraphProjectionRead;
+  readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[];
+  readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null;
+  readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
+  readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1;
+  readonly activateLease: (lease: LeaseV1) => LeaseV1;
+  readonly renewLease: (lease: LeaseV1, expiresAt: string) => LeaseV1;
+  readonly releaseLease: (lease: LeaseV1) => LeaseV1;
+  readonly readRuntimeInstallation: (installationId: string) => RuntimeInstallation | null;
+  readonly readRuntimeInstallations: () => readonly RuntimeInstallation[];
+  readonly readRuntimeSession: (runtimeSessionId: string) => RuntimeSession | null;
+  readonly readRuntimeSessions: () => readonly RuntimeSession[];
+  readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
   readonly readRuntimeSessionPage: (query: RuntimeSessionPageQuery) => RuntimeSessionPageRead;
 }

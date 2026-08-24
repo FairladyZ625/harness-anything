@@ -5,10 +5,17 @@ import { SessionManifestSchema, type SessionManifest } from "../schemas/session-
 import { decodeEntityDeclaration, resolveEntityDocumentPath } from "./declaration.ts";
 import { sessionEntityRegistration } from "./session-declaration.ts";
 export const sessionEntityDeclaration = decodeEntityDeclaration(sessionEntityRegistration);
-export interface SessionManifestReadResult { readonly format: "manifest"; readonly manifest: SessionManifest }
+export interface SessionManifestReadResult {
+  readonly format: "manifest";
+  readonly manifest: SessionManifest;
+}
 export function readSessionEntityDocument(rootInput: HarnessLayoutInput, sessionId: string): SessionManifestReadResult {
-  const document = localLayoutFileSystem.readText(resolveEntityDocumentPath(rootInput, sessionEntityDeclaration, { sessionId }));
-  const manifest = Schema.decodeUnknownSync(SessionManifestSchema)(sessionEntityDeclaration.documentCodec.decode(document));
+  const document = localLayoutFileSystem.readText(
+    resolveEntityDocumentPath(rootInput, sessionEntityDeclaration, { sessionId }),
+  );
+  const manifest = Schema.decodeUnknownSync(SessionManifestSchema)(
+    sessionEntityDeclaration.documentCodec.decode(document),
+  );
   if (manifest.sessionId !== sessionId) throw new Error(`session id mismatch: ${manifest.sessionId}`);
   return { format: "manifest", manifest };
 }

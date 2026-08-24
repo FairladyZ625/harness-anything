@@ -18,7 +18,10 @@ export type LedgerLayoutState = LedgerObjectLayout | "mixed";
 const opIdIllegal = /["*:<>?\\|/]/u;
 export function assertPublishableOpId(opId: string): string {
   const found = opIdIllegal.exec(opId);
-  if (found) throw new Error(`opId ${JSON.stringify(opId)} contains ${JSON.stringify(found[0])}, which cannot be a filename on every supported platform.`);
+  if (found)
+    throw new Error(
+      `opId ${JSON.stringify(opId)} contains ${JSON.stringify(found[0])}, which cannot be a filename on every supported platform.`,
+    );
   return opId;
 }
 export function eventObjectShard(opId: string): string {
@@ -27,21 +30,10 @@ export function eventObjectShard(opId: string): string {
 export function eventObjectTarget(opId: string): string {
   return `harness/events/${eventObjectShard(opId)}/${opId}.json`;
 }
-export function eventObjectRelativePath(
-  opId: string,
-  layout: LedgerObjectLayout = "sharded-sha256-2/v1",
-): string {
-  return layout === "flat/v1"
-    ? `events/${opId}.json`
-    : `events/${eventObjectShard(opId)}/${opId}.json`;
+export function eventObjectRelativePath(opId: string, layout: LedgerObjectLayout = "sharded-sha256-2/v1"): string {
+  return layout === "flat/v1" ? `events/${opId}.json` : `events/${eventObjectShard(opId)}/${opId}.json`;
 }
-export function contentObjectRelativePath(
-  sha256: string,
-  layout: LedgerObjectLayout = "sharded-sha256-2/v1",
-): string {
-  if (!/^[0-9a-f]{64}$/u.test(sha256))
-    throw new Error("content object hash is invalid");
-  return layout === "flat/v1"
-    ? `objects/sha256/${sha256}`
-    : `objects/sha256/${sha256.slice(0, 2)}/${sha256.slice(2)}`;
+export function contentObjectRelativePath(sha256: string, layout: LedgerObjectLayout = "sharded-sha256-2/v1"): string {
+  if (!/^[0-9a-f]{64}$/u.test(sha256)) throw new Error("content object hash is invalid");
+  return layout === "flat/v1" ? `objects/sha256/${sha256}` : `objects/sha256/${sha256.slice(0, 2)}/${sha256.slice(2)}`;
 }

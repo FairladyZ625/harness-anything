@@ -150,7 +150,18 @@ function EgoNeighborhoodInner({
             highlight: canvas.highlight,
           })
         : null,
-    [canvas.focusId, canvas.graph, canvas.shown, canvas.expanded, canvas.highlight, relations, filters.axes, filters.kinds, filters.types, filters.flowMode],
+    [
+      canvas.focusId,
+      canvas.graph,
+      canvas.shown,
+      canvas.expanded,
+      canvas.highlight,
+      relations,
+      filters.axes,
+      filters.kinds,
+      filters.types,
+      filters.flowMode,
+    ],
   );
 
   const statusVisibleIds = useMemo(() => {
@@ -242,10 +253,13 @@ function EgoNeighborhoodInner({
     [openFocus],
   );
 
-  const onEdgeClick = useCallback((_: any, edge: any) => {
-    canvas.clearSelect();
-    setFocusEdgeId((prev) => (prev === edge.id ? null : edge.id));
-  }, [canvas]);
+  const onEdgeClick = useCallback(
+    (_: any, edge: any) => {
+      canvas.clearSelect();
+      setFocusEdgeId((prev) => (prev === edge.id ? null : edge.id));
+    },
+    [canvas],
+  );
 
   const onPaneClick = useCallback(() => {
     canvas.clearSelect();
@@ -364,7 +378,7 @@ function EgoNeighborhoodInner({
 
 function isStatusNarrowed(state: EntityStatusFilterState): boolean {
   const taskFull = 7; // BOARD_COLUMNS length(6) + 1 other
-  const decFull = 6;  // DECISION_STATE length(5) + 1 other
+  const decFull = 6; // DECISION_STATE length(5) + 1 other
   return state.taskStatuses.size < taskFull || state.decisionStates.size < decFull;
 }
 

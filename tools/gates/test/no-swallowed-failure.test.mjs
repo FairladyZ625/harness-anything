@@ -43,3 +43,25 @@ test("G05 baseline exempts only the exact existing catch body", () => {
   assert.deepEqual(lint(source, [fingerprint]), []);
   assert.equal(lint("try { work(); } catch (error) { log(error); return undefined; }", [fingerprint]).length, 1);
 });
+
+test("G05 baseline exemption survives a reformat that shifts the catch clause's line number (#w2c-line-drift)", () => {
+  const source = "try { work(); } catch (error) { return undefined; }";
+  const first = lint(source);
+  const fingerprint = /Baseline key: (\S+)/u.exec(first[0].message)?.[1];
+  assert.ok(fingerprint);
+  // Unrelated lines added above the catch clause (e.g. Prettier wrapping an earlier
+  // function's signature onto more lines) shift its line:column without touching its
+  // own text — the stored fingerprint's line:column no longer matches, but the catch
+  // clause is the exact same one that was already reviewed and grandfathered.
+  const reflowed = `\n\n\n${source}`;
+  assert.deepEqual(lint(reflowed, [fingerprint]), []);
+});
+
+test("G05 a genuinely different catch body at the baselined position is still rejected", () => {
+  const source = "try { work(); } catch (error) { return undefined; }";
+  const first = lint(source);
+  const fingerprint = /Baseline key: (\S+)/u.exec(first[0].message)?.[1];
+  assert.ok(fingerprint);
+  const different = "try { work(); } catch (error) { report(error); return undefined; }";
+  assert.equal(lint(different, [fingerprint]).length, 1);
+});

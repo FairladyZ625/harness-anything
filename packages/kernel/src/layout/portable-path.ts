@@ -1,7 +1,9 @@
 import path from "node:path";
 
 const windowsReservedName = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
-const windowsForbiddenChars = /[<>:"|?*]/u; declare const portableDocumentPathBrand: unique symbol; export type PortableDocumentPath = string & { readonly [portableDocumentPathBrand]: true };
+const windowsForbiddenChars = /[<>:"|?*]/u;
+declare const portableDocumentPathBrand: unique symbol;
+export type PortableDocumentPath = string & { readonly [portableDocumentPathBrand]: true };
 
 export interface PortablePathCollision {
   readonly canonicalPath: string;
@@ -12,7 +14,12 @@ export function normalizeRelativeDocumentPath(value: string): PortableDocumentPa
   if (value.length === 0) throw new Error("document path must not be empty");
   if (value.includes("\0")) throw new Error(`document path contains NUL: ${value}`);
   if (value.includes("\\")) throw new Error(`document path must use POSIX separators: ${value}`);
-  if (path.posix.isAbsolute(value) || path.win32.isAbsolute(value) || /^[A-Za-z]:/u.test(value) || value.startsWith("//")) {
+  if (
+    path.posix.isAbsolute(value) ||
+    path.win32.isAbsolute(value) ||
+    /^[A-Za-z]:/u.test(value) ||
+    value.startsWith("//")
+  ) {
     throw new Error(`absolute paths are not allowed: ${value}`);
   }
 
@@ -49,7 +56,7 @@ export function findPortablePathCollisions(paths: readonly string[]): readonly P
     .filter(([, values]) => new Set(values).size > 1)
     .map(([canonicalPath, values]) => ({
       canonicalPath,
-      paths: [...new Set(values)].sort()
+      paths: [...new Set(values)].sort(),
     }));
 }
 

@@ -1,11 +1,6 @@
 import { DEFAULT_TASK_FILTERS, type TaskFilters } from "../model/taskFilters.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
-import {
-  createViewHistory,
-  type AppLocation,
-  type ViewId,
-  type ViewHistoryState,
-} from "./viewHistory.ts";
+import { createViewHistory, type AppLocation, type ViewId, type ViewHistoryState } from "./viewHistory.ts";
 import { isRendererRecord } from "../result-validation.ts";
 
 /**
@@ -47,32 +42,37 @@ function isNullableString(value: unknown): boolean {
 function isTaskFilters(value: unknown): value is TaskFilters {
   if (!isRendererRecord(value)) return false;
   return (
-    typeof value.query === "string"
-    && typeof value.module === "string"
-    && typeof value.engine === "string"
-    && Array.isArray(value.status)
-    && value.status.every((status) => typeof status === "string")
-    && typeof value.closeout === "string"
-    && typeof value.freshness === "string"
-    && typeof value.includeArchived === "boolean"
-    && typeof value.favoritesOnly === "boolean"
+    typeof value.query === "string" &&
+    typeof value.module === "string" &&
+    typeof value.engine === "string" &&
+    Array.isArray(value.status) &&
+    value.status.every((status) => typeof status === "string") &&
+    typeof value.closeout === "string" &&
+    typeof value.freshness === "string" &&
+    typeof value.includeArchived === "boolean" &&
+    typeof value.favoritesOnly === "boolean"
   );
 }
 
 function isAppLocation(value: unknown): value is AppLocation {
   if (!isRendererRecord(value) || typeof value.view !== "string" || !VIEW_IDS.has(value.view)) return false;
   if (
-    !isNullableString(value.selectedId)
-    || !isNullableString(value.previewId)
-    || !isNullableString(value.focusedEntityRef)
-    || !isTaskFilters(value.taskFilters)
-  ) return false;
+    !isNullableString(value.selectedId) ||
+    !isNullableString(value.previewId) ||
+    !isNullableString(value.focusedEntityRef) ||
+    !isTaskFilters(value.taskFilters)
+  )
+    return false;
   const drill = value.drill;
-  return drill === null || (
-    isRendererRecord(drill)
-    && typeof drill.lane === "string"
-    && typeof drill.status === "string"
-    && (drill.groupBy === "root" || drill.groupBy === "module" || drill.groupBy === "engine" || drill.groupBy === "productLine")
+  return (
+    drill === null ||
+    (isRendererRecord(drill) &&
+      typeof drill.lane === "string" &&
+      typeof drill.status === "string" &&
+      (drill.groupBy === "root" ||
+        drill.groupBy === "module" ||
+        drill.groupBy === "engine" ||
+        drill.groupBy === "productLine"))
   );
 }
 
@@ -121,10 +121,7 @@ export function writeViewHistory(
   history: ViewHistoryState,
 ): void {
   try {
-    storage.setItem(
-      storageKey(projectId),
-      JSON.stringify({ schema: VIEW_HISTORY_SCHEMA, history }),
-    );
+    storage.setItem(storageKey(projectId), JSON.stringify({ schema: VIEW_HISTORY_SCHEMA, history }));
   } catch (cause) {
     // 导航在存储不可用/写满时必须继续工作;失败被显式消费(不静默吞)。
     consumeKnownError(cause);
@@ -132,9 +129,6 @@ export function writeViewHistory(
 }
 
 /** 为指定仓写入干净初始栈(打开项目时复位到 overview + 默认筛选)。 */
-export function resetViewHistory(
-  storage: Pick<ViewHistoryStorage, "setItem">,
-  projectId: string,
-): void {
+export function resetViewHistory(storage: Pick<ViewHistoryStorage, "setItem">, projectId: string): void {
   writeViewHistory(storage, projectId, createViewHistory(initialLocation()));
 }

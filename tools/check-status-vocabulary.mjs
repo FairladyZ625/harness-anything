@@ -35,7 +35,21 @@ const LOCAL_MIRROR_CONST = /const\s+([A-Za-z_][A-Za-z0-9_]*Words)\s*(?::[^=\n]+)
 export const KERNEL_DECLARATION_SUFFIX = /(?:Statuses|Status|States|State|Phases|Phase|Dispositions|Disposition|Verdicts|Verdict|Outcomes|Outcome|Liveness|Readinesses)$/u;
 const STATUS_FIELD = /(?:status|state|phase|disposition|verdict|outcome|liveness)$/iu;
 const NAMED_CONST = /export\s+const\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;
-const NAMED_TYPE = /export\s+type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("(?:[^"]*)"(?:\s*\|\s*"[^"]*")*)\s*;/gu;
+// The `\|?` after the `=` accepts prettier's canonical multi-line union, which
+// leads with a pipe:
+//
+//     export type FooStatus =
+//       | "a"
+//       | "b";
+//
+// Without it this pattern only ever saw the single-line `= "a" | "b"` form. That
+// mattered in both directions, and only one of them was loud: a registered anchor
+// reformatted this way reports "no longer exists" (fail-closed, visible), but a
+// brand-new status vocabulary written this way is simply never collected as a
+// site — so the unregistered-vocabulary finding that enforces 铁律四 could not fire
+// on it at all. Found when prettier reformatted RuntimeSessionSemanticState in
+// packages/kernel/src/domain/agent-runtime.ts under task_2c909af2cae0b23abd1e34a2e2.
+const NAMED_TYPE = /export\s+type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\|?\s*("(?:[^"]*)"(?:\s*\|\s*"[^"]*")*)\s*;/gu;
 const INLINE_FIELD = /readonly\s+([A-Za-z_][A-Za-z0-9_]*)\??:\s*("[^"]+"(?:\s*\|\s*"[^"]+")+)/gu;
 const KERNEL_DECISION_FALLBACK = /function\s+decisionState\s*\([^)]*\)[^}]*return\s+"(?!unknown)[a-z_]+"/u;
 

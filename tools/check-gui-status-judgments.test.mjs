@@ -138,6 +138,70 @@ test("source identity survives formatting, responsibility split, and file rename
   });
 });
 
+// The test above covers the formatter wrapping the marked expression across lines.
+// It did not cover the formatter inserting a parenthesis *between* the marker and
+// the node, which is what prettier does to a multi-line condition — and which broke
+// gui-status-033 and gui-status-035 in taskFilters.ts for real.
+test("source identity survives a parenthesis the formatter inserts between the marker and its node", () => {
+  const register = [
+    { id: "task.status", entity: "Task", field: "status", module: "packages/kernel/src/domain/task.ts", anchor: "taskStatuses", words: ["active", "blocked"] }
+  ];
+  const baseline = [{
+    key: "gui-fixture",
+    classification: "domain-judgment",
+    kind: "comparison",
+    shape: "point-comparison",
+    words: ["active"]
+  }];
+  withFixture({
+    "packages/gui/src/panel.ts": [
+      'type TaskStatus = "active" | "blocked";',
+      "export function visible(status: TaskStatus, archived: boolean): boolean {",
+      "  return (",
+      "    !archived &&",
+      "    /* @gate-identity check-gui-status-judgments/gui-fixture */",
+      '    (status === "active" || status === "blocked")',
+      "  );",
+      "}",
+      ""
+    ].join("\n")
+  }, (root) => {
+    const sites = scanGuiStatusJudgments(root, register);
+    assert.ok(
+      sites.some((site) => site.identity === "gui-fixture"),
+      `the marked node must still resolve its identity; got ${JSON.stringify(sites.map((site) => site.identity))}`
+    );
+    const findings = checkGuiStatusJudgments(sites, baseline);
+    assert.equal(
+      findings.filter((finding) => finding.includes("stale baseline entry")).length,
+      0,
+      findings.join("\n")
+    );
+  });
+});
+
+// The widening must stay narrow: any real token between the marker and a node means
+// that node is not the marked one, so the identity must not leak onto it.
+test("source identity does not leak past a real token onto an unmarked node", () => {
+  const register = [
+    { id: "task.status", entity: "Task", field: "status", module: "packages/kernel/src/domain/task.ts", anchor: "taskStatuses", words: ["active", "blocked"] }
+  ];
+  withFixture({
+    "packages/gui/src/panel.ts": [
+      'type TaskStatus = "active" | "blocked";',
+      "declare function wrap(value: boolean): boolean;",
+      "export function visible(status: TaskStatus): boolean {",
+      '  return /* @gate-identity check-gui-status-judgments/gui-fixture */ wrap(status === "active");',
+      "}",
+      ""
+    ].join("\n")
+  }, (root) => {
+    const sites = scanGuiStatusJudgments(root, register);
+    const marked = sites.filter((site) => site.identity === "gui-fixture");
+    assert.equal(marked.length, 0, "a call expression between the marker and the comparison must not pass the identity through");
+  });
+});
+
 test("duplicate source identities fail closed", () => {
   const register = [
     { id: "task.status", entity: "Task", field: "status", module: "packages/kernel/src/domain/task.ts", anchor: "taskStatuses", words: ["active", "blocked"] }

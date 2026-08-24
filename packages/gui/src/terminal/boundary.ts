@@ -10,12 +10,12 @@ export const shellPanelPolicy: ShellPanelPolicy = {
   spawnRequiresUserAction: true,
   hiddenCommandInjectionAllowed: false,
   outputCreatesTaskState: false,
-  outputCreatesEvidence: false
+  outputCreatesEvidence: false,
 };
 
 export function classifyShellOutput(_chunk: string): { readonly displayOnly: true; readonly stateChange: false } {
   return {
     displayOnly: true,
-    stateChange: false
+    stateChange: false,
   };
 }

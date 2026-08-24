@@ -23,9 +23,33 @@ export interface RuntimeProviderPlane {
 }
 
 const PLANES: Readonly<Record<RuntimeKindId, RuntimeProviderPlane>> = {
-  agy: { kindId: "agy", defaultProviderId: "google", authShape: "subscription-only", authModes: ["subscription"], modelFamily: "gemini-only", effort: "enum", permissions: false },
-  claude: { kindId: "claude", defaultProviderId: "anthropic", authShape: "api-override", authModes: ["subscription", "api-key"], modelFamily: "open", effort: "none", permissions: true },
-  codex: { kindId: "codex", defaultProviderId: "openai", authShape: "separate", authModes: ["subscription", "api-key"], modelFamily: "codex-only", effort: "free", permissions: true }
+  agy: {
+    kindId: "agy",
+    defaultProviderId: "google",
+    authShape: "subscription-only",
+    authModes: ["subscription"],
+    modelFamily: "gemini-only",
+    effort: "enum",
+    permissions: false,
+  },
+  claude: {
+    kindId: "claude",
+    defaultProviderId: "anthropic",
+    authShape: "api-override",
+    authModes: ["subscription", "api-key"],
+    modelFamily: "open",
+    effort: "none",
+    permissions: true,
+  },
+  codex: {
+    kindId: "codex",
+    defaultProviderId: "openai",
+    authShape: "separate",
+    authModes: ["subscription", "api-key"],
+    modelFamily: "codex-only",
+    effort: "free",
+    permissions: true,
+  },
 };
 
 export const RUNTIME_KIND_IDS: readonly RuntimeKindId[] = ["claude", "codex", "agy"];
@@ -34,10 +58,13 @@ export const planeAuthModes = (kindId: RuntimeKindId): readonly RuntimeAuthMode[
 /** True only for the plane that carries both call paths inside a single instance. */
 export const planeUsesApiOverride = (kindId: RuntimeKindId): boolean => PLANES[kindId].authShape === "api-override";
 /** Base URL is an API-mode field: it exists only where the plane has an API mode, and only while that mode is on. */
-export const planeAllowsBaseUrl = (kindId: RuntimeKindId, authMode: RuntimeAuthMode): boolean => authMode === "api-key" && PLANES[kindId].authModes.includes("api-key");
-export const planeAllowsApiKey = (kindId: RuntimeKindId, authMode: RuntimeAuthMode): boolean => planeAllowsBaseUrl(kindId, authMode);
+export const planeAllowsBaseUrl = (kindId: RuntimeKindId, authMode: RuntimeAuthMode): boolean =>
+  authMode === "api-key" && PLANES[kindId].authModes.includes("api-key");
+export const planeAllowsApiKey = (kindId: RuntimeKindId, authMode: RuntimeAuthMode): boolean =>
+  planeAllowsBaseUrl(kindId, authMode);
 export const planeAllowsEffort = (kindId: RuntimeKindId): boolean => PLANES[kindId].effort !== "none";
 export const planeAllowsPermissions = (kindId: RuntimeKindId): boolean => PLANES[kindId].permissions;
 /** Rejects an auth mode the plane does not have, so a stale form value cannot survive a kind switch. */
-export const planeAuthMode = (kindId: RuntimeKindId, requested: RuntimeAuthMode): RuntimeAuthMode => PLANES[kindId].authModes.includes(requested) ? requested : "subscription";
+export const planeAuthMode = (kindId: RuntimeKindId, requested: RuntimeAuthMode): RuntimeAuthMode =>
+  PLANES[kindId].authModes.includes(requested) ? requested : "subscription";
 export const planeModelHint = (kindId: RuntimeKindId): string => PLANES[kindId].modelFamily;

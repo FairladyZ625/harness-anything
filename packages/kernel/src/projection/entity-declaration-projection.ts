@@ -1,9 +1,7 @@
 import path from "node:path";
 import { SqlClient } from "@effect/sql";
 import { Effect, Schema } from "effect";
-import type {
-  EntityDeclaration
-} from "../entity/declaration.ts";
+import type { EntityDeclaration } from "../entity/declaration.ts";
 import { readField, resolveEntityDocumentPath } from "../entity/declaration.ts";
 import type { EntityProjectionColumnDeclaration } from "../entity/registry.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
@@ -22,36 +20,42 @@ export interface DeclaredProjectionResult {
 export function projectDeclaredEntities(
   rootInput: HarnessLayoutInput,
   declaration: EntityDeclaration,
-  projectionPath: string
+  projectionPath: string,
 ): DeclaredProjectionResult {
   const rows = discoverDeclaredEntityRows(rootInput, declaration);
   localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath));
-  runSqlite(projectionPath, Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql.unsafe(`DROP TABLE IF EXISTS ${quoteIdentifier(declaration.projection.table)}`);
-    yield* sql.unsafe(createTableSql(declaration));
-    for (const row of rows) yield* insertRow(sql, declaration, row);
-  }));
+  runSqlite(
+    projectionPath,
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql.unsafe(`DROP TABLE IF EXISTS ${quoteIdentifier(declaration.projection.table)}`);
+      yield* sql.unsafe(createTableSql(declaration));
+      for (const row of rows) yield* insertRow(sql, declaration, row);
+    }),
+  );
   return { table: declaration.projection.table, rows };
 }
 
 export function readDeclaredProjectionRows(
   projectionPath: string,
-  declaration: EntityDeclaration
+  declaration: EntityDeclaration,
 ): ReadonlyArray<DeclaredProjectionRow> {
-  return runSqlite(projectionPath, Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const columns = declaration.projection.columns.map((column) => quoteIdentifier(column.name)).join(", ");
-    const primaryKey = declaration.projection.columns.find((column) => column.primaryKey)!;
-    return yield* sql.unsafe<DeclaredProjectionRow>(
-      `SELECT ${columns} FROM ${quoteIdentifier(declaration.projection.table)} ORDER BY ${quoteIdentifier(primaryKey.name)}`
-    );
-  }));
+  return runSqlite(
+    projectionPath,
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const columns = declaration.projection.columns.map((column) => quoteIdentifier(column.name)).join(", ");
+      const primaryKey = declaration.projection.columns.find((column) => column.primaryKey)!;
+      return yield* sql.unsafe<DeclaredProjectionRow>(
+        `SELECT ${columns} FROM ${quoteIdentifier(declaration.projection.table)} ORDER BY ${quoteIdentifier(primaryKey.name)}`,
+      );
+    }),
+  );
 }
 
 export function discoverDeclaredEntityRows(
   rootInput: HarnessLayoutInput,
-  declaration: EntityDeclaration
+  declaration: EntityDeclaration,
 ): ReadonlyArray<DeclaredProjectionRow> {
   const layout = resolveHarnessLayout(rootInput);
   const matcher = templateMatcher(declaration.rootResolver.pathTemplate);
@@ -73,9 +77,11 @@ export function discoverDeclaredEntityRows(
 
 function projectRow(
   entity: Readonly<Record<string, unknown>>,
-  columns: ReadonlyArray<EntityProjectionColumnDeclaration>
+  columns: ReadonlyArray<EntityProjectionColumnDeclaration>,
 ): DeclaredProjectionRow {
-  return Object.fromEntries(columns.map((column) => [column.name, projectValue(readField(entity, column.field), column)]));
+  return Object.fromEntries(
+    columns.map((column) => [column.name, projectValue(readField(entity, column.field), column)]),
+  );
 }
 
 function projectValue(value: unknown, column: EntityProjectionColumnDeclaration): DeclaredProjectionValue {
@@ -104,14 +110,14 @@ function createTableSql(declaration: EntityDeclaration): string {
 function insertRow(
   sql: SqlClient.SqlClient,
   declaration: EntityDeclaration,
-  row: DeclaredProjectionRow
+  row: DeclaredProjectionRow,
 ): Effect.Effect<unknown, unknown> {
   const columns = declaration.projection.columns.map((column) => quoteIdentifier(column.name));
   const placeholders = columns.map(() => "?").join(", ");
   const values = declaration.projection.columns.map((column) => row[column.name] ?? null);
   return sql.unsafe(
     `INSERT INTO ${quoteIdentifier(declaration.projection.table)} (${columns.join(", ")}) VALUES (${placeholders})`,
-    values
+    values,
   );
 }
 

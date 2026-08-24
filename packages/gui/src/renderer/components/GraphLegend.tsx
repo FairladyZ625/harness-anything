@@ -1,12 +1,6 @@
 import { useState } from "react";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
-import {
-  AXIS_COLOR_VAR,
-  axisLabel,
-  FULFILLMENT_COLOR_VAR,
-  FULFILLMENT_LABEL,
-  KIND_LABEL,
-} from "../graph/constants.ts";
+import { AXIS_COLOR_VAR, axisLabel, FULFILLMENT_COLOR_VAR, FULFILLMENT_LABEL, KIND_LABEL } from "../graph/constants.ts";
 import { legendSampleKinds, visualForKind } from "../graph/relationVisual.ts";
 import { t } from "../i18n/index.tsx";
 
@@ -26,12 +20,7 @@ const ENTITY_CHIPS: ReadonlyArray<{ color: string; label: string }> = [
 
 const FULFILLMENT_ORDER =
   /* @gate-identity check-gui-status-judgments/gui-status-006 */
-  [
-  "evidenced",
-  "delivered",
-  "standing-policy",
-  "unknown",
-] as const;
+  ["evidenced", "delivered", "standing-policy", "unknown"] as const;
 
 export function GraphLegend({ showFulfillment }: { showFulfillment: boolean }) {
   const [open, setOpen] = useState(false);
@@ -51,7 +40,11 @@ export function GraphLegend({ showFulfillment }: { showFulfillment: boolean }) {
           <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
             <span className="text-text-faint">实体</span>
             {ENTITY_CHIPS.map((chip) => (
-              <span key={chip.label} className="inline-flex items-center gap-1" data-testid={`graph-legend-entity-${chip.label}`}>
+              <span
+                key={chip.label}
+                className="inline-flex items-center gap-1"
+                data-testid={`graph-legend-entity-${chip.label}`}
+              >
                 <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: chip.color }} />
                 {chip.label}
               </span>
@@ -62,7 +55,11 @@ export function GraphLegend({ showFulfillment }: { showFulfillment: boolean }) {
             {legendSampleKinds().map(({ kind, axis }) => {
               const visual = visualForKind(kind);
               return (
-                <span key={kind} className="inline-flex items-center gap-1" title={t("graph.axisTitle", { axis: axisLabel(axis) })}>
+                <span
+                  key={kind}
+                  className="inline-flex items-center gap-1"
+                  title={t("graph.axisTitle", { axis: axisLabel(axis) })}
+                >
                   <svg width="22" height="8" aria-hidden className="shrink-0">
                     <line
                       x1="1"
@@ -84,13 +81,23 @@ export function GraphLegend({ showFulfillment }: { showFulfillment: boolean }) {
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1" data-testid="graph-legend-fulfillment">
               <span className="text-text-faint">claim 兑现</span>
               {FULFILLMENT_ORDER.map((mode) => (
-                <span key={mode} className="inline-flex items-center gap-1" data-testid={`graph-legend-fulfillment-${mode}`}>
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: FULFILLMENT_COLOR_VAR[mode] }} />
+                <span
+                  key={mode}
+                  className="inline-flex items-center gap-1"
+                  data-testid={`graph-legend-fulfillment-${mode}`}
+                >
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ backgroundColor: FULFILLMENT_COLOR_VAR[mode] }}
+                  />
                   {FULFILLMENT_LABEL[mode]}
                 </span>
               ))}
               <span className="inline-flex items-center gap-1" data-testid="graph-legend-fulfillment-uncovered">
-                <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: "var(--color-danger)" }} />
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ backgroundColor: "var(--color-danger)" }}
+                />
                 无证据
               </span>
             </div>

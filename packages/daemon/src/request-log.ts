@@ -93,7 +93,7 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
         reportedFailure = true;
         (options.onFailure ?? defaultFailureReporter)(error);
       }
-    }
+    },
   };
 
   function resolveLogPath(repoId: string): string | undefined {
@@ -127,14 +127,19 @@ function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRe
     outcome: entry.outcome,
     code: entry.code,
     opId: entry.opId,
-    durationMs: entry.durationMs
+    durationMs: entry.durationMs,
   };
 }
 
 // A transport method that resolves to no action kind (protocol.hello and friends) has no command
 // class; the record still carries the method it was reached by.
 function commandClassOrNull(command: string): string | null {
-  try { return commandClassForAction(command); } catch (error) { consumeKnownError(error); return null; }
+  try {
+    return commandClassForAction(command);
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
 }
 
 function rotate(logPath: string, maxBytes: number, keptFiles: number): void {
@@ -174,5 +179,7 @@ function isMissingFile(error: unknown): boolean {
 }
 
 function defaultFailureReporter(error: unknown): void {
-  process.stderr.write(`harness daemon: request log disabled after write failure: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(
+    `harness daemon: request log disabled after write failure: ${error instanceof Error ? error.message : String(error)}\n`,
+  );
 }

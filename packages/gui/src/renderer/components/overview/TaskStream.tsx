@@ -63,11 +63,13 @@ export function tasksAheadOfStatus(tasks: ReadonlyArray<TaskRow>, status: Snapsh
     const at = taskCreatedAt(task);
     return at !== null && (newest === null || at > newest) ? at : newest;
   }, null);
-  return sortTasksByCreatedDesc(tasks.filter((task) => {
-    if (task.coordinationStatus === status) return false;
-    const at = taskCreatedAt(task);
-    return at !== null && (newestVisible === null || at > newestVisible);
-  }));
+  return sortTasksByCreatedDesc(
+    tasks.filter((task) => {
+      if (task.coordinationStatus === status) return false;
+      const at = taskCreatedAt(task);
+      return at !== null && (newestVisible === null || at > newestVisible);
+    }),
+  );
 }
 
 /**
@@ -113,9 +115,11 @@ export function TaskStream({
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-center gap-2">
         <StreamTabs
-          options={BOARD_COLUMNS.filter((column) =>
-            /* @gate-identity check-gui-status-judgments/gui-status-007 */
-            column !== "unknown").map((column) => ({
+          options={BOARD_COLUMNS.filter(
+            (column) =>
+              /* @gate-identity check-gui-status-judgments/gui-status-007 */
+              column !== "unknown",
+          ).map((column) => ({
             key: column,
             label: STATUS_META[column].label,
             count: summary.byStatus[column],

@@ -54,7 +54,9 @@ export function DecisionDetailPanel({
           <div className="rounded-md border border-accent/30 bg-accent/5 px-2.5 py-2">
             <span className="font-mono text-[11px] uppercase tracking-wide text-accent">已选策略</span>
             {decision.chosen.map((c) => (
-              <p key={c.id} className="mt-1 text-[12px] text-text">{c.text}</p>
+              <p key={c.id} className="mt-1 text-[12px] text-text">
+                {c.text}
+              </p>
             ))}
           </div>
         )}
@@ -64,9 +66,7 @@ export function DecisionDetailPanel({
             {decision.rejected.map((c) => (
               <div key={c.id} className="mt-1.5">
                 <p className="text-[12px] text-text line-through opacity-70">{c.text}</p>
-                {c.whyNot && (
-                  <p className="mt-0.5 font-mono text-[11px] text-text-muted">→ {c.whyNot}</p>
-                )}
+                {c.whyNot && <p className="mt-0.5 font-mono text-[11px] text-text-muted">→ {c.whyNot}</p>}
               </div>
             ))}
           </div>

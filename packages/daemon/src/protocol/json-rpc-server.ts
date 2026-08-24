@@ -239,7 +239,8 @@ export function createJsonRpcProtocolServer(options: {
         );
       }
     }
-    if (request.method === "daemon.fleet.task.run") { // Loaded lazily: schema-closure imports this module in a zero-dependency checkout, and the fleet edge stack reaches the kernel barrel.
+    if (request.method === "daemon.fleet.task.run") {
+      // Loaded lazily: schema-closure imports this module in a zero-dependency checkout, and the fleet edge stack reaches the kernel barrel.
       try {
         if (options.authContext.transportKind !== "unix-socket" || options.authContext.assignmentBinding)
           throw Object.assign(new Error("This control is available only through the local session token."), {

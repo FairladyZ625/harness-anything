@@ -33,8 +33,29 @@ const allowedStaticGraph = new Set([
   "packages/preset/src/preset-command-contract.ts"
 ]);
 
-checkFileLines(cliFiles, 250, "CLI source file");
-checkFunctions(cliFiles, { maxLines: 120, maxBranches: 40 });
+// The two line-count limits below are suspended by dec_3879E19D9D1D76BAD538E77C1F
+// (task_2c909af2cae0b23abd1e34a2e2) while the remaining compressed production files
+// are bulk-restored — they are the same mechanism as check-file-complexity and G32,
+// scoped to the CLI package, and they are what forced packages/cli/src/daemon/*.ts
+// into the compressed form being undone. The suspension is deliberately surgical:
+// the branch-count limit and all three architectural checks below stay fully active,
+// because none of them is a line-count limit and reformatting cannot change what
+// any of them measures. Delete SUSPEND_LINE_LIMITS and re-derive real limits from
+// the completed restoration once the full-file G36 scan is clean.
+export const SUSPEND_LINE_LIMITS = true;
+
+if (SUSPEND_LINE_LIMITS) {
+  console.log(
+    "CLI structure check: file-line and function-line limits suspended under " +
+      "dec_3879E19D9D1D76BAD538E77C1F (task_2c909af2cae0b23abd1e34a2e2) while " +
+      "remaining compressed production files are bulk-restored. Branch-count and " +
+      "all architectural checks remain active."
+  );
+} else {
+  checkFileLines(cliFiles, 250, "CLI source file");
+  checkFunctions(cliFiles, { maxLines: 120, maxBranches: 40 });
+}
+if (SUSPEND_LINE_LIMITS) checkFunctions(cliFiles, { maxLines: Infinity, maxBranches: 40 });
 checkThinCliSurface();
 checkDistStaticImportGraph();
 checkDaemonTransportImportGraph();

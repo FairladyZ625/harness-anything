@@ -1,20 +1,9 @@
 import { useEffect, useState } from "react";
-import {
-  ArrowSquareOut,
-  CheckCircle,
-  Lock,
-  X,
-  XCircle,
-} from "@phosphor-icons/react";
+import { ArrowSquareOut, CheckCircle, Lock, X, XCircle } from "@phosphor-icons/react";
 import type { RelationEdge, TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
 import { normalizeTaskId } from "../model/triadic.ts";
-import {
-  CloseoutBadge,
-  EngineBadge,
-  FreshnessTag,
-  StatusBadge,
-} from "./badges";
+import { CloseoutBadge, EngineBadge, FreshnessTag, StatusBadge } from "./badges";
 import { t } from "../i18n/index.tsx";
 import { EntityRefLink } from "./EntityRefLink.tsx";
 import { localMonthDayTime } from "../model/local-time.ts";
@@ -24,18 +13,10 @@ const timeOf = (iso: string) => localMonthDayTime(iso) ?? "—";
 /** 事件流一次显示这么多条,剩下的靠批量按钮显形(照抄 BoardView 的做法)。 */
 const EVENT_BATCH_SIZE = 4;
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border-b border-border px-4 py-3">
-      <div className="mb-2 font-mono text-[12px] uppercase tracking-wide text-text-faint">
-        {title}
-      </div>
+      <div className="mb-2 font-mono text-[12px] uppercase tracking-wide text-text-faint">{title}</div>
       {children}
     </section>
   );
@@ -65,14 +46,21 @@ export function TaskPreviewDrawer({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose, task]);
-  useEffect(() => { setVisibleEvents(EVENT_BATCH_SIZE); }, [task?.taskId]);
+  useEffect(() => {
+    setVisibleEvents(EVENT_BATCH_SIZE);
+  }, [task?.taskId]);
 
   if (!task) return null;
 
   const related = relations
-    .filter((edge) => (edge.from.startsWith("task/") && normalizeTaskId(edge.from) === task.taskId) || (edge.to.startsWith("task/") && normalizeTaskId(edge.to) === task.taskId))
+    .filter(
+      (edge) =>
+        (edge.from.startsWith("task/") && normalizeTaskId(edge.from) === task.taskId) ||
+        (edge.to.startsWith("task/") && normalizeTaskId(edge.to) === task.taskId),
+    )
     .map((edge) => {
-      const otherRef = normalizeTaskId(edge.from) === task.taskId ? edge.to : edge.from, otherId = otherRef.startsWith("task/") ? normalizeTaskId(otherRef) : "";
+      const otherRef = normalizeTaskId(edge.from) === task.taskId ? edge.to : edge.from,
+        otherId = otherRef.startsWith("task/") ? normalizeTaskId(otherRef) : "";
       return { edge, task: tasks.find((candidate) => candidate.taskId === otherId) };
     })
     .filter((item) => item.task);
@@ -102,9 +90,7 @@ export function TaskPreviewDrawer({
                   </span>
                 )}
               </div>
-              <h2 className="mt-2 text-[20px] font-semibold leading-tight text-text">
-                {task.title}
-              </h2>
+              <h2 className="mt-2 text-[20px] font-semibold leading-tight text-text">{task.title}</h2>
             </div>
             <button
               onClick={onClose}
@@ -116,8 +102,14 @@ export function TaskPreviewDrawer({
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <StatusBadge status={task.coordinationStatus} />
-            {task.coordinationStatus === "blocked" && task.canonicalStatus && <span className="font-mono text-[11px] text-status-blocked">{t("components.taskPreviewDrawer.canonical")} {task.canonicalStatus}</span>}
-            {task.blocking === "unknown" && <span className="text-[11px] text-stale">{t("components.taskPreviewDrawer.blockingUnknown")}</span>}
+            {task.coordinationStatus === "blocked" && task.canonicalStatus && (
+              <span className="font-mono text-[11px] text-status-blocked">
+                {t("components.taskPreviewDrawer.canonical")} {task.canonicalStatus}
+              </span>
+            )}
+            {task.blocking === "unknown" && (
+              <span className="text-[11px] text-stale">{t("components.taskPreviewDrawer.blockingUnknown")}</span>
+            )}
             <CloseoutBadge value={task.closeoutReadiness} />
             <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
           </div>
@@ -128,7 +120,11 @@ export function TaskPreviewDrawer({
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[14px]">
               <div>
                 <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.module")}</dt>
-                <dd className="font-mono text-text">{task.module === "unassigned" || !task.module ? t("components.taskPreviewDrawer.notProjected") : task.module}</dd>
+                <dd className="font-mono text-text">
+                  {task.module === "unassigned" || !task.module
+                    ? t("components.taskPreviewDrawer.notProjected")
+                    : task.module}
+                </dd>
               </div>
               <div>
                 <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.rawStatus")}</dt>
@@ -143,11 +139,17 @@ export function TaskPreviewDrawer({
                 <dd className="font-mono text-text">{task.origin ?? task.source}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.productLines")}</dt>
-                <dd className="font-mono text-text">{task.productLines?.join(", ") || t("components.taskPreviewDrawer.notProjected")}</dd>
+                <dt className="font-mono text-[12px] text-text-faint">
+                  {t("components.taskPreviewDrawer.productLines")}
+                </dt>
+                <dd className="font-mono text-text">
+                  {task.productLines?.join(", ") || t("components.taskPreviewDrawer.notProjected")}
+                </dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.parentRoot")}</dt>
+                <dt className="font-mono text-[12px] text-text-faint">
+                  {t("components.taskPreviewDrawer.parentRoot")}
+                </dt>
                 <dd className="font-mono text-text">
                   {task.parentTaskId ? (
                     <EntityRefLink
@@ -156,7 +158,11 @@ export function TaskPreviewDrawer({
                       title={task.parentTaskId}
                       className="text-accent hover:underline"
                     />
-                  ) : "root"} / {task.rootTaskId ? (
+                  ) : (
+                    "root"
+                  )}{" "}
+                  /{" "}
+                  {task.rootTaskId ? (
                     <EntityRefLink
                       entityRef={`task/${task.rootTaskId}`}
                       onNavigate={() => onOpenDetail(task.rootTaskId!)}
@@ -182,31 +188,16 @@ export function TaskPreviewDrawer({
             ) : (
               <div className="space-y-2">
                 {task.gates.map((gate) => (
-                  <div
-                    key={gate.name}
-                    className="flex items-start gap-2 rounded-md bg-surface-raised px-3 py-2"
-                  >
+                  <div key={gate.name} className="flex items-start gap-2 rounded-md bg-surface-raised px-3 py-2">
                     {gate.ok ? (
-                      <CheckCircle
-                        weight="duotone"
-                        className="mt-0.5 shrink-0 text-[16px] text-status-done"
-                      />
+                      <CheckCircle weight="duotone" className="mt-0.5 shrink-0 text-[16px] text-status-done" />
                     ) : (
-                      <XCircle
-                        weight="duotone"
-                        className="mt-0.5 shrink-0 text-[16px] text-danger"
-                      />
+                      <XCircle weight="duotone" className="mt-0.5 shrink-0 text-[16px] text-danger" />
                     )}
                     <div className="min-w-0">
-                      <div className="font-mono text-[14px] text-text">
-                        {gate.name}
-                      </div>
+                      <div className="font-mono text-[14px] text-text">{gate.name}</div>
                       {gate.detail && (
-                        <div
-                          className={`mt-0.5 text-[13px] ${
-                            gate.ok ? "text-text-faint" : "text-danger"
-                          }`}
-                        >
+                        <div className={`mt-0.5 text-[13px] ${gate.ok ? "text-text-faint" : "text-danger"}`}>
                           {gate.detail}
                         </div>
                       )}
@@ -221,21 +212,18 @@ export function TaskPreviewDrawer({
             {task.docs.length === 0 ? (
               <p className="text-[14px] text-stale">{t("components.taskPreviewDrawer.documentListUnavailable")}</p>
             ) : missingDocs.length === 0 ? (
-              <p className="text-[14px] text-text-muted">{t("components.taskPreviewDrawer.requiredDocumentationComplete")}</p>
+              <p className="text-[14px] text-text-muted">
+                {t("components.taskPreviewDrawer.requiredDocumentationComplete")}
+              </p>
             ) : (
               <div className="space-y-1.5">
                 {missingDocs.map((doc) => (
-                  <div
-                    key={doc.path}
-                    className="flex items-center gap-2 rounded-md bg-surface-raised px-3 py-2"
-                  >
-                    <span className="font-mono text-[13px] text-danger">{t("components.taskPreviewDrawer.missingDocument")}</span>
-                    <span className="min-w-0 flex-1 truncate text-[14px]">
-                      {doc.title}
+                  <div key={doc.path} className="flex items-center gap-2 rounded-md bg-surface-raised px-3 py-2">
+                    <span className="font-mono text-[13px] text-danger">
+                      {t("components.taskPreviewDrawer.missingDocument")}
                     </span>
-                    <span className="font-mono text-[12px] text-text-faint">
-                      {doc.path}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[14px]">{doc.title}</span>
+                    <span className="font-mono text-[12px] text-text-faint">{doc.path}</span>
                   </div>
                 ))}
               </div>
@@ -244,7 +232,9 @@ export function TaskPreviewDrawer({
 
           <Section title={t("components.taskPreviewDrawer.associatedTasks")}>
             {related.length === 0 ? (
-              <p className="text-[14px] text-text-faint">{t("components.taskPreviewDrawer.thereCurrentlyNoRelatedEdges")}</p>
+              <p className="text-[14px] text-text-faint">
+                {t("components.taskPreviewDrawer.thereCurrentlyNoRelatedEdges")}
+              </p>
             ) : (
               <div className="space-y-1.5">
                 {related.map(({ edge, task: relatedTask }) => (
@@ -253,15 +243,9 @@ export function TaskPreviewDrawer({
                     onClick={() => onPreviewTask(relatedTask!.taskId)}
                     className="flex w-full items-center gap-2 rounded-md bg-surface-raised px-3 py-2 text-left hover:bg-bg"
                   >
-                    <span className="font-mono text-[12px] text-text-faint">
-                      {edge.kind}
-                    </span>
-                    <span className="font-mono text-[13px] text-text">
-                      {relatedTask!.taskId}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[14px] text-text-muted">
-                      {relatedTask!.title}
-                    </span>
+                    <span className="font-mono text-[12px] text-text-faint">{edge.kind}</span>
+                    <span className="font-mono text-[13px] text-text">{relatedTask!.taskId}</span>
+                    <span className="min-w-0 flex-1 truncate text-[14px] text-text-muted">{relatedTask!.title}</span>
                   </button>
                 ))}
               </div>
@@ -275,9 +259,7 @@ export function TaskPreviewDrawer({
               <div className="space-y-2">
                 {taskEvents.map((event) => (
                   <div key={`${event.at}-${event.summary}`} className="text-[14px]">
-                    <span className="font-mono text-[12px] text-text-faint">
-                      {timeOf(event.at)}
-                    </span>
+                    <span className="font-mono text-[12px] text-text-faint">{timeOf(event.at)}</span>
                     <span className="ml-2 text-text-muted">{event.summary}</span>
                   </div>
                 ))}
@@ -285,8 +267,9 @@ export function TaskPreviewDrawer({
                   <button
                     type="button"
                     data-testid="task-preview-events-more"
-                    onClick={() => setVisibleEvents((count) =>
-                      Math.min(count + EVENT_BATCH_SIZE, orderedEvents.length))}
+                    onClick={() =>
+                      setVisibleEvents((count) => Math.min(count + EVENT_BATCH_SIZE, orderedEvents.length))
+                    }
                     className="w-full rounded-lg border border-dashed border-border px-3 py-2
                       text-center font-mono text-[12px] text-text-muted hover:border-border-strong
                       hover:text-text"

@@ -57,7 +57,8 @@ async function prepareNodeRuntime() {
   const unpackedRoot = join(extractDir, nodeArchiveBase);
   await rm(nodeRuntimeDir, { recursive: true, force: true });
   await mkdir(nodeRuntimeDir, { recursive: true });
-  const sourceNodePath = platform === "win32" ? join(unpackedRoot, nodeExecutableName) : join(unpackedRoot, "bin", nodeExecutableName);
+  const sourceNodePath =
+    platform === "win32" ? join(unpackedRoot, nodeExecutableName) : join(unpackedRoot, "bin", nodeExecutableName);
   await cp(sourceNodePath, join(nodeRuntimeDir, nodeExecutableName));
   await cp(join(unpackedRoot, "LICENSE"), join(nodeRuntimeDir, "LICENSE"));
   await cp(join(unpackedRoot, "README.md"), join(nodeRuntimeDir, "README.md"));
@@ -68,17 +69,21 @@ async function prepareNodeRuntime() {
 
 function extractNodeArchive(extractDir) {
   if (platform === "win32") {
-    execFileSync("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-Command",
-      "Expand-Archive -LiteralPath $env:NODE_ARCHIVE_PATH -DestinationPath $env:NODE_EXTRACT_DIR -Force"
-    ], {
-      env: { ...process.env, NODE_ARCHIVE_PATH: archivePath, NODE_EXTRACT_DIR: extractDir },
-      stdio: "inherit"
-    });
+    execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "Expand-Archive -LiteralPath $env:NODE_ARCHIVE_PATH -DestinationPath $env:NODE_EXTRACT_DIR -Force",
+      ],
+      {
+        env: { ...process.env, NODE_ARCHIVE_PATH: archivePath, NODE_EXTRACT_DIR: extractDir },
+        stdio: "inherit",
+      },
+    );
     return;
   }
 
@@ -90,10 +95,19 @@ async function prepareDaemonNodeModules() {
   rmSync(appNodeModulesDir, { recursive: true, force: true });
   mkdirSync(appNodeModulesDir, { recursive: true });
 
-  const dependencyPaths = [...new Set(["@harness-anything/cli", "@harness-anything/daemon"].flatMap((workspace) => execFileSync(npmExecutableName, ["ls", "--workspace", workspace, "--omit=dev", "--parseable", "--all"], {
-    cwd: repoRoot,
-    encoding: "utf8"
-  }).split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)))];
+  const dependencyPaths = [
+    ...new Set(
+      ["@harness-anything/cli", "@harness-anything/daemon"].flatMap((workspace) =>
+        execFileSync(npmExecutableName, ["ls", "--workspace", workspace, "--omit=dev", "--parseable", "--all"], {
+          cwd: repoRoot,
+          encoding: "utf8",
+        })
+          .split(/\r?\n/u)
+          .map((line) => line.trim())
+          .filter(Boolean),
+      ),
+    ),
+  ];
 
   const nodeModulesRoot = join(repoRoot, "node_modules");
   for (const dependencyPath of dependencyPaths) {
@@ -106,7 +120,7 @@ async function prepareDaemonNodeModules() {
       recursive: true,
       dereference: true,
       force: true,
-      filter: (source) => !source.includes(`${basename(dependencyPath)}/.git`)
+      filter: (source) => !source.includes(`${basename(dependencyPath)}/.git`),
     });
   }
 }
