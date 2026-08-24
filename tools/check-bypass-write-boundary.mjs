@@ -84,7 +84,8 @@ function inspectFile(root, rel) {
       : ts.isNewExpression(node) && ts.isIdentifier(node.expression) && sqlite.has(node.expression.text) && !readOnlySqliteOpen(node) ? "DatabaseSync" : undefined;
     if (!api) return;
     const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.expression.getStart(sourceFile));
-    const identity = readSourceIdentity(node.expression, sourceFile, gateId);
+    const identity = readSourceIdentity(node.expression, sourceFile, gateId)
+      ?? (ts.isNewExpression(node) ? readSourceIdentity(node, sourceFile, gateId) : null);
     findings.push({
       api,
       category,

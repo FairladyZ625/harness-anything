@@ -164,9 +164,7 @@ function matchesLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPor
   return Number(row.scanned_revision) !== sourceRevision || row.head_digest === (head?.eventDigest ?? null);
 }
 function openDatabase(projectionPath: string): DatabaseSync {
-  return new
-    /* @gate-identity check-bypass-write-boundary/bypass-write-007 */
-    DatabaseSync(projectionPath);
+  return /* @gate-identity check-bypass-write-boundary/bypass-write-007 */ new DatabaseSync(projectionPath);
 }
 function configureDatabase(db: DatabaseSync): void {
   /* @gate-identity check-bypass-write-boundary/bypass-write-008 */
