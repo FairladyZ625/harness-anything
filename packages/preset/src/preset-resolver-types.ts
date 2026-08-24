@@ -11,7 +11,6 @@ import type {
   PresetTaskManifestV3,
 } from "./preset.contract.ts";
 import type { ScaffoldSelection } from "./scaffold-overlay.ts";
-import path from "node:path";
 
 export declare const decodedPackageBrand: unique symbol;
 

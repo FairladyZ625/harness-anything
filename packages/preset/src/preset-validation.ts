@@ -9,7 +9,6 @@ import {
   asFailure,
   defaultAssets,
   isPresetResolutionRecord,
-  key,
   presetFailure,
 } from "./preset-resolver-common.ts";
 import type { PresetFailure } from "./preset-resolver-types.ts";
