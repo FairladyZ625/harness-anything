@@ -1,13 +1,28 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { lstatSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { dispatchIsolatedTestCommand, parseToolOptions, renderToolHelp, toolOption, toolValue } from "./tool-command-contract.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
-const sourceExcludes = [".git", "node_modules", ".harness", "coverage", "dist", "out"];
+export const sourceRootAllowlist = Object.freeze([
+  ".github",
+  ".gitignore",
+  ".mergify.yml",
+  "README.md",
+  "docs-release",
+  "eslint.config.mjs",
+  "package-lock.json",
+  "package.json",
+  "packages",
+  "scripts",
+  "skills",
+  "tools",
+  "tsconfig.json"
+]);
 
 export function parseDispatchArgs(argv) {
   const parsed = parseToolOptions(dispatchIsolatedTestCommand, argv);
@@ -20,12 +35,24 @@ export function testRunnerArgs(options) {
   return ["node", "tools/run-node-tests.mjs", ...(options.tier === undefined ? ["--file", options.file] : ["--tier", options.tier])];
 }
 
-export function sourceArchiveArgs(platform = process.platform) {
+export function sourceArchiveArgs(platform = process.platform, sourceRoot = repoRoot) {
   return [
     ...(platform === "darwin" ? ["--no-xattrs"] : []),
-    ...sourceExcludes.map((entry) => `--exclude=${entry}`),
-    "-cf", "-", "-C", repoRoot, "."
+    "-cf", "-", "-C", sourceRoot,
+    "--null", "-T", "-"
   ];
+}
+
+export function sourceRsyncArgs(sourceRoot, destination) {
+  return ["-a", "--delete", "--from0", "--files-from=-", `${sourceRoot}/`, destination];
+}
+
+export function sourceFileList(sourceRoot = repoRoot, allowedRoots = sourceRootAllowlist, candidates = gitWorktreeFiles(sourceRoot)) {
+  const allowed = new Set(allowedRoots);
+  return candidates
+    .filter((entry) => entry !== "" && !path.isAbsolute(entry) && entry.split("/")[0] !== ".." && allowed.has(entry.split("/")[0]))
+    .filter((entry) => pathExists(path.join(sourceRoot, entry)))
+    .sort();
 }
 
 export function posixTestScript(workspaceRoot, stateRoot, options) {
@@ -82,11 +109,12 @@ export async function main(argv = process.argv.slice(2)) {
 async function runUbuntu(options, runId) {
   const workspaceRoot = `/tmp/${runId}`;
   const stateRoot = `${workspaceRoot}/.test-isolation-state`;
+  const files = sourceFileList();
   let exitCode = 1;
   try {
     console.log(`[test-isolation] sync=rsync destination=ubuntu:${workspaceRoot}`);
     if (await run("ssh", ["ubuntu", `mkdir -p -- ${shellQuote(workspaceRoot)}`]) === 0
-      && await run("rsync", ["-a", "--delete", ...sourceExcludes.map((entry) => `--exclude=${entry}`), `${repoRoot}/`, `ubuntu:${workspaceRoot}/`]) === 0) {
+      && await runWithInput("rsync", sourceRsyncArgs(repoRoot, `ubuntu:${workspaceRoot}/`), encodeFileList(files)) === 0) {
       exitCode = await run("ssh", ["ubuntu", posixTestScript(workspaceRoot, stateRoot, options)]);
     }
   } finally {
@@ -151,8 +179,10 @@ function powerShellArgs(script) {
 }
 
 async function copyArchive(destinationArgs) {
-  const archive = spawn("tar", sourceArchiveArgs(), { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, COPYFILE_DISABLE: "1" } });
+  const input = encodeFileList(sourceFileList());
+  const archive = spawn("tar", sourceArchiveArgs(), { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, COPYFILE_DISABLE: "1" } });
   const destination = spawn(destinationArgs[0], destinationArgs.slice(1), { stdio: ["pipe", "pipe", "pipe"] });
+  archive.stdin.end(input);
   archive.stdout.pipe(destination.stdin);
   archive.stderr.pipe(process.stderr);
   destination.stdout.pipe(process.stdout);
@@ -165,6 +195,13 @@ async function copyArchive(destinationArgs) {
 async function run(command, args, options = {}) {
   if (!options.quiet) console.log(`[test-isolation] exec=${formatCommand(command, args)}`);
   const child = spawn(command, args, { stdio: "inherit" });
+  return waitFor(child);
+}
+
+async function runWithInput(command, args, input) {
+  console.log(`[test-isolation] exec=${formatCommand(command, args)}`);
+  const child = spawn(command, args, { stdio: ["pipe", "inherit", "inherit"] });
+  child.stdin.end(input);
   return waitFor(child);
 }
 
@@ -195,6 +232,24 @@ function formatCommand(command, args) {
   const encodedAt = args.indexOf("-EncodedCommand");
   const visible = encodedAt === -1 ? args : [...args.slice(0, encodedAt + 1), "<encoded>"];
   return [command, ...visible].map(shellQuote).join(" ");
+}
+
+function gitWorktreeFiles(sourceRoot) {
+  return execFileSync("git", ["-C", sourceRoot, "ls-files", "--cached", "--others", "--exclude-standard", "-z"])
+    .toString("utf8")
+    .split("\0")
+    .filter(Boolean);
+}
+
+function pathExists(target) {
+  try { lstatSync(target); return true; } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function encodeFileList(files) {
+  return Buffer.from(files.length === 0 ? "" : `${files.join("\0")}\0`);
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = await main();
