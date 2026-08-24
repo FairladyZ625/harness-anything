@@ -1,52 +1,19 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
+import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
 import {
-  classifyTextualArtifactPath,
-  OPAQUE_TEXTUAL_MEDIA_TYPE,
-  OPAQUE_TEXTUAL_POLICY_ID,
-} from "../../src/domain/artifact-text-classification.ts";
-import docSyncContract, {
   DOC_POLICY_ID,
-  decideDocWrite,
   docRegionPolicyRegistry,
-  docSyncWritePlan,
   documentPath,
-  parseCanonicalEvent,
-  parseDocWriteIntent,
-  resolveDocRoute,
-  serializeCanonicalEvent,
   serializeDocEvent,
-  serializeDocWriteIntent,
-  validateCurrentDocEvent,
   validateDocEvent,
-  validateDocWriteIntent,
   verifyDocEventChange,
-  type ContentClaim,
-  type DocWriteChange,
   type DocumentState,
 } from "../../src/domain/doc-sync.contract.ts";
-import { MIGRATION_DOCUMENT_POLICY_ID } from "../../src/domain/migration-import-event.ts";
-import { resolveLiveTaskBoundRuntimeBinding } from "../../src/domain/task-bound-runtime-authority.ts";
-import {
-  validateWriteReceipt,
-  validateWriteSource,
-} from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
-import { validateCanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 
-import {
-  actor,
-  baseLedgerSha,
-  claim,
-  currentLedgerSha,
-  decide,
-  lease,
-  legacyDocEventBytes,
-  opaqueClaim,
-  state,
-} from "./doc-sync.fixtures.ts";
+import { claim, decide, opaqueClaim, state } from "./doc-sync.fixtures.ts";
 test("prose policy accepts body replacement while freezing region proofs and content target", () => {
   const base = "# Notes\nOriginal sentence.\n",
     candidate = "# Notes\nReplacement sentence.\n",

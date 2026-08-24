@@ -1,59 +1,31 @@
-import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readlinkSync,
-  readdirSync,
-  symlinkSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import test from "node:test";
+import { type DecisionEventDraftV1 } from "../../src/domain/decision-event.ts";
 import {
   DOC_CODEC_ID,
   DOC_POLICY_ID,
   docSyncWritePlan,
-  parseCanonicalEvent,
-  serializeCanonicalEvent,
   type DocEventV1,
 } from "../../src/domain/doc-sync.contract.ts";
-import {
-  compileDecisionWrite,
-  decisionWritePlan,
-  type DecisionDocumentState,
-  type DecisionEventDraftV1,
-} from "../../src/domain/decision-event.ts";
-import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
-import {
-  serializeTaskEvent,
-  type TaskCreatedEvent,
-} from "../../src/domain/task-lifecycle.contract.ts";
-import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
-import {
-  freezeDeclaredWritePlan,
-  serializeEventHead,
-} from "../../src/domain/write-chain.contract.ts";
 import {
   MIGRATION_DOCUMENT_POLICY_ID,
   migrationImportWritePlan,
   type MigrationImportEventV1,
 } from "../../src/domain/migration-import-event.ts";
+import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
+import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
+import {
+  serializeTaskEvent,
+  type TaskCreatedEvent,
+} from "../../src/domain/task-lifecycle.contract.ts";
+import { serializeEventHead } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { eventObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
 import {
-  contentObjectRelativePath,
-  eventObjectRelativePath,
-} from "../../src/layout/ledger-object-layout.ts";
-import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
-import {
-  CANONICAL_EVENT_REF,
   makeTaskEventStore,
   type CanonicalWriteBundle,
 } from "../../src/store/task-event-store.ts";
-import { withTempStoreAsync } from "./helpers.ts";
 
 export const event: TaskCreatedEvent = {
   schema: "task-event/v1",

@@ -1,40 +1,26 @@
-import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import test from "node:test";
 import {
   MIGRATION_DOCUMENT_POLICY_ID,
   REPLAY_TASK_GRAPH,
-  checkTaskProjection,
   compileDecisionWrite,
   compileFactWrite,
-  decisionWritePlan,
   deriveRelationId,
   formatRelationFlowRecord,
   makeTaskProjection,
-  projectDecisionReadiness,
-  readRelationGraphProjection,
-  rebuildTaskProjection,
-  renderDecisionDocument,
   serializeCanonicalEvent,
   sha256Text,
-  taskLifecycleWritePlan,
   type DecisionEventDraftV1,
   type EntityRelationRecord,
   type FactEventDraftV1,
   type MigrationImportEventV1,
   type TaskEventV1,
 } from "../../src/index.ts";
-import {
-  createDecisionProjectionTables,
-  readDecisionDocumentState,
-  reduceDecisionEvent,
-} from "../../src/projection/decision-event-projection.ts";
+import { createDecisionProjectionTables } from "../../src/projection/decision-event-projection.ts";
 import { createFactProjectionTables } from "../../src/projection/fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
-import { withTempStore } from "./helpers.ts";
 
 export const actor = {
   principal: { personId: "proposer" },
