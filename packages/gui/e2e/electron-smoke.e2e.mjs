@@ -108,7 +108,7 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   await page.locator('[data-entity="decision"]').first().click();
   await page.locator("aside").getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
   await page.locator('[data-entity="task"]').first().click();
-  await page.locator("aside").getByText("task-gui-smoke", { exact: true }).waitFor();
+  await page.locator("aside").getByText("task/task-gui-smoke", { exact: true }).waitFor();
   await page.getByRole("button", { name: "打开", exact: true }).click();
   // W3 起 Task 详情是分页签的:上游 decision 归「关系」页签,默认页签是「概况」;
   // 同一次重构把关系类型拆成了独立的 label badge,链接按钮上只剩 peer 引用。
@@ -176,6 +176,9 @@ test("GUI creates a Runtime and Agent from zero, invokes its selected Skill, and
   const runtimeDialog = page.getByTestId("new-runtime-dialog");
   await runtimeDialog.waitFor();
   await runtimeDialog.getByRole("button", { name: "Codex", exact: true }).click();
+  const fakeInstallationChoice = runtimeDialog.locator("button", { hasText: codexInstallation.installationId });
+  await fakeInstallationChoice.waitFor();
+  await fakeInstallationChoice.click();
   await runtimeDialog.getByTestId("new-runtime-id").fill("gui-from-zero");
   await runtimeDialog.getByLabel(/^(?:名称|Name)$/u).fill("GUI From Zero");
   // model 面自 bd7d9422e 起是多选 checkbox 列表,不再是单选 select。原断言
@@ -195,6 +198,14 @@ test("GUI creates a Runtime and Agent from zero, invokes its selected Skill, and
   assert.equal(await createRuntime.isEnabled(), true, "blank-model Runtime form did not become creatable from the detected default");
   await createRuntime.click();
   await page.getByTestId("rail-runtime-gui-from-zero").waitFor({ timeout: 20_000 });
+  const savedRuntime = JSON.parse(
+    readFileSync(resolve(daemonFixture.userRoot, "runtime-instances.json"), "utf8"),
+  ).instances.find((instance) => instance.instanceId === "gui-from-zero");
+  assert.equal(
+    savedRuntime?.installationId,
+    codexInstallation.installationId,
+    "e2e Runtime did not bind the witnessed fake Codex installation",
+  );
 
   await page.getByRole("button", { name: /^(?:Agents · Squads|Agent · 含 Squad)$/u }).click();
   await page.getByTestId("runtime-new-agents").click();
@@ -260,26 +271,29 @@ test("GUI creates a Runtime and Agent from zero, invokes its selected Skill, and
   await page.getByTestId("task-detail-view").waitFor({ timeout: 10_000 });
   await page.getByRole("tab", { name: "派工" }).click();
   const dispatchTab = page.getByTestId("task-dispatch-tab");
-  await dispatchTab.locator("article").first().waitFor({ timeout: 20_000 });
+  const dispatchChain = dispatchTab.locator('[data-testid^="dispatch-chain-"]').first();
+  await dispatchChain.waitFor({ timeout: 20_000 });
   assert.match(await dispatchTab.textContent(), new RegExp(runtimeSessionId, "u"), "dispatch chain lost the runtime session id");
-  const dispatchId = (await dispatchTab.textContent()).match(/dispatch_[a-z0-9]+/u)?.[0];
+  const dispatchId = (await dispatchChain.getAttribute("data-testid"))?.slice("dispatch-chain-".length);
   assert.ok(dispatchId, "GUI did not display a dispatch id in the dispatch chain");
   const reportText = dispatchTab.locator("pre").first();
   await reportText.waitFor({ timeout: 20_000 });
   assert.match((await reportText.textContent()) ?? "", /GUI_REAL_DISPATCH_PROOF=/u, "dispatch chain did not render the settled report");
   for (const [kind, dirName] of [["mission", "missions/"], ["report", "reports/"]]) {
     await page.getByRole("tab", { name: "文件" }).click();
-    const filesTab = page.getByTestId("task-files-tab");
+    const documentTree = page.getByTestId("task-document-tree");
     // 文档树默认只展开根级目录:先展开 missions//reports/ 目录,再点 dispatch 工件叶节点。
-    const dirToggle = filesTab.locator("button", { hasText: dirName }).first();
+    const dirToggle = documentTree.locator("button", { hasText: dirName }).first();
     await dirToggle.waitFor({ timeout: 20_000 });
     await dirToggle.click();
-    const docLeaf = filesTab.locator("button", { hasText: dispatchId }).first();
+    const docLeaf = documentTree.locator("button", { hasText: dispatchId }).first();
     await docLeaf.waitFor({ timeout: 10_000 });
     await docLeaf.click();
     const bodyHandle = await page.waitForFunction(
       (pattern) => {
-        const text = globalThis.document.querySelector('[data-testid="task-files-tab"] article')?.textContent ?? "";
+        const text = globalThis.document.querySelector(
+          '[data-testid="task-files-tab"] [data-testid="doc-reader"]',
+        )?.textContent ?? "";
         return new RegExp(pattern, "u").test(text) ? text : null;
       },
       /GUI_REAL_DISPATCH_PROOF=/u.source,
