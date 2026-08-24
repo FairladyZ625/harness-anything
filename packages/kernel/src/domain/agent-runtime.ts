@@ -69,7 +69,15 @@ export function reduceRuntimeSession(current: RuntimeSession | null, event: Agen
   const sessionId = runtimeSessionId(event); if (sessionId === null) return current; if (current === null || current.runtimeSessionId !== sessionId) throw new Error(`runtime session ${sessionId} has not started`);
   if (event.type === "runtime_session_provider_bound") { if (current.providerSessionId !== null && current.providerSessionId !== event.payload.providerSessionId) throw new Error(`runtime session ${sessionId} provider binding changed`); return { ...current, providerSessionId: event.payload.providerSessionId, transcriptRef: event.payload.transcriptRef, lastObservedAt: event.occurredAt }; }
   if (event.type === "runtime_session_task_bound") { if (current.providerSessionId !== null && current.providerSessionId !== event.payload.providerSessionId) throw new Error(`runtime session ${sessionId} task binding changed provider session`); const binding = { taskId: event.payload.taskId, executionId: event.payload.executionId, providerSessionId: event.payload.providerSessionId, transcriptRef: event.payload.transcriptRef, boundAt: event.occurredAt }, taskBindings = [...current.taskBindings.filter((value) => value.taskId !== binding.taskId || value.executionId !== binding.executionId), binding]; return { ...current, providerSessionId: binding.providerSessionId, transcriptRef: binding.transcriptRef, taskBindings, lastObservedAt: event.occurredAt }; }
-  if (event.type === "runtime_session_liveness_changed") { if (current.liveness === "exited") throw new Error(`runtime session ${sessionId} already exited`); return { ...current, liveness: event.payload.liveness, lastObservedAt: event.occurredAt }; }
+  if (event.type === "runtime_session_liveness_changed") {
+    if (current.liveness === "exited") throw new Error(`runtime session ${sessionId} already exited`);
+    return {
+      ...current,
+      liveness: event.payload.liveness,
+      attachable: event.payload.liveness === "live" ? true : current.attachable,
+      lastObservedAt: event.occurredAt,
+    };
+  }
   if (event.type === "runtime_session_cancelled") return { ...current, liveness: "exited", attachable: false, outcome: "cancelled", exitCode: null, lastObservedAt: event.occurredAt };
   if (event.type === "runtime_session_exited") return { ...current, liveness: "exited", attachable: false, lastObservedAt: event.occurredAt };
   if (event.type === "runtime_session_outcome_observed") return { ...current, outcome: event.payload.outcome, exitCode: event.payload.exitCode, resultRef: event.payload.resultRef, lastObservedAt: event.occurredAt };

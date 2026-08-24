@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import type {
   AgentRuntimeEventV1,
   CanonicalContentBlob,
@@ -6,7 +7,7 @@ import type {
   SessionIdentity,
 } from "../../kernel/src/index.ts";
 import { canonicalEventWritePlan, consumeKnownError } from "../../kernel/src/index.ts";
-import { scrubProviderValue } from "./dispatch-stream.ts";
+import { readDispatchStream, scrubProviderValue } from "./dispatch-stream.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
@@ -58,20 +59,34 @@ export async function publishRuntimeEvent<T extends AgentRuntimeEventV1["type"]>
   return { event: value, publication: appended };
 }
 
-export async function consumeChunk(context: any, active: ActiveRuntime, chunk: string, flush: boolean): Promise<void> {
+export async function consumeProviderChunk(
+  context: any,
+  active: ActiveRuntime,
+  chunk: string,
+  flush: boolean,
+  persisted = false,
+): Promise<void> {
   active.buffer += chunk;
   const lines = active.buffer.split(/\r?\n/u);
-  active.buffer = flush ? "" : (lines.pop() ?? "");
-  for (const line of lines) if (line.trim()) await context.consumeLine(active, line);
-  if (flush && active.buffer.trim()) await context.consumeLine(active, active.buffer);
+  const trailing = lines.pop() ?? "";
+  active.buffer = flush ? "" : trailing;
+  for (const line of lines) if (line.trim()) await context.consumeLine(active, line, persisted);
+  if (flush && trailing.trim()) await context.consumeLine(active, trailing, persisted);
 }
 
-export async function consumeLine(context: any, active: ActiveRuntime, line: string): Promise<void> {
+export async function consumeProviderLine(
+  context: any,
+  active: ActiveRuntime,
+  line: string,
+  persisted = false,
+): Promise<void> {
   let value: unknown;
   try {
     value = JSON.parse(line);
-    active.stream.appendProviderEvent(value, context.input.now());
+    if (!persisted) active.stream.appendProviderEvent(value, context.input.now());
+    active.durableOutputCount += 1;
   } catch (error) {
+    if (persisted) active.durableOutputCount += 1;
     consumeKnownError(error);
     context.markProtocolError(active);
     return;
@@ -94,6 +109,36 @@ export async function consumeLine(context: any, active: ActiveRuntime, line: str
     parsed.planObserved === true ||
     (parsed.finalText !== undefined && context.isStructuredSuccessResult(parsed.finalText));
   if (parsed.planIncomplete !== undefined) active.planIncomplete = parsed.planIncomplete;
+}
+
+export async function consumeDurableOutput(
+  context: any,
+  active: ActiveRuntime,
+  waitForFirstRecordMs = 0,
+): Promise<void> {
+  let stream = readDispatchStream(context.input.rootDir, active.dispatchId);
+  let records = durableOutputRecords(stream?.records ?? []);
+  const deadline = Date.now() + waitForFirstRecordMs;
+  while (records.length === 0 && stream?.process?.exited === false && Date.now() < deadline) {
+    await delay(Math.min(10, Math.max(1, deadline - Date.now())));
+    stream = readDispatchStream(context.input.rootDir, active.dispatchId);
+    records = durableOutputRecords(stream?.records ?? []);
+  }
+  for (const record of records.slice(active.durableOutputCount)) {
+    await context.consumeLine(
+      active,
+      record.kind === "provider_event" ? JSON.stringify(record.event) : String(record.output),
+      true,
+    );
+  }
+}
+
+function durableOutputRecords(
+  records: readonly Record<string, unknown>[],
+): readonly Record<string, unknown>[] {
+  return records.filter(
+    (record) => record.kind === "provider_event" || record.kind === "provider_output_invalid",
+  );
 }
 
 export function captureErrorOutput(context: any, active: ActiveRuntime, chunk: string): void {
@@ -157,9 +202,4 @@ export function markProtocolError(context: any, active: ActiveRuntime): void {
     type: "error",
     code: "provider_protocol_error",
   });
-}
-
-export function terminateActive(context: any, active: ActiveRuntime, cancelled: boolean): void {
-  if (cancelled) active.cancelRequested = true;
-  active.process.terminate();
 }

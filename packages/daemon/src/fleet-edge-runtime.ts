@@ -72,12 +72,39 @@ export function openFleetEdgeRuntime(input: { readonly request: FleetEdgeRuntime
         mission: `Your task package is ${packageRoot}.\nRead task_plan.md in that package and complete the task.`,
       };
     },
-    readRuntimeSessions: async () => { const result = await runFleetRuntimeReadClient({ ...peer, repoId: request.repoId, method: "repo.agentRuntime.overview", payload: {} }); const issues = validateAgentRuntimeOverview(result); if (issues.length) throw edgeRuntimeError("runtime_read_invalid", issues.join("; ")); return (result as AgentRuntimeOverviewResult).sessions.map(({ providerSessionId, instanceId, liveness }) => ({ providerSessionId, instanceId, liveness })); },
+    readRuntimeSessions: async () => {
+      const result = await runFleetRuntimeReadClient({
+        ...peer,
+        repoId: request.repoId,
+        method: "repo.agentRuntime.overview",
+        payload: {},
+      });
+      const issues = validateAgentRuntimeOverview(result);
+      if (issues.length) throw edgeRuntimeError("runtime_read_invalid", issues.join("; "));
+      return (result as AgentRuntimeOverviewResult).sessions.map(({
+        runtimeSessionId,
+        providerSessionId,
+        instanceId,
+        liveness,
+        activity,
+      }) => ({ runtimeSessionId, providerSessionId, instanceId, liveness, outcome: activity.outcome }));
+    },
     publish: async (draft) => { const response = await runFleetRuntimeEventClient({ ...peer, repoId: request.repoId, opId: draft.opId, eventType: draft.type, payload: draft.payload, ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }) }); return { event: response.event as unknown as AgentRuntimeEventV1, receipt: response.receipt as JsonObject }; },
     archive: async (archive) => await runFleetRuntimeArchiveClient({ ...peer, repoId: request.repoId, archive: archive as unknown as Readonly<Record<string, unknown>> }) as { readonly outcome: string; readonly nextAction?: string }
   }, stream, now, runtimeInstances: input.ports.runtimeInstances, prepareLaunch: input.ports.prepareRuntimeLaunch, resolveAgent: (agentId) => readAgentDeclaration({ rootDir: request.workspaceRoot, agentId }), resolveSquadDispatchTarget: (leaderId, workerId) => resolveSquadDispatchTarget({ rootDir: request.workspaceRoot, leaderId, workerId }), ...(input.launch ? { launch: input.launch } : {}), schedule });
+  const ready = spawner.adopt();
   return {
-    run: async (method: FleetEdgeRuntimeRequest["payload"]["method"], action: JsonObject): Promise<JsonObject> => method === "repo.agentRuntime.spawn" ? spawner.spawn(action, edgeBinding()) : method === "repo.agentRuntime.cancel" ? spawner.cancel(action, edgeBinding()) : await runFleetRuntimeReadClient({ ...peer, repoId: request.repoId, method, payload: action }) as JsonObject,
+    run: async (
+      method: FleetEdgeRuntimeRequest["payload"]["method"],
+      action: JsonObject,
+    ): Promise<JsonObject> => {
+      await ready;
+      return method === "repo.agentRuntime.spawn"
+        ? spawner.spawn(action, edgeBinding())
+        : method === "repo.agentRuntime.cancel"
+          ? spawner.cancel(action, edgeBinding())
+          : await runFleetRuntimeReadClient({ ...peer, repoId: request.repoId, method, payload: action }) as JsonObject;
+    },
     close: () => { spawner.close(); }
   };
 }
