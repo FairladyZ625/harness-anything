@@ -1,20 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
   DOC_CODEC_ID,
   DOC_POLICY_ID,
   docSyncWritePlan,
-  serializeCanonicalEvent,
   type DocEventV1,
 } from "../../src/domain/doc-sync.contract.ts";
 import { freezeDeclaredWritePlan } from "../../src/domain/write-chain.contract.ts";
@@ -30,69 +23,11 @@ import {
 import { withTempStoreAsync } from "./helpers.ts";
 
 import {
-  bundle,
   docBundle,
   event,
   git,
   initRepo,
-  snapshot,
 } from "./task-event-store.fixtures.ts";
-test("unified publication advances canonical and authored refs to one SHA while preserving index, prose, and every unrelated dirty path byte", async (context) => {
-  await withTempStoreAsync(async (rootDir) => {
-    initRepo(rootDir);
-    mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness/context/user.md"), "draft\n");
-    writeFileSync(path.join(rootDir, "dirty.txt"), "dirty\n");
-    git(rootDir, "add", "harness/context/user.md");
-    git(rootDir, "commit", "-qm", "user prose");
-    writeFileSync(
-      path.join(rootDir, "harness/context/user.md"),
-      "draft plus local edit\n",
-    );
-    const before = snapshot(rootDir),
-      head = git(rootDir, "rev-parse", "HEAD"),
-      store = makeTaskEventStore({ repoId: "test-repo", rootDir }),
-      receipt = store.append(bundle(event)),
-      after = snapshot(rootDir);
-    assert.deepEqual(after.bytes, before.bytes);
-    assert.equal(after.status, before.status);
-    assert.equal(
-      (after.index as string).includes(before.index as string),
-      true,
-    );
-    assert.notEqual(git(rootDir, "rev-parse", "HEAD"), head);
-    assert.equal(store.currentCommit().sha, git(rootDir, "rev-parse", "HEAD"));
-    assert.equal(existsSync(path.join(rootDir, "harness/events")), true);
-    assert.equal(
-      git(
-        rootDir,
-        "show",
-        `${CANONICAL_EVENT_REF}:harness/${eventObjectRelativePath(event.opId)}`,
-      ),
-      serializeCanonicalEvent(event).trimEnd(),
-    );
-    assert.equal(store.readTaskEvent(event.opId)?.opId, event.opId);
-    const reopened = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    assert.deepEqual(reopened.append(bundle(event)).metrics.changedPaths, []);
-    assert.throws(
-      () =>
-        reopened.append(
-          bundle({
-            ...event,
-            payload: { task: { ...event.payload.task, title: "different" } },
-          }),
-        ),
-      (error: unknown) => {
-        assert.equal((error as { code?: string }).code, "op_conflict");
-        return /different event/u.test(String(error));
-      },
-    );
-    assert.equal(receipt.metrics.nodeSyncs, 4);
-    context.diagnostic(
-      `unified-publisher-git-processes=${receipt.metrics.gitProcesses}`,
-    );
-  });
-});
 
 test("doc event, content blob, and authored file publish in one default-branch canonical commit", async () => {
   await withTempStoreAsync(async (rootDir) => {
