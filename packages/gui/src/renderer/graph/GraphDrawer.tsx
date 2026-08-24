@@ -44,7 +44,10 @@ export function GraphDrawer({
 }: Props) {
   if (focusEdge) {
     return (
-      <aside data-testid="graph-detail-drawer" className="flex w-[26rem] shrink-0 flex-col overflow-y-auto border-l border-border bg-surface">
+      <aside
+        data-testid="graph-detail-drawer"
+        className="flex w-[26rem] shrink-0 flex-col overflow-y-auto border-l border-border bg-surface"
+      >
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
           <span className="font-mono text-xs text-text-muted">{t("graph.graphDrawer.edgeRelation")}</span>
@@ -120,7 +123,10 @@ export function GraphDrawer({
   const directIn = edges.filter((e) => endpointToNodeId(e.to) === focusId);
 
   return (
-    <aside data-testid="graph-detail-drawer" className="flex w-[26rem] shrink-0 flex-col overflow-y-auto border-l border-border bg-surface">
+    <aside
+      data-testid="graph-detail-drawer"
+      className="flex w-[26rem] shrink-0 flex-col overflow-y-auto border-l border-border bg-surface"
+    >
       <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
         <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
         <EntityRefLink
