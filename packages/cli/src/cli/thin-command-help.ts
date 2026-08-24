@@ -1,7 +1,4 @@
-import {
-  daemonProtocolCommands,
-  thinCliCommands,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonProtocolCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 
 export const thinCliLocalErrorCodes = Object.freeze([
   "daemon_disconnect",
@@ -20,59 +17,6 @@ export type ThinHelpCatalogEntry = {
   readonly validity: string;
   readonly errorCode?: string;
 };
-
-export function renderThinHelp(
-  catalog: readonly ThinHelpCatalogEntry[] = [],
-  domain?: string,
-): string {
-  const rows = [
-      ...thinCliCommands.map(({ usage, summary, help }) => ({
-        usage,
-        summary,
-        help,
-      })),
-    ],
-    visible = domain
-      ? rows.filter(({ usage }) => usage.split(" ")[1] === domain)
-      : rows,
-    groups = commandDomains(),
-    body = domain
-      ? [
-          `Commands for ${domain}:`,
-          ...visible.map(
-            ({ usage, summary, help }) =>
-              `  ${usage}\n    ${summary}${help ? `\n${help}` : ""}`,
-          ),
-        ]
-      : [
-          "Commands:",
-          ...groups.map(
-            ({ name, count }) =>
-              `  ${name} (${count} command${count === 1 ? "" : "s"})`,
-          ),
-          "",
-          "Meta:",
-          "  capabilities [--json] — Describe the contracted CLI command surface.",
-          "  --version — Print the CLI package version.",
-          "",
-          "Use ha <domain> --help for the commands in a domain.",
-          ...rows
-            .filter(({ usage }) => usage.includes("--service"))
-            .map(({ usage }) => `  ${usage}`),
-        ],
-    presetRows = catalog.length
-      ? ["", "Recommended presets:", ...catalog.map(renderPresetHelpEntry)]
-      : [];
-  return ["Harness Anything thin CLI", "", ...body, ...presetRows].join("\n");
-}
-
-function renderPresetHelpEntry(entry: ThinHelpCatalogEntry): string {
-  const description =
-    entry.validity === "valid"
-      ? entry.description
-      : `${entry.validity}${entry.errorCode ? ` (${entry.errorCode})` : ""}`;
-  return `  ${entry.id} — ${entry.title} — ${description}`;
-}
 
 export function deriveCliCapabilities(
   commands: ReadonlyArray<{
