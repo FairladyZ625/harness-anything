@@ -29,7 +29,12 @@ export function reduceBatch(
 ): ProjectionApplyReceipt {
   return transaction(db, () => {
     for (const event of events) stageEvent(db, event);
-    const reducedItems = drainDeferred(db, limit, readBlob, true);
+    const reducedItems = drainDeferred(
+      db,
+      limit,
+      readBlob,
+      true,
+    );
     const state =
       /* @gate-identity check-bypass-write-boundary/bypass-write-001 */
       db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
