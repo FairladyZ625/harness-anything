@@ -1,391 +1,610 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { availableParallelism, hostname, loadavg, tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { canonicalRoot, workspaceId } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../../daemon/src/repo-cell.ts";
-import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
 
-const cli = path.resolve("packages/cli/src/index.ts");
-const builtCli = path.resolve("packages/cli/dist/cli/src/index.js");
-
+import {
+  cli,
+  git,
+  register,
+  run,
+  runMaybe,
+  setup,
+  stop,
+} from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 test("real CLI reaches one resident multi-workspace daemon and publishes Git event -> SQLite -> receipt", async () => {
   const fixture = setup();
   try {
-    const noDaemon = runMaybe(fixture.alpha, fixture.userRoot, ["daemon", "repo", "register", "--repo-id", "alpha", "--root", fixture.alpha, "--no-link"]);
-    assert.notEqual(noDaemon.status, 0); assert.equal((noDaemon.receipt.error as { code?: string }).code, "daemon_unavailable");
-    assert.equal(existsSync(path.join(fixture.userRoot, "registry.json")), false);
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    register(fixture.alpha, fixture.userRoot, "alpha"); register(fixture.beta, fixture.userRoot, "beta");
-    const alphaPreview = run(fixture.alpha, fixture.userRoot, ["task", "create", "--id", "task-alpha", "--admin", "--title", "Alpha", "--dry-run"]); assert.equal(alphaPreview.dryRun, true); assert.equal(alphaPreview.packagePath, "tasks/task-alpha-alpha"); assert.equal(existsSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha")), false);
-    const textPreview = spawnSync(process.execPath, [cli, "--root", fixture.alpha, "task", "create", "--id", "task-alpha", "--admin", "--title", "Alpha", "--dry-run"], { encoding: "utf8", env: { ...process.env, HOME: path.join(fixture.alpha, ".home"), GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: fixture.userRoot } }); assert.equal(textPreview.status, 0, textPreview.stderr); assert.equal(textPreview.stdout.trim(), "would create task task-alpha at tasks/task-alpha-alpha");
-    const alpha = run(fixture.alpha, fixture.userRoot, ["task", "create", "--id", "task-alpha", "--admin", "--title", "Alpha"]);
-    const beta = run(fixture.beta, fixture.userRoot, ["task", "create", "--id", "task-beta", "--admin", "--title", "Beta"]);
-    assert.equal(alpha.outcome, "applied", JSON.stringify(alpha)); assert.equal(beta.outcome, "applied", JSON.stringify(beta));
-    const factRecord = run(fixture.alpha, fixture.userRoot, ["fact", "record", "--task", "task-alpha", "--statement", "Canonical Fact from CLI", "--source", "integration"]);
-    assert.equal(factRecord.outcome, "applied", JSON.stringify(factRecord)); assert.equal(factRecord.commitSha, null); assert.ok(factRecord.cut); const fact = JSON.parse(String(factRecord.evidence)) as { factId: string; state: string };
-    assert.equal(fact.state, "standing"); const factSearch = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["fact", "search", "Canonical", "--task", "task-alpha"]).evidence)) as { facts: readonly { factId: string }[] };
-    assert.deepEqual(factSearch.facts.map((row) => row.factId), [fact.factId]); const factShow = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["fact", "show", "--task", "task-alpha", "--id", fact.factId]).evidence)) as { fact: { statement: string } };
+    const noDaemon = runMaybe(fixture.alpha, fixture.userRoot, [
+      "daemon",
+      "repo",
+      "register",
+      "--repo-id",
+      "alpha",
+      "--root",
+      fixture.alpha,
+      "--no-link",
+    ]);
+    assert.notEqual(noDaemon.status, 0);
+    assert.equal(
+      (noDaemon.receipt.error as { code?: string }).code,
+      "daemon_unavailable",
+    );
+    assert.equal(
+      existsSync(path.join(fixture.userRoot, "registry.json")),
+      false,
+    );
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok,
+      true,
+    );
+    register(fixture.alpha, fixture.userRoot, "alpha");
+    register(fixture.beta, fixture.userRoot, "beta");
+    const alphaPreview = run(fixture.alpha, fixture.userRoot, [
+      "task",
+      "create",
+      "--id",
+      "task-alpha",
+      "--admin",
+      "--title",
+      "Alpha",
+      "--dry-run",
+    ]);
+    assert.equal(alphaPreview.dryRun, true);
+    assert.equal(alphaPreview.packagePath, "tasks/task-alpha-alpha");
+    assert.equal(
+      existsSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha")),
+      false,
+    );
+    const textPreview = spawnSync(
+      process.execPath,
+      [
+        cli,
+        "--root",
+        fixture.alpha,
+        "task",
+        "create",
+        "--id",
+        "task-alpha",
+        "--admin",
+        "--title",
+        "Alpha",
+        "--dry-run",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: path.join(fixture.alpha, ".home"),
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          HARNESS_DAEMON_USER_ROOT: fixture.userRoot,
+        },
+      },
+    );
+    assert.equal(textPreview.status, 0, textPreview.stderr);
+    assert.equal(
+      textPreview.stdout.trim(),
+      "would create task task-alpha at tasks/task-alpha-alpha",
+    );
+    const alpha = run(fixture.alpha, fixture.userRoot, [
+      "task",
+      "create",
+      "--id",
+      "task-alpha",
+      "--admin",
+      "--title",
+      "Alpha",
+    ]);
+    const beta = run(fixture.beta, fixture.userRoot, [
+      "task",
+      "create",
+      "--id",
+      "task-beta",
+      "--admin",
+      "--title",
+      "Beta",
+    ]);
+    assert.equal(alpha.outcome, "applied", JSON.stringify(alpha));
+    assert.equal(beta.outcome, "applied", JSON.stringify(beta));
+    const factRecord = run(fixture.alpha, fixture.userRoot, [
+      "fact",
+      "record",
+      "--task",
+      "task-alpha",
+      "--statement",
+      "Canonical Fact from CLI",
+      "--source",
+      "integration",
+    ]);
+    assert.equal(factRecord.outcome, "applied", JSON.stringify(factRecord));
+    assert.equal(factRecord.commitSha, null);
+    assert.ok(factRecord.cut);
+    const fact = JSON.parse(String(factRecord.evidence)) as {
+      factId: string;
+      state: string;
+    };
+    assert.equal(fact.state, "standing");
+    const factSearch = JSON.parse(
+      String(
+        run(fixture.alpha, fixture.userRoot, [
+          "fact",
+          "search",
+          "Canonical",
+          "--task",
+          "task-alpha",
+        ]).evidence,
+      ),
+    ) as { facts: readonly { factId: string }[] };
+    assert.deepEqual(
+      factSearch.facts.map((row) => row.factId),
+      [fact.factId],
+    );
+    const factShow = JSON.parse(
+      String(
+        run(fixture.alpha, fixture.userRoot, [
+          "fact",
+          "show",
+          "--task",
+          "task-alpha",
+          "--id",
+          fact.factId,
+        ]).evidence,
+      ),
+    ) as { fact: { statement: string } };
     assert.equal(factShow.fact.statement, "Canonical Fact from CLI");
-    const decisionPacket = JSON.stringify({ title: "Canonical Decision from CLI", question: "Should the real CLI own this Decision?", riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["kernel"], productLines: [] }, chosen: [{ id: "CH1", text: "Use events" }], rejected: [{ id: "RJ1", text: "Use files", whyNot: "Not canonical" }], claims: [], fulfillments: [], relations: [] }), decisionPropose = run(fixture.alpha, fixture.userRoot, ["decision", "propose", "--json-input", decisionPacket]); assert.equal(decisionPropose.outcome, "applied", JSON.stringify(decisionPropose));
-    const decision = JSON.parse(String(decisionPropose.evidence)) as { decisionId: string; state: string }, decisionPath = `decisions/decision-${decision.decisionId}/decision.md`, beforeAccepted = makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).readHead()!.revision; assert.equal(decision.state, "proposed"); assert.equal(decisionPropose.path, decisionPath); assert.equal(decisionPropose.worktreeVisible, true); assert.equal(decisionPropose.commitSha, null); assert.ok(decisionPropose.cut); assert.match(String(decisionPropose.documentSha256), /^[0-9a-f]{64}$/u); assert.match(readFileSync(path.join(fixture.alpha, "harness", decisionPath), "utf8"), /^---\nschema: decision-package\/v1[\s\S]*\nstate: proposed[\s\S]*\n---\n\n# Canonical Decision from CLI\n$/u);
-    const acceptedDecision = run(fixture.alpha, fixture.userRoot, ["decision", "accept", decision.decisionId, "--rationale", "CEO approval", "--judgment-only", "CEO explicitly judges without evidence"]); assert.equal(acceptedDecision.outcome, "applied"); assert.match(String(acceptedDecision.consentId), /^djc_[0-9a-f]{26}$/u); assert.equal(makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).readHead()?.revision, beforeAccepted + 1);
-    const decisionList = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["decision", "list", "--search", "Canonical Decision"]).evidence)) as { decisions: readonly { decisionId: string }[] }; assert.deepEqual(decisionList.decisions.map((row) => row.decisionId), [decision.decisionId]);
-    assert.deepEqual((JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["decision", "list", "--search", "Uncanonical"]).evidence)) as { decisions: readonly { decisionId: string }[] }).decisions, []);
-    const decisionShow = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["decision", "show", decision.decisionId]).evidence)) as { decision: { decisionId: string; body: unknown } }; assert.equal(decisionShow.decision.decisionId, decision.decisionId); assert.equal(decisionShow.decision.body, null);
-    const reckon = run(fixture.alpha, fixture.userRoot, ["decision", "reckon", decision.decisionId, "--task", "task-alpha"]); assert.equal(reckon.outcome, "applied", JSON.stringify(reckon)); const reckonFact = JSON.parse(String(reckon.evidence)) as { evidenceSource: string; statement: string };
-    assert.match(reckonFact.evidenceSource, new RegExp(`^decision/${decision.decisionId}@\\d+$`, "u")); assert.match(reckonFact.statement, /no load-bearing claims/u); const canonicalEvents = makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read().events; assert.equal(canonicalEvents.some((event) => event.schema === "decision-event/v1" && event.decisionId === decision.decisionId), true); assert.equal(canonicalEvents.some((event) => event.schema === "fact-event/v1" && event.payload.evidenceSource === reckonFact.evidenceSource), true);
-    assert.match(String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-alpha"]).evidence), /Alpha/u);
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["task", "start", "task-alpha", "--execution-id", "exec-doc"]).outcome, "applied");
-    const progress = run(fixture.alpha, fixture.userRoot, ["task", "progress", "append", "task-alpha", "--text", "CLI progress is canonical.", "--evidence", "test:reports/cli.txt:passed"]); assert.equal(progress.progressPath, "tasks/task-alpha-alpha/progress.md"); assert.equal(progress.commitSha, null); assert.ok(progress.cut); assert.equal(progress.worktreeVisible, true); assert.match(String(progress.evidence), /file:tasks\/task-alpha-alpha\/progress\.md/u); assert.match(readFileSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha/progress.md"), "utf8"), /CLI progress is canonical\..*Evidence: test:reports\/cli\.txt:passed/su);
-    const docPath = "tasks/task-alpha-alpha/notes.md", docBody = "# CLI canonical document\n", authored = path.join(fixture.alpha, "harness", docPath); mkdirSync(path.dirname(authored), { recursive: true }); writeFileSync(authored, docBody);
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath]).outcome, "applied");
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--execution-id", "exec-doc", "--path", docPath]).outcome, "applied");
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", docPath]).evidence, docBody);
-    const blockedPath = "context/other-session.md", eligiblePath = "context/this-session.md", blockedFile = path.join(fixture.alpha, "harness", blockedPath); mkdirSync(path.dirname(blockedFile), { recursive: true });
-    writeFileSync(blockedFile, "# Stable\n"); assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", blockedPath]).outcome, "applied");
-    writeFileSync(blockedFile, "# Renamed\n"); writeFileSync(path.join(fixture.alpha, "harness", eligiblePath), "# Eligible\n");
-    const partial = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit"]); assert.equal(partial.outcome, "applied", JSON.stringify(partial)); assert.match(String(partial.summary), /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tbase region is missing: "# Stable"/u); assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", eligiblePath]).evidence, "# Eligible\n");
-    const spoof = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.task.create", { repo: { repoId: "alpha" },
-      payload: { taskId: "task-spoof", title: "Spoof", actor: { principal: { personId: "attacker" } } } }, 100,
-    { userRoot: fixture.userRoot });
-    assert.equal(spoof.ok, false); assert.equal((spoof.error as { code?: string }).code, "invalid_request");
-    const logicalRevisions = new Map([[fixture.alpha, makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read().revision], [fixture.beta, makeTaskEventStore({ rootDir: fixture.beta, repoId: "beta" }).read().revision]]);
+    const decisionPacket = JSON.stringify({
+        title: "Canonical Decision from CLI",
+        question: "Should the real CLI own this Decision?",
+        riskTier: "medium",
+        urgency: "medium",
+        vertical: "default",
+        preset: "default",
+        decisionClass: "ordinary",
+        appliesTo: { modules: ["kernel"], productLines: [] },
+        chosen: [{ id: "CH1", text: "Use events" }],
+        rejected: [{ id: "RJ1", text: "Use files", whyNot: "Not canonical" }],
+        claims: [],
+        fulfillments: [],
+        relations: [],
+      }),
+      decisionPropose = run(fixture.alpha, fixture.userRoot, [
+        "decision",
+        "propose",
+        "--json-input",
+        decisionPacket,
+      ]);
+    assert.equal(
+      decisionPropose.outcome,
+      "applied",
+      JSON.stringify(decisionPropose),
+    );
+    const decision = JSON.parse(String(decisionPropose.evidence)) as {
+        decisionId: string;
+        state: string;
+      },
+      decisionPath = `decisions/decision-${decision.decisionId}/decision.md`,
+      beforeAccepted = makeTaskEventStore({
+        rootDir: fixture.alpha,
+        repoId: "alpha",
+      }).readHead()!.revision;
+    assert.equal(decision.state, "proposed");
+    assert.equal(decisionPropose.path, decisionPath);
+    assert.equal(decisionPropose.worktreeVisible, true);
+    assert.equal(decisionPropose.commitSha, null);
+    assert.ok(decisionPropose.cut);
+    assert.match(String(decisionPropose.documentSha256), /^[0-9a-f]{64}$/u);
+    assert.match(
+      readFileSync(path.join(fixture.alpha, "harness", decisionPath), "utf8"),
+      /^---\nschema: decision-package\/v1[\s\S]*\nstate: proposed[\s\S]*\n---\n\n# Canonical Decision from CLI\n$/u,
+    );
+    const acceptedDecision = run(fixture.alpha, fixture.userRoot, [
+      "decision",
+      "accept",
+      decision.decisionId,
+      "--rationale",
+      "CEO approval",
+      "--judgment-only",
+      "CEO explicitly judges without evidence",
+    ]);
+    assert.equal(acceptedDecision.outcome, "applied");
+    assert.match(String(acceptedDecision.consentId), /^djc_[0-9a-f]{26}$/u);
+    assert.equal(
+      makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).readHead()
+        ?.revision,
+      beforeAccepted + 1,
+    );
+    const decisionList = JSON.parse(
+      String(
+        run(fixture.alpha, fixture.userRoot, [
+          "decision",
+          "list",
+          "--search",
+          "Canonical Decision",
+        ]).evidence,
+      ),
+    ) as { decisions: readonly { decisionId: string }[] };
+    assert.deepEqual(
+      decisionList.decisions.map((row) => row.decisionId),
+      [decision.decisionId],
+    );
+    assert.deepEqual(
+      (
+        JSON.parse(
+          String(
+            run(fixture.alpha, fixture.userRoot, [
+              "decision",
+              "list",
+              "--search",
+              "Uncanonical",
+            ]).evidence,
+          ),
+        ) as { decisions: readonly { decisionId: string }[] }
+      ).decisions,
+      [],
+    );
+    const decisionShow = JSON.parse(
+      String(
+        run(fixture.alpha, fixture.userRoot, [
+          "decision",
+          "show",
+          decision.decisionId,
+        ]).evidence,
+      ),
+    ) as { decision: { decisionId: string; body: unknown } };
+    assert.equal(decisionShow.decision.decisionId, decision.decisionId);
+    assert.equal(decisionShow.decision.body, null);
+    const reckon = run(fixture.alpha, fixture.userRoot, [
+      "decision",
+      "reckon",
+      decision.decisionId,
+      "--task",
+      "task-alpha",
+    ]);
+    assert.equal(reckon.outcome, "applied", JSON.stringify(reckon));
+    const reckonFact = JSON.parse(String(reckon.evidence)) as {
+      evidenceSource: string;
+      statement: string;
+    };
+    assert.match(
+      reckonFact.evidenceSource,
+      new RegExp(`^decision/${decision.decisionId}@\\d+$`, "u"),
+    );
+    assert.match(reckonFact.statement, /no load-bearing claims/u);
+    const canonicalEvents = makeTaskEventStore({
+      rootDir: fixture.alpha,
+      repoId: "alpha",
+    }).read().events;
+    assert.equal(
+      canonicalEvents.some(
+        (event) =>
+          event.schema === "decision-event/v1" &&
+          event.decisionId === decision.decisionId,
+      ),
+      true,
+    );
+    assert.equal(
+      canonicalEvents.some(
+        (event) =>
+          event.schema === "fact-event/v1" &&
+          event.payload.evidenceSource === reckonFact.evidenceSource,
+      ),
+      true,
+    );
+    assert.match(
+      String(
+        run(fixture.alpha, fixture.userRoot, ["task", "show", "task-alpha"])
+          .evidence,
+      ),
+      /Alpha/u,
+    );
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, [
+        "task",
+        "start",
+        "task-alpha",
+        "--execution-id",
+        "exec-doc",
+      ]).outcome,
+      "applied",
+    );
+    const progress = run(fixture.alpha, fixture.userRoot, [
+      "task",
+      "progress",
+      "append",
+      "task-alpha",
+      "--text",
+      "CLI progress is canonical.",
+      "--evidence",
+      "test:reports/cli.txt:passed",
+    ]);
+    assert.equal(progress.progressPath, "tasks/task-alpha-alpha/progress.md");
+    assert.equal(progress.commitSha, null);
+    assert.ok(progress.cut);
+    assert.equal(progress.worktreeVisible, true);
+    assert.match(
+      String(progress.evidence),
+      /file:tasks\/task-alpha-alpha\/progress\.md/u,
+    );
+    assert.match(
+      readFileSync(
+        path.join(fixture.alpha, "harness/tasks/task-alpha-alpha/progress.md"),
+        "utf8",
+      ),
+      /CLI progress is canonical\..*Evidence: test:reports\/cli\.txt:passed/su,
+    );
+    const docPath = "tasks/task-alpha-alpha/notes.md",
+      docBody = "# CLI canonical document\n",
+      authored = path.join(fixture.alpha, "harness", docPath);
+    mkdirSync(path.dirname(authored), { recursive: true });
+    writeFileSync(authored, docBody);
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath])
+        .outcome,
+      "applied",
+    );
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, [
+        "doc",
+        "sync",
+        "--submit",
+        "--execution-id",
+        "exec-doc",
+        "--path",
+        docPath,
+      ]).outcome,
+      "applied",
+    );
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", docPath])
+        .evidence,
+      docBody,
+    );
+    const blockedPath = "context/other-session.md",
+      eligiblePath = "context/this-session.md",
+      blockedFile = path.join(fixture.alpha, "harness", blockedPath);
+    mkdirSync(path.dirname(blockedFile), { recursive: true });
+    writeFileSync(blockedFile, "# Stable\n");
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, [
+        "doc",
+        "sync",
+        "--submit",
+        "--path",
+        blockedPath,
+      ]).outcome,
+      "applied",
+    );
+    writeFileSync(blockedFile, "# Renamed\n");
+    writeFileSync(
+      path.join(fixture.alpha, "harness", eligiblePath),
+      "# Eligible\n",
+    );
+    const partial = run(fixture.alpha, fixture.userRoot, [
+      "doc",
+      "sync",
+      "--submit",
+    ]);
+    assert.equal(partial.outcome, "applied", JSON.stringify(partial));
+    assert.match(
+      String(partial.summary),
+      /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tbase region is missing: "# Stable"/u,
+    );
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, [
+        "doc",
+        "show",
+        "--path",
+        eligiblePath,
+      ]).evidence,
+      "# Eligible\n",
+    );
+    const spoof = await requestLocalDaemonJsonRpc(
+      fixture.alpha,
+      "repo.task.create",
+      {
+        repo: { repoId: "alpha" },
+        payload: {
+          taskId: "task-spoof",
+          title: "Spoof",
+          actor: { principal: { personId: "attacker" } },
+        },
+      },
+      100,
+      { userRoot: fixture.userRoot },
+    );
+    assert.equal(spoof.ok, false);
+    assert.equal((spoof.error as { code?: string }).code, "invalid_request");
+    const logicalRevisions = new Map([
+      [
+        fixture.alpha,
+        makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read()
+          .revision,
+      ],
+      [
+        fixture.beta,
+        makeTaskEventStore({ rootDir: fixture.beta, repoId: "beta" }).read()
+          .revision,
+      ],
+    ]);
     stop(fixture.alpha, fixture.userRoot); // explicit drain: Git/fresh readers catch up after acknowledged visibility
     for (const root of [fixture.alpha, fixture.beta]) {
-      const gitHead = JSON.parse(git(root, "show", "refs/ha/canonical:harness/events/head.json")) as { revision: number };
+      const gitHead = JSON.parse(
+        git(root, "show", "refs/ha/canonical:harness/events/head.json"),
+      ) as { revision: number };
       assert.equal(gitHead.revision, logicalRevisions.get(root));
-      assert.equal(git(root, "ls-tree", "--name-only", "refs/ha/canonical", "harness/events").includes("harness/events"), true);
-      assert.equal(existsSync(path.join(root, ".harness/cache/task.sqlite")), true);
-      assert.equal(existsSync(path.join(root, ".harness/write-journal")), false);
+      assert.equal(
+        git(
+          root,
+          "ls-tree",
+          "--name-only",
+          "refs/ha/canonical",
+          "harness/events",
+        ).includes("harness/events"),
+        true,
+      );
+      assert.equal(
+        existsSync(path.join(root, ".harness/cache/task.sqlite")),
+        true,
+      );
+      assert.equal(
+        existsSync(path.join(root, ".harness/write-journal")),
+        false,
+      );
     }
-    assert.equal(git(fixture.alpha, "grep", "-l", "fact-event/v1", "refs/ha/canonical", "--", "harness/events").includes("harness/events"), true);
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
+    assert.equal(
+      git(
+        fixture.alpha,
+        "grep",
+        "-l",
+        "fact-event/v1",
+        "refs/ha/canonical",
+        "--",
+        "harness/events",
+      ).includes("harness/events"),
+      true,
+    );
+  } finally {
+    stop(fixture.alpha, fixture.userRoot);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
 });
 
 test("real CLI creates module and subtask-expansion packages through their declared providers", () => {
   const fixture = setup();
   try {
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true); register(fixture.alpha, fixture.userRoot, "alpha");
-    const catalog = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["preset", "list"]).evidence)) as Array<{ id: string; validity: string }>; assert.deepEqual(catalog.filter(({ id }) => ["module", "subtask-expansion"].includes(id)).map(({ id, validity }) => ({ id, validity })), [{ id: "module", validity: "valid" }, { id: "subtask-expansion", validity: "valid" }]);
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["task", "create", "--id", "task-parent", "--admin", "--title", "Parent"]).outcome, "applied");
-    const moduleTask = run(fixture.alpha, fixture.userRoot, ["task", "create", "--id", "task-module", "--admin", "--title", "Module task", "--preset", "module", "--module", "kernel", "--register-module", "kernel", "--module-title", "Kernel", "--module-prefix", "KER", "--module-scope", "packages/kernel/**"]); assert.equal(moduleTask.outcome, "applied", JSON.stringify(moduleTask)); assert.deepEqual((moduleTask.generatedPaths as string[]).filter((target) => /(?:module\.md|module_(?:plan|brief|session_prompt)\.md)$/u.test(target)).map((target) => path.basename(target)).sort(), ["module.md", "module_brief.md", "module_plan.md", "module_session_prompt.md"]); assert.match(readFileSync(path.join(fixture.alpha, "harness/tasks/task-module-module-task/module.md"), "utf8"), /Module key: kernel[\s\S]*Module title: Kernel[\s\S]*Module prefix: KER[\s\S]*Module scope: packages\/kernel\/\*\*/u);
-    const child = run(fixture.alpha, fixture.userRoot, ["task", "create", "--id", "task-child", "--admin", "--title", "Child", "--preset", "subtask-expansion", "--parent", "task-parent"]); assert.equal(child.outcome, "applied", JSON.stringify(child)); const childEvent = makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read().events.find((event) => event.schema === "task-bootstrap-event/v1" && event.taskId === "task-child"); assert.equal(childEvent?.schema === "task-bootstrap-event/v1" ? childEvent.payload.task.metadata.parentTaskId : null, "task-parent"); const children = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["task", "list", "--parent", "task-parent"]).evidence)) as { rows: Array<{ taskId: string }> }; assert.deepEqual(children.rows.map(({ taskId }) => taskId), ["task-child"]);
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok,
+      true,
+    );
+    register(fixture.alpha, fixture.userRoot, "alpha");
+    const catalog = JSON.parse(
+      String(run(fixture.alpha, fixture.userRoot, ["preset", "list"]).evidence),
+    ) as Array<{ id: string; validity: string }>;
+    assert.deepEqual(
+      catalog
+        .filter(({ id }) => ["module", "subtask-expansion"].includes(id))
+        .map(({ id, validity }) => ({ id, validity })),
+      [
+        { id: "module", validity: "valid" },
+        { id: "subtask-expansion", validity: "valid" },
+      ],
+    );
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, [
+        "task",
+        "create",
+        "--id",
+        "task-parent",
+        "--admin",
+        "--title",
+        "Parent",
+      ]).outcome,
+      "applied",
+    );
+    const moduleTask = run(fixture.alpha, fixture.userRoot, [
+      "task",
+      "create",
+      "--id",
+      "task-module",
+      "--admin",
+      "--title",
+      "Module task",
+      "--preset",
+      "module",
+      "--module",
+      "kernel",
+      "--register-module",
+      "kernel",
+      "--module-title",
+      "Kernel",
+      "--module-prefix",
+      "KER",
+      "--module-scope",
+      "packages/kernel/**",
+    ]);
+    assert.equal(moduleTask.outcome, "applied", JSON.stringify(moduleTask));
+    assert.deepEqual(
+      (moduleTask.generatedPaths as string[])
+        .filter((target) =>
+          /(?:module\.md|module_(?:plan|brief|session_prompt)\.md)$/u.test(
+            target,
+          ),
+        )
+        .map((target) => path.basename(target))
+        .sort(),
+      [
+        "module.md",
+        "module_brief.md",
+        "module_plan.md",
+        "module_session_prompt.md",
+      ],
+    );
+    assert.match(
+      readFileSync(
+        path.join(
+          fixture.alpha,
+          "harness/tasks/task-module-module-task/module.md",
+        ),
+        "utf8",
+      ),
+      /Module key: kernel[\s\S]*Module title: Kernel[\s\S]*Module prefix: KER[\s\S]*Module scope: packages\/kernel\/\*\*/u,
+    );
+    const child = run(fixture.alpha, fixture.userRoot, [
+      "task",
+      "create",
+      "--id",
+      "task-child",
+      "--admin",
+      "--title",
+      "Child",
+      "--preset",
+      "subtask-expansion",
+      "--parent",
+      "task-parent",
+    ]);
+    assert.equal(child.outcome, "applied", JSON.stringify(child));
+    const childEvent = makeTaskEventStore({
+      rootDir: fixture.alpha,
+      repoId: "alpha",
+    })
+      .read()
+      .events.find(
+        (event) =>
+          event.schema === "task-bootstrap-event/v1" &&
+          event.taskId === "task-child",
+      );
+    assert.equal(
+      childEvent?.schema === "task-bootstrap-event/v1"
+        ? childEvent.payload.task.metadata.parentTaskId
+        : null,
+      "task-parent",
+    );
+    const children = JSON.parse(
+      String(
+        run(fixture.alpha, fixture.userRoot, [
+          "task",
+          "list",
+          "--parent",
+          "task-parent",
+        ]).evidence,
+      ),
+    ) as { rows: Array<{ taskId: string }> };
+    assert.deepEqual(
+      children.rows.map(({ taskId }) => taskId),
+      ["task-child"],
+    );
+  } finally {
+    stop(fixture.alpha, fixture.userRoot);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
 });
-
-test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority parity, fixed receipt, and phantom-free Configure-Verify", () => {
-  const fixture = setupEmpty();
-  try {
-    assert.equal(existsSync(path.join(fixture.repo, "harness")), false);
-    // No explicit daemon was started: init must auto-start the resident daemon
-    // (bounded autostart) and still publish only through it.
-    const initialized = run(fixture.repo, fixture.userRoot,
-      ["init", "--repo-id", "fresh", "--person-id", "owner", "--display-name", "Owner", "--add-npm-scripts"]);
-    assert.ok(readDaemonPid(fixture.userRoot, "default"), "init must leave an auto-started resident daemon pid");
-    assert.equal(initialized.ok, true); assert.equal(initialized.repoId, "fresh"); assert.equal(initialized.outcome, "applied"); assert.match(String(initialized.commit), /^[0-9a-f]{40}$/u);
-    assert.deepEqual(initialized.created, ["harness/harness.yaml", "harness/people.yaml", "package.json", "harness/context/README.md", "harness/context/architecture/README.md", "harness/context/development/README.md", "harness/context/integrations/README.md", "harness/context/research/README.md", "harness/governance/standards/README.md", "harness/governance/standards/repository-governance.md", "harness/governance/standards/decision-writing.md", "harness/adr/README.md", "harness/milestones/README.md", "harness/governance/walls/walls.json", "harness/governance/walls/run-walls.mjs", "harness/.gitattributes", "CLAUDE.md", "AGENTS.md"]); assert.deepEqual(initialized.updated, []); assert.deepEqual(initialized.preserved, []); assert.deepEqual(initialized.drifted, []);
-    const plan = initialized.plan as { digest: string; baseScaffoldDigest: string; projectOverlayPath: string | null; projectOverlayDigest: string | null; documents: Array<{ path: string; contentSha256: string; disposition: string }> }; assert.match(plan.digest, /^sha256:[0-9a-f]{64}$/u); assert.match(plan.baseScaffoldDigest, /^sha256:[0-9a-f]{64}$/u); assert.equal(plan.projectOverlayPath, null); assert.equal(plan.projectOverlayDigest, null); assert.deepEqual(plan.documents.map(({ disposition }) => disposition), Array(15).fill("created")); assert.equal((initialized.publication as { ok: boolean }).ok, true);
-    for (const target of initialized.created as string[]) assert.equal(existsSync(path.join(fixture.repo, target)), true, target); const ledgerRoot = path.join(fixture.repo, "harness"), defaultConfig = readFileSync(path.join(fixture.repo, "harness/harness.yaml"), "utf8"), people = readFileSync(path.join(fixture.repo, "harness/people.yaml"), "utf8"), architecture = readFileSync(path.join(fixture.repo, "harness/context/architecture/README.md"), "utf8"); assert.match(defaultConfig, /contextRoot: harness\/context\n  governanceRoot: harness\/governance\n  adrRoot: harness\/adr\n  milestonesRoot: harness\/milestones/u); assert.match(defaultConfig, /scaffolds:\n    task: governance\/task-scaffold\.json\n    repository: governance\/repository-scaffold\.json/u); assert.match(architecture, /Opt-in Boundary[\s\S]*does not create or enable an architecture manifest, model, or generated view/iu); assert.equal(existsSync(path.join(fixture.repo, "harness/context/architecture/manifest.json")), false); assert.equal(existsSync(path.join(fixture.repo, "harness/context/architecture/model")), false); assert.match(readFileSync(path.join(fixture.repo, "harness/adr/README.md"), "utf8"), /decision.*projection/isu); assert.match(readFileSync(path.join(fixture.repo, "harness/milestones/README.md"), "utf8"), /does not create.*status/isu); assert.match(readFileSync(path.join(fixture.repo, "AGENTS.md"), "utf8"), /harness\/governance\/standards\/repository-governance\.md/u); assert.match(readFileSync(path.join(fixture.repo, "CLAUDE.md"), "utf8"), /harness\/context\/README\.md/u); assert.equal(readFileSync(path.join(fixture.repo, "package.json"), "utf8"), `${JSON.stringify({ private: true, scripts: { "harness-anything": "harness-anything", ha: "ha", "harness-anything:check": "harness-anything check" } }, null, 2)}\n`); assert.equal(existsSync(path.join(fixture.repo, "harness/persons.yaml")), false); assert.equal(git(ledgerRoot, "show", `${String(initialized.commit)}:people.yaml`), people.trim());
-    assert.equal(initialized.summary, "initialized harness at harness/harness.yaml"); assert.deepEqual((initialized.configureVerify as { ok: boolean; steps: string[] }).steps, ["publication-readback", "canonical-layout", "daemon-l2-readiness", "task-bootstrap-dry-run"]); assert.equal((initialized.configureVerify as { ok: boolean }).ok, true); assert.deepEqual((initialized.publication as { changedPaths: string[] }).changedPaths, (initialized.created as string[]).filter((target) => target.startsWith("harness/"))); assert.equal(git(ledgerRoot, "ls-tree", "-r", "--name-only", "HEAD").split("\n").some((target) => target.startsWith("tasks/") || target.startsWith("events/")), false); assert.equal(makeTaskEventStore({ rootDir: fixture.repo, repoId: "fresh" }).read().revision, 0);
-    const repeated = run(fixture.repo, fixture.userRoot, ["init", "--repo-id", "fresh", "--person-id", "owner", "--display-name", "Owner", "--add-npm-scripts"]); assert.equal(repeated.outcome, "noop"); assert.equal(repeated.commit, null); assert.deepEqual(repeated.created, []); assert.deepEqual(repeated.updated, []); assert.deepEqual(repeated.preserved, initialized.created); assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "1");
-    const walls = spawnSync(process.execPath, [path.join(fixture.repo, "harness/governance/walls/run-walls.mjs")], { cwd: fixture.repo, encoding: "utf8" }); assert.equal(walls.status, 0, walls.stderr); assert.match(walls.stdout, /WALLS pass=0 red=0 expected=0 notice=0 info=0 total=0/u); assert.equal(existsSync(path.join(fixture.repo, "harness/governance/walls/reports")), false);
-    const wallsPath = path.join(fixture.repo, "harness/governance/walls/walls.json");
-    writeFileSync(wallsPath, JSON.stringify({ schema: "walls/v1", walls: [
-      { id: "red", state: "guarding", cmd: "node -e \"process.exit(0)\"", expect: "hits>=1" },
-      { id: "notice", state: "known-issue", cmd: "node -e \"console.log('fixed')\"", expect: "hits>=1" }
-    ] }, null, 2) + "\n");
-    const actionableWalls = spawnSync(process.execPath, [path.join(fixture.repo, "harness/governance/walls/run-walls.mjs")], { cwd: fixture.repo, encoding: "utf8" });
-    assert.equal(actionableWalls.status, 1, actionableWalls.stderr);
-    assert.match(actionableWalls.stdout, /RED\s+red/u);
-    assert.match(actionableWalls.stdout, /NOTICE\s+notice/u);
-    assert.match(actionableWalls.stdout, /WALLS pass=0 red=1 expected=0 notice=1 info=0 total=2/u);
-    assert.match(actionableWalls.stdout, /report: .*[/\\]reports[/\\]walls-/u);
-    const reportsRoot = path.join(fixture.repo, "harness/governance/walls/reports");
-    assert.equal(existsSync(reportsRoot), true);
-    const reports = readdirSync(reportsRoot, { withFileTypes: true });
-    assert.equal(reports.length, 1);
-    assert.equal(reports[0]?.isFile(), true);
-    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "1");
-    const textReceipt = spawnSync(process.execPath, [cli, "--root", fixture.repo, "init", "--repo-id", "fresh", "--person-id", "owner", "--display-name", "Owner", "--add-npm-scripts"], { encoding: "utf8", env: { ...process.env, HOME: path.join(fixture.repo, ".home"), GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: fixture.userRoot } }); assert.equal(textReceipt.status, 0, textReceipt.stderr); assert.match(textReceipt.stdout, /^initialized harness at harness\/harness\.yaml\noutcome: noop\ncreated: \[\]\nupdated: \[\]\npreserved: \["harness\/harness.yaml"/u); assert.match(textReceipt.stdout, /drifted: \[\]\ncommit: none\nnext: ha daemon repo register --repo-id fresh --root/u); assert.match(textReceipt.stdout, /daemon status/u);
-    assert.equal(run(fixture.repo, fixture.userRoot,
-      ["task", "create", "--id", "task-first", "--admin", "--title", "First task"]).outcome, "applied");
-  } finally { stop(fixture.repo, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("local init isolates the ledger from later project commits and removes tracked runtime paths", (context) => {
-  const fixture = setupEmpty();
-  try {
-    git(fixture.repo, "init", "--quiet"); git(fixture.repo, "config", "user.name", "Project Owner"); git(fixture.repo, "config", "user.email", "project@example.test");
-    mkdirSync(path.join(fixture.repo, "harness"), { recursive: true }); mkdirSync(path.join(fixture.repo, ".harness/cache"), { recursive: true }); writeFileSync(path.join(fixture.repo, "harness/previous.txt"), "tracked by the project\n"); writeFileSync(path.join(fixture.repo, ".harness/cache/previous.txt"), "tracked runtime state\n"); git(fixture.repo, "add", "."); git(fixture.repo, "commit", "--quiet", "-m", "project base");
-    const initialized = run(fixture.repo, fixture.userRoot, ["init", "--repo-id", "local", "--person-id", "owner", "--display-name", "Owner"]); assert.equal(initialized.ok, true); const ledgerRoot = path.join(fixture.repo, "harness");
-    const harnessIgnored = git(fixture.repo, "check-ignore", "harness"), runtimeIgnored = git(fixture.repo, "check-ignore", ".harness"), harnessTracked = git(fixture.repo, "ls-files", "harness/"), runtimeTracked = git(fixture.repo, "ls-files", ".harness/"); assert.equal(existsSync(path.join(ledgerRoot, ".git")), true); assert.equal(harnessIgnored, "harness"); assert.equal(runtimeIgnored, ".harness"); assert.equal(harnessTracked, ""); assert.equal(runtimeTracked, "");
-    writeFileSync(path.join(fixture.repo, "project.txt"), "ordinary project change\n"); git(fixture.repo, "add", "."); git(fixture.repo, "commit", "--quiet", "-m", "advance project head"); const projectHead = git(fixture.repo, "rev-parse", "HEAD"), ledgerHead = git(ledgerRoot, "rev-parse", "HEAD"); assert.notEqual(projectHead, ledgerHead);
-    const written = run(fixture.repo, fixture.userRoot, ["task", "create", "--id", "task-after-project-commit", "--admin", "--title", "Still writable"]); assert.equal(written.outcome, "applied", JSON.stringify(written)); assert.equal(written.commitSha, null); assert.ok(written.cut); assert.equal(git(fixture.repo, "rev-parse", "HEAD"), projectHead); assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), ledgerHead); stop(fixture.repo, fixture.userRoot); const ledgerAfter = git(ledgerRoot, "rev-parse", "HEAD"); assert.notEqual(ledgerAfter, ledgerHead); assert.equal(git(ledgerRoot, "rev-parse", "refs/ha/canonical"), ledgerAfter); assert.equal(spawnSync("git", ["-C", fixture.repo, "rev-parse", "--verify", "refs/ha/canonical"], { encoding: "utf8" }).status, 128); context.diagnostic(`ledger.git=true\nouter.check-ignore harness=${harnessIgnored}\nouter.check-ignore .harness=${runtimeIgnored}\nouter.ls-files harness/=${harnessTracked}\nouter.ls-files .harness/=${runtimeTracked}\nproject.head.after=${projectHead}\nledger.head.before=${ledgerHead}\nledger.head.after=${ledgerAfter}\nwrite.outcome=${String(written.outcome)}`);
-  } finally { stop(fixture.repo, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("center registration keeps an external ledger repository readable and writable", (context) => {
-  const fixture = setup();
-  try {
-    assert.equal(existsSync(path.join(fixture.alpha, "harness/.git")), false); assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true); register(fixture.alpha, fixture.userRoot, "center"); const before = git(fixture.alpha, "rev-parse", "HEAD"), written = run(fixture.alpha, fixture.userRoot, ["task", "create", "--id", "task-center", "--admin", "--title", "Center ledger"]); assert.equal(written.outcome, "applied", JSON.stringify(written)); assert.equal(written.commitSha, null); assert.ok(written.cut); assert.equal(git(fixture.alpha, "rev-parse", "HEAD"), before); assert.match(String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-center"]).evidence), /Center ledger/u); stop(fixture.alpha, fixture.userRoot); const after = git(fixture.alpha, "rev-parse", "HEAD"); assert.notEqual(after, before); assert.equal(git(fixture.alpha, "rev-parse", "refs/ha/canonical"), after); assert.equal(git(fixture.alpha, "ls-tree", "-r", "--name-only", "HEAD").split("\n").some((target) => target.startsWith("harness/events/")), true); context.diagnostic(`ledger.git=${fixture.alpha}\nledger.head.before=${before}\nledger.head.after=${after}\nledger.canonical=${git(fixture.alpha, "rev-parse", "refs/ha/canonical")}\nwrite.outcome=${String(written.outcome)}\nread.task=Center ledger`);
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("REQ-CLI-016 adds only missing npm script keys while preserving existing package bytes", () => {
-  const fixture = setup(), packagePath = path.join(fixture.alpha, "package.json"), original = "{\n\t\"name\": \"project-owned\",\n\t\"scripts\": {\n\t\t\"test\": \"node --test\",\n\t\t\"ha\": \"project-ha\"\n\t},\n\t\"marker\": \"keep exactly\"\n}\n";
-  try {
-    writeFileSync(packagePath, original); git(fixture.alpha, "add", "package.json"); git(fixture.alpha, "commit", "--quiet", "-m", "project package"); assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true); const receipt = run(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner", "--add-npm-scripts"]), expected = "{\n\t\"name\": \"project-owned\",\n\t\"scripts\": {\n\t\t\"test\": \"node --test\",\n\t\t\"ha\": \"project-ha\",\n\t\t\"harness-anything\": \"harness-anything\",\n\t\t\"harness-anything:check\": \"harness-anything check\"\n\t},\n\t\"marker\": \"keep exactly\"\n}\n"; assert.equal(readFileSync(packagePath, "utf8"), expected); assert.equal((receipt.updated as string[]).includes("package.json#scripts"), true); assert.equal((receipt.created as string[]).includes("package.json"), false); const repeated = run(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner", "--add-npm-scripts"]); assert.equal(repeated.outcome, "noop"); assert.equal((repeated.preserved as string[]).includes("package.json"), true); assert.equal(readFileSync(packagePath, "utf8"), expected);
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("U-12 Configure-Verify failure keeps the canonical publication and returns an honest partial receipt", () => {
-  const fixture = setup(), configPath = path.join(fixture.alpha, "harness/harness.yaml"), overlayPath = path.join(fixture.alpha, "harness/governance/task-scaffold.json");
-  try {
-    writeFileSync(configPath, "layout:\n  authoredRoot: harness\nsettings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n  locale: en-US\n  scaffolds:\n    task: governance/task-scaffold.json\n    repository: governance/repository-scaffold.json\n"); mkdirSync(path.dirname(overlayPath), { recursive: true }); writeFileSync(overlayPath, "{}\n"); git(fixture.alpha, "add", "harness"); git(fixture.alpha, "commit", "--quiet", "-m", "invalid task overlay"); assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true); const before = git(fixture.alpha, "rev-parse", "HEAD"), result = runMaybe(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"]), ledgerRoot = path.join(fixture.alpha, "harness"); assert.notEqual(result.status, 0); assert.equal(result.receipt.outcome, "partial"); assert.equal((result.receipt.error as { code?: string }).code, "configure_verify_failed"); assert.match(String((result.receipt.error as { hint?: string }).hint), /^init Configure-Verify smoke failed:/u); assert.equal((result.receipt.publication as { ok: boolean }).ok, true); assert.match(String(result.receipt.commit), /^[0-9a-f]{40}$/u); assert.equal(git(fixture.alpha, "rev-parse", "HEAD"), before); assert.equal((result.receipt.created as string[]).length > 0, true); assert.match(String(result.receipt.next), /daemon status/u); assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), result.receipt.commit); assert.equal(git(ledgerRoot, "ls-tree", "-r", "--name-only", "HEAD").split("\n").some((target) => target.startsWith("tasks/") || target.startsWith("events/")), false); assert.equal(makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read().revision, 0);
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("existing c606 pair upgrades additively and explicit name is the only config byte change", () => {
-  const fixture = setup();
-  try {
-    const configPath = path.join(fixture.alpha, "harness/harness.yaml"), peoplePath = path.join(fixture.alpha, "harness/people.yaml"), originalConfig = readFileSync(configPath, "utf8"), originalPeople = readFileSync(peoplePath, "utf8"); assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    const additive = run(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"]); assert.equal(additive.outcome, "applied"); assert.deepEqual(additive.updated, []); assert.equal((additive.created as string[]).includes("harness/harness.yaml"), false); assert.equal((additive.created as string[]).includes("harness/people.yaml"), false); assert.equal(readFileSync(configPath, "utf8"), originalConfig); assert.equal(readFileSync(peoplePath, "utf8"), originalPeople);
-    const named = run(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner", "--name", "Alpha Project"]); assert.equal(named.outcome, "applied"); assert.deepEqual(named.created, []); assert.deepEqual(named.updated, ["harness/harness.yaml#name"]); assert.equal(readFileSync(configPath, "utf8"), `name: "Alpha Project"\n${originalConfig}`); assert.equal(readFileSync(peoplePath, "utf8"), originalPeople);
-    const same = run(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner", "--name", "Alpha Project"]); assert.equal(same.outcome, "noop"); assert.deepEqual(same.created, []); assert.deepEqual(same.updated, []); assert.equal(same.commit, null); assert.equal(readFileSync(configPath, "utf8"), `name: "Alpha Project"\n${originalConfig}`);
-    const renamed = run(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner", "--name", "Renamed"]); assert.deepEqual(renamed.updated, ["harness/harness.yaml#name"]); assert.equal(readFileSync(configPath, "utf8"), `name: "Renamed"\n${originalConfig}`);
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("partial bootstrap pair fails closed before any scaffold write", () => {
-  const fixture = setupEmpty();
-  try {
-    mkdirSync(path.join(fixture.repo, "harness")); writeFileSync(path.join(fixture.repo, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n"); assert.equal(run(fixture.repo, fixture.userRoot, ["daemon", "start", "--service"]).ok, true); const before = readFileSync(path.join(fixture.repo, "harness/harness.yaml"), "utf8"), rejected = runMaybe(fixture.repo, fixture.userRoot, ["init", "--repo-id", "partial", "--person-id", "owner", "--display-name", "Owner"]); assert.notEqual(rejected.status, 0); assert.equal((rejected.receipt.error as { code?: string }).code, "bootstrap_incomplete"); assert.equal(readFileSync(path.join(fixture.repo, "harness/harness.yaml"), "utf8"), before); assert.equal(existsSync(path.join(fixture.repo, "harness/people.yaml")), false); assert.equal(existsSync(path.join(fixture.repo, "harness/context")), false); assert.equal(existsSync(path.join(fixture.repo, ".git")), false);
-  } finally { stop(fixture.repo, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("existing architecture assets remain byte-owned and a half model is not completed", () => {
-  const fixture = setup();
-  try {
-    const architectureRoot = path.join(fixture.alpha, "harness/context/architecture"), readme = "# Project Architecture\n\nProject-owned without builtin anchors.\n", manifest = "{\"schema\":\"project-architecture/v1\"}\n", nodes = "{\"nodes\":[\"owned\"]}\n"; mkdirSync(path.join(architectureRoot, "model"), { recursive: true }); writeFileSync(path.join(architectureRoot, "README.md"), readme); writeFileSync(path.join(architectureRoot, "manifest.json"), manifest); writeFileSync(path.join(architectureRoot, "model/nodes.json"), nodes); git(fixture.alpha, "add", "harness/context/architecture"); git(fixture.alpha, "commit", "--quiet", "-m", "partial architecture"); assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    const initialized = run(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"]); assert.equal(readFileSync(path.join(architectureRoot, "README.md"), "utf8"), readme); assert.equal(readFileSync(path.join(architectureRoot, "manifest.json"), "utf8"), manifest); assert.equal(readFileSync(path.join(architectureRoot, "model/nodes.json"), "utf8"), nodes); assert.equal(existsSync(path.join(architectureRoot, "model/edges.json")), false); assert.equal(existsSync(path.join(architectureRoot, "view")), false); assert.equal((initialized.preserved as string[]).includes("harness/context/architecture/README.md"), true); assert.equal((initialized.drifted as string[]).includes("harness/context/architecture/README.md"), true);
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("repository overlay is additive, preserves authored prose, and rejects an invalid plan before publication", () => {
-  const fixture = setup();
-  try {
-    const custom = "# Existing Context\n\nOwned by the project.\n", customAgents = "# Existing Agents\n\nProject-owned.\n", customClaude = "# Existing Claude\n\nProject-owned.\n", config = "layout:\n  authoredRoot: harness\nsettings:\n  scaffolds:\n    task: governance/task-scaffold.json\n    repository: governance-repository-scaffold.json\n", people = readFileSync(path.join(fixture.alpha, "harness/people.yaml"), "utf8"); mkdirSync(path.join(fixture.alpha, "harness/context"), { recursive: true }); writeFileSync(path.join(fixture.alpha, "harness/context/README.md"), custom); writeFileSync(path.join(fixture.alpha, "AGENTS.md"), customAgents); writeFileSync(path.join(fixture.alpha, "CLAUDE.md"), customClaude); writeFileSync(path.join(fixture.alpha, "harness/templates-architecture.md"), "# Architecture\n\n## Purpose\n\nCustom.\n\n## Opt-in Boundary\n\nNo model.\n"); writeFileSync(path.join(fixture.alpha, "harness/templates-project.md"), "# Project\n\n## Project Notes\n\nCustom.\n");
-    writeFileSync(path.join(fixture.alpha, "harness/governance-repository-scaffold.json"), `${JSON.stringify({ schema: "repository-scaffold/v1", replaceTemplate: [{ slot: "repository.context.architecture", template: "templates-architecture.md" }], addDocument: [{ slot: "repository.context.project", path: "harness/context/project.md", template: "templates-project.md", requiredAnchors: ["## Project Notes"] }] })}\n`); writeFileSync(path.join(fixture.alpha, "harness/harness.yaml"), config); git(fixture.alpha, "add", "harness", "AGENTS.md", "CLAUDE.md"); git(fixture.alpha, "commit", "--quiet", "-m", "repository overlay");
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true); const before = git(fixture.alpha, "rev-parse", "HEAD"), initialized = run(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"]); assert.equal(initialized.outcome, "applied"); assert.equal(readFileSync(path.join(fixture.alpha, "harness/harness.yaml"), "utf8"), config); assert.equal(readFileSync(path.join(fixture.alpha, "harness/people.yaml"), "utf8"), people); assert.equal(readFileSync(path.join(fixture.alpha, "harness/context/README.md"), "utf8"), custom); assert.equal(readFileSync(path.join(fixture.alpha, "AGENTS.md"), "utf8"), customAgents); assert.equal(readFileSync(path.join(fixture.alpha, "CLAUDE.md"), "utf8"), customClaude); for (const target of ["harness/context/README.md", "AGENTS.md", "CLAUDE.md"]) assert.equal((initialized.drifted as string[]).includes(target), true, target); assert.equal(readFileSync(path.join(fixture.alpha, "harness/context/architecture/README.md"), "utf8").includes("Custom."), true); assert.equal(readFileSync(path.join(fixture.alpha, "harness/context/project.md"), "utf8").includes("Project Notes"), true); assert.match(String((initialized.plan as { projectOverlayDigest?: string }).projectOverlayDigest), /^sha256:/u); assert.notEqual(initialized.commit, before);
-    stop(fixture.alpha, fixture.userRoot); const invalid = setup(); writeFileSync(path.join(invalid.alpha, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\nsettings:\n  scaffolds:\n    task: governance/task-scaffold.json\n    repository: invalid.json\n"); writeFileSync(path.join(invalid.alpha, "harness/invalid.json"), "{}\n"); git(invalid.alpha, "add", "harness"); git(invalid.alpha, "commit", "--quiet", "-m", "invalid overlay"); assert.equal(run(invalid.alpha, invalid.userRoot, ["daemon", "start", "--service"]).ok, true); const invalidHead = git(invalid.alpha, "rev-parse", "HEAD"), invalidStatus = git(invalid.alpha, "status", "--porcelain"), rejected = runMaybe(invalid.alpha, invalid.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"]); assert.notEqual(rejected.status, 0); assert.equal((rejected.receipt.error as { code?: string }).code, "invalid_repository_scaffold"); assert.equal(git(invalid.alpha, "rev-parse", "HEAD"), invalidHead); assert.equal(git(invalid.alpha, "status", "--porcelain"), invalidStatus); assert.equal(existsSync(path.join(invalid.alpha, "harness/context")), false); stop(invalid.alpha, invalid.userRoot); rmSync(invalid.root, { recursive: true, force: true });
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("a changed overlay path leaves the prior authored document and reports it as governance drift", () => {
-  const fixture = setup();
-  try {
-    const config = "layout:\n  authoredRoot: harness\nsettings:\n  scaffolds:\n    task: governance/task-scaffold.json\n    repository: governance/repository-scaffold.json\n", overlayPath = path.join(fixture.alpha, "harness/governance/repository-scaffold.json"), templatePath = path.join(fixture.alpha, "harness/project-notes.md"), overlay = (target: string) => `${JSON.stringify({ schema: "repository-scaffold/v1", replaceTemplate: [], addDocument: [{ slot: "repository.context.project", path: target, template: "project-notes.md", requiredAnchors: ["## Project Notes"] }] })}\n`; mkdirSync(path.dirname(overlayPath), { recursive: true }); writeFileSync(path.join(fixture.alpha, "harness/harness.yaml"), config); writeFileSync(templatePath, "# Project\n\n## Project Notes\n\nOwned.\n"); writeFileSync(overlayPath, overlay("harness/context/old-project.md")); git(fixture.alpha, "add", "harness"); git(fixture.alpha, "commit", "--quiet", "-m", "add project document"); assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    const first = run(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"]); assert.equal((first.created as string[]).includes("harness/context/old-project.md"), true); const oldBody = readFileSync(path.join(fixture.alpha, "harness/context/old-project.md"), "utf8"), ledgerRoot = path.join(fixture.alpha, "harness"); stop(fixture.alpha, fixture.userRoot); writeFileSync(overlayPath, overlay("harness/context/new-project.md")); git(ledgerRoot, "add", "governance/repository-scaffold.json"); git(ledgerRoot, "commit", "--quiet", "-m", "change project document path"); git(ledgerRoot, "update-ref", "refs/ha/canonical", "HEAD"); assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    const changed = run(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"]); assert.deepEqual(changed.created, ["harness/context/new-project.md"]); assert.equal((changed.drifted as string[]).includes("harness/context/old-project.md"), true); assert.match(String(changed.next), /governance/iu); assert.equal(readFileSync(path.join(fixture.alpha, "harness/context/old-project.md"), "utf8"), oldBody); assert.equal(readFileSync(path.join(fixture.alpha, "harness/context/new-project.md"), "utf8"), oldBody);
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("old-only standards fail closed before repository scaffold publication", () => {
-  const fixture = setup();
-  try {
-    mkdirSync(path.join(fixture.alpha, "harness/standards"), { recursive: true }); writeFileSync(path.join(fixture.alpha, "harness/standards/README.md"), "# Legacy standards\n"); git(fixture.alpha, "add", "harness/standards"); git(fixture.alpha, "commit", "--quiet", "-m", "legacy standards");
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true); const before = git(fixture.alpha, "rev-parse", "HEAD"), status = git(fixture.alpha, "status", "--porcelain"), rejected = runMaybe(fixture.alpha, fixture.userRoot, ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"]); assert.notEqual(rejected.status, 0); const error = rejected.receipt.error as { code?: string; hint?: string }; assert.equal(error.code, "standards_migration_required"); assert.match(error.hint ?? "", /explicit governance task/u); assert.equal(git(fixture.alpha, "rev-parse", "HEAD"), before); assert.equal(git(fixture.alpha, "status", "--porcelain"), status); assert.equal(existsSync(path.join(fixture.alpha, "harness/governance")), false); assert.equal(existsSync(path.join(fixture.alpha, "harness/context")), false);
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCell produce", () => {
-  const fixture = setup(), source = makeCanary(fixture.root);
-  try {
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true); register(fixture.alpha, fixture.userRoot, "alpha"); const installed = run(fixture.alpha, fixture.userRoot, ["preset", "install", "--source", source]); assert.equal(installed.outcome, "pending"); assert.equal((installed.proof as Record<string, unknown>).canonicalVisible, false);
-    const result = spawnSync(process.execPath, [cli, "--root", fixture.alpha, "script", "run", "preset:user-canary/create", "--idempotency-key", "dogfood", "--inputs", '{"title":"Daemon canary"}'], { encoding: "utf8", env: { ...process.env, HOME: path.join(fixture.alpha, ".home"), GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: fixture.userRoot } });
-    assert.equal(result.status, 0, result.stderr); const output = result.stdout.trim().split("\n"); for (const phase of ["admitted", "spawned", "running", "publishing", "applied"]) assert.equal(output.some((line) => line.includes(`preset-run-start: ${phase}`)), true, `${phase}: ${result.stdout}`); assert.match(String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-canary"]).evidence), /Daemon canary/u);
-    const childEvent = makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read().events.find((event) => event.schema === "task-bootstrap-event/v1" && event.taskId === "task-canary"); assert.ok(childEvent); const producedReceipt = run(fixture.alpha, fixture.userRoot, ["receipt", "show", childEvent.opId]), directReceipt = run(fixture.alpha, fixture.userRoot, ["task", "create", "--id", "task-direct", "--admin", "--title", "Direct"]), producedProof = producedReceipt.proof as Record<string, unknown>, directProof = directReceipt.proof as Record<string, unknown>; assert.deepEqual({ outcome: producedReceipt.outcome, visibility: producedReceipt.visibility, proofFields: Object.keys(producedProof).sort(), durable: producedProof.durable, canonicalVisible: producedProof.canonicalVisible }, { outcome: directReceipt.outcome, visibility: directReceipt.visibility, proofFields: Object.keys(directProof).sort(), durable: directProof.durable, canonicalVisible: directProof.canonicalVisible }); assert.equal(directReceipt.commitSha, null); assert.ok(directReceipt.cut); stop(fixture.alpha, fixture.userRoot); const materialized = makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read(); assert.equal(materialized.revision, 2); assert.equal(materialized.events.some((event) => event.opId === childEvent.opId), true); assert.equal(materialized.events.some((event) => event.opId === directReceipt.opId), true);
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("hard daemon crash projects an admitted child to outcome_unknown without respawn", async () => {
-  const fixture = setup(), source = makeCanary(fixture.root, "setTimeout(() => process.exit(0), 2_000);", []);
-  try {
-    run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]); register(fixture.alpha, fixture.userRoot, "alpha"); run(fixture.alpha, fixture.userRoot, ["preset", "install", "--source", source]); const params = { repo: { repoId: "alpha" }, payload: { presetId: "user-canary", entrypoint: "create", inputs: { title: "Crash" }, idempotencyKey: "crash-once" } }, started = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.preset.run.start", params, 1_000, { userRoot: fixture.userRoot }); assert.equal(started.phase, "admitted"); await waitForRun(fixture.alpha, fixture.userRoot, String(started.runId), "running"); const pid = readDaemonPid(fixture.userRoot, "default"); assert.ok(pid); process.kill(pid, "SIGKILL"); await new Promise((resolve) => setTimeout(resolve, 50)); run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]); const unknown = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.preset.run.status", { repo: { repoId: "alpha" }, payload: { runId: started.runId } }, 1_000, { userRoot: fixture.userRoot }); assert.equal(unknown.outcome, "outcome_unknown", JSON.stringify(unknown)); assert.equal((unknown.phases as string[]).filter((phase) => phase === "spawned").length, 1);
-  } finally { stop(fixture.alpha, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("one RepoCell lock failure closes only that repo admission", async () => {
-  const fixture = setup(); let held: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try {
-    held = await openRepoCell({ repoId: workspaceId("held-alpha"), rootDir: canonicalRoot(fixture.alpha), ownerId: "external-writer" });
-    run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]);
-    register(fixture.alpha, fixture.userRoot, "alpha"); register(fixture.beta, fixture.userRoot, "beta");
-    const status = run(fixture.beta, fixture.userRoot, ["daemon", "status"]);
-    const repos = status.repos as Array<{ repoId: string; state: string }>;
-    assert.deepEqual(repos.map(({ repoId, state }) => [repoId, state]), [["alpha", "unavailable"], ["beta", "attached"]]);
-    const blocked = runMaybe(fixture.alpha, fixture.userRoot, ["task", "create", "--id", "task-blocked", "--admin", "--title", "Blocked"]);
-    assert.notEqual(blocked.status, 0); assert.equal((blocked.receipt.error as { code?: string }).code, "repo_unavailable");
-    assert.equal(run(fixture.beta, fixture.userRoot, ["task", "create", "--id", "task-live", "--admin", "--title", "Live"]).outcome, "applied");
-  } finally { stop(fixture.beta, fixture.userRoot); await held?.close(); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("one invalid registry entry stays visible and removable without blocking healthy repos", async () => {
-  const fixture = setup();
-  try {
-    run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]); register(fixture.alpha, fixture.userRoot, "alpha"); register(fixture.beta, fixture.userRoot, "beta");
-    run(fixture.beta, fixture.userRoot, ["daemon", "stop"]); await new Promise((resolve) => setTimeout(resolve, 50));
-    const registryPath = path.join(fixture.userRoot, "registry.json"), registry = JSON.parse(readFileSync(registryPath, "utf8")) as { repos: Array<Record<string, unknown>> }, bad = registry.repos.find((repo) => repo.repoId === "alpha"); assert.ok(bad); delete bad.authoredBranch; writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
-    assert.equal(run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    const status = run(fixture.beta, fixture.userRoot, ["daemon", "status"]), rows = status.repos as Array<{ repoId: string; state: string; lastError: string | null }>, invalid = rows.find((repo) => repo.repoId === "alpha"); assert.equal(invalid?.state, "unavailable"); assert.match(invalid?.lastError ?? "", /authoredBranch/u); assert.equal(rows.find((repo) => repo.repoId === "beta")?.state, "attached");
-    assert.equal(run(fixture.beta, fixture.userRoot, ["task", "list"]).outcome, "applied");
-    const system = await requestLocalDaemonJsonRpc(fixture.beta, "daemon.gui.system.read", {}, 1_000, { userRoot: fixture.userRoot }), guiInvalid = (system.repos as Array<{ repoId: string; cellState: string; unavailableReason: string | null }>).find((repo) => repo.repoId === "alpha"); assert.equal(guiInvalid?.cellState, "unavailable"); assert.match(guiInvalid?.unavailableReason ?? "", /authoredBranch/u);
-    const unregistered = run(fixture.beta, fixture.userRoot, ["daemon", "repo", "unregister", "--repo-id", "alpha"]); assert.equal(unregistered.ok, true); assert.equal((unregistered.repo as { state: string }).state, "disabled");
-    const persisted = JSON.parse(readFileSync(registryPath, "utf8")) as { repos: Array<Record<string, unknown>> }, disabled = persisted.repos.find((repo) => repo.repoId === "alpha"); assert.equal(disabled?.state, "disabled"); assert.equal(Object.hasOwn(disabled ?? {}, "authoredBranch"), false);
-  } finally { stop(fixture.beta, fixture.userRoot); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-test("resident daemon CLI write p50 includes process startup through parsed receipt", async (context) => {
-  const fixture = setup();
-  try {
-    // npm is npm.cmd on Windows, and Node refuses to execute a .cmd directly, so this failed
-    // with ENOENT before the measurement even started -- a launcher defect wearing a
-    // performance test's clothes. A shell resolves the shim; the arguments here are literals.
-    execFileSync("npm", ["run", "build", "--workspace", "@harness-anything/cli"], { cwd: process.cwd(), stdio: "pipe", shell: process.platform === "win32" });
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"], builtCli).ok, true);
-    register(fixture.alpha, fixture.userRoot, "alpha", builtCli);
-    // Warm two short rounds before measuring. GitHub's runner has a cold page/cache
-    // penalty that is absent on the developer machine; one measured sample reached
-    // 357ms while load stayed at 0.33. Warmup absorbs that one-time penalty, while
-    // measured rounds still alternate arm order and use medians so a scheduler pause
-    // affects one sample, not a verdict. The baseline is the same compiled CLI's
-    // no-op help path: it includes process startup, static module loading, and argument
-    // handling, while returning before a daemon request or a persisted write.
-    const warmupRounds = 2, rounds = 5, samplesPerRound = 3, cliSamples: number[] = [], noopSamples: number[] = [], ratios: number[] = [], loadSamples: number[] = [];
-    for (let warmup = 0; warmup < warmupRounds; warmup += 1) {
-      for (let sample = 0; sample < samplesPerRound; sample += 1) {
-        const id = warmup * samplesPerRound + sample;
-        const first = (warmup + sample) % 2 === 0;
-        const warmCli = (): void => { const receipt = run(fixture.alpha, fixture.userRoot, ["task", "create", "--id", `task-latency-warmup-${id}`, "--admin", "--title", `Latency warmup ${id}`], builtCli); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); };
-        const warmNoop = (): void => { assert.equal(runNoop(fixture.alpha, fixture.userRoot, builtCli).status, 0); };
-        if (first) { warmCli(); warmNoop(); } else { warmNoop(); warmCli(); }
-      }
-    }
-    for (let round = 0; round < rounds; round += 1) {
-      const cliRound: number[] = [], noopRound: number[] = [];
-      for (let sample = 0; sample < samplesPerRound; sample += 1) {
-        const index = round * samplesPerRound + sample;
-        const measureCli = (): void => {
-          const started = performance.now();
-          const receipt = run(fixture.alpha, fixture.userRoot,
-            ["task", "create", "--id", `task-latency-${index}`, "--admin", "--title", `Latency ${index}`], builtCli);
-          assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-          const elapsed = performance.now() - started;
-          cliSamples.push(elapsed); cliRound.push(elapsed);
-        };
-        const measureNoop = (): void => {
-          const started = performance.now();
-          assert.equal(runNoop(fixture.alpha, fixture.userRoot, builtCli).status, 0);
-          const elapsed = performance.now() - started;
-          noopSamples.push(elapsed); noopRound.push(elapsed);
-        };
-        if ((round + sample) % 2 === 0) { measureCli(); measureNoop(); }
-        else { measureNoop(); measureCli(); }
-      }
-      ratios.push(median(cliRound) / median(noopRound));
-      loadSamples.push(loadavg()[0] / availableParallelism());
-    }
-    const p50 = median(cliSamples), noopP50 = median(noopSamples), startupRatio = median(ratios);
-    const orderedRatios = [...ratios].sort((left, right) => left - right);
-    context.diagnostic(`latency-window=before-cli-process-spawn-through-exit-and-parsed-receipt samples=${cliSamples.length} p50=${p50.toFixed(3)}ms min=${Math.min(...cliSamples).toFixed(3)}ms max=${Math.max(...cliSamples).toFixed(3)}ms`);
-    context.diagnostic(`latency-baseline=compiled-cli-help-noop samples=${noopSamples.length} p50=${noopP50.toFixed(3)}ms min=${Math.min(...noopSamples).toFixed(3)}ms max=${Math.max(...noopSamples).toFixed(3)}ms`);
-    context.diagnostic(`latency-ratio=paired-round-cli-write-over-cli-help-noop warmup-rounds=${warmupRounds} rounds=${ratios.length} samples-per-round=${samplesPerRound} p50=${startupRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x load1-per-parallelism=${loadSamples.map((value) => value.toFixed(2)).join(",")}`);
-    context.diagnostic(`latency-round-ratios=${ratios.map((value) => value.toFixed(3)).join(",")}`);
-    const walProbe = JSON.parse(execFileSync(process.execPath, [path.resolve("tools/verify-wal-append-fsync.mjs")], { encoding: "utf8" })) as { durable: boolean; trace: readonly string[] };
-    context.diagnostic(`wal-append-fsync=write-then-fsync-before-close durable=${walProbe.durable} trace=${walProbe.trace.join(">")}`);
-    // A write invocation adds one daemon round trip, a canonical persisted write, and a
-    // parsed receipt to an otherwise ordinary CLI invocation. It is measured against the
-    // compiled CLI's adjacent --help no-op, so machine speed and load cancel within each
-    // pair without using the 19.858ms bare-Node denominator that read 14.472x on today's
-    // loaded Linux enforcement runner (and 50.080ms / 20.843x on Windows). An absolute
-    // millisecond bound would only assert how fast the runner is, and
-    // dec_01KY6X4J486MZ35RW1QN51V2V1 restricts performance gates to relative overhead. It
-    // fails if the write path grows relative to ordinary CLI startup, or stops delegating
-    // to the resident daemon and starts doing the write in its own process.
-    //
-    // This used to subtract daemonElapsed first, on the reading that the daemon round trip
-    // is not the CLI's own cost. That subtraction was never valid: daemonElapsed times a
-    // round trip THIS TEST PROCESS makes, not the one the CLI subprocess makes. Subtracting
-    // one operation's duration from an unrelated operation's duration is not a decomposition,
-    // and when the test process's own call ran slow it exceeded the entire CLI run — every
-    // observed run reported negative per-sample ratios, on passing runs as well as failing
-    // ones. Neither raising the bound nor re-running could help: the asserted quantity was
-    // not defined. Governance task task_182bb1c6068a1c36ca11c68185.
-    //
-    // Both terms here are real and positive. Twenty serial local runs at 0.72-1.85
-    // load1/parallelism read 4.225x-4.969x; 6.0x is the observed maximum plus 1.031x
-    // (20.8%) safety margin. A temporary second real daemon write in the timed arm read
-    // 10.494x (9.589x-11.478x), so the margin still rejects a 2x write-path regression.
-    // The acknowledged WAL is the durability boundary: localWalFileSystem.append must
-    // fsync the segment descriptor after the write and before the close. This used to be
-    // gated by a wall-clock ratio (shadow append over an explicit-fsync append), but both
-    // arms ran near-identical syscall sequences, so the ratio measured fsync-latency
-    // jitter between two time windows rather than the presence of the fsync: across
-    // twenty main runs on CI Linux it read 0.462x-6.076x with the fsync present the
-    // whole time, redding both sides of its [0.25, 2.5] band while carrying no
-    // information about the property (in each red run the other Node arm read ~1x green
-    // in the same run, on the same disk). Moving the floor only traded which side reds.
-    // A crash-visibility check cannot replace it: the page cache survives process
-    // death, so only the node:fs call sequence observes the boundary directly. The
-    // probe instruments node:fs in a fresh process before importing the kernel adapter,
-    // so the verdict is deterministic under any load and fails closed (empty trace) if
-    // the instrumentation ever stops binding on a future Node.
-    assert.equal(startupRatio <= 6, true,
-      `thin CLI write was ${startupRatio.toFixed(3)}x a compiled CLI help no-op (paired round p50; spread ${orderedRatios[0]!.toFixed(3)}x-${orderedRatios.at(-1)!.toFixed(3)}x, write=${p50.toFixed(3)}ms, noop=${noopP50.toFixed(3)}ms)`);
-    assert.equal(walProbe.durable, true,
-      `acknowledged WAL append did not cross an fsync boundary (expected write-then-fsync-before-close on the segment descriptor); node:fs trace: ${walProbe.trace.join(">")}`);
-  } finally { stop(fixture.alpha, fixture.userRoot, builtCli); rmSync(fixture.root, { recursive: true, force: true }); }
-});
-
-function setup(): { root: string; userRoot: string; alpha: string; beta: string } { const root = mkdtempSync(path.join(tmpdir(), "ha-w3-"));
-  const alpha = path.join(root, "alpha"), beta = path.join(root, "beta"), userRoot = path.join(root, "user");
-  for (const repo of [alpha, beta]) initialize(repo); return { root, userRoot, alpha, beta }; }
-function setupEmpty(): { root: string; userRoot: string; repo: string } { const root = mkdtempSync(path.join(tmpdir(), "ha-w3-init-"));
-  const repo = path.join(root, "repo"), userRoot = path.join(root, "user"); mkdirSync(repo); return { root, userRoot, repo }; }
-function makeCanary(root: string, script = 'const { title } = JSON.parse(process.env.HA_PRESET_INPUT); console.log(JSON.stringify({ schema: "preset-script-result/v1", produces: [{ capabilityId: "policy:task-create/v1", payload: { taskId: "task-canary", title } }] }));\n', produces: readonly Record<string, string>[] = [{ id: "policy:task-create/v1", kind: "command", version: "1" }]): string { const source = path.join(root, "user-canary"); mkdirSync(path.join(source, "scripts"), { recursive: true }); writeFileSync(path.join(source, "PRESET.md"), "---\nschema: preset-document/v1\ndescription: Daemon canary\nwhenToUse: Verify the typed process route.\n---\n# Canary\n"); writeFileSync(path.join(source, "preset.json"), JSON.stringify({ schema: "preset-manifest/v3", id: "user-canary", title: "User Canary", vertical: "software/coding", version: "3.0.0", kind: "process-action", outputShape: "repository-diff", kernelVersionRange: { min: "1.0.0" }, capabilityImports: [], entrypoints: { create: { type: "script", intent: "Create one task", inputs: [{ name: "title", type: "string", required: true }], requires: [], produces, sideEffects: [], command: "scripts/create.mjs" } }, profiles: [{ id: "baseline", title: "Baseline", completionGates: [], templateSelections: [] }], defaultProfile: "baseline" })); writeFileSync(path.join(source, "scripts/create.mjs"), script); return source; }
-async function waitForRun(root: string, userRoot: string, runId: string, phase: string): Promise<void> { for (let attempt = 0; attempt < 100; attempt += 1) { const status = await requestLocalDaemonJsonRpc(root, "repo.preset.run.status", { repo: { repoId: "alpha" }, payload: { runId } }, 1_000, { userRoot }); if (status.phase === phase) return; await new Promise((resolve) => setTimeout(resolve, 10)); } throw new Error(`run ${runId} did not reach ${phase}`); }
-function initialize(root: string): void { mkdirSync(path.join(root, "harness"), { recursive: true });
-  writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
-  writeFileSync(path.join(root, "harness/people.yaml"), `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`, "utf8");
-  git(root, "init", "--quiet");
-  git(root, "add", "harness/harness.yaml", "harness/people.yaml"); git(root, "commit", "--quiet", "-m", "fixture"); }
-function median(values: readonly number[]): number { const ordered = [...values].sort((left, right) => left - right); return ordered[Math.floor(ordered.length / 2)]!; }
-
-function register(root: string, userRoot: string, repoId: string, entry = cli): void { assert.equal(run(root, userRoot,
-  ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"], entry).ok, true); }
-function run(root: string, userRoot: string, args: readonly string[], entry = cli): Record<string, unknown> { const result = runMaybe(root, userRoot, args, entry);
-  assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`); return result.receipt; }
-function runMaybe(root: string, userRoot: string, args: readonly string[], entry = cli): { status: number | null; receipt: Record<string, unknown>; stderr: string } {
-  const { HARNESS_ACTOR: _actor, ...baseEnv } = process.env;
-  const result = spawnSync(process.execPath, [entry, "--root", root, "--json", ...args], { encoding: "utf8", env: { ...baseEnv,
-    HOME: path.join(root, ".home"), GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: userRoot } });
-  return { status: result.status, receipt: JSON.parse(result.stdout) as Record<string, unknown>, stderr: result.stderr }; }
-function runNoop(root: string, userRoot: string, entry: string): { status: number | null } {
-  const { HARNESS_ACTOR: _actor, ...baseEnv } = process.env;
-  const result = spawnSync(process.execPath, [entry, "--root", root, "--help"], { stdio: "ignore", env: { ...baseEnv,
-    HOME: path.join(root, ".home"), GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: userRoot } });
-  return { status: result.status }; }
-function stop(root: string, userRoot: string, entry = cli): void { spawnSync(process.execPath, [entry, "--root", root, "--json", "daemon", "stop"],
-  { encoding: "utf8", env: { ...process.env, HARNESS_DAEMON_USER_ROOT: userRoot } }); }
-// The ledger repository is created by `ha init`, which supplies the commit
-// identity per command instead of configuring it in the repository. Fixture
-// commits must carry their own identity: an ambient global identity exists on
-// developer machines and not on CI runners.
-function git(root: string, ...args: string[]): string { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8",
-  env: { ...process.env, GIT_AUTHOR_NAME: "W3 Test", GIT_AUTHOR_EMAIL: "w3@example.test", GIT_COMMITTER_NAME: "W3 Test", GIT_COMMITTER_EMAIL: "w3@example.test" } }).trim(); }
