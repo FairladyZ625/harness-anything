@@ -4,6 +4,7 @@
   "shell.nav.board": "看板",
   "shell.nav.decisions": "决策批准",
   "shell.nav.decisionPool": "决策池",
+  "shell.nav.freshness": "风化",
   "shell.nav.graph": "关系图",
   "shell.nav.presets": "预设 / 垂直领域",
   "shell.nav.adapters": "引擎适配器",

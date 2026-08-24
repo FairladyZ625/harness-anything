@@ -1,7 +1,9 @@
 import type {
   DecisionProjectionRow,
+  FreshnessReason,
   ProjectionPage,
   ProjectionWarning,
+  RelationCoverageRow,
   TaskProjection,
 } from "../../../kernel/src/index.ts";
 import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts";
@@ -62,8 +64,14 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.agenda.read": DaemonAgendaResult;
   readonly "repo.triadic.relationGraph": { readonly ok: true } & Omit<
     ReturnType<typeof import("../../../kernel/src/projection/sqlite-task-projection.ts").readRelationGraphProjection>,
-    "taskRows"
-  > & { readonly page?: ProjectionPage };
+    "taskRows" | "coverageRows"
+  > & {
+    /** Coverage rows as served: the kernel row plus the optional uncovered-cause
+     * classification (kernel `freshnessReasonOf`), attached only to uncovered rows.
+     * Optional so older daemons and every persisted record shape stay valid. */
+    readonly coverageRows: readonly (RelationCoverageRow & { readonly freshnessReason?: FreshnessReason })[];
+    readonly page?: ProjectionPage;
+  };
   readonly "repo.decisions.list": {
     readonly ok: true;
     readonly decisions: readonly DecisionProjectionRow[];

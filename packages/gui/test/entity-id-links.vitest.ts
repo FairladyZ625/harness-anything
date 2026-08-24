@@ -11,6 +11,8 @@ import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
 import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
 import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
+import { FreshnessView } from "../src/renderer/views/FreshnessView.tsx";
+import { freshnessCandidates } from "../src/renderer/model/freshness.ts";
 import { EntityWorkspace } from "../src/renderer/components/EntityWorkspace.tsx";
 import { PresetsView } from "../src/renderer/views/PresetsView.tsx";
 import { AdaptersView } from "../src/renderer/views/AdaptersView.tsx";
@@ -30,6 +32,7 @@ import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 import type { ViewId } from "../src/renderer/navigation/viewHistory.ts";
 import type { SystemRepoRow } from "../src/renderer/api-client.ts";
+import type { RelationCoverageRow } from "../src/renderer/api/renderer-dto.ts";
 import {
   REPO_ID, TASK_A_ID, DECISION_ID, FACT_REF, AGENT_ID, SQUAD_ID, PROVIDER_ID, SESSION_ID,
   FIXTURE_TASKS, FIXTURE_DECISIONS, FIXTURE_FACTS, FIXTURE_RELATIONS, FIXTURE_PROJECT,
@@ -180,6 +183,10 @@ const VIEW_RENDERERS = {
     proposalFeedback: undefined, onJudge: () => Promise.resolve({ state: "success", kind: "accept", opId: "op-g10", hint: "fixture" } as never),
     mutationFeedback: noop, onCheckReceipt: noop, focusedDecisionId: DECISION_ID, onFocusGraph: noop,
   }),
+  freshness: () => createElement(FreshnessView, {
+    decisions: FIXTURE_DECISIONS, coverageRows: FRESHNESS_COVERAGE_ROWS, relationState: "ready",
+    onNavigateEntity: noop,
+  }),
   decisionDetail: () => createElement(DecisionDetailView, {
     repoId: REPO_ID, decisionId: DECISION_ID, decisions: FIXTURE_DECISIONS, tasks: FIXTURE_TASKS,
     relations: FIXTURE_RELATIONS, loading: false, onBack: noop, projectName: "G10", fromViewLabel: "决策池",
@@ -208,6 +215,24 @@ const VIEW_RENDERERS = {
 } satisfies Record<ViewId, () => ReturnType<typeof createElement>>;
 
 const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readonly { id: ViewId }[] }) => group.items.map((item) => item.id));
+
+/**
+ * 风化视图的 coverage 夹具:fixture 决策 dec_g10alpha 的承重 claim CH1 处于
+ * uncovered(被活事实反驳),让 it.each 的死 ID 扫描覆盖到反驳事实链接的渲染面。
+ * uncovered 行的成因由夹具直接以 freshnessReason 提供(daemon 读面附带、kernel
+ * `freshnessReasonOf` 判定)——本测试不重算成因,与 renderer 同为纯消费者。
+ */
+function freshnessCoverage(patch: Partial<RelationCoverageRow> = {}): RelationCoverageRow {
+  return {
+    decisionRef: `decision/${DECISION_ID}`, claimRef: `decision/${DECISION_ID}/CH1`,
+    status: "covered", fulfillment: "standing-policy", refutingFactRefs: [],
+    relationPath: [], basisRevision: 1, ...patch,
+  };
+}
+const FRESHNESS_COVERAGE_ROWS: readonly RelationCoverageRow[] = [
+  freshnessCoverage({ status: "uncovered", refutingFactRefs: [FACT_REF], freshnessReason: "refuted" }),
+  freshnessCoverage({ claimRef: `decision/${DECISION_ID}/CH2`, status: "covered" }),
+];
 
 describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可激活", () => {
   it("ViewId 全集都有渲染入口,且与导航面一致(覆盖完备性)", () => {
@@ -290,5 +315,94 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
       "p", null, `execution exec-g10 · dispatch dispatch-g10 · holder person-zeyu · preset preset-g10`,
     ), {}), { seed: false });
     expect(scanDeadEntityIds(container, "non-entity-ids", ENTITY_ID_NEEDLES)).toEqual([]);
+  });
+});
+
+// ============ 风化视图(O-08)============
+// 风化列表渲染的决策 ID / 反驳事实 ID 正是 G10 判据的对象,故视图契约测试落在本
+// 文件(它也是 ViewId 渲染完备性的机制性维护点)。独立文件需要登记
+// tools/gui-test-manifest.mjs——该文件在本任务禁区(tools/**)——故并档于此;
+// 若登记 manifest,可原样拆出 freshness-view.vitest.ts。
+describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
+  function mountFreshness(props: Partial<Parameters<typeof FreshnessView>[0]> = {}, onNavigateEntity: (ref: string) => void = noop) {
+    return mountSurface(createElement(FreshnessView, {
+      decisions: FIXTURE_DECISIONS, coverageRows: FRESHNESS_COVERAGE_ROWS, relationState: "ready",
+      onNavigateEntity, ...props,
+    } as Parameters<typeof FreshnessView>[0]));
+  }
+
+  it("纯函数:只收带成因分类的行,join 出 claim 原文与决策标题,按成因排序", () => {
+    const rows = [
+      freshnessCoverage({
+        status: "uncovered", refutingFactRefs: [FACT_REF], freshnessReason: "refuted",
+      }),
+      freshnessCoverage({ claimRef: `decision/${DECISION_ID}/CH9`, status: "covered" }),
+      freshnessCoverage({
+        claimRef: `decision/${DECISION_ID}/CH8`, status: "uncovered",
+        fulfillment: "evidenced", refutingFactRefs: [], freshnessReason: "no-live-evidence",
+      }),
+      freshnessCoverage({
+        claimRef: `decision/${DECISION_ID}/CH7`, status: "uncovered",
+        fulfillment: null, refutingFactRefs: [], freshnessReason: "fulfillment-undeclared",
+      }),
+      // 阴性:无 freshnessReason 的 uncovered 行(旧 daemon)不进候选——缺判据不猜。
+      freshnessCoverage({
+        claimRef: `decision/${DECISION_ID}/CH0`, status: "uncovered",
+        fulfillment: "evidenced", refutingFactRefs: [],
+      }),
+    ];
+    const candidates = freshnessCandidates(FIXTURE_DECISIONS, rows);
+    expect(candidates.map((candidate) => candidate.claimId)).toEqual(["CH1", "CH8", "CH7"]);
+    expect(candidates[0]).toMatchObject({
+      decisionId: DECISION_ID, decisionTitle: "G10 探针决策",
+      claimText: "判据必须是机制不是文案", reason: "refuted",
+    });
+    expect(candidates[1].reason).toBe("no-live-evidence");
+    expect(candidates[2].reason).toBe("fulfillment-undeclared");
+  });
+
+  it("正向:候选行可跳转——决策链接与反驳事实链接都带出正确 ref", async () => {
+    const navigated: string[] = [];
+    const container = await mountFreshness({}, (ref) => navigated.push(ref));
+    const rows = container.querySelectorAll("[data-testid='freshness-row']");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.textContent).toContain("判据必须是机制不是文案");
+    expect(container.querySelector("[data-testid='freshness-reason-refuted']")).not.toBeNull();
+    const buttons = [...container.querySelectorAll("button")];
+    await act(async () => {
+      buttons.find((button) => button.textContent === DECISION_ID)!.click();
+      buttons.find((button) => button.textContent === FACT_REF)!.click();
+    });
+    expect(navigated).toEqual([`decision/${DECISION_ID}`, FACT_REF]);
+  });
+
+  it("负向:无候选时是明确空态而非空白;投影未就绪时如实报态", async () => {
+    const empty = await mountFreshness({ coverageRows: [freshnessCoverage()] });
+    expect(empty.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(0);
+    expect(empty.querySelector("[data-testid='freshness-rows']")).toBeNull();
+    expect(empty.textContent).toContain("当前没有风化候选");
+
+    const loading = await mountFreshness({ relationState: "loading" });
+    expect(loading.textContent).toContain("关系投影加载中");
+    const error = await mountFreshness({ relationState: "error" });
+    expect(error.textContent).toContain("关系投影读取失败");
+    for (const container of [loading, error]) {
+      expect(container.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(0);
+    }
+  });
+
+  it("规模:超过 12 行先显 12 行,批量按钮报出剩余数,点击再显一批", async () => {
+    const coverageRows = Array.from({ length: 15 }, (_, index) =>
+      freshnessCoverage({
+        claimRef: `decision/${DECISION_ID}/C${index}`, status: "uncovered",
+        refutingFactRefs: [], freshnessReason: "no-live-evidence",
+      }));
+    const container = await mountFreshness({ coverageRows });
+    expect(container.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(12);
+    const more = container.querySelector<HTMLButtonElement>("[data-testid='freshness-more']")!;
+    expect(more.textContent).toContain("3");
+    await act(async () => { more.click(); });
+    expect(container.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(15);
+    expect(container.querySelector("[data-testid='freshness-more']")).toBeNull();
   });
 });

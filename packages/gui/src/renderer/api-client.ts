@@ -294,7 +294,9 @@ function isRelationGraphEdgeRow(value: unknown): value is RelationGraphEdgeRow {
 }
 
 function isRelationCoverageRow(value: unknown): value is RelationCoverageRow {
-  return isRendererRecord(value) && typeof value.decisionRef === "string" && typeof value.claimRef === "string" && typeof value.status === "string" && (value.fulfillment === null || ["evidenced", "delivered", "standing-policy"].includes(String(value.fulfillment))) && (value.refutingFactRefs === undefined || Array.isArray(value.refutingFactRefs)) && Array.isArray(value.relationPath) && (value.basisRevision === undefined || Number.isInteger(value.basisRevision));
+  return isRendererRecord(value) && typeof value.decisionRef === "string" && typeof value.claimRef === "string" && typeof value.status === "string" && (value.fulfillment === null || ["evidenced", "delivered", "standing-policy"].includes(String(value.fulfillment))) && (value.refutingFactRefs === undefined || Array.isArray(value.refutingFactRefs)) && Array.isArray(value.relationPath) && (value.basisRevision === undefined || Number.isInteger(value.basisRevision))
+    && (value.freshnessReason === undefined
+      || ["refuted", "no-live-evidence", "fulfillment-undeclared"].includes(String(value.freshnessReason)));
 }
 
 function isFactAnchorRow(value: unknown): value is FactAnchorRow {

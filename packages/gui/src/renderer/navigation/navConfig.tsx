@@ -1,5 +1,5 @@
-import { Kanban, SquaresFour, Graph, Scales, Stack, PlugsConnected, GearSix, GitBranch, Users, Waveform
-  } from "@phosphor-icons/react";
+import { Kanban, SquaresFour, Graph, Scales, Stack, PlugsConnected, GearSix, GitBranch, Users, Waveform,
+  HourglassMedium } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
 
@@ -16,6 +16,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   board: "shell.nav.board",
   decisions: "shell.nav.decisions",
   decisionPool: "shell.nav.decisionPool",
+  freshness: "shell.nav.freshness",
   decisionDetail: "shell.nav.decisionDetail",
   factDetail: "shell.nav.factDetail",
   graph: "shell.nav.graph",
@@ -52,6 +53,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { id: "decisions", icon: <Scales weight="duotone" /> },
       { id: "decisionPool", icon: <GitBranch weight="duotone" /> },
+      { id: "freshness", icon: <HourglassMedium weight="duotone" /> },
     ],
   },
   {

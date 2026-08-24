@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { blockingOf, closeoutReadiness, readRelationGraphProjection, workspaceTaskStatus, type ProjectedExecution, type TaskProjection, type TaskProjectionListQuery, type TaskRelationProjectionRead, type TaskRelationQuery } from "../../kernel/src/index.ts";
+import {
+  blockingOf, closeoutReadiness, freshnessReasonOf, readRelationGraphProjection, workspaceTaskStatus,
+  type FreshnessReason, type FreshnessReasonInput, type ProjectedExecution, type TaskProjection,
+  type TaskProjectionListQuery, type TaskRelationProjectionRead, type TaskRelationQuery
+} from "../../kernel/src/index.ts";
 import type { CanonicalRoot } from "./protocol/daemon-protocol.contract.ts";
 import type { AgendaAwaitingRow, AgendaTaskRow, DaemonAgendaResult, DaemonTaskSnapshotListResult, ExecutionEvidenceProjection, TaskPlacementSupplement } from "./protocol/daemon-protocol.contract.ts";
 
@@ -29,13 +33,26 @@ export function makeTaskQueryReadModel(input: { readonly rootDir: CanonicalRoot;
       const warning = { code: "relation_truth_unavailable" as const, source: "generated-cache" as const, severity: "hard-fail" as const, message: "Event-backed relation truth has not reached the canonical source revision.", repairHint: "Retry after the rebuild projection catches up." };
       return { ok: true, ...withoutTaskRows(materialized), warnings: materialized.warnings.some(({ code }) => code === warning.code) ? materialized.warnings : [...materialized.warnings, warning] };
     }
-    const eventCoverage = decisions.coverageRows.map((row) => ({ ...row, fulfillment: row.fulfillment === "standing_policy" ? "standing-policy" as const : row.fulfillment }));
+    const eventCoverage = decisions.coverageRows.map((row) => {
+      const fulfillment = row.fulfillment === "standing_policy" ? "standing-policy" as const : row.fulfillment;
+      return withFreshnessReason({ ...row, fulfillment });
+    });
     const eventFacts = facts.facts.map((row) => ({ schema: "task-fact-row/v1" as const, ref: row.ref, taskId: row.taskId, factId: row.factId, statement: row.statement, source: row.evidenceSource, observedAt: row.observedAt, confidence: row.confidence, memoryClass: row.memoryClass, memoryTags: row.memoryTags, provenance: relationProvenance(row.provenance), liveness: row.state }));
-    return { ok: true, edges: mergeRows(materialized.edges, [...taskRelations.rows, ...decisions.edges, ...facts.edges], (row) => row.relationId), coverageRows: mergeRows(materialized.coverageRows, eventCoverage, (row) => row.claimRef), factAnchors: mergeRows(materialized.factAnchors, facts.factAnchors, (row) => row.factRef), facts: mergeRows(materialized.facts, eventFacts, (row) => row.ref),
+    const mergedCoverage = mergeRows(
+      materialized.coverageRows.map(withFreshnessReason), eventCoverage, (row) => row.claimRef);
+    return {
+      ok: true,
+      edges: mergeRows(materialized.edges, [...taskRelations.rows, ...decisions.edges, ...facts.edges],
+        (row) => row.relationId),
+      coverageRows: mergedCoverage,
+      factAnchors: mergeRows(materialized.factAnchors, facts.factAnchors, (row) => row.factRef),
+      facts: mergeRows(materialized.facts, eventFacts, (row) => row.ref),
       // #1542: the merge above already answers this read from event-backed truth, so an
       // unmaterialized `projections.sqlite` generated cache is not a gap in what was served
       // and must not stand as a permanent hard-fail warning on every otherwise-healthy read.
-      warnings: materialized.warnings.filter((warning) => !(warning.source === "generated-cache" && warning.code === "relation_truth_unavailable")) };
+      warnings: materialized.warnings.filter(
+        (warning) => !(warning.source === "generated-cache" && warning.code === "relation_truth_unavailable")),
+    };
   }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
     const lifecycle = projection.list(query), narrow = hasNarrowFacet(query), materialized = narrow ? null : readRelationGraphProjection({ rootDir }), l2 = new Map((materialized?.taskRows ?? []).map((row) => [row.taskId, row])), graph = narrow ? null : relationGraphFrom(materialized!), graphWarnings = graph?.warnings ?? [], hardWarnings = graphWarnings.filter(({ severity }) => severity === "hard-fail").map(({ message }) => message), context = narrow ? narrowTaskContext(lifecycle.rows.map(({ taskId }) => taskId)) : null, edges = context?.decisionEdges ?? projection.readDecisionGraph().edges, activeDerives = new Map<string, typeof edges>();
@@ -66,11 +83,29 @@ export function makeTaskQueryReadModel(input: { readonly rootDir: CanonicalRoot;
    */
   function relationGraphPage(query: TaskRelationQuery): DaemonGuiReadResultForRelationGraph {
     const page: TaskRelationProjectionRead = projection.readRelationQuery(query), refs = new Set(page.rows.flatMap((edge) => [edge.sourceRef, edge.targetRef])), factRefs = [...refs].filter((ref) => ref.startsWith("fact/")), facts = projection.searchFacts({ refs: factRefs }), factAnchors = projection.readFactAnchors(factRefs), decisionRefs = [...refs].filter((ref) => ref.startsWith("decision/")), decisions = decisionRefs.length === 0 ? { coverageRows: [] } : projection.readDecisionGraph(), coverageRows = decisions.coverageRows.filter((row) => decisionRefs.some((ref) => row.decisionRef === ref || row.claimRef === ref));
-    return { ok: true, edges: page.rows, coverageRows: coverageRows.map((row) => ({ ...row, fulfillment: row.fulfillment === "standing_policy" ? "standing-policy" as const : row.fulfillment })), factAnchors: factAnchors.rows, facts: facts.facts.map((row) => ({ schema: "task-fact-row/v1" as const, ref: row.ref, taskId: row.taskId, factId: row.factId, statement: row.statement, source: row.evidenceSource, observedAt: row.observedAt, confidence: row.confidence, memoryClass: row.memoryClass, memoryTags: row.memoryTags, provenance: relationProvenance(row.provenance), liveness: row.state })), warnings: [], ...(page.page ? { page: page.page } : {}) };
+    const servedCoverage = coverageRows.map((row) => {
+      const fulfillment = row.fulfillment === "standing_policy" ? "standing-policy" as const : row.fulfillment;
+      return withFreshnessReason({ ...row, fulfillment });
+    });
+    const servedFacts = facts.facts.map((row) => ({
+      schema: "task-fact-row/v1" as const, ref: row.ref, taskId: row.taskId, factId: row.factId,
+      statement: row.statement, source: row.evidenceSource, observedAt: row.observedAt,
+      confidence: row.confidence, memoryClass: row.memoryClass, memoryTags: row.memoryTags,
+      provenance: relationProvenance(row.provenance), liveness: row.state,
+    }));
+    return {
+      ok: true, edges: page.rows, coverageRows: servedCoverage, factAnchors: factAnchors.rows,
+      facts: servedFacts, warnings: [], ...(page.page ? { page: page.page } : {}),
+    };
   }
   return Object.freeze({ agenda, relationGraph, relationGraphPage, guiTasks });
 }
 function mergeRows<A>(materialized: readonly A[], eventRows: readonly A[], key: (row: A) => string): readonly A[] { const rows = new Map(materialized.map((row) => [key(row), row])); for (const row of eventRows) rows.set(key(row), row); return [...rows.values()].sort((left, right) => key(left).localeCompare(key(right))); }
+/** Attach the kernel's uncovered-cause classification so consumers never re-derive it. */
+function withFreshnessReason<T extends FreshnessReasonInput>(row: T): T & { freshnessReason?: FreshnessReason } {
+  const reason = freshnessReasonOf(row);
+  return reason === null ? row : { ...row, freshnessReason: reason };
+}
 function relationProvenance(value: readonly { readonly runtime: string; readonly sessionId: string | null; readonly boundAt: string }[]): readonly { readonly runtime: string; readonly sessionId: string; readonly boundAt: string }[] { return value.flatMap((entry) => entry.sessionId === null ? [] : [{ runtime: entry.runtime, sessionId: entry.sessionId, boundAt: entry.boundAt }]); }
 function hasNarrowFacet(query: TaskProjectionListQuery): boolean { return query.status !== undefined || query.changedAfterRevision !== undefined || query.updatedAfter !== undefined || query.updatedBefore !== undefined || query.limit !== undefined || query.cursor !== undefined || query.pinnedFirst === true; }
 function withoutTaskRows(value: ReturnType<typeof readRelationGraphProjection>): Omit<ReturnType<typeof readRelationGraphProjection>, "taskRows"> { const { taskRows: _taskRows, ...rest } = value; return rest; }

@@ -9,6 +9,29 @@ export interface CoverageTask { readonly ref: string; readonly status: string }
 export interface CoverageRelation { readonly relationId: string; readonly sourceRef: string; readonly targetRef: string; readonly relationType: string; readonly state: string }
 export interface CoverageResult { readonly decisionRef: string; readonly claimRef: string; readonly status: "covered" | "uncovered"; readonly fulfillment: "evidenced" | "delivered" | "standing-policy" | null; readonly coveringFactRef?: string; readonly refutingFactRefs: readonly string[]; readonly relationPath: readonly string[] }
 
+/** Input shape of {@link freshnessReasonOf}: any coverage row carrying the verdict fields. */
+export interface FreshnessReasonInput {
+  readonly status: "covered" | "uncovered";
+  readonly fulfillment: "evidenced" | "delivered" | "standing-policy" | null;
+  readonly refutingFactRefs?: readonly string[];
+}
+
+/** Why a claim lost coverage: the refinement of the registered `uncovered` meaning. */
+export type FreshnessReason = "refuted" | "no-live-evidence" | "fulfillment-undeclared";
+
+/**
+ * The one classification of uncovered-claim causes (status-word-register-domain
+ * `uncovered` meaning: "no satisfying evidence, or fulfillment undeclared").
+ * Read surfaces attach it to the rows they serve so consumers never re-derive
+ * it; covered rows carry no cause (null). Same discipline as coverageOf itself.
+ */
+export function freshnessReasonOf(row: FreshnessReasonInput): FreshnessReason | null {
+  if (row.status === "covered") return null;
+  if ((row.refutingFactRefs ?? []).length > 0) return "refuted";
+  if (row.fulfillment === null) return "fulfillment-undeclared";
+  return "no-live-evidence";
+}
+
 /** The one claim-coverage judgment shared by event projection and cold rebuild. */
 export function coverageOf(decisions: readonly CoverageDecision[], facts: readonly { readonly ref: string }[], tasks: readonly CoverageTask[], relations: readonly CoverageRelation[]): readonly CoverageResult[] {
   const active = relations.filter(({ state }) => state === "active"), superseded = new Set(active.filter(({ relationType }) => relationType === "supersedes-fact").map(({ targetRef }) => targetRef)), live = new Set(facts.filter(({ ref }) => !superseded.has(ref)).map(({ ref }) => ref)), done = new Set(tasks.filter(({ status }) => status === "done").map(({ ref }) => ref)), bySource = new Map<string, CoverageRelation[]>(), refutingBySource = new Map<string, { readonly edge: CoverageRelation; readonly index: number }[]>();
