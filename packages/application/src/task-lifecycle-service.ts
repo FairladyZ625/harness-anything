@@ -545,6 +545,15 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
       reviewDigest: command.reviewDigest,
       contentDigest: command.contentDigest,
     };
+  if (command.type === "RepointCodeDoc")
+    return {
+      ...common,
+      record: command.record,
+      repointId: command.repointId,
+      commitSha: command.commitSha,
+      paths: command.paths,
+      reason: command.reason,
+    };
   return {
     ...common,
     executionId: command.executionId,
@@ -572,7 +581,9 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
                   ? "RecordReviewConsent"
                   : event.type === "code_doc_reconciled"
                     ? "ReconcileCodeDoc"
-                    : "CompleteTask";
+                    : event.type === "code_doc_repointed"
+                      ? "RepointCodeDoc"
+                      : "CompleteTask";
   const common = {
     type,
     taskId: event.taskId,
@@ -643,6 +654,17 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
       commitSha: witness.commitSha,
       iteration: witness.iteration,
       paths: witness.paths,
+    };
+  }
+  if (event.type === "code_doc_repointed") {
+    const record = event.payload.record;
+    return {
+      ...common,
+      record: record.supersedes,
+      repointId: record.recordId,
+      commitSha: record.commitSha,
+      paths: record.paths,
+      reason: record.reason,
     };
   }
   throw new TaskLifecycleOperationConflict("unsupported lifecycle event");

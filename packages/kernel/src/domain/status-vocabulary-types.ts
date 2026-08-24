@@ -12,6 +12,7 @@ export type StatusEntity =
   | "Recovery"
   | "PresetRun"
   | "TaskCloseout"
+  | "CodeDocWitness"
   | "VerticalScript"
   | "LegacyFact"
   | "GuiAdapter"

@@ -61,6 +61,7 @@ export function taskWriteKind(kind: string): boolean {
     "task-review-execution",
     "task-review-consent",
     "task-code-doc-reconcile",
+    "task-code-doc-repoint",
     "task-complete",
   ].includes(kind);
 }

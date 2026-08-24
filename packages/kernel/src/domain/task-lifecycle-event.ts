@@ -12,7 +12,9 @@ import type { ActorAxes, ContractValidationIssue, TaskV1 } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
 import {
+  validateCodeDocRepointV1,
   validateCodeDocWitnessV1,
+  type CodeDocRepointV1,
   type CodeDocWitnessV1,
 } from "./code-doc-witness.ts";
 import {
@@ -44,6 +46,7 @@ export const taskEventTypes = [
   "review_recorded",
   "review_consent_recorded",
   "code_doc_reconciled",
+  "code_doc_repointed",
   "completion_gate_verified",
   "task_completed",
   "lease_released",
@@ -155,6 +158,14 @@ export type CodeDocReconciledEvent = TaskEventEnvelope<
     readonly witness: CodeDocWitnessV1;
   }
 >;
+export type CodeDocRepointedEvent = TaskEventEnvelope<
+  "code_doc_repointed",
+  {
+    readonly task: TaskV1;
+    readonly execution: ExecutionV1;
+    readonly record: CodeDocRepointV1;
+  }
+>;
 export type CompletionGateVerifiedEvent = TaskEventEnvelope<
   "completion_gate_verified",
   {
@@ -200,6 +211,7 @@ export type TaskMutationEventType = Exclude<
   | "review_recorded"
   | "review_consent_recorded"
   | "code_doc_reconciled"
+  | "code_doc_repointed"
   | "completion_gate_verified"
   | "task_completed"
   | "lease_released"
@@ -217,6 +229,7 @@ export type TaskEventV1 =
   | ReviewRecordedEvent
   | ReviewConsentRecordedEvent
   | CodeDocReconciledEvent
+  | CodeDocRepointedEvent
   | CompletionGateVerifiedEvent
   | TaskCompletedEvent
   | LeaseReleasedEvent
@@ -369,6 +382,7 @@ function validateTaskEventFields(
       "review_recorded",
       "review_consent_recorded",
       "code_doc_reconciled",
+      "code_doc_repointed",
       "completion_gate_verified",
       "task_completed",
       "lease_released",
@@ -421,6 +435,23 @@ function validateTaskEventFields(
   if (value.type === "code_doc_reconciled")
     issues.push(
       ...validateCodeDocWitnessV1(payload.witness, allowUnknownFields),
+    );
+  if (value.type === "code_doc_repointed")
+    issues.push(
+      ...validateCodeDocRepointV1(payload.record, allowUnknownFields),
+    );
+  if (
+    value.type === "code_doc_repointed" &&
+    isRecord(payload.record) &&
+    isRecord(payload.execution) &&
+    (payload.record.taskId !== value.taskId ||
+      payload.record.executionId !== (payload.execution as { readonly executionId?: unknown }).executionId ||
+      !sameActorIdentity(payload.record.actor, value.actor) ||
+      !sameWriteSource(payload.record.source, value.source) ||
+      payload.record.repointedAt !== value.occurredAt)
+  )
+    issues.push(
+      invalidEventPayloadIssue("code-doc repoint record must be pinned to its canonical event envelope"),
     );
   if (value.type === "completion_gate_verified") {
     issues.push(
@@ -485,6 +516,7 @@ function lifecyclePayloadFields(
     return [...common, "review", "consent"];
   if (type === "code_doc_reconciled" || type === "completion_gate_verified")
     return [...common, "witness"];
+  if (type === "code_doc_repointed") return [...common, "record"];
   if (type === "lease_released")
     return [...common, "releasedLease", "mutation"];
   if (

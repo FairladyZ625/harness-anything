@@ -1,7 +1,9 @@
 import { type TaskLifecycleServiceProof } from "../../application/src/task-lifecycle-service.ts";
 import {
   canonicalGateReceipts,
+  codeDocRecordId,
   consentedApprovedReview,
+  currentCodeDocWitness,
   heldLeaseForExecutionActor,
   isSameExecution,
   makeTaskProjection,
@@ -134,6 +136,35 @@ export async function proofFor(
       commitPaths: { commitSha: verified.commitSha, paths: verified.paths },
     };
   }
+  if (command.type === "RepointCodeDoc") {
+    if (command.paths.length === 0)
+      return {
+        actorBinding: command.actor,
+        capability: "code-doc-repoint@v1",
+        capabilityRef: `transport-writer:${command.actor.principal.personId}`,
+        commitPaths: { commitSha: command.commitSha, paths: command.paths },
+      };
+    const verified = verifyCodeDocCommitPaths({ rootDir, commitSha: command.commitSha, paths: command.paths });
+    if (!verified.ok)
+      throw cellCodedError(
+        "invalid_proof",
+        verified.code === "commit_not_found"
+          ? `Code-doc repoint cannot verify commit ${command.commitSha} in the public or authored Git repository.`
+          : [
+              "Code-doc repoint requires every --path to exist at commit ",
+              command.commitSha,
+              " relative to the Git repository that owns it; missing or wrong-root paths: ",
+              verified.missingPaths.join(", "),
+              ".",
+            ].join(""),
+      );
+    return {
+      actorBinding: command.actor,
+      capability: "code-doc-repoint@v1",
+      capabilityRef: `transport-writer:${command.actor.principal.personId}`,
+      commitPaths: { commitSha: verified.commitSha, paths: verified.paths },
+    };
+  }
   return completeProof(command, snapshot) as TaskLifecycleServiceProof<typeof command>;
 }
 
@@ -251,14 +282,7 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
   );
   return (snapshot.task?.completionGateIds ?? []).map((gate) => {
     const codeDoc =
-        gate === "code-doc-reconciliation"
-          ? snapshot.codeDocWitnesses.find(
-              (value) =>
-                value.executionId === executionId &&
-                value.commitSha === execution?.submission?.commitSha &&
-                value.iteration === execution?.iteration,
-            )
-          : undefined,
+        gate === "code-doc-reconciliation" ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) : undefined,
       witness =
         gate !== "code-doc-reconciliation"
           ? snapshot.gateWitnesses.find(
@@ -272,7 +296,7 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
     return {
       gate,
       status: codeDoc || witness ? "pass" : "blocked",
-      witnessRef: codeDoc ? `event:${codeDoc.witnessId}` : witness ? `event:${witness.receiptId}` : null,
+      witnessRef: codeDoc ? `event:${codeDocRecordId(codeDoc)}` : witness ? `event:${witness.receiptId}` : null,
     };
   });
 }

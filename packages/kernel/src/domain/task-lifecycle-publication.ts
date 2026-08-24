@@ -14,6 +14,7 @@ import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { formatRelationFlowRecord } from "./entity-relation.ts";
 import { currentTaskForWrite } from "./task.ts";
+import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 export interface LifecycleDocumentState {
   readonly path: string;
   readonly body: string;
@@ -40,7 +41,8 @@ export function lifecycleDocumentPaths(event: TaskEventV1, packagePath: string):
   const paths = [`${packagePath}/INDEX.md`, `${packagePath}/executions/${event.payload.execution.executionId}.md`];
   if (event.type === "review_recorded" || event.type === "review_consent_recorded")
     paths.push(`${packagePath}/reviews/${event.payload.review.reviewId}.md`);
-  if (event.type === "code_doc_reconciled") paths.push(`${packagePath}/code-doc-anchors.json`);
+  if (event.type === "code_doc_reconciled" || event.type === "code_doc_repointed")
+    paths.push(`${packagePath}/code-doc-anchors.json`);
   return paths;
 }
 // Superset of `lifecycleDocumentPaths` for callers gathering current document bodies before a
@@ -219,6 +221,10 @@ export function renderLifecycleDocument(
     return renderTaskPlan(snapshot, path, base);
   if (path.endsWith("/code-doc-anchors.json") && event.type === "code_doc_reconciled")
     return `${stableStringify(event.payload.witness)}\n`;
+  if (path.endsWith("/code-doc-anchors.json") && event.type === "code_doc_repointed") {
+    if (base === null) throw new Error("code-doc repoint requires an existing anchor document");
+    return `${base}${base.endsWith("\n") ? "" : "\n"}${stableStringify(event.payload.record)}\n`;
+  }
   if (path.includes("/reviews/")) {
     const review =
       event.type === "review_recorded" || event.type === "review_consent_recorded"
@@ -264,7 +270,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
     consentReviewId = approved.length === 1 ? approved[0]!.reviewId : "<review-id>",
     gateStatus = (gateId: string) =>
       gateId === "code-doc-reconciliation"
-        ? snapshot.codeDocWitnesses.some((value) => value.executionId === executionId)
+        ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) !== undefined
         : snapshot.gateWitnesses.some((value) => value.executionId === executionId && value.gateId === gateId),
     missingGate = task.completionGateIds.find((gateId) => !gateStatus(gateId)),
     next =
@@ -369,7 +375,7 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
           value.iteration,
         )
       : undefined,
-    witness = snapshot.codeDocWitnesses.find((candidate) => candidate.executionId === value.executionId),
+    witness = currentCodeDocRecord(snapshot.codeDocWitnesses, value.executionId),
     gates = snapshot.gateWitnesses.filter((candidate) => candidate.executionId === value.executionId);
   return [
     `# Execution ${value.executionId}\n\n`,
@@ -390,7 +396,11 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
     `- Checker witnesses: ${
       gates.length ? gates.map((value) => `${value.gateId}/${value.receiptId}`).join(", ") : "pending"
     }\n`,
-    `- Code-doc witness: ${witness?.witnessId ?? "pending"}\n`,
+    `- Code-doc witness: ${witness ? codeDocRecordId(witness) : "pending"}${
+      witness?.schema === "code-doc-witness-repoint/v1" && witness.disposition === "known-invalid"
+        ? " (known-invalid)"
+        : ""
+    }\n`,
     "\n## Deliverables\n\n",
     list(packet?.deliverables ?? []),
     "\n\n## Outputs\n\n",

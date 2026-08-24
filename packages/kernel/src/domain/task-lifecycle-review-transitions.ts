@@ -1,5 +1,6 @@
 import { isNativeCommitSha } from "./execution.ts";
 import { digest } from "./digest.ts";
+import { sameCodeDocPaths } from "./code-doc-witness.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
@@ -267,7 +268,7 @@ export const reconcile: Transition = {
       proof.capability !== "code-doc-reconcile@v1" ||
       !isNonEmptyString(proof.capabilityRef) ||
       proof.commitPaths?.commitSha !== command.commitSha ||
-      !sameDocumentPaths(proof.commitPaths?.paths, command.paths)
+      !sameCodeDocPaths(proof.commitPaths?.paths, command.paths)
     )
       issues.push(
         lifecycleContractIssue("invalid_proof", "code-doc witness must bind verified paths from the submitted commit"),
@@ -305,11 +306,6 @@ export const reconcile: Transition = {
   },
 };
 
-function sameDocumentPaths(left: unknown, right: readonly string[]): boolean {
-  return (
-    canonicalDocumentPaths(left) && stableStringify([...left].sort()) === stableStringify([...right].sort())
-  );
-}
 export function isReadyToComplete(snapshot: TaskLifecycleSnapshot): boolean {
   return closeoutReadiness(snapshot).readiness === "ready";
 }

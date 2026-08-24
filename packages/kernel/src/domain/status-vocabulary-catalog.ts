@@ -284,6 +284,17 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: ["not_required", "missing", "incomplete", "ready", "passed", "failed"],
   },
   {
+    id: "code-doc-witness.disposition",
+    entity: "CodeDocWitness",
+    field: "disposition",
+    module: "packages/kernel/src/domain/code-doc-witness.ts",
+    anchor: "#disposition",
+    words: ["repointed", "known-invalid"],
+    note:
+      "Append-only witness backfill disposition, authorized by dec_363D4C098E5412AE530A619BD0 CH1/CH2 and " +
+      "task_9d31d6857589577655125c64d6's 2026-08-24 milestone-plan approval.",
+  },
+  {
     id: "task.session-disposition",
     entity: "Task",
     field: "sessionBinding disposition",

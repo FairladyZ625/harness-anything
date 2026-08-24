@@ -8,6 +8,7 @@ import { stableStringify } from "../integrity/stable-hash.ts";
 import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
 import type { ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
 import { isSamePerson } from "./actor-domain-services.ts";
+import { codeDocRecordId, currentCodeDocRecord } from "./code-doc-witness.ts";
 import type {
   ProofFor,
   TaskLifecycleCommand,
@@ -236,6 +237,12 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
         event.payload.witness,
       ],
     };
+  else if (event.type === "code_doc_repointed")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      codeDocWitnesses: [...snapshot.codeDocWitnesses, event.payload.record],
+    };
   else if (event.type === "completion_gate_verified")
     next = {
       ...snapshot,
@@ -274,6 +281,26 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
   return next;
 }
 function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next: TaskLifecycleSnapshot): void {
+  if (event.type === "code_doc_repointed") {
+    const target = snapshot.codeDocWitnesses.find(
+      (value) => codeDocRecordId(value) === event.payload.record.supersedes,
+    );
+    if (
+      !target ||
+      currentCodeDocRecord(snapshot.codeDocWitnesses, target.executionId) !== target ||
+      target.taskId !== event.taskId ||
+      target.executionId !== event.payload.record.executionId ||
+      target.iteration !== event.payload.record.iteration ||
+      snapshot.codeDocWitnesses.some((value) => codeDocRecordId(value) === event.payload.record.recordId) ||
+      currentCodeDocRecord(next.codeDocWitnesses, target.executionId) !== event.payload.record
+    )
+      throw new TaskLifecycleContractError("invalid_transition", [
+        lifecycleContractIssue(
+          "invalid_transition",
+          "replayed code-doc repoint must supersede exactly one active witness record",
+        ),
+      ]);
+  }
   if (
     event.type === "execution_submitted" &&
     (event.payload.task.status !== "in_review" ||

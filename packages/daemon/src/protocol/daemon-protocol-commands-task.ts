@@ -216,6 +216,38 @@ export const taskExecutionProtocolCommands = Object.freeze([
     ],
   }),
   defineCliCommand({
+    id: "task-code-doc-repoint",
+    phase: "W3",
+    path: ["task", "code-doc", "repoint", "<task-id>"],
+    summary: "Append an audited code-doc witness correction for a completed task.",
+    method: "repo.task.run",
+    commandClass: "repo-write",
+    inputs: [
+      cliInput("--record", "single", true, {
+        code: "missing_field",
+        nextAction: "Repoint requires the active anchor record identifier.",
+      }),
+      cliInput(
+        "--commit-sha",
+        "single",
+        true,
+        {
+          code: "invalid_field",
+          nextAction: "Repoint requires a full commit sha.",
+        },
+        { regex: "^[0-9a-f]{40}$" },
+      ),
+      cliInput("--path", "repeated", false, {
+        code: "invalid_field",
+        nextAction: "Use canonical repository-relative paths, or omit --path to mark the record known-invalid.",
+      }),
+      cliInput("--reason", "single", true, {
+        code: "missing_field",
+        nextAction: "Repoint requires an audit reason.",
+      }),
+    ],
+  }),
+  defineCliCommand({
     id: "task-complete",
     phase: "W3",
     path: ["task", "complete", "<task-id>"],
