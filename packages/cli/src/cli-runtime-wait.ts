@@ -115,7 +115,10 @@ export async function waitForRuntime(
   };
 }
 
-export async function waitForTaskDispatches(command: ThinCommand, taskId: string): Promise<JsonObject> {
+export async function waitForTaskDispatches(
+  command: ThinCommand,
+  taskId: string,
+): Promise<JsonObject> {
   const readCommand = {
     ...command,
     method: "repo.task.dispatches",
@@ -149,7 +152,8 @@ export async function waitForTaskDispatches(command: ThinCommand, taskId: string
     command: "runtime-status",
     taskId,
     outcome,
-    summary: `runtime-status task ${taskId}: ${dispatches.length} dispatch${dispatches.length === 1 ? "" : "es"} ${outcome}`,
+    summary:
+      `runtime-status task ${taskId}: ${dispatches.length} dispatch${dispatches.length === 1 ? "" : "es"} ${outcome}`,
     exitCode: outcome === "succeeded" ? 0 : 1,
   };
 }
@@ -158,7 +162,12 @@ function taskDispatchesSettled(value: JsonObject): boolean {
   if (!Array.isArray(value.dispatches)) return false;
   return (value.dispatches as readonly unknown[]).every((row: unknown) => {
     if (!row || typeof row !== "object" || Array.isArray(row)) return false;
-    return ["succeeded", "failed", "unknown", "cancelled"].includes(String((row as Record<string, unknown>).status));
+    const record = row as Record<string, unknown>,
+      status = String(record.status);
+    if (["succeeded", "failed", "cancelled"].includes(status)) return true;
+    // A just-exited process can briefly have status=unknown while its outcome event is
+    // still being projected. Only an explicit unknown outcome is terminal.
+    return status === "unknown" && record.outcome === "unknown";
   });
 }
 

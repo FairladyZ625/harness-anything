@@ -27,6 +27,19 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     const inventory = run(root, env, ["runtime", "instance", "list"]), installation = (inventory.installations as Array<Record<string, unknown>>).find((row) => row.kindId === "codex" && row.version === `codex ${version}`); assert.ok(installation, JSON.stringify(inventory));
     run(root, env, ["runtime", "instance", "create", "--id", "cli-worker", "--name", "CLI Worker", "--kind", "codex", "--provider", "openai", "--model", "runtime-test-model", "--auth", "subscription"]);
     const missingInstance = runMaybe(root, env, ["runtime", "run", "missing-instance", "--prompt", "must reject", "--detach"]); assert.equal(missingInstance.status, 1); assert.equal(missingInstance.receipt.code, "runtime_instance_not_found"); assert.equal(missingInstance.receipt.dispatchId, undefined);
+    const missingLease = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "must reject without lease",
+      "--task",
+      taskId,
+      "--detach",
+    ]);
+    assert.equal(missingLease.status, 1);
+    assert.equal(missingLease.receipt.code, "runtime_task_lease_required");
+    assert.equal(missingLease.receipt.dispatchId, undefined);
     writeFileSync(promptFile, "file prompt"); const fromFile = run(root, env, ["runtime", "run", "cli-worker", "--prompt-file", "prompt.txt", "--no-stream"]); assert.equal((fromFile.result as Record<string, unknown>).text, "final:file prompt");
     for (const directory of ["missions", "dispatches", "reports"]) assert.equal(existsSync(path.join(artifactRoot, directory)), false, `${directory} must not exist without --task`);
     const resumed = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "second turn", "--resume", "provider-cli-session", "--no-stream"]); assert.equal((resumed.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn"); assert.equal((resumed.session as Record<string, unknown>).providerSessionId, "provider-cli-session");
@@ -68,6 +81,41 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     const structuredFailure = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "failure:structured", "--no-stream"]); assert.equal(structuredFailure.status, 1); assert.match(String(structuredFailure.receipt.reason), /structured provider failure/u); assert.doesNotMatch(JSON.stringify(structuredFailure.receipt), new RegExp(secret, "u"));
     writeFileSync(path.join(root, "failure-batch.json"), JSON.stringify({ schema: "runtime-batch/v1", maxConcurrency: 1, dispatches: [{ instance: "cli-worker", prompt: "failure:empty" }] })); const failureBatch = runMaybe(root, env, ["runtime", "batch", "failure-batch.json"]); assert.equal(failureBatch.status, 1); const failureRow = (failureBatch.receipt.dispatches as Array<Record<string, unknown>>)[0]!; assert.equal(failureRow.code, "provider_exit"); assert.equal(failureRow.reason, "Provider exited with code 1 and produced no output.");
     const taskWait = runMaybe(root, env, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]); assert.equal(taskWait.status, 0, `${taskWait.stderr}\n${JSON.stringify(taskWait.receipt)}`); assert.equal(taskWait.receipt.outcome, "succeeded"); const waitedRow = (taskWait.receipt.dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === progressDispatchId); assert.equal(waitedRow?.exitCode, 0); assert.equal(waitedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${progressDispatchId}.json`); assert.equal(waitedRow?.reportPath, `${packagePath}/artifacts/reports/${progressDispatchId}.md`);
+    const detachedFailure = run(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "failure:structured",
+      "--task",
+      taskId,
+      "--detach",
+    ]);
+    const failureWait = runMaybe(root, env, [
+      "runtime",
+      "status",
+      "--task",
+      taskId,
+      "--wait",
+      "--no-stream",
+    ]);
+    assert.equal(detachedFailure.outcome, "running");
+    assert.equal(failureWait.status, 1, `${failureWait.stderr}\n${JSON.stringify(failureWait.receipt)}`);
+    assert.equal(failureWait.receipt.outcome, "failed");
+    const failedRow = (failureWait.receipt.dispatches as Array<Record<string, unknown>>).find(
+      (row) => row.dispatchId === detachedFailure.dispatchId,
+    );
+    assert.equal(failedRow?.status, "failed");
+    assert.equal(failedRow?.exitCode, 1);
+    assert.equal(failedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${detachedFailure.dispatchId}.json`);
+    assert.equal(failedRow?.reportPath, `${packagePath}/artifacts/reports/${detachedFailure.dispatchId}.md`);
+    context.diagnostic(
+      `detach -> task wait failure: ${JSON.stringify({
+        detached: detachedFailure,
+        wait: failureWait.receipt,
+        dispatch: failedRow,
+      })}`,
+    );
     const events = readFileSync(tracker, "utf8").trim().split("\n"); let active = 0, peak = 0; for (const event of events) { active += event === "start" ? 1 : -1; peak = Math.max(peak, active); } assert.equal(events.filter((event) => event === "start").length, 3); assert.equal(events.filter((event) => event === "end").length, 3); assert.ok(peak <= 2, `batch exceeded declared concurrency: ${events.join(",")}`);
     const detached = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "hold", "--task", taskId, "--detach", "--on-exit", onceNotifier]), detachedDispatchId = String(detached.dispatchId), detachedSessionId = String(detached.runtimeSessionId), running = run(root, env, ["task", "dispatches", taskId]); assert.equal(detached.outcome, "running"); assert.equal((running.dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === detachedDispatchId)?.status, "running");
     assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "cancelled"); assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "already-exited"); const cancelled = await eventually(() => run(root, env, ["task", "dispatches", taskId])), cancelledRow = (cancelled.dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === detachedDispatchId)!; assert.equal(cancelledRow.status, "cancelled"); assert.equal((JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${detachedDispatchId}.json`), "utf8")) as Record<string, unknown>).outcome, "cancelled"); const cancelledReport = readFileSync(path.join(artifactRoot, "reports", `${detachedDispatchId}.md`), "utf8"); assertTaskMissionPrompt(cancelledReport.slice("live:".length), { repoId: "runtime-cli", canonicalRoot: realpathSync(root), workerRoot: realpathSync(root), taskPackageRoot: path.join(realpathSync(root), "harness", packagePath), daemonUserRoot: userRoot, daemonId: "runtime-cli-test", runtimeSessionId: detachedSessionId, mission: "hold" }); const cancelledWait = runMaybe(root, env, ["runtime", "status", detachedSessionId, "--wait", "--no-stream"]); assert.equal(cancelledWait.status, 1); assert.equal(cancelledWait.receipt.outcome, "cancelled"); const cancelledNotificationTrace = await eventuallyNotification(root, detachedDispatchId); await eventuallyFile(notificationOnce); await new Promise((resolve) => setTimeout(resolve, 200)); const onceLines = readFileSync(notificationOnce, "utf8").trim().split(/\r?\n/u), cancelledRecords = readDispatchRecords(root, detachedDispatchId).filter((record) => record.kind === "exit_notification"); assert.equal(onceLines.length, 1, JSON.stringify(onceLines)); assert.equal(cancelledRecords.filter((record) => record.phase === "started").length, 1); assert.equal(cancelledRecords.filter((record) => record.phase === "finished").length, 1); assert.equal(cancelledNotificationTrace.finished?.exitCode, 0); context.diagnostic(`notification at-most-once: ${JSON.stringify({ executions: onceLines.length, records: cancelledRecords })}`);
