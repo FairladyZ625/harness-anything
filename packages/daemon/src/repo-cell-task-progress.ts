@@ -236,7 +236,7 @@ export async function completeTask(cell: any, action: RepoTaskAction, binding: R
         consumeKnownError(error);
       }
       steps.push(step);
-      if (step.outcome === "applied") continue;
+      if (step.outcome === "applied" || step.code === "no_changes") continue;
       return cell.completionSettlement(step, current.snapshot, executionId, steps, "doc-sync-settlement");
     }
     return cell.completionStopped(facadeOpId, current.snapshot, executionId, blocker, steps);
