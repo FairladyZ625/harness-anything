@@ -317,6 +317,27 @@ export const localGitObjectRefStore = Object.freeze({
 });
 export const localGitWorktreeSettlement = Object.freeze({
   readNode,
+  changesFingerprint: (repoRoot: string, scope: string, ignored: ReadonlySet<string> = new Set()): string | null => {
+    const entries = runGit(repoRoot, "status", "--porcelain=v1", "--untracked-files=all", "-z", "--", scope)
+      .split("\0")
+      .filter(Boolean)
+      .map((entry) => {
+        const target = entry.slice(3);
+        if (ignored.has(target) || /(?:^|\/)\.ha-(?:visible|settle)-/u.test(target)) return null;
+        const absolute = path.join(repoRoot, ...target.split("/"));
+        try {
+          const stat = statSync(absolute);
+          return `${entry}:${stat.size}:${stat.mtimeMs}:${stat.mode}`;
+        } catch {
+          return `${entry}:missing`;
+        }
+      })
+      .filter((entry): entry is string => entry !== null)
+      .sort();
+    return entries.length === 0 ? null : entries.join("\0");
+  },
+  hasChanges: (repoRoot: string, scope: string, ignored: ReadonlySet<string> = new Set()): boolean =>
+    localGitWorktreeSettlement.changesFingerprint(repoRoot, scope, ignored) !== null,
   visible: (
     repoRoot: string,
     files: readonly {

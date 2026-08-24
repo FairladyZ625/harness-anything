@@ -30,9 +30,13 @@ export const repoCellTaskQueryJudgments: TaskQueryJudgments = {
 
 export function initializeRepoCell(context: any): any {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
+  let settlementPending = false;
   const settleAuthoredCandidates = (): void => {
     const currentProjection = projection;
-    if (currentProjection === null) return;
+    if (currentProjection === null) {
+      settlementPending = true;
+      return;
+    }
     void runDocAction({
       action: { kind: "doc-submit", paths: [] },
       binding: localRepairBinding,
@@ -74,7 +78,7 @@ export function initializeRepoCell(context: any): any {
     }),
     recovery = store.recover();
   projection = makeTaskProjection({ rootDir: context.rootDir, eventStore: store, now: context.now });
-  if (recovery.status === "committed" || recovery.status === "already_committed") settleAuthoredCandidates();
+  if (settlementPending) settleAuthoredCandidates();
   const currentSessionIdentity = (binding: RepoCellBinding) => resolveWriteSessionIdentity(binding, projection!);
   const factActions = makeFactActions({
       store,
