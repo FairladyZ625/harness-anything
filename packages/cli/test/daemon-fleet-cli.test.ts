@@ -27,6 +27,7 @@ test("fleet center start and edge sync mirror the authoritative ledger through t
     const center = run(fixture, "center", ["daemon", "fleet", "center", "start", "--port", "0", "--key", fixture.key, "--cert", fixture.cert, "--roster", fixture.roster, "--quota-bytes", String(quotaBytes)]);
     assert.equal(center.ok, true); assert.equal(center.bind, "127.0.0.1"); assert.equal(center.stateRoot, path.join(fixture.centerUser, "fleet")); assert.equal(center.nodes, 1); assert.equal(center.assignments, 1);
     const port = center.port as number;
+    writeFileSync(path.join(fixture.edgeRepo, "fleet-edge.json"), JSON.stringify({ schema: "fleet-edge-config/v1", repoId: "fleet-demo", host: "127.0.0.1", port, caPath: fixture.ca, nodeId: "edge-one", rosterPath: fixture.roster, assignmentId: "assignment-edge-one", viewRoot: fixture.viewRoot, quotaBytes }));
     assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
     assert.equal(run(fixture, "edge", ["daemon", "repo", "register", "--repo-id", "fleet-demo", "--root", fixture.edgeRepo, "--mode", "remote-edge"]).ok, true);
     const syncArgs = ["daemon", "fleet", "edge", "sync", "--host", "127.0.0.1", "--port", String(port), "--ca", fixture.ca, "--node-id", "edge-one", "--roster", fixture.roster, "--assignment", "assignment-edge-one", "--view-root", fixture.viewRoot, "--quota-bytes", String(quotaBytes)] as const;
@@ -42,6 +43,10 @@ test("fleet center start and edge sync mirror the authoritative ledger through t
     assert.equal(readFileSync(path.join(fixture.edgeRepo, "harness", docPath), "utf8"), docBody, "sync materializes the registered workspace path");
     assert.equal(existsSync(path.join(viewRoot, "worktree")), false, "the daemon-internal view worktree no longer exists");
     assert.equal(readFileSync(path.join(fixture.edgeRepo, ".git", "HEAD"), "utf8"), edgeGitHead, "materialization leaves workspace Git metadata untouched");
+    const shown = run(fixture, "edge", ["task", "show", "task-fleet"]);
+    assert.equal(shown.revision, pulled.ackCut); assert.doesNotMatch(String(shown.summary), /task=null/u);
+    const status = run(fixture, "edge", ["doc", "status", "--path", docPath]);
+    assert.equal((status.cut as { revision: number }).revision, pulled.ackCut); assert.deepEqual(status.rows, []);
     const current = JSON.parse(readFileSync(path.join(viewRoot, "current.json"), "utf8")) as { cut: { revision: number } };
     assert.equal(current.cut.revision, pulled.ackCut);
     stop(fixture, "edge"); assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);

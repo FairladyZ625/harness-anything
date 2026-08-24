@@ -568,6 +568,7 @@ async function fleetEdgeRegistration(
 // compare→push/pull fleet round, and the three conflict exits become fleet
 // conflict-exit rounds. Everything else keeps its local receipt path.
 const fleetDocSyncKinds = new Map([
+  ["doc-status", { method: "daemon.fleet.doc.sync", dryRun: true }],
   ["doc-dry-run", { method: "daemon.fleet.doc.sync", dryRun: true }],
   ["doc-submit", { method: "daemon.fleet.doc.sync", dryRun: false }],
   ["doc-conflict-resolve", { method: "daemon.fleet.conflict.exit", action: "resolve" }],

@@ -95,6 +95,19 @@ test("daemon repo registration derives its closed mode enum at the wire boundary
   const invalid = parseDaemonRpcParams("daemon.repo.register", { ...base, mode: "invalid" }); assert.equal(invalid.ok, false); if (!invalid.ok) assert.deepEqual(invalid.errors, ["params.mode must be one of local, remote-center, remote-edge"]);
 });
 
+test("local Fleet runtime envelope admits the paged overview read", async () => {
+  let observed: Record<string, unknown> | null = null;
+  const host = { fleet: { edgeRuntime: async (payload: Record<string, unknown>) => { observed = payload; return { ok: true, command: "fleet-runtime-overview" }; } }, status: () => ({ daemonId: "fleet-overview", pid: process.pid, repos: [] }) } as never,
+    server = createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: { transportKind: "unix-socket" }, emit: async () => undefined });
+  try {
+    await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
+    const payload = { host: "center", port: 7443, caPath: "/fleet/ca.pem", nodeId: "edge-one", credential: "secret", assignmentId: "assignment-one", repoId: "repo", viewRoot: "/view", quotaBytes: 1_048_576, workspaceRoot: "/workspace", action: { kind: "fleet-runtime", method: "repo.agentRuntime.overview", payload: { limit: 16 } } },
+      response = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.fleet.task.run", params: { payload } });
+    assert.ok(response && !Array.isArray(response) && "result" in response); assert.equal(response && !Array.isArray(response) && "result" in response && (response.result as Record<string, unknown>).ok, true);
+    assert.deepEqual(observed, { ...payload, method: "repo.agentRuntime.overview", action: { limit: 16 } });
+  } finally { server.close(); }
+});
+
 test("protocol hello accepts only the session variables owned by runtime resolvers", () => {
   const hello = (sessionEnvironment?: Record<string, unknown>) => parseDaemonRpcParams("protocol.hello", { protocolVersion: currentDaemonProtocolVersion, ...(sessionEnvironment ? { sessionEnvironment } : {}) });
   assert.equal(hello().ok, true);

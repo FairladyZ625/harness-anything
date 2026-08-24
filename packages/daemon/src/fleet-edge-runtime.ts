@@ -53,6 +53,47 @@ type RuntimePorts = {
     },
   ) => Promise<PreparedRuntimeLaunch>;
 };
+const runtimeOverviewPageLimit = 16;
+
+export async function readFleetRuntimeSessionsPaged(
+  readPage: (payload: JsonObject) => Promise<unknown>,
+): Promise<readonly {
+  readonly runtimeSessionId: string;
+  readonly providerSessionId: string | null;
+  readonly instanceId: string;
+  readonly liveness: "live" | "stale" | "unknown" | "exited";
+  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
+}[]> {
+  const sessions: Array<{
+    readonly runtimeSessionId: string;
+    readonly providerSessionId: string | null;
+    readonly instanceId: string;
+    readonly liveness: "live" | "stale" | "unknown" | "exited";
+    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
+  }> = [];
+  const seen = new Set<string>();
+  let cursor: string | null = null;
+  do {
+    const result = await readPage({ limit: runtimeOverviewPageLimit, ...(cursor === null ? {} : { cursor }) });
+    const issues = validateAgentRuntimeOverview(result);
+    if (issues.length) throw edgeRuntimeError("runtime_read_invalid", issues.join("; "));
+    const overview = result as AgentRuntimeOverviewResult;
+    if (!overview.page)
+      throw edgeRuntimeError("runtime_read_invalid", "A paged runtime overview omitted its page receipt.");
+    sessions.push(...overview.sessions.map(({
+      runtimeSessionId,
+      providerSessionId,
+      instanceId,
+      liveness,
+      activity,
+    }) => ({ runtimeSessionId, providerSessionId, instanceId, liveness, outcome: activity.outcome })));
+    cursor = overview.page.nextCursor;
+    if (cursor !== null && seen.has(cursor))
+      throw edgeRuntimeError("runtime_read_invalid", `Runtime overview repeated cursor ${cursor}.`);
+    if (cursor !== null) seen.add(cursor);
+  } while (cursor !== null);
+  return sessions;
+}
 
 export function openFleetEdgeRuntime(input: {
   readonly request: FleetEdgeRuntimeRequest["payload"];
@@ -149,25 +190,15 @@ export function openFleetEdgeRuntime(input: {
           mission: `Your task package is ${packageRoot}.\nRead task_plan.md in that package and complete the task.`,
         };
       },
-      readRuntimeSessions: async () => {
-        const result = await runFleetRuntimeReadClient({
-          ...peer,
-          repoId: request.repoId,
-          method: "repo.agentRuntime.overview",
-          payload: {},
-        });
-        const issues = validateAgentRuntimeOverview(result);
-        if (issues.length) throw edgeRuntimeError("runtime_read_invalid", issues.join("; "));
-        return (result as AgentRuntimeOverviewResult).sessions.map(
-          ({ runtimeSessionId, providerSessionId, instanceId, liveness, activity }) => ({
-            runtimeSessionId,
-            providerSessionId,
-            instanceId,
-            liveness,
-            outcome: activity.outcome,
+      readRuntimeSessions: () =>
+        readFleetRuntimeSessionsPaged((payload) =>
+          runFleetRuntimeReadClient({
+            ...peer,
+            repoId: request.repoId,
+            method: "repo.agentRuntime.overview",
+            payload,
           }),
-        );
-      },
+        ),
       publish: async (draft) => {
         const response = await runFleetRuntimeEventClient({
           ...peer,

@@ -20,7 +20,8 @@ export async function cancelRuntime(context: any, payload: JsonObject, binding: 
     active.cancelOpId = opId;
     active.cancelRequested = true;
     await consumeDurableOutput(context, active, cancelDurableDrainTimeoutMs);
-    active.process.terminate();
+    if (active.process.terminateTree) await active.process.terminateTree();
+    else active.process.terminate();
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }

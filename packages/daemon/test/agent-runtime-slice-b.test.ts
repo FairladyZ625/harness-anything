@@ -8,6 +8,7 @@ import test from "node:test";
 import { eventObjectTarget, makeTaskEventStore, makeTaskProjection, type AgentDefinitionSnapshot, type AgentRuntimeEventV1, type FrozenWritePlan, type RuntimeSession } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts"; import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
+import { readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
 import { daemonGuiReadMethods, daemonGuiStreamFacets, jsonRpcMethodContracts, validateDaemonRpcCall, validateDaemonTaskDispatches } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts"; import { openRepoCell } from "../src/repo-cell.ts";
@@ -35,6 +36,24 @@ test("runtime overview pages at the server before DTO and dispatch expansion", (
   const rows = Array.from({ length: 12 }, (_, index) => ({ ...session, runtimeSessionId: `runtime-${String(index).padStart(2, "0")}` })); let unboundedReads = 0, exactDispatchReads = 0, pageQuery: unknown;
   const measured = new Proxy(projection, { get: (target, property, receiver) => { if (property === "readRuntimeSessions") return () => { unboundedReads += 1; return [...rows, ...rows]; }; if (property === "readRuntimeSessionPage") return (query: unknown) => { pageQuery = query; return { rows, nextRuntimeSessionId: "runtime-11", remainingCount: 13 }; }; if (property === "readRuntimeDispatch") return (runtimeSessionId: string) => { exactDispatchReads += 1; return { ...dispatch(), payload: { ...dispatch().payload, runtimeSessionId } }; }; const value = Reflect.get(target, property, receiver); return typeof value === "function" ? value.bind(target) : value; } });
   const overview = makeAgentRuntimeReadModel({ store, projection: measured, stream }).overview({ limit: 12 }); assert.equal(overview.sessions.length, 12); assert.equal(unboundedReads, 0); assert.equal(exactDispatchReads, 12); assert.deepEqual(pageQuery, { limit: 12 }); assert.deepEqual(overview.page, { limit: 12, cursor: null, nextCursor: "runtime-session:runtime-11", remainingCount: 13 });
+}));
+
+test("fleet runtime adoption keeps every overview response below the negotiated frame ceiling", async (t) => withRuntime(async ({ store, projection, stream }) => {
+  const base = makeAgentRuntimeReadModel({ store, projection, stream }).overview({}), sessions = Array.from({ length: 192 }, (_, index) => ({ ...base.sessions[0]!, runtimeSessionId: `runtime-${String(index).padStart(4, "0")}-${"x".repeat(256)}` })),
+    unboundedBytes = Buffer.byteLength(JSON.stringify({ ...base, sessions })), payloads: Record<string, unknown>[] = [], responseBytes: number[] = [];
+  const selected = await readFleetRuntimeSessionsPaged(async (payload) => {
+    payloads.push(payload);
+    const cursor = typeof payload.cursor === "string" ? Number(payload.cursor.slice("page:".length)) : 0,
+      limit = Number(payload.limit), pageSessions = sessions.slice(cursor, cursor + limit), next = cursor + pageSessions.length,
+      response = { ...base, sessions: pageSessions, page: { limit, cursor: typeof payload.cursor === "string" ? payload.cursor : null, nextCursor: next < sessions.length ? `page:${next}` : null, remainingCount: Math.max(0, sessions.length - next) } };
+    responseBytes.push(Buffer.byteLength(JSON.stringify(response)));
+    return response;
+  });
+  assert.ok(unboundedBytes > 98_304, `unbounded overview measured ${unboundedBytes} bytes`);
+  assert.ok(Math.max(...responseBytes) < 98_304, `largest page measured ${Math.max(...responseBytes)} bytes`);
+  assert.equal(selected.length, sessions.length);
+  assert.deepEqual(payloads.slice(0, 2), [{ limit: 16 }, { limit: 16, cursor: "page:16" }]);
+  t.diagnostic(`overview bytes: unbounded=${unboundedBytes} maxPage=${Math.max(...responseBytes)} pages=${responseBytes.length}`);
 }));
 
 test("attach catches up from cursor, gaps require snapshot, and unsupported is typed", async () => withRuntime(async ({ stream, session }) => {

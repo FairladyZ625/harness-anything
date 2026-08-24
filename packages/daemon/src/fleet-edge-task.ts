@@ -126,6 +126,7 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
   const payload = input.payload,
     action = payload.action,
     timers = fleetLeaseTimers();
+  const readOnly = action.kind === "task-show";
   const credential = fleetEdgeCredential(payload.nodeId, payload.credential, payload.rosterPath);
   const taskId = typeof action.taskId === "string" ? action.taskId : null;
   const waitMs =
@@ -151,7 +152,7 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
     // The unresolved-conflict gate (design §4): while this task's package has a
     // staged, unhandled divergence, its transitions stay blocked — the edge
     // refuses before any upload or center round-trip.
-    if (workspaceRoot !== null && taskId !== null && action.kind !== "task-create") {
+    if (!readOnly && workspaceRoot !== null && taskId !== null && action.kind !== "task-create") {
       const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
       const exactPackage = view === null ? null : fleetExactTaskPackagePath(view, workspaceRoot, taskId);
       const belongs = (conflictPath: string): boolean =>
@@ -178,7 +179,7 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
           },
         } as Record<string, unknown>;
     }
-    const bundle = await attachTaskDocs();
+    const bundle = readOnly ? null : await attachTaskDocs();
     const deadline = Date.now() + waitMs + 30_000 + (bundle === null ? 0 : 60_000);
     let result: Awaited<ReturnType<typeof runFleetTaskCommandClient>> | null = null,
       attempt = 0;
@@ -217,7 +218,7 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
     // Any center effect (applied) and any content conflict both end in a pull:
     // applied commands must land in the mirror, and a rejected bundle needs the
     // center bytes staged beside the local ones for the explicit exits.
-    if (applied || conflictCode !== null) {
+    if (!readOnly && (applied || conflictCode !== null)) {
       try {
         const pulled = await runFleetReplicaPullClient({
           ...peer,

@@ -6,6 +6,7 @@ import {
 } from "./dispatch-stream.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptNativeProcess, runtimePidIsAlive } from "./runtime-spawn-process.ts";
+import { durableOutputRecordCount, restoreDurableOutputRecords } from "./runtime-spawn-provider-stream.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 
@@ -26,6 +27,7 @@ export async function adoptRuntimes(context: any): Promise<void> {
       context.input.rootDir,
       stream.header.dispatchId,
       stream.process.pid,
+      durableOutputRecordCount(stream.records),
     );
     const active = createActiveRuntime({
       process: runtimeProcess,
@@ -61,6 +63,7 @@ export async function adoptRuntimes(context: any): Promise<void> {
       providerSessionId: stream.providerSessionId,
     });
     context.processes.set(active.runtimeSessionId, active);
+    await restoreDurableOutputRecords(context, active, stream.records);
     if (session.liveness !== "live") {
       await context.publishRuntimeEvent(
         "runtime_session_liveness_changed",

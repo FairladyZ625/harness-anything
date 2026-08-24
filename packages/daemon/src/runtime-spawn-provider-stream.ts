@@ -79,6 +79,7 @@ export async function consumeProviderLine(
   active: ActiveRuntime,
   line: string,
   persisted = false,
+  publishSignals = true,
 ): Promise<void> {
   let value: unknown;
   try {
@@ -100,7 +101,8 @@ export async function consumeProviderLine(
     return;
   }
   if (parsed.sessionIdentity?.sessionId) await context.bindProvider(active, parsed.sessionIdentity);
-  for (const signal of parsed.signals ?? []) context.input.stream.publish(active.runtimeSessionId, signal);
+  if (publishSignals)
+    for (const signal of parsed.signals ?? []) context.input.stream.publish(active.runtimeSessionId, signal);
   if (parsed.finalText !== undefined) active.finalText = parsed.finalText;
   if (parsed.failureText !== undefined) active.failureText = parsed.failureText;
   if (parsed.outcome) active.providerOutcome = parsed.outcome;
@@ -131,6 +133,27 @@ export async function consumeDurableOutput(
       true,
     );
   }
+}
+
+export async function restoreDurableOutputRecords(
+  context: any,
+  active: ActiveRuntime,
+  records: readonly Record<string, unknown>[],
+): Promise<number> {
+  const durable = durableOutputRecords(records);
+  for (const record of durable) {
+    await context.consumeLine(
+      active,
+      record.kind === "provider_event" ? JSON.stringify(record.event) : String(record.output),
+      true,
+      false,
+    );
+  }
+  return durable.length;
+}
+
+export function durableOutputRecordCount(records: readonly Record<string, unknown>[]): number {
+  return durableOutputRecords(records).length;
 }
 
 function durableOutputRecords(

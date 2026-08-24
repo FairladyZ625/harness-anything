@@ -539,7 +539,7 @@ export function openFleetLeaseBroker(options: {
         ...failure(
           "op_rejected",
           "task_command_rejected",
-          "The fleet task channel accepts task-create, task-start, task-progress-append, task-submit, and task-release only.",
+          "The fleet task channel accepts its closed task command set only.",
         ),
         opId: frame.opId,
       };
@@ -554,6 +554,28 @@ export function openFleetLeaseBroker(options: {
         ),
         opId: frame.opId,
       };
+    if (kind === "task-show") {
+      if (taskId !== assignment.taskId || frame.docChanges !== null || frame.mirrorBaseCut !== null)
+        return {
+          ...failure(
+            "op_rejected",
+            "assignment_scope_mismatch",
+            "Fleet task reads must select the authenticated assignment task without document writes.",
+          ),
+          opId: frame.opId,
+        };
+      const receipt = await options.host.run(assignment.repoId, action, auth(assignment));
+      const record = receipt as unknown as Record<string, unknown>;
+      return {
+        outcome: receipt.outcome === "applied" ? "applied" : "op_rejected",
+        opId: frame.opId,
+        code: receipt.code ?? null,
+        revision: receipt.revision ?? null,
+        receipt: receiptPayload(record),
+        lease: null,
+        queuePosition: null,
+      };
+    }
     const docs =
       frame.docChanges !== null || frame.mirrorBaseCut !== null
         ? { docChanges: frame.docChanges, mirrorBaseCut: frame.mirrorBaseCut }
