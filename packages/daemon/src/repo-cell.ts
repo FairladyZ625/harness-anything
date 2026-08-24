@@ -68,6 +68,7 @@ export function initializeRepoCell(context: any): any {
       repoId: context.input.repoId,
       localRoot: path.dirname(path.dirname(projection.path)),
       readBasis: projection.readReplicaBasis,
+      readLedgerCut: store.currentCut,
       readContentBlob: store.readContentBlob,
       readEvent: store.readEvent,
       readApplied: projection.readOperation,

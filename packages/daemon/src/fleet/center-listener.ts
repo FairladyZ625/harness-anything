@@ -180,8 +180,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   ): Promise<Delivery> => {
     if (frame.schema === "fleet.assignment.get/v1") {
       const a = await assignment(nodeId, frame.assignmentId),
-        status = await options.host.run(a.repoId, { kind: "doc-status", paths: a.paths }, auth(a)),
-        baseLedgerSha = status.detail?.kind === "doc_sync" ? status.detail.currentLedgerSha : null;
+        baseLedgerSha = options.host.replica(a.repoId).ledgerCut();
       if (!baseLedgerSha) throw new FleetFault("projection_pending", "Current ledger cut is unavailable.", true);
       return immediate({
         schema: "fleet.assignment.result/v1",
@@ -376,11 +375,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const a = await assignment(nodeId, frame.assignmentId),
         replica = options.host.replica(a.repoId);
       replica.activate();
-      const exactRevision = replica.exactRevision();
-      if (exactRevision === null) throw new FleetFault("replica_pending", "No exact center cut is ready.", true);
-      const latest = await replica.waitForCut(exactRevision),
+      const ledgerCut = replica.ledgerCut();
+      if (!ledgerCut || ledgerCut.revision === 0)
+        throw new FleetFault("replica_pending", "No exact center cut is ready.", true);
+      const latest = await replica.waitForCut(ledgerCut.revision),
         key = { nodeId, viewId: a.viewId, repoId: a.repoId },
         id = keyId(key);
+      if (latest.headDigest !== ledgerCut.headDigest)
+        throw new FleetFault("replica_pending", "The exact center cut is not ready.", true);
       if (!window.keys.has(id) && window.keys.size >= 8)
         throw new FleetFault("busy", "Session already has eight active replica keys.", true);
       if (latest.manifest.totalBytes * 2 + FLEET_SESSION_SEND_WINDOW_BYTES > options.replicaDiskQuotaBytes!)

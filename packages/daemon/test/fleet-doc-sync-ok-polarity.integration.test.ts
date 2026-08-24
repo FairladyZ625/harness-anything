@@ -53,11 +53,28 @@ async function pushRejectionFixture() {
   let center: FleetTlsCenter | null = null;
   let race: { readonly path: string; readonly base: string; readonly centerBody: string } | null = null;
   let raceInjected = false;
+  let raceAssignmentReads = 0;
+  let rejectCenterDocStatus = false;
   const centerHost: Pick<DaemonHost, "replica" | "run" | "status"> = {
     replica: (...args) => host.replica(...args),
     status: () => host.status(),
     run: async (repoId, action, auth) => {
-      if (race !== null && action.kind === "doc-status" && auth.assignmentBinding?.nodeId === "node-one") {
+      if (rejectCenterDocStatus && action.kind === "doc-status")
+        throw new Error("fleet assignment must not scan document status");
+      return host.run(repoId, action, auth);
+    }
+  };
+  center = await listenFleetTls({
+    host: centerHost,
+    stateRoot,
+    key,
+    cert,
+    replicaDiskQuotaBytes: replicaQuota,
+    authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+    resolveAssignment: async (assignmentId) => {
+      if (race !== null && assignmentId === "assignment-node-one") {
+        raceAssignmentReads += 1;
+        if (raceAssignmentReads < 2) return assignments.get(assignmentId) ?? null;
         const pending = race;
         race = null;
         if (center === null) throw new Error("fleet center is not ready");
@@ -71,22 +88,19 @@ async function pushRejectionFixture() {
           assignmentId: "assignment-node-two",
           timeoutMs: 30_000,
           channel: "collaborator",
-          changes: [{ path: pending.path, body: pending.centerBody, baseBlobSha256: sha256Bytes(Buffer.from(pending.base)) }]
+          changes: [
+            {
+              path: pending.path,
+              body: pending.centerBody,
+              baseBlobSha256: sha256Bytes(Buffer.from(pending.base)),
+            },
+          ],
         });
         assert.equal(moved.center.outcome, "applied", JSON.stringify(moved.center));
         raceInjected = true;
       }
-      return host.run(repoId, action, auth);
+      return assignments.get(assignmentId) ?? null;
     }
-  };
-  center = await listenFleetTls({
-    host: centerHost,
-    stateRoot,
-    key,
-    cert,
-    replicaDiskQuotaBytes: replicaQuota,
-    authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
-    resolveAssignment: (assignmentId) => assignments.get(assignmentId) ?? null
   });
   const edgeRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-edge`);
   const workspaceRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-workspace`);
@@ -117,12 +131,30 @@ async function pushRejectionFixture() {
     rawWrite,
     edgeDocSync,
     writeWorktree,
-    armBaseBlobRace: (path: string, base: string, centerBody: string) => { race = { path, base, centerBody }; },
+    rejectDocumentStatusAtCenter: () => {
+      rejectCenterDocStatus = true;
+    },
+    armBaseBlobRace: (path: string, base: string, centerBody: string) => {
+      race = { path, base, centerBody };
+      raceAssignmentReads = 0;
+    },
     raceInjected: () => raceInjected,
     conflicts: () => readdirSync(path.join(workspaceRoot("node-one"), ".harness", "conflicts")).filter((entry) => entry.startsWith("cflt-")),
     close: async () => { await center!.close(); await host.close(); rmSync(root, { recursive: true, force: true }); }
   };
 }
+
+test("assignment admission uses the replica cut without a document-status scan", { timeout: 60_000 }, async (t) => {
+  const fixture = await pushRejectionFixture();
+  t.after(() => fixture.close());
+  fixture.rejectDocumentStatusAtCenter();
+
+  const result = await fixture.rawWrite("node-one", [
+    { path: "context/shared-notes.md", body: "# Exact replica admission\n" },
+  ]);
+
+  assert.equal(result.center.outcome, "applied", JSON.stringify(result.center));
+});
 
 test("push-rejected base_blob_changed staging is rejected instead of applied", { timeout: 60_000 }, async (t) => {
   const fixture = await pushRejectionFixture();
