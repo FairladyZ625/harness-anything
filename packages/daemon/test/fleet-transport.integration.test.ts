@@ -5,9 +5,12 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { connect, createServer, type TLSSocket } from "node:tls";
 import { makeTaskEventStore, registerDaemonRepo, sha256Bytes, type AgentDefinitionSnapshot, type LedgerCutIdentity } from "../../kernel/src/index.ts";
+import type { AgentRuntimeSessionDto } from "../src/agent-runtime-contract.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
@@ -110,6 +113,154 @@ test("remote-edge runtime launches locally while lifecycle and worker progress s
   await t.test("provider session resume keeps the center-observed runtime instance", async () => { const resumed = await edgeHost.fleet.edgeRuntime({ host: "127.0.0.1", port: center.port, caPath: fixture.certFile, nodeId: fixture.assignment.nodeId, rosterPath, assignmentId: fixture.assignment.assignmentId, repoId: fixture.assignment.repoId, viewRoot, quotaBytes: replicaQuota, workspaceRoot: edgeRoot, method: "repo.agentRuntime.spawn", action: { providerSessionId: "edge-provider-session", cwd: { scope: "repo-root" }, prompt: "Resume on the original runtime instance.", taskId: fixture.assignment.taskId, idempotencyKey: "remote-edge-runtime-resume" } }, localAuth); assert.equal(resumed.outcome, "applied", JSON.stringify(resumed)); assert.equal((await waitForOutcome(resumed.runtimeSessionId))?.session.activity.outcome, "succeeded"); assert.equal(launchedInstances.at(-1), runtimeDefinition.instanceId); });
   await t.test("another assignment cannot replay terminal events for this runtime session", async () => { const foreignAssignment = { ...fixture.assignment, nodeId: "node-two", assignmentId: "assignment-two", viewId: "node-two_task-fleet" }, events = makeTaskEventStore({ repoId: fixture.assignment.repoId, rootDir: fixture.repo }).read().events.filter((event) => (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") && event.payload.runtimeSessionId === receipt.runtimeSessionId); assert.equal(events.length, 2); for (const event of events) await assert.rejects(fixture.host.runtimeIngress(fixture.assignment.repoId, { kind: "event", type: event.type, payload: event.payload, opId: event.opId }, { transportKind: "fleet-tls", assignmentBinding: foreignAssignment }), (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "assignment_scope_mismatch"); });
   await runFleetReplicaPullClient({ port: center.port, ca: fixture.cert, nodeId: fixture.assignment.nodeId, credential: "machine-secret", assignmentId: fixture.assignment.assignmentId, viewRoot, diskQuotaBytes: replicaQuota }); applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, edgeRoot, "pull"); const mirrored = locateFleetMirrorView(viewRoot, fixture.assignment.repoId); assert.ok(mirrored); assert.equal((readFileSync(path.join(edgeRoot, "harness/tasks/task-fleet-fleet/progress.md"), "utf8").match(new RegExp(unique, "gu")) ?? []).length, 1); assert.equal(existsSync(path.join(edgeRoot, ".harness/runtime/dispatches", `${receipt.dispatchId}.jsonl`)), true); assert.equal(existsSync(path.join(fixture.repo, ".harness/runtime/dispatches", `${receipt.dispatchId}.jsonl`)), false);
+});
+
+test("fleet runtime waits over five seconds for every configured overview page", { timeout: 30_000 }, async (t) => {
+  const fixture = await fleetFixture();
+  t.after(() => fixture.close());
+  const definition: AgentDefinitionSnapshot = {
+      schema: "agent-definition-snapshot/v1",
+      configVersion: 1,
+      instanceId: "slow-page-codex",
+      installationId: "slow-page-installation",
+      kindId: "codex",
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+      reasoningEffort: null,
+      baseUrl: null,
+      authMode: "subscription",
+    },
+    template: AgentRuntimeSessionDto = {
+      runtimeSessionId: "runtime-slow-00",
+      providerSessionId: null,
+      instanceId: definition.instanceId,
+      installationId: definition.installationId,
+      kindId: definition.kindId,
+      definitionSnapshotRef: "artifact:runtime-definition/slow-page",
+      definitionSnapshot: definition,
+      liveness: "live",
+      semanticState: "running",
+      attachCapability: "supported",
+      streamCursor: "stream:0",
+      associations: [],
+      activity: {
+        lastObservedAt: "2026-08-24T12:00:00.000Z",
+        outcome: null,
+        exitCode: null,
+        resultRef: null,
+      },
+    },
+    sessions = Array.from({ length: 17 }, (_, index) => ({
+      ...template,
+      runtimeSessionId: `runtime-slow-${String(index).padStart(2, "0")}`,
+    })),
+    pagePayloads: Array<Record<string, unknown>> = [],
+    responseWaits: number[] = [];
+  const slowHost = {
+    ...fixture.host,
+    read: async (...args: Parameters<typeof fixture.host.read>) => {
+      const [repoId, method, payload, auth] = args;
+      if (method !== "repo.agentRuntime.overview") return fixture.host.read(repoId, method, payload, auth);
+      const startedAt = performance.now();
+      await delay(5_100);
+      responseWaits.push(performance.now() - startedAt);
+      const query = payload as Record<string, unknown>,
+        limit = Number(query.limit),
+        cursor = typeof query.cursor === "string" ? query.cursor : null,
+        start = cursor === null ? 0 : Number(cursor.slice("slow-page:".length)),
+        selected = sessions.slice(start, start + limit),
+        next = start + selected.length;
+      pagePayloads.push(query);
+      return {
+        ok: true,
+        status: "ready",
+        installations: [],
+        instances: [],
+        sessions: selected,
+        page: {
+          limit,
+          cursor,
+          nextCursor: next < sessions.length ? `slow-page:${next}` : null,
+          remainingCount: Math.max(0, sessions.length - next),
+        },
+        watermark: 1,
+        sourceRevision: 1,
+      };
+    },
+  };
+  const center = await listenFleetTls({
+    host: slowHost,
+    stateRoot: path.join(fixture.root, "slow-runtime-center"),
+    key: fixture.key,
+    cert: fixture.cert,
+    replicaDiskQuotaBytes: replicaQuota,
+    authenticate: (nodeId, credential) =>
+      nodeId === fixture.assignment.nodeId && credential === "machine-secret",
+    resolveAssignment: (assignmentId) =>
+      assignmentId === fixture.assignment.assignmentId ? fixture.assignment : null,
+  });
+  t.after(() => center.close());
+  const workspaceRoot = path.join(fixture.root, "slow-runtime-edge"),
+    viewRoot = path.join(fixture.root, "slow-runtime-view");
+  mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+  writeFileSync(
+    path.join(workspaceRoot, "harness/harness.yaml"),
+    "schema: harness-anything/v1\nname: slow-runtime-edge\n" +
+      "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  writeFileSync(
+    path.join(workspaceRoot, "fleet-edge.json"),
+    `${JSON.stringify({
+      schema: "fleet-edge-config/v1",
+      repoId: fixture.assignment.repoId,
+      host: "127.0.0.1",
+      port: center.port,
+      caPath: fixture.certFile,
+      nodeId: fixture.assignment.nodeId,
+      credential: "machine-secret",
+      assignmentId: fixture.assignment.assignmentId,
+      viewRoot,
+      quotaBytes: replicaQuota,
+      waitTimeoutMs: 6_200,
+    })}\n`,
+  );
+  const runtime = openFleetEdgeRuntime({
+    request: {
+      host: "127.0.0.1",
+      port: center.port,
+      caPath: fixture.certFile,
+      nodeId: fixture.assignment.nodeId,
+      credential: "machine-secret",
+      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.assignment.repoId,
+      viewRoot,
+      quotaBytes: replicaQuota,
+      workspaceRoot,
+      method: "repo.agentRuntime.overview",
+      action: { limit: 1 },
+    },
+    daemonGeneration: 1,
+    daemonRoute: {
+      userRoot: path.join(fixture.root, "slow-runtime-user"),
+      daemonId: "slow-runtime-edge",
+      endpoint: path.join(fixture.root, "slow-runtime.sock"),
+    },
+    ports: {
+      runtimeInstances: () => [],
+      prepareRuntimeLaunch: async () => {
+        throw new Error("runtime launch is not part of the read test");
+      },
+    },
+  });
+  t.after(() => runtime.close());
+  const overview = await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+  assert.equal((overview.sessions as readonly unknown[]).length, 1);
+  assert.deepEqual(pagePayloads.slice(0, 2), [
+    { limit: 16 },
+    { limit: 16, cursor: "slow-page:16" },
+  ]);
+  assert.equal(responseWaits.length, 3);
+  assert.equal(responseWaits.every((elapsed) => elapsed >= 5_000), true);
 });
 
 test("production Fleet session rejects provenance, revocation, expiry, content mismatch, and ninth active upload before L1", { timeout: 30_000 }, async (t) => { const fixture = await fleetFixture(); t.after(() => fixture.close()); const center = await fixture.center(), before = fixture.commitCount(); let peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret");

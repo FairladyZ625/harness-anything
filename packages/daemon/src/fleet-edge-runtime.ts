@@ -16,6 +16,7 @@ import { locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: {
@@ -117,6 +118,11 @@ export function openFleetEdgeRuntime(input: {
       credential,
       assignmentId: request.assignmentId,
     },
+    runtimeReadTimeoutMs = readFleetEdgeConfig(request.workspaceRoot)?.waitTimeoutMs,
+    runtimeReadPeer: FleetPeerOptions = {
+      ...peer,
+      ...(runtimeReadTimeoutMs === undefined ? {} : { timeoutMs: runtimeReadTimeoutMs }),
+    },
     now = input.now ?? (() => new Date().toISOString()),
     stream = { publish: () => ({}) as never };
   let tail = Promise.resolve();
@@ -193,7 +199,7 @@ export function openFleetEdgeRuntime(input: {
       readRuntimeSessions: () =>
         readFleetRuntimeSessionsPaged((payload) =>
           runFleetRuntimeReadClient({
-            ...peer,
+            ...runtimeReadPeer,
             repoId: request.repoId,
             method: "repo.agentRuntime.overview",
             payload,
@@ -236,7 +242,7 @@ export function openFleetEdgeRuntime(input: {
         : method === "repo.agentRuntime.cancel"
           ? spawner.cancel(action, edgeBinding())
           : ((await runFleetRuntimeReadClient({
-              ...peer,
+              ...runtimeReadPeer,
               repoId: request.repoId,
               method,
               payload: action,
