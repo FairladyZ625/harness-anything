@@ -32,6 +32,34 @@ test("runtime overview batches definitions while a single-session read selects o
   assert.deepEqual({ fullTaskListReads, taskStatusReads, singleDispatchReads, batchDispatchReads }, { fullTaskListReads: 0, taskStatusReads: 2, singleDispatchReads: 2, batchDispatchReads: 0 });
 }));
 
+test("runtime session reads resolve a task dispatch after synchronizing its projection", () => withRuntime(({ store, projection, stream }) => {
+  let synchronized = false;
+  const original = projection.readTaskStatuses.bind(projection);
+  const measured = new Proxy(projection, {
+    get: (target, property, receiver) => {
+      if (property === "readTaskStatuses")
+        return (...args: Parameters<typeof original>) => {
+          const result = original(...args);
+          synchronized = true;
+          return result;
+        };
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const synchronizedReads = makeAgentRuntimeReadModel({
+    readDispatch: (taskId, dispatchId) => {
+      assert.equal(synchronized, true);
+      assert.deepEqual({ taskId, dispatchId }, { taskId: "task-runtime", dispatchId: "dispatch-runtime" });
+      return { runtimeSessionId: "runtime-session" };
+    },
+    projection: measured,
+    store,
+    stream,
+  });
+  assert.equal(synchronizedReads.session({ taskId: "task-runtime", dispatchId: "dispatch-runtime" }).session.runtimeSessionId, "runtime-session");
+}));
+
 test("runtime overview pages at the server before DTO and dispatch expansion", () => withRuntime(({ store, projection, stream, session }) => {
   const rows = Array.from({ length: 12 }, (_, index) => ({ ...session, runtimeSessionId: `runtime-${String(index).padStart(2, "0")}` })); let unboundedReads = 0, exactDispatchReads = 0, pageQuery: unknown;
   const measured = new Proxy(projection, { get: (target, property, receiver) => { if (property === "readRuntimeSessions") return () => { unboundedReads += 1; return [...rows, ...rows]; }; if (property === "readRuntimeSessionPage") return (query: unknown) => { pageQuery = query; return { rows, nextRuntimeSessionId: "runtime-11", remainingCount: 13 }; }; if (property === "readRuntimeDispatch") return (runtimeSessionId: string) => { exactDispatchReads += 1; return { ...dispatch(), payload: { ...dispatch().payload, runtimeSessionId } }; }; const value = Reflect.get(target, property, receiver); return typeof value === "function" ? value.bind(target) : value; } });

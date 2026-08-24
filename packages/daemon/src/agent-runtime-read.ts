@@ -135,12 +135,13 @@ export function makeAgentRuntimeReadModel(input: {
       };
     },
     session: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionResult => {
-      const target = runtimeSessionTarget(payload),
+      const cut = synchronize(),
+        target = runtimeSessionTarget(payload),
         runtimeSessionIdValue = target.runtimeSessionId ??
           input.readDispatch?.(target.taskId!, target.dispatchId!)?.runtimeSessionId ??
           null;
-      const cut = synchronize(),
-        session = runtimeSessionIdValue === null ? null : input.projection.readRuntimeSession(runtimeSessionIdValue);
+      const session =
+        runtimeSessionIdValue === null ? null : input.projection.readRuntimeSession(runtimeSessionIdValue);
       if (!session)
         throw coded(
           "runtime_session_not_found",
@@ -270,7 +271,10 @@ function runtimeSessionTarget(payload: Readonly<Record<string, unknown>>): {
   if (runtimeSessionId === undefined && (taskId === undefined || dispatchId === undefined))
     throw coded("invalid_request", "Agent runtime session reads require runtimeSessionId or taskId plus dispatchId.");
   if (runtimeSessionId !== undefined && (taskId !== undefined || dispatchId !== undefined))
-    throw coded("invalid_request", "Agent runtime session reads cannot mix runtimeSessionId with taskId or dispatchId.");
+    throw coded(
+      "invalid_request",
+      "Agent runtime session reads cannot mix runtimeSessionId with taskId or dispatchId.",
+    );
   return {
     runtimeSessionId: typeof runtimeSessionId === "string" ? runtimeSessionId : null,
     taskId: typeof taskId === "string" ? taskId : null,
