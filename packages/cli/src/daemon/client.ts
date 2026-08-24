@@ -100,7 +100,9 @@ export function daemonTargetFailureCode(error: unknown): "daemon_target_conflict
     : null;
 }
 export function daemonBuildStaleCode(error: unknown): "daemon_build_stale" | null {
-  return typeof error === "object" && error !== null && (error as { readonly code?: unknown }).code === "daemon_build_stale"
+  return typeof error === "object" &&
+    error !== null &&
+    (error as { readonly code?: unknown }).code === "daemon_build_stale"
     ? "daemon_build_stale"
     : null;
 }
@@ -141,7 +143,9 @@ async function withAutostart(
 }
 
 function isDaemonBuildStale(error: unknown): boolean {
-  return typeof error === "object" && error !== null && (error as { readonly code?: unknown }).code === "daemon_build_stale";
+  return (
+    typeof error === "object" && error !== null && (error as { readonly code?: unknown }).code === "daemon_build_stale"
+  );
 }
 
 async function waitForDaemonRestart(socketPath: string): Promise<void> {

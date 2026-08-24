@@ -67,7 +67,10 @@ export function readTaskDispatches(
       const read = input.projection.readDocument(documentPath);
       const archive = read.document ? parseArchive(read.document.body) : null;
       if (archive?.taskId !== target.taskId) continue;
-      rows.set(dispatchId, archiveRow(archive, candidate.session, target.packagePath, sessionIndex.get(dispatchId)?.state === "lost"));
+      rows.set(
+        dispatchId,
+        archiveRow(archive, candidate.session, target.packagePath, sessionIndex.get(dispatchId)?.state === "lost"),
+      );
       if (candidate.indexed) staleIndexEntries.set(dispatchId, indexedEntries.get(dispatchId)!);
       break;
     }

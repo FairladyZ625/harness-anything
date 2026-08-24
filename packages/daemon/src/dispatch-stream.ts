@@ -177,7 +177,9 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
     header = readDispatchStreamHeader(rootDir, dispatchId);
   if (existsSync(target)) unlinkSync(target);
   if (header?.taskId)
-    removeDispatchLiveIndexEntries(rootDir, [{ dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId }]);
+    removeDispatchLiveIndexEntries(rootDir, [
+      { dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId },
+    ]);
   const entries = readRuntimeSessionIndex(rootDir).filter((entry) => entry.dispatchId !== dispatchId);
   if (entries.length !== readRuntimeSessionIndex(rootDir).length) writeRuntimeSessionIndex(rootDir, entries);
 }
@@ -425,10 +427,19 @@ function updateRuntimeSessionIndex(
 }
 
 function writeRuntimeSessionIndex(rootDir: string, entries: readonly RuntimeSessionIndexEntry[]): void {
-  const target = runtimeSessionIndexPath(rootDir), temporary = `${target}.${process.pid}.tmp`;
+  const target = runtimeSessionIndexPath(rootDir),
+    temporary = `${target}.${process.pid}.tmp`;
   mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   try {
-    writeFileSync(temporary, `${JSON.stringify([...entries].sort((left, right) => left.startedAt.localeCompare(right.startedAt)), null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(
+      temporary,
+      `${JSON.stringify(
+        [...entries].sort((left, right) => left.startedAt.localeCompare(right.startedAt)),
+        null,
+        2,
+      )}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
     renameSync(temporary, target);
   } finally {
     if (existsSync(temporary)) unlinkSync(temporary);
@@ -438,19 +449,21 @@ function writeRuntimeSessionIndex(rootDir: string, entries: readonly RuntimeSess
 function isRuntimeSessionIndexEntry(value: unknown): value is RuntimeSessionIndexEntry {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const row = value as Record<string, unknown>;
-  return row.schema === runtimeSessionIndexSchema
-    && typeof row.runtimeSessionId === "string"
-    && typeof row.dispatchId === "string"
-    && (row.taskId === null || typeof row.taskId === "string")
-    && (row.executionId === null || typeof row.executionId === "string")
-    && typeof row.startedAt === "string"
-    && (row.pid === null || (Number.isInteger(row.pid) && Number(row.pid) > 0))
-    && ["live", "exited", "lost"].includes(String(row.state))
-    && (row.exitCode === null || Number.isInteger(row.exitCode))
-    && (row.signal === null || typeof row.signal === "string")
-    && (row.reason === null || typeof row.reason === "string")
-    && (row.endedAt === null || typeof row.endedAt === "string")
-    && (row.resultRef === null || typeof row.resultRef === "string");
+  return (
+    row.schema === runtimeSessionIndexSchema &&
+    typeof row.runtimeSessionId === "string" &&
+    typeof row.dispatchId === "string" &&
+    (row.taskId === null || typeof row.taskId === "string") &&
+    (row.executionId === null || typeof row.executionId === "string") &&
+    typeof row.startedAt === "string" &&
+    (row.pid === null || (Number.isInteger(row.pid) && Number(row.pid) > 0)) &&
+    ["live", "exited", "lost"].includes(String(row.state)) &&
+    (row.exitCode === null || Number.isInteger(row.exitCode)) &&
+    (row.signal === null || typeof row.signal === "string") &&
+    (row.reason === null || typeof row.reason === "string") &&
+    (row.endedAt === null || typeof row.endedAt === "string") &&
+    (row.resultRef === null || typeof row.resultRef === "string")
+  );
 }
 function dispatchLiveIndex(entries: readonly DispatchLiveIndexEntry[]): DispatchLiveIndex {
   const sorted = [...entries].sort((left, right) => left.dispatchId.localeCompare(right.dispatchId));

@@ -110,7 +110,8 @@ export function createJsonRpcProtocolServer(options: {
         const stale = daemonProtocolError(
           "protocol.hello",
           "daemon_build_stale",
-          `Daemon build is stale: loaded ${buildStatus.loadedBuildId ?? "missing"}, disk ${buildStatus.diskBuildId ?? "missing"}. Restarting once to load the disk build.`,
+          `Daemon build is stale: loaded ${buildStatus.loadedBuildId ?? "missing"}, ` +
+            `disk ${buildStatus.diskBuildId ?? "missing"}. Restarting once to load the disk build.`,
         ) as unknown as JsonObject;
         const response = reply({
           ...stale,
