@@ -543,7 +543,11 @@ export function openRuntimeInstanceStore(input: {
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       chmodSync(directory, 0o700);
     }
-    if (config.kindId === "codex") writeCodexConfig(path.join(provider, "config.toml"), config);
+    // API-key config is materialized only after its credential resolves in prepareLaunch.
+    // Rewriting a shared config without the bearer here would expose a transient
+    // unauthenticated window to an already-launched same-instance worker.
+    if (config.kindId === "codex" && config.auth.mode === "subscription")
+      writeCodexConfig(path.join(provider, "config.toml"), config);
     if (config.auth.mode === "subscription") {
       const authFile = providerAuthFile(config.kindId),
         shared = sharedProviderDirectory(input.env ?? process.env, config.kindId, platform);
