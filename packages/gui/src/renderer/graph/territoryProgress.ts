@@ -29,15 +29,19 @@ export interface ZoneProgress {
 }
 
 const EMPTY_PROGRESS: ZoneProgress = {
-  total: 0, done: 0, active: 0, blocked: 0, inReview: 0, planned: 0, other: 0,
-  doneRatio: 0, unprojected: false,
+  total: 0,
+  done: 0,
+  active: 0,
+  blocked: 0,
+  inReview: 0,
+  planned: 0,
+  other: 0,
+  doneRatio: 0,
+  unprojected: false,
 };
 
 /** 一组 task 的状态构成 + 完成率。 */
-export function deriveZoneProgress(
-  tasks: ReadonlyArray<TaskRow>,
-  unprojected = false,
-): ZoneProgress {
+export function deriveZoneProgress(tasks: ReadonlyArray<TaskRow>, unprojected = false): ZoneProgress {
   if (tasks.length === 0) return { ...EMPTY_PROGRESS, unprojected };
   let done = 0;
   let active = 0;
@@ -48,17 +52,33 @@ export function deriveZoneProgress(
   for (const task of tasks) {
     /* @gate-identity check-gui-status-judgments/gui-status-023 */
     switch (statusBucket(task.coordinationStatus)) {
-      case "done": done += 1; break;
-      case "active": active += 1; break;
-      case "blocked": blocked += 1; break;
-      case "in_review": inReview += 1; break;
-      case "planned": planned += 1; break;
-      default: other += 1;
+      case "done":
+        done += 1;
+        break;
+      case "active":
+        active += 1;
+        break;
+      case "blocked":
+        blocked += 1;
+        break;
+      case "in_review":
+        inReview += 1;
+        break;
+      case "planned":
+        planned += 1;
+        break;
+      default:
+        other += 1;
     }
   }
   return {
     total: tasks.length,
-    done, active, blocked, inReview, planned, other,
+    done,
+    active,
+    blocked,
+    inReview,
+    planned,
+    other,
     doneRatio: done / tasks.length,
     unprojected,
   };
@@ -71,13 +91,19 @@ function statusBucket(status: SnapshotStatus): SnapshotStatus {
     /* @gate-identity check-gui-status-judgments/gui-status-025 */
     status === "active" ||
     /* @gate-identity check-gui-status-judgments/gui-status-026 */
-    status === "blocked") return status;
+    status === "blocked"
+  )
+    return status;
   if (
     /* @gate-identity check-gui-status-judgments/gui-status-027 */
-    status === "in_review") return "in_review";
+    status === "in_review"
+  )
+    return "in_review";
   if (
     /* @gate-identity check-gui-status-judgments/gui-status-028 */
-    status === "planned") return "planned";
+    status === "planned"
+  )
+    return "planned";
   return "unknown";
 }
 
@@ -176,11 +202,7 @@ export function clusterTasksByPrd(tasks: ReadonlyArray<TaskRow>): PrdCluster[] {
   );
 }
 
-function prdTitle(
-  rootId: string,
-  group: ReadonlyArray<TaskRow>,
-  titleById: ReadonlyMap<string, string>,
-): string {
+function prdTitle(rootId: string, group: ReadonlyArray<TaskRow>, titleById: ReadonlyMap<string, string>): string {
   if (rootId.startsWith("module:")) return rootId.slice(7);
   const fromRow = group.find((task) => task.rootTitle)?.rootTitle;
   return fromRow ?? titleById.get(rootId) ?? rootId;
@@ -188,18 +210,23 @@ function prdTitle(
 
 /** task 重要性:阻塞 > 进行 > 评审 > 规划 > 完成/其他;同档按标题稳定排序。 */
 function taskImportance(a: TaskRow, b: TaskRow): number {
-  return statusWeight(a.coordinationStatus) - statusWeight(b.coordinationStatus)
-    || a.title.localeCompare(b.title);
+  return statusWeight(a.coordinationStatus) - statusWeight(b.coordinationStatus) || a.title.localeCompare(b.title);
 }
 
 function statusWeight(status: SnapshotStatus): number {
   /* @gate-identity check-gui-status-judgments/gui-status-029 */
   switch (status) {
-    case "blocked": return 0;
-    case "active": return 1;
-    case "in_review": return 2;
-    case "planned": return 3;
-    case "done": return 4;
-    default: return 5;
+    case "blocked":
+      return 0;
+    case "active":
+      return 1;
+    case "in_review":
+      return 2;
+    case "planned":
+      return 3;
+    case "done":
+      return 4;
+    default:
+      return 5;
   }
 }

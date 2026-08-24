@@ -16,7 +16,7 @@ export const DECISION_STREAM_STATES = [
   "superseded",
   "outcome_retired",
 ] as const satisfies readonly DecisionState[];
-type DecisionStreamState = typeof DECISION_STREAM_STATES[number];
+type DecisionStreamState = (typeof DECISION_STREAM_STATES)[number];
 
 /**
  * 主行集一次渲染这么多行,剩下的靠批量按钮显形——照抄本仓 BoardView 与 TaskStream 的做法。
@@ -52,7 +52,9 @@ export function DecisionStream({
   );
   const [rowsVisible, setRowsVisible] = useState(ROW_BATCH_SIZE);
   // 切换状态会换掉主行集的全部组员,展开状态不能跟着过去。
-  useEffect(() => { setRowsVisible(ROW_BATCH_SIZE); }, [state]);
+  useEffect(() => {
+    setRowsVisible(ROW_BATCH_SIZE);
+  }, [state]);
   const rowsShown = useMemo(() => rows.slice(0, rowsVisible), [rows, rowsVisible]);
   const rowsHidden = rows.length - rowsShown.length;
 
@@ -87,7 +89,9 @@ export function DecisionStream({
               <RiskTierBadge tier={decision.riskTier} />
               <UrgencyBadge urgency={decision.urgency} />
               <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{decision.title}</span>
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">{streamTime(decision.proposedAt)}</span>
+              <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">
+                {streamTime(decision.proposedAt)}
+              </span>
             </button>
           ))}
           {rowsHidden > 0 && (

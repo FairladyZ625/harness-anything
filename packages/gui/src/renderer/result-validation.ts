@@ -3,5 +3,7 @@ export function isRendererRecord(value: unknown): value is Record<string, unknow
 }
 
 export function rendererErrorHint(value: unknown, fallback: string): string {
-  return isRendererRecord(value) && isRendererRecord(value.error) && typeof value.error.hint === "string" ? value.error.hint : fallback;
+  return isRendererRecord(value) && isRendererRecord(value.error) && typeof value.error.hint === "string"
+    ? value.error.hint
+    : fallback;
 }

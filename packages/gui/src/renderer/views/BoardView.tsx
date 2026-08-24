@@ -43,7 +43,9 @@ function taskControlHint(task: TaskRow): string {
   if (task.blocking === "blocked") return "Blocked 是 relation overlay，不可拖；关系在 canonical 来源处理";
   if (task.canonicalStatus === "in_review") return "已进入 review；只能查看 canonical settlement";
   if (task.canonicalStatus === "done") return "任务已完成，状态只读";
-  return task.canonicalStatus === "planned" ? "可拖到 Active 申请 execution lease" : "Active 状态请在详情追加 progress 或 request review";
+  return task.canonicalStatus === "planned"
+    ? "可拖到 Active 申请 execution lease"
+    : "Active 状态请在详情追加 progress 或 request review";
 }
 
 function Card({
@@ -103,8 +105,14 @@ function Card({
       </div>
       <p className="mt-1.5 text-[15px] leading-snug text-text">{task.title}</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {task.coordinationStatus === "blocked" && task.canonicalStatus && <span className="rounded border border-status-blocked/30 px-1 font-mono text-[11px] text-status-blocked">canonical {task.canonicalStatus}</span>}
-        {task.blocking === "unknown" && <span className="rounded border border-stale/30 px-1 text-[11px] text-stale">阻塞关系未能确定</span>}
+        {task.coordinationStatus === "blocked" && task.canonicalStatus && (
+          <span className="rounded border border-status-blocked/30 px-1 font-mono text-[11px] text-status-blocked">
+            canonical {task.canonicalStatus}
+          </span>
+        )}
+        {task.blocking === "unknown" && (
+          <span className="rounded border border-stale/30 px-1 text-[11px] text-stale">阻塞关系未能确定</span>
+        )}
         {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
         <CloseoutBadge value={task.closeoutReadiness} />
         <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
@@ -132,12 +140,7 @@ function DraggableCard({
     disabled: !draggable,
   });
   return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      className={isDragging ? "opacity-30" : ""}
-    >
+    <div ref={setNodeRef} {...attributes} {...listeners} className={isDragging ? "opacity-30" : ""}>
       <Card
         task={task}
         onSelect={onSelect}
@@ -170,8 +173,11 @@ function Column({
   const meta = STATUS_META[status];
   const ordered = sortByFavoritesFirst(tasks, (t) => t.taskId, favorites);
   const [visibleCount, setVisibleCount] = useState(COLUMN_BATCH_SIZE);
-  useEffect(() => { setVisibleCount(COLUMN_BATCH_SIZE); }, [tasks.length]);
-  const visible = ordered.slice(0, visibleCount), hiddenCount = ordered.length - visible.length;
+  useEffect(() => {
+    setVisibleCount(COLUMN_BATCH_SIZE);
+  }, [tasks.length]);
+  const visible = ordered.slice(0, visibleCount),
+    hiddenCount = ordered.length - visible.length;
   return (
     <div
       ref={setNodeRef}
@@ -188,7 +194,9 @@ function Column({
           {meta.icon}
         </span>
         <span className="text-[15px] font-semibold">{meta.label}</span>
-        <span className="font-mono text-[13px] text-text-faint" data-testid={`board-status-${status}-count`}>{tasks.length}</span>
+        <span className="font-mono text-[13px] text-text-faint" data-testid={`board-status-${status}-count`}>
+          {tasks.length}
+        </span>
         {isOver && rejecting && (
           <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-danger">
             <Lock weight="bold" />
@@ -260,12 +268,8 @@ export function BoardView({
   mutationFeedback?: (taskId: string) => TaskMutationFeedback | undefined;
 }) {
   // coding preset 默认按 root 分组(milestone=root task)。drill 携带 groupBy 提示。
-  const [layout, setLayout] = useState<BoardLayout>(
-    drill ? "swimlane" : initialLayout ?? "column",
-  );
-  const [groupBy, setGroupBy] = useState<LaneGroupBy>(
-    drill?.groupBy ?? initialGroupBy ?? "root",
-  );
+  const [layout, setLayout] = useState<BoardLayout>(drill ? "swimlane" : (initialLayout ?? "column"));
+  const [groupBy, setGroupBy] = useState<LaneGroupBy>(drill?.groupBy ?? initialGroupBy ?? "root");
 
   useEffect(() => {
     if (drill) {
@@ -274,22 +278,24 @@ export function BoardView({
     }
   }, [drill]);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const [activeTask, setActiveTask] = useState<TaskRow | null>(null);
   const [dragMessage, setDragMessage] = useState<string | null>(null);
   const [lastMutationTaskId, setLastMutationTaskId] = useState<string | null>(null);
 
-  const onDragStart = (e: DragStartEvent) =>
-    setActiveTask(tasks.find((t) => t.taskId === e.active.id) ?? null);
+  const onDragStart = (e: DragStartEvent) => setActiveTask(tasks.find((t) => t.taskId === e.active.id) ?? null);
 
   const onDragEnd = (event: DragEndEvent) => {
     const task = activeTask;
     setActiveTask(null);
     if (!task) return;
-    if (event.over?.id !== "active") { setDragMessage("唯一允许的 transition 是 planned → active；Blocked 不是状态机节点。"); return; }
-    setDragMessage(null); setLastMutationTaskId(task.taskId); void onStartTask?.(task);
+    if (event.over?.id !== "active") {
+      setDragMessage("唯一允许的 transition 是 planned → active；Blocked 不是状态机节点。");
+      return;
+    }
+    setDragMessage(null);
+    setLastMutationTaskId(task.taskId);
+    void onStartTask?.(task);
   };
 
   const seg = (active: boolean) =>
@@ -336,9 +342,7 @@ export function BoardView({
         </span>
         {layout !== "list" && (
           <div className="ml-auto flex items-center gap-1.5">
-            <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-              分组维度
-            </span>
+            <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">分组维度</span>
             <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
               {(["root", "module", "engine", "productLine"] as const).map((d) => (
                 <button
@@ -362,9 +366,20 @@ export function BoardView({
           </div>
         )}
       </header>
-      {(dragMessage || (lastMutationTaskId && mutationFeedback?.(lastMutationTaskId))) && <div className="border-b border-border px-4 py-2 text-[12px] text-text-muted" data-testid="board-mutation-feedback">
-        {dragMessage ?? (() => { const item = mutationFeedback?.(lastMutationTaskId!); return item ? `${item.kind} · ${item.state} · opId=${item.opId}${item.code ? ` · code=${item.code}` : ""} · ${item.hint}` : ""; })()}
-      </div>}
+      {(dragMessage || (lastMutationTaskId && mutationFeedback?.(lastMutationTaskId))) && (
+        <div
+          className="border-b border-border px-4 py-2 text-[12px] text-text-muted"
+          data-testid="board-mutation-feedback"
+        >
+          {dragMessage ??
+            (() => {
+              const item = mutationFeedback?.(lastMutationTaskId!);
+              return item
+                ? `${item.kind} · ${item.state} · opId=${item.opId}${item.code ? ` · code=${item.code}` : ""} · ${item.hint}`
+                : "";
+            })()}
+        </div>
+      )}
       <TaskFilterBar
         tasks={allTasks}
         filteredCount={tasks.length}

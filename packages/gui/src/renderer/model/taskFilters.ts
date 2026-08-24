@@ -1,10 +1,4 @@
-import type {
-  CloseoutReadiness,
-  EngineId,
-  Freshness,
-  SnapshotStatus,
-  TaskRow,
-} from "./types";
+import type { CloseoutReadiness, EngineId, Freshness, SnapshotStatus, TaskRow } from "./types";
 
 export interface TaskFilters {
   query: string;
@@ -43,16 +37,11 @@ export const hasActiveTaskFilters = (filters: TaskFilters) =>
   filters.includeArchived ||
   filters.favoritesOnly;
 
-export function matchesTask(
-  task: TaskRow,
-  filters: TaskFilters,
-  favorites?: ReadonlySet<string>,
-): boolean {
+export function matchesTask(task: TaskRow, filters: TaskFilters, favorites?: ReadonlySet<string>): boolean {
   if (
     !filters.includeArchived &&
-    (
-      /* @gate-identity check-gui-status-judgments/gui-status-033 */
-      task.packageDisposition !== "active" ||
+    /* @gate-identity check-gui-status-judgments/gui-status-033 */
+    (task.packageDisposition !== "active" ||
       /* @gate-identity check-gui-status-judgments/gui-status-034 */
       task.coordinationStatus === "cancelled")
   ) {
@@ -82,27 +71,30 @@ export function matchesTask(
     if (!haystack.includes(query)) return false;
   }
 
-  if (filters.module !== "all" && task.module !== filters.module && !task.moduleKeys?.includes(filters.module)) return false;
+  if (filters.module !== "all" && task.module !== filters.module && !task.moduleKeys?.includes(filters.module))
+    return false;
   if (filters.engine !== "all" && task.engine !== filters.engine) return false;
-  if (filters.status.length > 0 && !filters.status.includes(task.coordinationStatus) && !(
-    /* @gate-identity check-gui-status-judgments/gui-status-035 */
-    task.blocking === "unknown" &&
-    /* @gate-identity check-gui-status-judgments/gui-status-036 */
-    filters.status.includes("unknown")))
+  if (
+    filters.status.length > 0 &&
+    !filters.status.includes(task.coordinationStatus) &&
+    !(
+      /* @gate-identity check-gui-status-judgments/gui-status-035 */
+      (
+        task.blocking === "unknown" &&
+        /* @gate-identity check-gui-status-judgments/gui-status-036 */
+        filters.status.includes("unknown")
+      )
+    )
+  )
     return false;
-  if (filters.closeout !== "all" && task.closeoutReadiness !== filters.closeout)
-    return false;
-  if (filters.freshness !== "all" && task.freshness !== filters.freshness)
-    return false;
+  if (filters.closeout !== "all" && task.closeoutReadiness !== filters.closeout) return false;
+  if (filters.freshness !== "all" && task.freshness !== filters.freshness) return false;
 
   return true;
 }
 
-export const applyTaskFilters = (
-  tasks: TaskRow[],
-  filters: TaskFilters,
-  favorites?: ReadonlySet<string>,
-) => tasks.filter((task) => matchesTask(task, filters, favorites));
+export const applyTaskFilters = (tasks: TaskRow[], filters: TaskFilters, favorites?: ReadonlySet<string>) =>
+  tasks.filter((task) => matchesTask(task, filters, favorites));
 
 export const taskFilterSummary = (filters: TaskFilters): string[] => {
   const parts: string[] = [];
@@ -121,7 +113,11 @@ export const taskFilterSummary = (filters: TaskFilters): string[] => {
  * 收藏排序助手:把收藏的任务排到同组前面(sticky 置顶)。
  * 稳定排序:不改变同 favorites 等级内的原有顺序。
  */
-export function sortByFavoritesFirst<T>(items: readonly T[], getTaskId: (item: T) => string, favorites: ReadonlySet<string>): T[] {
+export function sortByFavoritesFirst<T>(
+  items: readonly T[],
+  getTaskId: (item: T) => string,
+  favorites: ReadonlySet<string>,
+): T[] {
   const favorited: T[] = [];
   const rest: T[] = [];
   for (const item of items) {

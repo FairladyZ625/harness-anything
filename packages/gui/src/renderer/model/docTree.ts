@@ -68,7 +68,11 @@ export function buildDocTree(docs: readonly DocEntry[]): DocTreeNode[] {
  * 若某目录仅含 `.gitkeep`,过滤后该目录不再入 trie,空目录一并隐去。
  */
 function isIgnoredDoc(path: string): boolean {
-  const base = path.split("/").filter((s) => s.length > 0).pop() ?? "";
+  const base =
+    path
+      .split("/")
+      .filter((s) => s.length > 0)
+      .pop() ?? "";
   return base === ".gitkeep";
 }
 

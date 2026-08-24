@@ -26,7 +26,9 @@ export function PinnedStream({
     () =>
       tasks
         .filter((task) => task.pinned === true)
-        .sort((left, right) => right.lastKnownAt.localeCompare(left.lastKnownAt) || right.taskId.localeCompare(left.taskId)),
+        .sort(
+          (left, right) => right.lastKnownAt.localeCompare(left.lastKnownAt) || right.taskId.localeCompare(left.taskId),
+        ),
     [tasks],
   );
 
@@ -54,7 +56,9 @@ export function PinnedStream({
           </span>
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{task.title}</span>
           <StatusBadge status={task.coordinationStatus} />
-          <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">{streamTime(task.lastKnownAt)}</span>
+          <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">
+            {streamTime(task.lastKnownAt)}
+          </span>
         </button>
       ))}
     </StreamBody>

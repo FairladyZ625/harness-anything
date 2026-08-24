@@ -3,15 +3,7 @@ import type { ReactNode } from "react";
 export const BTN =
   "rounded-md border border-border px-3 py-1.5 text-[13px] text-text-muted transition-colors duration-100 hover:border-border-strong hover:bg-surface-raised hover:text-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text-muted";
 
-export function Section({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
+export function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="rounded-lg border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
@@ -23,15 +15,7 @@ export function Section({
   );
 }
 
-export function Row({
-  label,
-  desc,
-  children,
-}: {
-  label: ReactNode;
-  desc?: ReactNode;
-  children?: ReactNode;
-}) {
+export function Row({ label, desc, children }: { label: ReactNode; desc?: ReactNode; children?: ReactNode }) {
   return (
     <div className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-b-0">
       <div className="min-w-0 flex-1">
@@ -55,7 +39,9 @@ export function Segmented<T extends string>({
   disabled?: boolean;
 }) {
   return (
-    <div className={`inline-flex overflow-hidden rounded-md border border-border ${disabled ? "cursor-not-allowed opacity-40" : ""}`}>
+    <div
+      className={`inline-flex overflow-hidden rounded-md border border-border ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
+    >
       {options.map((o, i) => (
         <button
           key={o.key}
@@ -64,9 +50,7 @@ export function Segmented<T extends string>({
           }}
           disabled={disabled}
           className={`px-3 py-1.5 text-[13px] ${i > 0 ? "border-l border-border" : ""} ${
-            value === o.key
-              ? "bg-surface-raised font-medium"
-              : "text-text-muted hover:bg-surface-raised/50"
+            value === o.key ? "bg-surface-raised font-medium" : "text-text-muted hover:bg-surface-raised/50"
           } ${disabled ? "cursor-not-allowed" : ""}`}
         >
           {o.label}

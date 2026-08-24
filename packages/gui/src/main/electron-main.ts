@@ -37,8 +37,8 @@ export function createMainWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       webviewTag: true,
-      preload: preloadPath
-    }
+      preload: preloadPath,
+    },
   });
 
   mainWindow.once("ready-to-show", () => mainWindow.show());
@@ -66,10 +66,12 @@ export function installContentSecurityPolicy(): void {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        "Content-Security-Policy": [createGuiContentSecurityPolicy({
-          allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL)
-        })]
-      }
+        "Content-Security-Policy": [
+          createGuiContentSecurityPolicy({
+            allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL),
+          }),
+        ],
+      },
     });
   });
   const artifactSession = session.fromPartition(HTML_ARTIFACT_PARTITION);
@@ -114,13 +116,21 @@ export async function startGuiApp(): Promise<void> {
   await app.whenReady();
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
-  const rootDir = resolveGuiProjectRoot(), packaged = app.isPackaged ? { resourcesPath: process.resourcesPath } : undefined, bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides(), packaged ? { packaged } : {}), controlled = addLocalMainControls({ bridge, target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }), clientBuildCommit: daemonBuildStamp().commit, ...(packaged ? { packaged } : {}) });
+  const rootDir = resolveGuiProjectRoot(),
+    packaged = app.isPackaged ? { resourcesPath: process.resourcesPath } : undefined,
+    bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides(), packaged ? { packaged } : {}),
+    controlled = addLocalMainControls({
+      bridge,
+      target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }),
+      clientBuildCommit: daemonBuildStamp().commit,
+      ...(packaged ? { packaged } : {}),
+    });
   registerHarnessIpcHandlers(ipcMain, controlled, {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
       packagedRendererUrl: createLocalPackagedRendererUrl(),
-      allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL)
-    }
+      allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL),
+    },
   });
   createTrustedMainWindow(trustedWebContentsIds);
   app.on("activate", () => {

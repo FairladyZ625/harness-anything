@@ -3,13 +3,18 @@ import type { AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-run
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
 import {
-  runtimeDockStatusDot, runtimeDockStatusKey, sessionSiblingRows, sessionTaskTarget,
+  runtimeDockStatusDot,
+  runtimeDockStatusKey,
+  sessionSiblingRows,
+  sessionTaskTarget,
   type RuntimeDockRow,
 } from "../../runtime-panorama.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import {
-  runtimeAuthPresentation, runtimeAuthPresentationText, type RuntimeAuthProbeState,
+  runtimeAuthPresentation,
+  runtimeAuthPresentationText,
+  type RuntimeAuthProbeState,
 } from "../../runtime-auth-presentation.ts";
 import { Avatar, CapDot, Empty, KindDot, KV, KVRow, LiveDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
@@ -33,180 +38,437 @@ const SECTION_BATCH_SIZE = 8;
  * 只显示前 N 行时必须把剩余条数显形:段落标题里的 `{count}` 是截断前的真实总数,
  * 若下面只列 8 行又不交代,界面就会出现"标题写 23、下面 8 行"这种没有出口的组合。
  */
-function BatchedRows<Row>({ rows, testId, children }: { readonly rows: readonly Row[];
-  readonly testId: string; readonly children: (row: Row) => ReactNode }) {
+function BatchedRows<Row>({
+  rows,
+  testId,
+  children,
+}: {
+  readonly rows: readonly Row[];
+  readonly testId: string;
+  readonly children: (row: Row) => ReactNode;
+}) {
   const [visibleCount, setVisibleCount] = useState(SECTION_BATCH_SIZE);
-  useEffect(() => { setVisibleCount(SECTION_BATCH_SIZE); }, [rows.length]);
+  useEffect(() => {
+    setVisibleCount(SECTION_BATCH_SIZE);
+  }, [rows.length]);
   const hiddenCount = rows.length - Math.min(visibleCount, rows.length);
-  return <>
-    {rows.slice(0, visibleCount).map((row) => children(row))}
-    {hiddenCount > 0 && <button type="button" data-testid={testId}
-      onClick={() => setVisibleCount((count) => Math.min(count + SECTION_BATCH_SIZE, rows.length))}
-      className="mt-1 w-full rounded border border-dashed border-border px-1.5 py-1 text-center
-        font-mono text-[10px] text-text-muted hover:border-border-strong hover:text-text">{
-      t("agentRuntime.showMoreSessions", { count: Math.min(SECTION_BATCH_SIZE, hiddenCount),
-        remaining: hiddenCount })}</button>}
-  </>;
+  return (
+    <>
+      {rows.slice(0, visibleCount).map((row) => children(row))}
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          data-testid={testId}
+          onClick={() => setVisibleCount((count) => Math.min(count + SECTION_BATCH_SIZE, rows.length))}
+          className="mt-1 w-full rounded border border-dashed border-border px-1.5 py-1 text-center
+        font-mono text-[10px] text-text-muted hover:border-border-strong hover:text-text"
+        >
+          {t("agentRuntime.showMoreSessions", {
+            count: Math.min(SECTION_BATCH_SIZE, hiddenCount),
+            remaining: hiddenCount,
+          })}
+        </button>
+      )}
+    </>
+  );
 }
 
-export function ProviderInspector({ instance, probeState, sessions, onOpenSession }: {
-  readonly instance: RuntimeInstanceSummary | null; readonly probeState?: RuntimeAuthProbeState; readonly sessions:
-  readonly AgentRuntimeSessionDto[]; readonly onOpenSession: OpenSession }) {
-  return <aside data-testid="runtime-inspector" aria-label={t("agentRuntime.inspectorRuntime")}
-    className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
-    <h2
-      className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
-        tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorRuntime")}</h2>
-    <RuntimeFacts instance={instance} probeState={probeState} />
-    <Section title={t("agentRuntime.inspectorSessions", { count: sessions.length })}>
-      {sessions.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty>
-        : <BatchedRows rows={sessions} testId="runtime-inspector-sessions-more">{(session) =>
-          <LiveSessionRow key={session.runtimeSessionId} session={session}
-            onOpenSession={onOpenSession} />}</BatchedRows>}
-    </Section>
-  </aside>;
+export function ProviderInspector({
+  instance,
+  probeState,
+  sessions,
+  onOpenSession,
+}: {
+  readonly instance: RuntimeInstanceSummary | null;
+  readonly probeState?: RuntimeAuthProbeState;
+  readonly sessions: readonly AgentRuntimeSessionDto[];
+  readonly onOpenSession: OpenSession;
+}) {
+  return (
+    <aside
+      data-testid="runtime-inspector"
+      aria-label={t("agentRuntime.inspectorRuntime")}
+      className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface"
+    >
+      <h2
+        className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
+        tracking-[0.09em] text-text-faint"
+      >
+        {t("agentRuntime.inspectorRuntime")}
+      </h2>
+      <RuntimeFacts instance={instance} probeState={probeState} />
+      <Section title={t("agentRuntime.inspectorSessions", { count: sessions.length })}>
+        {sessions.length === 0 ? (
+          <Empty>{t("agentRuntime.noSessions")}</Empty>
+        ) : (
+          <BatchedRows rows={sessions} testId="runtime-inspector-sessions-more">
+            {(session) => (
+              <LiveSessionRow key={session.runtimeSessionId} session={session} onOpenSession={onOpenSession} />
+            )}
+          </BatchedRows>
+        )}
+      </Section>
+    </aside>
+  );
 }
 
-export function IdentityInspector({ selection, agents, squads, rows, onSelect, onOpenSession }: {
-  readonly selection: RuntimeSelection; readonly agents: readonly AgentEntityRow[]; readonly squads:
-  readonly SquadEntityRow[]; readonly rows: readonly RuntimeDockRow[]; readonly onSelect: (selection:
-  RuntimeSelection) => void; readonly onOpenSession: OpenSession }) {
-  const related = rows.filter((row) => selection.type === "agent" ? row.agentId === selection.id :
-    row.squadId === selection.id);
-  return <aside data-testid="runtime-inspector" aria-label={t(selection.type === "agent" ?
-    "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")}
-    className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
-    <h2
-      className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
-        tracking-[0.09em] text-text-faint">{t(selection.type === "agent" ? "agentRuntime.inspectorAgent" :
-          "agentRuntime.inspectorSquad")}</h2>
-    {selection.type === "agent"
-      ? <AgentFacts agent={agents.find((agent) => agent.id === selection.id) ?? null} squads={squads}
-        onSelect={onSelect} />
-      : <SquadFacts squad={squads.find((squad) => squad.id === selection.id) ?? null} onSelect={onSelect} />}
-    <Section title={t("agentRuntime.inspectorSessions", { count: related.length })}>
-      {related.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty>
-        : <BatchedRows rows={related} testId="runtime-inspector-related-more">{(row) =>
-          <DispatchSessionRow key={row.runtimeSessionId} row={row} onOpenSession={onOpenSession} />}
-        </BatchedRows>}
-    </Section>
-  </aside>;
+export function IdentityInspector({
+  selection,
+  agents,
+  squads,
+  rows,
+  onSelect,
+  onOpenSession,
+}: {
+  readonly selection: RuntimeSelection;
+  readonly agents: readonly AgentEntityRow[];
+  readonly squads: readonly SquadEntityRow[];
+  readonly rows: readonly RuntimeDockRow[];
+  readonly onSelect: (selection: RuntimeSelection) => void;
+  readonly onOpenSession: OpenSession;
+}) {
+  const related = rows.filter((row) =>
+    selection.type === "agent" ? row.agentId === selection.id : row.squadId === selection.id,
+  );
+  return (
+    <aside
+      data-testid="runtime-inspector"
+      aria-label={t(selection.type === "agent" ? "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")}
+      className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface"
+    >
+      <h2
+        className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
+        tracking-[0.09em] text-text-faint"
+      >
+        {t(selection.type === "agent" ? "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")}
+      </h2>
+      {selection.type === "agent" ? (
+        <AgentFacts
+          agent={agents.find((agent) => agent.id === selection.id) ?? null}
+          squads={squads}
+          onSelect={onSelect}
+        />
+      ) : (
+        <SquadFacts squad={squads.find((squad) => squad.id === selection.id) ?? null} onSelect={onSelect} />
+      )}
+      <Section title={t("agentRuntime.inspectorSessions", { count: related.length })}>
+        {related.length === 0 ? (
+          <Empty>{t("agentRuntime.noSessions")}</Empty>
+        ) : (
+          <BatchedRows rows={related} testId="runtime-inspector-related-more">
+            {(row) => <DispatchSessionRow key={row.runtimeSessionId} row={row} onOpenSession={onOpenSession} />}
+          </BatchedRows>
+        )}
+      </Section>
+    </aside>
+  );
 }
 
-export function SessionInspector({ row, rows, onSelectSession, onOpenTask, onSelectEntity }: {
-  readonly onSelectEntity: (ref: string) => void; readonly row:
-  RuntimeDockRow | null; readonly rows: readonly RuntimeDockRow[]; readonly onSelectSession:
-  OpenSession; readonly onOpenTask: (taskId: string) => void }) {
+export function SessionInspector({
+  row,
+  rows,
+  onSelectSession,
+  onOpenTask,
+  onSelectEntity,
+}: {
+  readonly onSelectEntity: (ref: string) => void;
+  readonly row: RuntimeDockRow | null;
+  readonly rows: readonly RuntimeDockRow[];
+  readonly onSelectSession: OpenSession;
+  readonly onOpenTask: (taskId: string) => void;
+}) {
   const siblings = sessionSiblingRows(rows, row?.runtimeSessionId ?? "");
-  return <aside data-testid="runtime-inspector" aria-label={t("agentRuntime.inspectorSession")}
-    className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface">
-    <h2
-      className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
-        tracking-[0.09em] text-text-faint">{t("agentRuntime.inspectorSession")}</h2>
-    <SessionFacts row={row} onOpenTask={onOpenTask} onSelectEntity={onSelectEntity} />
-    <Section title={t("agentRuntime.inspectorSessions", { count: siblings.length })}>
-      {siblings.length === 0 ? <Empty>{t("agentRuntime.noSessions")}</Empty>
-        : <BatchedRows rows={siblings} testId="runtime-inspector-siblings-more">{(sibling) =>
-          <DispatchSessionRow key={sibling.runtimeSessionId} row={sibling}
-            onOpenSession={onSelectSession} />}</BatchedRows>}
-    </Section>
-  </aside>;
+  return (
+    <aside
+      data-testid="runtime-inspector"
+      aria-label={t("agentRuntime.inspectorSession")}
+      className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface"
+    >
+      <h2
+        className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
+        tracking-[0.09em] text-text-faint"
+      >
+        {t("agentRuntime.inspectorSession")}
+      </h2>
+      <SessionFacts row={row} onOpenTask={onOpenTask} onSelectEntity={onSelectEntity} />
+      <Section title={t("agentRuntime.inspectorSessions", { count: siblings.length })}>
+        {siblings.length === 0 ? (
+          <Empty>{t("agentRuntime.noSessions")}</Empty>
+        ) : (
+          <BatchedRows rows={siblings} testId="runtime-inspector-siblings-more">
+            {(sibling) => (
+              <DispatchSessionRow key={sibling.runtimeSessionId} row={sibling} onOpenSession={onSelectSession} />
+            )}
+          </BatchedRows>
+        )}
+      </Section>
+    </aside>
+  );
 }
 
-function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) { return <section className="border-b border-border px-3 py-2 last:border-b-0"><h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">{title}</h3>{children}</section>; }
-function LiveSessionRow({ session, onOpenSession }: { readonly session: AgentRuntimeSessionDto;
-  readonly onOpenSession: OpenSession }) {
-  return <button type="button" onClick={() => onOpenSession(session.runtimeSessionId)}
-    className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
-    <LiveDot state={LIVENESS_DOT[session.liveness] ?? "idle"} tip={session.liveness} />
-    <span className="min-w-0 flex-1"><span
-      className="block truncate text-[11.5px]">{session.instanceId}</span><span
-      className="block truncate font-mono text-[10px] text-text-faint">{session.runtimeSessionId}</span></span>
-    <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{session.activity.lastObservedAt.slice(11,
-      16)}</span>
-  </button>;
+function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) {
+  return (
+    <section className="border-b border-border px-3 py-2 last:border-b-0">
+      <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">{title}</h3>
+      {children}
+    </section>
+  );
 }
-function DispatchSessionRow({ row, onOpenSession }: { readonly row: RuntimeDockRow;
-  readonly onOpenSession: OpenSession }) {
-  return <button type="button" onClick={() => onOpenSession(row.runtimeSessionId)}
-    className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised">
-    <LiveDot state={runtimeDockStatusDot[row.status]}
-      tip={t(runtimeDockStatusKey[row.status] as never)} />
-    <span className="min-w-0 flex-1"><span className="block truncate text-[11.5px]">{row.agentName ??
-      row.instanceId}</span><span
-      className="block truncate font-mono text-[10px] text-text-faint">{row.taskTitle ??
-      row.runtimeSessionId}</span></span>
-    <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{row.startedAt.slice(11, 16)}</span>
-  </button>;
+function LiveSessionRow({
+  session,
+  onOpenSession,
+}: {
+  readonly session: AgentRuntimeSessionDto;
+  readonly onOpenSession: OpenSession;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenSession(session.runtimeSessionId)}
+      className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
+    >
+      <LiveDot state={LIVENESS_DOT[session.liveness] ?? "idle"} tip={session.liveness} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[11.5px]">{session.instanceId}</span>
+        <span className="block truncate font-mono text-[10px] text-text-faint">{session.runtimeSessionId}</span>
+      </span>
+      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+        {session.activity.lastObservedAt.slice(11, 16)}
+      </span>
+    </button>
+  );
 }
-function RuntimeFacts({ instance, probeState }: { readonly instance: RuntimeInstanceSummary | null;
-  readonly probeState?: RuntimeAuthProbeState }) {
-  if (!instance) return <Section title={t("agentRuntime.inspectorHealth")}><Empty>{t("agentRuntime.notFound")}</Empty></Section>;
-  const auth = runtimeAuthPresentation(instance, probeState), authText = runtimeAuthPresentationText(instance, auth);
-  return <Section title={t("agentRuntime.inspectorHealth")}>
-    <div data-auth-status={auth.state} className="mb-2 flex items-center gap-1.5 text-[11px]"><CapDot state={auth.cap} tip={authText} /><span>{authText}</span></div>
-    <KV><KVRow name="kind"><span className="inline-flex items-center gap-1"><KindDot kind={instance.kindId} />{instance.kindId}</span></KVRow><KVRow name="auth">{instance.authMode} · {instance.authState}</KVRow><KVRow name="enabled">{String(instance.enabled)}</KVRow><KVRow name="isolation">{instance.isolationState}</KVRow><KVRow name="permission">{instance.permissionMode ?? t("agentRuntime.providerDefault")}</KVRow></KV>
-  </Section>;
+function DispatchSessionRow({
+  row,
+  onOpenSession,
+}: {
+  readonly row: RuntimeDockRow;
+  readonly onOpenSession: OpenSession;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenSession(row.runtimeSessionId)}
+      className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
+    >
+      <LiveDot state={runtimeDockStatusDot[row.status]} tip={t(runtimeDockStatusKey[row.status] as never)} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[11.5px]">{row.agentName ?? row.instanceId}</span>
+        <span className="block truncate font-mono text-[10px] text-text-faint">
+          {row.taskTitle ?? row.runtimeSessionId}
+        </span>
+      </span>
+      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{row.startedAt.slice(11, 16)}</span>
+    </button>
+  );
 }
-function AgentFacts({ agent, squads, onSelect }: { readonly agent: AgentEntityRow | null; readonly squads: readonly SquadEntityRow[]; readonly onSelect: (selection: RuntimeSelection) => void }) {
-  if (!agent) return <Section title={t("agentRuntime.inspectorDefinition")}><Empty>{t("agentRuntime.notFound")}</Empty></Section>;
+function RuntimeFacts({
+  instance,
+  probeState,
+}: {
+  readonly instance: RuntimeInstanceSummary | null;
+  readonly probeState?: RuntimeAuthProbeState;
+}) {
+  if (!instance)
+    return (
+      <Section title={t("agentRuntime.inspectorHealth")}>
+        <Empty>{t("agentRuntime.notFound")}</Empty>
+      </Section>
+    );
+  const auth = runtimeAuthPresentation(instance, probeState),
+    authText = runtimeAuthPresentationText(instance, auth);
+  return (
+    <Section title={t("agentRuntime.inspectorHealth")}>
+      <div data-auth-status={auth.state} className="mb-2 flex items-center gap-1.5 text-[11px]">
+        <CapDot state={auth.cap} tip={authText} />
+        <span>{authText}</span>
+      </div>
+      <KV>
+        <KVRow name="kind">
+          <span className="inline-flex items-center gap-1">
+            <KindDot kind={instance.kindId} />
+            {instance.kindId}
+          </span>
+        </KVRow>
+        <KVRow name="auth">
+          {instance.authMode} · {instance.authState}
+        </KVRow>
+        <KVRow name="enabled">{String(instance.enabled)}</KVRow>
+        <KVRow name="isolation">{instance.isolationState}</KVRow>
+        <KVRow name="permission">{instance.permissionMode ?? t("agentRuntime.providerDefault")}</KVRow>
+      </KV>
+    </Section>
+  );
+}
+function AgentFacts({
+  agent,
+  squads,
+  onSelect,
+}: {
+  readonly agent: AgentEntityRow | null;
+  readonly squads: readonly SquadEntityRow[];
+  readonly onSelect: (selection: RuntimeSelection) => void;
+}) {
+  if (!agent)
+    return (
+      <Section title={t("agentRuntime.inspectorDefinition")}>
+        <Empty>{t("agentRuntime.notFound")}</Empty>
+      </Section>
+    );
   const referencing = squads.filter((squad) => squad.leader === agent.id || squad.workers.includes(agent.id));
-  return <><Section title={t("agentRuntime.inspectorDefinition")}><KV><KVRow name="role">{agent.role}</KVRow><KVRow name="runtime_type">{agent.runtimeType || "—"}</KVRow><KVRow name="layer">{agent.layer}</KVRow><KVRow name="validity">{agent.validity}</KVRow></KV>{agent.issues.map((issue) => <p key={issue.code} className="mt-1 text-[10.5px] text-status-blocked">{issue.code}: {issue.message}</p>)}</Section>
-    <Section title={t("agentRuntime.inspectorReferencedBy", { count: referencing.length })}>{referencing.length === 0 ? <Empty>{t("agentRuntime.notReferenced")}</Empty> : referencing.map((squad) => <button key={squad.id} type="button" onClick={() => onSelect({ type: "squad", id: squad.id })} className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"><KindDot kind="any" /><span className="min-w-0 flex-1"><span className="block truncate text-[11.5px]">{squad.name}</span><span className="block font-mono text-[10px] text-text-faint">{squad.leader === agent.id ? t("agentRuntime.roleCommander") : t("agentRuntime.roleWorker")}</span></span></button>)}</Section></>;
+  return (
+    <>
+      <Section title={t("agentRuntime.inspectorDefinition")}>
+        <KV>
+          <KVRow name="role">{agent.role}</KVRow>
+          <KVRow name="runtime_type">{agent.runtimeType || "—"}</KVRow>
+          <KVRow name="layer">{agent.layer}</KVRow>
+          <KVRow name="validity">{agent.validity}</KVRow>
+        </KV>
+        {agent.issues.map((issue) => (
+          <p key={issue.code} className="mt-1 text-[10.5px] text-status-blocked">
+            {issue.code}: {issue.message}
+          </p>
+        ))}
+      </Section>
+      <Section title={t("agentRuntime.inspectorReferencedBy", { count: referencing.length })}>
+        {referencing.length === 0 ? (
+          <Empty>{t("agentRuntime.notReferenced")}</Empty>
+        ) : (
+          referencing.map((squad) => (
+            <button
+              key={squad.id}
+              type="button"
+              onClick={() => onSelect({ type: "squad", id: squad.id })}
+              className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
+            >
+              <KindDot kind="any" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11.5px]">{squad.name}</span>
+                <span className="block font-mono text-[10px] text-text-faint">
+                  {squad.leader === agent.id ? t("agentRuntime.roleCommander") : t("agentRuntime.roleWorker")}
+                </span>
+              </span>
+            </button>
+          ))
+        )}
+      </Section>
+    </>
+  );
 }
-function SquadFacts({ squad, onSelect }: { readonly squad: SquadEntityRow | null; readonly onSelect: (selection: RuntimeSelection) => void }) {
-  if (!squad) return <Section title={t("agentRuntime.inspectorMembers")}><Empty>{t("agentRuntime.notFound")}</Empty></Section>;
-  return <Section title={t("agentRuntime.inspectorMembers")}>
-    <button type="button" onClick={() => onSelect({ type: "agent", id: squad.leader })} className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"><Avatar id={squad.leader} /><span className="min-w-0 flex-1 truncate text-[11.5px]">{squad.leader}</span><span className="font-mono text-[10px] text-text-faint">{t("agentRuntime.roleCommander")}</span></button>
-    {squad.workers.map((worker) => <button key={worker} type="button" onClick={() => onSelect({ type: "agent", id: worker })} className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"><Avatar id={worker} /><span className="min-w-0 flex-1 truncate text-[11.5px]">{worker}</span><span className="font-mono text-[10px] text-text-faint">{t("agentRuntime.roleWorker")}</span></button>)}
-  </Section>;
+function SquadFacts({
+  squad,
+  onSelect,
+}: {
+  readonly squad: SquadEntityRow | null;
+  readonly onSelect: (selection: RuntimeSelection) => void;
+}) {
+  if (!squad)
+    return (
+      <Section title={t("agentRuntime.inspectorMembers")}>
+        <Empty>{t("agentRuntime.notFound")}</Empty>
+      </Section>
+    );
+  return (
+    <Section title={t("agentRuntime.inspectorMembers")}>
+      <button
+        type="button"
+        onClick={() => onSelect({ type: "agent", id: squad.leader })}
+        className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
+      >
+        <Avatar id={squad.leader} />
+        <span className="min-w-0 flex-1 truncate text-[11.5px]">{squad.leader}</span>
+        <span className="font-mono text-[10px] text-text-faint">{t("agentRuntime.roleCommander")}</span>
+      </button>
+      {squad.workers.map((worker) => (
+        <button
+          key={worker}
+          type="button"
+          onClick={() => onSelect({ type: "agent", id: worker })}
+          className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
+        >
+          <Avatar id={worker} />
+          <span className="min-w-0 flex-1 truncate text-[11.5px]">{worker}</span>
+          <span className="font-mono text-[10px] text-text-faint">{t("agentRuntime.roleWorker")}</span>
+        </button>
+      ))}
+    </Section>
+  );
 }
 // A selected session seen from the side: whose it is and which task holds it, with the
 // reverse jump into that task's detail (W5:派工链归 Task 详情「派工」页签). Facts come
 // from the ledger row the workspace already read; the jump target is the same
 // sessionTaskTarget as the main panel.
-function SessionFacts({ row, onOpenTask, onSelectEntity }: {
-  readonly row: RuntimeDockRow | null; readonly onOpenTask: (taskId: string) => void;
+function SessionFacts({
+  row,
+  onOpenTask,
+  onSelectEntity,
+}: {
+  readonly row: RuntimeDockRow | null;
+  readonly onOpenTask: (taskId: string) => void;
   readonly onSelectEntity: (ref: string) => void;
 }) {
   const target = sessionTaskTarget(row, []);
-  return <Section title={t("agentRuntime.inspectorSessionFacts")}>
-    {row === null ? <Empty>{t("agentRuntime.notFound")}</Empty> : <>
-      <KV>
-        {row.agentId ? (
-          <KVRow name="agent">
-            <EntityRefLink
-              entityRef={`agent/${row.agentId}`}
-              onNavigate={onSelectEntity}
-              title={row.agentId}
-              className="text-accent hover:underline"
-            />
-          </KVRow>
-        ) : <KVRow name="agent">{t("agentRuntime.unattributed")}</KVRow>}
-        {row.squadId ? (
-          <KVRow name="squad">
-            <EntityRefLink
-              entityRef={`squad/${row.squadId}`}
-              onNavigate={onSelectEntity}
-              title={row.squadId}
-              className="text-accent hover:underline"
-            />
-          </KVRow>
-        ) : <KVRow name="squad">{row.squadName ?? "—"}</KVRow>}
-        <KVRow name="instance">
-          <EntityRefLink
-            entityRef={`provider/${row.instanceId}`}
-            onNavigate={onSelectEntity}
-            title={row.instanceId}
-            className="text-accent hover:underline"
-          />
-        </KVRow>
-        <KVRow name="dispatch">{row.dispatchId ?? "—"}</KVRow>
-        <KVRow name="status">{row.status}</KVRow>
-      </KV>
-      {target !== null && <button type="button" data-testid="inspector-open-task" data-task={target.taskId} title={t("agentRuntime.openTask")} onClick={() => onOpenTask(target.taskId)} className="mt-2 flex w-full items-center gap-1.5 rounded border border-border px-2 py-1 text-left hover:border-accent hover:text-accent">
-        <span className="min-w-0 flex-1 truncate text-[11px]">{target.taskTitle ?? target.taskId}</span><span className="shrink-0 font-mono text-[9.5px] text-text-faint">{target.taskId}</span><span aria-hidden className="shrink-0 text-[9.5px] text-text-faint">↗</span>
-      </button>}
-    </>}
-  </Section>;
+  return (
+    <Section title={t("agentRuntime.inspectorSessionFacts")}>
+      {row === null ? (
+        <Empty>{t("agentRuntime.notFound")}</Empty>
+      ) : (
+        <>
+          <KV>
+            {row.agentId ? (
+              <KVRow name="agent">
+                <EntityRefLink
+                  entityRef={`agent/${row.agentId}`}
+                  onNavigate={onSelectEntity}
+                  title={row.agentId}
+                  className="text-accent hover:underline"
+                />
+              </KVRow>
+            ) : (
+              <KVRow name="agent">{t("agentRuntime.unattributed")}</KVRow>
+            )}
+            {row.squadId ? (
+              <KVRow name="squad">
+                <EntityRefLink
+                  entityRef={`squad/${row.squadId}`}
+                  onNavigate={onSelectEntity}
+                  title={row.squadId}
+                  className="text-accent hover:underline"
+                />
+              </KVRow>
+            ) : (
+              <KVRow name="squad">{row.squadName ?? "—"}</KVRow>
+            )}
+            <KVRow name="instance">
+              <EntityRefLink
+                entityRef={`provider/${row.instanceId}`}
+                onNavigate={onSelectEntity}
+                title={row.instanceId}
+                className="text-accent hover:underline"
+              />
+            </KVRow>
+            <KVRow name="dispatch">{row.dispatchId ?? "—"}</KVRow>
+            <KVRow name="status">{row.status}</KVRow>
+          </KV>
+          {target !== null && (
+            <button
+              type="button"
+              data-testid="inspector-open-task"
+              data-task={target.taskId}
+              title={t("agentRuntime.openTask")}
+              onClick={() => onOpenTask(target.taskId)}
+              className="mt-2 flex w-full items-center gap-1.5 rounded border border-border px-2 py-1 text-left hover:border-accent hover:text-accent"
+            >
+              <span className="min-w-0 flex-1 truncate text-[11px]">{target.taskTitle ?? target.taskId}</span>
+              <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{target.taskId}</span>
+              <span aria-hidden className="shrink-0 text-[9.5px] text-text-faint">
+                ↗
+              </span>
+            </button>
+          )}
+        </>
+      )}
+    </Section>
+  );
 }

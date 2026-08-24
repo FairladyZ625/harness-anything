@@ -2,13 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CaretLeft, CaretRight, Lock, Star } from "@phosphor-icons/react";
 import type { TaskRow, RelationEdge } from "../model/types";
 import { isExternal } from "../model/types";
-import {
-  CloseoutBadge,
-  DecisionSourceBadge,
-  EngineBadge,
-  FreshnessTag,
-  StatusBadge,
-} from "../components/badges";
+import { CloseoutBadge, DecisionSourceBadge, EngineBadge, FreshnessTag, StatusBadge } from "../components/badges";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
 import { sortByFavoritesFirst } from "../model/taskFilters";
@@ -65,18 +59,16 @@ function AuditRow({
       </td>
       <td className="px-3 py-2 align-top">
         <div className="font-mono text-[13px] text-text">{task.taskId}</div>
-        <div className="mt-1 font-mono text-[12px] text-text-faint">
-          {dateLabel(task.lastKnownAt)}
-        </div>
+        <div className="mt-1 font-mono text-[12px] text-text-faint">{dateLabel(task.lastKnownAt)}</div>
       </td>
       <td className="min-w-[260px] px-3 py-2 align-top">
-        <div className="line-clamp-2 text-[15px] font-medium leading-snug text-text">
-          {task.title}
-        </div>
+        <div className="line-clamp-2 text-[15px] font-medium leading-snug text-text">{task.title}</div>
         <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[12px] text-text-faint">
           <span>{task.module === "unassigned" || !task.module ? t("views.listView.notProjected") : task.module}</span>
           <span>{task.rawStatus}</span>
-          {task.coordinationStatus === "blocked" && task.canonicalStatus && <span>canonical={task.canonicalStatus}</span>}
+          {task.coordinationStatus === "blocked" && task.canonicalStatus && (
+            <span>canonical={task.canonicalStatus}</span>
+          )}
           {task.blocking === "unknown" && <span className="text-stale">{t("views.listView.blockingUnknown")}</span>}
           {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
           {isExternal(task) && (
@@ -222,7 +214,9 @@ export function ListView({
           <table className="w-full min-w-[980px] border-collapse text-left">
             <thead className="sticky top-0 z-10 bg-surface">
               <tr className="border-b border-border font-mono text-[12px] uppercase tracking-wide text-text-faint">
-                <th className="w-10 px-2 py-2 font-medium" title={t("views.listView.collection")}>★</th>
+                <th className="w-10 px-2 py-2 font-medium" title={t("views.listView.collection")}>
+                  ★
+                </th>
                 <th className="px-3 py-2 font-medium">{t("views.listView.task")}</th>
                 <th className="px-3 py-2 font-medium">{t("views.listView.titleModule")}</th>
                 <th className="px-3 py-2 font-medium">{t("views.listView.status")}</th>
@@ -266,7 +260,9 @@ export function ListView({
             className="rounded-md border border-border bg-surface-raised px-1.5 py-1 text-[12px] text-text outline-none focus:border-border-strong"
           >
             {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>{size}</option>
+              <option key={size} value={size}>
+                {size}
+              </option>
             ))}
           </select>
         </label>

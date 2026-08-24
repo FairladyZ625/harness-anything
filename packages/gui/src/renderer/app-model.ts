@@ -8,11 +8,19 @@ export interface RendererCapabilityModel {
 export const rendererCapabilityModel: RendererCapabilityModel = {
   nodeGlobalsAvailable: false,
   privilegedModulesAvailable: false,
-  receivesOnlyPreloadData: true
+  receivesOnlyPreloadData: true,
 };
 
 export interface RendererNavigationItem {
-  readonly id: "workspace" | "board" | "list" | "detail" | "doc-viewer" | "review-queue" | "execution-evidence" | "graph";
+  readonly id:
+    | "workspace"
+    | "board"
+    | "list"
+    | "detail"
+    | "doc-viewer"
+    | "review-queue"
+    | "execution-evidence"
+    | "graph";
   readonly label: string;
 }
 
@@ -24,5 +32,5 @@ export const rendererNavigation: readonly RendererNavigationItem[] = [
   { id: "doc-viewer", label: "Docs" },
   { id: "review-queue", label: "Review" },
   { id: "execution-evidence", label: "Execution evidence" },
-  { id: "graph", label: "Graph" }
+  { id: "graph", label: "Graph" },
 ];

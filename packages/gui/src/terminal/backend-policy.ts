@@ -54,35 +54,43 @@ export function directPtyCapability(): TerminalBackendCapability {
     available: true,
     durability: "none",
     evidence: "always-available",
-    reason: "direct-pty sessions are development/degrade sessions and do not survive daemon restart."
+    reason: "direct-pty sessions are development/degrade sessions and do not survive daemon restart.",
   };
 }
 
-export function tmuxCapability(input: { readonly available: boolean; readonly version?: string; readonly reason?: string }): TerminalBackendCapability {
+export function tmuxCapability(input: {
+  readonly available: boolean;
+  readonly version?: string;
+  readonly reason?: string;
+}): TerminalBackendCapability {
   return {
     backend: "tmux",
     available: input.available,
     durability: "daemon-restart",
     evidence: input.available ? "probe" : "not-installed",
     version: input.version,
-    reason: input.reason
+    reason: input.reason,
   };
 }
 
-export function remoteCapability(input: { readonly available: boolean; readonly reason?: string }): TerminalBackendCapability {
+export function remoteCapability(input: {
+  readonly available: boolean;
+  readonly reason?: string;
+}): TerminalBackendCapability {
   return {
     backend: "remote",
     available: input.available,
     durability: "remote-owned",
     evidence: input.available ? "remote-owned" : "disabled",
-    reason: input.reason
+    reason: input.reason,
   };
 }
 
 export function selectTerminalBackend(input: SelectTerminalBackendInput): TerminalBackendSelectionResult {
   const targetBackend = input.requestedBackend ?? input.defaultBackend ?? "direct-pty";
   const target = findCapability(input.capabilities, targetBackend);
-  if (!target) return backendFailure("terminal_backend_not_registered", `Terminal backend is not registered: ${targetBackend}`);
+  if (!target)
+    return backendFailure("terminal_backend_not_registered", `Terminal backend is not registered: ${targetBackend}`);
   if (target.available) return backendSelection(target, []);
   if (targetBackend === "tmux" && input.allowDirectPtyFallback !== false) {
     const fallback = findCapability(input.capabilities, "direct-pty");
@@ -92,21 +100,28 @@ export function selectTerminalBackend(input: SelectTerminalBackendInput): Termin
           code: "terminal_backend_downgraded_non_durable",
           requestedBackend: "tmux",
           selectedBackend: "direct-pty",
-          hint: target.reason ?? "tmux is unavailable; selected direct-pty. This session will not survive daemon restart."
-        }
+          hint:
+            target.reason ?? "tmux is unavailable; selected direct-pty. This session will not survive daemon restart.",
+        },
       ]);
     }
   }
-  return backendFailure("terminal_backend_unavailable", target.reason ?? `Terminal backend is unavailable: ${targetBackend}`);
+  return backendFailure(
+    "terminal_backend_unavailable",
+    target.reason ?? `Terminal backend is unavailable: ${targetBackend}`,
+  );
 }
 
-function backendSelection(capability: TerminalBackendCapability, warnings: ReadonlyArray<TerminalBackendWarning>): TerminalBackendSelectionSuccess {
+function backendSelection(
+  capability: TerminalBackendCapability,
+  warnings: ReadonlyArray<TerminalBackendWarning>,
+): TerminalBackendSelectionSuccess {
   return {
     ok: true,
     backend: capability.backend,
     capability,
     durableAcrossDaemonRestart: capability.durability !== "none",
-    warnings
+    warnings,
   };
 }
 
@@ -114,6 +129,9 @@ function backendFailure(code: TerminalBackendFailure["error"]["code"], hint: str
   return { ok: false, error: { code, hint } };
 }
 
-function findCapability(capabilities: ReadonlyArray<TerminalBackendCapability>, backend: TerminalBackend): TerminalBackendCapability | undefined {
+function findCapability(
+  capabilities: ReadonlyArray<TerminalBackendCapability>,
+  backend: TerminalBackend,
+): TerminalBackendCapability | undefined {
   return capabilities.find((capability) => capability.backend === backend);
 }

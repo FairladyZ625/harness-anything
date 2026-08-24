@@ -1,10 +1,4 @@
-import {
-  FolderSimple,
-  CheckCircle,
-  Sun,
-  Moon,
-  Desktop,
-} from "@phosphor-icons/react";
+import { FolderSimple, CheckCircle, Sun, Moon, Desktop } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../api-client.ts";
 import type { WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 import { STATUS_META } from "./badges.tsx";
@@ -51,7 +45,8 @@ export function NavButton({
 }) {
   return (
     <button
-      onClick={onClick} title={label}
+      onClick={onClick}
+      title={label}
       className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[15px] leading-snug transition-colors duration-100 ${
         active
           ? "bg-surface-raised font-medium text-text"
@@ -74,22 +69,23 @@ export function TaskCensusSummary({ summary }: { summary: WorkspaceSummaryRead["
   return (
     <span data-testid="real-task-summary" className="block font-mono text-[11px] text-text-faint">
       {t("components.appSidebar.taskCensus", { totalCount: summary.total })}
-      <span> · {STATUS_META.active.label} {summary.byStatus.active}</span>
-      <span> · {STATUS_META.blocked.label} {summary.byStatus.blocked}</span>
-      <span> · {STATUS_META.in_review.label} {summary.byStatus.in_review}</span>
+      <span>
+        {" "}
+        · {STATUS_META.active.label} {summary.byStatus.active}
+      </span>
+      <span>
+        {" "}
+        · {STATUS_META.blocked.label} {summary.byStatus.blocked}
+      </span>
+      <span>
+        {" "}
+        · {STATUS_META.in_review.label} {summary.byStatus.in_review}
+      </span>
     </span>
   );
 }
 
-export function ProjectSummary({
-  repo,
-  active,
-  onOpen,
-}: {
-  repo: SystemRepoRow;
-  active: boolean;
-  onOpen: () => void;
-}) {
+export function ProjectSummary({ repo, active, onOpen }: { repo: SystemRepoRow; active: boolean; onOpen: () => void }) {
   return (
     <button
       onClick={onOpen}
@@ -97,32 +93,34 @@ export function ProjectSummary({
       className={`flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left transition-colors duration-100 ${
         active
           ? "border-accent/70 bg-accent/10"
-          : repo.registrationState === "enabled" ? "border-border bg-surface hover:border-border-strong hover:bg-surface-raised" : "cursor-not-allowed border-border bg-surface opacity-60"
+          : repo.registrationState === "enabled"
+            ? "border-border bg-surface hover:border-border-strong hover:bg-surface-raised"
+            : "cursor-not-allowed border-border bg-surface opacity-60"
       }`}
     >
       <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded bg-surface-raised text-text-muted">
         <FolderSimple weight="duotone" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[15px] font-semibold text-text">
-          {repo.displayName}
-        </span>
+        <span className="block truncate text-[15px] font-semibold text-text">{repo.displayName}</span>
         <span className="block truncate font-mono text-[13px] text-text-faint">
           {repo.repoId} · {repo.registrationState} / {repo.cellState}
         </span>
         <span className="mt-1 flex flex-wrap gap-1.5 font-mono text-[12px] tabular-nums">
-          <span className={repo.cellState === "attached" ? "text-status-done" : "text-status-blocked"}>{repo.cellState}</span>
+          <span className={repo.cellState === "attached" ? "text-status-done" : "text-status-blocked"}>
+            {repo.cellState}
+          </span>
           <span className="text-text-faint">queue {repo.queueDepth ?? "unknown"}</span>
           <span className="text-text-faint">lock {repo.lockState}</span>
         </span>
-        {repo.cellState !== "attached" && <span className="mt-1 block text-[11px] text-status-blocked">{repo.unavailableReason ?? repo.lastError ?? "unknown / 未投影"}</span>}
+        {repo.cellState !== "attached" && (
+          <span className="mt-1 block text-[11px] text-status-blocked">
+            {repo.unavailableReason ?? repo.lastError ?? "unknown / 未投影"}
+          </span>
+        )}
       </span>
       {active && (
-        <CheckCircle
-          weight="fill"
-          className="mt-0.5 shrink-0 text-[15px]"
-          style={{ color: "var(--color-accent)" }}
-        />
+        <CheckCircle weight="fill" className="mt-0.5 shrink-0 text-[15px]" style={{ color: "var(--color-accent)" }} />
       )}
     </button>
   );

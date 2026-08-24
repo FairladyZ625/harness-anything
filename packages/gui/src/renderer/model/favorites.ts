@@ -62,15 +62,18 @@ export function useFavorites(projectId: string): {
     return () => window.removeEventListener("storage", onStorage);
   }, [projectId]);
 
-  const toggleFavorite = useCallback((taskId: string) => {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
-      writeFavorites(projectId, next);
-      return next;
-    });
-  }, [projectId]);
+  const toggleFavorite = useCallback(
+    (taskId: string) => {
+      setFavorites((prev) => {
+        const next = new Set(prev);
+        if (next.has(taskId)) next.delete(taskId);
+        else next.add(taskId);
+        writeFavorites(projectId, next);
+        return next;
+      });
+    },
+    [projectId],
+  );
 
   const isFavorite = useCallback((taskId: string) => favorites.has(taskId), [favorites]);
 

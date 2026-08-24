@@ -4,13 +4,32 @@ import type { TerminalBackendWarning } from "../terminal/backend-policy.ts";
 
 export type RemoteTerminalSessionStatus = "active" | "idle" | "exited" | "unknown";
 export interface RemoteTerminalSessionInfo {
-  readonly sessionId: string; readonly name: string; readonly backend: "direct-pty" | "tmux" | "remote"; readonly backendWarnings?: readonly TerminalBackendWarning[]; readonly status: RemoteTerminalSessionStatus; readonly envProfileId?: string; readonly hostProfileId?: string; readonly hostLabel: string; readonly projectId?: string; readonly taskId?: string; readonly cwd?: string; readonly shell?: string; readonly createdAt: string; readonly lastActivityAt?: string; readonly exitCode?: number;
+  readonly sessionId: string;
+  readonly name: string;
+  readonly backend: "direct-pty" | "tmux" | "remote";
+  readonly backendWarnings?: readonly TerminalBackendWarning[];
+  readonly status: RemoteTerminalSessionStatus;
+  readonly envProfileId?: string;
+  readonly hostProfileId?: string;
+  readonly hostLabel: string;
+  readonly projectId?: string;
+  readonly taskId?: string;
+  readonly cwd?: string;
+  readonly shell?: string;
+  readonly createdAt: string;
+  readonly lastActivityAt?: string;
+  readonly exitCode?: number;
 }
 
 export type DaemonTransport =
   | { readonly kind: "local-ipc"; readonly endpoint: string }
   | { readonly kind: "local-loopback"; readonly host: "127.0.0.1"; readonly port: number }
-  | { readonly kind: "ssh-tunnel"; readonly tunnelId: string; readonly localHost: "127.0.0.1"; readonly localPort: number };
+  | {
+      readonly kind: "ssh-tunnel";
+      readonly tunnelId: string;
+      readonly localHost: "127.0.0.1";
+      readonly localPort: number;
+    };
 
 export type TunnelConnectionStatus =
   | "initiating"
@@ -164,7 +183,7 @@ export interface RemoteDaemonTunnelControllerOptions {
 
 export function bindApiRoutesToDaemonTransport(
   routes: ReadonlyArray<ApiRouteContract>,
-  transport: DaemonTransport
+  transport: DaemonTransport,
 ): ReadonlyArray<BoundApiRouteForTransport> {
   return routes.map((route) => ({
     id: route.id,
@@ -173,11 +192,13 @@ export function bindApiRoutesToDaemonTransport(
     service: route.service,
     serviceMethod: route.serviceMethod,
     auth: transport.kind === "ssh-tunnel" ? "ssh-tunnel-local-token" : route.auth,
-    transport: transport.kind
+    transport: transport.kind,
   }));
 }
 
-export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelControllerOptions): RemoteDaemonTunnelController {
+export function createRemoteDaemonTunnelController(
+  options: RemoteDaemonTunnelControllerOptions,
+): RemoteDaemonTunnelController {
   const hostProfiles = new Map(options.hostProfiles.map((profile) => [profile.hostProfileId, profile]));
   const tokens = new Map<string, RemoteDaemonAttachTokenMetadata>();
   const tokenSecrets = new Map<string, string>();
@@ -215,9 +236,11 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
     if (tokenSecrets.get(tokenId) !== input.tokenSecret) {
       return failure("token_secret_mismatch", "Remote daemon attach token secret is invalid.");
     }
-    if (consumedTokenIds.has(tokenId)) return failure("token_already_used", "Remote daemon attach token has already been used.");
+    if (consumedTokenIds.has(tokenId))
+      return failure("token_already_used", "Remote daemon attach token has already been used.");
     if (token.revokedAt) return failure("token_revoked", "Remote daemon attach token has been revoked.");
-    if (Date.parse(token.expiresAt) <= Date.parse(now())) return failure("token_expired", "Remote daemon attach token has expired.");
+    if (Date.parse(token.expiresAt) <= Date.parse(now()))
+      return failure("token_expired", "Remote daemon attach token has expired.");
     return token;
   }
 
@@ -245,7 +268,7 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
         hostProfileId: input.hostProfileId,
         tunnelNonce: input.tunnelNonce ?? createId("nonce"),
         issuedAt,
-        expiresAt: new Date(Date.parse(issuedAt) + input.ttlMillis).toISOString()
+        expiresAt: new Date(Date.parse(issuedAt) + input.ttlMillis).toISOString(),
       };
       tokens.set(tokenId, metadata);
       const secret = createId("secret");
@@ -255,8 +278,8 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
         metadata,
         secret: {
           tokenId,
-          value: secret
-        }
+          value: secret,
+        },
       };
     },
     initiateTunnel: (input) => {
@@ -274,8 +297,8 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
           status: "initiating",
           localHost: "127.0.0.1",
           localPort: input.localPort,
-          startedAt: timestamp
-        })
+          startedAt: timestamp,
+        }),
       };
     },
     authenticateTunnel: (input) => {
@@ -291,7 +314,7 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
         tokenSecret: input.tokenSecret,
         hostProfileId: tunnel.hostProfileId,
         remoteDaemonId: input.remoteDaemonId,
-        tunnelNonce: input.tunnelNonce
+        tunnelNonce: input.tunnelNonce,
       });
       if (!isRemoteDaemonAttachTokenMetadata(token)) return token;
       consumedTokenIds.add(input.tokenId);
@@ -301,8 +324,8 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
           ...tunnel,
           status: "authenticating",
           remoteDaemonId: input.remoteDaemonId,
-          lastHeartbeatAt: now()
-        })
+          lastHeartbeatAt: now(),
+        }),
       };
     },
     establishTunnel: (tunnelId) => {
@@ -321,7 +344,7 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
         tokenSecret: input.tokenSecret,
         hostProfileId: input.hostProfileId,
         remoteDaemonId: input.remoteDaemonId,
-        tunnelNonce: input.tunnelNonce
+        tunnelNonce: input.tunnelNonce,
       });
       if (!isRemoteDaemonAttachTokenMetadata(token)) return token;
       if (!Number.isInteger(input.localPort) || input.localPort <= 0 || input.localPort > 65535) {
@@ -339,17 +362,18 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
           localPort: input.localPort,
           remoteDaemonId: input.remoteDaemonId,
           startedAt: timestamp,
-          lastHeartbeatAt: timestamp
-        })
+          lastHeartbeatAt: timestamp,
+        }),
       };
     },
     markDegraded: (tunnelId, errorCode, errorMessage) => {
       const tunnel = existingTunnel(tunnelId);
       if (!isTunnelConnectionInfo(tunnel)) return tunnel;
-      if (tunnel.status === "closed") return failure("invalid_tunnel_state", "Closed tunnels cannot be marked degraded.");
+      if (tunnel.status === "closed")
+        return failure("invalid_tunnel_state", "Closed tunnels cannot be marked degraded.");
       return {
         ok: true,
-        tunnel: save({ ...tunnel, status: "degraded", errorCode, errorMessage, lastHeartbeatAt: now() })
+        tunnel: save({ ...tunnel, status: "degraded", errorCode, errorMessage, lastHeartbeatAt: now() }),
       };
     },
     beginReconnect: (tunnelId) => {
@@ -377,15 +401,18 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
           status: "established",
           lastHeartbeatAt: now(),
           errorCode: undefined,
-          errorMessage: undefined
-        })
+          errorMessage: undefined,
+        }),
       };
     },
     failTunnel: (tunnelId, errorCode, errorMessage) => {
       const tunnel = existingTunnel(tunnelId);
       if (!isTunnelConnectionInfo(tunnel)) return tunnel;
       if (tunnel.status === "closed") return failure("invalid_tunnel_state", "Closed tunnels cannot be marked failed.");
-      return { ok: true, tunnel: save({ ...tunnel, status: "failed", errorCode, errorMessage, lastHeartbeatAt: now() }) };
+      return {
+        ok: true,
+        tunnel: save({ ...tunnel, status: "failed", errorCode, errorMessage, lastHeartbeatAt: now() }),
+      };
     },
     closeTunnel: (tunnelId) => {
       const tunnel = existingTunnel(tunnelId);
@@ -397,7 +424,8 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
       const profile = hostProfiles.get(hostProfileId);
       if (profile) hostProfiles.set(hostProfileId, { ...profile, revokedAt: timestamp });
       for (const token of tokens.values()) {
-        if (token.hostProfileId === hostProfileId && !token.revokedAt) tokens.set(token.tokenId, { ...token, revokedAt: timestamp });
+        if (token.hostProfileId === hostProfileId && !token.revokedAt)
+          tokens.set(token.tokenId, { ...token, revokedAt: timestamp });
       }
       for (const tunnel of tunnels.values()) {
         if (tunnel.hostProfileId === hostProfileId && tunnel.status !== "closed") {
@@ -406,34 +434,34 @@ export function createRemoteDaemonTunnelController(options: RemoteDaemonTunnelCo
             status: "closed",
             lastHeartbeatAt: timestamp,
             errorCode: "host_profile_revoked",
-            errorMessage: "Remote host profile was revoked."
+            errorMessage: "Remote host profile was revoked.",
           });
         }
       }
     },
     listTunnels: () => [...tunnels.values()].sort((left, right) => left.tunnelId.localeCompare(right.tunnelId)),
-    listTokenMetadata: () => [...tokens.values()].sort((left, right) => left.tokenId.localeCompare(right.tokenId))
+    listTokenMetadata: () => [...tokens.values()].sort((left, right) => left.tokenId.localeCompare(right.tokenId)),
   };
   return controller;
 }
 
 export function deriveRemoteTerminalSurfaceState(
   session: RemoteTerminalSessionInfo,
-  tunnel: TunnelConnectionInfo
+  tunnel: TunnelConnectionInfo,
 ): RemoteTerminalSurfaceState {
   if (session.status === "exited") {
     return {
       sessionId: session.sessionId,
       terminalStatus: "exited",
       surfaceStatus: "closed",
-      reason: "terminal-session-exited"
+      reason: "terminal-session-exited",
     };
   }
   if (tunnel.status === "established") {
     return {
       sessionId: session.sessionId,
       terminalStatus: session.status,
-      surfaceStatus: "attached"
+      surfaceStatus: "attached",
     };
   }
   if (tunnel.status === "closed") {
@@ -441,14 +469,14 @@ export function deriveRemoteTerminalSurfaceState(
       sessionId: session.sessionId,
       terminalStatus: session.status,
       surfaceStatus: "detached",
-      reason: tunnel.errorCode ?? "tunnel-closed"
+      reason: tunnel.errorCode ?? "tunnel-closed",
     };
   }
   return {
     sessionId: session.sessionId,
     terminalStatus: session.status,
     surfaceStatus: "degraded",
-    reason: tunnel.errorCode ?? `tunnel-${tunnel.status}`
+    reason: tunnel.errorCode ?? `tunnel-${tunnel.status}`,
   };
 }
 
@@ -465,7 +493,7 @@ function isRemoteHostProfile(value: RemoteHostProfile | RemoteTunnelFailure): va
 }
 
 function isRemoteDaemonAttachTokenMetadata(
-  value: RemoteDaemonAttachTokenMetadata | RemoteTunnelFailure
+  value: RemoteDaemonAttachTokenMetadata | RemoteTunnelFailure,
 ): value is RemoteDaemonAttachTokenMetadata {
   return !("ok" in value);
 }

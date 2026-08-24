@@ -1,11 +1,5 @@
 import { useMemo, useState } from "react";
-import type {
-  DecisionRow,
-  Project,
-  RelationEdge,
-  SnapshotStatus,
-  TaskRow,
-} from "../model/types";
+import type { DecisionRow, Project, RelationEdge, SnapshotStatus, TaskRow } from "../model/types";
 import { Card } from "../components/overview/parts";
 import { DecisionStream } from "../components/overview/DecisionStream.tsx";
 import { TaskStream } from "../components/overview/TaskStream.tsx";
@@ -67,7 +61,11 @@ export function OverviewView({
     () => tasks.reduce((latest, task) => (task.lastKnownAt > latest ? task.lastKnownAt : latest), ""),
     [tasks],
   );
-  const health = deriveRuntimeHealth({ ...systemHealth, lastSnapshotAt: lastSnapshotAt || null, now: new Date().toISOString() });
+  const health = deriveRuntimeHealth({
+    ...systemHealth,
+    lastSnapshotAt: lastSnapshotAt || null,
+    now: new Date().toISOString(),
+  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

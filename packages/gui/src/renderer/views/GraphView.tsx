@@ -24,22 +24,13 @@ import { useColorMode, minimapMaskColor } from "../graph/colorMode";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { partitionForSkel } from "../graph/territory";
 import { layoutTerritory } from "../graph/territoryLayout";
-import {
-  defaultKindFilter,
-  defaultAxisFilter,
-  type FlowAnimMode,
-} from "../graph/relationVisual";
+import { defaultKindFilter, defaultAxisFilter, type FlowAnimMode } from "../graph/relationVisual";
 import {
   defaultEntityStatusFilter,
   taskPassesStatusFilter,
   decisionPassesStateFilter,
 } from "../graph/entityStatusFilter";
-import {
-  focusHistoryReducer,
-  EMPTY_HISTORY,
-  canBack,
-  canForward,
-} from "../navigation/focusHistory";
+import { focusHistoryReducer, EMPTY_HISTORY, canBack, canForward } from "../navigation/focusHistory";
 
 export type ViewMode = "territory" | "spotlight";
 
@@ -101,7 +92,11 @@ function GraphViewInner({
   const [expandedZones, setExpandedZones] = useState<Set<string>>(() => new Set());
   const [flowMode, setFlowMode] = useState<FlowAnimMode>("focus");
   // 聚光灯布局统计(EgoNeighborhood 上报,页头计数与焦点面包屑共用)。
-  const [spotlightStats, setSpotlightStats] = useState<{ nodes: number; edges: number; focusLabel: string | null }>({ nodes: 0, edges: 0, focusLabel: null });
+  const [spotlightStats, setSpotlightStats] = useState<{ nodes: number; edges: number; focusLabel: string | null }>({
+    nodes: 0,
+    edges: 0,
+    focusLabel: null,
+  });
 
   // 领地摆放区宽度(ResizeObserver 实测):列数由它派生,而非固定 3 列。
   const canvasHostRef = useRef<HTMLDivElement | null>(null);
@@ -117,10 +112,7 @@ function GraphViewInner({
     return () => observer.disconnect();
   }, []);
 
-  const availableModules = useMemo(
-    () => Array.from(new Set(tasks.map((t) => t.module))).sort(),
-    [tasks],
-  );
+  const availableModules = useMemo(() => Array.from(new Set(tasks.map((t) => t.module))).sort(), [tasks]);
 
   const [filters, setFilters] = useState<GraphFilters>(() => ({
     modules: new Set(availableModules.length ? availableModules : []),
@@ -191,21 +183,40 @@ function GraphViewInner({
   );
   const territory = useMemo(() => {
     if (viewMode !== "territory") return null;
-    const taskVisible = (task: TaskRow) => filters.modules.has(task.module) && territoryTypes.has("task") && taskPassesStatusFilter(task, filters.entityStatus);
+    const taskVisible = (task: TaskRow) =>
+      filters.modules.has(task.module) &&
+      territoryTypes.has("task") &&
+      taskPassesStatusFilter(task, filters.entityStatus);
     const visibleTasks = tasks.filter(taskVisible);
     const moduleByTaskId = new Map(tasks.map((task) => [task.taskId, task.module] as const));
     // fact 跟随宿主 task 的 module 可见性;无宿主(未知/外部)不因 module 筛选隐藏。
-    const factVisible = (fact: FactRef) => territoryTypes.has("fact") && (moduleByTaskId.get(fact.taskId) ? filters.modules.has(moduleByTaskId.get(fact.taskId)!) : true);
+    const factVisible = (fact: FactRef) =>
+      territoryTypes.has("fact") &&
+      (moduleByTaskId.get(fact.taskId) ? filters.modules.has(moduleByTaskId.get(fact.taskId)!) : true);
     return partitionForSkel(
       skel,
       visibleTasks,
-      territoryTypes.has("decision") ? decisions.filter((decision) => decisionPassesStateFilter(decision, filters.entityStatus)) : [],
+      territoryTypes.has("decision")
+        ? decisions.filter((decision) => decisionPassesStateFilter(decision, filters.entityStatus))
+        : [],
       facts.filter(factVisible),
       factAnchors ?? [],
       relations,
       coverageRows ?? [],
     );
-  }, [viewMode, skel, tasks, decisions, facts, factAnchors, relations, coverageRows, filters.modules, filters.entityStatus, territoryTypes]);
+  }, [
+    viewMode,
+    skel,
+    tasks,
+    decisions,
+    facts,
+    factAnchors,
+    relations,
+    coverageRows,
+    filters.modules,
+    filters.entityStatus,
+    territoryTypes,
+  ]);
 
   const toggleZone = useCallback((zoneId: string) => {
     setExpandedZones((prev) => {
@@ -249,12 +260,7 @@ function GraphViewInner({
     };
   }, [focusRef, spotlightStats.focusLabel]);
 
-  if (
-    tasks.length === 0 &&
-    decisions.length === 0 &&
-    facts.length === 0 &&
-    (factAnchors?.length ?? 0) === 0
-  ) {
+  if (tasks.length === 0 && decisions.length === 0 && facts.length === 0 && (factAnchors?.length ?? 0) === 0) {
     return (
       <div
         data-testid="triadic-graph-empty-state"
@@ -262,7 +268,8 @@ function GraphViewInner({
       >
         <div className="text-[14px] font-semibold text-text">暂无三元语关系数据</div>
         <div className="max-w-md text-[12px] leading-relaxed text-text-faint">
-          当前 ledger 没有可投影的 task、decision 或 fact。记录出现后,领地与聚光灯会自动显示真实节点与 kernel relation 边。
+          当前 ledger 没有可投影的 task、decision 或 fact。记录出现后,领地与聚光灯会自动显示真实节点与 kernel relation
+          边。
         </div>
       </div>
     );
@@ -317,80 +324,88 @@ function GraphViewInner({
       )}
 
       <div className="flex min-h-0 flex-1">
-        <FocusSwitcher recentRefs={recentRefs} entries={entries} focusRef={focusRef} onFocus={(ref) => (viewMode === "territory" ? enterSpotlight(ref) : openFocus(ref))} onOpenPalette={onOpenPalette} />
-        <div ref={canvasHostRef} className="flex min-h-0 min-w-0 flex-1 relative">
-        {viewMode === "territory" && (
-          <ReactFlow
-            nodes={territoryNodes}
-            nodeTypes={nodeTypes}
-            colorMode={colorMode}
-            minZoom={0.05}
-            maxZoom={2}
-            zoomOnDoubleClick={false}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            attributionPosition="bottom-right"
-          >
-            <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--color-border)" />
-            <Controls className="bg-surface-raised border-border" />
-            <MiniMap
-              data-testid="graph-minimap"
-              bgColor="var(--color-surface)"
-              nodeColor={(n) => {
-                if (n.type === "territoryZone") return "var(--color-border)";
-                if (n.type === "territoryChip") {
-                  const entity = (n.data as any)?.chip?.entity;
-                  if (entity === "decision") return "var(--color-axis-authority)";
-                  if (entity === "fact") return "var(--color-axis-evidence)";
-                  if (entity === "task") return "var(--color-axis-execution)";
-                  return "var(--color-border-strong)";
-                }
-                return "var(--color-border-strong)";
-              }}
-              nodeStrokeColor="var(--color-border-strong)"
-              maskColor={minimapMaskColor(colorMode)}
-              className="border border-border rounded overflow-hidden"
-              pannable
-              zoomable
-            />
-            <Panel position="top-left">
-              <div className="flex items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-[11px] text-text-muted">
-                <span>折叠块:</span>
-                <button
-                  onClick={() => {
-                    const all = new Set(territory?.zones.map((z) => z.zoneId) ?? []);
-                    setExpandedZones((cur) => (cur.size === all.size ? new Set() : all));
-                  }}
-                  className="rounded px-1 font-mono text-[11px] hover:bg-surface"
-                >
-                  {territory && expandedZones.size > 0 && expandedZones.size >= territory.zones.length ? "全部折叠" : "全部展开"}
-                </button>
-              </div>
-            </Panel>
-            <TerritorySkelToggle skel={skel} onSkelChange={setSkel} />
-            <Panel position="top-left">{filterPanel}</Panel>
-          </ReactFlow>
-        )}
-        <EgoNeighborhood
+        <FocusSwitcher
+          recentRefs={recentRefs}
+          entries={entries}
           focusRef={focusRef}
-          tasks={tasks}
-          decisions={decisions}
-          facts={facts}
-          relations={relations}
-          factAnchors={factAnchors ?? EMPTY_ANCHORS}
-          filters={{
-            axes: filters.axes,
-            kinds: filters.kinds,
-            types: filters.types,
-            flowMode,
-            statusFilter: filters.entityStatus,
-          }}
-          onNavigateEntity={onNavigateEntity}
-          onRefocus={openFocus}
-          onLayoutStats={setSpotlightStats}
-          panelSlot={filterPanel}
-          active={viewMode === "spotlight"}
+          onFocus={(ref) => (viewMode === "territory" ? enterSpotlight(ref) : openFocus(ref))}
+          onOpenPalette={onOpenPalette}
         />
+        <div ref={canvasHostRef} className="flex min-h-0 min-w-0 flex-1 relative">
+          {viewMode === "territory" && (
+            <ReactFlow
+              nodes={territoryNodes}
+              nodeTypes={nodeTypes}
+              colorMode={colorMode}
+              minZoom={0.05}
+              maxZoom={2}
+              zoomOnDoubleClick={false}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              attributionPosition="bottom-right"
+            >
+              <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--color-border)" />
+              <Controls className="bg-surface-raised border-border" />
+              <MiniMap
+                data-testid="graph-minimap"
+                bgColor="var(--color-surface)"
+                nodeColor={(n) => {
+                  if (n.type === "territoryZone") return "var(--color-border)";
+                  if (n.type === "territoryChip") {
+                    const entity = (n.data as any)?.chip?.entity;
+                    if (entity === "decision") return "var(--color-axis-authority)";
+                    if (entity === "fact") return "var(--color-axis-evidence)";
+                    if (entity === "task") return "var(--color-axis-execution)";
+                    return "var(--color-border-strong)";
+                  }
+                  return "var(--color-border-strong)";
+                }}
+                nodeStrokeColor="var(--color-border-strong)"
+                maskColor={minimapMaskColor(colorMode)}
+                className="border border-border rounded overflow-hidden"
+                pannable
+                zoomable
+              />
+              <Panel position="top-left">
+                <div className="flex items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-[11px] text-text-muted">
+                  <span>折叠块:</span>
+                  <button
+                    onClick={() => {
+                      const all = new Set(territory?.zones.map((z) => z.zoneId) ?? []);
+                      setExpandedZones((cur) => (cur.size === all.size ? new Set() : all));
+                    }}
+                    className="rounded px-1 font-mono text-[11px] hover:bg-surface"
+                  >
+                    {territory && expandedZones.size > 0 && expandedZones.size >= territory.zones.length
+                      ? "全部折叠"
+                      : "全部展开"}
+                  </button>
+                </div>
+              </Panel>
+              <TerritorySkelToggle skel={skel} onSkelChange={setSkel} />
+              <Panel position="top-left">{filterPanel}</Panel>
+            </ReactFlow>
+          )}
+          <EgoNeighborhood
+            focusRef={focusRef}
+            tasks={tasks}
+            decisions={decisions}
+            facts={facts}
+            relations={relations}
+            factAnchors={factAnchors ?? EMPTY_ANCHORS}
+            filters={{
+              axes: filters.axes,
+              kinds: filters.kinds,
+              types: filters.types,
+              flowMode,
+              statusFilter: filters.entityStatus,
+            }}
+            onNavigateEntity={onNavigateEntity}
+            onRefocus={openFocus}
+            onLayoutStats={setSpotlightStats}
+            panelSlot={filterPanel}
+            active={viewMode === "spotlight"}
+          />
         </div>
       </div>
     </div>

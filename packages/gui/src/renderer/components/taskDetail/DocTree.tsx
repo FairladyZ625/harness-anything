@@ -19,9 +19,7 @@ interface DocTreeProps {
 
 export function DocTree({ nodes, activeDoc, onSelectDoc }: DocTreeProps) {
   // 默认展开根级目录(depth 0),让用户一眼看到主要分区。
-  const [expanded, setExpanded] = useState<Set<string>>(() =>
-    new Set(collectDirectoryPaths(nodes, 0)),
-  );
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(collectDirectoryPaths(nodes, 0)));
 
   // 切换任务 / 文档清单刷新时,重置展开态到默认。
   useEffect(() => {
@@ -40,7 +38,8 @@ export function DocTree({ nodes, activeDoc, onSelectDoc }: DocTreeProps) {
   if (nodes.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-border px-2 py-3 text-[12px] text-text-faint">
-        {t("components.docTree.projectionDidNotReturnDocumentList")}</div>
+        {t("components.docTree.projectionDidNotReturnDocumentList")}
+      </div>
     );
   }
 
@@ -95,9 +94,7 @@ function TreeNodeView({
             <CaretRight weight="bold" className="shrink-0 text-[10px] text-text-faint" />
           )}
           <span className="min-w-0 truncate">{node.name}/</span>
-          <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">
-            {countDocs(node)}
-          </span>
+          <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">{countDocs(node)}</span>
         </button>
         {isExpanded &&
           node.children.map((child) => (
@@ -124,9 +121,7 @@ function TreeNodeView({
       onClick={() => onSelectDoc(doc.path)}
       aria-current={activeDoc === doc.path ? "page" : undefined}
       className={`flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] ${
-        activeDoc === doc.path
-          ? "bg-surface-raised text-text"
-          : "text-text-muted hover:text-text"
+        activeDoc === doc.path ? "bg-surface-raised text-text" : "text-text-muted hover:text-text"
       }`}
       style={{ paddingLeft: indent + 14 }}
     >
@@ -134,14 +129,13 @@ function TreeNodeView({
       <span className="min-w-0 truncate">{doc.title}</span>
       {doc.required && (
         <span className="shrink-0 rounded border border-border px-1 text-[9px] text-text-faint">
-          {t("components.docTree.required")}</span>
+          {t("components.docTree.required")}
+        </span>
       )}
       {!doc.present && doc.required && (
-        <span
-          className="shrink-0 text-[10px]"
-          style={{ color: "var(--color-danger)" }}
-        >
-          {t("components.docTree.missing")}</span>
+        <span className="shrink-0 text-[10px]" style={{ color: "var(--color-danger)" }}>
+          {t("components.docTree.missing")}
+        </span>
       )}
     </button>
   );

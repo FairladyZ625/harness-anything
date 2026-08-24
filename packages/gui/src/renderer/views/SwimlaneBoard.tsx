@@ -3,13 +3,7 @@ import { CaretRight, Lock, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
 import { t } from "../i18n/index.tsx";
-import {
-  STATUS_META,
-  CloseoutBadge,
-  DecisionSourceBadge,
-  FreshnessTag,
-  freshnessBorder,
-} from "../components/badges";
+import { STATUS_META, CloseoutBadge, DecisionSourceBadge, FreshnessTag, freshnessBorder } from "../components/badges";
 import { spawningDecisionOf } from "../model/triadic";
 import { sortByFavoritesFirst } from "../model/taskFilters";
 
@@ -35,11 +29,7 @@ function groupKeyOf(task: TaskRow, groupBy: LaneGroupBy): string {
 }
 
 /** 把分组 key 翻译成展示标签(module/engine 直接是值;root 查 rootTitle)。 */
-function groupLabelOf(
-  key: string,
-  groupBy: LaneGroupBy,
-  tasks: ReadonlyArray<TaskRow>,
-): string {
+function groupLabelOf(key: string, groupBy: LaneGroupBy, tasks: ReadonlyArray<TaskRow>): string {
   if (groupBy === "root") {
     const representative = tasks.find((t) => (t.rootTaskId ?? t.taskId) === key);
     return representative?.rootTitle ?? representative?.title ?? key;
@@ -75,9 +65,7 @@ function LaneCard({
       )} ${archived ? "opacity-50" : ""} ${isFavorite ? "ring-1 ring-accent/40" : ""} hover:border-border-strong`}
     >
       <div className="flex min-w-0 items-center gap-1.5">
-        {external && (
-          <Lock weight="bold" className="shrink-0 text-[13px] text-text-faint" />
-        )}
+        {external && <Lock weight="bold" className="shrink-0 text-[13px] text-text-faint" />}
         <button
           type="button"
           onClick={(event) => {
@@ -92,11 +80,11 @@ function LaneCard({
           <Star weight={isFavorite ? "fill" : "bold"} />
         </button>
       </div>
-      <p className="mt-2 line-clamp-3 text-[15px] leading-snug text-text">
-        {task.title}
-      </p>
+      <p className="mt-2 line-clamp-3 text-[15px] leading-snug text-text">{task.title}</p>
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
-        {task.coordinationStatus === "blocked" && task.canonicalStatus && <span className="font-mono text-[11px] text-status-blocked">canonical {task.canonicalStatus}</span>}
+        {task.coordinationStatus === "blocked" && task.canonicalStatus && (
+          <span className="font-mono text-[11px] text-status-blocked">canonical {task.canonicalStatus}</span>
+        )}
         {task.blocking === "unknown" && <span className="text-[11px] text-stale">阻塞关系未能确定</span>}
         {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
         <CloseoutBadge value={task.closeoutReadiness} />
@@ -138,9 +126,7 @@ function LaneCell({
           : "border-border bg-surface hover:border-border-strong hover:bg-surface-raised"
       } ${highlighted ? "outline outline-1 outline-accent" : ""}`}
       style={{
-        background: selected
-          ? `color-mix(in oklch, ${meta.color} 14%, var(--color-surface-raised))`
-          : undefined,
+        background: selected ? `color-mix(in oklch, ${meta.color} 14%, var(--color-surface-raised))` : undefined,
       }}
     >
       <span className="flex items-center gap-2">
@@ -153,16 +139,10 @@ function LaneCell({
         >
           {cellTasks.length}
         </span>
-        <span className="min-w-0 text-[13px] font-semibold text-text">
-          {meta.label}
-        </span>
-        {selected && (
-          <CaretRight weight="bold" className="ml-auto shrink-0 text-[13px] text-text-faint" />
-        )}
+        <span className="min-w-0 text-[13px] font-semibold text-text">{meta.label}</span>
+        {selected && <CaretRight weight="bold" className="ml-auto shrink-0 text-[13px] text-text-faint" />}
       </span>
-      <span className="mt-1.5 block truncate text-[12px] text-text-muted">
-        {preview.title}
-      </span>
+      <span className="mt-1.5 block truncate text-[12px] text-text-muted">{preview.title}</span>
     </button>
   );
 }
@@ -211,9 +191,7 @@ function DrilldownPanel({
   return (
     <section className="min-h-[320px] shrink-0 bg-bg px-4 py-3">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[12px] uppercase tracking-wide text-text-faint">
-          下钻结果
-        </span>
+        <span className="font-mono text-[12px] uppercase tracking-wide text-text-faint">下钻结果</span>
         <span className="font-mono text-[15px] font-semibold text-text">
           {groupBy}: {laneLabel}
         </span>
@@ -223,9 +201,7 @@ function DrilldownPanel({
           </span>
           {meta.label}
         </span>
-        <span className="font-mono text-[13px] text-text-faint">
-          {tasks.length} tasks
-        </span>
+        <span className="font-mono text-[13px] text-text-faint">{tasks.length} tasks</span>
       </div>
 
       <div className="max-h-[280px] overflow-auto pr-1">
@@ -280,8 +256,8 @@ export function SwimlaneBoard({
   const drillMatches = Boolean(drill && drill.groupBy === groupBy);
   const drillLane = drill?.lane;
   const drillStatus = drill?.status;
-  const [activeCell, setActiveCell] = useState<ActiveCell | null>(
-    () => (drillMatches && drillLane && drillStatus ? { lane: drillLane, status: drillStatus } : null),
+  const [activeCell, setActiveCell] = useState<ActiveCell | null>(() =>
+    drillMatches && drillLane && drillStatus ? { lane: drillLane, status: drillStatus } : null,
   );
 
   useEffect(() => {
@@ -302,7 +278,9 @@ export function SwimlaneBoard({
   }, [groupBy, tasks]);
   const lanes = useMemo(() => [...tasksByLane.keys()], [tasksByLane]);
   const [visibleLaneCount, setVisibleLaneCount] = useState(LANE_BATCH_SIZE);
-  useEffect(() => { setVisibleLaneCount(LANE_BATCH_SIZE); }, [groupBy, tasks]);
+  useEffect(() => {
+    setVisibleLaneCount(LANE_BATCH_SIZE);
+  }, [groupBy, tasks]);
   const visibleLanes = useMemo(() => {
     const visible = lanes.slice(0, visibleLaneCount);
     if (drillMatches && drillLane && lanes.includes(drillLane) && !visible.includes(drillLane)) visible.push(drillLane);
@@ -325,9 +303,7 @@ export function SwimlaneBoard({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="max-h-[48vh] shrink-0 overflow-auto border-b border-border">
         <div className="min-w-max px-4 pb-4">
-          <div
-            className={`sticky top-0 z-10 grid ${GRID_COLS} gap-2 border-b border-border bg-bg py-2`}
-          >
+          <div className={`sticky top-0 z-10 grid ${GRID_COLS} gap-2 border-b border-border bg-bg py-2`}>
             <div className="self-center px-1.5 font-mono text-[12px] uppercase tracking-wide text-text-faint">
               {groupBy}
             </div>
@@ -361,14 +337,11 @@ export function SwimlaneBoard({
                   >
                     {laneLabel}
                   </span>
-                  <span className="font-mono text-[13px] text-text-faint">
-                    {laneTasks.length}
-                  </span>
+                  <span className="font-mono text-[13px] text-text-faint">{laneTasks.length}</span>
                 </div>
                 {BOARD_COLUMNS.map((status) => {
                   const key = cellKey(lane, status);
-                  const selected =
-                    activeCell?.lane === lane && activeCell.status === status;
+                  const selected = activeCell?.lane === lane && activeCell.status === status;
                   return (
                     <LaneCell
                       key={status}
@@ -390,8 +363,10 @@ export function SwimlaneBoard({
               onClick={() => setVisibleLaneCount((count) => Math.min(count + LANE_BATCH_SIZE, lanes.length))}
               className="mt-3 w-full rounded-lg border border-dashed border-border px-3 py-2 font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text"
             >
-              {t("views.swimlaneBoard.showMore", { count: Math.min(LANE_BATCH_SIZE, hiddenLaneCount),
-                remaining: hiddenLaneCount })}
+              {t("views.swimlaneBoard.showMore", {
+                count: Math.min(LANE_BATCH_SIZE, hiddenLaneCount),
+                remaining: hiddenLaneCount,
+              })}
             </button>
           )}
           {lanes.length === 0 && (

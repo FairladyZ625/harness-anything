@@ -175,11 +175,7 @@ export function egoNeighborsOf(graph: EgoGraph, id: string, axes: EgoAxisFilter)
 }
 
 /** 单击选中的单跳高亮集:{selectId} ∪ 一跳邻居;null = 无选中(全亮)。 */
-export function egoOneHopHighlight(
-  graph: EgoGraph,
-  selectId: string | null,
-  axes: EgoAxisFilter,
-): Set<string> | null {
+export function egoOneHopHighlight(graph: EgoGraph, selectId: string | null, axes: EgoAxisFilter): Set<string> | null {
   if (!selectId) return null;
   return new Set([selectId, ...egoNeighborsOf(graph, selectId, axes)]);
 }
@@ -197,11 +193,7 @@ const H_CAP_FOCUS = 640;
 const H_CAP_PERIPH = 480;
 
 /** 卡片高度的内容感知估算(地板与 cap 由 egoNodeDims 叠加)。 */
-export function estimateEgoCardHeight(
-  entity: EgoEntity,
-  row: TaskRow | DecisionRow | FactRef,
-  width: number,
-): number {
+export function estimateEgoCardHeight(entity: EgoEntity, row: TaskRow | DecisionRow | FactRef, width: number): number {
   const cpl = Math.max(20, Math.floor((width - 24) / 8.5));
   const LINE = 22;
   const CHROME = 120; // header + 标题区 + footer + padding/gap
@@ -338,7 +330,10 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     }
     return n > 0 ? sum / n : Number.MAX_SAFE_INTEGER;
   };
-  for (const [sideKey, sign] of [["down", 1], ["up", -1]] as const) {
+  for (const [sideKey, sign] of [
+    ["down", 1],
+    ["up", -1],
+  ] as const) {
     let cx = dimOf(focusId).w / 2;
     let depth = 1;
     while (cols.has(`${sideKey}:${depth}`)) {

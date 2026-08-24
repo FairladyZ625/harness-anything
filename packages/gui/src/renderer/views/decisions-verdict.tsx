@@ -1,31 +1,9 @@
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
-import {
-  ArrowSquareOut,
-  WarningCircle,
-  TreeStructure,
-  PaperPlaneTilt,
-  BugBeetle,
-  Robot,
-} from "@phosphor-icons/react";
+import { ArrowSquareOut, WarningCircle, TreeStructure, PaperPlaneTilt, BugBeetle, Robot } from "@phosphor-icons/react";
 import type { RelationCoverageRow } from "../../api/renderer-dto.ts";
-import type {
-  DecisionRow,
-  DecisionClaim,
-  TaskRow,
-  RelationEdge,
-  FactRef,
-} from "../model/types";
-import {
-  DecisionStateBadge,
-  RiskTierBadge,
-  UrgencyBadge,
-} from "../components/badges";
-import {
-  derivedTasks,
-  factOf,
-  rationaleFor,
-  supersedeChain,
-} from "../model/triadic";
+import type { DecisionRow, DecisionClaim, TaskRow, RelationEdge, FactRef } from "../model/types";
+import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../components/badges";
+import { derivedTasks, factOf, rationaleFor, supersedeChain } from "../model/triadic";
 import { CopyContextButton } from "../components/CopyContextButton";
 import { buildEntityJumpContext } from "../model/copy-context";
 import {
@@ -41,7 +19,7 @@ import { t } from "../i18n/index.tsx";
 
 export { computeReadinessSignals, type SignalColor, type ReadinessSignal };
 
-const dateLabel = (iso?: string) => (iso ? localDateTime(iso) ?? "—" : "—");
+const dateLabel = (iso?: string) => (iso ? (localDateTime(iso) ?? "—") : "—");
 
 /** 单盏灯 */
 function SignalLamp({ signal }: { signal: ReadinessSignal }) {
@@ -67,7 +45,8 @@ function SignalLamp({ signal }: { signal: ReadinessSignal }) {
       title={signal.summary}
     >
       <span className={`size-1.5 rounded-full ${dotCls} ${signal.color !== "green" ? "animate-pulse" : ""}`} />
-      {signal.label}{signal.color === "na" ? " · N/A" : ""}
+      {signal.label}
+      {signal.color === "na" ? " · N/A" : ""}
     </span>
   );
 }
@@ -120,9 +99,7 @@ function FactChip({
       <span className="font-sans text-text-faint">⟶</span>
       {f.anchor}
       {f.invalidated && <WarningCircle weight="bold" className="text-[11px]" />}
-      {rationale && (
-        <span className="font-sans normal-case text-text-faint not-italic">({rationale})</span>
-      )}
+      {rationale && <span className="font-sans normal-case text-text-faint not-italic">({rationale})</span>}
     </button>
   );
 }
@@ -147,9 +124,7 @@ function ClaimList({
     <div className="mt-2">
       <div className="text-[11px] font-semibold text-text-faint">
         {title}
-        {tone === "rejected" && (
-          <span className="ml-1 text-danger">· 否决比选择更重要,每条必带 why_not</span>
-        )}
+        {tone === "rejected" && <span className="ml-1 text-danger">· 否决比选择更重要,每条必带 why_not</span>}
       </div>
       <ul className="mt-1 space-y-1.5">
         {items.map((c) => (
@@ -165,16 +140,12 @@ function ClaimList({
                 ))}
               </div>
             ) : (
-              <span className="ml-2 font-mono text-[11px] text-danger">
-                ⚠ 无 evidence(INV-5 Goodhart 风险)
-              </span>
+              <span className="ml-2 font-mono text-[11px] text-danger">⚠ 无 evidence(INV-5 Goodhart 风险)</span>
             )}
             {tone === "rejected" && !c.whyNot && (
               <span className="ml-2 font-mono text-[11px] text-danger">⚠ 缺 why_not</span>
             )}
-            {c.whyNot && (
-              <div className="ml-4 text-[11px] italic text-text-faint">why_not: {c.whyNot}</div>
-            )}
+            {c.whyNot && <div className="ml-4 text-[11px] italic text-text-faint">why_not: {c.whyNot}</div>}
           </li>
         ))}
       </ul>
@@ -238,7 +209,11 @@ export function VerdictCard({
   tasks: TaskRow[];
   relations: RelationEdge[];
   onCallAgent?: (cmd: string) => void;
-  onJudge: (decision: DecisionRow, action: DecisionAction, input: { readonly rationale: string; readonly judgmentOnlyRationale?: string }) => Promise<DecisionMutationFeedback>;
+  onJudge: (
+    decision: DecisionRow,
+    action: DecisionAction,
+    input: { readonly rationale: string; readonly judgmentOnlyRationale?: string },
+  ) => Promise<DecisionMutationFeedback>;
   mutationFeedback?: DecisionMutationFeedback;
   onCheckReceipt?: () => void;
   openRequest?: JudgmentOpenRequest;
@@ -316,44 +291,46 @@ export function VerdictCard({
         {signals.map((s) => (
           <SignalLamp key={s.id} signal={s} />
         ))}
-        {worst === "green" && (
-          <span className="ml-auto text-[11px] text-success">全绿 · 直接决策批准正当</span>
-        )}
+        {worst === "green" && <span className="ml-auto text-[11px] text-success">全绿 · 直接决策批准正当</span>}
       </div>
 
       {/* 黄/红警示条(41 §3.1a:不禁用按钮,只显式警示) */}
       {hasAlert && (
         <div
           className={`mt-2 rounded-md px-2.5 py-2 text-[11px] ${
-            worst === "red"
-              ? "bg-danger/10 text-danger"
-              : "bg-stale/10 text-stale"
+            worst === "red" ? "bg-danger/10 text-danger" : "bg-stale/10 text-stale"
           }`}
         >
           <div className="flex items-center gap-1 font-semibold">
-            {worst === "red" ? <BugBeetle weight="bold" className="text-[12px]" /> : <WarningCircle weight="bold" className="text-[12px]" />}
-            {worst === "red" ? "红灯:决策批准前必须核查(承重风险)" : worst === "unknown" ? "Unknown:缺字段不作绿灯" : "黄灯:决策批准前建议核查"}
+            {worst === "red" ? (
+              <BugBeetle weight="bold" className="text-[12px]" />
+            ) : (
+              <WarningCircle weight="bold" className="text-[12px]" />
+            )}
+            {worst === "red"
+              ? "红灯:决策批准前必须核查(承重风险)"
+              : worst === "unknown"
+                ? "Unknown:缺字段不作绿灯"
+                : "黄灯:决策批准前建议核查"}
           </div>
           <ul className="mt-1 space-y-0.5 pl-4">
-            {signals.filter((s) => s.color !== "green" && s.color !== "na").map((s) => (
-              <li key={s.id} className="flex gap-1">
-                <span className={`shrink-0 ${s.color === "red" ? "text-danger" : "text-stale"}`}>●</span>
-                <span className="font-mono text-[11px]">{s.label}:</span>
-                <span>{s.summary}</span>
-              </li>
-            ))}
+            {signals
+              .filter((s) => s.color !== "green" && s.color !== "na")
+              .map((s) => (
+                <li key={s.id} className="flex gap-1">
+                  <span className={`shrink-0 ${s.color === "red" ? "text-danger" : "text-stale"}`}>●</span>
+                  <span className="font-mono text-[11px]">{s.label}:</span>
+                  <span>{s.summary}</span>
+                </li>
+              ))}
           </ul>
         </div>
       )}
 
       {/* 提议/批准者 + proposer≠arbiter 自证警示(actorClass 审计性展示,INV-7 已删 → 不再强拒 agent) */}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-faint">
-        <span>
-          proposedBy {renderActor(d.proposedBy, onNavigateEntity)}
-        </span>
-        <span>
-          arbiter {renderActor(d.arbiter, onNavigateEntity)}
-        </span>
+        <span>proposedBy {renderActor(d.proposedBy, onNavigateEntity)}</span>
+        <span>arbiter {renderActor(d.arbiter, onNavigateEntity)}</span>
         {selfArb && (
           <span className="inline-flex items-center gap-1 text-danger">
             <WarningCircle weight="bold" /> proposer≠arbiter 自证风险
@@ -362,13 +339,34 @@ export function VerdictCard({
       </div>
 
       {/* ① chosen + rejected(必显) */}
-      <ClaimList title={t("views.decisionsVerdict.chosen")} items={d.chosen} tone="chosen" facts={facts} relations={relations} onInspectFact={onInspectFact} />
-      <ClaimList title={t("views.decisionsVerdict.rejected")} items={d.rejected} tone="rejected" facts={facts} relations={relations} onInspectFact={onInspectFact} />
+      <ClaimList
+        title={t("views.decisionsVerdict.chosen")}
+        items={d.chosen}
+        tone="chosen"
+        facts={facts}
+        relations={relations}
+        onInspectFact={onInspectFact}
+      />
+      <ClaimList
+        title={t("views.decisionsVerdict.rejected")}
+        items={d.rejected}
+        tone="rejected"
+        facts={facts}
+        relations={relations}
+        onInspectFact={onInspectFact}
+      />
 
       {/* 覆盖度只消费 canonical coverageRows；不从 option evidence 猜。 */}
       <div className="mt-2 flex items-center gap-2 text-[11px]">
         <span className="text-text-faint">覆盖度</span>
-        <span className={coverage.color === "green" ? "text-success" : coverage.color === "red" ? "text-danger" : "text-text-faint"}>{coverage.color === "na" ? "N/A · " : ""}{coverage.summary}</span>
+        <span
+          className={
+            coverage.color === "green" ? "text-success" : coverage.color === "red" ? "text-danger" : "text-text-faint"
+          }
+        >
+          {coverage.color === "na" ? "N/A · " : ""}
+          {coverage.summary}
+        </span>
       </div>
 
       {/* ④ relation 上下游:派生 task + supersede 链(P2 loop) */}
@@ -397,15 +395,17 @@ export function VerdictCard({
             <div className="mt-0.5 text-[11px]">
               <span className="text-text-faint">推翻(supersedes)→ </span>
               <span className="font-mono text-danger">
-                {chain.supersedes.map((id) => (
-                  <EntityRefLink
-                    key={id}
-                    entityRef={`decision/${id}`}
-                    onNavigate={() => onNavigateDecision(id)}
-                    title={id}
-                    className="text-danger hover:underline"
-                  />
-                )).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
+                {chain.supersedes
+                  .map((id) => (
+                    <EntityRefLink
+                      key={id}
+                      entityRef={`decision/${id}`}
+                      onNavigate={() => onNavigateDecision(id)}
+                      title={id}
+                      className="text-danger hover:underline"
+                    />
+                  ))
+                  .reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
               </span>
             </div>
           )}
@@ -413,15 +413,17 @@ export function VerdictCard({
             <div className="mt-0.5 text-[11px]">
               <span className="text-text-faint">被推翻(superseded by)→ </span>
               <span className="font-mono text-danger">
-                {chain.supersededBy.map((id) => (
-                  <EntityRefLink
-                    key={id}
-                    entityRef={`decision/${id}`}
-                    onNavigate={() => onNavigateDecision(id)}
-                    title={id}
-                    className="text-danger hover:underline"
-                  />
-                )).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
+                {chain.supersededBy
+                  .map((id) => (
+                    <EntityRefLink
+                      key={id}
+                      entityRef={`decision/${id}`}
+                      onNavigate={() => onNavigateDecision(id)}
+                      title={id}
+                      className="text-danger hover:underline"
+                    />
+                  ))
+                  .reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
               </span>
             </div>
           )}
@@ -432,7 +434,8 @@ export function VerdictCard({
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
         <span className="text-text-faint">{t("views.decisionsVerdict.provenance")}</span>
         {d.provenance?.map((p) => (
-          <button disabled
+          <button
+            disabled
             key={p.sessionId}
             className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-px font-mono text-[11px] text-text-faint opacity-70"
             title={`E47 disabled:renderer 暂无 session 原文 IPC。runtime: ${p.runtime}; sessionId: ${p.sessionId}; boundAt: ${dateLabel(p.boundAt)}`}
@@ -448,14 +451,21 @@ export function VerdictCard({
         proposedAt: {dateLabel(d.proposedAt)} · lastChanged: {dateLabel(d.lastChangedAt)}
       </div>
 
-      <DecisionJudgmentPanel decision={d} relations={relations} feedback={mutationFeedback} openRequest={openRequest} onSubmit={onJudge} onCheckReceipt={onCheckReceipt} />
+      <DecisionJudgmentPanel
+        decision={d}
+        relations={relations}
+        feedback={mutationFeedback}
+        openRequest={openRequest}
+        onSubmit={onJudge}
+        onCheckReceipt={onCheckReceipt}
+      />
 
       {/* "呼叫 Agent 核查"动作(41 §3.1a):
           全绿 → 低调次级链接(直接决策批准才是正当主路径);
           黄/红 → 升为高亮推荐按钮(视觉权重 ≥ accept),但不弱化 reject/defer(它们在上行保持同尺寸)。
           决策批准权归人:agent 是核查助手不是决策通道(§3.1a 决策批准权归属) */}
-      {onCallAgent && (
-        hasAlert ? (
+      {onCallAgent &&
+        (hasAlert ? (
           <button
             onClick={() => onCallAgent(`harness decision ${d.decisionId} --check`)}
             className={`mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[12px] font-semibold ${
@@ -476,8 +486,7 @@ export function VerdictCard({
             <PaperPlaneTilt weight="bold" className="text-[11px]" />
             或通过 CLI 与 Agent 讨论后决策批准(预填 /decisions)
           </button>
-        )
-      )}
+        ))}
     </div>
   );
 }

@@ -9,7 +9,7 @@ export const taskQueryKeys = {
   all: (repoId: string) => ["tasks", repoId] as const,
   list: (repoId: string) => ["tasks", repoId, "list"] as const,
   document: (repoId: string, taskId: string, path: string) => ["tasks", repoId, taskId, "document", path] as const,
-  documentList: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "document-list"] as const
+  documentList: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "document-list"] as const,
 };
 
 export function taskListQuery(repoId: string) {
@@ -18,7 +18,7 @@ export function taskListQuery(repoId: string) {
     queryFn: () => readTaskList(repoId),
     staleTime: 10_000,
     refetchInterval: LEDGER_REFRESH_INTERVAL_MS,
-    refetchOnWindowFocus: "always" as const
+    refetchOnWindowFocus: "always" as const,
   };
 }
 
@@ -69,19 +69,23 @@ async function readTaskPage(repoId: string, facets: LedgerReadFacets): Promise<T
 function joinLedgerCut(
   previous: TaskListSuccess | undefined,
   read: TaskListSuccess,
-  mode: "restart" | "resume" | "delta"
+  mode: "restart" | "resume" | "delta",
 ): TaskListSuccess {
   const complete = (read.page?.nextCursor ?? null) === null;
   const base = mode === "restart" ? undefined : previous;
   const rows = new Map((base?.rows ?? []).map((row) => [row.taskId, row]));
   for (const row of read.rows) rows.set(row.taskId, row);
-  const advanced = base === undefined || mode === "delta" && complete;
+  const advanced = base === undefined || (mode === "delta" && complete);
   const watermark = advanced ? read.watermark : Math.min(base.watermark, read.watermark);
   const sourceRevision = advanced ? read.sourceRevision : Math.min(base.sourceRevision, read.sourceRevision);
   return {
-    ok: true, status: complete ? read.status : "pending", warnings: read.warnings, watermark, sourceRevision,
+    ok: true,
+    status: complete ? read.status : "pending",
+    warnings: read.warnings,
+    watermark,
+    sourceRevision,
     rows: [...rows.values()].sort((left, right) => compareTaskId(left.taskId, right.taskId)),
-    ...(complete || read.page === undefined ? {} : { page: read.page })
+    ...(complete || read.page === undefined ? {} : { page: read.page }),
   };
 }
 
@@ -92,27 +96,48 @@ function compareTaskId(left: string, right: string): number {
 }
 
 export function useTasksQuery(repoId: string | null) {
-  const queryClient = useQueryClient(), selectedRepoId = repoId ?? "unselected", queryKey = taskQueryKeys.list(selectedRepoId);
+  const queryClient = useQueryClient(),
+    selectedRepoId = repoId ?? "unselected",
+    queryKey = taskQueryKeys.list(selectedRepoId);
   return useQuery({
     ...taskListQuery(selectedRepoId),
     queryFn: () => readTaskList(selectedRepoId, queryClient.getQueryData<TaskListSuccess>(queryKey)),
-    enabled: repoId !== null
+    enabled: repoId !== null,
   });
 }
 
 export async function invalidateLedgerDependents(queryClient: QueryClient, repoId: string): Promise<void> {
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: taskQueryKeys.all(repoId), predicate: (query) => query.queryKey[2] !== "list" }),
+    queryClient.invalidateQueries({
+      queryKey: taskQueryKeys.all(repoId),
+      predicate: (query) => query.queryKey[2] !== "list",
+    }),
     queryClient.invalidateQueries({ queryKey: ["triadic", repoId] }),
-    queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId) })
+    queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId) }),
   ]);
 }
 
-export function taskDocumentQuery(repoId: string, taskId: string, path: string) { return { queryKey: taskQueryKeys.document(repoId, taskId, path), queryFn: () => harnessClient.getTaskDocument({ repoId, taskId, path }), staleTime: 10_000 }; }
+export function taskDocumentQuery(repoId: string, taskId: string, path: string) {
+  return {
+    queryKey: taskQueryKeys.document(repoId, taskId, path),
+    queryFn: () => harnessClient.getTaskDocument({ repoId, taskId, path }),
+    staleTime: 10_000,
+  };
+}
 
-export function useTaskDocumentQuery(repoId: string, taskId: string, path: string | null) { return useQuery({ ...taskDocumentQuery(repoId, taskId, path ?? ""), enabled: path !== null }); }
+export function useTaskDocumentQuery(repoId: string, taskId: string, path: string | null) {
+  return useQuery({ ...taskDocumentQuery(repoId, taskId, path ?? ""), enabled: path !== null });
+}
 
 /** 任务包文档清单(repo.tasks.documents.list):合同槽位之外,artifacts/ 等子目录文件也在此列。 */
-export function taskDocumentListQuery(repoId: string, taskId: string) { return { queryKey: taskQueryKeys.documentList(repoId, taskId), queryFn: () => harnessClient.getTaskDocuments({ repoId, taskId }), staleTime: 10_000 }; }
+export function taskDocumentListQuery(repoId: string, taskId: string) {
+  return {
+    queryKey: taskQueryKeys.documentList(repoId, taskId),
+    queryFn: () => harnessClient.getTaskDocuments({ repoId, taskId }),
+    staleTime: 10_000,
+  };
+}
 
-export function useTaskDocumentListQuery(repoId: string, taskId: string | null) { return useQuery({ ...taskDocumentListQuery(repoId, taskId ?? ""), enabled: taskId !== null }); }
+export function useTaskDocumentListQuery(repoId: string, taskId: string | null) {
+  return useQuery({ ...taskDocumentListQuery(repoId, taskId ?? ""), enabled: taskId !== null });
+}

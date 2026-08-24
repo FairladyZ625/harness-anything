@@ -58,32 +58,36 @@ export const harnessRuntimeReleaseReadiness: RuntimeReleaseReadinessPolicy = {
       surface: "source-run",
       command: "node packages/cli/src/index.ts --help",
       requiredInCi: false,
-      notes: ["The thin source entry renders its product catalog without loading daemon domain modules or starting a daemon."]
+      notes: [
+        "The thin source entry renders its product catalog without loading daemon domain modules or starting a daemon.",
+      ],
     },
     {
       surface: "full-check",
       command: "npm run check",
       requiredInCi: true,
-      notes: ["Full local and push/scheduled gate; includes supply-chain and package smoke checks."]
+      notes: ["Full local and push/scheduled gate; includes supply-chain and package smoke checks."],
     },
     {
       surface: "pr-check",
       command: "npm run check:pr",
       requiredInCi: false,
-      notes: ["Local PR gate mirrors pull-request CI shards without supply-chain and smoke-only release checks."]
+      notes: ["Local PR gate mirrors pull-request CI shards without supply-chain and smoke-only release checks."],
     },
     {
       surface: "package-smoke",
       command: "npm run harness:smoke-cli-package",
       requiredInCi: true,
-      notes: ["Builds and packs the CLI workspace, installs the tarball into a temporary consumer, and exercises CLI JSON commands."]
+      notes: [
+        "Builds and packs the CLI workspace, installs the tarball into a temporary consumer, and exercises CLI JSON commands.",
+      ],
     },
     {
       surface: "gui-build",
       command: "npm run -w @harness-anything/gui build",
       requiredInCi: true,
-      notes: ["Builds the Vite renderer bundle; it is not a signed desktop installer."]
-    }
+      notes: ["Builds the Vite renderer bundle; it is not a signed desktop installer."],
+    },
   ],
   releaseBoundary: {
     packagesPrivateExceptCli: true,
@@ -94,27 +98,41 @@ export const harnessRuntimeReleaseReadiness: RuntimeReleaseReadinessPolicy = {
     notarizedBuildsShipped: false,
     autoUpdateShipped: false,
     releaseFeedsShipped: false,
-    releaseArtifactsPublished: false
-  }
+    releaseArtifactsPublished: false,
+  },
 };
 
 export function validateRuntimeReleaseReadiness(
-  policy: RuntimeReleaseReadinessPolicy
+  policy: RuntimeReleaseReadinessPolicy,
 ): RuntimeReleaseReadinessValidationResult {
   const errors: RuntimeReleaseReadinessValidationError[] = [];
   if (policy.minimumNodeMajor !== 24) {
-    errors.push({ code: "invalid_minimum_node", message: "Runtime source execution requires Node 24 as the minimum major." });
+    errors.push({
+      code: "invalid_minimum_node",
+      message: "Runtime source execution requires Node 24 as the minimum major.",
+    });
   }
   if (!policy.supportedNodeMajors.includes(24) || !policy.supportedNodeMajors.includes(26)) {
     errors.push({ code: "missing_node_coverage", message: "Runtime readiness must cover Node 24 and Node 26." });
   }
-  if (policy.commands.find((command) => command.surface === "source-run")?.command !== "node packages/cli/src/index.ts --help") {
-    errors.push({ code: "missing_required_surface", surface: "source-run", message: "Source readiness must probe the thin CLI help surface." });
+  if (
+    policy.commands.find((command) => command.surface === "source-run")?.command !==
+    "node packages/cli/src/index.ts --help"
+  ) {
+    errors.push({
+      code: "missing_required_surface",
+      surface: "source-run",
+      message: "Source readiness must probe the thin CLI help surface.",
+    });
   }
 
   for (const surface of ["source-run", "full-check", "pr-check", "package-smoke", "gui-build"] as const) {
     if (!policy.commands.some((command) => command.surface === surface)) {
-      errors.push({ code: "missing_required_surface", surface, message: `Missing runtime readiness surface: ${surface}` });
+      errors.push({
+        code: "missing_required_surface",
+        surface,
+        message: `Missing runtime readiness surface: ${surface}`,
+      });
     }
   }
 
@@ -132,7 +150,8 @@ export function validateRuntimeReleaseReadiness(
   ) {
     errors.push({
       code: "invalid_release_boundary",
-      message: "P10 runtime readiness cannot claim real package release, signed installers, notarized builds, auto-update, release feeds, or release artifacts."
+      message:
+        "P10 runtime readiness cannot claim real package release, signed installers, notarized builds, auto-update, release feeds, or release artifacts.",
     });
   }
 

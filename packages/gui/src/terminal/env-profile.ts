@@ -40,11 +40,16 @@ export type EnvProfileValidationResult =
       };
     };
 
-const secretKeyPattern = /(^|_)(api[_-]?key|access[_-]?key|auth|credential|pass(word|phrase)?|private[_-]?key|secret|token)($|_)/i;
-const secretValuePattern = /(-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9_]{20,}|xox[baprs]-|sk-[A-Za-z0-9]{16,}|bearer\s+[A-Za-z0-9._-]{16,})/i;
+const secretKeyPattern =
+  /(^|_)(api[_-]?key|access[_-]?key|auth|credential|pass(word|phrase)?|private[_-]?key|secret|token)($|_)/i;
+const secretValuePattern =
+  /(-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9_]{20,}|xox[baprs]-|sk-[A-Za-z0-9]{16,}|bearer\s+[A-Za-z0-9._-]{16,})/i;
 const secretReferencePattern = /^(keychain:|ssh-agent:|secret:\/\/|\$\{(?:KEYCHAIN|SSH_AGENT|SECRET_REF):[^}]+\})/i;
 
-export function validateEnvProfile(profile: EnvProfile, options: EnvProfileValidationOptions = {}): EnvProfileValidationResult {
+export function validateEnvProfile(
+  profile: EnvProfile,
+  options: EnvProfileValidationOptions = {},
+): EnvProfileValidationResult {
   if (!profile.envProfileId || !profile.name || !profile.createdAt || !profile.updatedAt) {
     return failure("invalid_env_profile_identity", "EnvProfile requires stable id, name, createdAt and updatedAt.");
   }
@@ -58,7 +63,10 @@ export function validateEnvProfile(profile: EnvProfile, options: EnvProfileValid
   }
 
   if (typeof profile.inheritSystemEnv !== "boolean" || !isPlainStringRecord(profile.env)) {
-    return failure("invalid_env_profile_env", "EnvProfile env must be a string-to-string record and inheritSystemEnv must be boolean.");
+    return failure(
+      "invalid_env_profile_env",
+      "EnvProfile env must be a string-to-string record and inheritSystemEnv must be boolean.",
+    );
   }
 
   const violations = findEnvProfileSecretViolations(profile);
@@ -68,8 +76,8 @@ export function validateEnvProfile(profile: EnvProfile, options: EnvProfileValid
       error: {
         code: "env_profile_contains_secret",
         hint: "EnvProfile is launch context, not a secret store; use keychain, ssh-agent, or an enterprise secret reference.",
-        violations
-      }
+        violations,
+      },
     };
   }
 

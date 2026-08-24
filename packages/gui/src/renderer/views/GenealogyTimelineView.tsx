@@ -84,7 +84,7 @@ export function GenealogyTimelineView({
     setSelectedId(null);
   }, [focusId]);
 
-  const focus = focusId ? byId.get(focusId) ?? null : null;
+  const focus = focusId ? (byId.get(focusId) ?? null) : null;
 
   const plotRef = useRef<HTMLDivElement | null>(null);
   const [plotWidth, setPlotWidth] = useState(900);
@@ -113,8 +113,7 @@ export function GenealogyTimelineView({
     () =>
       edges.filter((edge) => {
         const covered = (id: string) =>
-          nodeById.has(id) ||
-          layout.nodes.some((n) => n.isCluster && n.memberIds?.includes(id));
+          nodeById.has(id) || layout.nodes.some((n) => n.isCluster && n.memberIds?.includes(id));
         return covered(edge.from) && covered(edge.to);
       }),
     [edges, nodeById, layout.nodes],
@@ -151,7 +150,7 @@ export function GenealogyTimelineView({
   const ancestorCount = layout.nodes.filter((n) => !n.isCluster && n.depth < 0).length;
   const descendantCount = layout.nodes.filter((n) => !n.isCluster && n.depth > 0).length;
   const visibleClusters = layout.nodes.filter((n) => n.isCluster).length;
-  const selected = selectedId ? byId.get(selectedId) ?? null : null;
+  const selected = selectedId ? (byId.get(selectedId) ?? null) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="genealogy-timeline">
@@ -169,7 +168,8 @@ export function GenealogyTimelineView({
             </span>
           )}
           <span className="min-w-0 truncate font-mono text-[11px] tabular-nums text-text-faint">
-            焦点谱系 · {ancestorCount} 祖先 / {descendantCount} 后代{visibleClusters > 0 ? ` · ${visibleClusters} 同日簇` : ""}
+            焦点谱系 · {ancestorCount} 祖先 / {descendantCount} 后代
+            {visibleClusters > 0 ? ` · ${visibleClusters} 同日簇` : ""}
           </span>
         </div>
       </div>
@@ -183,7 +183,10 @@ export function GenealogyTimelineView({
               <span key={kind} className="inline-flex items-center gap-1 text-text-muted">
                 <svg width="22" height="8" aria-hidden>
                   <line
-                    x1="0" y1="4" x2="22" y2="4"
+                    x1="0"
+                    y1="4"
+                    x2="22"
+                    y2="4"
                     stroke={meta.color}
                     strokeWidth={meta.strokeWidth}
                     strokeDasharray={meta.dash || undefined}

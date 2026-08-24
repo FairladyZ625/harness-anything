@@ -28,9 +28,7 @@ export function buildFactTriageContext(
   const { fact, signals, citingDecisionIds } = item;
   const lines: string[] = [];
 
-  const signalSummary = signals
-    .map((s) => `${SIGNAL_LABEL[s.kind]}: ${s.detail}`)
-    .join("; ");
+  const signalSummary = signals.map((s) => `${SIGNAL_LABEL[s.kind]}: ${s.detail}`).join("; ");
 
   lines.push(`## Harness context — fact triage 信号`);
   lines.push("");
@@ -60,9 +58,7 @@ export function buildFactTriageContext(
     lines.push(`- **closeoutReadiness**: ${sourceTask.closeoutReadiness}`);
     const failedGates = sourceTask.gates.filter((g) => !g.ok);
     if (failedGates.length > 0) {
-      lines.push(
-        `- **failed gates**: ${failedGates.map((g) => g.name).join(", ")}`,
-      );
+      lines.push(`- **failed gates**: ${failedGates.map((g) => g.name).join(", ")}`);
     }
   } else {
     lines.push(`- **id**: \`${fact.taskId}\` (宿主 task 不在当前投影)`);
@@ -71,9 +67,7 @@ export function buildFactTriageContext(
 
   // --- 相关 decision ---
   const fullRef = `fact/${fact.anchor}`;
-  const citingDecisions = decisions.filter((d) =>
-    citingDecisionIds.includes(d.decisionId),
-  );
+  const citingDecisions = decisions.filter((d) => citingDecisionIds.includes(d.decisionId));
   lines.push(`### 相关 decision (${citingDecisions.length})`);
   if (citingDecisions.length === 0) {
     lines.push("- (无——该 fact 未被任何 decision claim 沿承重边引用)");
@@ -88,9 +82,7 @@ export function buildFactTriageContext(
   lines.push("");
 
   // --- 相关 relation 边(该 fact 直接连接的) ---
-  const directEdges = relations.filter(
-    (r) => r.from === fullRef || r.to === fullRef,
-  );
+  const directEdges = relations.filter((r) => r.from === fullRef || r.to === fullRef);
   lines.push(`### 相关 relation (${directEdges.length})`);
   for (const r of directEdges) {
     const rationale = r.rationale ? ` — ${r.rationale}` : "";
@@ -100,12 +92,8 @@ export function buildFactTriageContext(
 
   // --- 行动提示(人判) ---
   lines.push(`### 需要人判`);
-  lines.push(
-    `该 fact 触发了 triage 信号(${signals.map((s) => SIGNAL_LABEL[s.kind]).join(", ")})。请判断:`,
-  );
-  lines.push(
-    `- 信号是否为真异常(误标/陈旧/已修复)?`,
-  );
+  lines.push(`该 fact 触发了 triage 信号(${signals.map((s) => SIGNAL_LABEL[s.kind]).join(", ")})。请判断:`);
+  lines.push(`- 信号是否为真异常(误标/陈旧/已修复)?`);
   lines.push(`- 是否需要:补 evidence / 修正 fact / 否决相关 decision / 补失效 rationale?`);
   lines.push("");
 
@@ -157,9 +145,7 @@ export function buildEntityJumpContext(
       lines.push(`- **confidence**: ${fact.confidence}`);
       lines.push(`- **invalidated**: ${fact.invalidated ? "是" : "否"}`);
       const hostTask = tasks.find((candidate) => candidate.taskId === fact.taskId);
-      lines.push(
-        `- **宿主 task**: \`${fact.taskId}\`${hostTask ? ` — ${hostTask.title}` : " (不在当前 task 投影)"}`,
-      );
+      lines.push(`- **宿主 task**: \`${fact.taskId}\`${hostTask ? ` — ${hostTask.title}` : " (不在当前 task 投影)"}`);
     } else {
       lines.push(`- \`${anchor}\` 不在当前投影`);
     }
@@ -178,9 +164,7 @@ export function buildEntityJumpContext(
   lines.push("");
 
   const directEdges = relations.filter(
-    (relation) =>
-      endpointBelongsToEntity(relation.from, ref) ||
-      endpointBelongsToEntity(relation.to, ref),
+    (relation) => endpointBelongsToEntity(relation.from, ref) || endpointBelongsToEntity(relation.to, ref),
   );
   lines.push(`### 直连 relation (${directEdges.length})`);
   for (const r of directEdges) {
@@ -188,11 +172,9 @@ export function buildEntityJumpContext(
     lines.push(`- \`${r.from}\` --(${r.kind})--> \`${r.to}\`${rationale}`);
   }
 
-  const relatedRefs = [
-    ...new Set(
-      directEdges.flatMap((relation) => [relation.from, relation.to]),
-    ),
-  ].filter((candidate) => !endpointBelongsToEntity(candidate, ref));
+  const relatedRefs = [...new Set(directEdges.flatMap((relation) => [relation.from, relation.to]))].filter(
+    (candidate) => !endpointBelongsToEntity(candidate, ref),
+  );
   lines.push("");
   lines.push(`### 相关实体 (${relatedRefs.length})`);
   if (relatedRefs.length === 0) lines.push("- (无直连实体)");
@@ -205,22 +187,14 @@ export function buildEntityJumpContext(
 
 function endpointBelongsToEntity(endpoint: string, entityRef: string): boolean {
   if (entityRef.startsWith("decision/")) {
-    return (
-      endpoint.startsWith("decision/") &&
-      normalizeDecisionId(endpoint) === normalizeDecisionId(entityRef)
-    );
+    return endpoint.startsWith("decision/") && normalizeDecisionId(endpoint) === normalizeDecisionId(entityRef);
   }
   if (entityRef.startsWith("fact/")) return endpoint === entityRef;
   const taskId = entityRef.replace(/^task\//, "").split("/")[0];
   return endpoint.replace(/^task\//, "").split("/")[0] === taskId;
 }
 
-function entitySummary(
-  ref: string,
-  decisions: DecisionRow[],
-  facts: FactRef[],
-  tasks: TaskRow[],
-): string {
+function entitySummary(ref: string, decisions: DecisionRow[], facts: FactRef[], tasks: TaskRow[]): string {
   if (ref.startsWith("decision/")) {
     const id = normalizeDecisionId(ref);
     const decision = decisions.find((candidate) => candidate.decisionId === id);
@@ -231,9 +205,7 @@ function entitySummary(
   if (ref.startsWith("fact/")) {
     const anchor = ref.replace(/^fact\//, "");
     const fact = facts.find((candidate) => candidate.anchor === anchor);
-    return fact
-      ? `\`${ref}\` — ${fact.text} [fact:${fact.confidence}]`
-      : `\`${ref}\` — fact 不在当前投影`;
+    return fact ? `\`${ref}\` — ${fact.text} [fact:${fact.confidence}]` : `\`${ref}\` — fact 不在当前投影`;
   }
   const taskId = ref.replace(/^task\//, "").split("/")[0];
   const task = tasks.find((candidate) => candidate.taskId === taskId);

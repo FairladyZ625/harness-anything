@@ -53,38 +53,52 @@ export interface RuntimeHealth {
 
 export interface RuntimeHealthInput {
   /** null = 查询还没回来过;state 由调用方按 isError 折算。 */
-  readonly daemon: { readonly ok: boolean; readonly observedAt: string | null; readonly uptimeMs: number | null } | null;
+  readonly daemon: {
+    readonly ok: boolean;
+    readonly observedAt: string | null;
+    readonly uptimeMs: number | null;
+  } | null;
   readonly repo: Pick<SystemRepoRow, "cellState" | "queueDepth" | "lastError" | "unavailableReason"> | null;
-  readonly projection: { readonly watermark: number; readonly sourceRevision: number; readonly status: "ready" | "pending" } | null;
+  readonly projection: {
+    readonly watermark: number;
+    readonly sourceRevision: number;
+    readonly status: "ready" | "pending";
+  } | null;
   readonly lastSnapshotAt: string | null;
   readonly now: string;
 }
 
 function ageSec(from: string | null, now: string): number | null {
   if (from === null) return null;
-  const at = Date.parse(from), current = Date.parse(now);
+  const at = Date.parse(from),
+    current = Date.parse(now);
   if (!Number.isFinite(at) || !Number.isFinite(current)) return null;
   return Math.max(0, Math.round((current - at) / 1_000));
 }
 
 export function deriveRuntimeHealth(input: RuntimeHealthInput): RuntimeHealth {
   const observedAgeSec = ageSec(input.daemon?.observedAt ?? null, input.now);
-  const daemonState: DaemonHealthState = input.daemon === null
-    ? "unknown"
-    : input.daemon.ok === false || (observedAgeSec !== null && observedAgeSec > DAEMON_OBSERVED_STALE_SEC)
-      ? "unresponsive"
-      : "responsive";
+  const daemonState: DaemonHealthState =
+    input.daemon === null
+      ? "unknown"
+      : input.daemon.ok === false || (observedAgeSec !== null && observedAgeSec > DAEMON_OBSERVED_STALE_SEC)
+        ? "unresponsive"
+        : "responsive";
   const cell = input.repo;
   return {
     daemon: { state: daemonState, observedAgeSec, uptimeMs: input.daemon?.uptimeMs ?? null },
     cell: {
       state: cell?.cellState ?? "unknown",
       queueDepth: cell?.queueDepth ?? null,
-      problem: cell ? cell.lastError ?? cell.unavailableReason : null,
+      problem: cell ? (cell.lastError ?? cell.unavailableReason) : null,
     },
-    projection: input.projection === null
-      ? { lag: null, status: null }
-      : { lag: Math.max(0, input.projection.sourceRevision - input.projection.watermark), status: input.projection.status },
+    projection:
+      input.projection === null
+        ? { lag: null, status: null }
+        : {
+            lag: Math.max(0, input.projection.sourceRevision - input.projection.watermark),
+            status: input.projection.status,
+          },
     ledgerChange: { at: input.lastSnapshotAt, ageSec: ageSec(input.lastSnapshotAt, input.now) },
   };
 }
@@ -92,7 +106,13 @@ export function deriveRuntimeHealth(input: RuntimeHealthInput): RuntimeHealth {
 /** 健康卡的整体灯:daemon 与 cell 任一红即红,投影落后只降黄。 */
 export function runtimeHealthWorst(health: RuntimeHealth): "ok" | "degraded" | "down" {
   if (health.daemon.state === "unresponsive" || health.cell.state === "unavailable") return "down";
-  if (health.cell.state === "warming" || health.cell.state === "not_loaded" || health.cell.state === "unknown"
-    || health.daemon.state === "unknown" || (health.projection.lag ?? 0) > 0) return "degraded";
+  if (
+    health.cell.state === "warming" ||
+    health.cell.state === "not_loaded" ||
+    health.cell.state === "unknown" ||
+    health.daemon.state === "unknown" ||
+    (health.projection.lag ?? 0) > 0
+  )
+    return "degraded";
   return "ok";
 }

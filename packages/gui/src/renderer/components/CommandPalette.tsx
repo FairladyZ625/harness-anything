@@ -64,9 +64,7 @@ export function CommandPalette({
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return entries;
-    return entries.filter(
-      (e) => e.label.toLowerCase().includes(needle) || e.ref.toLowerCase().includes(needle),
-    );
+    return entries.filter((e) => e.label.toLowerCase().includes(needle) || e.ref.toLowerCase().includes(needle));
   }, [query, entries]);
   const filtered = useMemo(() => matches.slice(0, visibleCount), [matches, visibleCount]);
   const hiddenCount = matches.length - filtered.length;
@@ -118,15 +116,11 @@ export function CommandPalette({
             placeholder="搜索 task / decision / fact,回车跳转…"
             className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-faint"
           />
-          <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[11px] text-text-faint">
-            ESC
-          </kbd>
+          <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[11px] text-text-faint">ESC</kbd>
         </div>
         <div className="max-h-[50vh] overflow-y-auto py-1">
           {filtered.length === 0 ? (
-            <div className="px-3 py-6 text-center text-[12px] text-text-faint">
-              无匹配实体
-            </div>
+            <div className="px-3 py-6 text-center text-[12px] text-text-faint">无匹配实体</div>
           ) : (
             filtered.map((entry, i) => (
               <button
@@ -159,17 +153,9 @@ export function CommandPalette({
                 >
                   {entry.entity}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[12px] text-text">
-                  {entry.label}
-                </span>
-                {entry.sub && (
-                  <span className="shrink-0 font-mono text-[11px] text-text-faint">
-                    {entry.sub}
-                  </span>
-                )}
-                {i === activeIdx && (
-                  <ArrowRight weight="bold" className="shrink-0 text-[11px] text-text-faint" />
-                )}
+                <span className="min-w-0 flex-1 truncate text-[12px] text-text">{entry.label}</span>
+                {entry.sub && <span className="shrink-0 font-mono text-[11px] text-text-faint">{entry.sub}</span>}
+                {i === activeIdx && <ArrowRight weight="bold" className="shrink-0 text-[11px] text-text-faint" />}
               </button>
             ))
           )}

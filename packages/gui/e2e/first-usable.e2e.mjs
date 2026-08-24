@@ -19,7 +19,7 @@ test("Overview is first-usable only with real interactive projection content", {
     daemonId: "gui-e2e-usable",
     repoId: "gui-e2e-usable",
     task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" },
-    beforeRestart: seedTriadicEvents
+    beforeRestart: seedTriadicEvents,
   });
   const ledgerRoot = daemonFixture.rootDir;
   let electronApp;
@@ -33,7 +33,7 @@ test("Overview is first-usable only with real interactive projection content", {
     executablePath: electronPath,
     args: [resolve(guiRoot, "src/main/electron-main.ts")],
     cwd: repoRoot,
-    env: { ...process.env, ...daemonFixture.env, HARNESS_GUI_ROOT: ledgerRoot }
+    env: { ...process.env, ...daemonFixture.env, HARNESS_GUI_ROOT: ledgerRoot },
   });
   const page = await electronApp.firstWindow();
   page.setDefaultTimeout(20_000);
@@ -67,7 +67,11 @@ test("Overview is first-usable only with real interactive projection content", {
   await activeTab.waitFor();
   const plannedTab = page.getByTestId("overview-status-planned");
   await plannedTab.click();
-  await page.getByTestId("task-stream-rows").getByText("Render the real triadic projection").first().waitFor({ timeout: 10_000 });
+  await page
+    .getByTestId("task-stream-rows")
+    .getByText("Render the real triadic projection")
+    .first()
+    .waitFor({ timeout: 10_000 });
   await page.getByText("一屏四问").waitFor({ timeout: 10_000 });
   await page.getByRole("button", { name: "去看板" }).click();
   await page.getByText("Render the real triadic projection").first().waitFor({ timeout: 10_000 });
@@ -103,7 +107,11 @@ test("Overview is first-usable only with real interactive projection content", {
   await page.locator("[data-testid='fact-detail-view'] .react-flow").waitFor({ timeout: 5_000 });
 
   await page.locator("[data-testid='fact-detail-view'] [data-testid='ego-chip'][data-entity='decision']").click();
-  await page.locator("[data-testid='fact-detail-view'] [data-testid='ego-card'][data-entity='decision'] button[aria-label='详情']").click();
+  await page
+    .locator(
+      "[data-testid='fact-detail-view'] [data-testid='ego-card'][data-entity='decision'] button[aria-label='详情']",
+    )
+    .click();
   await page.getByTestId("decision-detail-view").waitFor({ timeout: 5_000 });
   await page.getByText("Expose the triadic projection to the GUI").first().waitFor({ timeout: 5_000 });
 

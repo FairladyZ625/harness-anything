@@ -23,15 +23,7 @@ const SHORTCUTS: { keys: string[]; desc: string }[] = [
   { keys: ["Enter"], desc: "在列表中打开任务详情" },
 ];
 
-type SettingsTab =
-  | "appearance"
-  | "language"
-  | "shortcuts"
-  | "notifications"
-  | "data"
-  | "terminal"
-  | "privacy"
-  | "sync";
+type SettingsTab = "appearance" | "language" | "shortcuts" | "notifications" | "data" | "terminal" | "privacy" | "sync";
 
 const SETTINGS_TABS: { id: SettingsTab; label: string; desc: string }[] = [
   { id: "appearance", label: "外观", desc: "主题与状态色" },
@@ -55,33 +47,18 @@ export function SettingsView() {
       case "appearance":
         return (
           <Section title="外观">
-            <Row
-              label="主题"
-              desc="OKLch 双主题 · 六态状态色两主题可辨识度等价"
-            >
+            <Row label="主题" desc="OKLch 双主题 · 六态状态色两主题可辨识度等价">
               <Segmented value={mode} options={THEME_OPTIONS} onChange={setMode} />
             </Row>
-            <Row
-              label="界面缩放"
-              desc="按比例调整正文、标题、泳道和控件密度"
-            >
-              <Segmented
-                value={uiScale}
-                options={SCALE_OPTIONS}
-                onChange={setUiScale}
-              />
+            <Row label="界面缩放" desc="按比例调整正文、标题、泳道和控件密度">
+              <Segmented value={uiScale} options={SCALE_OPTIONS} onChange={setUiScale} />
             </Row>
             <Row label="状态色" desc="随主题切换实时变色">
               <div className="flex flex-wrap items-center justify-end gap-3">
                 {Object.entries(STATUS_META).map(([key, meta]) => (
                   <span key={key} className="inline-flex items-center gap-1">
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ background: meta.color }}
-                    />
-                    <span className="font-mono text-[12px] text-text-muted">
-                      {meta.label}
-                    </span>
+                    <span className="h-2 w-2 rounded-full" style={{ background: meta.color }} />
+                    <span className="font-mono text-[12px] text-text-muted">{meta.label}</span>
                   </span>
                 ))}
               </div>
@@ -114,16 +91,11 @@ export function SettingsView() {
             }
           >
             {SHORTCUTS.map((s) => (
-              <div
-                key={s.desc}
-                className="flex items-center gap-3 border-b border-border px-3 py-1.5 last:border-b-0"
-              >
+              <div key={s.desc} className="flex items-center gap-3 border-b border-border px-3 py-1.5 last:border-b-0">
                 <span className="flex w-28 shrink-0 items-center gap-1">
                   {s.keys.map((k, i) => (
                     <span key={k} className="inline-flex items-center gap-1">
-                      {i > 0 && (
-                        <span className="text-[11px] text-text-faint">–</span>
-                      )}
+                      {i > 0 && <span className="text-[11px] text-text-faint">–</span>}
                       <Kbd>{k}</Kbd>
                     </span>
                   ))}
@@ -163,14 +135,10 @@ export function SettingsView() {
         return (
           <Section title="终端">
             <Row label="默认 shell">
-              <span className="font-mono text-[13px] text-text-muted">
-                /bin/zsh
-              </span>
+              <span className="font-mono text-[13px] text-text-muted">/bin/zsh</span>
             </Row>
             <Row label="字体">
-              <span className="font-mono text-[13px] text-text-muted">
-                Geist Mono
-              </span>
+              <span className="font-mono text-[13px] text-text-muted">Geist Mono</span>
             </Row>
             <Row label="字号">
               <span className="font-mono text-[13px] text-text-muted">15</span>
@@ -189,10 +157,7 @@ export function SettingsView() {
         return (
           <Section title="账号与同步">
             <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
-              <CloudSlash
-                weight="duotone"
-                className="shrink-0 text-xl text-text-faint"
-              />
+              <CloudSlash weight="duotone" className="shrink-0 text-xl text-text-faint" />
               <p className="ui-meta min-w-0 flex-1 text-text-muted">
                 本地模式 · 多端同步与账号体系将在 V2 提供（商业版）
               </p>
@@ -218,9 +183,7 @@ export function SettingsView() {
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
         <h1 className="ui-title font-mono font-semibold">{t("settings.title")}</h1>
-        <p className="ui-meta mt-0.5 text-text-faint">
-          应用偏好 · 原型内除主题外多数项为本地模拟，不会写入磁盘。
-        </p>
+        <p className="ui-meta mt-0.5 text-text-faint">应用偏好 · 原型内除主题外多数项为本地模拟，不会写入磁盘。</p>
       </header>
 
       <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 p-4 lg:grid-cols-[12rem_minmax(0,1fr)]">
@@ -236,9 +199,7 @@ export function SettingsView() {
               }`}
             >
               <span className="text-[14px] font-semibold">{tab.label}</span>
-              <span className="mt-0.5 hidden text-[12px] text-text-faint lg:block">
-                {tab.desc}
-              </span>
+              <span className="mt-0.5 hidden text-[12px] text-text-faint lg:block">{tab.desc}</span>
             </button>
           ))}
         </nav>

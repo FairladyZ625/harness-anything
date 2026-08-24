@@ -7,7 +7,7 @@ import { t } from "../i18n/index.tsx";
 import { EntityRefLink } from "./EntityRefLink.tsx";
 import { localMonthDayTime } from "../model/local-time.ts";
 
-const timeOf = (iso: string | undefined) => (iso ? localMonthDayTime(iso) ?? "—" : "—");
+const timeOf = (iso: string | undefined) => (iso ? (localMonthDayTime(iso) ?? "—") : "—");
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -19,14 +19,25 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function ClaimList({ claims }: { claims: DecisionRow["chosen"] }) {
-  if (claims.length === 0) return <p className="text-[14px] text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>;
+  if (claims.length === 0)
+    return <p className="text-[14px] text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>;
   return (
     <div className="space-y-2">
       {claims.map((claim) => (
         <div key={claim.id} className="rounded-md bg-surface-raised px-3 py-2">
           <p className="text-[14px] text-text">{claim.text}</p>
-          {claim.rationale && <p className="mt-1 text-[13px] leading-snug text-text-muted">{t("components.decisionPreviewDrawer.why")}{claim.rationale}</p>}
-          {"whyNot" in claim && claim.whyNot && <p className="mt-1 text-[13px] leading-snug text-danger">{t("components.decisionPreviewDrawer.whyNot")}{claim.whyNot}</p>}
+          {claim.rationale && (
+            <p className="mt-1 text-[13px] leading-snug text-text-muted">
+              {t("components.decisionPreviewDrawer.why")}
+              {claim.rationale}
+            </p>
+          )}
+          {"whyNot" in claim && claim.whyNot && (
+            <p className="mt-1 text-[13px] leading-snug text-danger">
+              {t("components.decisionPreviewDrawer.whyNot")}
+              {claim.whyNot}
+            </p>
+          )}
         </div>
       ))}
     </div>
@@ -41,7 +52,10 @@ function ClaimList({ claims }: { claims: DecisionRow["chosen"] }) {
  */
 
 /** 提议/批准者:agent 是可寻址实体 → 链接;human/system 无详情页 → 纯文本。 */
-function ActorRef({ actor, onNavigateEntity }: {
+function ActorRef({
+  actor,
+  onNavigateEntity,
+}: {
   readonly actor: { kind: "agent" | "human" | "system"; id: string } | undefined;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
@@ -60,22 +74,28 @@ function ActorRef({ actor, onNavigateEntity }: {
 }
 
 /** decision ID 列表(逗号分隔),每项都是通往该 decision 的路。 */
-function DecisionIdList({ ids, onOpenDetail, tone }: {
+function DecisionIdList({
+  ids,
+  onOpenDetail,
+  tone,
+}: {
   readonly ids: readonly string[];
   readonly onOpenDetail: (decisionId: string) => void;
   readonly tone: string;
 }) {
   return (
     <>
-      {ids.map((id) => (
-        <EntityRefLink
-          key={id}
-          entityRef={`decision/${id}`}
-          onNavigate={() => onOpenDetail(id)}
-          title={id}
-          className={tone}
-        />
-      )).reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
+      {ids
+        .map((id) => (
+          <EntityRefLink
+            key={id}
+            entityRef={`decision/${id}`}
+            onNavigate={() => onOpenDetail(id)}
+            title={id}
+            className={tone}
+          />
+        ))
+        .reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
     </>
   );
 }
@@ -144,14 +164,19 @@ export function DecisionPreviewDrawer({
           </div>
           <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px] text-text-faint">
             <span className="flex min-w-0 items-center gap-1">
-              {t("components.decisionPreviewDrawer.proposedBy")} <ActorRef actor={decision.proposedBy} onNavigateEntity={onNavigateEntity} />
+              {t("components.decisionPreviewDrawer.proposedBy")}{" "}
+              <ActorRef actor={decision.proposedBy} onNavigateEntity={onNavigateEntity} />
             </span>
             <span className="flex min-w-0 items-center gap-1">
               {t("components.decisionPreviewDrawer.arbiter")}{" "}
               <ActorRef actor={decision.arbiter} onNavigateEntity={onNavigateEntity} />
             </span>
-            <span>{t("components.decisionPreviewDrawer.proposedAt")} {timeOf(decision.proposedAt)}</span>
-            <span>{t("components.decisionPreviewDrawer.decidedAt")} {timeOf(decision.decidedAt)}</span>
+            <span>
+              {t("components.decisionPreviewDrawer.proposedAt")} {timeOf(decision.proposedAt)}
+            </span>
+            <span>
+              {t("components.decisionPreviewDrawer.decidedAt")} {timeOf(decision.decidedAt)}
+            </span>
           </div>
         </header>
 
@@ -187,7 +212,8 @@ export function DecisionPreviewDrawer({
               <div className="space-y-1 font-mono text-[12px]">
                 {chain.supersedes.length > 0 && (
                   <p className="flex flex-wrap items-center gap-1 text-danger">
-                    {t("components.decisionPreviewDrawer.retires")} <DecisionIdList
+                    {t("components.decisionPreviewDrawer.retires")}{" "}
+                    <DecisionIdList
                       ids={chain.supersedes}
                       onOpenDetail={onOpenDetail}
                       tone="text-danger hover:underline"
@@ -196,14 +222,19 @@ export function DecisionPreviewDrawer({
                 )}
                 {chain.supersededBy.length > 0 && (
                   <p className="flex flex-wrap items-center gap-1 text-stale">
-                    {t("components.decisionPreviewDrawer.supersededBy")} <DecisionIdList
+                    {t("components.decisionPreviewDrawer.supersededBy")}{" "}
+                    <DecisionIdList
                       ids={chain.supersededBy}
                       onOpenDetail={onOpenDetail}
                       tone="text-stale hover:underline"
                     />
                   </p>
                 )}
-                {amended && <p className="text-text-muted">{t("components.decisionPreviewDrawer.amendedAt")} {timeOf(decision.lastChangedAt)}</p>}
+                {amended && (
+                  <p className="text-text-muted">
+                    {t("components.decisionPreviewDrawer.amendedAt")} {timeOf(decision.lastChangedAt)}
+                  </p>
+                )}
               </div>
             )}
           </Section>
