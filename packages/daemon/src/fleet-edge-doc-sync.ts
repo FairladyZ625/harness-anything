@@ -202,7 +202,7 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
         mediaType: change.mediaType,
       })),
     });
-    if (pushed.center.outcome === "applied") {
+    if (pushed.center.outcome === "applied" || pushed.center.outcome === "no_changes") {
       // PULLING — land this node's own effect in the mirror. A pull that finds
       // another divergence reports pull_blocked and ok:false; canonical
       // success is never presented as locally synced (§8).
@@ -450,7 +450,7 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
         baseBlobSha256: row.centerBlobSha256,
       })),
     });
-    if (pushed.center.outcome !== "applied")
+    if (pushed.center.outcome !== "applied" && pushed.center.outcome !== "no_changes")
       return {
         schema: "command-receipt/v2",
         ok: false,

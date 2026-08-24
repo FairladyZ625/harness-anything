@@ -1,27 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
 
-import {
-  cli,
-  git,
-  register,
-  run,
-  runMaybe,
-  setup,
-  stop,
-} from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
+import { cli, git, register, run, runMaybe, setup, stop } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 test("real CLI reaches one resident multi-workspace daemon and publishes Git event -> SQLite -> receipt", async () => {
   const fixture = setup();
   try {
@@ -36,18 +22,9 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       "--no-link",
     ]);
     assert.notEqual(noDaemon.status, 0);
-    assert.equal(
-      (noDaemon.receipt.error as { code?: string }).code,
-      "daemon_unavailable",
-    );
-    assert.equal(
-      existsSync(path.join(fixture.userRoot, "registry.json")),
-      false,
-    );
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok,
-      true,
-    );
+    assert.equal((noDaemon.receipt.error as { code?: string }).code, "daemon_unavailable");
+    assert.equal(existsSync(path.join(fixture.userRoot, "registry.json")), false);
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     register(fixture.alpha, fixture.userRoot, "alpha");
     register(fixture.beta, fixture.userRoot, "beta");
     const alphaPreview = run(fixture.alpha, fixture.userRoot, [
@@ -62,10 +39,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     ]);
     assert.equal(alphaPreview.dryRun, true);
     assert.equal(alphaPreview.packagePath, "tasks/task-alpha-alpha");
-    assert.equal(
-      existsSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha")),
-      false,
-    );
+    assert.equal(existsSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha")), false);
     const textPreview = spawnSync(
       process.execPath,
       [
@@ -144,15 +118,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     };
     assert.equal(fact.state, "standing");
     const factSearch = JSON.parse(
-      String(
-        run(fixture.alpha, fixture.userRoot, [
-          "fact",
-          "search",
-          "Canonical",
-          "--task",
-          "task-alpha",
-        ]).evidence,
-      ),
+      String(run(fixture.alpha, fixture.userRoot, ["fact", "search", "Canonical", "--task", "task-alpha"]).evidence),
     ) as { facts: readonly { factId: string }[] };
     assert.deepEqual(
       factSearch.facts.map((row) => row.factId),
@@ -160,14 +126,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     );
     const factShow = JSON.parse(
       String(
-        run(fixture.alpha, fixture.userRoot, [
-          "fact",
-          "show",
-          "--task",
-          "task-alpha",
-          "--id",
-          fact.factId,
-        ]).evidence,
+        run(fixture.alpha, fixture.userRoot, ["fact", "show", "--task", "task-alpha", "--id", fact.factId]).evidence,
       ),
     ) as { fact: { statement: string } };
     assert.equal(factShow.fact.statement, "Canonical Fact from CLI");
@@ -186,17 +145,8 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
         fulfillments: [],
         relations: [],
       }),
-      decisionPropose = run(fixture.alpha, fixture.userRoot, [
-        "decision",
-        "propose",
-        "--json-input",
-        decisionPacket,
-      ]);
-    assert.equal(
-      decisionPropose.outcome,
-      "applied",
-      JSON.stringify(decisionPropose),
-    );
+      decisionPropose = run(fixture.alpha, fixture.userRoot, ["decision", "propose", "--json-input", decisionPacket]);
+    assert.equal(decisionPropose.outcome, "applied", JSON.stringify(decisionPropose));
     const decision = JSON.parse(String(decisionPropose.evidence)) as {
         decisionId: string;
         state: string;
@@ -228,19 +178,11 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.equal(acceptedDecision.outcome, "applied");
     assert.match(String(acceptedDecision.consentId), /^djc_[0-9a-f]{26}$/u);
     assert.equal(
-      makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).readHead()
-        ?.revision,
+      makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).readHead()?.revision,
       beforeAccepted + 1,
     );
     const decisionList = JSON.parse(
-      String(
-        run(fixture.alpha, fixture.userRoot, [
-          "decision",
-          "list",
-          "--search",
-          "Canonical Decision",
-        ]).evidence,
-      ),
+      String(run(fixture.alpha, fixture.userRoot, ["decision", "list", "--search", "Canonical Decision"]).evidence),
     ) as { decisions: readonly { decisionId: string }[] };
     assert.deepEqual(
       decisionList.decisions.map((row) => row.decisionId),
@@ -249,26 +191,13 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.deepEqual(
       (
         JSON.parse(
-          String(
-            run(fixture.alpha, fixture.userRoot, [
-              "decision",
-              "list",
-              "--search",
-              "Uncanonical",
-            ]).evidence,
-          ),
+          String(run(fixture.alpha, fixture.userRoot, ["decision", "list", "--search", "Uncanonical"]).evidence),
         ) as { decisions: readonly { decisionId: string }[] }
       ).decisions,
       [],
     );
     const decisionShow = JSON.parse(
-      String(
-        run(fixture.alpha, fixture.userRoot, [
-          "decision",
-          "show",
-          decision.decisionId,
-        ]).evidence,
-      ),
+      String(run(fixture.alpha, fixture.userRoot, ["decision", "show", decision.decisionId]).evidence),
     ) as { decision: { decisionId: string; body: unknown } };
     assert.equal(decisionShow.decision.decisionId, decision.decisionId);
     assert.equal(decisionShow.decision.body, null);
@@ -284,46 +213,25 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       evidenceSource: string;
       statement: string;
     };
-    assert.match(
-      reckonFact.evidenceSource,
-      new RegExp(`^decision/${decision.decisionId}@\\d+$`, "u"),
-    );
+    assert.match(reckonFact.evidenceSource, new RegExp(`^decision/${decision.decisionId}@\\d+$`, "u"));
     assert.match(reckonFact.statement, /no load-bearing claims/u);
     const canonicalEvents = makeTaskEventStore({
       rootDir: fixture.alpha,
       repoId: "alpha",
     }).read().events;
     assert.equal(
-      canonicalEvents.some(
-        (event) =>
-          event.schema === "decision-event/v1" &&
-          event.decisionId === decision.decisionId,
-      ),
+      canonicalEvents.some((event) => event.schema === "decision-event/v1" && event.decisionId === decision.decisionId),
       true,
     );
     assert.equal(
       canonicalEvents.some(
-        (event) =>
-          event.schema === "fact-event/v1" &&
-          event.payload.evidenceSource === reckonFact.evidenceSource,
+        (event) => event.schema === "fact-event/v1" && event.payload.evidenceSource === reckonFact.evidenceSource,
       ),
       true,
     );
-    assert.match(
-      String(
-        run(fixture.alpha, fixture.userRoot, ["task", "show", "task-alpha"])
-          .evidence,
-      ),
-      /Alpha/u,
-    );
+    assert.match(String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-alpha"]).evidence), /Alpha/u);
     assert.equal(
-      run(fixture.alpha, fixture.userRoot, [
-        "task",
-        "start",
-        "task-alpha",
-        "--execution-id",
-        "exec-doc",
-      ]).outcome,
+      run(fixture.alpha, fixture.userRoot, ["task", "start", "task-alpha", "--execution-id", "exec-doc"]).outcome,
       "applied",
     );
     const progress = run(fixture.alpha, fixture.userRoot, [
@@ -340,15 +248,9 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.equal(progress.commitSha, null);
     assert.ok(progress.cut);
     assert.equal(progress.worktreeVisible, true);
+    assert.match(String(progress.evidence), /file:tasks\/task-alpha-alpha\/progress\.md/u);
     assert.match(
-      String(progress.evidence),
-      /file:tasks\/task-alpha-alpha\/progress\.md/u,
-    );
-    assert.match(
-      readFileSync(
-        path.join(fixture.alpha, "harness/tasks/task-alpha-alpha/progress.md"),
-        "utf8",
-      ),
+      readFileSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha/progress.md"), "utf8"),
       /CLI progress is canonical\..*Evidence: test:reports\/cli\.txt:passed/su,
     );
     const docPath = "tasks/task-alpha-alpha/notes.md",
@@ -356,63 +258,47 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       authored = path.join(fixture.alpha, "harness", docPath);
     mkdirSync(path.dirname(authored), { recursive: true });
     writeFileSync(authored, docBody);
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath]).outcome, "applied");
     assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath])
-        .outcome,
+      run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--task", "task-alpha"]).outcome,
       "applied",
     );
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, [
-        "doc",
-        "sync",
-        "--submit",
-        "--task",
-        "task-alpha",
-      ]).outcome,
-      "applied",
-    );
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", docPath])
-        .evidence,
-      docBody,
-    );
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", docPath]).evidence, docBody);
+    const cleanSubmit = runMaybe(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", docPath]);
+    assert.equal(cleanSubmit.status, 0, cleanSubmit.stderr);
+    assert.equal(cleanSubmit.receipt.ok, true, JSON.stringify(cleanSubmit.receipt));
+    assert.equal(cleanSubmit.receipt.outcome, "no_changes", JSON.stringify(cleanSubmit.receipt));
+    assert.equal(cleanSubmit.receipt.code, "no_changes");
+    const invalidSubmit = runMaybe(fixture.alpha, fixture.userRoot, [
+      "doc",
+      "sync",
+      "--submit",
+      "--path",
+      "context/missing.md",
+    ]);
+    assert.equal(invalidSubmit.status, 1, JSON.stringify(invalidSubmit.receipt));
+    assert.equal(invalidSubmit.receipt.ok, false, JSON.stringify(invalidSubmit.receipt));
+    assert.equal(invalidSubmit.receipt.outcome, "op_rejected");
+    assert.equal(invalidSubmit.receipt.code, "document_not_found");
     const blockedPath = "context/other-session.md",
       eligiblePath = "context/this-session.md",
       blockedFile = path.join(fixture.alpha, "harness", blockedPath);
     mkdirSync(path.dirname(blockedFile), { recursive: true });
     writeFileSync(blockedFile, "# Stable\n");
     assert.equal(
-      run(fixture.alpha, fixture.userRoot, [
-        "doc",
-        "sync",
-        "--submit",
-        "--path",
-        blockedPath,
-      ]).outcome,
+      run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", blockedPath]).outcome,
       "applied",
     );
     writeFileSync(blockedFile, "# Renamed\n");
-    writeFileSync(
-      path.join(fixture.alpha, "harness", eligiblePath),
-      "# Eligible\n",
-    );
-    const partial = run(fixture.alpha, fixture.userRoot, [
-      "doc",
-      "sync",
-      "--submit",
-    ]);
+    writeFileSync(path.join(fixture.alpha, "harness", eligiblePath), "# Eligible\n");
+    const partial = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit"]);
     assert.equal(partial.outcome, "applied", JSON.stringify(partial));
     assert.match(
       String(partial.summary),
       /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tbase region is missing: "# Stable"/u,
     );
     assert.equal(
-      run(fixture.alpha, fixture.userRoot, [
-        "doc",
-        "show",
-        "--path",
-        eligiblePath,
-      ]).evidence,
+      run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", eligiblePath]).evidence,
       "# Eligible\n",
     );
     const spoof = await requestLocalDaemonJsonRpc(
@@ -432,52 +318,26 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.equal(spoof.ok, false);
     assert.equal((spoof.error as { code?: string }).code, "invalid_request");
     const logicalRevisions = new Map([
-      [
-        fixture.alpha,
-        makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read()
-          .revision,
-      ],
-      [
-        fixture.beta,
-        makeTaskEventStore({ rootDir: fixture.beta, repoId: "beta" }).read()
-          .revision,
-      ],
+      [fixture.alpha, makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read().revision],
+      [fixture.beta, makeTaskEventStore({ rootDir: fixture.beta, repoId: "beta" }).read().revision],
     ]);
     stop(fixture.alpha, fixture.userRoot); // explicit drain: Git/fresh readers catch up after acknowledged visibility
     for (const root of [fixture.alpha, fixture.beta]) {
-      const gitHead = JSON.parse(
-        git(root, "show", "refs/ha/canonical:harness/events/head.json"),
-      ) as { revision: number };
+      const gitHead = JSON.parse(git(root, "show", "refs/ha/canonical:harness/events/head.json")) as {
+        revision: number;
+      };
       assert.equal(gitHead.revision, logicalRevisions.get(root));
       assert.equal(
-        git(
-          root,
-          "ls-tree",
-          "--name-only",
-          "refs/ha/canonical",
-          "harness/events",
-        ).includes("harness/events"),
+        git(root, "ls-tree", "--name-only", "refs/ha/canonical", "harness/events").includes("harness/events"),
         true,
       );
-      assert.equal(
-        existsSync(path.join(root, ".harness/cache/task.sqlite")),
-        true,
-      );
-      assert.equal(
-        existsSync(path.join(root, ".harness/write-journal")),
-        false,
-      );
+      assert.equal(existsSync(path.join(root, ".harness/cache/task.sqlite")), true);
+      assert.equal(existsSync(path.join(root, ".harness/write-journal")), false);
     }
     assert.equal(
-      git(
-        fixture.alpha,
-        "grep",
-        "-l",
-        "fact-event/v1",
-        "refs/ha/canonical",
-        "--",
+      git(fixture.alpha, "grep", "-l", "fact-event/v1", "refs/ha/canonical", "--", "harness/events").includes(
         "harness/events",
-      ).includes("harness/events"),
+      ),
       true,
     );
   } finally {
@@ -489,14 +349,12 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
 test("real CLI creates module and subtask-expansion packages through their declared providers", () => {
   const fixture = setup();
   try {
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok,
-      true,
-    );
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     register(fixture.alpha, fixture.userRoot, "alpha");
-    const catalog = JSON.parse(
-      String(run(fixture.alpha, fixture.userRoot, ["preset", "list"]).evidence),
-    ) as Array<{ id: string; validity: string }>;
+    const catalog = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["preset", "list"]).evidence)) as Array<{
+      id: string;
+      validity: string;
+    }>;
     assert.deepEqual(
       catalog
         .filter(({ id }) => ["module", "subtask-expansion"].includes(id))
@@ -507,15 +365,8 @@ test("real CLI creates module and subtask-expansion packages through their decla
       ],
     );
     assert.equal(
-      run(fixture.alpha, fixture.userRoot, [
-        "task",
-        "create",
-        "--id",
-        "task-parent",
-        "--admin",
-        "--title",
-        "Parent",
-      ]).outcome,
+      run(fixture.alpha, fixture.userRoot, ["task", "create", "--id", "task-parent", "--admin", "--title", "Parent"])
+        .outcome,
       "applied",
     );
     const moduleTask = run(fixture.alpha, fixture.userRoot, [
@@ -542,28 +393,13 @@ test("real CLI creates module and subtask-expansion packages through their decla
     assert.equal(moduleTask.outcome, "applied", JSON.stringify(moduleTask));
     assert.deepEqual(
       (moduleTask.generatedPaths as string[])
-        .filter((target) =>
-          /(?:module\.md|module_(?:plan|brief|session_prompt)\.md)$/u.test(
-            target,
-          ),
-        )
+        .filter((target) => /(?:module\.md|module_(?:plan|brief|session_prompt)\.md)$/u.test(target))
         .map((target) => path.basename(target))
         .sort(),
-      [
-        "module.md",
-        "module_brief.md",
-        "module_plan.md",
-        "module_session_prompt.md",
-      ],
+      ["module.md", "module_brief.md", "module_plan.md", "module_session_prompt.md"],
     );
     assert.match(
-      readFileSync(
-        path.join(
-          fixture.alpha,
-          "harness/tasks/task-module-module-task/module.md",
-        ),
-        "utf8",
-      ),
+      readFileSync(path.join(fixture.alpha, "harness/tasks/task-module-module-task/module.md"), "utf8"),
       /Module key: kernel[\s\S]*Module title: Kernel[\s\S]*Module prefix: KER[\s\S]*Module scope: packages\/kernel\/\*\*/u,
     );
     const child = run(fixture.alpha, fixture.userRoot, [
@@ -585,26 +421,13 @@ test("real CLI creates module and subtask-expansion packages through their decla
       repoId: "alpha",
     })
       .read()
-      .events.find(
-        (event) =>
-          event.schema === "task-bootstrap-event/v1" &&
-          event.taskId === "task-child",
-      );
+      .events.find((event) => event.schema === "task-bootstrap-event/v1" && event.taskId === "task-child");
     assert.equal(
-      childEvent?.schema === "task-bootstrap-event/v1"
-        ? childEvent.payload.task.metadata.parentTaskId
-        : null,
+      childEvent?.schema === "task-bootstrap-event/v1" ? childEvent.payload.task.metadata.parentTaskId : null,
       "task-parent",
     );
     const children = JSON.parse(
-      String(
-        run(fixture.alpha, fixture.userRoot, [
-          "task",
-          "list",
-          "--parent",
-          "task-parent",
-        ]).evidence,
-      ),
+      String(run(fixture.alpha, fixture.userRoot, ["task", "list", "--parent", "task-parent"]).evidence),
     ) as { rows: Array<{ taskId: string }> };
     assert.deepEqual(
       children.rows.map(({ taskId }) => taskId),

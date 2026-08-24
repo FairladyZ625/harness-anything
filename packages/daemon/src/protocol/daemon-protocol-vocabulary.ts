@@ -23,7 +23,7 @@ export const decisionStateWords = [
   "outcome_retired",
 ] as const;
 
-export const receiptOutcomeWords = ["applied", "pending", "indeterminate", "op_rejected"] as const;
+export const receiptOutcomeWords = ["applied", "pending", "no_changes", "indeterminate", "op_rejected"] as const;
 
 export const daemonRepoModeWords = Object.freeze([
   "local",

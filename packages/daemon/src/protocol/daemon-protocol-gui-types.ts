@@ -66,12 +66,12 @@ export type DaemonGuiReadResultMap = {
     ReturnType<typeof import("../../../kernel/src/projection/sqlite-task-projection.ts").readRelationGraphProjection>,
     "taskRows" | "coverageRows"
   > & {
-    /** Coverage rows as served: the kernel row plus the optional uncovered-cause
-     * classification (kernel `freshnessReasonOf`), attached only to uncovered rows.
-     * Optional so older daemons and every persisted record shape stay valid. */
-    readonly coverageRows: readonly (RelationCoverageRow & { readonly freshnessReason?: FreshnessReason })[];
-    readonly page?: ProjectionPage;
-  };
+      /** Coverage rows as served: the kernel row plus the optional uncovered-cause
+       * classification (kernel `freshnessReasonOf`), attached only to uncovered rows.
+       * Optional so older daemons and every persisted record shape stay valid. */
+      readonly coverageRows: readonly (RelationCoverageRow & { readonly freshnessReason?: FreshnessReason })[];
+      readonly page?: ProjectionPage;
+    };
   readonly "repo.decisions.list": {
     readonly ok: true;
     readonly decisions: readonly DecisionProjectionRow[];
@@ -125,7 +125,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.agentRuntime.overview": {
     readonly taskId?: string;
     readonly limit?: number;
-    readonly cursor?: string
+    readonly cursor?: string;
   };
   readonly "repo.agentRuntime.sessions.read": {
     readonly runtimeSessionId: string;
@@ -369,7 +369,7 @@ export type DaemonGuiActionResult = JsonObject & {
   readonly schema: "command-receipt/v2";
   readonly ok: boolean;
   readonly command: string;
-  readonly outcome: "applied" | "pending" | "indeterminate" | "op_rejected";
+  readonly outcome: "applied" | "pending" | "no_changes" | "indeterminate" | "op_rejected";
   readonly opId: string;
 };
 

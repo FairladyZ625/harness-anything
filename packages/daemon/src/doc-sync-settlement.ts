@@ -232,15 +232,17 @@ export function noOp(input: Input, scan: DocCandidateScan): DocSettlementReceipt
   const revision = input.store.readHead()?.revision ?? 0,
     nextAction = "no eligible document changes to submit";
   return {
-    outcome: "op_rejected",
+    outcome: "no_changes",
     opId: `noop:${scan.baseLedgerSha.headDigest}`,
     revision,
     code: "no_changes",
     origin: "doc-sync",
     evidence: "doc-sync:no-op",
+    visibility: "center",
+    proof: proof(revision, revision, true, true),
     nextAction,
     detail: { ...scanDetail(input, scan, "no_changes"), nextAction },
-    summary: submitSummary("op_rejected", [], scan),
+    summary: submitSummary("no_changes", [], scan),
   };
 }
 

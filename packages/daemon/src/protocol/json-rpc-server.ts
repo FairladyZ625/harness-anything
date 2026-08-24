@@ -492,7 +492,7 @@ export function createJsonRpcProtocolServer(options: {
     if (action.kind === "preset-run-start" || action.kind === "preset-run-status")
       return reply((await options.host.presetRun(repo, action, options.authContext)) as unknown as JsonObject);
     const receipt = await options.host.run(repo, action, options.authContext);
-    const ok = receipt.outcome === "applied" || receipt.outcome === "pending";
+    const ok = receipt.outcome === "applied" || receipt.outcome === "pending" || receipt.outcome === "no_changes";
     const result = {
       schema: "command-receipt/v2",
       ok,

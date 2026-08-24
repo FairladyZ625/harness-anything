@@ -119,7 +119,7 @@ export const runtimeAndRecoveryStatusWords: readonly StatusWordRegistration[] = 
       "Collides with the same entity's transcript reachability word, which is " +
       "about reaching the transcript rather than about how the session ended. " +
       "Both stand for now; a rename would go to this semantic state word " +
-      "(candidate: \"ended-unobserved\").",
+      '(candidate: "ended-unobserved").',
   },
   {
     word: "unavailable",
@@ -142,6 +142,13 @@ export const runtimeAndRecoveryStatusWords: readonly StatusWordRegistration[] = 
     entity: "WriteReceipt",
     field: "outcome",
     meaning: "Write not yet settled at the canonical cut.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "no_changes",
+    entity: "WriteReceipt",
+    field: "outcome",
+    meaning: "The requested valid document selection is already clean; no write was needed.",
     divergence: "entity-scoped",
   },
   {

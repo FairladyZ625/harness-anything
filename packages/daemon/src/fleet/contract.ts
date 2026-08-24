@@ -88,7 +88,7 @@ export type FleetFrameV1 =
       "fleet.doc.result/v1",
       {
         inReplyTo: string;
-        outcome: "applied" | "pending" | "op_rejected" | "indeterminate";
+        outcome: "applied" | "pending" | "no_changes" | "op_rejected" | "indeterminate";
         opId: string;
         revision: number | null;
         code: string | null;
@@ -426,7 +426,7 @@ const schemas: Readonly<Record<string, Check>> = {
   }),
   "fleet.doc.result/v1": shape({
     ...reply,
-    outcome: one("applied", "pending", "op_rejected", "indeterminate"),
+    outcome: one("applied", "pending", "no_changes", "op_rejected", "indeterminate"),
     opId: text,
     revision: nullable(uint),
     code: nullable(text),

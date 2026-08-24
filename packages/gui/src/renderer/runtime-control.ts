@@ -106,7 +106,7 @@ function receipt(value: unknown): RuntimeReceipt {
     !isRendererRecord(value) ||
     value.schema !== "command-receipt/v2" ||
     typeof value.opId !== "string" ||
-    !["applied", "pending", "indeterminate", "op_rejected"].includes(String(value.outcome))
+    !["applied", "pending", "no_changes", "indeterminate", "op_rejected"].includes(String(value.outcome))
   )
     throw new Error(rendererErrorHint(value, "Runtime spawn returned an invalid receipt."));
   return value as RuntimeReceipt;
