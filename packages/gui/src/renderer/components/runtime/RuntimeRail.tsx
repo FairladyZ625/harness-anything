@@ -22,6 +22,7 @@ const OUTCOME_TONE: Record<RuntimeDockRow["status"], string> = {
   cancelled: "text-status-cancelled",
   running: "text-status-active",
   unknown: "text-status-unknown",
+  lost: "text-status-unknown",
   "ended-indeterminate": "text-status-unknown",
   unavailable: "text-text-faint",
 };

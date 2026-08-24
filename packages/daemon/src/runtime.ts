@@ -7,7 +7,7 @@ import { createJsonRpcProtocolServer } from "./protocol/json-rpc-server.ts";
 import { openDaemonRequestLog } from "./request-log.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
 import { openDaemonConnLog } from "./conn-log.ts";
-import { daemonBuildStamp } from "./build-identity.ts";
+import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 
 export interface RunningDaemon {
@@ -37,8 +37,9 @@ export async function startDaemon(input: {
   mkdirSync(path.dirname(pidPath), { recursive: true });
   writeFileSync(pidPath, `${process.pid}\n`, "utf8");
   const lifecycle = openDaemonLifecycleLog({ userRoot: input.userRoot, daemonId: input.daemonId });
-  lifecycle.record({ event: "process_start", endpoint });
   const build = daemonBuildStamp();
+  const buildObserver = observeDaemonBuild(input.runtimeFile);
+  lifecycle.record({ event: "process_start", endpoint, ...buildObserver.status() });
   // Connection- and request-level traffic sink; async by design so the socket hot path never waits on disk.
   const connLog = openDaemonConnLog({ userRoot: input.userRoot, daemonId: input.daemonId });
   let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined,
@@ -67,6 +68,7 @@ export async function startDaemon(input: {
         createJsonRpcProtocolServer({
           host: host!,
           build,
+          buildObserver,
           authContext: { ...authContext, connectionSignal: signal },
           emit,
           connectionId: connLog.connectionOpened(connectionId, authContext.transportKind),

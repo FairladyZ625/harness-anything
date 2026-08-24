@@ -178,7 +178,7 @@ async function requestWithSocket(
 ): Promise<JsonObject> {
   const client = new JsonRpcLineClient(socket, socket);
   try {
-    await client.request(
+    const hello = await client.request(
       "protocol.hello",
       {
         protocolVersion: currentDaemonProtocolVersion,
@@ -188,6 +188,16 @@ async function requestWithSocket(
       },
       responseTimeoutMs,
     );
+    const staleError = hello.error && typeof hello.error === "object" && !Array.isArray(hello.error)
+      ? hello.error as JsonObject
+      : null,
+      staleHint = staleError && typeof staleError.hint === "string"
+      ? staleError.hint
+      : undefined;
+    if (hello.ok === false && hello.code === "daemon_build_stale")
+      throw Object.assign(new Error(String(hello.nextAction ?? staleHint ?? "daemon_build_stale")), {
+        code: "daemon_build_stale",
+      });
     return await client.request(method, params, responseTimeoutMs);
   } catch (error) {
     if (

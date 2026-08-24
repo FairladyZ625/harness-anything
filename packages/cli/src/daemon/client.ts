@@ -99,6 +99,11 @@ export function daemonTargetFailureCode(error: unknown): "daemon_target_conflict
     ? "daemon_target_conflict"
     : null;
 }
+export function daemonBuildStaleCode(error: unknown): "daemon_build_stale" | null {
+  return typeof error === "object" && error !== null && (error as { readonly code?: unknown }).code === "daemon_build_stale"
+    ? "daemon_build_stale"
+    : null;
+}
 // The autostart seam is imported lazily so the thin dist static import graph stays
 // entry/parser/transport-only; it is only reachable on a connection-level failure.
 async function withAutostart(
@@ -114,6 +119,16 @@ async function withAutostart(
     const { DaemonAutostartError, ensureLocalDaemonRunning, isDaemonUnreachable } = await import(
       "../../../daemon/src/client/daemon-autostart.ts"
     );
+    if (isDaemonBuildStale(error)) {
+      await waitForDaemonRestart(socketPath);
+      const restarted = await ensureLocalDaemonRunning({
+        socketPath,
+        launch,
+        onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
+      });
+      if (!restarted.ok) throw new DaemonAutostartError(restarted);
+      return await request();
+    }
     if (!isDaemonUnreachable(error)) throw error;
     const started = await ensureLocalDaemonRunning({
       socketPath,
@@ -122,6 +137,19 @@ async function withAutostart(
     });
     if (!started.ok) throw new DaemonAutostartError(started);
     return await request();
+  }
+}
+
+function isDaemonBuildStale(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { readonly code?: unknown }).code === "daemon_build_stale";
+}
+
+async function waitForDaemonRestart(socketPath: string): Promise<void> {
+  const { daemonSocketProbe } = await import("../../../daemon/src/client/daemon-autostart.ts"),
+    deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (!(await daemonSocketProbe(socketPath))) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
 export async function runCommandThroughDaemon(

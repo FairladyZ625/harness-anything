@@ -1,6 +1,7 @@
 import { consumeKnownError, type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
 import {
   readDispatchLiveIndex,
+  readRuntimeSessionIndex,
   readDispatchStream,
   removeDispatchLiveIndexEntries,
   type DispatchStreamHeader,
@@ -59,13 +60,14 @@ export function readTaskDispatches(
     if (sessions.has(entry.runtimeSessionId)) staleIndexEntries.set(entry.dispatchId, entry);
   }
   const rows = new Map<string, TaskDispatchRow>();
+  const sessionIndex = new Map(readRuntimeSessionIndex(input.rootDir).map((entry) => [entry.dispatchId, entry]));
   for (const [dispatchId, candidate] of candidates) {
     for (const target of candidate.taskPackages) {
       const documentPath = `${target.packagePath}/artifacts/dispatches/${dispatchId}.json`;
       const read = input.projection.readDocument(documentPath);
       const archive = read.document ? parseArchive(read.document.body) : null;
       if (archive?.taskId !== target.taskId) continue;
-      rows.set(dispatchId, archiveRow(archive, candidate.session, target.packagePath));
+      rows.set(dispatchId, archiveRow(archive, candidate.session, target.packagePath, sessionIndex.get(dispatchId)?.state === "lost"));
       if (candidate.indexed) staleIndexEntries.set(dispatchId, indexedEntries.get(dispatchId)!);
       break;
     }
@@ -84,6 +86,7 @@ export function readTaskDispatches(
         candidate.session,
         live,
         candidate.taskPackages[0]?.packagePath ?? null,
+        sessionIndex.get(dispatchId)?.state === "lost",
       ),
     );
   }
@@ -137,6 +140,7 @@ function archiveRow(
   value: Record<string, unknown>,
   session: RuntimeSession | undefined,
   packagePath: string,
+  lost: boolean,
 ): TaskDispatchRow {
   return {
     dispatchId: String(value.dispatchId),
@@ -161,7 +165,7 @@ function archiveRow(
     startedAt: String(value.startedAt),
     endedAt: typeof value.endedAt === "string" ? value.endedAt : null,
     outcome: isOutcome(value.outcome) ? value.outcome : (session?.outcome ?? "unknown"),
-    status: isOutcome(value.outcome) ? value.outcome : (session?.outcome ?? "unknown"),
+    status: lost ? "lost" : isOutcome(value.outcome) ? value.outcome : (session?.outcome ?? "unknown"),
     resultRef: typeof value.resultRef === "string" ? value.resultRef : (session?.resultRef ?? null),
     exitCode: typeof value.exitCode === "number" ? value.exitCode : (session?.exitCode ?? null),
     dispatchPath: `${packagePath}/artifacts/dispatches/${String(value.dispatchId)}.json`,
@@ -174,6 +178,7 @@ function liveRow(
   session: RuntimeSession | undefined,
   processRunning: boolean,
   packagePath: string | null,
+  lost: boolean,
 ): TaskDispatchRow {
   const outcome = session?.outcome ?? null;
   return {
@@ -195,7 +200,7 @@ function liveRow(
     startedAt: header.startedAt,
     endedAt: null,
     outcome,
-    status: outcome ?? (session?.liveness === "live" || processRunning ? "running" : "unknown"),
+    status: outcome ?? (lost ? "lost" : session?.liveness === "live" || processRunning ? "running" : "unknown"),
     resultRef: session?.resultRef ?? null,
     exitCode: session?.exitCode ?? null,
     ...(packagePath

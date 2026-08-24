@@ -29,7 +29,7 @@ import {
   type JsonRpcResponse,
 } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
-import type { DaemonBuildStamp } from "../build-identity.ts";
+import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 export interface JsonRpcProtocolServer {
   readonly handle: (
     message: JsonRpcRequest | JsonRpcRequest[],
@@ -44,6 +44,7 @@ interface ObservedRequest {
 export function createJsonRpcProtocolServer(options: {
   readonly host: DaemonHost;
   readonly build: DaemonBuildStamp;
+  readonly buildObserver?: DaemonBuildObserver;
   readonly authContext: DaemonAuthenticationContext;
   readonly emit: (method: string, params: JsonObject) => Promise<void>;
   readonly connectionId?: string;
@@ -104,6 +105,21 @@ export function createJsonRpcProtocolServer(options: {
         Object.assign(options.authContext, {
           sessionEnvironment: params.sessionEnvironment as DaemonSessionEnvironment,
         });
+      const buildStatus = options.buildObserver?.status();
+      if (buildStatus?.drifted) {
+        const stale = daemonProtocolError(
+          "protocol.hello",
+          "daemon_build_stale",
+          `Daemon build is stale: loaded ${buildStatus.loadedBuildId ?? "missing"}, disk ${buildStatus.diskBuildId ?? "missing"}. Restarting once to load the disk build.`,
+        ) as unknown as JsonObject;
+        const response = reply({
+          ...stale,
+          loadedBuildId: buildStatus.loadedBuildId,
+          diskBuildId: buildStatus.diskBuildId,
+        });
+        setImmediate(() => options.requestShutdown?.());
+        return response;
+      }
       handshaken = true;
       return reply({
         ok: true,

@@ -120,7 +120,7 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
       !nonEmpty(row.startedAt) ||
       (row.endedAt !== null && !nonEmpty(row.endedAt)) ||
       ![null, "succeeded", "failed", "unknown", "cancelled"].includes(row.outcome as never) ||
-      !["running", "succeeded", "failed", "unknown", "cancelled"].includes(String(row.status)) ||
+      !["running", "succeeded", "failed", "unknown", "cancelled", "lost"].includes(String(row.status)) ||
       (row.resultRef !== undefined && row.resultRef !== null && !nonEmpty(row.resultRef)) ||
       (row.exitCode !== undefined && row.exitCode !== null && (!integer(row.exitCode) || Number(row.exitCode) < 0)) ||
       (row.dispatchPath !== undefined && row.dispatchPath !== null && !nonEmpty(row.dispatchPath)) ||

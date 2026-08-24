@@ -21,3 +21,21 @@ test("protocol.hello answers with the daemon's build stamp", async () => {
     assert.equal(shutdowns, 1, "an accepted daemon.stop must reach the shutdown owner exactly once");
   } finally { server.close(); }
 });
+
+test("protocol.hello rejects a stale dist fingerprint and requests one restart", async () => {
+  let shutdowns = 0;
+  const server = createJsonRpcProtocolServer({
+    host: {} as never,
+    build: { commit: "loaded" },
+    buildObserver: { status: () => ({ commit: "loaded", loadedBuildId: "build-a", diskBuildId: "build-b", drifted: true }) },
+    authContext: { transportKind: "unix-socket" } as DaemonAuthenticationContext,
+    emit: async () => undefined,
+    requestShutdown: () => { shutdowns += 1; },
+  });
+  try {
+    const hello = await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
+    assert.equal((hello as { readonly result: { readonly code: string } }).result.code, "daemon_build_stale");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(shutdowns, 1);
+  } finally { server.close(); }
+});

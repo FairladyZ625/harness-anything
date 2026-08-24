@@ -122,13 +122,17 @@ export async function waitForTaskDispatches(
   const dispatches: readonly unknown[] = Array.isArray(current.dispatches) ? current.dispatches : [],
     noDispatches = dispatches.length === 0,
     cancelled = dispatches.some((row: unknown) => (row as Record<string, unknown>).status === "cancelled"),
+    lost = dispatches.some((row: unknown) => {
+      const status = row && typeof row === "object" ? (row as Record<string, unknown>).status : undefined;
+      return status === "lost";
+    }),
     failed = dispatches.some((row: unknown) => {
       const status = row && typeof row === "object" ? (row as Record<string, unknown>).status : undefined;
       return status === "failed";
     }),
     outcome = noDispatches
       ? "unknown"
-      : dispatches.some((row: unknown) => (row as Record<string, unknown>).status === "unknown")
+      : lost || dispatches.some((row: unknown) => (row as Record<string, unknown>).status === "unknown")
         ? "unknown"
         : failed
           ? "failed"
@@ -152,7 +156,7 @@ function taskDispatchesSettled(value: JsonObject): boolean {
     if (!row || typeof row !== "object" || Array.isArray(row)) return false;
     const record = row as Record<string, unknown>,
       status = String(record.status);
-    if (["succeeded", "failed", "cancelled"].includes(status)) return true;
+    if (["succeeded", "failed", "cancelled", "lost"].includes(status)) return true;
     // A just-exited process can briefly have status=unknown while its outcome event is
     // still being projected. Only an explicit unknown outcome is terminal.
     return status === "unknown" && record.outcome === "unknown";

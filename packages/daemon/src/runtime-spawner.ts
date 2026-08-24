@@ -74,6 +74,7 @@ import type {
   RuntimeLauncher,
   RuntimeProcess,
 } from "./runtime-spawn-types.ts";
+import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
@@ -112,6 +113,7 @@ export function makeRuntimeSpawner(input: {
       { readonly type: "runtime_session_outcome_observed" }
     >,
   ) => void;
+  readonly recordLifecycle?: DaemonLifecycleRecorder;
 }) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
@@ -520,6 +522,12 @@ export function makeRuntimeSpawner(input: {
         resumeProviderSessionId: providerSessionId ?? null,
       });
       processes.set(runtimeSessionId, active);
+      input.recordLifecycle?.({
+        event: "runtime_spawn",
+        runtimeSessionId,
+        dispatchId: newDispatchId,
+        pid: runtimeProcess.pid,
+      });
       attachActiveRuntime(extracted, active, resumeObservation);
       return requested.receipt
         ? { ...requested.receipt, runtimeSessionId, dispatchId: newDispatchId }

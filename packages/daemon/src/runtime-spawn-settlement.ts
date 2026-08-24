@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "../../kernel/src/index.ts";
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import { scrubProviderValue } from "./dispatch-stream.ts";
+import { markRuntimeSessionResult, scrubProviderValue } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
@@ -79,6 +79,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
             eventStreamRef: active.stream.ref,
           }
         : null;
+    markRuntimeSessionResult(context.input.rootDir, active.dispatchId, resultRef);
     if (archive)
       try {
         const archived = context.input.remote
@@ -102,6 +103,16 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
         outcome = "unknown";
       }
     context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome });
+    context.input.recordLifecycle?.({
+      event: "runtime_exit",
+      runtimeSessionId: active.runtimeSessionId,
+      dispatchId: active.dispatchId,
+      pid: active.process.pid,
+      exitCode: active.lossExitCode ?? (cancelled ? null : code),
+      signal: active.lossSignal,
+      outcome: active.lossReason ? "lost" : outcome,
+      reason: active.lossReason,
+    });
     if (cancelled)
       await context.publishRuntimeEvent(
         "runtime_session_cancelled",
@@ -158,6 +169,8 @@ export function runtimeResultText(
   code: number | null,
   outcome: "succeeded" | "failed" | "unknown" | "cancelled",
 ): string {
+  if (active.lossReason)
+    return `Runtime session lost: ${active.lossReason}${active.lossSignal ? ` (${active.lossSignal})` : ""}.`;
   if (code === 0 || code === null)
     return scrubProviderValue(
       active.finalText ??

@@ -25,7 +25,9 @@ export type DaemonLifecycleEvent =
   | "repo_attach_failed"
   | "repo_attach_timed_out"
   | "repo_registry_pruned"
-  | "attachments_settled";
+  | "attachments_settled"
+  | "runtime_spawn"
+  | "runtime_exit";
 export interface DaemonLifecycleEntry {
   readonly event: DaemonLifecycleEvent;
   readonly repoId?: string;
@@ -40,6 +42,16 @@ export interface DaemonLifecycleEntry {
   readonly attached?: number;
   readonly unavailable?: number;
   readonly pruned?: number;
+  readonly runtimeSessionId?: string;
+  readonly dispatchId?: string;
+  readonly pid?: number;
+  readonly exitCode?: number | null;
+  readonly signal?: string | null;
+  readonly reason?: string | null;
+  readonly commit?: string | null;
+  readonly loadedBuildId?: string | null;
+  readonly diskBuildId?: string | null;
+  readonly drifted?: boolean;
 }
 export interface DaemonLifecycleRecord extends DaemonLifecycleEntry {
   readonly schema: string;

@@ -18,6 +18,9 @@ type ActiveRuntimeBase = Omit<
   | "cancelRequested"
   | "cancelBinding"
   | "cancelOpId"
+  | "lossReason"
+  | "lossSignal"
+  | "lossExitCode"
 > & { readonly providerSessionId?: string | null };
 
 export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
@@ -39,6 +42,9 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     cancelRequested: false,
     cancelBinding: null,
     cancelOpId: null,
+    lossReason: null,
+    lossSignal: null,
+    lossExitCode: null,
   };
 }
 

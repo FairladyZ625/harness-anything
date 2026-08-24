@@ -257,7 +257,7 @@ export interface TaskDispatchRow {
   readonly startedAt: string;
   readonly endedAt: string | null;
   readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
-  readonly status: "running" | "succeeded" | "failed" | "unknown" | "cancelled";
+  readonly status: "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "lost";
   /** Terminal result and durable task-package artifact locations, when settled. */
   readonly resultRef?: string | null;
   readonly exitCode?: number | null;
