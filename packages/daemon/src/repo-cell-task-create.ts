@@ -240,6 +240,9 @@ export function createTask(cell: any, action: RepoTaskAction, binding: RepoCellB
       generatedPaths: compiled.documents.map((document) => document.path),
       presetDigest: compiled.snapshot.digest,
       scaffoldDigest: compiled.scaffoldDigest,
+      presetId: compiled.snapshot.identity.id,
+      profileId: compiled.snapshot.profile.id,
+      outputShape: compiled.snapshot.profile.outputShape,
       completionGates: compiled.snapshot.profile.completionGateIds,
       dryRun,
     };

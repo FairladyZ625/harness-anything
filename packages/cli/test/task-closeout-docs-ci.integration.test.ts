@@ -75,6 +75,49 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
         taskClass: "standard",
       }),
     );
+    const presetList = runHumanMaybe(root, userRoot, ["preset", "list"]),
+      standardPreview = runHumanMaybe(root, userRoot, [
+        "task",
+        "create",
+        "--title",
+        "Standard Completion Contract",
+        "--preset",
+        "standard-task",
+        "--dry-run",
+      ]);
+    context.diagnostic(`preset-list-human=${presetList.stdout}`);
+    context.diagnostic(`standard-task-create-human=${standardPreview.stdout}`);
+    assert.equal(presetList.status, 0, presetList.stderr || presetList.stdout);
+    assert.match(
+      presetList.stdout,
+      /standard-task[\s\S]*outputShape: repository-diff[\s\S]*completionGates: \["ci","code-doc-reconciliation"\]/u,
+    );
+    assert.equal(
+      standardPreview.status,
+      0,
+      standardPreview.stderr || standardPreview.stdout,
+    );
+    assert.match(
+      standardPreview.stdout,
+      new RegExp(
+        [
+          "preset: standard-task/baseline\\n",
+          "outputShape: repository-diff\\n",
+          'completionGates: \\["ci","code-doc-reconciliation"\\]',
+        ].join(""),
+        "u",
+      ),
+    );
+    assert.match(
+      standardPreview.stdout,
+      new RegExp(
+        [
+          "contract: repository-diff requires a committable public-repository diff,",
+          "[\\s\\S]*preset docs-task\\.\\nnext: remove --dry-run",
+        ].join(""),
+        "u",
+      ),
+    );
     const created = run(root, userRoot, [
         "task",
         "create",
@@ -92,6 +135,9 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
       [],
       "the docs-task preset must declare no completion gates for this fixture to mean anything",
     );
+    assert.equal(created.presetId, "docs-task");
+    assert.equal(created.profileId, "baseline");
+    assert.equal(created.outputShape, "task-package-artifact");
 
     run(
       root,
@@ -310,6 +356,25 @@ function runMaybe(
       env: environment(root, userRoot, actor),
     },
   );
+  return {
+    status: result.status,
+    stdout: result.stdout.trim(),
+    stderr: result.stderr.trim(),
+  };
+}
+function runHumanMaybe(
+  root: string,
+  userRoot: string,
+  args: readonly string[],
+): {
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+} {
+  const result = spawnSync(process.execPath, [cli, "--root", root, ...args], {
+    encoding: "utf8",
+    env: environment(root, userRoot),
+  });
   return {
     status: result.status,
     stdout: result.stdout.trim(),

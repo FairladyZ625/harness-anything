@@ -52,6 +52,9 @@ export type TaskCreateReceipt = WriteReceipt & {
   readonly generatedPaths: readonly string[];
   readonly presetDigest: string;
   readonly scaffoldDigest: string;
+  readonly presetId: string;
+  readonly profileId: string;
+  readonly outputShape: string;
   readonly completionGates: readonly string[];
   readonly commitSha: string | null;
   readonly dryRun: boolean;

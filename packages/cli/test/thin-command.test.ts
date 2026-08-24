@@ -11,7 +11,7 @@ import {
   parseThinCommand,
   renderThinHelp,
 } from "../src/cli/thin-command.ts";
-import { main, resolveCliVersion } from "../src/index.ts";
+import { emit, main, resolveCliVersion } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
@@ -220,6 +220,11 @@ test("task-create help renders recommended presets only from effective catalog r
       title: "Standard Task",
       description: "General work.",
       validity: "valid",
+      ...{
+        defaultProfile: "baseline",
+        outputShape: "repository-diff",
+        completionGates: ["ci", "code-doc-reconciliation"],
+      },
     },
     {
       id: "module",
@@ -233,7 +238,87 @@ test("task-create help renders recommended presets only from effective catalog r
     help,
     /Recommended presets:.*standard-task — Standard Task — General work\..*module — Module — unavailable \(missing_provider\)/su,
   );
+  assert.match(
+    help,
+    /profile=baseline.*outputShape=repository-diff.*completionGates=\["ci","code-doc-reconciliation"\]/su,
+  );
   assert.doesNotMatch(help, /reference-task|long-running-task/u);
+});
+
+test("human preset and task receipts print resolved completion contracts byte-for-byte", () => {
+  const presetOutput = captureStdout(() =>
+      emit(
+        {
+          ok: true,
+          command: "preset-list",
+          evidence: JSON.stringify([
+            {
+              id: "standard-task",
+              title: "Standard Task",
+              description: "General work.",
+              validity: "valid",
+              defaultProfile: "baseline",
+              outputShape: "repository-diff",
+              completionGates: ["ci", "code-doc-reconciliation"],
+            },
+          ]),
+        },
+        false,
+      ),
+    ),
+    expectedPreset = [
+      "standard-task — Standard Task — General work.",
+      "  validity: valid",
+      "  defaultProfile: baseline",
+      "  outputShape: repository-diff",
+      '  completionGates: ["ci","code-doc-reconciliation"]',
+    ].join("\n");
+  assert.deepEqual(Buffer.from(presetOutput), Buffer.from(expectedPreset));
+
+  const taskOutput = captureStdout(() =>
+      emit(
+        {
+          ok: true,
+          command: "task-create",
+          summary: "created task task-one at tasks/task-one",
+          presetId: "standard-task",
+          profileId: "baseline",
+          outputShape: "repository-diff",
+          completionGates: ["ci", "code-doc-reconciliation"],
+          nextAction: "edit tasks/task-one/task_plan.md, then run ha task start task-one --execution-id <id>",
+        },
+        false,
+      ),
+    ),
+    expectedContract = [
+      "contract: repository-diff requires a committable public-repository diff, ",
+      "real CI, and a code-doc reconciliation witness. ",
+      "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
+    ].join(""),
+    expectedTask = [
+      "created task task-one at tasks/task-one",
+      "preset: standard-task/baseline",
+      "outputShape: repository-diff",
+      'completionGates: ["ci","code-doc-reconciliation"]',
+      expectedContract,
+      "next: edit tasks/task-one/task_plan.md, then run ha task start task-one --execution-id <id>",
+    ].join("\n");
+  assert.deepEqual(Buffer.from(taskOutput), Buffer.from(expectedTask));
+
+  const replayOutput = captureStdout(() =>
+    emit(
+      {
+        ok: true,
+        command: "task-create",
+        summary: "reused task task-one for the supplied idempotency key",
+      },
+      false,
+    ),
+  );
+  assert.equal(
+    replayOutput,
+    "reused task task-one for the supplied idempotency key",
+  );
 });
 
 test("thin parser derives closed preset and task-create payloads from descriptors", () => {
@@ -421,3 +506,15 @@ test("shared CLI option rejections point to descriptor-derived leaf help", () =>
     },
   );
 });
+
+function captureStdout(run: () => void): string {
+  const lines: string[] = [],
+    log = console.log;
+  console.log = (...values: unknown[]) => lines.push(values.join(" "));
+  try {
+    run();
+    return lines.join("\n");
+  } finally {
+    console.log = log;
+  }
+}
