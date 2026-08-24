@@ -295,6 +295,7 @@ export const daemonGuiActionMethods = Object.freeze([
     "terminal-spawn",
     shape({
       idempotencyKey: "string",
+      backend: "string",
       name: "string?",
       cwd: "json",
       shellProfileId: "string?",

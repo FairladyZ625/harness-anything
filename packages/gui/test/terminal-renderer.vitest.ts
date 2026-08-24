@@ -1,9 +1,11 @@
 // harness-test-tier: integration
 import { describe, expect, it, vi } from "vitest";
-import { closeTerminalTab, reconcileTerminalGeneration, reduceTerminalStream, requestTerminalTermination, type TerminalTab } from "../src/renderer/terminal-model.ts";
+import { closeTerminalTab, mostRecentAttachableTerminal, reconcileTerminalGeneration, reduceTerminalStream, requestTerminalTermination, type TerminalTab } from "../src/renderer/terminal-model.ts";
 import { terminalClient } from "../src/renderer/terminal-client.ts";
+import { defaultTerminalPreferences, readTerminalPreferences, writeTerminalPreferences } from "../src/renderer/terminal-preferences.ts";
+import { clampDockHeight, clampDockWidth } from "../src/renderer/components/terminal/dock-resize.ts";
 
-const tab: TerminalTab = { sessionId: "terminal-a", name: "Build", state: "running", daemonGeneration: 7, attachmentId: "attach-a", lastSeq: 2, output: "ready\n", notice: null };
+const tab: TerminalTab = { sessionId: "terminal-a", name: "Build", state: "running", daemonGeneration: 7, attachmentId: "attach-a", lastSeq: 2, output: "ready\n", notice: null, cwd: ".", requestedBackend: "direct-pty", backend: "direct-pty", durability: "daemon-process", warning: null, attachable: true };
 
 describe("terminal renderer control", () => {
   it("closes a tab by detaching its stream and daemon attachment without terminating", async () => {
@@ -26,8 +28,9 @@ describe("terminal renderer control", () => {
   });
 
   it("marks running tabs unknown when the daemon generation changes", () => {
-    const restarted = reconcileTerminalGeneration([tab, { ...tab, sessionId: "terminal-exited", state: "exited" }], 8);
-    expect(restarted[0]).toMatchObject({ state: "unknown", daemonGeneration: 8, attachmentId: null }); expect(restarted[0]?.notice).toContain("not durable"); expect(restarted[1]?.state).toBe("exited");
+    const durable = { ...tab, sessionId: "terminal-tmux", requestedBackend: "tmux" as const, backend: "tmux" as const, durability: "daemon-restart" as const }, restarted = reconcileTerminalGeneration([tab, durable, { ...tab, sessionId: "terminal-exited", state: "exited" }], 8);
+    expect(restarted[0]).toMatchObject({ state: "unknown", daemonGeneration: 8, attachmentId: null }); expect(restarted[0]?.notice).toContain("not durable");
+    expect(restarted[1]).toMatchObject({ state: "running", daemonGeneration: 8, backend: "tmux", attachmentId: null }); expect(restarted[2]?.state).toBe("exited");
   });
 
   it("sends a closed repo-scoped terminal packet without secret or environment fields", async () => {
@@ -35,8 +38,24 @@ describe("terminal renderer control", () => {
     vi.stubGlobal("window", { harness: {
       listTerminalSessions: vi.fn(), spawnTerminal, attachTerminal: vi.fn(), sendTerminalInput: vi.fn(), resizeTerminal: vi.fn(), detachTerminal: vi.fn(), terminateTerminal: vi.fn()
     } });
-    await terminalClient.spawn("repo-a", { idempotencyKey: "terminal-gui-a", name: "Build", cwd: { scope: "repo-relative", path: "packages/gui" }, shellProfileId: "zsh", taskId: "TASK-9" });
-    expect(spawnTerminal).toHaveBeenCalledWith({ repoId: "repo-a", idempotencyKey: "terminal-gui-a", name: "Build", cwd: { scope: "repo-relative", path: "packages/gui" }, shellProfileId: "zsh", taskId: "TASK-9" });
+    await terminalClient.spawn("repo-a", { idempotencyKey: "terminal-gui-a", backend: "tmux", name: "Build", cwd: { scope: "repo-relative", path: "packages/gui" }, shellProfileId: "zsh", taskId: "TASK-9" });
+    expect(spawnTerminal).toHaveBeenCalledWith({ repoId: "repo-a", idempotencyKey: "terminal-gui-a", backend: "tmux", name: "Build", cwd: { scope: "repo-relative", path: "packages/gui" }, shellProfileId: "zsh", taskId: "TASK-9" });
     expect(JSON.stringify(spawnTerminal.mock.calls[0]?.[0])).not.toMatch(/secret|token|password|env/iu);
+  });
+
+  it("round-trips versioned terminal backend, position, and both dock sizes", () => {
+    const values = new Map<string, string>(), storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } }, selected = { backend: "tmux" as const, dockPosition: "right" as const, bottomHeight: 440, rightWidth: 620 };
+    writeTerminalPreferences(storage, selected); expect(readTerminalPreferences(storage)).toEqual(selected);
+    values.set([...values.keys()][0]!, JSON.stringify({ schema: "terminal-preferences/v1", backend: "remote", dockPosition: "right", bottomHeight: 440, rightWidth: 620 })); expect(readTerminalPreferences(storage)).toEqual(defaultTerminalPreferences);
+  });
+
+  it("clamps both dock axes while preserving main-view space", () => {
+    expect(clampDockHeight(900, 800)).toBe(640); expect(clampDockHeight(20, 800)).toBe(120);
+    expect(clampDockWidth(1_400, 1_200)).toBe(880); expect(clampDockWidth(20, 1_200)).toBe(384);
+  });
+
+  it("prefers the most recent attachable session for the first-open fast path", () => {
+    const rows = [{ sessionId: "old", status: "running", attachable: true }, { sessionId: "gone", status: "exited", attachable: false }, { sessionId: "restored", status: "running", attachable: true }];
+    expect(mostRecentAttachableTerminal(rows)?.sessionId).toBe("restored"); expect(mostRecentAttachableTerminal(rows.map((row) => ({ ...row, attachable: false })))).toBeNull();
   });
 });
