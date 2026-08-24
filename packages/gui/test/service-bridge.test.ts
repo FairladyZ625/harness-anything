@@ -157,7 +157,7 @@ test("GUI renderer bridge drives a resident PTY through spawn attach IO resize d
   Object.assign(process.env, fixture.env);
   try {
     const bridge = createLocalGuiServiceBridge(fixture.rootDir), scope = { repoId: fixture.repoId };
-    const spawned = await bridge.invoke("spawnTerminal", { ...scope, idempotencyKey: "terminal-renderer-chain", name: "Renderer chain", cwd: { scope: "repo-root" }, shellProfileId: "default", taskId: "task-terminal" }) as Record<string, unknown>;
+    const spawned = await bridge.invoke("spawnTerminal", { ...scope, idempotencyKey: "terminal-renderer-chain", backend: "direct-pty", name: "Renderer chain", cwd: { scope: "repo-root" }, shellProfileId: "default", taskId: "task-terminal" }) as Record<string, unknown>;
     assert.equal(spawned.schema, "terminal-control-receipt/v1", JSON.stringify(spawned)); assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     const sessionId = String(spawned.sessionId), values: Array<Record<string, unknown>> = [];
     let output = "", resolveEcho!: () => void; const echoSeen = new Promise<void>((resolve) => { resolveEcho = resolve; });
