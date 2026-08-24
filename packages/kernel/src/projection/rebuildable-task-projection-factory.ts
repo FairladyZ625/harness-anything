@@ -33,6 +33,7 @@ import type { EventStreamPort, ProjectionContext } from "./rebuildable-task-proj
 import {
   closeDatabase,
   ProjectionIdentityMismatchError,
+  resetDatabase,
   withDatabase,
 } from "./rebuildable-task-projection-database.ts";
 import { reduceBatch } from "./rebuildable-task-projection-catch-up.ts";
@@ -84,7 +85,8 @@ export function makeTaskProjection(options: {
       );
     } catch (error) {
       if (!(error instanceof ProjectionIdentityMismatchError)) throw error;
-      consumeKnownError(error);
+      if (readHead() === null) resetDatabase(projectionPath, readHead);
+      else consumeKnownError(error);
     }
   }
   const closeProjection = () => {

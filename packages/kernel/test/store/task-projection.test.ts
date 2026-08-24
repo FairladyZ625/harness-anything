@@ -11,7 +11,7 @@ import { makeWalShadowEventStore } from "../../src/store/wal-shadow-event-store.
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
-import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, decideDocWrite, parseDocWriteIntent, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
+import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, decideDocWrite, parseDocWriteIntent, serializeCanonicalEvent, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import { MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, migrationImportWritePlan, type MigrationImportEventV1 } from "../../src/domain/migration-import-event.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
@@ -87,6 +87,35 @@ test("event batches are revision ordered even when the Git tree is hash ordered"
     for (const event of lifecycleFixture().events) writer.append(taskBundle(event));
     const batch = writer.readBatch(null, 4096);
     assert.deepEqual(batch.events.map((event) => event.workspaceRevision), [1, 2, 3, 4, 5, 6]);
+  });
+});
+
+test("projection rebuild crosses a missing workspace revision after the source scan completes", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const fixture = lifecycleFixture().events,
+      first = fixture[0]!,
+      second = { ...fixture[1]!, workspaceRevision: 3 },
+      source = {
+        readHead: () => ({
+          revision: second.workspaceRevision,
+          eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(second))}`,
+        }),
+        readBatch: (_cursor: string | null, _maxItems: number) => ({
+          sourceRevision: second.workspaceRevision,
+          events: [first, second],
+          cursor: "done",
+          done: true,
+          accessedItems: 2,
+          prefetchContent: () => new Map<string, Uint8Array | null>(),
+        }),
+        readContentBlob: () => null,
+      },
+      projection = makeTaskProjection({ rootDir, eventStore: source });
+    const rebuilt = projection.rebuild();
+    assert.equal(rebuilt.watermark, 3);
+    assert.equal(projection.read(first.taskId).status, "ready");
+    projection.close();
   });
 });
 
