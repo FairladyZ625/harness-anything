@@ -147,7 +147,27 @@ function parseArgs(argv) {
   return { base };
 }
 
+// Suspended by dec_3879E19D9D1D76BAD538E77C1F (task_2c909af2cae0b23abd1e34a2e2):
+// the remaining ~217 compressed production files are being restored to
+// normal formatting in bulk without per-module ceiling negotiation.
+// line-budgets.json, INITIAL_MODULE_CEILINGS, and every existing receipt are
+// left untouched — this suspends the judgment, not the data. G36
+// (tools/gates/line-density.mjs) stays fully active as the guard against new
+// compression during this window. Delete this guard and re-derive real
+// ceilings from the completed restoration once the full-file G36 scan is clean.
+const SUSPENDED = true;
+
+function suspended() {
+  console.log(
+    "G32 line-budget-ratchet: suspended under dec_3879E19D9D1D76BAD538E77C1F " +
+      "(task_2c909af2cae0b23abd1e34a2e2) while remaining compressed production " +
+      "files are bulk-restored. G36 (line-density) remains active."
+  );
+  return 0;
+}
+
 export function main(argv = process.argv.slice(2)) {
+  if (SUSPENDED) return suspended();
   try {
     const { base } = parseArgs(argv);
     const rootDir = repoRoot();
