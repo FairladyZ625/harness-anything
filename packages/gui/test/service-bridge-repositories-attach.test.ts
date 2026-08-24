@@ -1,52 +1,24 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { once } from "node:events";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import net from "node:net";
-import { once } from "node:events";
 import test from "node:test";
-import {
-  daemonGuiInvokeFacets,
-  daemonGuiReadMethods,
-  daemonGuiStreamFacets,
-  jsonRpcMethodContracts,
-  type DaemonGuiRpcReadMethod,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  parseDaemonGuiActionResponse,
-  parseDaemonGuiReadResponse,
-  parseDaemonGuiReadResult,
-} from "../../daemon/src/protocol/gui-result-validation.ts";
+import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
+import { parseDaemonGuiReadResult } from "../../daemon/src/protocol/gui-result-validation.ts";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
+import { streamAgentRuntimeAt } from "../src/main/agent-runtime-stream-client.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import {
   seedTriadicEvents,
   writeTriadicLedger,
 } from "../test-support/triadic-ledger.mjs";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import {
-  eventObjectTarget,
-  makeTaskEventStore,
-  type AgentRuntimeEventV1,
-  type FrozenWritePlan,
-} from "../../kernel/src/index.ts";
-import { streamAgentRuntimeAt } from "../src/main/agent-runtime-stream-client.ts";
 
-import {
-  restoreEnv,
-  runtimeWritePlan,
-  seedEntityDeclarations,
-  seedRuntime,
-} from "./service-bridge.fixtures.ts";
 import type { Failure } from "./service-bridge.fixtures.ts";
+import { restoreEnv } from "./service-bridge.fixtures.ts";
 test("GUI bridge switches between two enabled RepoCells without leaking task rows", async () => {
   const fixture = await startGuiResidentDaemonFixture({
     task: { taskId: "task-repo-a", title: "Repo A task" },

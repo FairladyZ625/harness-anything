@@ -1,43 +1,12 @@
-import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import net from "node:net";
-import { once } from "node:events";
-import test from "node:test";
-import {
-  daemonGuiInvokeFacets,
-  daemonGuiReadMethods,
-  daemonGuiStreamFacets,
-  jsonRpcMethodContracts,
-  type DaemonGuiRpcReadMethod,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  parseDaemonGuiActionResponse,
-  parseDaemonGuiReadResponse,
-  parseDaemonGuiReadResult,
-} from "../../daemon/src/protocol/gui-result-validation.ts";
-import { createLocalGuiServiceBridge } from "../src/index.ts";
-import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
-import {
-  seedTriadicEvents,
-  writeTriadicLedger,
-} from "../test-support/triadic-ledger.mjs";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import {
   eventObjectTarget,
   makeTaskEventStore,
   type AgentRuntimeEventV1,
   type FrozenWritePlan,
 } from "../../kernel/src/index.ts";
-import { streamAgentRuntimeAt } from "../src/main/agent-runtime-stream-client.ts";
+import { seedTriadicEvents } from "../test-support/triadic-ledger.mjs";
 
 export function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) delete process.env[name];

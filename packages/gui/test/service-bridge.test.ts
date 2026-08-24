@@ -1,23 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import net from "node:net";
-import { once } from "node:events";
 import test from "node:test";
+import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import {
-  daemonGuiInvokeFacets,
   daemonGuiReadMethods,
-  daemonGuiStreamFacets,
-  jsonRpcMethodContracts,
   type DaemonGuiRpcReadMethod,
 } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import {
@@ -27,26 +15,13 @@ import {
 } from "../../daemon/src/protocol/gui-result-validation.ts";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
-import {
-  seedTriadicEvents,
-  writeTriadicLedger,
-} from "../test-support/triadic-ledger.mjs";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import {
-  eventObjectTarget,
-  makeTaskEventStore,
-  type AgentRuntimeEventV1,
-  type FrozenWritePlan,
-} from "../../kernel/src/index.ts";
-import { streamAgentRuntimeAt } from "../src/main/agent-runtime-stream-client.ts";
+import { writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 
 import {
   restoreEnv,
-  runtimeWritePlan,
   seedEntityDeclarations,
   seedRuntime,
 } from "./service-bridge.fixtures.ts";
-import type { Failure } from "./service-bridge.fixtures.ts";
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
   const fixture = await startGuiResidentDaemonFixture({
     task: { taskId: "task-gui-smoke", title: "Resident GUI task" },
