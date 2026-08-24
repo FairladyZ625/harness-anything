@@ -673,11 +673,15 @@ export function TaskCloseoutTab({
           <AuditGroup title="Code / doc witness" count={codeDocs.length}>
             {codeDocs.map((witness) => (
               <AuditRow
-                key={witness.witnessId}
-                id={witness.witnessId}
-                state="reconciled"
+                key={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
+                id={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
+                state={
+                  witness.schema === "code-doc-witness/v1" || witness.disposition === "repointed"
+                    ? "reconciled"
+                    : "known-invalid"
+                }
                 summary={witness.paths.join(", ")}
-                at={witness.reconciledAt}
+                at={witness.schema === "code-doc-witness/v1" ? witness.reconciledAt : witness.repointedAt}
               />
             ))}
           </AuditGroup>

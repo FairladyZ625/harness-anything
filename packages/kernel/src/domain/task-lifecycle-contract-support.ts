@@ -3,6 +3,7 @@ import type { ExecutionV1, LeaseV1, ProjectedExecution } from "./execution.ts";
 import type { ActorAxes, ContractValidationIssue, TaskV1 } from "./task.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
+import { codeDocRecordId, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { TaskLifecycleContractError } from "./task-lifecycle-event.ts";
 import type { TaskEventV1, TaskLifecycleErrorCode } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
@@ -139,12 +140,7 @@ export function canonicalGateReceipts(
     if (!passed.has(gateId)) return [];
     const codeDoc =
       gateId === "code-doc-reconciliation"
-        ? snapshot.codeDocWitnesses.find(
-            (value) =>
-              value.executionId === current.executionId &&
-              value.commitSha === current.submission?.commitSha &&
-              value.iteration === current.iteration,
-          )
+        ? currentCodeDocWitness(snapshot.codeDocWitnesses, current.executionId)
         : undefined;
     const gate =
       gateId !== "code-doc-reconciliation"
@@ -157,7 +153,7 @@ export function canonicalGateReceipts(
               value.result === "pass",
           )
         : undefined;
-    const receiptRef = codeDoc ? `event:${codeDoc.witnessId}` : gate ? `event:${gate.receiptId}` : null;
+    const receiptRef = codeDoc ? `event:${codeDocRecordId(codeDoc)}` : gate ? `event:${gate.receiptId}` : null;
     return receiptRef
       ? [
           {

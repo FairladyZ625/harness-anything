@@ -14,6 +14,7 @@ import {
 } from "./thin-command-task-admin.ts";
 import {
   parseCodeDoc,
+  parseCodeDocRepoint,
   parseComplete,
   parseProgress,
 } from "./thin-command-task-evidence.ts";
@@ -61,7 +62,7 @@ export function parseTask(
         })
       : rejected("missing_field", "Run ha task artifact add <task-id>.", json);
   }
-  const taskId = args[id === "task-code-doc-reconcile" ? 3 : 2];
+  const taskId = args[id === "task-code-doc-reconcile" || id === "task-code-doc-repoint" ? 3 : 2];
   if (!nonEmpty(taskId))
     return rejected(
       "missing_field",
@@ -126,6 +127,8 @@ export function parseTask(
     });
   if (id === "task-code-doc-reconcile")
     return parseCodeDoc(rootDir, repoId, json, args, taskId, inputs);
+  if (id === "task-code-doc-repoint")
+    return parseCodeDocRepoint(rootDir, repoId, json, args, taskId, inputs);
   return rejected(
     "unsupported_command",
     `Run ${inputs.get(id)!.helpCommand}.`,

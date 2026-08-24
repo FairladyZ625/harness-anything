@@ -42,6 +42,7 @@ test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, a
     "task-review-execution": "arbiter",
     "task-review-consent": "repo-write",
     "task-code-doc-reconcile": "repo-write",
+    "task-code-doc-repoint": "repo-write",
     "task-complete": "repo-write",
     "task-show": "repo-read",
     "receipt-show": "repo-read",
@@ -319,6 +320,108 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+
+test("code-doc repoint appends a replacement witness and rejects stale or unknown records", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-code-doc-repoint-")),
+    taskId = "task-code-doc-repoint",
+    executionId = "execution-code-doc-repoint",
+    repoId = workspaceId("code-doc-repoint");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "code-doc-repoint" });
+    await prepareReadyCompletion(cell, rootDir, taskId, executionId, "Repoint Ledger");
+    const anchorPath = path.join(
+        rootDir,
+        "harness",
+        "tasks/task-code-doc-repoint-repoint-ledger/code-doc-anchors.json",
+      ),
+      originalBytes = readFileSync(anchorPath),
+      original = JSON.parse(originalBytes.toString("utf8")) as { witnessId: string; commitSha: string };
+    const completed = await cell.run(
+      { kind: "task-complete", taskId, executionId, ci: "passed" },
+      { actor, source: "local" },
+    );
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    const missingBefore = makeTaskEventStore({ repoId, rootDir }).read().revision,
+      unknown = await cell.run(
+        {
+          kind: "task-code-doc-repoint",
+          taskId,
+          record: "code-doc-missing",
+          commitSha: original.commitSha,
+          paths: ["README.md"],
+          reason: "Unknown anchor",
+        },
+        { actor, source: "local" },
+      );
+    assert.equal(unknown.outcome, "op_rejected");
+    assert.equal(makeTaskEventStore({ repoId, rootDir }).read().revision, missingBefore);
+    const action = {
+        kind: "task-code-doc-repoint",
+        taskId,
+        record: original.witnessId,
+        commitSha: original.commitSha,
+        paths: ["README.md"],
+        reason: "Correct archive root",
+      } as const,
+      repointed = (await cell.run(action, { actor, source: "local" })) as Record<string, unknown>;
+    assert.equal(repointed.outcome, "applied", JSON.stringify(repointed));
+    const afterBytes = readFileSync(anchorPath),
+      lines = afterBytes
+        .toString("utf8")
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.deepEqual(afterBytes.subarray(0, originalBytes.length), originalBytes);
+    assert.equal(lines.length, 2);
+    assert.equal(lines[1]!.supersedes, original.witnessId);
+    assert.equal(lines[1]!.disposition, "repointed");
+    const projection = await cell.read("repo.tasks.list"),
+      row = projection.rows.find((value) => value.taskId === taskId)!;
+    assert.equal(
+      row.closeoutAssessment.gates.find((gate) => gate.gateId === "code-doc-reconciliation")?.status,
+      "passed",
+    );
+    assert.deepEqual(
+      row.snapshot.codeDocWitnesses.map((witness) =>
+        witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId,
+      ),
+      [original.witnessId, lines[1]!.recordId],
+    );
+    const duplicate = await cell.run(action, { actor, source: "local" });
+    assert.equal(duplicate.outcome, "op_rejected");
+    assert.deepEqual(readFileSync(anchorPath), afterBytes);
+    const knownInvalid = (await cell.run(
+      {
+        ...action,
+        record: String(lines[1]!.recordId),
+        paths: [],
+        reason: "Commit unresolvable after rebuild line reset",
+      },
+      { actor, source: "local" },
+    )) as Record<string, unknown>;
+    assert.equal(knownInvalid.outcome, "applied", JSON.stringify(knownInvalid));
+    const afterKnownInvalid = readFileSync(anchorPath),
+      invalidLines = afterKnownInvalid
+        .toString("utf8")
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.deepEqual(afterKnownInvalid.subarray(0, afterBytes.length), afterBytes);
+    assert.equal(invalidLines[2]!.supersedes, lines[1]!.recordId);
+    assert.equal(invalidLines[2]!.disposition, "known-invalid");
+    const invalidProjection = await cell.read("repo.tasks.list"),
+      invalidRow = invalidProjection.rows.find((value) => value.taskId === taskId)!;
+    assert.equal(
+      invalidRow.closeoutAssessment.gates.find((gate) => gate.gateId === "code-doc-reconciliation")?.status,
+      "missing",
+    );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 
 test("milestone-closeout uses the normal completion facade, review, and gates exactly once", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-completion-facade-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;

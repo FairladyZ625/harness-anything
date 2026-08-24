@@ -406,6 +406,39 @@ test("artifact add emits only a source-to-destination descriptor", () => {
     });
 });
 
+test("code-doc repoint requires an active record, full commit, and audit reason", () => {
+  const parsed = parseThinCommand([
+    "task",
+    "code-doc",
+    "repoint",
+    "task-1",
+    "--record",
+    "code-doc-old",
+    "--commit-sha",
+    "a".repeat(40),
+    "--path",
+    "README.md",
+    "--reason",
+    "Correct archive root",
+  ]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok)
+    assert.deepEqual(parsed.command.action, {
+      kind: "task-code-doc-repoint",
+      taskId: "task-1",
+      record: "code-doc-old",
+      commitSha: "a".repeat(40),
+      paths: ["README.md"],
+      reason: "Correct archive root",
+    });
+  for (const argv of [
+    ["task", "code-doc", "repoint", "task-1", "--commit-sha", "a".repeat(40), "--reason", "why"],
+    ["task", "code-doc", "repoint", "task-1", "--record", "code-doc-old", "--commit-sha", "abc", "--reason", "why"],
+    ["task", "code-doc", "repoint", "task-1", "--record", "code-doc-old", "--commit-sha", "a".repeat(40)],
+  ])
+    assert.equal(parseThinCommand(argv).ok, false, JSON.stringify(argv));
+});
+
 // A route decided by scanning the whole argv lets a flag *value* spelling a command name hijack it.
 // `daemon` and `gui` are both registered modules in this repository, so `--module daemon` is an
 // ordinary invocation that was impossible to express: it reached daemon control and died there.

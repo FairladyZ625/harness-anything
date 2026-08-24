@@ -64,6 +64,27 @@ export function parseCodeDoc(
     : rejected(f.code, f.nextAction, json);
 }
 
+export function parseCodeDocRepoint(
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  args: readonly string[],
+  taskId: string,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const f = readFlags("task-code-doc-repoint", args.slice(4), inputs);
+  return f.ok
+    ? accepted(rootDir, repoId, json, {
+        kind: "task-code-doc-repoint",
+        taskId,
+        record: f.one.get("--record"),
+        commitSha: f.one.get("--commit-sha"),
+        paths: f.many.get("--path") ?? [],
+        reason: f.one.get("--reason"),
+      })
+    : rejected(f.code, f.nextAction, json);
+}
+
 export function parseComplete(
   rootDir: SafePath,
   repoId: string | undefined,

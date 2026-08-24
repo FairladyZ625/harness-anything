@@ -6,7 +6,8 @@ import { approvedReviewsForCut, consentedApprovedReview } from "./review.ts";
 import { isNativeExecution } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution } from "./execution.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
-import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
+import { currentCodeDocWitness } from "./code-doc-witness.ts";
+import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
 
@@ -39,7 +40,7 @@ export interface CloseoutSnapshot {
   readonly executions: readonly ProjectedExecution[];
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
-  readonly codeDocWitnesses: readonly CodeDocWitnessV1[];
+  readonly codeDocWitnesses: readonly CodeDocWitnessRecord[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly decisionRelations?: readonly CoverageRelation[];
 }
@@ -141,12 +142,13 @@ export function gateResults(
     if (!known) return { gateId, status: "unknown", detail: "witness projection unknown" };
     if (!executionId || !commitSha || iteration === undefined)
       return { gateId, status: "missing", detail: "no submitted execution cut" };
-    if (codeDoc)
-      return snapshot.codeDocWitnesses.some(
-        (value) => value.executionId === executionId && value.commitSha === commitSha && value.iteration === iteration,
-      )
+    if (codeDoc) {
+      const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
+      // A valid repoint may bind an archival commit rather than the submitted cut.
+      return witness?.iteration === iteration
         ? { gateId, status: "passed" }
         : { gateId, status: "missing", detail: "current execution cut has no code/doc witness" };
+    }
     const exact = snapshot.gateWitnesses.filter(
       (value) =>
         value.gateId === gateId &&

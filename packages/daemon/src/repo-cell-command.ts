@@ -222,6 +222,16 @@ export function buildCommand(
       iteration: iteration(action.iteration),
       paths: cellStringList(action.paths),
     });
+  if (action.kind === "task-code-doc-repoint")
+    return normalizeTaskLifecycleCommand(bound, {
+      type: "RepointCodeDoc",
+      taskId,
+      record: requiredCellText(action.record, "record"),
+      repointId: `code-doc-repoint-${createHash("sha256").update(JSON.stringify(action)).digest("hex").slice(0, 16)}`,
+      commitSha: requiredCellText(action.commitSha, "commitSha"),
+      paths: cellStringList(action.paths),
+      reason: requiredCellText(action.reason, "reason"),
+    });
   if (action.kind === "task-complete")
     return normalizeTaskLifecycleCommand(bound, {
       type: "CompleteTask",

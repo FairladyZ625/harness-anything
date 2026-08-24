@@ -180,10 +180,10 @@ function lifecycleEvents(row: TaskSnapshotProjectionRow, projectId: string): Tas
         summary: `Consent ${consent.consentId} recorded`,
       })),
       ...row.snapshot.codeDocWitnesses.map((witness) => ({
-        at: witness.reconciledAt,
+        at: witness.schema === "code-doc-witness/v1" ? witness.reconciledAt : witness.repointedAt,
         projectId,
         taskId,
-        summary: `Code/doc witness ${witness.witnessId}`,
+        summary: `Code/doc witness ${witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}`,
       })),
       ...row.snapshot.gateWitnesses.map((witness) => ({
         at: witness.verifiedAt,

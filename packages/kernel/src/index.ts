@@ -25,6 +25,8 @@ export {
   canonicalGateReceipts,
   canStartExecution,
   compileExecutionExecutorDeclaration,
+  codeDocRecordId,
+  currentCodeDocWitness,
   executionExecutorDeclarationCandidates,
   heldLeaseForExecutionActor,
   normalizeTaskLifecycleCommand,
