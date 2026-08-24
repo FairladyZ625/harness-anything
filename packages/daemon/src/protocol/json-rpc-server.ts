@@ -250,9 +250,12 @@ export function createJsonRpcProtocolServer(options: {
           fleetAction = fleetPayload.action;
         if (isJsonObject(fleetAction) && fleetAction.kind === "fleet-runtime") {
           if (
-            !["repo.agentRuntime.spawn", "repo.agentRuntime.cancel", "repo.agentRuntime.sessions.read"].includes(
-              String(fleetAction.method),
-            ) ||
+            ![
+              "repo.agentRuntime.spawn",
+              "repo.agentRuntime.cancel",
+              "repo.agentRuntime.overview",
+              "repo.agentRuntime.sessions.read",
+            ].includes(String(fleetAction.method)) ||
             !isJsonObject(fleetAction.payload)
           )
             throw Object.assign(new Error("Fleet runtime envelope must carry one closed runtime method and payload."), {

@@ -536,8 +536,13 @@ export function makeRuntimeSpawner(input: {
   async function consumeChunk(active: ActiveRuntime, chunk: string, flush: boolean, persisted = false): Promise<void> {
     return consumeProviderChunk(extracted, active, chunk, flush, persisted);
   }
-  async function consumeLine(active: ActiveRuntime, line: string, persisted = false): Promise<void> {
-    return consumeProviderLine(extracted, active, line, persisted);
+  async function consumeLine(
+    active: ActiveRuntime,
+    line: string,
+    persisted = false,
+    publishSignals = true,
+  ): Promise<void> {
+    return consumeProviderLine(extracted, active, line, persisted, publishSignals);
   }
   function captureErrorOutput(active: ActiveRuntime, chunk: string): void {
     return captureErrorOutputImpl(extracted, active, chunk);

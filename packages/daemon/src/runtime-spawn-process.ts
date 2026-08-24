@@ -2,6 +2,7 @@ import { spawn,
   /* @gate-identity check-sync-subprocess/sync-subprocess-010 */
   spawnSync } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import { consumeKnownError } from "../../kernel/src/index.ts";
@@ -16,6 +17,7 @@ import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import type { ResumeProcessEvent, ResumeProcessObservation, RuntimeProcess } from "./runtime-spawn-types.ts";
 import { exitNotificationTimeoutMs, providerErrorLimit, resumeAdmissionTimeoutMs } from "./runtime-spawner.ts";
+import { runProcessTextAsync } from "./process-port.ts";
 
 export function requiredRuntimeStore(input: { readonly store?: () => CanonicalEventStore }): CanonicalEventStore {
   if (!input.store)
@@ -160,6 +162,108 @@ export function terminateRuntimePid(pid: number): void {
     if (childProcessErrorCode(error) !== "ESRCH") throw error;
     consumeKnownError(error);
   }
+}
+
+type PosixProcessRow = {
+  readonly pid: number;
+  readonly parentPid: number;
+  readonly processGroupId: number;
+  readonly state: string;
+};
+
+async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
+  const output = await runProcessTextAsync("ps", ["-axo", "pid=,ppid=,pgid=,stat="]);
+  return output.split(/\r?\n/u).flatMap((line) => {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)/u.exec(line);
+    if (!match) return [];
+    return [{ pid: Number(match[1]), parentPid: Number(match[2]), processGroupId: Number(match[3]), state: match[4]! }];
+  });
+}
+
+function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid: number): readonly PosixProcessRow[] {
+  const selected = new Set([rootPid]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of rows) if (!selected.has(row.pid) && selected.has(row.parentPid)) {
+      selected.add(row.pid);
+      changed = true;
+    }
+  }
+  return rows.filter((row) => selected.has(row.pid));
+}
+
+function signalRuntimeTargets(
+  rows: readonly PosixProcessRow[],
+  rootPid: number,
+  ownProcessGroupId: number | null,
+  signal: NodeJS.Signals,
+): void {
+  const groups = [...new Set(rows.map(({ processGroupId }) => processGroupId).filter((group) => group > 0))]
+    .sort((left, right) => Number(left === rootPid) - Number(right === rootPid));
+  for (const processGroupId of groups) {
+    if (processGroupId === ownProcessGroupId) continue;
+    try { process.kill(-processGroupId, signal); }
+    catch (error) { if (childProcessErrorCode(error) !== "ESRCH") throw error; consumeKnownError(error); }
+  }
+  if (groups.includes(ownProcessGroupId ?? -1)) for (const { pid } of rows) {
+    if (pid === process.pid) continue;
+    try { process.kill(pid, signal); }
+    catch (error) { if (childProcessErrorCode(error) !== "ESRCH") throw error; consumeKnownError(error); }
+  }
+}
+
+async function survivingRuntimePids(pids: readonly number[]): Promise<readonly number[]> {
+  const wanted = new Set(pids), rows = await readPosixProcessRows();
+  return rows.filter(({ pid, state }) => wanted.has(pid) && !state.startsWith("Z")).map(({ pid }) => pid);
+}
+
+async function awaitRuntimeProcessExit(pids: readonly number[], timeoutMs: number): Promise<readonly number[]> {
+  const deadline = Date.now() + timeoutMs;
+  let survivors = await survivingRuntimePids(pids);
+  while (survivors.length > 0 && Date.now() < deadline) {
+    await delay(Math.min(25, Math.max(1, deadline - Date.now())));
+    survivors = await survivingRuntimePids(pids);
+  }
+  return survivors;
+}
+
+export async function terminateRuntimeTree(rootDir: string, dispatchId: string, rootPid: number): Promise<void> {
+  if (!Number.isInteger(rootPid) || rootPid < 1) return;
+  if (process.platform === "win32") {
+    terminateRuntimePid(rootPid);
+    return;
+  }
+  let allRows: readonly PosixProcessRow[];
+  try { allRows = await readPosixProcessRows(); }
+  catch (error) { consumeKnownError(error); terminateRuntimePid(rootPid); return; }
+  const rows = descendantProcessRows(allRows, rootPid), pids = rows.map(({ pid }) => pid),
+    processGroupIds = [...new Set(rows.map(({ processGroupId }) => processGroupId))]
+      .sort((left, right) => left - right),
+    ownProcessGroupId = allRows.find(({ pid }) => pid === process.pid)?.processGroupId ?? null;
+  appendRuntimeWorkerRecord(rootDir, dispatchId, {
+    kind: "process_descendants",
+    occurredAt: new Date().toISOString(),
+    rootPid,
+    pids,
+    processGroupIds,
+  });
+  signalRuntimeTargets(rows, rootPid, ownProcessGroupId, "SIGTERM");
+  let survivors = await awaitRuntimeProcessExit(pids, 500);
+  if (survivors.length > 0) {
+    signalRuntimeTargets(rows.filter(({ pid }) => survivors.includes(pid)), rootPid, ownProcessGroupId, "SIGKILL");
+    survivors = await awaitRuntimeProcessExit(pids, 500);
+  }
+  appendRuntimeWorkerRecord(rootDir, dispatchId, {
+    kind: "process_descendants_terminated",
+    occurredAt: new Date().toISOString(),
+    rootPid,
+    survivorPids: survivors,
+  });
+  if (survivors.length > 0) throw runtimeSpawnError(
+    "runtime_cancel_failed",
+    `Runtime cancel left descendant processes alive: ${survivors.join(", ")}.`,
+  );
 }
 
 export function runtimePidIsAlive(pid: number): boolean {
@@ -323,15 +427,26 @@ export function launchNative(
   return observed;
 }
 
-export function adoptNativeProcess(rootDir: string, dispatchId: string, pid: number): RuntimeProcess {
-  return observeDispatchProcess(rootDir, dispatchId, pid);
+export function adoptNativeProcess(
+  rootDir: string,
+  dispatchId: string,
+  pid: number,
+  skipPersistedOutputRecords = 0,
+): RuntimeProcess {
+  return observeDispatchProcess(rootDir, dispatchId, pid, skipPersistedOutputRecords);
 }
 
-function observeDispatchProcess(rootDir: string, dispatchId: string, pid: number): RuntimeProcess {
+function observeDispatchProcess(
+  rootDir: string,
+  dispatchId: string,
+  pid: number,
+  skipPersistedOutputRecords = 0,
+): RuntimeProcess {
   const outputs: Array<{ readonly chunk: string; readonly persisted: boolean }> = [];
   const errors: string[] = [];
   const decoder = new StringDecoder("utf8");
   let offset = 0;
+  let skippedOutputRecords = 0;
   let buffer = "";
   let outputListener: ((chunk: string, persisted?: boolean) => void) | null = null;
   let errorListener: ((chunk: string) => void) | null = null;
@@ -364,8 +479,14 @@ function observeDispatchProcess(rootDir: string, dispatchId: string, pid: number
       buffer = lines.pop() ?? "";
       for (const line of lines) {
         const record = parseDispatchProcessRecord(line);
-        if (record?.kind === "provider_event") emitOutput(`${JSON.stringify(record.event)}\n`);
-        else if (record?.kind === "provider_output_invalid") emitOutput(`${String(record.output)}\n`);
+        if (record?.kind === "provider_event") {
+          if (skippedOutputRecords < skipPersistedOutputRecords) skippedOutputRecords += 1;
+          else emitOutput(`${JSON.stringify(record.event)}\n`);
+        }
+        else if (record?.kind === "provider_output_invalid") {
+          if (skippedOutputRecords < skipPersistedOutputRecords) skippedOutputRecords += 1;
+          else emitOutput(`${String(record.output)}\n`);
+        }
         else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
         else if (record?.kind === "process_exit") {
           emitExit(Number.isInteger(record.exitCode) ? Number(record.exitCode) : null);
@@ -393,6 +514,7 @@ function observeDispatchProcess(rootDir: string, dispatchId: string, pid: number
       if (exited) queueMicrotask(() => listener(exitCode));
     },
     terminate: () => terminateRuntimePid(pid),
+    terminateTree: () => terminateRuntimeTree(rootDir, dispatchId, pid),
     release: () => {
       released = true;
       clearInterval(timer);

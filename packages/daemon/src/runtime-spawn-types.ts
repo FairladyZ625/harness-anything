@@ -20,6 +20,7 @@ export interface RuntimeProcess {
   readonly onErrorOutput: (listener: (chunk: string) => void) => void;
   readonly onExit: (listener: (code: number | null) => void) => void;
   readonly terminate: () => void;
+  readonly terminateTree?: () => Promise<void>;
   readonly release?: () => void;
 }
 

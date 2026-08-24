@@ -57,6 +57,19 @@ async function dualSyncFixture() {
 }
 type Fixture = Awaited<ReturnType<typeof dualSyncFixture>>;
 
+test("remote-edge task and document reads use the authoritative cut after materialization", { timeout: 60_000 }, async (t) => {
+  const fixture: Fixture = await dualSyncFixture(); t.after(() => fixture.close());
+  const created = await fixture.createTask("node-one", "task-seeded", "Authoritative edge read");
+  const shown = await fixture.edgeTask("node-one", { kind: "task-show", taskId: created.taskId });
+  assert.equal(shown.ok, true, JSON.stringify(shown)); assert.ok(Number(shown.revision) > 0); assert.doesNotMatch(String(shown.summary), /task=null/u);
+  const logical = "context/shared-notes.md"; fixture.writeWorktree("node-one", logical, "# Submitted once\n");
+  const submitted = await fixture.edgeDocSync("node-one", { paths: [logical] });
+  assert.equal(submitted.ok, true, JSON.stringify(submitted));
+  const status = await fixture.edgeDocSync("node-one", { dryRun: true, paths: [logical] });
+  assert.equal(status.cut && (status.cut as { revision: number }).revision, submitted.cut && (submitted.cut as { revision: number }).revision);
+  assert.deepEqual(status.rows, [], `already-submitted document was re-eligible: ${JSON.stringify(status.rows)}`);
+});
+
 test("class A: a task command carries local task documents, and the effect lands in both mirrors", { timeout: 60_000 }, async (t) => {
   const fixture: Fixture = await dualSyncFixture(); t.after(() => fixture.close());
   const created = await fixture.createTask("node-one", "task_AAAA000000000000000000000A", "Class A carry");

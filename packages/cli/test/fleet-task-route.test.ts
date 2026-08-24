@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fleetRuntimeRoute, fleetTaskRoute } from "../src/daemon/client.ts";
+import { fleetDocRoute, fleetRuntimeRoute, fleetTaskRoute } from "../src/daemon/client.ts";
 
 test("fleet task routing requires both edge config and remote-edge registry mode", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-task-route-")), userRoot = path.join(root, "user");
@@ -22,6 +22,9 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   registry("remote-edge");
   const routed = await fleetTaskRoute(command("repo.task.run", { kind: "task-start", verb: "start", commandType: "StartExecution", taskId: "task_one" }), env);
   assert.deepEqual(routed?.action, { kind: "task-start", taskId: "task_one" });
+  assert.deepEqual((await fleetTaskRoute(command("repo.task.run", { kind: "task-show", taskId: "task_one" }), env))?.action, { kind: "task-show", taskId: "task_one" });
+  const docStatus = await fleetDocRoute(command("repo.task.run", { kind: "doc-status", paths: ["context/notes.md"] }), env);
+  assert.equal(docStatus?.method, "daemon.fleet.doc.sync"); assert.equal(docStatus?.payload.dryRun, true); assert.deepEqual(docStatus?.payload.paths, ["context/notes.md"]);
   const child = path.join(root, "worktrees", "nested"); mkdirSync(child, { recursive: true });
   const childRouted = await fleetTaskRoute(command("repo.task.run", { kind: "task-progress-append", taskId: "task_one", executionId: "execution_one", text: "nested cwd", evidence: [] }, child), env);
   assert.equal(childRouted?.workspaceRoot, root, "commands from descendants still materialize the registered workspace"); assert.deepEqual(childRouted?.action, { kind: "task-progress-append", taskId: "task_one", executionId: "execution_one", text: "nested cwd", evidence: [] });

@@ -361,7 +361,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     repoId = "runtime-re-adopt",
     executablePath = writeProviderExecutable(
       path.join(parent, "re-adopt-provider.mjs"),
-      `import fs from "node:fs";\nfs.readFileSync(0, "utf8");\nfs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: "provider-re-adopt-session" }));\nconst timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "survived daemon restart" } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); }, 10);\n`,
+      `import fs from "node:fs";\nfs.readFileSync(0, "utf8");\nfs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: "provider-re-adopt-session" }));\nconst timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "survived daemon restart" } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); }, 10);\n`,
     ),
     installation = installationFixture("codex", executablePath),
     definition = {
@@ -373,7 +373,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       models: ["codex-model"],
       defaultModel: "codex-model",
       enabled: true,
-      permissionMode: "read-only" as const,
+      permissionMode: "workspace-write" as const,
       codex: {},
       authMode: "subscription" as const,
       authState: "configured" as const,
@@ -548,14 +548,14 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
   }
 });
 
-test("explicit runtime cancel terminates a detached native provider process tree", async () => {
+test("explicit runtime cancel terminates every detached native provider descendant group", { skip: process.platform === "win32" ? "requires POSIX process-group semantics" : false }, async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-detached-cancel-")),
     root = path.join(parent, "repo"),
     pidFile = path.join(parent, "provider-pids.json"),
     repoId = "runtime-detached-cancel",
     executablePath = writeProviderExecutable(
       path.join(parent, "cancel-tree-provider.mjs"),
-      `import fs from "node:fs"; import { spawn } from "node:child_process";\nfs.readFileSync(0, "utf8"); const child = spawn(process.execPath, ["-e", "setInterval(() => undefined, 1000)"], { stdio: "ignore" }); fs.writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify([process.pid, child.pid])); console.log(JSON.stringify({ type: "thread.started", thread_id: "provider-cancel-tree" })); setInterval(() => undefined, 1000);\n`,
+      `import fs from "node:fs"; import { spawn } from "node:child_process";\nfs.readFileSync(0, "utf8"); const child = spawn(process.execPath, ["-e", "setInterval(() => undefined, 1000)"], { stdio: "ignore", detached: true }); child.unref(); fs.writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify([process.pid, child.pid])); console.log(JSON.stringify({ type: "thread.started", thread_id: "provider-cancel-tree" })); setInterval(() => undefined, 1000);\n`,
     ),
     installation = installationFixture("codex", executablePath),
     instance = {
@@ -663,16 +663,18 @@ test("explicit runtime cancel terminates a detached native provider process tree
       ).detail,
       "cancelled",
     );
-    await eventually(() =>
-      pids.every((pid) => {
-        try {
-          process.kill(pid, 0);
-          return false;
-        } catch {
-          return true;
-        }
-      }),
-    );
+    const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${String(spawned.dispatchId)}.jsonl`),
+      descendants = await eventuallyValue(() => {
+        const records = readFileSync(streamPath, "utf8").trim().split(/\r?\n/u).map((line) => JSON.parse(line) as Record<string, unknown>);
+        return records.find((record) => record.kind === "process_descendants") ?? null;
+      });
+    assert.deepEqual((descendants.pids as number[]).slice().sort((left, right) => left - right), pids.slice().sort((left, right) => left - right));
+    const survivors = pids.filter((pid) => {
+      try { process.kill(pid, 0); return true; }
+      catch { return false; }
+    });
+    assert.deepEqual(survivors, [], `cancel survivors: ${JSON.stringify(survivors)}`);
+    t.diagnostic(`cancel descendants=${JSON.stringify(pids)} survivors=${JSON.stringify(survivors)}`);
   } finally {
     if (runtimeSessionId)
       try {
@@ -764,7 +766,7 @@ async function eventually(check: () => boolean | Promise<boolean>): Promise<void
   await eventuallyValue(async () => ((await check()) ? true : null));
 }
 async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     const value = await read();
     if (value !== null) return value;
     await new Promise((resolve) => setTimeout(resolve, 10));
