@@ -68,7 +68,7 @@ export interface DocSyncReceiptDetail {
 export const receiptDetailRegistry = Object.freeze([{ kind: "doc_sync", validate: validateDocSyncDetail }] as const);
 export type WriteReceiptDetail = DocSyncReceiptDetail;
 export interface WriteReceipt {
-  readonly outcome: "applied" | "pending" | "indeterminate" | "op_rejected";
+  readonly outcome: "applied" | "pending" | "no_changes" | "indeterminate" | "op_rejected";
   readonly opId: string;
   readonly revision?: number;
   readonly code?: string;
@@ -88,7 +88,7 @@ export interface WriteReceipt {
 }
 export const WRITE_RECEIPT_SCHEMA = Object.freeze({
   id: "write-receipt/v1",
-  outcomes: Object.freeze(["applied", "pending", "indeterminate", "op_rejected"] as const),
+  outcomes: Object.freeze(["applied", "pending", "no_changes", "indeterminate", "op_rejected"] as const),
   required: Object.freeze(["outcome", "opId"]),
   optional: Object.freeze([
     "revision",
@@ -163,7 +163,10 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     ("commitSha" in value && value.commitSha !== null && !("cut" in value))
   )
     errors.push("materialized commitSha and cut must be reported together");
-  if ((value.outcome === "applied" || value.outcome === "pending") && (visibility === undefined || !validProof))
+  if (
+    (value.outcome === "applied" || value.outcome === "pending" || value.outcome === "no_changes") &&
+    (visibility === undefined || !validProof)
+  )
     errors.push(`${String(value.outcome)} requires visibility and proof`);
   if (
     value.outcome === "applied" &&
@@ -178,8 +181,13 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     (proof.ackCut !== proof.appliedCut || proof.worktreeVisible !== true)
   )
     errors.push("replica applied requires worktree visibility and ackCut at the same cut");
-  if (value.outcome === "applied" && (!cut(value.revision) || !text(value.evidence)))
-    errors.push("applied requires revision and evidence");
+  if (
+    (value.outcome === "applied" || value.outcome === "no_changes") &&
+    (!cut(value.revision) || !text(value.evidence))
+  )
+    errors.push(`${String(value.outcome)} requires revision and evidence`);
+  if (value.outcome === "no_changes" && (value.code !== "no_changes" || !text(value.origin) || !text(value.nextAction)))
+    errors.push("no_changes requires code, origin, and nextAction");
   if (value.outcome === "pending" && (!cut(value.revision) || !text(value.evidence) || !text(value.nextAction)))
     errors.push("pending requires committed evidence, revision, and nextAction");
   if (value.outcome === "indeterminate" || value.outcome === "op_rejected")

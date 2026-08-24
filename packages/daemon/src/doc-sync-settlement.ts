@@ -15,7 +15,7 @@ import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts"
 import { detail, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts";
 import { localProseSource, proof } from "./doc-sync-files.ts";
 
-export function scanReceipt(input: Input, scan: DocCandidateScan): WriteReceipt {
+export function scanReceipt(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
   const revision = input.store.readHead()?.revision ?? 0,
     report = publicScan(scan),
     opId = `scan:${input.action.kind}:${scan.baseLedgerSha.headDigest}`,
@@ -50,7 +50,24 @@ export function scanReceipt(input: Input, scan: DocCandidateScan): WriteReceipt 
           scan.rows.every((row) => row.state === "clean"),
         ),
         detail,
+        ...(input.action.kind === "doc-status" ? { summary: statusSummary(scan) } : {}),
       };
+}
+
+function statusSummary(scan: DocCandidateScan): string {
+  const blocked = scan.rows.filter(
+      (row) => row.state === "blocked" || row.state === "deletion" || row.state === "conflict",
+    ),
+    eligible = scan.rows.filter((row) => row.state === "eligible").length,
+    inapplicable = scan.rows.filter((row) => row.state === "inapplicable").length;
+  return [
+    blocked.length ? `doc-status: BLOCKED (${blocked.length})` : "doc-status: clean",
+    ...(blocked.length
+      ? ["blocked:", ...blocked.map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is blocked"}`)]
+      : []),
+    `eligible: ${eligible}`,
+    `inapplicable: ${inapplicable}`,
+  ].join("\n");
 }
 
 export function scanDetail(input: Input, scan: DocCandidateScan, code: string): DocSyncReceiptDetail {
@@ -215,15 +232,17 @@ export function noOp(input: Input, scan: DocCandidateScan): DocSettlementReceipt
   const revision = input.store.readHead()?.revision ?? 0,
     nextAction = "no eligible document changes to submit";
   return {
-    outcome: "op_rejected",
+    outcome: "no_changes",
     opId: `noop:${scan.baseLedgerSha.headDigest}`,
     revision,
     code: "no_changes",
     origin: "doc-sync",
     evidence: "doc-sync:no-op",
+    visibility: "center",
+    proof: proof(revision, revision, true, true),
     nextAction,
     detail: { ...scanDetail(input, scan, "no_changes"), nextAction },
-    summary: submitSummary("op_rejected", [], scan),
+    summary: submitSummary("no_changes", [], scan),
   };
 }
 

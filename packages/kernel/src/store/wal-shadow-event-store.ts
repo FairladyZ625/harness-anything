@@ -40,6 +40,8 @@ type StoreOptions = Parameters<typeof makeGitEventStore>[0] & {
   readonly walFlushMs?: number;
   readonly walRetryLimit?: number;
   readonly walRetryBaseMs?: number;
+  /** Runs after a WAL cut is durable and Git state has been reloaded. */
+  readonly afterFlush?: () => void;
 };
 
 export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventStore {
@@ -66,6 +68,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let immediate: ReturnType<typeof setImmediate> | null = null;
   let consecutiveFailures = 0;
   let lastFlushError: string | null = null;
+  let lastSettlementFingerprint: string | null = null;
   let closed = false;
 
   const reloadGit = (): void => {
@@ -95,6 +98,17 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     try {
       flushWalToGit(wal, git, options);
       reloadGit();
+      // Authored settlement observes the durable cut. It is intentionally outside the
+      // materialization transaction: an ineligible edit must remain visible for doc status,
+      // but can never make an already durable WAL cut fail.
+      notifyAfterFlush(
+        new Set(
+          pendingRecords.flatMap((record) => [
+            ...canonicalDocumentClaims(record.event).map((claim) => ledgerGitPath(ledger, claim.path)),
+            ...canonicalDocumentRetirements(record.event).map((retirement) => ledgerGitPath(ledger, retirement.path)),
+          ]),
+        ),
+      );
       console.info(
         `[wal-materializer] materialized revisions ${first}-${last} (${context}, attempt ${consecutiveFailures + 1})`,
       );
@@ -117,6 +131,22 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       );
       consumeKnownError(error);
       return false;
+    }
+  };
+  const notifyAfterFlush = (ignored: ReadonlySet<string> = new Set()): void => {
+    const fingerprint = localGitWorktreeSettlement.changesFingerprint(
+      ledger.rootDir,
+      ledger.authoredPrefix || ".",
+      ignored,
+    );
+    if (fingerprint === lastSettlementFingerprint) return;
+    lastSettlementFingerprint = fingerprint;
+    if (fingerprint === null) return;
+    try {
+      options.afterFlush?.();
+    } catch (error) {
+      console.warn(`[wal-materializer] authored settlement failed: ${walShadowErrorMessage(error)}`);
+      consumeKnownError(error);
     }
   };
   const scheduleRetry = (): void => {
@@ -290,19 +320,40 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         errorCode: "publication_indeterminate",
       };
     }
-    if (recovered.status !== "none" || !hadWalRecords) return recovered;
-    return {
+    if (recovered.status !== "none" || !hadWalRecords) {
+      if (recovered.status === "committed" || recovered.status === "already_committed")
+        notifyAfterFlush(
+          new Set(
+            records.flatMap((record) => [
+              ...canonicalDocumentClaims(record.event).map((claim) => ledgerGitPath(ledger, claim.path)),
+              ...canonicalDocumentRetirements(record.event).map((retirement) => ledgerGitPath(ledger, retirement.path)),
+            ]),
+          ),
+        );
+      return recovered;
+    }
+    const result = {
       status: hadPendingPublication ? "committed" : "already_committed",
       publications: hadPendingPublication ? 1 : 0,
       elapsedMs: performance.now() - started,
-    };
+    } as const;
+    if (result.status === "committed" || result.status === "already_committed")
+      notifyAfterFlush(
+        new Set(
+          records.flatMap((record) => [
+            ...canonicalDocumentClaims(record.event).map((claim) => ledgerGitPath(ledger, claim.path)),
+            ...canonicalDocumentRetirements(record.event).map((retirement) => ledgerGitPath(ledger, retirement.path)),
+          ]),
+        ),
+      );
+    return result;
   };
   const drain = async (): Promise<void> => {
     closed = true;
     clearSchedule();
     consecutiveFailures = 0;
     for (let attempt = 1; hasWalRecords() && attempt <= retryLimit; attempt += 1) {
-      if (runFlush("drain")) break;
+      if (runFlush("drain") && !hasWalRecords()) break;
       if (attempt < retryLimit) await wait(retryBaseMs * 2 ** (attempt - 1));
     }
     if (hasWalRecords())

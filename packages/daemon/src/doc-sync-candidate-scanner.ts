@@ -431,7 +431,12 @@ function dirtyPaths(repoRoot: string, authoredPrefix: string): string[] {
   return [
     ...new Set(
       [...changed, ...untracked]
-        .filter((value) => (!prefix || value.startsWith(prefix)) && !value.includes(".conflict-"))
+        .filter(
+          (value) =>
+            (!prefix || value.startsWith(prefix)) &&
+            !value.includes(".conflict-") &&
+            !/\/\.ha-(?:visible|settle)-/u.test(`/${value}`),
+        )
         .map((value) => value.slice(prefix.length))
         .concat(conflictLogicalPaths(path.join(repoRoot, authoredPrefix))),
     ),

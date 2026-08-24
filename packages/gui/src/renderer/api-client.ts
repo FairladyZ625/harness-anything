@@ -573,7 +573,7 @@ function readGuiActionResult(value: unknown): GuiActionResult {
     result.schema !== "command-receipt/v2" ||
     typeof result.ok !== "boolean" ||
     typeof result.command !== "string" ||
-    !["applied", "pending", "indeterminate", "op_rejected"].includes(String(result.outcome)) ||
+    !["applied", "pending", "no_changes", "indeterminate", "op_rejected"].includes(String(result.outcome)) ||
     typeof result.opId !== "string"
   ) {
     throw new Error(localErrorHint(value, "GUI action bridge returned an invalid receipt."));

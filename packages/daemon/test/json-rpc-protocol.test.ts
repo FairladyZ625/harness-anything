@@ -7,15 +7,41 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { eventObjectTarget, makeTaskEventStore, makeTaskProjection, readDaemonRegistry, REPLAY_TASK_GRAPH, serializeCanonicalEvent, serializeEventHead, sha256Text, type AgentRuntimeEventV1, type FrozenWritePlan, type TaskEventV1 } from "../../kernel/src/index.ts";
+import {
+  eventObjectTarget,
+  makeTaskEventStore,
+  makeTaskProjection,
+  readDaemonRegistry,
+  REPLAY_TASK_GRAPH,
+  serializeCanonicalEvent,
+  serializeEventHead,
+  sha256Text,
+  type AgentRuntimeEventV1,
+  type FrozenWritePlan,
+  type TaskEventV1,
+} from "../../kernel/src/index.ts";
 import { projectDecisionReadiness, reviewDigest } from "../../kernel/src/index.ts";
-import { actionForDaemonMethod, canonicalRoot, commandClassForAction, daemonGuiActionMethods, daemonProtocolCommands, parseDaemonRpcParams, validateDaemonDecisionList, validateDaemonGuiCommandReceipt, validateDaemonRelationGraph, validateDaemonTaskSnapshotList, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  actionForDaemonMethod,
+  canonicalRoot,
+  commandClassForAction,
+  daemonGuiActionMethods,
+  daemonProtocolCommands,
+  parseDaemonRpcParams,
+  validateDaemonDecisionList,
+  validateDaemonGuiCommandReceipt,
+  validateDaemonRelationGraph,
+  validateDaemonTaskSnapshotList,
+  workspaceId,
+} from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 const DOC_POLICY_ID = "markdown-body-replaceable/v1";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
+
+// prettier-ignore
 
 test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, and Decision action class", () => {
   const expected = {
@@ -79,6 +105,8 @@ test("descriptor-derived RBAC preserves every preset, runtime, doc-sync, Fact, a
   assert.deepEqual(Object.fromEntries(Object.keys(expected).map((kind) => [kind, commandClassForAction(kind)])), expected);
 });
 
+// prettier-ignore
+
 test("task-create and preset RPC descriptors enforce closed payloads and retire the open route", () => {
   const params = { repo: { repoId: "alpha" }, payload: { title: "Closed", presetId: "standard-task" } };
   assert.equal(parseDaemonRpcParams("repo.task.create", params).ok, true); assert.equal(parseDaemonRpcParams("repo.task.create", { ...params, payload: { ...params.payload, dryRun: true } }).ok, true); assert.equal(parseDaemonRpcParams("repo.task.create", { ...params, payload: { ...params.payload, dryRun: "true" } }).ok, false); assert.equal(parseDaemonRpcParams("repo.task.create", { ...params, payload: { ...params.payload, completionGateIds: [] } }).ok, false); assert.deepEqual(actionForDaemonMethod("repo.task.create", params.payload), { kind: "task-create", ...params.payload }); assert.throws(() => actionForDaemonMethod("repo.task.run", { action: { kind: "task-create", title: "Open" } }), /closed method/u);
@@ -90,11 +118,15 @@ test("task-create and preset RPC descriptors enforce closed payloads and retire 
   assert.equal(parseDaemonRpcParams("repo.task.create", { repo: { repoId: "alpha" }, payload: { ...fullPayload, taskClass: "long_running" } }).ok, true);
 });
 
+// prettier-ignore
+
 test("daemon repo registration derives its closed mode enum at the wire boundary", () => {
   const base = { rootDir: "/tmp/workspace", repoId: "alpha" };
   for (const mode of [undefined, "local", "remote-center", "remote-edge"]) assert.equal(parseDaemonRpcParams("daemon.repo.register", { ...base, ...(mode ? { mode } : {}) }).ok, true, String(mode));
   const invalid = parseDaemonRpcParams("daemon.repo.register", { ...base, mode: "invalid" }); assert.equal(invalid.ok, false); if (!invalid.ok) assert.deepEqual(invalid.errors, ["params.mode must be one of local, remote-center, remote-edge"]);
 });
+
+// prettier-ignore
 
 test("local Fleet runtime envelope admits the paged overview read", async () => {
   let observed: Record<string, unknown> | null = null;
@@ -109,6 +141,8 @@ test("local Fleet runtime envelope admits the paged overview read", async () => 
   } finally { server.close(); }
 });
 
+// prettier-ignore
+
 test("protocol hello accepts only the session variables owned by runtime resolvers", () => {
   const hello = (sessionEnvironment?: Record<string, unknown>) => parseDaemonRpcParams("protocol.hello", { protocolVersion: currentDaemonProtocolVersion, ...(sessionEnvironment ? { sessionEnvironment } : {}) });
   assert.equal(hello().ok, true);
@@ -116,6 +150,8 @@ test("protocol hello accepts only the session variables owned by runtime resolve
   assert.deepEqual(hello({ CLAUDE_CODE_HOST_SESSION_ID: "local-wrong" }), { ok: false, errors: ["session environment contains an unknown field \"CLAUDE_CODE_HOST_SESSION_ID\"; allowed fields: \"CLAUDE_CODE_SESSION_ID\", \"CODEX_THREAD_ID\", \"CODEX_SESSION_ID\"."] });
   assert.deepEqual(hello({ CODEX_THREAD_ID: " " }), { ok: false, errors: ["session environment values must be non-empty strings"] });
 });
+
+// prettier-ignore
 
 test("ledger migrate runs through the RepoCell write queue and reports its bounded projection catch-up", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ledger-layout-migrate-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -125,6 +161,8 @@ test("ledger migrate runs through the RepoCell write queue and reports its bound
     const repeated = await cell.run({ kind: "ledger-migrate" }, { actor, source: "local" }) as Record<string, unknown>; assert.equal(repeated.commitSha, receipt.commitSha); assert.equal(git(rootDir, "rev-list", "--count", "HEAD"), "3");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
+
+// prettier-ignore
 
 test("explicit projection rebuild is a local repair action with a source-complete digest", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-projection-rebuild-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -138,11 +176,15 @@ test("explicit projection rebuild is a local repair action with a source-complet
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+// prettier-ignore
+
 test("replay receipts retain their event cut and upgrade pending commit identity after drain", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-replay-current-cut-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut" }); const binding = { actor, source: "local" as const }; await cell.run({ kind: "task-create", taskId: "task_replay_first", title: "First" }, binding); const first = await cell.run({ kind: "task-start", taskId: "task_replay_first", executionId: "execution_replay_first" }, binding) as Record<string, unknown>, second = await cell.run({ kind: "task-create", taskId: "task_replay_second", title: "Second" }, binding) as Record<string, unknown>, replay = await cell.run({ kind: "receipt-show", opId: first.opId }, binding) as Record<string, unknown>; assert.equal(first.commitSha, null); assert.equal(second.commitSha, null); assert.notDeepEqual(first.cut, second.cut); assert.equal(replay.commitSha, null); assert.deepEqual(replay.cut, first.cut); await cell.close(); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut-reopened" }); const materialized = await cell.run({ kind: "receipt-show", opId: first.opId }, binding) as Record<string, unknown>; assert.equal(materialized.commitSha, git(rootDir, "rev-parse", "HEAD")); assert.deepEqual(materialized.cut, first.cut); }
   finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
+
+// prettier-ignore
 
 test("relation graph contract accepts the materialized ledger row schema and rejects malformed rows", () => {
   const payload = { ok: true, edges: [{ relationId: "rel_real", sourceRef: "decision/dec_REAL/C1", targetRef: "fact/task_REAL/F-REAL", relationType: "evidenced-by", direction: "directed", strength: "strong", origin: "declared", state: "active", rationale: "Observed.", ownerRef: "decision/dec_REAL", sourcePath: "harness/decisions/decision-dec_REAL/decision.md", recordIndex: 0 }], coverageRows: [{ decisionRef: "decision/dec_REAL", claimRef: "decision/dec_REAL/C1", status: "covered", fulfillment: "standing-policy", relationPath: ["rel_real"] }], factAnchors: [{ factRef: "fact/task_REAL/F-REAL", taskId: "task_REAL", factId: "F-REAL", sourcePath: "harness/tasks/task_REAL/facts.md" }], facts: [{ schema: "task-fact-row/v1", ref: "fact/task_REAL/F-REAL", taskId: "task_REAL", factId: "F-REAL", statement: "Real observation.", source: "harness/tasks/task_REAL/facts.md", observedAt: "2026-08-14T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [], liveness: "standing" }], warnings: [] };
@@ -159,6 +201,8 @@ test("relation graph contract accepts the materialized ledger row schema and rej
   const { observedAt: _observedAt, ...missingObservedAt } = payload.facts[0]; assert.deepEqual(validateDaemonRelationGraph({ ...payload, facts: [missingObservedAt] }), ["daemon relation graph is invalid"]);
 });
 
+// prettier-ignore
+
 test("wide GUI read contracts accept only their explicit narrow and page facets", () => {
   const task = (payload: Record<string, unknown>) => parseDaemonRpcParams("repo.tasks.list", { repo: { repoId: "alpha" }, payload });
   const graph = (payload: Record<string, unknown>) => parseDaemonRpcParams("repo.triadic.relationGraph", { repo: { repoId: "alpha" }, payload });
@@ -171,10 +215,14 @@ test("wide GUI read contracts accept only their explicit narrow and page facets"
   assert.equal(task({ unexpected: true }).ok, false);
 });
 
+// prettier-ignore
+
 test("preset process RPC enforces object inputs and keeps status closed", () => {
   const start = { repo: { repoId: "alpha" }, payload: { presetId: "user-canary", entrypoint: "check", inputs: { title: "Canary" }, idempotencyKey: "once" } }, status = { repo: { repoId: "alpha" }, payload: { runId: "run_1" } };
   assert.equal(parseDaemonRpcParams("repo.preset.run.start", start).ok, true); assert.equal(parseDaemonRpcParams("repo.preset.run.start", { ...start, payload: { ...start.payload, allowScripts: true } }).ok, false); assert.equal(parseDaemonRpcParams("repo.preset.run.start", { ...start, payload: { ...start.payload, inputs: "open" } }).ok, false); assert.equal(parseDaemonRpcParams("repo.preset.run.status", status).ok, true); assert.equal(parseDaemonRpcParams("repo.preset.run.status", { ...status, payload: { ...status.payload, retry: true } }).ok, false);
 });
+
+// prettier-ignore
 
 test("GUI action facets are exact, typed, and exclude the generic runner", () => {
   const submission = { completionClaim: "Ready.", deliverables: ["code"], outputs: ["packages/daemon/src/repo-cell.ts"], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) }, proposal = { title: "Typed actions", question: "Ship?", riskTier: "medium", urgency: "high", vertical: "software/coding", preset: "standard-task", appliesTo: { modules: ["daemon"], productLines: ["gui"] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Ship" }], rejected: [{ id: "RJ1", text: "Wait", whyNot: "No need" }], body: "# Typed actions\n", claims: [], fulfillments: [], relations: [] };
@@ -211,6 +259,8 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
   assert.deepEqual(actionForDaemonMethod("repo.task.submit", cases.get("repo.task.submit")!), { kind: "task-submit", ...cases.get("repo.task.submit")! });
 });
 
+// prettier-ignore
+
 test("GUI command receipts and task supplements reject unknown, missing, and mistyped fields", () => {
   const proof = { committedRevision: 0, appliedCut: 0, durable: true, canonicalVisible: true, worktreeVisible: null }, receipt = { schema: "command-receipt/v2", ok: true, command: "decision-list", outcome: "applied", opId: "read:decision-list", revision: 0, evidence: "{}", visibility: "center", proof };
   assert.deepEqual(validateDaemonGuiCommandReceipt(receipt), []); assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, extra: true }), []); const { schema: _schema, ...missing } = receipt; assert.notDeepEqual(validateDaemonGuiCommandReceipt(missing), []); assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, revision: "0" }), []);
@@ -225,6 +275,8 @@ test("GUI command receipts and task supplements reject unknown, missing, and mis
   assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...current, rows: [{ ...current.rows[0]!, snapshot: { ...current.rows[0]!.snapshot, task: { ...currentTask, pinned: "true" } } }] }), []);
 });
 
+// prettier-ignore
+
 test("repo-bound ledger commit rejects cross-repo SHA", () => {
   const roots = ["a", "b"].map((name) => mkdtempSync(path.join(tmpdir(), `ha-ledger-${name}-`)));
   try { roots.forEach(initRepo); const left = makeTaskEventStore({ rootDir: roots[0]!, repoId: "repo-a" }), right = makeTaskEventStore({ rootDir: roots[1]!, repoId: "repo-b" });
@@ -232,12 +284,16 @@ test("repo-bound ledger commit rejects cross-repo SHA", () => {
   } finally { roots.forEach((root) => rmSync(root, { recursive: true, force: true })); }
 });
 
+// prettier-ignore
+
 test("task create dry-run validates the exact package without event, revision, commit, or authored writes", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-create-preview-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); mkdirSync(path.join(rootDir, "harness/custom"), { recursive: true }); mkdirSync(path.join(rootDir, "harness/templates"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  scaffolds:\n    task: custom/task-scaffold.json\n"); writeFileSync(path.join(rootDir, "harness/templates/notes.md"), "# Notes\n\n## Project Notes\n\nCustom.\n"); writeFileSync(path.join(rootDir, "harness/custom/task-scaffold.json"), `${JSON.stringify({ schema: "task-scaffold/v1", replaceTemplate: [], addDocument: [{ slot: "project.notes", path: "notes.md", template: "templates/notes.md", requiredAnchors: ["## Project Notes"] }] })}\n`); cell = await openRepoCell({ repoId: workspaceId("preview"), rootDir: canonicalRoot(rootDir), ownerId: "preview-daemon" }); const action = { kind: "task-create", taskId: "task-preview", title: "Preview Package" } as const, before = git(rootDir, "rev-parse", "HEAD"), preview = await cell.run({ ...action, dryRun: true }, { actor, source: "local" }) as Record<string, unknown>; assert.equal(preview.outcome, "pending"); assert.equal((preview.proof as { canonicalVisible: boolean }).canonicalVisible, false); assert.equal(preview.packagePath, "tasks/task-preview-preview-package"); assert.equal(preview.commitSha, null); assert.equal(preview.dryRun, true); assert.equal((preview.generatedPaths as string[]).length, 7); assert.equal((preview.generatedPaths as string[]).includes("tasks/task-preview-preview-package/notes.md"), true); assert.equal(makeTaskEventStore({ repoId: "preview", rootDir }).read().revision, 0); assert.equal(git(rootDir, "rev-parse", "HEAD"), before); assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-preview-preview-package")), false);
     const created = await cell.run(action, { actor, source: "local" }) as Record<string, unknown>; assert.equal(created.packagePath, preview.packagePath); assert.equal(created.presetDigest, preview.presetDigest); assert.equal(created.scaffoldDigest, preview.scaffoldDigest); assert.equal(created.commitSha, null); assert.equal(typeof created.cut, "object"); assert.match(String(created.nextAction), /task_plan\.md.*task start/u); assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-preview-preview-package/notes.md"), "utf8"), "# Notes\n\n## Project Notes\n\nCustom.\n"); assert.equal(makeTaskEventStore({ repoId: "preview", rootDir }).read().revision, 1); const duplicate = await cell.run({ ...action, title: "Different title" }, { actor, source: "local" }); assert.equal(duplicate.outcome, "op_rejected"); assert.equal(duplicate.code, "task_exists"); assert.equal(makeTaskEventStore({ repoId: "preview", rootDir }).read().revision, 1); writeFileSync(path.join(rootDir, "harness/tasks/task-preview-preview-package/INDEX.md"), "corrupt markdown\n"); const shown = await cell.run({ kind: "task-show", taskId: "task-preview" }, { actor, source: "local" }); const evidence = JSON.parse(String(shown.evidence)) as { packagePath: string; task: { title: string } }; assert.equal(evidence.packagePath, preview.packagePath); assert.equal(evidence.task.title, "Preview Package");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
+
+// prettier-ignore
 
 test("RepoCell rejects completion on snapshot drift and preset upgrade publishes one canonical replacement", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-upgrade-cell-")), source = path.join(rootDir, "source/upgrade-task"), taskId = "task-upgrade-cell", binding = { actor, source: "local" as const }; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -247,6 +303,8 @@ test("RepoCell rejects completion on snapshot drift and preset upgrade publishes
     const blocked = await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, binding); assert.equal(blocked.code, "preset_snapshot_mismatch"); const upgraded = await cell.run({ kind: "preset-upgrade", taskId }, binding) as Record<string, unknown>; assert.equal(upgraded.outcome, "applied"); const evidence = JSON.parse(String(upgraded.evidence)) as { previousDigest: string; digest: string }; assert.equal(evidence.previousDigest, previousDigest); assert.notEqual(evidence.digest, previousDigest); const event = makeTaskEventStore({ repoId: "preset-upgrade-cell", rootDir }).readEvent(String(upgraded.opId)); assert.equal(event?.schema, "preset-snapshot-upgrade-event/v1"); assert.equal((await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, binding)).code, "not_in_review");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
+
+// prettier-ignore
 
 test("RepoCell serializes identical lifecycle intents into one WAL event and one drained Git publication", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-"));
@@ -279,6 +337,8 @@ test("RepoCell serializes identical lifecycle intents into one WAL event and one
   }
 });
 
+// prettier-ignore
+
 test("structured GUI submit and CLI packet submit publish the same canonical event", async () => {
   const roots = ["packet", "structured"].map((name) => mkdtempSync(path.join(tmpdir(), `ha-submit-ab-${name}-`)));
   const cells: Awaited<ReturnType<typeof openRepoCell>>[] = [];
@@ -297,6 +357,8 @@ test("structured GUI submit and CLI packet submit publish the same canonical eve
     const projected = await cells[1]!.read("repo.tasks.list"), row = projected.rows[0]!, output = row.executionEvidence[0]!.outputs[0]!; assert.deepEqual(row.snapshotAvailability, { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" }); assert.deepEqual({ parentTaskId: row.placement.parentTaskId, origin: row.placement.origin, packageDisposition: row.placement.packageDisposition }, { parentTaskId: null, origin: "native", packageDisposition: "active" }); assert.equal(row.placement.provenance.length > 0, true); assert.deepEqual({ executionId: row.executionEvidence[0]!.executionId, origin: row.executionEvidence[0]!.origin, locator: output.locator, substrate: output.substrate, checkerReceiptRef: output.checkerReceiptRef, checkerResult: output.checkerResult }, { executionId, origin: "native", locator: submission.outputs[0], substrate: "repository-path", checkerReceiptRef: null, checkerResult: "unknown" }); assert.match(output.evidenceId, /^evidence_[0-9a-f]{24}$/u); assert.deepEqual(validateDaemonTaskSnapshotList(projected), []);
   } finally { await Promise.all(cells.map((cell) => cell.close())); roots.forEach((root) => rmSync(root, { recursive: true, force: true })); }
 });
+
+// prettier-ignore
 
 test("lifecycle commands publish typed events, machine files, rebuildable L2, and complete receipts in one cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-files-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -320,6 +382,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+// prettier-ignore
 
 test("code-doc repoint appends a replacement witness and rejects stale or unknown records", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-code-doc-repoint-")),
@@ -423,6 +486,8 @@ test("code-doc repoint appends a replacement witness and rejects stale or unknow
   }
 });
 
+// prettier-ignore
+
 test("milestone-closeout uses the normal completion facade, review, and gates exactly once", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-completion-facade-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const taskId = "task-complete", executionId = "execution-complete", packagePath = "tasks/task-complete-completion-facade", binding = { actor, source: "local" as const };
@@ -453,6 +518,8 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+// prettier-ignore
+
 test("CompleteTask response loss settles by stable receipt and never publishes a second completion", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-unknown-")), taskId = "task-unknown-complete", executionId = "execution-unknown-complete", repoId = workspaceId("complete-unknown"); let armed = false, cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -461,6 +528,8 @@ test("CompleteTask response loss settles by stable receipt and never publishes a
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-two" }); const settled = await cell.run({ kind: "receipt-show", opId: String(unknown.opId) }, { actor, source: "local" }), retried = await cell.run({ kind: "task-complete", taskId, executionId }, { actor, source: "local" }); assert.equal(settled.outcome, "applied", JSON.stringify(settled)); assert.equal(retried.outcome, "applied", JSON.stringify(retried)); assert.equal(retried.opId, unknown.opId); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
+
+// prettier-ignore
 
 test("Fact record publishes one event, L2 row, authored facts document, and supersession history", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-invalid-fact-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -475,6 +544,8 @@ test("Fact record publishes one event, L2 row, authored facts document, and supe
     const second = await cell.run({ kind: "fact-record", taskId: "task-fact", statement: "Canonical facts also backwrite Markdown.", evidenceSource: "test:second", confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], supersedes: { factRef: `fact/task-fact/${firstId}`, rationale: "The stronger observation supersedes the first." } }, binding) as Record<string, unknown>; assert.equal(second.outcome, "applied", JSON.stringify(second)); const body = readFileSync(factsFile, "utf8"); assert.match(body, new RegExp(`### ${firstId}[\\s\\S]*State: superseded_fact`, "u")); assert.match(body, new RegExp(`### ${String(second.factId)}[\\s\\S]*State: standing`, "u")); const shown = await cell.run({ kind: "fact-show", taskId: "task-fact", factId: firstId }, binding); assert.equal((JSON.parse(String(shown.evidence)) as { fact: { state: string } }).fact.state, "superseded_fact"); assert.equal(makeTaskEventStore({ repoId: "invalid-fact", rootDir }).readHead()?.revision, 3);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
+
+// prettier-ignore
 
 test("invalid Decision payload stays invalid_command and reckon records exact projected basis", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-decision-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -497,6 +568,8 @@ test("invalid Decision payload stays invalid_command and reckon records exact pr
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+// prettier-ignore
+
 test("Decision proposal packet is closed, UTF-8, atomic, and leaves the related Task INDEX untouched", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-packet-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("decision-packet"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" }); const binding = { actor, source: "local" as const }, created = await cell.run({ kind: "task-create", taskId: "task-related", title: "Related Task" }, binding) as Record<string, unknown>, index = path.join(rootDir, "harness", String(created.packagePath), "INDEX.md"), indexBefore = readFileSync(index); const packet = { title: "Atomic proposal", question: "Can one event publish the whole proposal?", riskTier: "medium", urgency: "high", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["daemon"], productLines: [] }, chosen: [{ id: "CH1", text: "Publish once" }], rejected: [{ id: "RJ1", text: "Patch later", whyNot: "It exposes partial state" }], claims: [{ id: "C1", text: "The packet is atomic.", loadBearing: true }], fulfillments: [{ claimId: "C1", mode: "delivered" }], relations: [{ anchor: "C1", type: "derives", target: "task/task-related", rationale: "The Decision creates this delivery." }] }, missingPacket = (({ relations: _relations, ...missing }) => missing)(packet), before = makeTaskEventStore({ repoId: "decision-packet", rootDir }).readHead()!.revision;
@@ -507,6 +580,8 @@ test("Decision proposal packet is closed, UTF-8, atomic, and leaves the related 
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+// prettier-ignore
+
 test("Decision judgment keeps the transport arbiter gate and returns the embedded consent identity", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-decision-consent-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("decision-consent"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" }); const human = { principal: { personId: "person-ceo" }, executor: null } as const, binding = { actor: human, source: "local" as const }, proposed = await cell.run(decisionProposal("Consent", "May the CEO judge this proposal?"), binding), decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId, before = makeTaskEventStore({ repoId: "decision-consent", rootDir }).readHead()!.revision;
@@ -514,6 +589,8 @@ test("Decision judgment keeps the transport arbiter gate and returns the embedde
     const accepted = await cell.run({ kind: "decision-accept", decisionId, rationale: "CEO approval", judgmentOnlyRationale: "Explicit CEO judgment." }, { ...binding, roles: ["$arbiter"] }); assert.equal(accepted.outcome, "applied", JSON.stringify(accepted)); assert.match(String((accepted as Record<string, unknown>).consentId), /^djc_[0-9a-f]{26}$/u); const event = makeTaskEventStore({ repoId: "decision-consent", rootDir }).readEvent(accepted.opId); assert.equal(event?.schema, "decision-event/v1"); if (event?.schema === "decision-event/v1" && event.type === "decision_accepted") assert.equal(event.payload.judgmentConsent.consentId, (accepted as Record<string, unknown>).consentId);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
+
+// prettier-ignore
 
 test("Decision full vertical golden rebuilds proposal, prose, claim, relation, consent, list, and show", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-vertical-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -529,6 +606,8 @@ test("Decision full vertical golden rebuilds proposal, prose, claim, relation, c
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+// prettier-ignore
+
 test("a pending WAL receipt remains readable when the Git object store is unavailable", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-corrupt-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("corrupt"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
@@ -541,8 +620,17 @@ test("a pending WAL receipt remains readable when the Git object store is unavai
   } finally { if (cell) await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-for (const killpoint of ["before_event_write", "after_event_write", "after_head_write", "before_worktree_rename", "after_worktree_rename",
-  "after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
+for (const killpoint of [
+  "before_event_write",
+  "after_event_write",
+  "after_head_write",
+  "before_worktree_rename",
+  "after_worktree_rename",
+  "after_sqlite_commit",
+  "before_response_write",
+  "after_response_write",
+] as const) {
+  // prettier-ignore
   test(`RepoCell new generation recovers ${killpoint} without a duplicate publication`, async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-crash-"));
     const action = { kind: "task-create", taskId: `task-${killpoint}`, title: killpoint } as const;
@@ -568,6 +656,8 @@ for (const killpoint of ["before_event_write", "after_event_write", "after_head_
   });
 }
 
+// prettier-ignore
+
 test("RepoCell preserves an acknowledged receipt when Git materialization stops after ref update", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-git-cut-crash-"));
   const action = { kind: "task-create", taskId: "task-after-git-commit", title: "after_git_commit" } as const;
@@ -588,6 +678,7 @@ test("RepoCell preserves an acknowledged receipt when Git materialization stops 
 });
 
 for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
+  // prettier-ignore
   test(`Decision response recovery handles ${killpoint} without a duplicate authored event`, async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-response-crash-")), action = decisionProposal("Recover Decision", "Does the receipt settle once?"), binding = { actor, source: "local" as const };
     let crashed: Awaited<ReturnType<typeof openRepoCell>> | undefined, recovered: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -596,6 +687,8 @@ for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_
     } finally { await crashed?.close(); await recovered?.close(); rmSync(rootDir, { recursive: true, force: true }); }
   });
 }
+
+// prettier-ignore
 
 test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion rejection, and worktree preservation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-cell-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -609,12 +702,14 @@ test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion r
     const before = { head: git(rootDir, "rev-parse", "HEAD"), bytes: readFileSync(authored).toString("hex") }, applied = await cell.run(action, { actor, source: "local" });
     assert.equal(applied.outcome, "applied", JSON.stringify(applied)); assert.equal(applied.detail?.kind, "doc_sync"); assert.equal(applied.proof?.worktreeVisible, true); assert.equal(applied.commitSha, null); assert.ok(applied.cut); assert.equal(git(rootDir, "rev-parse", "HEAD"), before.head); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), before.head); assert.equal(readFileSync(authored).toString("hex"), before.bytes);
     const shown = await cell.run({ kind: "receipt-show", opId: applied.opId }, { actor, source: "local" }); assert.equal(shown.outcome, "applied"); assert.equal(shown.detail?.kind, "doc_sync"); assert.equal(shown.proof?.canonicalVisible, true);
-    const commits = git(rootDir, "rev-list", "--count", "refs/ha/canonical"), retried = await cell.run(action, { actor, source: "local" }); assert.equal(retried.outcome, "op_rejected"); assert.equal(retried.code, "no_changes"); assert.match(retried.opId, /^noop:/u); assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), commits);
+    const commits = git(rootDir, "rev-list", "--count", "refs/ha/canonical"), retried = await cell.run(action, { actor, source: "local" }); assert.equal(retried.outcome, "no_changes"); assert.equal(retried.code, "no_changes"); assert.match(retried.opId, /^noop:/u); assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), commits);
     const next = `${body}B\n`; writeFileSync(authored, next);
     const updated = await cell.run(action, { actor, source: "local" }); assert.equal(updated.outcome, "applied", JSON.stringify(updated)); body = next;
     rmSync(authored); const deletion = await cell.run(action, { actor, source: "local" }); assert.equal(deletion.code, "deletion_forbidden"); writeFileSync(authored, body);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
+
+// prettier-ignore
 
 test("doc ingress rejects symbolic links in claim and authored path chains", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-claim-link-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -629,6 +724,8 @@ test("doc ingress rejects symbolic links in claim and authored path chains", asy
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+// prettier-ignore
+
 test("bootstrap concurrent writer admission commits one complete workspace", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-writer-")), rootDir = path.join(parent, "repo");
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0,
@@ -639,6 +736,8 @@ test("bootstrap concurrent writer admission commits one complete workspace", asy
     const ledgerRoot = path.join(rootDir, "harness"); assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "1"); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
   finally { await Promise.all(hosts.map((host) => host.close())); rmSync(parent, { recursive: true, force: true }); }
 });
+
+// prettier-ignore
 
 test("bootstrap binds the ledger repository branch independently of the project branch", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-branch-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user");
@@ -657,11 +756,15 @@ test("bootstrap binds the ledger repository branch independently of the project 
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
+// prettier-ignore
+
 test("bootstrap validates local identity before repository initialization", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-identity-")), rootDir = path.join(parent, "repo"), host = await openDaemonHost({ daemonId: "bootstrap-identity", userRoot: path.join(parent, "user") });
   try { await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, { transportKind: "unix-socket" }), hasCode("bootstrap_identity_unavailable")); assert.equal(existsSync(path.join(rootDir, ".git")), false); }
   finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
+
+// prettier-ignore
 
 test("unrelated workspace lock collision does not block either workspace", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-lock-collision-")), owners = new Map<number, string>(); let roots: string[] | undefined;
@@ -673,6 +776,8 @@ test("unrelated workspace lock collision does not block either workspace", async
   try { assert.deepEqual(cells.map((cell) => cell.status().state), ["attached", "attached"]); }
   finally { await Promise.all(cells.map((cell) => cell.close())); rmSync(parent, { recursive: true, force: true }); }
 });
+
+// prettier-ignore
 
 test("JSON-RPC failure receipt carries formal operation identity and origin", async () => {
   const host = { run: async () => { throw new Error("unused"); }, read: async () => { throw new Error("unused"); }, attach: async () => { throw new Error("unused"); }, issueRuntimeWitness: async () => { throw new Error("unused"); }, bindRuntimeWitness: () => { throw new Error("unused"); }, publishRuntimeWitness: () => { throw new Error("unused"); }, bootstrap: async () => ({}), admin: async () => ({}),
@@ -686,6 +791,8 @@ test("JSON-RPC failure receipt carries formal operation identity and origin", as
   assert.ok(malformed && !Array.isArray(malformed) && "result" in malformed); if (malformed && !Array.isArray(malformed) && "result" in malformed) assert.equal((malformed.result as Record<string, unknown>).code, "invalid_request");
 });
 
+// prettier-ignore
+
 test("local daemon stop acknowledges the control request and triggers shutdown", async () => {
   let shutdowns = 0;
   const host = { status: () => ({ daemonId: "stop-test", pid: process.pid, repos: [] }) } as never;
@@ -695,6 +802,8 @@ test("local daemon stop acknowledges the control request and triggers shutdown",
   assert.ok(response && !Array.isArray(response) && "result" in response); if (response && !Array.isArray(response) && "result" in response) assert.deepEqual(response.result, { ok: true, command: "daemon-stop", pid: process.pid });
   assert.equal(shutdowns, 1);
 });
+
+// prettier-ignore
 
 test("read-only principal cannot write or admin while semantic capabilities pass", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-surfaces-")), root = path.join(parent, "repo"), second = path.join(parent, "second"), userRoot = path.join(parent, "user");
@@ -727,6 +836,8 @@ test("read-only principal cannot write or admin while semantic capabilities pass
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
+// prettier-ignore
+
 test("runtime witness issuance uses the server principal and rejects admin or arbiter authority", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-witness-rbac-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), ids = { writer: 4201, admin: 4202, dualAdmin: 4203, dualArbiter: 4204 }; rbacRepo(root, ids); const auth = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);
   const runtimeActor = { principal: { personId: "fixture" }, executor: null } as const, definition = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "instance-runtime", installationId: "installation-runtime", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: null, authMode: "subscription" } as const, store = makeTaskEventStore({ repoId: "runtime-witness", rootDir: root }), events = [{ schema: "agent-runtime-event/v1", eventId: "runtime-installation", workspaceRevision: 1, opId: "runtime-installation", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", type: "runtime_installation_observed", payload: { installationId: "installation-runtime", kindId: "codex", protocolFamily: "codex", hostRef: "host:local", version: "1.0.0", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"] } }, { schema: "agent-runtime-event/v1", eventId: "runtime-dispatch", workspaceRevision: 2, opId: "runtime-dispatch", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:01.000Z", type: "runtime_dispatch_requested", payload: { dispatchId: "dispatch-runtime", runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, idempotencyKey: "runtime-witness", definitionSnapshotRef: "artifact:runtime-definition/test", definitionSnapshot: definition } }, { schema: "agent-runtime-event/v1", eventId: "runtime-session", workspaceRevision: 3, opId: "runtime-session", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:02.000Z", type: "runtime_session_started", payload: { runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, definitionSnapshotRef: "artifact:runtime-definition/test", launchGeneration: 1, attachable: true } }] as const satisfies readonly AgentRuntimeEventV1[]; for (const event of events) store.append({ event, plan: runtimeWritePlan(event), blobs: [] });
@@ -739,26 +850,154 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "user.email", "repo-cell@example.invalid");
   git(rootDir, "config", "gc.auto", "0");
   git(rootDir, "config", "maintenance.auto", "false");
-  writeFileSync(path.join(rootDir, "README.md"), "# Fixture\n"); git(rootDir, "add", "README.md"); git(rootDir, "commit", "--quiet", "-m", "fixture base");
+  writeFileSync(path.join(rootDir, "README.md"), "# Fixture\n");
+  git(rootDir, "add", "README.md");
+  git(rootDir, "commit", "--quiet", "-m", "fixture base");
 }
 function initDeterministicRepo(rootDir: string): void {
-  git(rootDir, "init", "--quiet"); git(rootDir, "config", "user.name", "RepoCell Test"); git(rootDir, "config", "user.email", "repo-cell@example.invalid"); git(rootDir, "config", "gc.auto", "0"); git(rootDir, "config", "maintenance.auto", "false");
-  execFileSync("git", ["-C", rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base"], { env: { ...process.env, GIT_AUTHOR_DATE: "2026-08-14T00:00:00Z", GIT_COMMITTER_DATE: "2026-08-14T00:00:00Z" }, stdio: ["ignore", "pipe", "pipe"] });
+  git(rootDir, "init", "--quiet");
+  git(rootDir, "config", "user.name", "RepoCell Test");
+  git(rootDir, "config", "user.email", "repo-cell@example.invalid");
+  git(rootDir, "config", "gc.auto", "0");
+  git(rootDir, "config", "maintenance.auto", "false");
+  execFileSync("git", ["-C", rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base"], {
+    env: { ...process.env, GIT_AUTHOR_DATE: "2026-08-14T00:00:00Z", GIT_COMMITTER_DATE: "2026-08-14T00:00:00Z" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 }
-function decisionProposal(title: string, question: string) { return { kind: "decision-propose", jsonInput: JSON.stringify({ title, question, riskTier: "medium", urgency: "medium", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["daemon"], productLines: [] }, chosen: [{ id: "CH1", text: "Use events" }], rejected: [{ id: "RJ1", text: "Use files", whyNot: "They are not canonical" }], claims: [], fulfillments: [], relations: [] }) } as const; }
-async function prepareReadyCompletion(cell: Awaited<ReturnType<typeof openRepoCell>>, rootDir: string, taskId: string, executionId: string, title: string): Promise<void> { const binding = { actor, source: "local" as const }; await cell.run({ kind: "task-create", taskId, title }, binding); await cell.run({ kind: "task-start", taskId, executionId }, binding); const packagePath = `tasks/${taskId}-${title.toLocaleLowerCase("en-US").replace(/[^a-z0-9]+/gu, "-").replace(/^-|-$/gu, "")}`, closeoutPath = `${packagePath}/closeout.md`; writeFileSync(path.join(rootDir, "harness", closeoutPath), "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n"); assert.equal((await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding)).outcome, "applied"); const commitSha = git(rootDir, "rev-parse", "HEAD"); writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Ready.", deliverables: ["completion"], outputs: [closeoutPath], verificationNotes: ["verified"], knownGaps: [], residualRisks: [], commitSha })); await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding); writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] })); await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-ready", fromFile: "review.json" }, { actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "arbiter" } }, source: "local", roles: ["$arbiter"] }); await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-ready", consentId: "consent-ready" }, binding); await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding); await cell.run({ kind: "task-code-doc-reconcile", taskId, executionId, commitSha, iteration: 0, paths: ["README.md"] }, binding); }
-function rbacRepo(rootDir: string, ids: Readonly<Record<string, number>>): void { mkdirSync(rootDir, { recursive: true }); initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"));
-  writeFileSync(path.join(rootDir, "harness/harness.yaml"), "schema: harness-anything/v1\nname: rbac\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
-  const people = Object.entries(ids).map(([role, uid]) => ({ personId: role, displayName: role, roles: [role], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }] }));
-  const commands: Readonly<Record<string, readonly string[]>> = { reader: ["repo-read"], writer: ["repo-write"], arbiter: ["arbiter"], admin: ["admin"], dualAdmin: ["repo-write", "admin"], dualArbiter: ["repo-write", "arbiter"] }, roles = Object.keys(ids).map((roleId) => ({ roleId, commandClasses: commands[roleId] }));
-  writeFileSync(path.join(rootDir, "harness/people.yaml"), `${JSON.stringify({ schema: "harness-people/v1", people, roles }, null, 2)}\n`); git(rootDir, "add", "harness"); git(rootDir, "commit", "--quiet", "-m", "add RBAC fixture"); }
-async function rpc(host: Awaited<ReturnType<typeof openDaemonHost>>, auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2], method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const server = createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: auth, emit: async () => undefined }); await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
-  const response = await server.handle({ jsonrpc: "2.0", id: 2, method, params }); assert.ok(response && !Array.isArray(response) && "result" in response); return (response as { result: Record<string, unknown> }).result; }
+function decisionProposal(title: string, question: string) {
+  return {
+    kind: "decision-propose",
+    jsonInput: JSON.stringify({
+      title,
+      question,
+      riskTier: "medium",
+      urgency: "medium",
+      vertical: "default",
+      preset: "default",
+      decisionClass: "ordinary",
+      appliesTo: { modules: ["daemon"], productLines: [] },
+      chosen: [{ id: "CH1", text: "Use events" }],
+      rejected: [{ id: "RJ1", text: "Use files", whyNot: "They are not canonical" }],
+      claims: [],
+      fulfillments: [],
+      relations: [],
+    }),
+  } as const;
+}
+async function prepareReadyCompletion(
+  cell: Awaited<ReturnType<typeof openRepoCell>>,
+  rootDir: string,
+  taskId: string,
+  executionId: string,
+  title: string,
+): Promise<void> {
+  const binding = { actor, source: "local" as const };
+  await cell.run({ kind: "task-create", taskId, title }, binding);
+  await cell.run({ kind: "task-start", taskId, executionId }, binding);
+  const packagePath = `tasks/${taskId}-${title
+      .toLocaleLowerCase("en-US")
+      .replace(/[^a-z0-9]+/gu, "-")
+      .replace(/^-|-$/gu, "")}`,
+    closeoutPath = `${packagePath}/closeout.md`;
+  writeFileSync(
+    path.join(rootDir, "harness", closeoutPath),
+    "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
+  );
+  assert.equal((await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding)).outcome, "applied");
+  const commitSha = git(rootDir, "rev-parse", "HEAD");
+  writeFileSync(
+    path.join(rootDir, "submission.json"),
+    JSON.stringify({
+      completionClaim: "Ready.",
+      deliverables: ["completion"],
+      outputs: [closeoutPath],
+      verificationNotes: ["verified"],
+      knownGaps: [],
+      residualRisks: [],
+      commitSha,
+    }),
+  );
+  await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
+  writeFileSync(
+    path.join(rootDir, "review.json"),
+    JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
+  );
+  await cell.run(
+    { kind: "task-review-execution", taskId, executionId, reviewId: "review-ready", fromFile: "review.json" },
+    {
+      actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "arbiter" } },
+      source: "local",
+      roles: ["$arbiter"],
+    },
+  );
+  await cell.run(
+    { kind: "task-review-consent", taskId, executionId, reviewId: "review-ready", consentId: "consent-ready" },
+    binding,
+  );
+  await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding);
+  await cell.run(
+    { kind: "task-code-doc-reconcile", taskId, executionId, commitSha, iteration: 0, paths: ["README.md"] },
+    binding,
+  );
+}
+function rbacRepo(rootDir: string, ids: Readonly<Record<string, number>>): void {
+  mkdirSync(rootDir, { recursive: true });
+  initRepo(rootDir);
+  mkdirSync(path.join(rootDir, "harness"));
+  writeFileSync(
+    path.join(rootDir, "harness/harness.yaml"),
+    "schema: harness-anything/v1\nname: rbac\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  const people = Object.entries(ids).map(([role, uid]) => ({
+    personId: role,
+    displayName: role,
+    roles: [role],
+    credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }],
+  }));
+  const commands: Readonly<Record<string, readonly string[]>> = {
+      reader: ["repo-read"],
+      writer: ["repo-write"],
+      arbiter: ["arbiter"],
+      admin: ["admin"],
+      dualAdmin: ["repo-write", "admin"],
+      dualArbiter: ["repo-write", "arbiter"],
+    },
+    roles = Object.keys(ids).map((roleId) => ({ roleId, commandClasses: commands[roleId] }));
+  writeFileSync(
+    path.join(rootDir, "harness/people.yaml"),
+    `${JSON.stringify({ schema: "harness-people/v1", people, roles }, null, 2)}\n`,
+  );
+  git(rootDir, "add", "harness");
+  git(rootDir, "commit", "--quiet", "-m", "add RBAC fixture");
+}
+async function rpc(
+  host: Awaited<ReturnType<typeof openDaemonHost>>,
+  auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2],
+  method: string,
+  params: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const server = createJsonRpcProtocolServer({
+    host,
+    build: { commit: null },
+    authContext: auth,
+    emit: async () => undefined,
+  });
+  await server.handle({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "protocol.hello",
+    params: { protocolVersion: currentDaemonProtocolVersion },
+  });
+  const response = await server.handle({ jsonrpc: "2.0", id: 2, method, params });
+  assert.ok(response && !Array.isArray(response) && "result" in response);
+  return (response as { result: Record<string, unknown> }).result;
+}
 // The readiness projection reports an unavailable canonical Git cut with no basis commit. Before the
 // ledger owned its own repository the outer repository always had a HEAD, so that branch was
 // unreachable and the wire validator was free to demand a sha; once it became reachable the producer
 // was emitting a value its own validator rejected. This pins producer and validator to each other.
+// prettier-ignore
 test("decision readiness survives the wire when the canonical Git cut is unavailable", () => {
   const decision = { decisionId: "dec_1", proposedAt: "2026-01-01T00:00:00Z", appliesTo: { modules: ["packages/kernel"], productLines: [] } };
   const noCut = projectDecisionReadiness({ rootDir: "/nonexistent", commitSha: "", decisions: [decision] }, { run: () => ({ ok: false, stdout: "" }) });
@@ -774,6 +1013,7 @@ test("decision readiness survives the wire when the canonical Git cut is unavail
 // implementation while the wire shape still rejects it — the CLI and the RPC params are two
 // separate declarations of the same request. This walks the declared flags so the next one added
 // to init cannot repeat that.
+// prettier-ignore
 test("every declared ha init flag survives the daemon.repo.bootstrap wire params", () => {
   const command = daemonProtocolCommands.find((candidate) => candidate.id === "repo-bootstrap");
   assert.ok(command, "the init command must stay declared as repo-bootstrap");
@@ -784,16 +1024,63 @@ test("every declared ha init flag survives the daemon.repo.bootstrap wire params
     assert.equal(parsed.ok, true, `${input.name} reaches the daemon as params.${field}, which the wire shape rejects`);
   }
 });
-
 function decisionList(readiness: unknown): Record<string, unknown> {
-  return { ok: true, warnings: [], decisions: [{ schema: "decision-row/v1", decisionId: "dec_1", path: "harness/decisions/decision-dec_1/decision.md", state: "in_effect",
-    title: "t", question: "q", riskTier: "low", urgency: "low", vertical: "v", preset: "p", decisionClass: "c", proposedAt: "2026-01-01T00:00:00Z", decidedAt: null,
-    workspaceRevision: 1, appliesTo: {}, proposer: {}, arbiter: null, body: null, chosen: [], rejected: [], claims: [], provenance: [{ runtime: "unavailable", sessionId: null, transcriptReachability: "unavailable", boundAt: "2026-01-01T00:00:00Z" }], judgmentConsents: [], readiness }] };
+  return {
+    ok: true,
+    warnings: [],
+    decisions: [
+      {
+        schema: "decision-row/v1",
+        decisionId: "dec_1",
+        path: "harness/decisions/decision-dec_1/decision.md",
+        state: "in_effect",
+        title: "t",
+        question: "q",
+        riskTier: "low",
+        urgency: "low",
+        vertical: "v",
+        preset: "p",
+        decisionClass: "c",
+        proposedAt: "2026-01-01T00:00:00Z",
+        decidedAt: null,
+        workspaceRevision: 1,
+        appliesTo: {},
+        proposer: {},
+        arbiter: null,
+        body: null,
+        chosen: [],
+        rejected: [],
+        claims: [],
+        provenance: [
+          {
+            runtime: "unavailable",
+            sessionId: null,
+            transcriptReachability: "unavailable",
+            boundAt: "2026-01-01T00:00:00Z",
+          },
+        ],
+        judgmentConsents: [],
+        readiness,
+      },
+    ],
+  };
 }
-
 
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
-function hasCode(expected: string): (error: unknown) => boolean { return (error) => typeof error === "object" && error !== null && "code" in error && error.code === expected; }
-function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan { return Object.freeze({ commandType: event.type, targets: Object.freeze([{ kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" }, { kind: "event_head", path: "harness/events/head.json", operation: "replace" }, { kind: "projection_invalidation", projection: "agent-runtime/v1", key: event.opId }].map((target) => Object.freeze(target))) }) as FrozenWritePlan; }
+function hasCode(expected: string): (error: unknown) => boolean {
+  return (error) => typeof error === "object" && error !== null && "code" in error && error.code === expected;
+}
+function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan {
+  return Object.freeze({
+    commandType: event.type,
+    targets: Object.freeze(
+      [
+        { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
+        { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+        { kind: "projection_invalidation", projection: "agent-runtime/v1", key: event.opId },
+      ].map((target) => Object.freeze(target)),
+    ),
+  }) as FrozenWritePlan;
+}

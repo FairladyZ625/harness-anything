@@ -5,20 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
-import {
-  actor,
-  git,
-  initRepo,
-  opaqueTextualMediaType,
-  rows,
-  write,
-} from "./doc-sync-slice-a.fixtures.ts";
+import { actor, git, initRepo, opaqueTextualMediaType, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 test("status, dry-run, and submit share the repeatable-path scanner and automatic base", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-scanner-"));
   initRepo(rootDir);
@@ -46,29 +36,17 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
         ["tasks/task-one/progress.md", "blocked"],
       ],
     );
-    assert.equal(
-      statusRows.find((row) => row.path.endsWith("artifacts/data.json"))
-        ?.mediaType,
-      opaqueTextualMediaType,
-    );
+    assert.equal(statusRows.find((row) => row.path.endsWith("artifacts/data.json"))?.mediaType, opaqueTextualMediaType);
     assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
-    const dry = await cell.run(
-      { kind: "doc-dry-run", paths: ["context/a.md", "context/b.md"] },
-      binding,
-    );
+    const dry = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md", "context/b.md"] }, binding);
     assert.equal(dry.outcome, "pending");
     assert.equal(dry.proof?.canonicalVisible, false);
     assert.deepEqual(rows(dry.evidence), statusRows.slice(0, 2));
     assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
-    const submitted = await cell.run(
-      { kind: "doc-submit", paths: ["context/a.md"] },
-      binding,
-    );
+    const submitted = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.equal(submitted.commitSha, null);
-    const event = makeTaskEventStore({ repoId: "scanner", rootDir }).readEvent(
-      submitted.opId,
-    );
+    const event = makeTaskEventStore({ repoId: "scanner", rootDir }).readEvent(submitted.opId);
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1") {
       assert.deepEqual(
@@ -100,23 +78,11 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
     );
     write(rootDir, "context/a.md", "# Renamed\n\nfirst\n");
     const acceptedCut = git(rootDir, "rev-parse", "HEAD"),
-      blocked = await cell.run(
-        { kind: "doc-dry-run", paths: ["context/a.md"] },
-        binding,
-      );
+      blocked = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md"] }, binding);
     assert.equal(rows(blocked.evidence)[0]?.state, "blocked");
-    assert.match(
-      blocked.detail?.nextAction ?? "",
-      /listed blocked candidates/u,
-    );
-    assert.doesNotMatch(
-      blocked.detail?.nextAction ?? "",
-      /doc retire|conflict scratch/iu,
-    );
-    const rejected = await cell.run(
-      { kind: "doc-submit", paths: ["context/a.md"] },
-      binding,
-    );
+    assert.match(blocked.detail?.nextAction ?? "", /listed blocked candidates/u);
+    assert.doesNotMatch(blocked.detail?.nextAction ?? "", /doc retire|conflict scratch/iu);
+    const rejected = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding);
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "preview_blocked");
     assert.equal(git(rootDir, "rev-parse", "HEAD"), acceptedCut);
@@ -126,7 +92,7 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
   }
 });
 
-test("selected doc-sync paths are authored-relative candidates and zero-write submit is rejected", async () => {
+test("selected doc-sync paths are authored-relative candidates and zero-write submit succeeds", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-selection-"));
   initRepo(rootDir);
   const repoId = workspaceId("selection"),
@@ -148,7 +114,7 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
     assert.equal(missing.code, "document_not_found");
 
     const clean = await cell.run({ kind: "doc-submit", paths: ["context/selected.md"] }, binding);
-    assert.equal(clean.outcome, "op_rejected", JSON.stringify(clean));
+    assert.equal(clean.outcome, "no_changes", JSON.stringify(clean));
     assert.equal(clean.code, "no_changes");
     assert.match(String((clean as Record<string, unknown>).summary), /applied count: 0/u);
   } finally {
@@ -172,32 +138,26 @@ test("task-scoped doc sync derives every dirty candidate from the task id", asyn
     const packagePath = String(created.packagePath);
     write(rootDir, `${packagePath}/notes.md`, "# Task note\n");
     write(rootDir, "context/unrelated.md", "# Unrelated\n");
-    const status = await cell.run(
-      { kind: "doc-status", taskId: "task-scope" },
-      binding,
-    );
+    const status = await cell.run({ kind: "doc-status", taskId: "task-scope" }, binding);
     assert.equal(status.outcome, "applied", JSON.stringify(status));
     const scanned = rows(status.evidence);
     assert.equal(scanned.length > 0, true);
-    assert.equal(scanned.every((row) => row.path.startsWith(`${packagePath}/`)), true);
-    assert.equal(scanned.some((row) => row.path === `${packagePath}/notes.md`), true);
-    const submitted = await cell.run(
-      { kind: "doc-submit", taskId: "task-scope" },
-      binding,
+    assert.equal(
+      scanned.every((row) => row.path.startsWith(`${packagePath}/`)),
+      true,
     );
+    assert.equal(
+      scanned.some((row) => row.path === `${packagePath}/notes.md`),
+      true,
+    );
+    const submitted = await cell.run({ kind: "doc-submit", taskId: "task-scope" }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.match(submitted.summary ?? "", new RegExp(`${packagePath}/notes\\.md`, "u"));
-    const clean = await cell.run(
-      { kind: "doc-submit", taskId: "task-scope" },
-      binding,
-    );
-    assert.equal(clean.outcome, "op_rejected", JSON.stringify(clean));
+    const clean = await cell.run({ kind: "doc-submit", taskId: "task-scope" }, binding);
+    assert.equal(clean.outcome, "no_changes", JSON.stringify(clean));
     assert.equal(clean.code, "no_changes");
     assert.match(clean.summary ?? "", /applied count: 0/u);
-    const mixed = await cell.run(
-      { kind: "doc-submit", taskId: "task-scope", paths: [] },
-      binding,
-    );
+    const mixed = await cell.run({ kind: "doc-submit", taskId: "task-scope", paths: [] }, binding);
     assert.equal(mixed.outcome, "op_rejected");
     assert.equal(mixed.code, "invalid_command");
   } finally {
@@ -219,33 +179,19 @@ test("doc retire deletes one projected document and returns an auditable retirem
     reason = "superseded temporary evidence";
   try {
     write(rootDir, logical, "# Temporary\n\nRetire me.\n");
-    const submitted = await cell.run(
-      { kind: "doc-submit", paths: [logical] },
-      binding,
-    );
+    const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     rmSync(path.join(rootDir, "harness", logical));
-    const mutation = await cell.run(
-      { kind: "doc-status", paths: [logical] },
-      binding,
-    );
+    const mutation = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
     assert.equal(rows(mutation.evidence)[0]?.state, "deletion");
-    assert.match(
-      mutation.detail?.nextAction ?? "",
-      new RegExp(`ha doc retire --path ${logical}`, "u"),
-    );
+    assert.match(mutation.detail?.nextAction ?? "", new RegExp(`ha doc retire --path ${logical}`, "u"));
     assert.doesNotMatch(mutation.detail?.nextAction ?? "", /resolve blocked/iu);
-    const retired = await cell.run(
-      { kind: "doc-retire", path: logical, reason },
-      binding,
-    );
+    const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
     assert.equal(retired.proof?.canonicalVisible, true);
     assert.equal(retired.proof?.worktreeVisible, true);
     assert.match(retired.evidence ?? "", /^doc-retirement:/u);
-    const receipt = JSON.parse(
-      (retired.evidence ?? "").slice("doc-retirement:".length),
-    ) as {
+    const receipt = JSON.parse((retired.evidence ?? "").slice("doc-retirement:".length)) as {
       readonly schema: string;
       readonly path: string;
       readonly reason: string;
@@ -256,9 +202,7 @@ test("doc retire deletes one projected document and returns an auditable retirem
       baseBlobSha256: sha256Text("# Temporary\n\nRetire me.\n"),
       reason,
     });
-    const event = makeTaskEventStore({ repoId: "retire", rootDir }).readEvent(
-      retired.opId,
-    );
+    const event = makeTaskEventStore({ repoId: "retire", rootDir }).readEvent(retired.opId);
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1") {
       assert.equal(event.payload.retirementReason, reason);
@@ -266,14 +210,11 @@ test("doc retire deletes one projected document and returns an auditable retirem
     }
     const shown = await cell.run({ kind: "doc-show", path: logical }, binding);
     assert.equal(shown.code, "document_not_found");
+    assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), "");
     assert.equal(
-      git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`),
-      "",
-    );
-    assert.equal(
-      rows(
-        (await cell.run({ kind: "doc-status", paths: [] }, binding)).evidence,
-      ).some((row) => row.state === "deletion"),
+      rows((await cell.run({ kind: "doc-status", paths: [] }, binding)).evidence).some(
+        (row) => row.state === "deletion",
+      ),
       false,
     );
   } finally {
@@ -291,12 +232,11 @@ test("doc retire follows status for a Git-tracked document that was never projec
   write(rootDir, logical, body);
   git(rootDir, "add", `harness/${logical}`);
   git(rootDir, "commit", "-qm", "track legacy document");
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined =
-    await openRepoCell({
-      repoId: workspaceId("retire-tracked"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "retire-tracked-daemon",
-    });
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined = await openRepoCell({
+    repoId: workspaceId("retire-tracked"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "retire-tracked-daemon",
+  });
   const binding = { actor, source: "local" as const };
   try {
     rmSync(path.join(rootDir, "harness", logical));
@@ -305,52 +245,32 @@ test("doc retire follows status for a Git-tracked document that was never projec
       rows(status.evidence).map((row) => [row.path, row.state]),
       [[logical, "deletion"]],
     );
-    assert.match(
-      status.detail?.nextAction ?? "",
-      new RegExp(`ha doc retire --path ${logical}`, "u"),
-    );
+    assert.match(status.detail?.nextAction ?? "", new RegExp(`ha doc retire --path ${logical}`, "u"));
 
-    const retired = await cell.run(
-      { kind: "doc-retire", path: logical, reason },
-      binding,
-    );
+    const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
     assert.match(retired.evidence ?? "", /^doc-retirement:/u);
     assert.equal(
-      makeTaskEventStore({ repoId: "retire-tracked", rootDir }).readEvent(
-        retired.opId,
-      )?.schema,
+      makeTaskEventStore({ repoId: "retire-tracked", rootDir }).readEvent(retired.opId)?.schema,
       "doc-event/v1",
     );
     assert.equal(
-      rows(
-        (await cell.run({ kind: "doc-status", paths: [] }, binding)).evidence,
-      ).some((row) => row.state === "deletion"),
+      rows((await cell.run({ kind: "doc-status", paths: [] }, binding)).evidence).some(
+        (row) => row.state === "deletion",
+      ),
       false,
     );
     await cell.close();
     cell = undefined;
-    assert.equal(
-      git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`),
-      "",
-    );
-    assert.equal(
-      git(rootDir, "status", "--porcelain", "--untracked-files=no"),
-      "",
-    );
+    assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), "");
+    assert.equal(git(rootDir, "status", "--porcelain", "--untracked-files=no"), "");
     const reopened = await openRepoCell({
       repoId: workspaceId("retire-tracked"),
       rootDir: canonicalRoot(rootDir),
       ownerId: "retire-tracked-reopened",
     });
     try {
-      assert.deepEqual(
-        rows(
-          (await reopened.run({ kind: "doc-status", paths: [] }, binding))
-            .evidence,
-        ),
-        [],
-      );
+      assert.deepEqual(rows((await reopened.run({ kind: "doc-status", paths: [] }, binding)).evidence), []);
     } finally {
       await reopened.close();
     }
@@ -374,53 +294,24 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
   try {
     const freshTarget = path.join(rootDir, "harness", fresh);
     mkdirSync(path.dirname(freshTarget), { recursive: true });
-    writeFileSync(
-      freshTarget,
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]),
-    );
-    const status = await cell.run(
-        { kind: "doc-status", paths: [fresh] },
-        binding,
-      ),
-      row = rows(status.evidence)[0] as
-        { readonly state: string; readonly reason?: string } | undefined;
-    assert.deepEqual(
-      [row?.state, row?.reason],
-      ["inapplicable", "non-textual artifact is outside doc sync"],
-    );
+    writeFileSync(freshTarget, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]));
+    const status = await cell.run({ kind: "doc-status", paths: [fresh] }, binding),
+      row = rows(status.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
+    assert.deepEqual([row?.state, row?.reason], ["inapplicable", "non-textual artifact is outside doc sync"]);
     assert.deepEqual(status.detail?.unresolvedTouches, []);
-    assert.equal(
-      status.detail?.nextAction,
-      "no action required; inapplicable candidates are outside doc sync",
-    );
-    const noOp = (await cell.run(
-      { kind: "doc-submit", paths: [fresh] },
-      binding,
-    )) as Record<string, unknown>;
-    assert.equal(noOp.outcome, "op_rejected");
+    assert.equal(status.detail?.nextAction, "no action required; inapplicable candidates are outside doc sync");
+    const noOp = (await cell.run({ kind: "doc-submit", paths: [fresh] }, binding)) as Record<string, unknown>;
+    assert.equal(noOp.outcome, "no_changes");
     assert.equal(noOp.code, "no_changes");
     assert.match(String(noOp.summary), /applied count: 0/u);
     assert.match(String(noOp.opId), /^noop:/u);
 
     write(rootDir, tracked, "textual baseline\n");
-    assert.equal(
-      (await cell.run({ kind: "doc-submit", paths: [tracked] }, binding))
-        .outcome,
-      "applied",
-    );
-    writeFileSync(
-      path.join(rootDir, "harness", tracked),
-      Buffer.from([0xff, 0x00]),
-    );
-    const blocked = await cell.run(
-      { kind: "doc-status", paths: [tracked] },
-      binding,
-    );
+    assert.equal((await cell.run({ kind: "doc-submit", paths: [tracked] }, binding)).outcome, "applied");
+    writeFileSync(path.join(rootDir, "harness", tracked), Buffer.from([0xff, 0x00]));
+    const blocked = await cell.run({ kind: "doc-status", paths: [tracked] }, binding);
     assert.equal(rows(blocked.evidence)[0]?.state, "blocked");
-    assert.equal(
-      blocked.detail?.unresolvedTouches[0]?.requiredRoute,
-      "typed-binary-content",
-    );
+    assert.equal(blocked.detail?.unresolvedTouches[0]?.requiredRoute, "typed-binary-content");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -437,57 +328,26 @@ test("people-registry ownership is inapplicable while typed writable routes rema
     }),
     binding = { actor, source: "local" as const };
   try {
-    write(
-      rootDir,
-      "people.yaml",
-      "schema: harness-people/v1\npeople: []\nroles: []\n",
-    );
-    write(
-      rootDir,
-      "harness.yaml",
-      "schema: harness-anything/v1\nname: hand-edited\n",
-    );
-    const people = await cell.run(
-        { kind: "doc-status", paths: ["people.yaml"] },
-        binding,
-      ),
-      peopleRow = rows(people.evidence)[0] as
-        { readonly state: string; readonly reason?: string } | undefined;
+    write(rootDir, "people.yaml", "schema: harness-people/v1\npeople: []\nroles: []\n");
+    write(rootDir, "harness.yaml", "schema: harness-anything/v1\nname: hand-edited\n");
+    const people = await cell.run({ kind: "doc-status", paths: ["people.yaml"] }, binding),
+      peopleRow = rows(people.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
     assert.deepEqual(
       [peopleRow?.state, peopleRow?.reason],
-      [
-        "inapplicable",
-        "path is owned by people-registry and is outside doc sync",
-      ],
+      ["inapplicable", "path is owned by people-registry and is outside doc sync"],
     );
     assert.deepEqual(people.detail?.unresolvedTouches, []);
-    assert.equal(
-      people.detail?.nextAction,
-      "no action required; inapplicable candidates are outside doc sync",
-    );
-    const noOp = await cell.run(
-      { kind: "doc-submit", paths: ["people.yaml"] },
-      binding,
-    );
-    assert.equal(noOp.outcome, "op_rejected");
+    assert.equal(people.detail?.nextAction, "no action required; inapplicable candidates are outside doc sync");
+    const noOp = await cell.run({ kind: "doc-submit", paths: ["people.yaml"] }, binding);
+    assert.equal(noOp.outcome, "no_changes");
     assert.equal(noOp.code, "no_changes");
     assert.match(String(noOp.summary), /applied count: 0/u);
     assert.match(noOp.opId, /^noop:/u);
 
-    const workspace = await cell.run(
-        { kind: "doc-status", paths: ["harness.yaml"] },
-        binding,
-      ),
-      workspaceRow = rows(workspace.evidence)[0] as
-        { readonly state: string; readonly reason?: string } | undefined;
-    assert.deepEqual(
-      [workspaceRow?.state, workspaceRow?.reason],
-      ["blocked", "path is owned by workspace-config"],
-    );
-    assert.equal(
-      workspace.detail?.unresolvedTouches[0]?.requiredRoute,
-      "workspace-config",
-    );
+    const workspace = await cell.run({ kind: "doc-status", paths: ["harness.yaml"] }, binding),
+      workspaceRow = rows(workspace.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
+    assert.deepEqual([workspaceRow?.state, workspaceRow?.reason], ["blocked", "path is owned by workspace-config"]);
+    assert.equal(workspace.detail?.unresolvedTouches[0]?.requiredRoute, "workspace-config");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

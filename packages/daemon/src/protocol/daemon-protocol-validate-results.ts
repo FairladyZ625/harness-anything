@@ -201,6 +201,7 @@ export function writeReceipt(value: JsonObject): string[] {
     proof = isJsonObject(value.proof) ? value.proof : {},
     applied = outcome === "applied",
     pending = outcome === "pending",
+    noChanges = outcome === "no_changes",
     failed = outcome === "op_rejected" || outcome === "indeterminate",
     validProof =
       exactRecord(proof, ["committedRevision", "appliedCut", "durable", "canonicalVisible", "worktreeVisible"]) &&
@@ -212,10 +213,11 @@ export function writeReceipt(value: JsonObject): string[] {
   return !statusWord(receiptOutcomeWords, outcome) ||
     !nonEmpty(value.opId) ||
     (value.revision !== undefined && (!integer(value.revision) || Number(value.revision) < 0)) ||
-    ((applied || pending) &&
+    ((applied || pending || noChanges) &&
       (!validProof || value.visibility !== "center" || !integer(value.revision) || !nonEmpty(value.evidence))) ||
     (applied && (!proof.durable || !proof.canonicalVisible || proof.committedRevision !== proof.appliedCut)) ||
     (pending && !nonEmpty(value.nextAction)) ||
+    (noChanges && (![value.code, value.origin, value.nextAction].every(nonEmpty) || value.code !== "no_changes")) ||
     (failed &&
       (![value.code, value.origin, value.nextAction].every(nonEmpty) ||
         (value.evidence !== undefined && !nonEmpty(value.evidence))))
@@ -229,7 +231,7 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
     receipt = Object.fromEntries(
       writeReceiptFields.filter((field) => Object.hasOwn(value, field)).map((field) => [field, value[field]]),
     ) as JsonObject,
-    ok = value.outcome === "applied" || value.outcome === "pending",
+    ok = value.outcome === "applied" || value.outcome === "pending" || value.outcome === "no_changes",
     errors =
       Object.keys(value).some((field) => !allowed.includes(field)) ||
       value.schema !== "command-receipt/v2" ||
