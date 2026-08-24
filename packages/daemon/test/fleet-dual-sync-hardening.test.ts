@@ -112,7 +112,7 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
 });
 
 function mirrorCutFixture(name: string, cuts: readonly { revision: number; entries: readonly { path: string; body: string }[] }[], current: number): { root: string; viewRoot: string; workspace: string; worktree: string } {
-  const root = mkdtempSync(path.join(tmpdir(), `w3c-h-${name}-`)), repoId = "repo", viewDir = path.join(root, "view", "repos", repoId, "views", "edge-view"), worktree = path.join(viewDir, "worktree"), workspace = path.join(root, "workspace");
+  const root = mkdtempSync(path.join(tmpdir(), `w3c-h-${name}-`)), repoId = "repo", viewDir = path.join(root, "view", "repos", repoId, "views", "edge-view"), workspace = path.join(root, "workspace"), worktree = path.join(workspace, "harness");
   mkdirSync(path.join(workspace, "harness"), { recursive: true });
   writeFileSync(path.join(workspace, "harness", "harness.yaml"), "schema: harness-anything/v1\nname: mirror\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
   for (const cut of cuts) {
@@ -121,7 +121,6 @@ function mirrorCutFixture(name: string, cuts: readonly { revision: number; entri
     for (const entry of cut.entries) writeBytes(path.join(viewDir, "cuts", String(cut.revision), "files", ...entry.path.split("/")), entry.body);
   }
   writeJson(path.join(viewDir, "current.json"), { cut: { revision: current, headDigest: `sha256:${sha(`head-${current}`)}` }, manifestDigest: `sha256:${sha(`manifest-${current}`)}` });
-  mkdirSync(worktree, { recursive: true });
   return { root, viewRoot: path.join(root, "view"), workspace, worktree };
 }
 
@@ -133,10 +132,16 @@ test("F3: a staged conflict keeps its base/ bytes after the base cut leaves the 
   const fixture = mirrorCutFixture("f3", [{ revision: 1, entries: [{ path: logical, body: baseBody }] }, { revision: 2, entries: [{ path: logical, body: baseBody }] }, { revision: 3, entries: [{ path: logical, body: centerBody }] }], 1);
   t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   const dir = path.join(fixture.root, "view", "repos", "repo", "views", "edge-view");
+  const legacyWorktree = path.join(dir, "worktree"), gitSentinel = path.join(fixture.worktree, ".git", "sentinel");
+  writeBytes(path.join(legacyWorktree, "obsolete.md"), "obsolete view worktree\n");
+  writeBytes(gitSentinel, "workspace git metadata\n");
   const setCurrent = (revision: number): void => writeJson(path.join(dir, "current.json"), { cut: { revision, headDigest: `sha256:${sha(`head-${revision}`)}` }, manifestDigest: `sha256:${sha(`manifest-${revision}`)}` });
   const initial = applyFleetMirrorCut(fixture.viewRoot, "repo", fixture.workspace, "pull", { kind: "shared-docs" });
   assert.equal(initial.outcome, "applied");
   assert.equal(readFileSync(path.join(fixture.worktree, ...logical.split("/")), "utf8"), baseBody, "the fresh materialize projects the cut");
+  assert.equal(existsSync(legacyWorktree), false, "the replaced view worktree is removed");
+  assert.equal(readFileSync(gitSentinel, "utf8"), "workspace git metadata\n", "materialization must not touch .git metadata inside the authored root");
+  assert.equal(existsSync(path.join(fixture.worktree, ".materialized-cut.json")), false, "replica bookkeeping stays outside the authored harness");
   writeBytes(path.join(fixture.worktree, ...logical.split("/")), localBody);
   setCurrent(2);
   const dirty = applyFleetMirrorCut(fixture.viewRoot, "repo", fixture.workspace, "pull", { kind: "shared-docs" });
@@ -160,7 +165,7 @@ test("F4: an unresolved conflict persists — the same divergence re-detects und
   const worktree = fixture.worktree;
   mkdirSync(path.dirname(path.join(worktree, ...logical.split("/"))), { recursive: true });
   writeFileSync(path.join(worktree, ...logical.split("/")), localBody);
-  writeJson(path.join(worktree, ".mirror-cut.json"), { revision: 1, manifestDigest: "old", blobs: { [logical]: sha(baseBody) } });
+  writeJson(path.join(fixture.root, "view", "repos", "repo", "views", "edge-view", ".materialized-cut.json"), { revision: 1, manifestDigest: "old", blobs: { [logical]: sha(baseBody) } });
   const first = applyFleetMirrorCut(fixture.viewRoot, "repo", fixture.workspace, "pull", { kind: "shared-docs", code: "base_blob_changed" });
   assert.equal(first.outcome, "pull_blocked");
   assert.equal(first.conflicts.length, 1);
@@ -179,7 +184,7 @@ test("F7: a center deletion under a local modification stages a three-way confli
   const worktree = fixture.worktree;
   mkdirSync(path.dirname(path.join(worktree, ...logical.split("/"))), { recursive: true });
   writeFileSync(path.join(worktree, ...logical.split("/")), localBody);
-  writeJson(path.join(worktree, ".mirror-cut.json"), { revision: 1, manifestDigest: "old", blobs: { [logical]: sha(oldBody) } });
+  writeJson(path.join(fixture.root, "view", "repos", "repo", "views", "edge-view", ".materialized-cut.json"), { revision: 1, manifestDigest: "old", blobs: { [logical]: sha(oldBody) } });
   const result = applyFleetMirrorCut(fixture.viewRoot, "repo", fixture.workspace, "pull", { kind: "shared-docs" });
   assert.equal(result.outcome, "pull_blocked", "center-delete × local-edit must block, not masquerade as applied");
   assert.equal(result.conflicts.length, 1);

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"; import path from "node:path";
 import type { DaemonHost } from "./daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "./fleet/center.ts";
 import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/edge.ts";
+import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 export interface FleetRoster { readonly nodes: readonly { readonly nodeId: string; readonly credential: string }[]; readonly assignments: readonly FleetAssignmentRecord[] }
 export class FleetRosterError extends Error { readonly code: string; constructor(code: string, message: string) { super(message); this.name = "FleetRosterError"; this.code = code; } }
 const id = /^[A-Za-z0-9_-]{1,96}$/u, row = (value: unknown): Record<string, unknown> | null => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null, shapeText = '{ "schema": "fleet-roster/v1", "nodes": [{ "nodeId": string, "credential": string }], "assignments": [{ "assignmentId": string, "nodeId": string, "repoId": string, "taskId": string, "executionId": string, "viewId": string, "personId": string, "executorId"?: string, "expiresAt": ISO-8601 timestamp, "paths": non-empty string array }] }';
@@ -29,9 +30,82 @@ export async function startFleetCenterAdmission(input: FleetCenterAdmissionReque
   const roster = readFleetRosterFile(input.payload.rosterPath), credentialOf = new Map(roster.nodes.map((node) => [node.nodeId, node.credential])), assignmentOf = new Map(roster.assignments.map((entry) => [entry.assignmentId, entry])), stateRoot = input.payload.stateRoot ?? path.join(input.userRoot, "fleet");
   return { center: await listenFleetTls({ host: input.host, stateRoot, key: material(input.payload.keyPath, "--key"), cert: material(input.payload.certPath, "--cert"), hostname: input.payload.bind, port: input.payload.port, replicaDiskQuotaBytes: input.payload.quotaBytes, authenticate: (nodeId, credential) => credentialOf.get(nodeId) === credential, resolveAssignment: (assignmentId) => assignmentOf.get(assignmentId) ?? null }), roster, stateRoot };
 }
-export interface FleetEdgeSyncRequest { readonly payload: { readonly host: string; readonly port: number; readonly caPath: string; readonly servername?: string; readonly nodeId: string; readonly credential?: string; readonly rosterPath?: string; readonly assignmentId: string; readonly viewRoot: string; readonly quotaBytes: number; readonly timeoutMs?: number } }
+export interface FleetEdgeSyncRequest {
+  readonly payload: {
+    readonly host: string;
+    readonly port: number;
+    readonly caPath: string;
+    readonly servername?: string;
+    readonly nodeId: string;
+    readonly credential?: string;
+    readonly rosterPath?: string;
+    readonly assignmentId: string;
+    readonly repoId: string;
+    readonly viewRoot: string;
+    readonly quotaBytes: number;
+    readonly workspaceRoot: string;
+    readonly timeoutMs?: number;
+  };
+}
 export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<Record<string, unknown>> {
-  const credential = input.payload.credential ?? (input.payload.rosterPath ? fleetCredentialFromRoster(input.payload.nodeId, input.payload.rosterPath) : (() => { throw new FleetRosterError("credential_required", "Fleet edge sync requires exactly one machine credential source: --credential or --roster."); })());
-  const pulled = await runFleetReplicaPullClient({ hostname: input.payload.host, port: input.payload.port, ca: material(input.payload.caPath, "--ca").toString("utf8"), servername: input.payload.servername, nodeId: input.payload.nodeId, credential, assignmentId: input.payload.assignmentId, viewRoot: input.payload.viewRoot, diskQuotaBytes: input.payload.quotaBytes, timeoutMs: input.payload.timeoutMs ?? 60_000 }).catch((error: unknown) => { if (error instanceof FleetRemoteError) throw Object.assign(new Error(`${error.message} Reissue the credential in the center roster or correct --node-id / credential source / --assignment, then retry the edge sync.`), { code: error.code }); throw error; });
-  return { schema: "command-receipt/v2", ok: true, command: "daemon-fleet-edge-sync", outcome: "applied", status: pulled.replica.schema, ackCut: "ackCut" in pulled.replica ? pulled.replica.ackCut : pulled.current.cut.revision, viewId: pulled.replica.viewId, cut: pulled.current.cut, manifestDigest: pulled.current.manifestDigest };
+  const credential = input.payload.credential
+    ?? (input.payload.rosterPath
+      ? fleetCredentialFromRoster(input.payload.nodeId, input.payload.rosterPath)
+      : (() => {
+        throw new FleetRosterError(
+          "credential_required",
+          "Fleet edge sync requires exactly one machine credential source: --credential or --roster.",
+        );
+      })());
+  return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
+    const pulled = await runFleetReplicaPullClient({
+      hostname: input.payload.host,
+      port: input.payload.port,
+      ca: material(input.payload.caPath, "--ca").toString("utf8"),
+      servername: input.payload.servername,
+      nodeId: input.payload.nodeId,
+      credential,
+      assignmentId: input.payload.assignmentId,
+      viewRoot: input.payload.viewRoot,
+      diskQuotaBytes: input.payload.quotaBytes,
+      timeoutMs: input.payload.timeoutMs ?? 60_000,
+    }).catch((error: unknown) => {
+      if (error instanceof FleetRemoteError)
+        throw Object.assign(
+          new Error(
+            `${error.message} Reissue the credential in the center roster`
+              + " or correct --node-id / credential source / --assignment, then retry the edge sync.",
+          ),
+          { code: error.code },
+        );
+      throw error;
+    });
+    const materialized = applyFleetMirrorCut(
+      input.payload.viewRoot,
+      input.payload.repoId,
+      input.payload.workspaceRoot,
+      "pull",
+      { viewId: pulled.replica.viewId },
+    );
+    const blocked = materialized.outcome === "pull_blocked";
+    const blockedHint = materialized.conflicts.length === 0
+      ? "The registered harness could not be materialized; inspect the edge mirror state."
+      : `Divergence staged at ${materialized.conflicts[0]!.dir}; exit explicitly with`
+        + ` ha doc conflict resolve|discard-local|overwrite-center ${materialized.conflicts[0]!.conflictId}.`;
+    return {
+      schema: "command-receipt/v2",
+      ok: !blocked,
+      command: "daemon-fleet-edge-sync",
+      outcome: blocked ? "op_rejected" : "applied",
+      ...(blocked ? { code: "pull_blocked", error: { code: "pull_blocked", hint: blockedHint } } : {}),
+      status: pulled.replica.schema,
+      ackCut: "ackCut" in pulled.replica ? pulled.replica.ackCut : pulled.current.cut.revision,
+      viewId: pulled.replica.viewId,
+      cut: pulled.current.cut,
+      manifestDigest: pulled.current.manifestDigest,
+      mirrorOutcome: materialized.outcome,
+      dirtyPaths: materialized.dirtyPaths,
+      conflicts: materialized.conflicts,
+    };
+  });
 }

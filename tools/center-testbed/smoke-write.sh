@@ -103,8 +103,8 @@ SYNC1=$(docker compose exec -T edge-2 ha --json daemon fleet edge sync --host ce
 echo "$SYNC1" > "$SMOKE_TMP/s1-sync2.json"
 expect "$SMOKE_TMP/s1-sync2.json" ok true
 CUT1=$(jsonget "$SMOKE_TMP/s1-sync2.json" cut.revision)
-PROGRESS2=$(docker compose exec -T edge-2 sh -c "cat /data/view/repos/$REPO_ID/views/edge-2-view/cuts/$CUT1/files/$PACKAGE1/progress.md")
-echo "$PROGRESS2" | grep -q "edge-1 wrote through the automatic lease" || fail_smoke "edge-2 view does not contain edge-1's progress entry"
+PROGRESS2=$(docker compose exec -T edge-2 sh -c "cat $WORKSPACE/harness/$PACKAGE1/progress.md")
+echo "$PROGRESS2" | grep -q "edge-1 wrote through the automatic lease" || fail_smoke "edge-2 registered harness does not contain edge-1's progress entry"
 log "scenario 1 PASS: task $T1 written via fleet, submit applied, both edges see cut $CUT1"
 
 log "== scenario 2: edge-2 queues while edge-1 holds; release wakes the queue head =="

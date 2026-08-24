@@ -27,8 +27,8 @@ edge 节点 + 一个 harness 化测试项目 + 腾讯 GitLab 中心仓对接。W
                      │ edge-1 容器     │          │ edge-2 容器     │
                      │ ha daemon serve │          │ ha daemon serve │
                      │ fleet edge sync │          │ fleet edge sync │
-                     │ → /data/view    │          │ → /data/view    │
-                     │ 只读 replica 视图│          │ 只读 replica 视图│
+                     │ → workspace/   │          │ → workspace/   │
+                     │   harness/     │          │   harness/     │
                      └────────────────┘          └────────────────┘
 ```
 
@@ -38,7 +38,7 @@ edge 节点 + 一个 harness 化测试项目 + 腾讯 GitLab 中心仓对接。W
 | --- | --- | --- |
 | `seed`（跑完即退） | 测试项目工厂 | `ha init` 全新 harness 化小项目；写入真实 task、execution、decision、fact、progress；经 GitLab API 建仓并推 canonical ledger；生成 fleet TLS 证书 + roster（edge 节点凭证与 assignment，每个 edge 独立 principal）写入共享卷；bump 台子 generation 供 center 区分冷/热启动 |
 | `center` | 中心权威 daemon | 冷启动从 GitLab clone canonical ledger → `daemon repo register` → 冷投影重建 → `daemon fleet center start`（bind 0.0.0.0:7443，`--state-root /data/fleet-state` 持久 lease/队列态）；同 generation 重启走**热路径**（不 wipe、不重 clone），lease 表幸存。ready 后落 `/data/center-ready` 标记翻转 healthcheck |
-| `edge-1` / `edge-2` | collaborator 节点 | 各自容器内 daemon（socket 命名空间互相隔离）；`daemon fleet edge sync` 拉取中心投影到 `/data/view`；入口 `/data/workspace/fleet-edge.json` 把该 root 标记为 remote-edge 镜像（凭证不复制，运行时从共享 roster 解析），`ha task ...` 写命令自动改道 center |
+| `edge-1` / `edge-2` | collaborator 节点 | 各自容器内 daemon（socket 命名空间互相隔离）；`daemon fleet edge sync` 把中心投影物化到已注册的 `/data/workspace/harness`（`/data/view` 只留 transport cut/CAS 状态）；入口 `/data/workspace/fleet-edge.json` 把该 root 标记为 remote-edge 镜像（凭证不复制，运行时从共享 roster 解析），`ha task ...` 写命令自动改道 center |
 
 语义对齐：center/edge 是同一个 daemon 二进制对不同 repo 的 **mode**，不是不同程序；
 本台已覆盖 M2-B 的自动 task lease（获取/排队/孤儿回收/重启幸存）与 W3-C 的 A/B 双类

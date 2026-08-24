@@ -301,7 +301,7 @@ for edge in edge-1 edge-2 edge-3; do
     const at = body.indexOf("\n## ");
     const heading = body.split("\n", 1)[0], tail = at < 0 ? "" : body.slice(at + 1);
     fs.writeFileSync(file, `${heading}\n\n${marker}\n${tail ? `\n${tail}` : ""}`);' \
-    "/data/view/repos/$REPO_ID/views/$edge-view/worktree/$SHARED_DOC" "Region replaced by $edge at $W4_RUN_TAG."
+    "$WORKSPACE/harness/$SHARED_DOC" "Region replaced by $edge at $W4_RUN_TAG."
 done
 for edge in edge-1 edge-2 edge-3; do
   ( docker compose exec -T "$edge" ha --json --root "$WORKSPACE" doc sync --submit --path "$SHARED_DOC" > "$W4_OUT/p2cf-$edge.json" 2> "$W4_OUT/p2cf-$edge.err" ) || true &

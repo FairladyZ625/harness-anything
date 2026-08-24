@@ -114,8 +114,19 @@ export function createDaemonHostRuntimeApi(
       },
       edgeSync: async (payload, auth) => {
         context.localOnly(auth);
+        const request = payload as unknown as FleetEdgeSyncRequest["payload"],
+          registered = readDaemonRegistry({ userRoot: context.input.userRoot }).repos
+            .find((repo) => repo.repoId === request.repoId && repo.state === "enabled");
+        const modeMatches = registered !== undefined
+          && registered.mode === "remote-edge"
+          && canonicalRoot(request.workspaceRoot) === canonicalRoot(registered.canonicalRoot);
+        if (!modeMatches)
+          throw context.hostCodedError(
+            "repo_mode_read_only",
+            "Fleet edge sync requires the matching enabled remote-edge registration.",
+          );
         return syncFleetEdgeMirror({
-          payload: payload as unknown as FleetEdgeSyncRequest["payload"],
+          payload: request,
         });
       },
       edgeRuntime: async (payload, auth) => {

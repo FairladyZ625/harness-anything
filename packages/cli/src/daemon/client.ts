@@ -82,7 +82,7 @@ export async function fleetRuntimeRoute(command: ThinCommand, env: NodeJS.Proces
   if (!(fleetRuntimeMethods as readonly string[]).includes(command.method)) return null;
   const config = await fleetEdgeRegistration(command, env); if (!config) return null;
   const { kind: _kind, executor: _executor, wait: _wait, noStream: _noStream, detach: _detach, ...action } = command.action as Record<string, unknown>;
-  return { host: config.host, port: config.port, caPath: config.caPath, ...(config.servername ? { servername: config.servername } : {}), nodeId: config.nodeId, ...(config.rosterPath ? { rosterPath: config.rosterPath } : {}), ...(config.credential ? { credential: config.credential } : {}), assignmentId: config.assignmentId, repoId: config.repoId, viewRoot: config.viewRoot, quotaBytes: config.quotaBytes, workspaceRoot: path.resolve(command.rootDir), action: { kind: "fleet-runtime", method: command.method, payload: action } };
+  return { host: config.host, port: config.port, caPath: config.caPath, ...(config.servername ? { servername: config.servername } : {}), nodeId: config.nodeId, ...(config.rosterPath ? { rosterPath: config.rosterPath } : {}), ...(config.credential ? { credential: config.credential } : {}), assignmentId: config.assignmentId, repoId: config.repoId, viewRoot: config.viewRoot, quotaBytes: config.quotaBytes, workspaceRoot: config.workspaceRoot, action: { kind: "fleet-runtime", method: command.method, payload: action } };
 }
 // The fleet modules stay lazy for the same reason the autostart seam does: the
 // thin dist static import graph stays entry/parser/transport-only. Registry mode
@@ -100,7 +100,7 @@ export async function fleetTaskRoute(command: ThinCommand, env: NodeJS.ProcessEn
   // explicit repo_mode_read_only receipt instead of silently dropping their
   // authority-bearing fields on the fleet route.
   if (command.action.kind === "task-create" && (createMode !== undefined || fromLegacyId !== undefined)) return null;
-  const payload: Record<string, unknown> = { host: config.host, port: config.port, caPath: config.caPath, ...(config.servername ? { servername: config.servername } : {}), nodeId: config.nodeId, ...(config.rosterPath ? { rosterPath: config.rosterPath } : {}), ...(config.credential ? { credential: config.credential } : {}), assignmentId: config.assignmentId, repoId: config.repoId, viewRoot: config.viewRoot, quotaBytes: config.quotaBytes, workspaceRoot: path.resolve(command.rootDir), ...(config.waitTimeoutMs ? { waitTimeoutMs: config.waitTimeoutMs } : {}), action };
+  const payload: Record<string, unknown> = { host: config.host, port: config.port, caPath: config.caPath, ...(config.servername ? { servername: config.servername } : {}), nodeId: config.nodeId, ...(config.rosterPath ? { rosterPath: config.rosterPath } : {}), ...(config.credential ? { credential: config.credential } : {}), assignmentId: config.assignmentId, repoId: config.repoId, viewRoot: config.viewRoot, quotaBytes: config.quotaBytes, workspaceRoot: config.workspaceRoot, ...(config.waitTimeoutMs ? { waitTimeoutMs: config.waitTimeoutMs } : {}), action };
   if (typeof fromFile === "string" || typeof jsonInput === "string") { const source = typeof fromFile === "string" ? `--from-file ${fromFile}` : "--json-input", file = typeof fromFile === "string" ? path.isAbsolute(fromFile) ? fromFile : path.join(command.rootDir, fromFile) : null; let packet: unknown; try { packet = JSON.parse(file ? readFileSync(file, "utf8") : String(jsonInput)); } catch (error) { throw Object.assign(new Error(`${source} could not be read as JSON on this edge: ${error instanceof Error ? error.message : String(error)}`), { code: "invalid_field" }); }
     if (packet === null || typeof packet !== "object" || Array.isArray(packet)) throw Object.assign(new Error(`${source} must contain one JSON object.`), { code: "invalid_field" });
     if (command.action.kind === "task-create") { const fields = packet as Record<string, unknown>; const unsupported = Object.keys(fields).filter((field) => ["fromFile", "jsonInput", "kind", "createMode", "fromLegacyId"].includes(field)); if (unsupported.length) throw Object.assign(new Error(`--from-file for task create cannot carry ${unsupported.join(", ")} over the fleet channel.`), { code: "invalid_field" }); payload.action = { ...fields, ...action }; }
@@ -111,12 +111,18 @@ export async function fleetTaskRoute(command: ThinCommand, env: NodeJS.ProcessEn
 // fleet channel when fleet-edge.json names it AND its canonical root is
 // registered in remote-edge mode (adversarial F7 discipline, shared by the
 // task and doc surfaces).
-async function fleetEdgeRegistration(command: ThinCommand, env: NodeJS.ProcessEnv): Promise<import("../../../daemon/src/client/fleet-edge-config.ts").FleetEdgeConfig | null> {
+type FleetEdgeConfigModule = import("../../../daemon/src/client/fleet-edge-config.ts").FleetEdgeConfig;
+async function fleetEdgeRegistration(
+  command: ThinCommand,
+  env: NodeJS.ProcessEnv,
+): Promise<(FleetEdgeConfigModule & { readonly workspaceRoot: string }) | null> {
   const { readFleetEdgeConfig } = await import("../../../daemon/src/client/fleet-edge-config.ts");
   const commandRoot = path.resolve(command.rootDir), registered = readRegisteredRepos(daemonUserRoot(env)).filter((repo) => repo.state === "enabled" && (commandRoot === path.resolve(repo.canonicalRoot) || commandRoot.startsWith(`${path.resolve(repo.canonicalRoot)}${path.sep}`))).sort((left, right) => path.resolve(right.canonicalRoot).length - path.resolve(left.canonicalRoot).length)[0];
   if (registered?.mode !== "remote-edge") return null;
   const config = readFleetEdgeConfig(registered.canonicalRoot);
-  return config?.repoId === registered.repoId ? config : null;
+  return config?.repoId === registered.repoId
+    ? { ...config, workspaceRoot: path.resolve(registered.canonicalRoot) }
+    : null;
 }
 // Class-B surface on a remote-edge workspace: `ha doc sync` becomes one
 // compare→push/pull fleet round, and the three conflict exits become fleet
@@ -127,7 +133,7 @@ export async function fleetDocRoute(command: ThinCommand, env: NodeJS.ProcessEnv
   if (route === undefined || command.method !== "repo.task.run") return null;
   const config = await fleetEdgeRegistration(command, env);
   if (!config) return null;
-  const payload: Record<string, unknown> = { host: config.host, port: config.port, caPath: config.caPath, ...(config.servername ? { servername: config.servername } : {}), nodeId: config.nodeId, ...(config.rosterPath ? { rosterPath: config.rosterPath } : {}), ...(config.credential ? { credential: config.credential } : {}), assignmentId: config.assignmentId, repoId: config.repoId, viewRoot: config.viewRoot, quotaBytes: config.quotaBytes, workspaceRoot: path.resolve(command.rootDir) };
+  const payload: Record<string, unknown> = { host: config.host, port: config.port, caPath: config.caPath, ...(config.servername ? { servername: config.servername } : {}), nodeId: config.nodeId, ...(config.rosterPath ? { rosterPath: config.rosterPath } : {}), ...(config.credential ? { credential: config.credential } : {}), assignmentId: config.assignmentId, repoId: config.repoId, viewRoot: config.viewRoot, quotaBytes: config.quotaBytes, workspaceRoot: config.workspaceRoot };
   if ("dryRun" in route) { payload.dryRun = route.dryRun; payload.paths = Array.isArray(command.action.paths) ? command.action.paths.filter((value): value is string => typeof value === "string") : []; }
   else { payload.action = route.action; payload.conflictId = command.action.conflictId; }
   return { method: route.method, payload };

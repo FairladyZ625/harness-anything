@@ -108,8 +108,8 @@ async function pushRejectionFixture() {
   const edgeDocSync = (nodeId: NodeId, paths: readonly string[]) => runFleetEdgeDocSync({ payload: { ...channel(nodeId), paths } });
   const writeWorktree = (nodeId: NodeId, logicalPath: string, body: string): void => {
     const view = locateFleetMirrorView(edgeRoot(nodeId), "fleet-doc-sync-repo");
-    assert.ok(view, "mirror view must exist before its worktree is changed");
-    const target = path.join(view.worktreeRoot, ...logicalPath.split("/"));
+    assert.ok(view, "mirror view must exist before its registered harness is changed");
+    const target = path.join(workspaceRoot(nodeId), "harness", ...logicalPath.split("/"));
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, body);
   };

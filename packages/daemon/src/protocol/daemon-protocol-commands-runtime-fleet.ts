@@ -217,7 +217,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     id: "daemon-fleet-edge-sync",
     phase: "Fleet-Wiring",
     path: ["daemon", "fleet", "edge", "sync"],
-    summary: "Mirror the fleet center ledger into a local edge view over verified TLS.",
+    summary: "Mirror the fleet center ledger into the registered workspace harness over verified TLS.",
     method: "daemon.fleet.edge.sync",
     commandClass: "admin",
     inputs: [
@@ -275,7 +275,8 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       ),
       cliInput("--view-root", "single", true, {
         code: "missing_field",
-        nextAction: "Edge sync requires --view-root, the directory that will hold repos/<repo-id>/views/<view-id>.",
+        nextAction: "Edge sync requires --view-root for transport state;"
+          + " ledger files materialize in the registered workspace harness.",
       }),
       cliInput(
         "--quota-bytes",

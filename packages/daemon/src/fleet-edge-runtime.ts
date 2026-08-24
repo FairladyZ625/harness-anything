@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
+import { resolveHarnessLayout, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
 import { readAgentDeclaration, resolveSquadDispatchTarget } from "./agent-entities.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { readFleetAssignmentClient, readFleetReceiptClient, runFleetRuntimeArchiveClient, runFleetRuntimeEventClient, runFleetRuntimeReadClient, type FleetPeerOptions } from "./fleet/edge.ts";
@@ -21,7 +21,57 @@ export function openFleetEdgeRuntime(input: { readonly request: FleetEdgeRuntime
   let tail = Promise.resolve(); const schedule = (work: () => void | Promise<void>): void => { tail = tail.then(work).then(() => undefined, () => undefined); };
   const spawner = makeRuntimeSpawner({ repoId: request.repoId, rootDir: request.workspaceRoot, daemonGeneration: input.daemonGeneration, runtimeDaemonRoute: input.daemonRoute, remote: {
     existing: async (opId) => { const receipt = await readFleetReceiptClient({ ...peer, opId }); return receipt.opId === opId && ["applied", "pending"].includes(String(receipt.outcome)) ? receipt as JsonObject : null; },
-    taskContext: async (taskId) => { const assigned = await readFleetAssignmentClient(peer); if (assigned.repoId !== request.repoId || assigned.taskId !== taskId) throw edgeRuntimeError("assignment_scope_mismatch", `Task ${taskId} is outside assignment ${request.assignmentId}.`); const view = locateFleetMirrorView(request.viewRoot, request.repoId), candidates = view === null ? [] : [...view.entries.keys()].filter((logical) => logical.startsWith("tasks/") && logical.endsWith("/INDEX.md")).flatMap((logical) => { const packagePath = logical.slice(0, -"/INDEX.md".length), indexPath = path.join(view.worktreeRoot, ...logical.split("/")); try { const body = readFileSync(indexPath, "utf8"); return body.split(/\r?\n/u).some((line) => line === `task_id: ${taskId}` || line === `taskId: ${taskId}`) ? [packagePath] : []; } catch { return []; } }); if (view === null || candidates.length !== 1) throw edgeRuntimeError("runtime_task_package_unavailable", `Task ${taskId} requires exactly one current mirrored task package; run ha daemon fleet edge sync, then retry.`); const packageRoot = path.join(view.worktreeRoot, ...candidates[0]!.split("/")), planPath = path.join(packageRoot, "task_plan.md"); let plan: string; try { plan = readFileSync(planPath, "utf8"); } catch { throw edgeRuntimeError("runtime_task_package_unavailable", `Task ${taskId} has no readable mirrored task plan; run ha daemon fleet edge sync, then retry.`); } return { executionId: assigned.executionId, packageRoot, planPath, plan, mission: `Your task package is ${packageRoot}.\nRead task_plan.md in that package and complete the task.` }; },
+    taskContext: async (taskId) => {
+      const assigned = await readFleetAssignmentClient(peer);
+      if (assigned.repoId !== request.repoId || assigned.taskId !== taskId)
+        throw edgeRuntimeError(
+          "assignment_scope_mismatch",
+          `Task ${taskId} is outside assignment ${request.assignmentId}.`,
+        );
+      const view = locateFleetMirrorView(request.viewRoot, request.repoId);
+      const materializedRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot;
+      const packagePathsFor = (logical: string): string[] => {
+        const packagePath = logical.slice(0, -"/INDEX.md".length);
+        const indexPath = path.join(materializedRoot, ...logical.split("/"));
+        try {
+          const body = readFileSync(indexPath, "utf8");
+          return body.split(/\r?\n/u).some((line) => line === `task_id: ${taskId}` || line === `taskId: ${taskId}`)
+            ? [packagePath]
+            : [];
+        } catch {
+          return [];
+        }
+      };
+      const candidates = view === null
+        ? []
+        : [...view.entries.keys()]
+          .filter((logical) => logical.startsWith("tasks/") && logical.endsWith("/INDEX.md"))
+          .flatMap(packagePathsFor);
+      if (view === null || candidates.length !== 1)
+        throw edgeRuntimeError(
+          "runtime_task_package_unavailable",
+          `Task ${taskId} requires exactly one current mirrored task package;`
+            + " run ha daemon fleet edge sync, then retry.",
+        );
+      const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/"));
+      const planPath = path.join(packageRoot, "task_plan.md");
+      let plan: string;
+      try {
+        plan = readFileSync(planPath, "utf8");
+      } catch {
+        throw edgeRuntimeError(
+          "runtime_task_package_unavailable",
+          `Task ${taskId} has no readable mirrored task plan; run ha daemon fleet edge sync, then retry.`,
+        );
+      }
+      return {
+        executionId: assigned.executionId,
+        packageRoot,
+        planPath,
+        plan,
+        mission: `Your task package is ${packageRoot}.\nRead task_plan.md in that package and complete the task.`,
+      };
+    },
     readRuntimeSessions: async () => { const result = await runFleetRuntimeReadClient({ ...peer, repoId: request.repoId, method: "repo.agentRuntime.overview", payload: {} }); const issues = validateAgentRuntimeOverview(result); if (issues.length) throw edgeRuntimeError("runtime_read_invalid", issues.join("; ")); return (result as AgentRuntimeOverviewResult).sessions.map(({ providerSessionId, instanceId, liveness }) => ({ providerSessionId, instanceId, liveness })); },
     publish: async (draft) => { const response = await runFleetRuntimeEventClient({ ...peer, repoId: request.repoId, opId: draft.opId, eventType: draft.type, payload: draft.payload, ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }) }); return { event: response.event as unknown as AgentRuntimeEventV1, receipt: response.receipt as JsonObject }; },
     archive: async (archive) => await runFleetRuntimeArchiveClient({ ...peer, repoId: request.repoId, archive: archive as unknown as Readonly<Record<string, unknown>> }) as { readonly outcome: string; readonly nextAction?: string }
