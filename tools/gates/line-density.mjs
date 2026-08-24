@@ -45,12 +45,42 @@ export function parseHunks(diffText) {
   return hunks;
 }
 
+/**
+ * The length an overlong line contributes to both comparisons, with the two
+ * decorations the canonical formatter owns removed: leading indentation and a
+ * single trailing comma.
+ *
+ * Neither can be used to compress code, which is the only thing this gate exists
+ * to catch. Compressing means joining statements onto one line, and that adds
+ * content, which is still counted in full. Indentation is a function of nesting
+ * depth; a trailing comma is a function of prettier.config.mjs's
+ * `trailingComma: "all"`. But both do add to a line's raw length, so running the
+ * formatter over an already-overlong line it does not otherwise touch grows that
+ * line by a few characters — and the comparison then reads that as "you made this
+ * longer" on a change that only ever shortened things. Measured case: restoring
+ * packages/kernel/src/entity/disposition.ts cut its overlong total from 1405 to
+ * 280 characters while its longest line went 279 -> 280, the entire delta being
+ * one comma appended to a string literal whose contents are byte-identical.
+ *
+ * This is applied to both halves rather than only the longest-line one. The same
+ * comma inflates the total by the same character, and a rule that discounted a
+ * decoration in one comparison while counting it in the other would have no
+ * principled reading.
+ *
+ * The >120 threshold test still uses raw length, because that is about what a
+ * reader actually sees on screen.
+ */
+function comparableLength(text) {
+  return text.trimStart().replace(/,$/u, "").length;
+}
+
 function measureOverlongCorpus(lines, limit) {
   let characters = 0, maximum = 0;
   for (const text of lines) {
     if (text.length <= limit) continue;
-    characters += text.length;
-    maximum = Math.max(maximum, text.length);
+    const comparable = comparableLength(text);
+    characters += comparable;
+    maximum = Math.max(maximum, comparable);
   }
   return { characters, maximum };
 }

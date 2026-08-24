@@ -65,6 +65,40 @@ test("bypass fixture: a new unregistered status vocabulary is refused", () => {
   assert.ok(findings.some((finding) => finding.includes("timewarp.ts#timewarpStates") && finding.includes("unregistered")), findings.join("\n"));
 });
 
+// Prettier's canonical multi-line union leads with a pipe, which the site pattern
+// did not accept. Both directions were affected; only one of them was loud.
+test("bypass fixture: an unregistered status vocabulary in prettier's multi-line union form is still refused", () => {
+  // This is the silent half. A site the pattern cannot see is never collected, so
+  // the unregistered-vocabulary finding cannot fire on it — the ratchet would let a
+  // brand-new unregistered vocabulary through with nothing going red anywhere.
+  const sources = new Map(kernelSources());
+  sources.set("packages/kernel/src/domain/timewarp.ts",
+    'export type TimewarpStatus =\n  | "before"\n  | "during"\n  | "afterlife";\n');
+  const findings = checkKernelDeclarationCoverage(register, collectKernelDeclarationSites(sources));
+  assert.ok(
+    findings.some((finding) => finding.includes("timewarp.ts#TimewarpStatus") && finding.includes("unregistered")),
+    findings.join("\n")
+  );
+});
+
+test("a registered anchor reformatted into prettier's multi-line union form still counts as existing", () => {
+  // This is the loud half: reformatting a registered declaration must not report it
+  // as deleted. RuntimeSessionSemanticState is a real registered anchor, and this is
+  // the exact shape prettier produced for it.
+  const sources = new Map(kernelSources());
+  const original = sources.get("packages/kernel/src/domain/agent-runtime.ts");
+  assert.ok(original?.includes("RuntimeSessionSemanticState"), "fixture must carry the real anchored declaration");
+  const sites = collectKernelDeclarationSites(sources);
+  assert.ok(
+    sites.some((site) => site.anchor === "RuntimeSessionSemanticState"),
+    "the anchored type must be collected as a site in whatever form the repository currently holds it"
+  );
+  assert.deepEqual(
+    checkKernelDeclarationCoverage(register, sites).filter((finding) => finding.includes("RuntimeSessionSemanticState")),
+    []
+  );
+});
+
 test("bypass fixture: a kernel vocabulary gaining an unregistered word is refused", () => {
   const drifted = new Map([["packages/kernel/src/domain/decision-event-types.ts", {
     ...realDecisionModule,
