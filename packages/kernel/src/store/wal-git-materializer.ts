@@ -27,6 +27,24 @@ export interface WalGitMaterializerOptions {
   readonly withAppendFence?: <T>(operation: () => T) => T;
 }
 
+/** The authored branch moved independently of the canonical daemon cut. */
+export class WalMaterializerDivergedError extends TaskEventStoreError {
+  readonly canonicalSha: string;
+
+  constructor(repoRoot: string, authoredRef: string, canonicalSha: string) {
+    super(
+      "publication_indeterminate",
+      [
+        `authored ref ${authoredRef} diverged from the canonical event cut ${canonicalSha}.`,
+        `Repair with: git -C ${repoRoot} reset ${canonicalSha}`,
+        "then retry materialization.",
+      ].join(" "),
+    );
+    this.name = "WalMaterializerDivergedError";
+    this.canonicalSha = canonicalSha;
+  }
+}
+
 export function flushWalToGit(wal: WalEventLog, git: CanonicalEventStore, options: WalGitMaterializerOptions): void {
   const records = wal.records();
   if (records.length === 0) return;
@@ -96,11 +114,7 @@ export function flushWalToGit(wal: WalEventLog, git: CanonicalEventStore, option
       "publication_indeterminate",
       "Git refs changed while preparing the WAL materialization batch",
     );
-  if (authoredParent !== parent && !localGitObjectRefStore.isAncestor(ledger.rootDir, parent, authoredParent))
-    throw new TaskEventStoreError(
-      "publication_indeterminate",
-      `authored ref ${authoredRef} diverged from the canonical event cut`,
-    );
+  if (authoredParent !== parent) throw new WalMaterializerDivergedError(ledger.rootDir, authoredRef, parent);
   const flushRef = `refs/ha-wal-flush/${process.pid}-${Date.now()}`;
   const messageText = `harness WAL flush ${pending[0]!.revision}-${last.revision}`;
   const timestamp = Math.floor(Date.parse(last.event.occurredAt) / 1_000);

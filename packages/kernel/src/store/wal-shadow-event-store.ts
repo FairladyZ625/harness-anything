@@ -26,7 +26,7 @@ import {
   validateCanonicalWriteBundle,
 } from "./task-event-store.ts";
 import { openWalEventLog, type WalEventLog, type WalEventRecord } from "./wal-event-log.ts";
-import { flushWalToGit } from "./wal-git-materializer.ts";
+import { flushWalToGit, WalMaterializerDivergedError } from "./wal-git-materializer.ts";
 
 export { canonicalDocumentClaims, canonicalEventWritePlan, TaskEventStoreError };
 
@@ -68,6 +68,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let immediate: ReturnType<typeof setImmediate> | null = null;
   let consecutiveFailures = 0;
   let lastFlushError: string | null = null;
+  let divergedError: WalMaterializerDivergedError | null = null;
   let lastSettlementFingerprint: string | null = null;
   let closed = false;
 
@@ -89,8 +90,47 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     timer = null;
     immediate = null;
   };
+  const publicationRefs = (): { readonly canonical: string | null; readonly authored: string | null } | null => {
+    const branch = options.authoredBranch ?? localGitObjectRefStore.currentBranch(ledger.rootDir);
+    if (!branch) return null;
+    const refs = new Map(
+      localGitObjectRefStore
+        .listRefs(ledger.rootDir, ["refs/ha/canonical", `refs/heads/${branch}`])
+        .trim()
+        .split(/\r?\n/u)
+        .filter(Boolean)
+        .map((line) => {
+          const [ref, sha] = line.split(" ");
+          return [ref!, sha!] as const;
+        }),
+    );
+    return { canonical: refs.get("refs/ha/canonical") ?? null, authored: refs.get(`refs/heads/${branch}`) ?? null };
+  };
+  const resumeAfterRepair = (): boolean => {
+    if (divergedError === null) return true;
+    let refs: ReturnType<typeof publicationRefs>;
+    try {
+      refs = publicationRefs();
+    } catch (error) {
+      consumeKnownError(error);
+      return false;
+    }
+    if (refs === null || refs.canonical === null || refs.authored === null || refs.canonical !== refs.authored)
+      return false;
+    try {
+      reloadGit();
+    } catch (error) {
+      consumeKnownError(error);
+      return false;
+    }
+    divergedError = null;
+    consecutiveFailures = 0;
+    lastFlushError = null;
+    return true;
+  };
   const runFlush = (context: string): boolean => {
     clearSchedule();
+    if (divergedError !== null) return false;
     if (!hasWalRecords()) return true;
     const pendingRecords = wal.records();
     const first = pendingRecords[0]!.revision;
@@ -116,6 +156,14 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       lastFlushError = null;
       return true;
     } catch (error) {
+      if (error instanceof WalMaterializerDivergedError) {
+        divergedError = error;
+        lastFlushError = error.message;
+        clearSchedule();
+        console.error(`[wal-materializer] diverged; materializer stopped: ${error.message}`);
+        consumeKnownError(error);
+        return false;
+      }
       consecutiveFailures += 1;
       lastFlushError = walShadowErrorMessage(error);
       try {
@@ -150,7 +198,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     }
   };
   const scheduleRetry = (): void => {
-    if (closed || !hasWalRecords() || consecutiveFailures >= retryLimit) {
+    if (closed || divergedError !== null || !hasWalRecords() || consecutiveFailures >= retryLimit) {
       if (consecutiveFailures >= retryLimit)
         console.warn(
           `[wal-materializer] retry budget exhausted after ${retryLimit} attempts; the next write, recovery, or drain will retry the pending WAL cut`,
@@ -164,9 +212,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     }, delay);
     timer.unref?.();
   };
-  const scheduleFlush = (newWrite: boolean): void => {
-    if (closed || !hasWalRecords()) return;
-    if (newWrite && consecutiveFailures >= retryLimit) consecutiveFailures = 0;
+  const scheduleFlush = (): void => {
+    if (closed || divergedError !== null || !hasWalRecords()) return;
     if (timer !== null || immediate !== null) {
       if (pendingCount() < flushEvents || immediate !== null) return;
       clearSchedule();
@@ -277,11 +324,19 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       changedPaths,
       localGitObjectRefStore.processCount() - started,
     );
-    scheduleFlush(true);
+    scheduleFlush();
     return receipt;
   };
   const recover = (): EventRecoveryReceipt => {
     const started = performance.now();
+    if (!resumeAfterRepair())
+      return {
+        status: "indeterminate",
+        publications: 0,
+        elapsedMs: performance.now() - started,
+        error: divergedError?.message ?? "WAL materializer remains stopped until Git refs are repaired",
+        errorCode: "publication_indeterminate",
+      };
     let recovered: EventRecoveryReceipt;
     try {
       recovered = git.recover();
@@ -351,6 +406,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   const drain = async (): Promise<void> => {
     closed = true;
     clearSchedule();
+    if (!resumeAfterRepair() && divergedError !== null) throw divergedError;
     consecutiveFailures = 0;
     for (let attempt = 1; hasWalRecords() && attempt <= retryLimit; attempt += 1) {
       if (runFlush("drain") && !hasWalRecords()) break;
