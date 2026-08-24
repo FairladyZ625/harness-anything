@@ -1,19 +1,323 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout, setting, settingBlockValue, taskClasses, type ActorIdentity, type TaskClass, type WriteSource } from "../../kernel/src/index.ts";
-import { compilePresetSnapshotUpgrade, compileTaskBootstrap, compileTaskPackage, type CompiledPresetSnapshotUpgrade, type CompiledTaskBootstrap, type CompiledTaskPackage } from "./preset-bootstrap.ts";
-import { compileRepositoryScaffold, createRuntime, installPresetPackage, runBuiltinDiscoveryAction, seedPresetPackages, uninstallPresetPackage, validateBuiltinVertical, validatePresetPackage, type RepositoryScaffoldPlan } from "./preset-resolver.ts";
+import {
+  resolveHarnessLayout,
+  setting,
+  settingBlockValue,
+  taskClasses,
+  type ActorIdentity,
+  type TaskClass,
+  type WriteSource,
+} from "../../kernel/src/index.ts";
+import {
+  compilePresetSnapshotUpgrade,
+  compileTaskBootstrap,
+  compileTaskPackage,
+  type CompiledPresetSnapshotUpgrade,
+  type CompiledTaskBootstrap,
+  type CompiledTaskPackage,
+} from "./preset-bootstrap.ts";
+import {
+  compileRepositoryScaffold,
+  createRuntime,
+  installPresetPackage,
+  runBuiltinDiscoveryAction,
+  seedPresetPackages,
+  uninstallPresetPackage,
+  validateBuiltinVertical,
+  validatePresetPackage,
+  type RepositoryScaffoldPlan,
+} from "./preset-resolver.ts";
 
-type Action = Readonly<Record<string, unknown>> & { readonly kind: string }; interface Defaults { readonly verticalId: string; readonly presetId: string; readonly profileId?: string; readonly locale: string; readonly taskOverlay: string; readonly repositoryOverlay: string }
-export async function runPresetAction(input: { readonly rootDir: string; readonly action: Action }): Promise<unknown> { const defaults = presetRuntimeDefaults(input.rootDir), runtime = createRuntime(presetResolverOptions(input.rootDir, defaults)), resolver = runtime.resolver, action = input.action, dryRun = action.dryRun === true; if (action.kind === "vertical-validate") return validateBuiltinVertical({ source: optionalActionText(action.verticalSource) }); if (["template-list", "template-render", "script-list", "script-inspect"].includes(action.kind)) return runBuiltinDiscoveryAction(action);
-  if (action.kind === "preset-list") return resolver.list({ verticalId: optionalActionText(action.verticalId) ?? defaults.verticalId }); if (action.kind === "preset-validate") return validatePresetPackage({ source: path.resolve(input.rootDir, required(action.packageSource, "packageSource")) }); if (action.kind === "preset-install") return installPresetPackage({ source: path.resolve(input.rootDir, required(action.packageSource, "packageSource")), userRoot: presetUserRoot(input.rootDir), dryRun }); if (action.kind === "preset-seed") return seedPresetPackages({ userRoot: presetUserRoot(input.rootDir), dryRun }); if (action.kind === "preset-audit") { const entries = await resolver.list({ verticalId: optionalActionText(action.verticalId) ?? defaults.verticalId }), count = (validity: string) => entries.filter((entry) => entry.validity === validity).length; return { schema: "preset-audit-report/v1", total: entries.length, valid: count("valid"), unavailable: count("unavailable"), blocked: count("blocked"), issues: entries.flatMap((entry) => entry.issues.map((issue) => ({ presetId: entry.id, source: entry.source, ...issue }))) }; } if (action.kind === "preset-uninstall") { const presetId = required(action.presetId, "presetId"), active = uninstallPresetPackage({ presetId, userRoot: presetUserRoot(input.rootDir), dryRun }); return { presetId, mode: dryRun ? "dry-run" : "apply", active, removed: active && !dryRun }; } if (action.kind !== "preset-inspect" && action.kind !== "preset-check") throw presetActionError("unsupported_command", `No preset lifecycle contract exists for ${action.kind}.`); const profileId = optionalActionText(action.profileId) ?? defaults.profileId, request = { presetId: required(action.presetId, "presetId"), verticalId: optionalActionText(action.verticalId) ?? defaults.verticalId, ...(profileId ? { profileId } : {}), locale: optionalActionText(action.locale) ?? defaults.locale, purpose: "inspect" as const }, result = await resolver.resolve(request); if (!result.ok) throw presetActionError(result.error.code, result.error.hint); if (action.kind === "preset-check") { const actual = optionalActionText(action.snapshotDigest); return actual && actual !== result.snapshot.digest ? { valid: false, code: "snapshot_mismatch", actualDigest: actual, expectedDigest: result.snapshot.digest, nextAction: "Run ha preset upgrade <task-id>." } : { valid: true, digest: result.snapshot.digest }; } const inspected = runtime.resolveInternal(request); return { manifest: inspected.manifest, snapshot: inspected.snapshot, entrypoints: Object.keys(inspected.snapshot.entrypoints).sort() }; }
-export function compileRepoTaskBootstrap(input: { readonly rootDir: string; readonly action: Action; readonly taskId: string; readonly actor: ActorIdentity; readonly source: WriteSource; readonly workspaceRevision: number; readonly eventId: string; readonly opId: string; readonly occurredAt: string }): CompiledTaskBootstrap { const defaults = presetRuntimeDefaults(input.rootDir), taskClass = optionalTaskClass(input.action.taskClass), profileId = optionalActionText(input.action.profileId) ?? defaults.profileId; return compileTaskBootstrap({ ...presetResolverOptions(input.rootDir, defaults), ...taskPackageFields(input.action), taskId: input.taskId, title: required(input.action.title, "title"), ...(taskClass ? { taskClass } : {}), presetId: optionalActionText(input.action.presetId) ?? defaults.presetId, verticalId: optionalActionText(input.action.verticalId) ?? defaults.verticalId, ...(profileId ? { profileId } : {}), locale: optionalActionText(input.action.locale) ?? defaults.locale, actor: input.actor, source: input.source, workspaceRevision: input.workspaceRevision, eventId: input.eventId, opId: input.opId, occurredAt: input.occurredAt }); }
-export function compileRepoTaskPackage(input: { readonly rootDir: string; readonly action: Action; readonly taskId: string }): CompiledTaskPackage { const defaults = presetRuntimeDefaults(input.rootDir), taskClass = optionalTaskClass(input.action.taskClass), profileId = optionalActionText(input.action.profileId) ?? defaults.profileId; return compileTaskPackage({ ...presetResolverOptions(input.rootDir, defaults), ...taskPackageFields(input.action), taskId: input.taskId, title: required(input.action.title, "title"), ...(taskClass ? { taskClass } : {}), presetId: optionalActionText(input.action.presetId) ?? defaults.presetId, verticalId: optionalActionText(input.action.verticalId) ?? defaults.verticalId, ...(profileId ? { profileId } : {}), locale: optionalActionText(input.action.locale) ?? defaults.locale }); }
-export function compileRepoPresetSnapshotUpgrade(input: Omit<Parameters<typeof compilePresetSnapshotUpgrade>[0], keyof ReturnType<typeof presetResolverOptions>> & { readonly rootDir: string }): CompiledPresetSnapshotUpgrade { const defaults = presetRuntimeDefaults(input.rootDir); return compilePresetSnapshotUpgrade({ ...input, ...presetResolverOptions(input.rootDir, defaults) }); }
-export function compileRepoRepositoryScaffold(rootDir: string): RepositoryScaffoldPlan { const defaults = presetRuntimeDefaults(rootDir), projectRoot = resolveHarnessLayout(rootDir).authoredRoot, target = path.resolve(projectRoot, defaults.repositoryOverlay), relative = path.relative(projectRoot, target); if (relative.startsWith("..") || path.isAbsolute(relative)) throw presetActionError("invalid_repository_scaffold", "settings.scaffolds.repository must remain inside the authored root."); return compileRepositoryScaffold({ rootDir, verticalId: defaults.verticalId, locale: defaults.locale, ...(existsSync(target) ? { projectScaffold: target } : {}) }); }
-export function presetUserRoot(rootDir: string): string { return path.join(path.resolve(rootDir), ".harness/presets"); }
-export function presetRuntimeDefaults(rootDir: string): Defaults { const target = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml"), body = existsSync(target) ? readFileSync(target, "utf8") : "", profileId = setting(body, "defaultProfile"); return { verticalId: setting(body, "defaultVertical") ?? "software/coding", presetId: setting(body, "defaultPreset") ?? "standard-task", ...(profileId ? { profileId } : {}), locale: setting(body, "locale") ?? "en-US", taskOverlay: settingBlockValue(body, "scaffolds", "task") ?? "governance/task-scaffold.json", repositoryOverlay: settingBlockValue(body, "scaffolds", "repository") ?? "governance/repository-scaffold.json" }; }
-function presetResolverOptions(rootDir: string, defaults: Defaults) { const projectRoot = resolveHarnessLayout(rootDir).authoredRoot, projectScaffold = path.resolve(projectRoot, defaults.taskOverlay), relative = path.relative(projectRoot, projectScaffold); if (relative.startsWith("..") || path.isAbsolute(relative)) throw presetActionError("invalid_task_scaffold", "settings.scaffolds.task must remain inside the authored root."); return { userRoot: presetUserRoot(rootDir), projectRoot, ...(existsSync(projectScaffold) ? { projectScaffold } : {}) }; }
-function optionalActionText(value: unknown): string | undefined { return typeof value === "string" && value.trim() ? value : undefined; } function required(value: unknown, field: string): string { const result = optionalActionText(value); if (!result) throw presetActionError("invalid_command", `${field} is required.`); return result; } function optionalTaskClass(value: unknown): TaskClass | undefined { if (value === undefined) return undefined; if ((taskClasses as readonly string[]).includes(value as string)) return value as TaskClass; throw presetActionError("invalid_task_class", "taskClass must be standard, milestone, epic, or long_running."); } function presetActionError(code: string, message: string): Error & { readonly code: string } { return Object.assign(new Error(message), { code }); }
-function taskPackageFields(action: Action): Pick<Parameters<typeof compileTaskPackage>[0], "idempotencyKey" | "parentTaskId" | "workKind" | "riskTier" | "urgency" | "moduleKey" | "registerModule" | "slug" | "surfaces" | "relations" | "fromLegacyId"> { const register = action.registerModule && typeof action.registerModule === "object" && !Array.isArray(action.registerModule) ? action.registerModule as Record<string, unknown> : null; return { ...(optionalActionText(action.idempotencyKey) ? { idempotencyKey: optionalActionText(action.idempotencyKey)! } : {}), ...(optionalActionText(action.parentTaskId) ? { parentTaskId: optionalActionText(action.parentTaskId)! } : {}), ...(oneOf(action.workKind, ["feat", "fix", "refactor", "docs", "test", "chore"] as const) ? { workKind: oneOf(action.workKind, ["feat", "fix", "refactor", "docs", "test", "chore"] as const)! } : {}), ...(oneOf(action.riskTier, ["low", "medium", "high"] as const) ? { riskTier: oneOf(action.riskTier, ["low", "medium", "high"] as const)! } : {}), ...(oneOf(action.urgency, ["low", "medium", "high"] as const) ? { urgency: oneOf(action.urgency, ["low", "medium", "high"] as const)! } : {}), ...(optionalActionText(action.moduleKey) ? { moduleKey: optionalActionText(action.moduleKey)! } : {}), ...(register ? { registerModule: { key: required(register.key, "registerModule.key"), title: required(register.title, "registerModule.title"), prefix: required(register.prefix, "registerModule.prefix"), scope: required(register.scope, "registerModule.scope") } } : {}), ...(optionalActionText(action.slug) ? { slug: optionalActionText(action.slug)! } : {}), ...(Array.isArray(action.surfaces) ? { surfaces: action.surfaces.map((value) => required(value, "surface")) } : {}), ...(Array.isArray(action.relations) ? { relations: action.relations.map((value) => { if (!value || typeof value !== "object" || Array.isArray(value)) throw presetActionError("invalid_relation", "Each relation must provide type, target, and rationale; fix --relation and retry."); const row = value as Record<string, unknown>, type = oneOf(row.type, ["supports", "supersedes", "refines", "narrows", "derives", "blocks", "relates", "implements", "depends-on", "produces", "evidences", "evidenced-by", "refuted-by", "invalidated-by", "supersedes-fact"] as const); if (!type) throw presetActionError("invalid_relation", "Use a relation type allowed for the selected endpoints."); return { type, target: required(row.target, "relation.target"), rationale: required(row.rationale, "relation.rationale") }; }) } : {}), ...(optionalActionText(action.fromLegacyId) ? { fromLegacyId: optionalActionText(action.fromLegacyId)! } : {}) }; }
-function oneOf<const T extends readonly string[]>(value: unknown, allowed: T): T[number] | undefined { return typeof value === "string" && allowed.includes(value) ? value as T[number] : undefined; }
+type Action = Readonly<Record<string, unknown>> & { readonly kind: string };
+interface Defaults {
+  readonly verticalId: string;
+  readonly presetId: string;
+  readonly profileId?: string;
+  readonly locale: string;
+  readonly taskOverlay: string;
+  readonly repositoryOverlay: string;
+}
+export async function runPresetAction(input: { readonly rootDir: string; readonly action: Action }): Promise<unknown> {
+  const defaults = presetRuntimeDefaults(input.rootDir),
+    runtime = createRuntime(presetResolverOptions(input.rootDir, defaults)),
+    resolver = runtime.resolver,
+    action = input.action,
+    dryRun = action.dryRun === true;
+  if (action.kind === "vertical-validate")
+    return validateBuiltinVertical({ source: optionalActionText(action.verticalSource) });
+  if (["template-list", "template-render", "script-list", "script-inspect"].includes(action.kind))
+    return runBuiltinDiscoveryAction(action);
+  if (action.kind === "preset-list")
+    return resolver.list({ verticalId: optionalActionText(action.verticalId) ?? defaults.verticalId });
+  if (action.kind === "preset-validate")
+    return validatePresetPackage({
+      source: path.resolve(input.rootDir, required(action.packageSource, "packageSource")),
+    });
+  if (action.kind === "preset-install")
+    return installPresetPackage({
+      source: path.resolve(input.rootDir, required(action.packageSource, "packageSource")),
+      userRoot: presetUserRoot(input.rootDir),
+      dryRun,
+    });
+  if (action.kind === "preset-seed") return seedPresetPackages({ userRoot: presetUserRoot(input.rootDir), dryRun });
+  if (action.kind === "preset-audit") {
+    const entries = await resolver.list({ verticalId: optionalActionText(action.verticalId) ?? defaults.verticalId }),
+      count = (validity: string) => entries.filter((entry) => entry.validity === validity).length;
+    return {
+      schema: "preset-audit-report/v1",
+      total: entries.length,
+      valid: count("valid"),
+      unavailable: count("unavailable"),
+      blocked: count("blocked"),
+      issues: entries.flatMap((entry) =>
+        entry.issues.map((issue) => ({ presetId: entry.id, source: entry.source, ...issue })),
+      ),
+    };
+  }
+  if (action.kind === "preset-uninstall") {
+    const presetId = required(action.presetId, "presetId"),
+      active = uninstallPresetPackage({ presetId, userRoot: presetUserRoot(input.rootDir), dryRun });
+    return { presetId, mode: dryRun ? "dry-run" : "apply", active, removed: active && !dryRun };
+  }
+  if (action.kind !== "preset-inspect" && action.kind !== "preset-check")
+    throw presetActionError("unsupported_command", `No preset lifecycle contract exists for ${action.kind}.`);
+  const profileId = optionalActionText(action.profileId) ?? defaults.profileId,
+    request = {
+      presetId: required(action.presetId, "presetId"),
+      verticalId: optionalActionText(action.verticalId) ?? defaults.verticalId,
+      ...(profileId ? { profileId } : {}),
+      locale: optionalActionText(action.locale) ?? defaults.locale,
+      purpose: "inspect" as const,
+    },
+    result = await resolver.resolve(request);
+  if (!result.ok) throw presetActionError(result.error.code, result.error.hint);
+  if (action.kind === "preset-check") {
+    const actual = optionalActionText(action.snapshotDigest);
+    return actual && actual !== result.snapshot.digest
+      ? {
+          valid: false,
+          code: "snapshot_mismatch",
+          actualDigest: actual,
+          expectedDigest: result.snapshot.digest,
+          nextAction: "Run ha preset upgrade <task-id>.",
+        }
+      : { valid: true, digest: result.snapshot.digest };
+  }
+  const inspected = runtime.resolveInternal(request);
+  return {
+    manifest: inspected.manifest,
+    snapshot: inspected.snapshot,
+    entrypoints: Object.keys(inspected.snapshot.entrypoints).sort(),
+  };
+}
+export function compileRepoTaskBootstrap(input: {
+  readonly rootDir: string;
+  readonly action: Action;
+  readonly taskId: string;
+  readonly actor: ActorIdentity;
+  readonly source: WriteSource;
+  readonly workspaceRevision: number;
+  readonly eventId: string;
+  readonly opId: string;
+  readonly occurredAt: string;
+}): CompiledTaskBootstrap {
+  const defaults = presetRuntimeDefaults(input.rootDir),
+    taskClass = optionalTaskClass(input.action.taskClass),
+    profileId = optionalActionText(input.action.profileId) ?? defaults.profileId;
+  return compileTaskBootstrap({
+    ...presetResolverOptions(input.rootDir, defaults),
+    ...taskPackageFields(input.action),
+    taskId: input.taskId,
+    title: required(input.action.title, "title"),
+    ...(taskClass ? { taskClass } : {}),
+    presetId: optionalActionText(input.action.presetId) ?? defaults.presetId,
+    verticalId: optionalActionText(input.action.verticalId) ?? defaults.verticalId,
+    ...(profileId ? { profileId } : {}),
+    locale: optionalActionText(input.action.locale) ?? defaults.locale,
+    actor: input.actor,
+    source: input.source,
+    workspaceRevision: input.workspaceRevision,
+    eventId: input.eventId,
+    opId: input.opId,
+    occurredAt: input.occurredAt,
+  });
+}
+export function compileRepoTaskPackage(input: {
+  readonly rootDir: string;
+  readonly action: Action;
+  readonly taskId: string;
+}): CompiledTaskPackage {
+  const defaults = presetRuntimeDefaults(input.rootDir),
+    taskClass = optionalTaskClass(input.action.taskClass),
+    profileId = optionalActionText(input.action.profileId) ?? defaults.profileId;
+  return compileTaskPackage({
+    ...presetResolverOptions(input.rootDir, defaults),
+    ...taskPackageFields(input.action),
+    taskId: input.taskId,
+    title: required(input.action.title, "title"),
+    ...(taskClass ? { taskClass } : {}),
+    presetId: optionalActionText(input.action.presetId) ?? defaults.presetId,
+    verticalId: optionalActionText(input.action.verticalId) ?? defaults.verticalId,
+    ...(profileId ? { profileId } : {}),
+    locale: optionalActionText(input.action.locale) ?? defaults.locale,
+  });
+}
+export function compileRepoPresetSnapshotUpgrade(
+  input: Omit<Parameters<typeof compilePresetSnapshotUpgrade>[0], keyof ReturnType<typeof presetResolverOptions>> & {
+    readonly rootDir: string;
+  },
+): CompiledPresetSnapshotUpgrade {
+  const defaults = presetRuntimeDefaults(input.rootDir);
+  return compilePresetSnapshotUpgrade({ ...input, ...presetResolverOptions(input.rootDir, defaults) });
+}
+export function compileRepoRepositoryScaffold(rootDir: string): RepositoryScaffoldPlan {
+  const defaults = presetRuntimeDefaults(rootDir),
+    projectRoot = resolveHarnessLayout(rootDir).authoredRoot,
+    target = path.resolve(projectRoot, defaults.repositoryOverlay),
+    relative = path.relative(projectRoot, target);
+  if (relative.startsWith("..") || path.isAbsolute(relative))
+    throw presetActionError(
+      "invalid_repository_scaffold",
+      "settings.scaffolds.repository must remain inside the authored root.",
+    );
+  return compileRepositoryScaffold({
+    rootDir,
+    verticalId: defaults.verticalId,
+    locale: defaults.locale,
+    ...(existsSync(target) ? { projectScaffold: target } : {}),
+  });
+}
+export function presetUserRoot(rootDir: string): string {
+  return path.join(path.resolve(rootDir), ".harness/presets");
+}
+export function presetRuntimeDefaults(rootDir: string): Defaults {
+  const target = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml"),
+    body = existsSync(target) ? readFileSync(target, "utf8") : "",
+    profileId = setting(body, "defaultProfile");
+  return {
+    verticalId: setting(body, "defaultVertical") ?? "software/coding",
+    presetId: setting(body, "defaultPreset") ?? "standard-task",
+    ...(profileId ? { profileId } : {}),
+    locale: setting(body, "locale") ?? "en-US",
+    taskOverlay: settingBlockValue(body, "scaffolds", "task") ?? "governance/task-scaffold.json",
+    repositoryOverlay: settingBlockValue(body, "scaffolds", "repository") ?? "governance/repository-scaffold.json",
+  };
+}
+function presetResolverOptions(rootDir: string, defaults: Defaults) {
+  const projectRoot = resolveHarnessLayout(rootDir).authoredRoot,
+    projectScaffold = path.resolve(projectRoot, defaults.taskOverlay),
+    relative = path.relative(projectRoot, projectScaffold);
+  if (relative.startsWith("..") || path.isAbsolute(relative))
+    throw presetActionError("invalid_task_scaffold", "settings.scaffolds.task must remain inside the authored root.");
+  return {
+    userRoot: presetUserRoot(rootDir),
+    projectRoot,
+    ...(existsSync(projectScaffold) ? { projectScaffold } : {}),
+  };
+}
+function optionalActionText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+function required(value: unknown, field: string): string {
+  const result = optionalActionText(value);
+  if (!result) throw presetActionError("invalid_command", `${field} is required.`);
+  return result;
+}
+function optionalTaskClass(value: unknown): TaskClass | undefined {
+  if (value === undefined) return undefined;
+  if ((taskClasses as readonly string[]).includes(value as string)) return value as TaskClass;
+  throw presetActionError("invalid_task_class", "taskClass must be standard, milestone, epic, or long_running.");
+}
+function presetActionError(code: string, message: string): Error & { readonly code: string } {
+  return Object.assign(new Error(message), { code });
+}
+function taskPackageFields(
+  action: Action,
+): Pick<
+  Parameters<typeof compileTaskPackage>[0],
+  | "idempotencyKey"
+  | "parentTaskId"
+  | "workKind"
+  | "riskTier"
+  | "urgency"
+  | "moduleKey"
+  | "registerModule"
+  | "slug"
+  | "surfaces"
+  | "relations"
+  | "fromLegacyId"
+> {
+  const register =
+    action.registerModule && typeof action.registerModule === "object" && !Array.isArray(action.registerModule)
+      ? (action.registerModule as Record<string, unknown>)
+      : null;
+  return {
+    ...(optionalActionText(action.idempotencyKey)
+      ? { idempotencyKey: optionalActionText(action.idempotencyKey)! }
+      : {}),
+    ...(optionalActionText(action.parentTaskId) ? { parentTaskId: optionalActionText(action.parentTaskId)! } : {}),
+    ...(oneOf(action.workKind, ["feat", "fix", "refactor", "docs", "test", "chore"] as const)
+      ? { workKind: oneOf(action.workKind, ["feat", "fix", "refactor", "docs", "test", "chore"] as const)! }
+      : {}),
+    ...(oneOf(action.riskTier, ["low", "medium", "high"] as const)
+      ? { riskTier: oneOf(action.riskTier, ["low", "medium", "high"] as const)! }
+      : {}),
+    ...(oneOf(action.urgency, ["low", "medium", "high"] as const)
+      ? { urgency: oneOf(action.urgency, ["low", "medium", "high"] as const)! }
+      : {}),
+    ...(optionalActionText(action.moduleKey) ? { moduleKey: optionalActionText(action.moduleKey)! } : {}),
+    ...(register
+      ? {
+          registerModule: {
+            key: required(register.key, "registerModule.key"),
+            title: required(register.title, "registerModule.title"),
+            prefix: required(register.prefix, "registerModule.prefix"),
+            scope: required(register.scope, "registerModule.scope"),
+          },
+        }
+      : {}),
+    ...(optionalActionText(action.slug) ? { slug: optionalActionText(action.slug)! } : {}),
+    ...(Array.isArray(action.surfaces) ? { surfaces: action.surfaces.map((value) => required(value, "surface")) } : {}),
+    ...(Array.isArray(action.relations)
+      ? {
+          relations: action.relations.map((value) => {
+            if (!value || typeof value !== "object" || Array.isArray(value))
+              throw presetActionError(
+                "invalid_relation",
+                "Each relation must provide type, target, and rationale; fix --relation and retry.",
+              );
+            const row = value as Record<string, unknown>,
+              type = oneOf(row.type, [
+                "supports",
+                "supersedes",
+                "refines",
+                "narrows",
+                "derives",
+                "blocks",
+                "relates",
+                "implements",
+                "depends-on",
+                "produces",
+                "evidences",
+                "evidenced-by",
+                "refuted-by",
+                "invalidated-by",
+                "supersedes-fact",
+              ] as const);
+            if (!type)
+              throw presetActionError("invalid_relation", "Use a relation type allowed for the selected endpoints.");
+            return {
+              type,
+              target: required(row.target, "relation.target"),
+              rationale: required(row.rationale, "relation.rationale"),
+            };
+          }),
+        }
+      : {}),
+    ...(optionalActionText(action.fromLegacyId) ? { fromLegacyId: optionalActionText(action.fromLegacyId)! } : {}),
+  };
+}
+function oneOf<const T extends readonly string[]>(value: unknown, allowed: T): T[number] | undefined {
+  return typeof value === "string" && allowed.includes(value) ? (value as T[number]) : undefined;
+}
