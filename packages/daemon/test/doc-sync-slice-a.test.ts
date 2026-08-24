@@ -126,6 +126,37 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
   }
 });
 
+test("selected doc-sync paths are authored-relative candidates and zero-write submit is rejected", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-selection-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("selection"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "selection-daemon" }),
+    binding = { actor, source: "local" as const };
+  try {
+    write(rootDir, "context/selected.md", "# Selected\n");
+    const authored = await cell.run({ kind: "doc-submit", paths: ["context/selected.md"] }, binding);
+    assert.equal(authored.outcome, "applied", JSON.stringify(authored));
+    assert.match(String((authored as Record<string, unknown>).summary), /applied count: 1/u);
+
+    const repoRelative = await cell.run({ kind: "doc-submit", paths: ["harness/context/selected.md"] }, binding);
+    assert.equal(repoRelative.outcome, "op_rejected", JSON.stringify(repoRelative));
+    assert.equal(repoRelative.code, "invalid_command");
+    assert.match(repoRelative.nextAction ?? "", /authored-root-relative/u);
+
+    const missing = await cell.run({ kind: "doc-submit", paths: ["context/missing.md"] }, binding);
+    assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
+    assert.equal(missing.code, "document_not_found");
+
+    const clean = await cell.run({ kind: "doc-submit", paths: ["context/selected.md"] }, binding);
+    assert.equal(clean.outcome, "op_rejected", JSON.stringify(clean));
+    assert.equal(clean.code, "no_changes");
+    assert.match(String((clean as Record<string, unknown>).summary), /applied count: 0/u);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("doc retire deletes one projected document and returns an auditable retirement receipt", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-"));
   initRepo(rootDir);
@@ -317,7 +348,9 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
       { kind: "doc-submit", paths: [fresh] },
       binding,
     )) as Record<string, unknown>;
-    assert.equal(noOp.outcome, "applied");
+    assert.equal(noOp.outcome, "op_rejected");
+    assert.equal(noOp.code, "no_changes");
+    assert.match(String(noOp.summary), /applied count: 0/u);
     assert.match(String(noOp.opId), /^noop:/u);
 
     write(rootDir, tracked, "textual baseline\n");
@@ -387,7 +420,9 @@ test("people-registry ownership is inapplicable while typed writable routes rema
       { kind: "doc-submit", paths: ["people.yaml"] },
       binding,
     );
-    assert.equal(noOp.outcome, "applied");
+    assert.equal(noOp.outcome, "op_rejected");
+    assert.equal(noOp.code, "no_changes");
+    assert.match(String(noOp.summary), /applied count: 0/u);
     assert.match(noOp.opId, /^noop:/u);
 
     const workspace = await cell.run(
