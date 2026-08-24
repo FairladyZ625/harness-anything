@@ -9,7 +9,8 @@ import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
-import { DecisionDetailView, FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
+import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
+import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
 import { EntityWorkspace } from "../src/renderer/components/EntityWorkspace.tsx";
 import { PresetsView } from "../src/renderer/views/PresetsView.tsx";
 import { AdaptersView } from "../src/renderer/views/AdaptersView.tsx";
@@ -103,6 +104,14 @@ function seedRuntimeQueries(client: QueryClient): void {
   client.setQueryData(["task-detail", REPO_ID, SESSION_ID, "events", "lifecycle:0"], {
     ok: true, runtimeSessionId: SESSION_ID, events: [{ cursor: "lifecycle:1", runtimeSessionId: SESSION_ID, type: "activity", occurredAt: AT }], cursor: "lifecycle:1", sourceCursor: "lifecycle:1", done: true,
   });
+  // 决策详情正文(decision-show 单体 read 的缓存面):避免该视图在无桥环境下落到错误态。
+  client.setQueryData(["decision-body", REPO_ID, DECISION_ID], {
+    status: "ready", hint: null,
+    decision: {
+      decisionId: DECISION_ID,
+      body: { path: `decisions/decision-${DECISION_ID}/decision.md`, blobSha256: `sha256:${"g10".repeat(32)}`, size: 64, mediaType: "text/markdown", body: "# 探针决策正文\n\n正文经单体 read 取回。", workspaceRevision: 1 },
+    },
+  } as never);
   client.setQueryData(["system", "global", "status"], {
     schema: "gui-system-status/v1", ok: true, observedAt: AT,
     daemon: { daemonId: "daemon-g10", pid: 1, startedAt: AT, protocolVersion: 1, uptimeMs: 1000, endpoint: "sock", build: { version: "g10", commitSha: null }, activeControl: null },
@@ -172,9 +181,9 @@ const VIEW_RENDERERS = {
     mutationFeedback: noop, onCheckReceipt: noop, focusedDecisionId: DECISION_ID, onFocusGraph: noop,
   }),
   decisionDetail: () => createElement(DecisionDetailView, {
-    decisionId: DECISION_ID, decisions: FIXTURE_DECISIONS, tasks: FIXTURE_TASKS, facts: FIXTURE_FACTS,
-    relations: FIXTURE_RELATIONS, factAnchors: [], loading: false,
-    onNavigateEntity: noop, onFocusGraph: noop, onOpenPool: noop,
+    repoId: REPO_ID, decisionId: DECISION_ID, decisions: FIXTURE_DECISIONS, tasks: FIXTURE_TASKS,
+    relations: FIXTURE_RELATIONS, loading: false, onBack: noop, projectName: "G10", fromViewLabel: "决策池",
+    onNavigateDecision: noop, onNavigateTask: noop, onNavigateEntity: noop, onFocusGraph: noop, onOpenPool: noop,
   }),
   factDetail: () => createElement(FactDetailView, {
     factRef: FACT_REF, facts: FIXTURE_FACTS, tasks: FIXTURE_TASKS, decisions: FIXTURE_DECISIONS,

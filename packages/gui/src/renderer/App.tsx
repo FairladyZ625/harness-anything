@@ -8,7 +8,8 @@ import { OverviewView } from "./views/OverviewView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
-import { DecisionDetailView, FactDetailView } from "./views/EntityDetailView.tsx";
+import { FactDetailView } from "./views/EntityDetailView.tsx";
+import { DecisionDetailView } from "./components/decisionDetail/DecisionDetailView.tsx";
 import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
@@ -428,6 +429,7 @@ function AppShell() {
               />
             ) : view === "decisionDetail" ? (
               <DecisionDetailView
+                repoId={projectId}
                 decisionId={
                   focusedEntityRef?.startsWith("decision/")
                     ? focusedEntityRef.split("/")[1]
@@ -435,10 +437,13 @@ function AppShell() {
                 }
                 decisions={decisions}
                 tasks={projectTasks}
-                facts={facts}
                 relations={relations}
-                factAnchors={factAnchors}
                 loading={triadicQuery.isLoading}
+                onBack={back}
+                projectName={project.name}
+                fromViewLabel={navLabel(view)}
+                onNavigateDecision={navigateToDecision}
+                onNavigateTask={navigateToTask}
                 onNavigateEntity={navigateToEntity}
                 onFocusGraph={focusEntityInGraph}
                 onOpenPool={openDecisionInPool}

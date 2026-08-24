@@ -223,7 +223,7 @@ export function DecisionPoolView({
         <div className="mt-2.5 rounded-md border border-border bg-surface-raised/50 px-2.5 py-2">
           <ChainView decision={decision} relations={relations} onNavigateDecision={onNavigateDecision} />
         </div>
-      {(decision.body || decision.judgmentConsents.length > 0) && <details className="mt-2 text-[11px] text-text-muted"><summary className="cursor-pointer select-none text-text-faint hover:text-text-muted">{t("views.decisionPoolView.canonicalBodyConsents")}</summary>{decision.body && <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-surface-raised p-2">{decision.body.body}</pre>}{decision.judgmentConsents.map((consent) => <div key={consent.consentId} className="mt-1 font-mono">{consent.action} · {consent.consentId} · {consent.consentedAt}</div>)}</details>}
+      {decision.judgmentConsents.length > 0 && <details className="mt-2 text-[11px] text-text-muted"><summary className="cursor-pointer select-none text-text-faint hover:text-text-muted">{t("views.decisionPoolView.canonicalBodyConsents")}</summary>{decision.judgmentConsents.map((consent) => <div key={consent.consentId} className="mt-1 font-mono">{consent.action} · {consent.consentId} · {consent.consentedAt}</div>)}</details>}
         {
           /* @gate-identity check-gui-status-judgments/gui-status-062 */
           decision.state === "proposed" && onJudge && <DecisionJudgmentPanel

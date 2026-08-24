@@ -63,6 +63,12 @@ export interface DecisionControlListSuccess {
   readonly hint?: string;
 }
 
+export interface DecisionShowSuccess {
+  readonly status: "ready" | "pending";
+  readonly decision: DecisionProjectionRow;
+  readonly hint: string | null;
+}
+
 export interface RepoScope { readonly repoId: string }
 export interface SystemRepoRow {
   readonly repoId: string; readonly displayName: string; readonly canonicalRoot: string; readonly authoredBranch: string;
@@ -120,7 +126,7 @@ export const harnessClient = {
   async getRelationGraph(payload: RepoScope & RelationQueryFacets): Promise<RelationGraphSuccess> { return readRelationGraphResult(await invokeBridge("getRelationGraph", payload)); },
   async getDecisions(payload: RepoScope): Promise<DecisionListSuccess> { return readDecisionListResult(await invokeBridge("getDecisions", payload)); },
   async listDecisionControls(payload: RepoScope & { readonly search?: string; readonly state?: string; readonly module?: string; readonly productLine?: string }): Promise<DecisionControlListSuccess> { return readDecisionControlList(await invokeBridge("listDecisions", payload)); },
-  async showDecision(payload: RepoScope & { readonly decisionId: string; readonly includeBody?: boolean }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("showDecision", payload)); },
+  async showDecision(payload: RepoScope & { readonly decisionId: string; readonly includeBody?: boolean }): Promise<DecisionShowSuccess> { return readDecisionShowResult(await invokeBridge("showDecision", payload)); },
   async proposeDecision(payload: RepoScope & DecisionProposalInput): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("proposeDecision", payload)); },
   async acceptDecision(payload: RepoScope & { readonly decisionId: string; readonly rationale: string; readonly judgmentOnlyRationale?: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("acceptDecision", payload)); },
   async rejectDecision(payload: RepoScope & { readonly decisionId: string; readonly reason: string }): Promise<GuiActionResult> { return readGuiActionResult(await invokeBridge("rejectDecision", payload)); },
@@ -225,6 +231,16 @@ function readDecisionControlList(value: unknown): DecisionControlListSuccess {
     const decisionIds = evidence.decisions.flatMap((item) => isRendererRecord(item) && typeof item.decisionId === "string" ? [item.decisionId] : []);
     return { status: evidence.status, decisionIds, opId: receipt.opId, ...(receipt.nextAction ? { hint: receipt.nextAction } : {}) };
   } catch { throw new Error("Decision list receipt evidence is invalid."); }
+}
+
+function readDecisionShowResult(value: unknown): DecisionShowSuccess {
+  const receipt = readGuiActionResult(value) as GuiActionResult & { readonly evidence?: string; readonly nextAction?: string; readonly error?: { readonly code?: string; readonly hint?: string } };
+  if (receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate") throw new Error(`${receipt.error?.code ?? receipt.outcome}: ${receipt.error?.hint ?? receipt.nextAction ?? "Decision show failed."}`);
+  try {
+    const evidence = JSON.parse(receipt.evidence ?? "") as { readonly status?: unknown; readonly decision?: unknown };
+    if ((evidence.status !== "ready" && evidence.status !== "pending") || !isDecisionProjectionRow(evidence.decision)) throw new Error();
+    return { status: evidence.status, decision: evidence.decision, hint: receipt.nextAction ?? null };
+  } catch { throw new Error("Decision show receipt evidence is invalid."); }
 }
 
 function readSystemStatus(value: unknown): SystemStatusSuccess {
