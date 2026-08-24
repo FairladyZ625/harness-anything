@@ -21,7 +21,7 @@ export function parseRuntimeStatus(
     noStream = flags.booleans.has("--no-stream");
   if (runtimeSessionId && flags.one.has("--task"))
     return rejectInput(inputs, route.id, "--task", json);
-  if (!runtimeSessionId && wait)
+  if (!runtimeSessionId && !flags.one.has("--task") && wait)
     return rejectInput(inputs, route.id, "--wait", json);
   if (!wait && noStream)
     return rejectInput(inputs, route.id, "--no-stream", json);
@@ -38,7 +38,11 @@ export function parseRuntimeStatus(
             ...(noStream ? { noStream: true } : {}),
           }
         : flags.one.get("--task")
-          ? { taskId: flags.one.get("--task") }
+          ? {
+              taskId: flags.one.get("--task"),
+              ...(wait ? { wait: true } : {}),
+              ...(noStream ? { noStream: true } : {}),
+            }
           : {}),
     },
     runtimeSessionId ? "repo.agentRuntime.sessions.read" : route.method,

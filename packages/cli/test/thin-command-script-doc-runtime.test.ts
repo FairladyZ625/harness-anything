@@ -444,6 +444,15 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     parseThinCommand(["runtime", "status", "runtime-1", "--task", "task-1"]).ok,
     false,
   );
+  const taskWait = parseThinCommand(["runtime", "status", "--task", "task-1", "--wait", "--no-stream"]);
+  assert.equal(taskWait.ok, true);
+  if (taskWait.ok)
+    assert.deepEqual(taskWait.command.action, {
+      kind: "runtime-status",
+      taskId: "task-1",
+      wait: true,
+      noStream: true,
+    });
   assert.equal(parseThinCommand(["runtime", "status", "--wait"]).ok, false);
   assert.equal(
     parseThinCommand(["runtime", "status", "runtime-1", "--no-stream"]).ok,

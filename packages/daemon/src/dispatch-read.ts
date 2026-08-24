@@ -65,7 +65,7 @@ export function readTaskDispatches(
       const read = input.projection.readDocument(documentPath);
       const archive = read.document ? parseArchive(read.document.body) : null;
       if (archive?.taskId !== target.taskId) continue;
-      rows.set(dispatchId, archiveRow(archive, candidate.session));
+      rows.set(dispatchId, archiveRow(archive, candidate.session, target.packagePath));
       if (candidate.indexed) staleIndexEntries.set(dispatchId, indexedEntries.get(dispatchId)!);
       break;
     }
@@ -76,7 +76,16 @@ export function readTaskDispatches(
       continue;
     }
     const live = stream.process?.exited === false;
-    rows.set(dispatchId, liveRow(stream.header, stream.providerSessionId, candidate.session, live));
+    rows.set(
+      dispatchId,
+      liveRow(
+        stream.header,
+        stream.providerSessionId,
+        candidate.session,
+        live,
+        candidate.taskPackages[0]?.packagePath ?? null,
+      ),
+    );
   }
   removeDispatchLiveIndexEntries(input.rootDir, [...staleIndexEntries.values()]);
   const dispatches = [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
@@ -124,7 +133,11 @@ function addCandidate(
   });
 }
 
-function archiveRow(value: Record<string, unknown>, session: RuntimeSession | undefined): TaskDispatchRow {
+function archiveRow(
+  value: Record<string, unknown>,
+  session: RuntimeSession | undefined,
+  packagePath: string,
+): TaskDispatchRow {
   return {
     dispatchId: String(value.dispatchId),
     taskId: String(value.taskId),
@@ -149,6 +162,10 @@ function archiveRow(value: Record<string, unknown>, session: RuntimeSession | un
     endedAt: typeof value.endedAt === "string" ? value.endedAt : null,
     outcome: isOutcome(value.outcome) ? value.outcome : (session?.outcome ?? "unknown"),
     status: isOutcome(value.outcome) ? value.outcome : (session?.outcome ?? "unknown"),
+    resultRef: typeof value.resultRef === "string" ? value.resultRef : (session?.resultRef ?? null),
+    exitCode: typeof value.exitCode === "number" ? value.exitCode : (session?.exitCode ?? null),
+    dispatchPath: `${packagePath}/artifacts/dispatches/${String(value.dispatchId)}.json`,
+    reportPath: `${packagePath}/artifacts/reports/${String(value.dispatchId)}.md`,
   };
 }
 function liveRow(
@@ -156,6 +173,7 @@ function liveRow(
   providerSessionId: string | null,
   session: RuntimeSession | undefined,
   processRunning: boolean,
+  packagePath: string | null,
 ): TaskDispatchRow {
   const outcome = session?.outcome ?? null;
   return {
@@ -178,6 +196,14 @@ function liveRow(
     endedAt: null,
     outcome,
     status: outcome ?? (session?.liveness === "live" || processRunning ? "running" : "unknown"),
+    resultRef: session?.resultRef ?? null,
+    exitCode: session?.exitCode ?? null,
+    ...(packagePath
+      ? {
+          dispatchPath: `${packagePath}/artifacts/dispatches/${header.dispatchId}.json`,
+          reportPath: `${packagePath}/artifacts/reports/${header.dispatchId}.md`,
+        }
+      : {}),
   };
 }
 function parseArchive(body: string): Record<string, unknown> | null {

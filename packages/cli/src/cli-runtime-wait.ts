@@ -115,6 +115,53 @@ export async function waitForRuntime(
   };
 }
 
+export async function waitForTaskDispatches(command: ThinCommand, taskId: string): Promise<JsonObject> {
+  const readCommand = {
+    ...command,
+    method: "repo.task.dispatches",
+    action: { kind: "task-dispatches", taskId },
+  };
+  let current = await runCommandThroughDaemon(readCommand);
+  if (current.ok !== true) return current;
+  while (current.status === "pending" || !taskDispatchesSettled(current)) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    current = await runCommandThroughDaemon(readCommand);
+    if (current.ok !== true) return current;
+  }
+  const dispatches: readonly unknown[] = Array.isArray(current.dispatches) ? current.dispatches : [],
+    noDispatches = dispatches.length === 0,
+    cancelled = dispatches.some((row: unknown) => (row as Record<string, unknown>).status === "cancelled"),
+    failed = dispatches.some((row: unknown) => {
+      const status = row && typeof row === "object" ? (row as Record<string, unknown>).status : undefined;
+      return status === "failed";
+    }),
+    outcome = noDispatches
+      ? "unknown"
+      : dispatches.some((row: unknown) => (row as Record<string, unknown>).status === "unknown")
+        ? "unknown"
+        : failed
+          ? "failed"
+          : cancelled
+            ? "cancelled"
+            : "succeeded";
+  return {
+    ...current,
+    command: "runtime-status",
+    taskId,
+    outcome,
+    summary: `runtime-status task ${taskId}: ${dispatches.length} dispatch${dispatches.length === 1 ? "" : "es"} ${outcome}`,
+    exitCode: outcome === "succeeded" ? 0 : 1,
+  };
+}
+
+function taskDispatchesSettled(value: JsonObject): boolean {
+  if (!Array.isArray(value.dispatches)) return false;
+  return (value.dispatches as readonly unknown[]).every((row: unknown) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+    return ["succeeded", "failed", "unknown", "cancelled"].includes(String((row as Record<string, unknown>).status));
+  });
+}
+
 export function renderRuntimeFrames(
   value: unknown,
   write: (text: string) => void,
