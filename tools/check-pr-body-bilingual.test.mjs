@@ -1,7 +1,12 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { checkPrBodyBilingual, countBilingualSignals, shouldSkipPrBodyBilingualCheck } from "./check-pr-body-bilingual.mjs";
+import {
+  checkGateHarvestDeclarations,
+  checkPrBodyBilingual,
+  countBilingualSignals,
+  shouldSkipPrBodyBilingualCheck
+} from "./check-pr-body-bilingual.mjs";
 
 const validEnglish = [
   "# English",
@@ -42,6 +47,59 @@ test("standard two-block PR body passes", () => {
   assert.equal(result.issues.length, 0);
   assert.ok(result.counts.englishLatinWords >= 20);
   assert.ok(result.counts.chineseCjkChars >= 20);
+});
+
+test("deleted production paths require deleted gates or fixtures", () => {
+  const result = checkPrBodyBilingual(twoBlockBody({
+    english: [
+      validEnglish.replace("\n\n---", ""),
+      "Deleted-Production-Paths: packages/legacy.ts",
+      "Deleted-Gates-Fixtures: none",
+      "Production-Delta: +0/-4",
+      "",
+      "---"
+    ].join("\n")
+  }));
+
+  assert.equal(result.ok, false);
+  assert.match(result.issues.join("\n"), /requires at least one Deleted-Gates-Fixtures entry/u);
+  assert.equal(result.gateHarvest.hasDeletedProductionPaths, true);
+});
+
+test("deleted production paths pass with a same-commit gate or fixture and CI delta", () => {
+  const result = checkPrBodyBilingual(twoBlockBody({
+    english: [
+      validEnglish.replace("\n\n---", ""),
+      "Deleted-Production-Paths: packages/legacy.ts",
+      "Deleted-Gates-Fixtures: tools/gates/test/legacy.json",
+      "Production-Delta: +0/-4",
+      "",
+      "---"
+    ].join("\n")
+  }));
+
+  assert.equal(result.ok, true, result.issues.join("\n"));
+  assert.equal(result.gateHarvest.productionDeltaCount, 1);
+});
+
+test("deleted production paths require the CI production delta field", () => {
+  const result = checkGateHarvestDeclarations([
+    "Deleted-Production-Paths: packages/legacy.ts",
+    "Deleted-Gates-Fixtures: tools/gates/test/legacy.json"
+  ].join("\n"));
+
+  assert.equal(result.ok, false);
+  assert.match(result.issues.join("\n"), /requires exactly one CI-backed Production-Delta/u);
+});
+
+test("a body with no deleted production paths preserves existing behavior", () => {
+  const result = checkGateHarvestDeclarations([
+    "Deleted-Production-Paths: none",
+    "Deleted-Gates-Fixtures: none"
+  ].join("\n"));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.hasDeletedProductionPaths, false);
 });
 
 test("missing English heading fails", () => {

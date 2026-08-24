@@ -10,6 +10,15 @@
 
 -
 
+## Gate Harvest / 门收割
+
+<!-- When removing old production paths, replace `none` with a comma-separated list of repository-relative paths. -->
+Deleted-Production-Paths: none
+<!-- List every gate or fixture removed in the same commit as those paths. Use `none` only when no old path is removed. -->
+Deleted-Gates-Fixtures: none
+<!-- The production-delta job computes the authoritative +/- lines. Keep the single `Production-Delta` declaration below; do not hand-enter a second metric. -->
+- Production net lines: use the single CI-backed `Production-Delta` declaration below; do not enter a second metric.
+
 ## Machine-Readable Declarations
 
 <!-- These declarations are checked by jobs in `.github/workflows/rebuild-gates.yml`, the authority for their exact formats; `tools/gate-manifest.json` does not enumerate these jobs. -->
@@ -120,6 +129,12 @@ Dependency-Change: none
 ## 改动内容
 
 -
+
+## 门收割 / Gate Harvest
+
+- 删除的生产路径：用逗号分隔填写本 PR 删除的旧生产路径；没有删除旧路径时保留 `none`。
+- 同 commit 删除的门 / fixture：填写与这些路径同一 commit 删除的全部门与 fixture；删除路径时不得留空。
+- 生产净行数：引用英文块中的 `Production-Delta`；该值由 production-delta job 计算，不要手填第二份数字。
 
 ## 机读声明说明
 
