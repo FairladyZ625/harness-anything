@@ -5,7 +5,8 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
-import { DecisionDetailView, splitMarkdownBlocks } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
+import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
+import { splitMarkdownBlocks } from "../src/renderer/components/decisionDetail/DecisionBodyPanel.tsx";
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../src/renderer/model/types.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
