@@ -187,6 +187,13 @@ test("task-scoped doc sync derives every dirty candidate from the task id", asyn
     );
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.match(submitted.summary ?? "", new RegExp(`${packagePath}/notes\\.md`, "u"));
+    const clean = await cell.run(
+      { kind: "doc-submit", taskId: "task-scope" },
+      binding,
+    );
+    assert.equal(clean.outcome, "op_rejected", JSON.stringify(clean));
+    assert.equal(clean.code, "no_changes");
+    assert.match(clean.summary ?? "", /applied count: 0/u);
     const mixed = await cell.run(
       { kind: "doc-submit", taskId: "task-scope", paths: [] },
       binding,
