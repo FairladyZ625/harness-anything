@@ -100,10 +100,20 @@ export function validateCodeDocRepointV1(
     validateActorAxes(value.actor, allowUnknownFields).length === 0 &&
     validateWriteSource(value.source, allowUnknownFields).length === 0
     ? []
-    : [{ code: "invalid_witness", message: "code-doc repoint must state a valid replacement or known-invalid disposition" }];
+    : [
+      {
+        code: "invalid_witness",
+        message: "code-doc repoint must state a valid replacement or known-invalid disposition",
+      },
+    ];
 }
 export function canonicalCodeDocPaths(value: unknown, allowEmpty = false): value is readonly string[] {
-  if (!Array.isArray(value) || (!allowEmpty && value.length === 0) || new Set(value).size !== value.length) return false;
+  if (
+    !Array.isArray(value) ||
+    (!allowEmpty && value.length === 0) ||
+    new Set(value).size !== value.length
+  )
+    return false;
   try {
     return value.every((path) => typeof path === "string" && normalizeRelativeDocumentPath(path) === path);
   } catch (error) {
