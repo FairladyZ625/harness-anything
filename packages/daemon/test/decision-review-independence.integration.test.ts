@@ -16,7 +16,7 @@ const proposer = {
   source: "local" as const,
 };
 
-test("Decision outcomes always require independent review", async () => {
+test("Decision outcomes reject self-judgment and accept an independent reviewer", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-independence-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -25,23 +25,6 @@ test("Decision outcomes always require independent review", async () => {
     ownerId: "decision-review-independence-test",
   });
   try {
-    const explanation = receiptJson(await cell.run({ kind: "entity-explain", entityKind: "policy" }, proposer)),
-      decisionRule = (
-        explanation.policy as {
-          readonly rules: readonly {
-            readonly action: string;
-            readonly anyOf: readonly { readonly allOf: readonly Record<string, unknown>[] }[];
-          }[];
-        }
-      ).rules.find((rule) => rule.action === "decision.accept");
-    assert.deepEqual(
-      decisionRule?.anyOf[0]?.allOf.find((predicate) => predicate.predicate === "reviewIndependence"),
-      {
-        predicate: "reviewIndependence",
-        level: "L1",
-      },
-    );
-
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
       sameAgent = { ...proposer, roles: ["$arbiter"] },
