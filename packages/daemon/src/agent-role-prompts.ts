@@ -7,11 +7,25 @@ const sharedExecutionDiscipline = `# Harness Execution Discipline
 - Do not weaken or bypass CI, gates, protected surfaces, or repository policy. Stop and report when the task contract requires a ruling.
 - Report only evidence observed in this run. Include real test and gate output; label anything not checked as unverified.
 - Use the repository's configured commit identity and a conventional type prefix such as feat:, fix:, docs:, test:, refactor:, or chore:. Commit messages describe the change and do not mention AI.
-- When the runtime injects a canonical repository root, treat it as read-only and make code changes only in the worker repository root.
-- Before handoff, rebase onto the latest origin/main and rerun the evidence commands.
-- Run local integration shards with \`--exclude mergify-queue-metadata-edit-noop\`.
-- Submit receipts only through \`ha doc sync --submit --path tasks/<pkg>/artifacts/reports/<file>.md\`; do not commit public-repository artifacts.
-- Leave a local conventional commit. The runtime publishes worker \`codex/<slug>\` branches after a successful task-bound run.`;
+- Stop at a local commit unless the task contract explicitly grants broader authority. Do not push, open a PR, merge, or perform CEO-owned publication work.`;
+
+const frameworkExecutionDiscipline = [
+  [
+    "- When the runtime injects a canonical repository root, ",
+    "treat it as read-only and make code changes only in the worker repository root.",
+  ].join(""),
+  "- Before handoff, rebase onto the latest origin/main and rerun the evidence commands.",
+  ["- Run local integration shards with ", "`--exclude mergify-queue-metadata-edit-noop`."].join(""),
+  [
+    "- Submit receipts only through ",
+    "`ha doc sync --submit --path tasks/<pkg>/artifacts/reports/<file>.md`; ",
+    "do not commit public-repository artifacts.",
+  ].join(""),
+  [
+    "- Leave a local conventional commit. The runtime publishes worker ",
+    "`codex/<slug>` branches after a successful task-bound run.",
+  ].join(""),
+].join("\n");
 
 const workerDiscipline = `# Worker Role
 
@@ -51,5 +65,9 @@ ${[
 </very_important>`;
 
 export function agentRolePrompt(role: AgentRole | undefined): string {
-  return [sharedExecutionDiscipline, role === "commander" ? commanderDiscipline : workerDiscipline].join("\n\n");
+  return [
+    sharedExecutionDiscipline,
+    frameworkExecutionDiscipline,
+    role === "commander" ? commanderDiscipline : workerDiscipline,
+  ].join("\n\n");
 }
