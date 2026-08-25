@@ -33,11 +33,9 @@ export {
   reviewDigest,
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
-export { canReclaim, isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
+export { isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
 export {
-  isTaskBoundRuntimeWriter,
   resolveLiveTaskBoundRuntimeBinding,
-  runtimeSessionExecutesTask,
   runtimeSessionIdFromActor,
 } from "./domain/task-bound-runtime-authority.ts";
 export {
@@ -143,7 +141,7 @@ export type {
   MigrationDocumentClaim,
   MigrationImportEventV1,
 } from "./domain/migration-import-event.ts";
-export type { ArchivedExecutionV0, ExecutionV1, ProjectedExecution } from "./domain/execution.ts";
+export type { ArchivedExecutionV0, ExecutionV1, LeaseV1, ProjectedExecution } from "./domain/execution.ts";
 export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
 export * from "./entity/registry.ts";

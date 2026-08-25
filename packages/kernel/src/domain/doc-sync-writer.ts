@@ -2,7 +2,6 @@ import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Bytes, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { type PortableDocumentPath } from "../layout/portable-path.ts";
-import { isSameExecution } from "./actor-domain-services.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "./artifact-text-classification.ts";
 import { additiveProof, decisionDocumentPath, opaqueProof, touch } from "./doc-sync-regions.ts";
 import { DOC_POLICY_ID, docRouteRegistry, DocSyncContractError } from "./doc-sync-types.ts";
@@ -16,16 +15,10 @@ import type {
   DocWriteDecision,
   DocWriteDecisionInput,
 } from "./doc-sync-types.ts";
-import {
-  policyMatchesClaim,
-  sameWriteChannel,
-  taskArtifactPath,
-  taskFromPath,
-  validDocEventChange,
-} from "./doc-sync-validation.ts";
+import { policyMatchesClaim, taskArtifactPath, taskFromPath, validDocEventChange } from "./doc-sync-validation.ts";
 import { MIGRATION_DOCUMENT_POLICY_ID } from "./migration-import-event.ts";
 import type { DocSyncDifference, DocSyncUnresolvedTouch } from "./receipt-domain-registry.ts";
-import { isTaskBoundRuntimeWriter, runtimeSessionIdFromActor } from "./task-bound-runtime-authority.ts";
+import { runtimeSessionIdFromActor } from "./task-bound-runtime-authority.ts";
 import {
   freezeDeclaredWritePlan,
   isFrozenWritePlan,
@@ -58,9 +51,11 @@ export function decideDocWrite(input: DocWriteDecisionInput): DocWriteDecision {
     deletions: { path: string; baseBlobSha256: string; source: "intent" }[] = [],
     changes: DocEventMutation[] = [],
     blobs: DocContentBlob[] = [];
+  const authorizationDecision = input.authorizationDecision ?? null;
   const reject = (code: string, nextAction: string): DocWriteDecision => ({
     accepted: false,
     code,
+    authorizationDecision,
     detail: {
       kind: "doc_sync",
       code,
@@ -86,27 +81,29 @@ export function decideDocWrite(input: DocWriteDecisionInput): DocWriteDecision {
       "invalid_retirement",
       "retire exactly one canonical document with a non-empty reason outside an execution lease",
     );
-  const runtimeActor = runtimeSessionIdFromActor(input.actor) !== null,
-    directHolder =
-      input.lease !== null &&
-      isSameExecution(input.lease.actor, input.actor) &&
-      sameWriteChannel(input.lease.source, input.source),
-    runtimeWorker =
-      input.lease !== null &&
-      input.runtimeBinding !== undefined &&
-      isTaskBoundRuntimeWriter(input.lease, input.actor, input.source, input.runtimeBinding);
+  const runtimeActor = runtimeSessionIdFromActor(input.actor) !== null;
   if (
     input.intent.executionId === null
       ? input.lease !== null || runtimeActor
-      : input.lease === null ||
-        input.lease.phase !== "held" ||
-        input.lease.executionId !== input.intent.executionId ||
-        (!directHolder && !runtimeWorker)
+      : input.lease === null || input.lease.phase !== "held" || input.lease.executionId !== input.intent.executionId
   )
     return reject(
       "lease_conflict",
       "refresh status and submit through the matching execution or repository prose channel",
     );
+  if (input.intent.executionId !== null && authorizationDecision?.outcome !== "allowed")
+    return reject(
+      "lease_conflict",
+      "refresh status and submit through the matching execution or repository prose channel",
+    );
+  const directHolder =
+      authorizationDecision?.bindingsUsed.some(
+        (binding) => binding.predicate === "holdsExecutionLease" && binding.satisfied === true,
+      ) ?? false,
+    runtimeWorker =
+      authorizationDecision?.bindingsUsed.some(
+        (binding) => binding.predicate === "delegatedByRuntimeSession" && binding.satisfied === true,
+      ) ?? false;
   if (stableStringify(input.intent.baseLedgerSha) !== stableStringify(input.currentLedgerSha))
     return reject(
       "base_ledger_changed",
@@ -249,7 +246,7 @@ export function decideDocWrite(input: DocWriteDecisionInput): DocWriteDecision {
       ...(retirementReason === undefined ? {} : { retirementReason }),
     },
   };
-  return { accepted: true, event, blobs, plan: docSyncWritePlan(event) };
+  return { accepted: true, event, blobs, plan: docSyncWritePlan(event), authorizationDecision };
 }
 
 export function docSyncWritePlan(event: DocEventV1): FrozenWritePlan<"DocSyncSubmit"> {

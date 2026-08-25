@@ -14,7 +14,7 @@ import type {
   ReviewRecordedEvent,
   TaskCompletedEvent,
 } from "./task-lifecycle-event.ts";
-import { isIndependentFrom, isSameExecution } from "./actor-domain-services.ts";
+import { isSameExecution } from "./actor-domain-services.ts";
 import { closeoutReadiness } from "./closeout-readiness.ts";
 import type {
   CodeDocProof,
@@ -56,14 +56,8 @@ function reviewIssues(
     issues.push(lifecycleContractIssue("invalid_transition", "Review requires the current submitted execution"));
   else if (snapshot.reviews.some((value) => value.reviewId === command.reviewId))
     issues.push(lifecycleContractIssue("invalid_transition", "append-only Review history requires a new review id"));
-  else if (
-    command.commitSha !== current.submission.commitSha ||
-    command.iteration !== current.iteration ||
-    !isIndependentFrom(current.actor, command.actor)
-  )
-    issues.push(
-      lifecycleContractIssue("invalid_proof", "Review must bind the current content cut and an independent reviewer"),
-    );
+  else if (command.commitSha !== current.submission.commitSha || command.iteration !== current.iteration)
+    issues.push(lifecycleContractIssue("invalid_proof", "Review must bind the current content cut"));
   if (
     !proof.actorBinding ||
     !isSameExecution(command.actor, proof.actorBinding) ||
@@ -199,7 +193,6 @@ export const consent: Transition = {
       !proof.actorBinding ||
       !isSameExecution(command.actor, proof.actorBinding) ||
       !snapshot.task ||
-      !isSameExecution(command.actor, snapshot.task.createdBy) ||
       proof.capability !== "execution-consent@v1" ||
       !isNonEmptyString(proof.capabilityRef) ||
       !isNonEmptyString(command.consentId)

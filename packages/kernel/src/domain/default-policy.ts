@@ -1,16 +1,20 @@
 import type { PolicyDeclarationV1 } from "./policy.ts";
 
-/** The single built-in policy package. Action rules mirror the eight object-level checks
- * that currently live outside a shared AuthorizationPort; later slices consume this declaration. */
+/** The single built-in policy package consumed by the kernel AuthorizationPort. */
 const defaultPolicyDeclaration = {
   schema: "policy/v1",
   id: "default",
-  version: 1,
+  version: 2,
   predicates: Object.freeze([
     { predicate: "isOwner" },
-    { predicate: "isExecutorOfExecution" },
+    { predicate: "isSameExecutionOwner" },
+    { predicate: "holdsExecutionLease" },
+    { predicate: "reclaimsOrphanedLease" },
+    { predicate: "dispatchesExecution" },
+    { predicate: "delegatedByRuntimeSession" },
     { predicate: "hasCommandClass", commandClass: "arbiter" },
     { predicate: "reviewIndependence", level: "L1" },
+    { predicate: "sameWriteSource" },
   ]),
   actions: Object.freeze([
     "task.consent",
@@ -23,37 +27,47 @@ const defaultPolicyDeclaration = {
     "task.closeout",
   ]),
   rules: Object.freeze([
-    { action: "task.consent", mode: "all", predicates: [{ predicate: "isOwner" }] },
-    { action: "task.complete", mode: "all", predicates: [{ predicate: "isOwner" }] },
+    { action: "task.consent", anyOf: [{ allOf: [{ predicate: "isSameExecutionOwner" }] }] },
+    { action: "task.complete", anyOf: [{ allOf: [{ predicate: "isOwner" }] }] },
     {
       action: "execution.review",
-      mode: "all",
-      predicates: [{ predicate: "reviewIndependence", level: "L1" }],
-    },
-    {
-      action: "decision.accept",
-      mode: "all",
-      predicates: [
-        { predicate: "hasCommandClass", commandClass: "arbiter" },
-        { predicate: "reviewIndependence", level: "L1" },
+      anyOf: [
+        {
+          allOf: [
+            { predicate: "hasCommandClass", commandClass: "arbiter" },
+            { predicate: "reviewIndependence", level: "L1" },
+          ],
+        },
       ],
     },
     {
+      action: "decision.accept",
+      anyOf: [{ allOf: [{ predicate: "hasCommandClass", commandClass: "arbiter" }] }],
+    },
+    {
       action: "execution.release",
-      mode: "any",
-      predicates: [{ predicate: "isExecutorOfExecution" }, { predicate: "isOwner" }],
+      anyOf: [{ allOf: [{ predicate: "holdsExecutionLease" }] }, { allOf: [{ predicate: "reclaimsOrphanedLease" }] }],
     },
     {
       action: "runtime.dispatch",
-      mode: "all",
-      predicates: [{ predicate: "isExecutorOfExecution" }],
+      anyOf: [
+        { allOf: [{ predicate: "dispatchesExecution" }] },
+        { allOf: [{ predicate: "delegatedByRuntimeSession" }] },
+      ],
     },
     {
       action: "doc.submit",
-      mode: "any",
-      predicates: [{ predicate: "isExecutorOfExecution" }, { predicate: "isOwner" }],
+      anyOf: [
+        { allOf: [{ predicate: "holdsExecutionLease" }, { predicate: "sameWriteSource" }] },
+        { allOf: [{ predicate: "delegatedByRuntimeSession" }, { predicate: "sameWriteSource" }] },
+      ],
     },
-    { action: "task.closeout", mode: "all", predicates: [{ predicate: "isOwner" }] },
+    { action: "task.closeout", scope: "owner", anyOf: [{ allOf: [{ predicate: "isOwner" }] }] },
+    {
+      action: "task.closeout",
+      scope: "active",
+      anyOf: [{ allOf: [{ predicate: "holdsExecutionLease" }] }],
+    },
   ]),
 } satisfies PolicyDeclarationV1;
 

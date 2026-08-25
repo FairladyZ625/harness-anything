@@ -1,4 +1,7 @@
 export { createTaskIdentity } from "./task.ts";
+export type { ActionEnvelope } from "./action-envelope.ts";
+export type { AuthorizationDecision } from "./receipt-frame.ts";
+export { DEFAULT_POLICY } from "./default-policy.ts";
 export type {
   ActorAxes,
   Task,
@@ -65,7 +68,7 @@ export {
 export type { TaskWipSnapshotEntryV1 } from "./task-wip-policy.ts";
 
 export { findEntityRefs, parseEntityRef } from "./entity-ref.ts";
-export type { EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
+export type { EntityRef, EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 
 export {
   decisionEntityId,

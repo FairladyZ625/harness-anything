@@ -6,7 +6,12 @@ import type {
   SessionIdentity,
   TaskProjection,
 } from "../../kernel/src/index.ts";
-import { consumeKnownError, runtimeSessionExecutesTask, runtimeSessionIdFromActor } from "../../kernel/src/index.ts";
+import {
+  consumeKnownError,
+  resolveLiveTaskBoundRuntimeBinding,
+  runtimeSessionIdFromActor,
+  type AuthorizationDecision,
+} from "../../kernel/src/index.ts";
 import { createRuntime } from "../../preset/src/preset-resolver.ts";
 import { presetRuntimeDefaults, presetUserRoot } from "../../preset/src/preset-system.ts";
 import type { SquadDispatchTarget } from "./agent-entities.ts";
@@ -76,6 +81,7 @@ import type {
   RuntimeProcess,
 } from "./runtime-spawn-types.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
+import { authorizeAction } from "./authorization.ts";
 
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
@@ -219,25 +225,29 @@ export function makeRuntimeSpawner(input: {
         store = input.remote ? null : requiredRuntimeStore(input),
         projection = input.remote ? null : requiredRuntimeProjection(input),
         remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId) : null,
-        lease = taskId && !input.remote ? projection!.currentLease(taskId) : null;
-      if (
-        taskId &&
-        !input.remote &&
-        (!lease ||
-          lease.phase !== "held" ||
-          !(
-            (lease.actor.principal.personId === binding.actor.principal.personId &&
-              (binding.actor.executor === null || lease.actor.executor?.id === binding.actor.executor?.id)) ||
-            runtimeSessionExecutesTask(
-              runtimeSessionIdFromActor(binding.actor)
-                ? projection!.readRuntimeSession(runtimeSessionIdFromActor(binding.actor)!)
-                : null,
-              taskId,
-              lease.executionId,
-            )
-          ))
-      )
-        throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId, lease));
+        lease = taskId && !input.remote ? projection!.currentLease(taskId) : null,
+        hash = createHash("sha256").update(`${input.repoId}\0${idempotencyKey}`).digest("hex"),
+        newDispatchId = `dispatch_${hash.slice(0, 24)}`,
+        runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
+        dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`;
+      let authorizationDecision: AuthorizationDecision | null = null;
+      if (taskId && !input.remote) {
+        const callerRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
+          runtimeBinding =
+            callerRuntimeSessionId === null || lease === null
+              ? null
+              : resolveLiveTaskBoundRuntimeBinding(
+                  projection!.readRuntimeSession(callerRuntimeSessionId),
+                  taskId,
+                  lease.executionId,
+                );
+        authorizationDecision = authorizeAction("runtime.dispatch", `task/${taskId}`, binding.actor, dispatchOpId, {
+          target: { lease, runtimeBinding },
+          evaluatedAtCut: `canonical:${store!.readHead()?.revision ?? 0}`,
+        });
+      }
+      if (authorizationDecision?.outcome === "denied")
+        throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId!, lease));
       const daemonRoute = taskId ? input.runtimeDaemonRoute : undefined;
       if (taskId && !daemonRoute)
         throw runtimeSpawnError(
@@ -248,17 +258,14 @@ export function makeRuntimeSpawner(input: {
         mission = explicitMission ?? taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt");
       if (taskMission) validateMissionCommands(taskMission.plan, cwd, taskMission.planPath);
       if (explicitMission) validateMissionCommands(explicitMission, cwd, "explicit runtime mission");
-      const hash = createHash("sha256").update(`${input.repoId}\0${idempotencyKey}`).digest("hex"),
-        newDispatchId = `dispatch_${hash.slice(0, 24)}`,
-        runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
-        dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`,
-        remoteExisting = input.remote ? await input.remote.existing(dispatchOpId) : null,
+      const remoteExisting = input.remote ? await input.remote.existing(dispatchOpId) : null,
         existing = input.remote ? null : store!.readEvent(dispatchOpId);
       if (remoteExisting)
         return {
           ...remoteExisting,
           runtimeSessionId,
           dispatchId: newDispatchId,
+          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         };
       if (existing) {
         if (!isRuntimeEvent(existing) || existing.type !== "runtime_dispatch_requested")
@@ -266,7 +273,10 @@ export function makeRuntimeSpawner(input: {
             "runtime_dispatch_conflict",
             `Dispatch opId ${dispatchOpId} belongs to another canonical event.`,
           );
-        return applied(existing, store!.publication(existing), runtimeSessionId, newDispatchId);
+        return {
+          ...applied(existing, store!.publication(existing), runtimeSessionId, newDispatchId),
+          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+        };
       }
       const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
         selfContainedMission =
@@ -560,8 +570,16 @@ export function makeRuntimeSpawner(input: {
       });
       attachActiveRuntime(extracted, active, resumeObservation);
       return requested.receipt
-        ? { ...requested.receipt, runtimeSessionId, dispatchId: newDispatchId }
-        : applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId);
+        ? {
+            ...requested.receipt,
+            runtimeSessionId,
+            dispatchId: newDispatchId,
+            authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+          }
+        : {
+            ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
+            authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+          };
     },
     adopt: () => adoptRuntimes(extracted),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),

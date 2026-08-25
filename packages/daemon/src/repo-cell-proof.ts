@@ -5,11 +5,11 @@ import {
   consentedApprovedReview,
   currentCodeDocWitness,
   heldLeaseForExecutionActor,
-  isSameExecution,
   makeTaskProjection,
   normalizeCommandEnvelope,
   runtimeSessionIdFromActor,
   type ActorIdentity,
+  type AuthorizationDecision,
   type CompleteTaskCommand,
   type ProofFor,
   type TaskLifecycleCommand,
@@ -18,7 +18,7 @@ import {
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { submitLeaseRequiredMessage } from "./repo-cell-execution-selection.ts";
-import { reviewerDependence } from "./repo-cell-review-lint.ts";
+import { authorizeAction } from "./authorization.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
 
@@ -28,7 +28,7 @@ export async function proofFor(
   binding: RepoCellBinding,
   projection: Pick<ReturnType<typeof makeTaskProjection>, "readRuntimeSession">,
   rootDir: string,
-): Promise<TaskLifecycleServiceProof<typeof command>> {
+): Promise<TaskLifecycleServiceProof<typeof command> & { readonly authorizationDecision?: AuthorizationDecision }> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
   if (command.type === "StartExecution") {
     const ttlMs = command.ttlMs ?? leaseTtlMs;
@@ -56,21 +56,32 @@ export async function proofFor(
     };
   }
   if (command.type === "RecordReview") {
-    if (!binding.roles?.includes("$arbiter"))
-      throw cellCodedError(
-        "actor_unauthorized",
-        [
-          "Execution Review requires the arbiter command class; give the reviewing ",
-          "person a role that carries it in harness/people.yaml.",
-        ].join(""),
-      );
     const runtimeSessionId = runtimeSessionIdFromActor(command.actor),
-      runtimeSession = runtimeSessionId === null ? null : projection.readRuntimeSession(runtimeSessionId);
-    if (
-      runtimeSession?.taskBindings.some(
+      runtimeSession = runtimeSessionId === null ? null : projection.readRuntimeSession(runtimeSessionId),
+      runtimeBinding = runtimeSession?.taskBindings.some(
         (taskBinding) => taskBinding.taskId === command.taskId && taskBinding.executionId === command.executionId,
       )
-    )
+        ? {
+            runtimeSessionId: runtimeSession.runtimeSessionId,
+            taskId: command.taskId,
+            executionId: command.executionId,
+          }
+        : null,
+      execution = snapshot.executions.find(
+        (candidate) => candidate.executionId === command.executionId && candidate.submission !== null,
+      ),
+      authorizationDecision = authorizeAction(
+        "execution.review",
+        `execution/${command.executionId}`,
+        command.actor,
+        command.opId,
+        {
+          commandClasses: binding.roles?.map((role) => role.replace(/^\$/u, "")) ?? [],
+          target: { executionActor: execution?.actor ?? null, runtimeBinding },
+          evaluatedAtCut: `canonical:${snapshot.revision}`,
+        },
+      );
+    if (authorizationDecision.outcome === "denied" && runtimeBinding !== null)
       throw cellCodedError(
         "runtime_task_self_review_forbidden",
         [
@@ -88,16 +99,51 @@ export async function proofFor(
           " --from-file <review.json>.",
         ].join(""),
       );
-    const blocked = reviewerDependence(command.actor, snapshot);
-    if (blocked) throw cellCodedError("actor_unauthorized", blocked);
+    if (authorizationDecision.outcome === "denied") {
+      const commandClassFailed = authorizationDecision.bindingsUsed.some(
+        (used) => used.predicate === "hasCommandClass" && used.satisfied === false,
+      );
+      if (commandClassFailed)
+        throw cellCodedError(
+          "actor_unauthorized",
+          [
+            "Execution Review requires the arbiter command class; give the reviewing ",
+            "person a role that carries it in harness/people.yaml.",
+          ].join(""),
+        );
+      const undeclared = execution?.actor.executor === null && command.actor.executor === null;
+      throw cellCodedError(
+        "actor_unauthorized",
+        undeclared
+          ? [
+              "Execution Review requires a reviewer independent of the submitter: the ",
+              "submitted execution's original start declared no executor, so only a ",
+              "different person can review it. Run ha task declare-executor with that ",
+              "principal and an agent executor to record an auditable recovery before ",
+              "same-person review.",
+            ].join("")
+          : [
+              "Execution Review requires a reviewer independent of the submitting executor; ",
+              "review without declaring that executor.",
+            ].join(""),
+      );
+    }
     return {
       actorBinding: command.actor,
       capability: "execution-review@v1",
       capabilityRef: `transport-reviewer:${command.actor.principal.personId}`,
+      authorizationDecision,
     };
   }
   if (command.type === "RecordReviewConsent") {
-    if (!snapshot.task || !isSameExecution(snapshot.task.createdBy, command.actor))
+    const authorizationDecision = authorizeAction(
+      "task.consent",
+      `task/${command.taskId}`,
+      command.actor,
+      command.opId,
+      { target: { owner: snapshot.task?.createdBy ?? null }, evaluatedAtCut: `canonical:${snapshot.revision}` },
+    );
+    if (authorizationDecision.outcome === "denied")
       throw cellCodedError(
         "actor_unauthorized",
         snapshot.task
@@ -112,6 +158,7 @@ export async function proofFor(
       actorBinding: command.actor,
       capability: "execution-consent@v1",
       capabilityRef: `task-owner:${command.actor.principal.personId}`,
+      authorizationDecision,
     };
   }
   if (command.type === "ReconcileCodeDoc") {
@@ -168,10 +215,20 @@ export async function proofFor(
   return completeProof(command, snapshot) as TaskLifecycleServiceProof<typeof command>;
 }
 
-export function completeProof(command: CompleteTaskCommand, snapshot: Snapshot): ProofFor<CompleteTaskCommand> {
+export function completeProof(
+  command: CompleteTaskCommand,
+  snapshot: Snapshot,
+): ProofFor<CompleteTaskCommand> & { readonly authorizationDecision: AuthorizationDecision } {
   if (snapshot.lease !== null)
     throw cellCodedError("active_lease", "Complete requires the execution lease to be released.");
-  if (snapshot.task?.createdBy.principal.personId !== command.actor.principal.personId)
+  const authorizationDecision = authorizeAction(
+    "task.complete",
+    `task/${command.taskId}`,
+    command.actor,
+    command.opId,
+    { target: { owner: snapshot.task?.createdBy ?? null }, evaluatedAtCut: `canonical:${snapshot.revision}` },
+  );
+  if (authorizationDecision.outcome === "denied")
     throw cellCodedError("actor_unauthorized", "Complete requires the Task owner.");
   const execution = snapshot.executions.find(
     (candidate) => candidate.executionId === command.executionId && candidate.submission !== null,
@@ -189,6 +246,7 @@ export function completeProof(command: CompleteTaskCommand, snapshot: Snapshot):
     actorRole: "owner",
     noActiveLease: true,
     gateReceipts: supplied,
+    authorizationDecision,
   };
 }
 

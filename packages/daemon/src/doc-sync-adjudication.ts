@@ -10,16 +10,14 @@ import {
   type DocEventV1,
   type DocSyncReceiptDetail,
   type DocWriteIntent,
+  type AuthorizationDecision,
 } from "../../kernel/src/index.ts";
-import {
-  scanDocCandidates,
-  type DocCandidateScan,
-  validateSelectedDocPaths,
-} from "./doc-sync-candidate-scanner.ts";
+import { scanDocCandidates, type DocCandidateScan, validateSelectedDocPaths } from "./doc-sync-candidate-scanner.ts";
 import type { Input } from "./doc-sync-command-actions.ts";
 import { detail, directPaths } from "./doc-sync-details.ts";
 import { docSyncError, hasExactDocSyncActionFields } from "./doc-sync-files.ts";
 import { admissionRejection } from "./doc-sync-settlement.ts";
+import { authorizeAction } from "./authorization.ts";
 
 // Pure adjudication of one doc write intent against the current canonical
 // state: projection readiness, assignment-scope admission, and the domain
@@ -39,6 +37,7 @@ export type DocIntentAdjudication =
       readonly accepted: false;
       readonly code: string;
       readonly detail: DocSyncReceiptDetail;
+      readonly authorizationDecision: AuthorizationDecision | null;
     }
   | {
       readonly accepted: true;
@@ -51,6 +50,7 @@ export type DocIntentAdjudication =
           readonly mediaType: string;
           readonly body: string;
         }[];
+        readonly authorizationDecision: AuthorizationDecision | null;
       };
     };
 
@@ -70,6 +70,7 @@ export function adjudicateDocIntent(
     return {
       accepted: false,
       code: "projection_pending",
+      authorizationDecision: null,
       detail: {
         ...pending,
         nextAction: `run ha receipt show ${opId} after the canonical projection catches up`,
@@ -77,8 +78,10 @@ export function adjudicateDocIntent(
     };
   }
   const admission = admissionRejection(input, intent, lease);
-  if (admission) return { accepted: false, code: admission.code, detail: admission.detail };
-  const events = retirementReason === undefined ? [] : input.store.read().events,
+  if (admission)
+    return { accepted: false, code: admission.code, detail: admission.detail, authorizationDecision: null };
+  const cut = input.store.currentCut(),
+    events = retirementReason === undefined ? [] : input.store.read().events,
     currentDocuments = documents.map((read, index) =>
       retirementReason === undefined
         ? read.document
@@ -88,17 +91,26 @@ export function adjudicateDocIntent(
     runtimeSessionId = runtimeSessionIdFromActor(input.binding.actor),
     runtimeSession = runtimeSessionId === null ? null : input.projection.readRuntimeSession(runtimeSessionId),
     runtimeBinding =
-      lease === null ? null : resolveLiveTaskBoundRuntimeBinding(runtimeSession, lease.taskId, lease.executionId);
+      lease === null ? null : resolveLiveTaskBoundRuntimeBinding(runtimeSession, lease.taskId, lease.executionId),
+    authorizationDecision =
+      intent.executionId === null
+        ? null
+        : authorizeAction("doc.submit", `execution/${intent.executionId}`, input.binding.actor, opId, {
+            writeSource: input.binding.source,
+            target: { lease, runtimeBinding },
+            evaluatedAtCut: `canonical:${cut.revision}:${cut.headDigest}`,
+          });
   const decision = decideDocWrite({
     intent,
     opId,
     eventId: `event-${sha256Bytes(Buffer.from(opId))}`,
-    workspaceRevision: (input.store.readHead()?.revision ?? 0) + 1,
+    workspaceRevision: cut.revision + 1,
     actor: input.binding.actor,
     source: input.binding.source,
     occurredAt: input.now(),
-    currentLedgerSha: input.store.currentCut(),
+    currentLedgerSha: cut,
     lease,
+    authorizationDecision,
     documents: currentDocuments,
     claims,
     retirementReason,
@@ -107,7 +119,12 @@ export function adjudicateDocIntent(
   });
   return decision.accepted
     ? { accepted: true, decision }
-    : { accepted: false, code: decision.code, detail: decision.detail };
+    : {
+        accepted: false,
+        code: decision.code,
+        detail: decision.detail,
+        authorizationDecision: decision.authorizationDecision,
+      };
 }
 
 export function assignmentIntent(input: Input): DocWriteIntent {

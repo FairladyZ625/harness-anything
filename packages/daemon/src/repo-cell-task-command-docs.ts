@@ -108,6 +108,7 @@ export async function runTaskCommandWithDocs(
   if (!adjudication.accepted)
     return {
       ...rejectDocSyncAction(opId, adjudication.code, adjudication.detail, adjudication.detail.nextAction),
+      authorizationDecision: adjudication.authorizationDecision,
       taskId,
       docSync: {
         outcome: "not_applied",
@@ -171,7 +172,13 @@ export async function runTaskCommandWithDocs(
   }
   if (transition.outcome === "applied" && transition.event && transition.proof) {
     const publication = cell.publicPublication(cell.store.publication(transition.event)),
-      receipt = cell.lifecycleReceipt(transition.event, transition.snapshot, publication, transition.proof);
+      receipt = cell.lifecycleReceipt(
+        transition.event,
+        transition.snapshot,
+        publication,
+        transition.proof,
+        proof.authorizationDecision ?? null,
+      );
     return {
       ...receipt,
       taskId,
@@ -280,6 +287,7 @@ export function taskSurfaceWrite(cell: any, action: RepoTaskAction, binding: Rep
         canonicalVisible: true,
         worktreeVisible: true,
       },
+      authorizationDecision: mutation.authorizationDecision ?? null,
       nextAction: `Reservation released; run ha task start ${taskId} to claim a new execution.`,
       taskId,
       executionId: reservation.executionId,
@@ -351,6 +359,7 @@ export function taskSurfaceWrite(cell: any, action: RepoTaskAction, binding: Rep
     cell.projection.read(taskId).snapshot,
     publication,
     cell.receiptProof(compiled.event, publication),
+    mutation.authorizationDecision ?? null,
   );
   cell.input.killpoint?.("before_response_write");
   cell.input.killpoint?.("after_response_write");

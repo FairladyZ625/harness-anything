@@ -12,7 +12,7 @@ import {
 } from "./entity-json-schema.ts";
 import type { RelationDirection } from "./entity-relation.ts";
 import { executionStates } from "./execution.ts";
-import { POLICY_DECLARATION_V1_SCHEMA, validatePolicyDeclarationV1 } from "./policy.ts";
+import { policyPredicateNames, POLICY_DECLARATION_V1_SCHEMA, validatePolicyDeclarationV1 } from "./policy.ts";
 import type { PolicyPredicateName } from "./policy.ts";
 import { reviewVerdicts } from "./review.ts";
 
@@ -216,7 +216,7 @@ export const entityKindContracts = Object.freeze([
     document: declarationDocument("policies/{id}.json"),
     validate: validatePolicyDeclarationV1,
     policy: {
-      predicates: Object.freeze(["isOwner", "isExecutorOfExecution", "hasCommandClass", "reviewIndependence"]),
+      predicates: policyPredicateNames,
       actions: DEFAULT_POLICY.actions,
     },
   },

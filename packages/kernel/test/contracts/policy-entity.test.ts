@@ -5,8 +5,9 @@ import { DEFAULT_POLICY } from "../../src/domain/default-policy.ts";
 import { parsePolicyDeclarationV1, validatePolicyDeclarationV1 } from "../../src/domain/policy.ts";
 import { createEntityStore, explainEntityKind } from "../../src/index.ts";
 
-test("the built-in policy registers its four kernel predicates and eight applicable Actions", () => {
+test("the built-in v2 policy registers its binding predicates and eight applicable Actions", () => {
   assert.deepEqual(validatePolicyDeclarationV1(DEFAULT_POLICY), []);
+  assert.equal(DEFAULT_POLICY.version, 2);
   assert.deepEqual(DEFAULT_POLICY.actions, [
     "task.consent",
     "task.complete",
@@ -20,17 +21,61 @@ test("the built-in policy registers its four kernel predicates and eight applica
   assert.deepEqual(
     [
       ...new Set(
-        (DEFAULT_POLICY.rules ?? []).flatMap((rule) => rule.predicates.map((predicate) => predicate.predicate)),
+        (DEFAULT_POLICY.rules ?? []).flatMap((rule) =>
+          rule.anyOf.flatMap((clause) => clause.allOf.map((predicate) => predicate.predicate)),
+        ),
       ),
     ],
-    ["isOwner", "reviewIndependence", "hasCommandClass", "isExecutorOfExecution"],
+    [
+      "isSameExecutionOwner",
+      "isOwner",
+      "hasCommandClass",
+      "reviewIndependence",
+      "holdsExecutionLease",
+      "reclaimsOrphanedLease",
+      "dispatchesExecution",
+      "delegatedByRuntimeSession",
+      "sameWriteSource",
+    ],
+  );
+  assert.deepEqual(DEFAULT_POLICY.rules?.find((rule) => rule.action === "decision.accept")?.anyOf, [
+    { allOf: [{ predicate: "hasCommandClass", commandClass: "arbiter" }] },
+  ]);
+  assert.deepEqual(
+    DEFAULT_POLICY.rules?.map(
+      (rule) =>
+        `${rule.action}:${rule.scope ?? "-"}=>${rule.anyOf
+          .map((clause) => clause.allOf.map((predicate) => JSON.stringify(predicate)).join("+"))
+          .join("|")}`,
+    ),
+    [
+      'task.consent:-=>{"predicate":"isSameExecutionOwner"}',
+      'task.complete:-=>{"predicate":"isOwner"}',
+      'execution.review:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"reviewIndependence","level":"L1"}',
+      'decision.accept:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}',
+      'execution.release:-=>{"predicate":"holdsExecutionLease"}|{"predicate":"reclaimsOrphanedLease"}',
+      'runtime.dispatch:-=>{"predicate":"dispatchesExecution"}|{"predicate":"delegatedByRuntimeSession"}',
+      'doc.submit:-=>{"predicate":"holdsExecutionLease"}+{"predicate":"sameWriteSource"}|{"predicate":"delegatedByRuntimeSession"}+{"predicate":"sameWriteSource"}',
+      'task.closeout:owner=>{"predicate":"isOwner"}',
+      'task.closeout:active=>{"predicate":"holdsExecutionLease"}',
+    ],
   );
 });
 
 test("ha entity explain policy exposes the registered predicate vocabulary and Action set", () => {
   const explanation = explainEntityKind("policy");
   assert.deepEqual(explanation.policy, {
-    predicates: ["isOwner", "isExecutorOfExecution", "hasCommandClass", "reviewIndependence"],
+    predicates: [
+      "isOwner",
+      "isSameExecutionOwner",
+      "holdsExecutionLease",
+      "reclaimsOrphanedLease",
+      "dispatchesExecution",
+      "delegatedByRuntimeSession",
+      "hasCommandClass",
+      "reviewIndependence",
+      "sameWriteSource",
+    ],
     actions: DEFAULT_POLICY.actions,
   });
   assert.equal(explanation.documentSchema.id, "policy/v1");
@@ -44,6 +89,31 @@ test("policy schema rejects a missing version and invalid predicate arguments", 
   assert.throws(
     () => parsePolicyDeclarationV1({ ...DEFAULT_POLICY, predicates: [{ predicate: "isOwner", level: "L1" }] }),
     /isOwner does not accept arguments/u,
+  );
+});
+
+test("policy schema rejects missing Action coverage and undeclared or unused rule predicates", () => {
+  const rules = DEFAULT_POLICY.rules ?? [];
+  assert.match(
+    validatePolicyDeclarationV1({
+      ...DEFAULT_POLICY,
+      rules: rules.filter((rule) => rule.action !== "task.consent"),
+    }).join("\n"),
+    /every applicable Action/u,
+  );
+  assert.match(
+    validatePolicyDeclarationV1({
+      ...DEFAULT_POLICY,
+      predicates: DEFAULT_POLICY.predicates.filter((entry) => entry.predicate !== "sameWriteSource"),
+    }).join("\n"),
+    /must be declared/u,
+  );
+  assert.match(
+    validatePolicyDeclarationV1({
+      ...DEFAULT_POLICY,
+      predicates: [...DEFAULT_POLICY.predicates, { predicate: "reviewIndependence", level: "L2" }],
+    }).join("\n"),
+    /must be used/u,
   );
 });
 

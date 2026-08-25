@@ -85,6 +85,7 @@ export function lifecycleReceipt(
   snapshot: Snapshot,
   publication: PublicPublication,
   proof: NonNullable<WriteReceipt["proof"]>,
+  authorizationDecision: WriteReceipt["authorizationDecision"] = null,
 ): WriteReceipt {
   const executionId = "execution" in event.payload ? event.payload.execution.executionId : null,
     execution = snapshot.executions.find((value) => value.executionId === executionId),
@@ -196,6 +197,7 @@ export function lifecycleReceipt(
     evidence: `event-object:${event.opId};files:${changedPaths.join(",")}`,
     visibility: "center",
     proof,
+    authorizationDecision,
     taskId: event.taskId,
     executionId,
     reviewId,

@@ -5,16 +5,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { ActorIdentity, WriteReceipt } from "../../kernel/src/index.ts";
-import {
-  runTaskCloseoutAction,
-  type CloseoutStep,
-} from "../../application/src/task-closeout-action.ts";
+import { runTaskCloseoutAction, type CloseoutStep } from "../../application/src/task-closeout-action.ts";
 import { readWorkspaceText } from "../src/workspace-text-port.ts";
 
 const taskId = "task-closeout",
   executionId = "execution-closeout",
   commitSha = "a".repeat(40),
-  caller = actor("caller-agent"),
+  caller = actor("worker-agent"),
   owner = actor("owner-agent"),
   worker = actor("worker-agent");
 function actor(id: string): ActorIdentity {
@@ -58,10 +55,7 @@ function execution(id = executionId, state: "active" | "submitted" = "active") {
     submission: state === "submitted" ? judgment().submission : null,
   };
 }
-function snapshot(
-  state: "active" | "in_review" = "active",
-  executions = [execution()],
-) {
+function snapshot(state: "active" | "in_review" = "active", executions = [execution()]) {
   return {
     revision: 2,
     task: {
@@ -116,7 +110,7 @@ function applied(stage: string): WriteReceipt {
     },
   };
 }
-function setup(initial = snapshot(), rejectStage?: CloseoutStep) {
+function setup(initial = snapshot(), rejectStage?: CloseoutStep, setupCaller = caller) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-closeout-action-")),
     fromFile = "judgment.json";
   writeFileSync(path.join(rootDir, fromFile), JSON.stringify(judgment()));
@@ -129,7 +123,7 @@ function setup(initial = snapshot(), rejectStage?: CloseoutStep) {
       runTaskCloseoutAction({
         rootDir,
         action: { kind: "task-closeout", taskId, fromFile },
-        caller,
+        caller: setupCaller,
         opId: "op-closeout",
         readWorkspaceText,
         read: async () => initial as never,
@@ -155,34 +149,48 @@ test("closeout runs four canonical leaf commands with derived actor postures and
   try {
     const receipt = await value.run();
     assert.equal(receipt.outcome, "applied");
+    assert.equal(receipt.authorizationDecision?.policyRef, "default@2");
+    assert.equal(receipt.authorizationDecision?.outcome, "allowed");
+    assert.equal(
+      receipt.authorizationDecision?.bindingsUsed.some(
+        (binding) => binding.predicate === "holdsExecutionLease" && binding.satisfied === true,
+      ),
+      true,
+    );
     assert.deepEqual(
       value.calls.map(({ stage }) => stage),
       ["submit", "review-execution", "review-consent", "complete"],
     );
-    assert.ok(
-      value.calls.every(({ action }) => action.executionId === undefined),
-    );
+    assert.ok(value.calls.every(({ action }) => action.executionId === undefined));
     assert.deepEqual(
       value.calls.map(({ actor }) => actor.executor?.id ?? null),
       ["worker-agent", null, "owner-agent", "owner-agent"],
     );
-    assert.deepEqual(value.calls.at(-1)?.action.paths, [
-      "packages/application/src/task-closeout-action.ts",
-    ]);
+    assert.deepEqual(value.calls.at(-1)?.action.paths, ["packages/application/src/task-closeout-action.ts"]);
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }
 });
 test("a submitted execution resumes at review instead of rejecting P2-06", async () => {
-  const value = setup(
-    snapshot("in_review", [execution(executionId, "submitted")]),
-  );
+  const value = setup(snapshot("in_review", [execution(executionId, "submitted")]));
   try {
     assert.equal((await value.run()).outcome, "applied");
     assert.deepEqual(
       value.calls.map(({ stage }) => stage),
       ["review-execution", "review-consent", "complete"],
     );
+  } finally {
+    rmSync(value.rootDir, { recursive: true, force: true });
+  }
+});
+test("active closeout requires the exact execution lease holder", async () => {
+  const value = setup(snapshot(), undefined, actor("other-agent"));
+  try {
+    const receipt = await value.run();
+    assert.equal(receipt.outcome, "op_rejected");
+    assert.equal(receipt.code, "actor_unauthorized");
+    assert.equal(receipt.authorizationDecision?.outcome, "denied");
+    assert.equal(value.calls.length, 0);
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }
@@ -210,12 +218,7 @@ test("an unblocked reviewed execution with no executor points closeout at audite
     rmSync(value.rootDir, { recursive: true, force: true });
   }
 });
-for (const stage of [
-  "submit",
-  "review-execution",
-  "review-consent",
-  "complete",
-] as const)
+for (const stage of ["submit", "review-execution", "review-consent", "complete"] as const)
   test(`${stage} refusal names the next ha command`, async () => {
     const value = setup(snapshot(), stage);
     try {
@@ -231,10 +234,7 @@ for (const stage of [
   });
 test("ambiguous submitted cuts fail closed with explicit closeout candidates", async () => {
   const value = setup(
-    snapshot("in_review", [
-      execution("execution-a", "submitted"),
-      execution("execution-b", "submitted"),
-    ]),
+    snapshot("in_review", [execution("execution-a", "submitted"), execution("execution-b", "submitted")]),
   );
   try {
     const receipt = await value.run();
