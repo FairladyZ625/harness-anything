@@ -1,8 +1,18 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -58,6 +68,31 @@ test("canonical hooks reject worker commit and checkout", (context) => {
   assert.equal(checkout.status, 1, checkout.stderr);
   assert.match(checkout.stderr, /Refusing a worker checkout in the canonical repository root/u);
 });
+
+test(
+  "git wrapper skips filesystem-identical PATH aliases",
+  { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false },
+  async (context) => {
+    const root = makeRepo(context, "hook-path-alias-"),
+      hooks = path.join(root, "tools", "git-hooks"),
+      hooksAlias = path.join(path.dirname(root), `${path.basename(root)}-hooks-alias`);
+    installHook(root, "git");
+    symlinkSync(hooks, hooksAlias, "dir");
+    context.after(() => rmSync(hooksAlias, { force: true }));
+
+    const result = await spawnWithDeadline("git", ["-C", root, "rev-parse", "--show-toplevel"], {
+      cwd: root,
+      env: {
+        ...process.env,
+        PATH: `${hooksAlias}${path.delimiter}${process.env.PATH ?? ""}`,
+      },
+    });
+
+    assert.equal(result.timedOut, false, `git wrapper recursively invoked itself\n${result.stderr}`);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(realpathSync(result.stdout.trim()), root);
+  },
+);
 
 test("task-bound git wrapper permits only explicit codex branch push targets", (context) => {
   const root = makeRepo(context, "hook-push-guard-"),
@@ -123,7 +158,7 @@ test("worker handoff templates carry framework-owned publication rules", () => {
 });
 
 function makeRepo(context, prefix) {
-  const root = mkdtempSync(path.join(os.tmpdir(), prefix));
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), prefix)));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   git(root, "init", "-q");
   git(root, "config", "user.email", "hook-test@example.invalid");
@@ -156,4 +191,41 @@ function git(root, ...args) {
 
 function digest(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function spawnWithDeadline(command, args, options) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+        ...options,
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+      stdout = [],
+      stderr = [];
+    let timedOut = false;
+    child.stdout.on("data", (chunk) => stdout.push(chunk));
+    child.stderr.on("data", (chunk) => stderr.push(chunk));
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch (error) {
+        if (error?.code !== "ESRCH") reject(error);
+      }
+    }, 2_000);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (status, signal) => {
+      clearTimeout(timer);
+      resolve({
+        status,
+        signal,
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        timedOut,
+      });
+    });
+  });
 }
