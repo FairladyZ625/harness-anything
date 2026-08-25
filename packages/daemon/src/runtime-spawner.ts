@@ -6,7 +6,7 @@ import type {
   SessionIdentity,
   TaskProjection,
 } from "../../kernel/src/index.ts";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError, runtimeSessionExecutesTask, runtimeSessionIdFromActor } from "../../kernel/src/index.ts";
 import { createRuntime } from "../../preset/src/preset-resolver.ts";
 import { presetRuntimeDefaults, presetUserRoot } from "../../preset/src/preset-system.ts";
 import type { SquadDispatchTarget } from "./agent-entities.ts";
@@ -213,8 +213,17 @@ export function makeRuntimeSpawner(input: {
         !input.remote &&
         (!lease ||
           lease.phase !== "held" ||
-          lease.actor.principal.personId !== binding.actor.principal.personId ||
-          lease.actor.executor?.id !== binding.actor.executor?.id)
+          !(
+            (lease.actor.principal.personId === binding.actor.principal.personId &&
+              (binding.actor.executor === null || lease.actor.executor?.id === binding.actor.executor?.id)) ||
+            runtimeSessionExecutesTask(
+              runtimeSessionIdFromActor(binding.actor)
+                ? projection!.readRuntimeSession(runtimeSessionIdFromActor(binding.actor)!)
+                : null,
+              taskId,
+              lease.executionId,
+            )
+          ))
       )
         throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId, lease));
       const daemonRoute = taskId ? input.runtimeDaemonRoute : undefined;

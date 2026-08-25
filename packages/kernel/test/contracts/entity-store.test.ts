@@ -59,6 +59,34 @@ test("registered Entity kinds explain the same contract shape from their JSON sc
   );
 });
 
+test("RuntimeSession explains its identity, task handoff, status vocabulary, and executes edge", () => {
+  const explanation = explainEntityKind("runtime-session");
+  assert.equal(explanation.id.field, "runtimeSessionId");
+  assert.deepEqual(explanation.relations.edges, [
+    { type: "executes", sourceKind: "runtime-session", targetKind: "task" },
+  ]);
+  assert.deepEqual(explanation.statusVocabulary, [
+    { field: "liveness", words: ["live", "stale", "unknown", "exited"] },
+    { field: "outcome", words: ["succeeded", "failed", "unknown", "cancelled"] },
+    {
+      field: "semanticState",
+      words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
+    },
+  ]);
+  assert.deepEqual(
+    explanation.documentSchema.fields.filter(({ name }) =>
+      ["runtimeSessionId", "taskBindings", "liveness", "outcome", "semanticState"].includes(name),
+    ).map(({ name, required }) => ({ name, required })),
+    [
+      { name: "runtimeSessionId", required: true },
+      { name: "taskBindings", required: true },
+      { name: "liveness", required: true },
+      { name: "outcome", required: true },
+      { name: "semanticState", required: true },
+    ],
+  );
+});
+
 test("one EntityStore implementation upserts, gets, and lists every registered declaration kind", () => {
   const events: EntityEventV1[] = [],
     blobs = new Map<string, Uint8Array>(),

@@ -1,5 +1,6 @@
 import type { VerticalDefinition } from "../schemas/registry.ts";
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
+import { runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
 import { DEFAULT_POLICY } from "./default-policy.ts";
 import {
   ENTITY_ID_PATTERN,
@@ -43,7 +44,13 @@ export interface EntityKindContract<T = unknown> {
   };
   readonly relations: {
     readonly directions: readonly RelationDirection[];
+    readonly edges: readonly {
+      readonly type: string;
+      readonly sourceKind: string;
+      readonly targetKind: string;
+    }[];
   };
+  readonly statusVocabulary?: readonly { readonly field: string; readonly words: readonly string[] }[];
   readonly transitionCatalog: {
     readonly ref: string;
     readonly transitions: readonly string[];
@@ -69,6 +76,7 @@ export interface EntityKindExplanation {
   };
   readonly id: EntityKindContract["id"];
   readonly relations: EntityKindContract["relations"];
+  readonly statusVocabulary: NonNullable<EntityKindContract["statusVocabulary"]>;
   readonly transitions: {
     readonly catalogRef: string | null;
     readonly available: readonly string[];
@@ -176,7 +184,7 @@ export const entityKindContracts = Object.freeze([
     kind: "agent",
     schema: AGENT_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "agent/{id}" },
-    relations: { directions: [] },
+    relations: { directions: [], edges: [] },
     transitionCatalog: null,
     document: declarationDocument("agents/{id}.json"),
   },
@@ -184,7 +192,7 @@ export const entityKindContracts = Object.freeze([
     kind: "squad",
     schema: SQUAD_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "squad/{id}" },
-    relations: { directions: [] },
+    relations: { directions: [], edges: [] },
     transitionCatalog: null,
     document: declarationDocument("squads/{id}.json"),
   },
@@ -192,7 +200,7 @@ export const entityKindContracts = Object.freeze([
     kind: "policy",
     schema: POLICY_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "policy/{id}" },
-    relations: { directions: [] },
+    relations: { directions: [], edges: [] },
     transitionCatalog: null,
     document: declarationDocument("policies/{id}.json"),
     validate: validatePolicyDeclarationV1,
@@ -205,7 +213,10 @@ export const entityKindContracts = Object.freeze([
     kind: "execution",
     schema: executionSchema,
     id: { field: "executionId", pattern: executionIdPattern, refTemplate: "execution/{id}" },
-    relations: { directions: ["directed"] },
+    relations: {
+      directions: ["directed"],
+      edges: [{ type: "executes", sourceKind: "execution", targetKind: "task" }],
+    },
     transitionCatalog: {
       ref: "kernel/task-lifecycle/v1",
       transitions: ["start", "renew", "submit", "complete", "release"],
@@ -216,12 +227,34 @@ export const entityKindContracts = Object.freeze([
     kind: "review",
     schema: reviewSchema,
     id: { field: "reviewId", pattern: reviewIdPattern, refTemplate: "review/{id}" },
-    relations: { directions: ["directed"] },
+    relations: {
+      directions: ["directed"],
+      edges: [{ type: "reviews", sourceKind: "review", targetKind: "execution" }],
+    },
     transitionCatalog: {
       ref: "kernel/task-lifecycle/v1",
       transitions: ["record"],
     },
     document: declarationDocument("reviews/{id}.json"),
+  },
+  {
+    kind: "runtime-session",
+    schema: runtimeSessionEntityV1Schema,
+    id: { field: "runtimeSessionId", pattern: "^runtime_[a-z0-9]+$", refTemplate: "runtime-session/{id}" },
+    relations: {
+      directions: ["directed"],
+      edges: [{ type: "executes", sourceKind: "runtime-session", targetKind: "task" }],
+    },
+    statusVocabulary: [
+      { field: "liveness", words: ["live", "stale", "unknown", "exited"] },
+      { field: "outcome", words: ["succeeded", "failed", "unknown", "cancelled"] },
+      {
+        field: "semanticState",
+        words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
+      },
+    ],
+    transitionCatalog: null,
+    document: declarationDocument("runtime-sessions/{id}.json"),
   },
 ] as const satisfies readonly EntityKindContract[]);
 
@@ -248,6 +281,7 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
     documentSchema: { id: contract.schema.$id, fields: explainEntityJsonSchema(contract.schema) },
     id: contract.id,
     relations: contract.relations,
+    statusVocabulary: contract.statusVocabulary ?? [],
     transitions: {
       catalogRef: contract.transitionCatalog?.ref ?? null,
       available: contract.transitionCatalog?.transitions ?? [],

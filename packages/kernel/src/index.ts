@@ -37,6 +37,7 @@ export { canReclaim, isIndependentFrom, isSameExecution, isSamePerson } from "./
 export {
   isTaskBoundRuntimeWriter,
   resolveLiveTaskBoundRuntimeBinding,
+  runtimeSessionExecutesTask,
   runtimeSessionIdFromActor,
 } from "./domain/task-bound-runtime-authority.ts";
 export {

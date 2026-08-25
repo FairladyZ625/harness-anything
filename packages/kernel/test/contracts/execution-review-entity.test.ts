@@ -48,8 +48,14 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
 
   assert.equal(getEntityKindContract("execution")?.id.field, "executionId");
   assert.equal(getEntityKindContract("review")?.id.field, "reviewId");
-  assert.deepEqual(explainEntityKind("execution").relations, { directions: ["directed"] });
-  assert.deepEqual(explainEntityKind("review").relations, { directions: ["directed"] });
+  assert.deepEqual(explainEntityKind("execution").relations, {
+    directions: ["directed"],
+    edges: [{ type: "executes", sourceKind: "execution", targetKind: "task" }],
+  });
+  assert.deepEqual(explainEntityKind("review").relations, {
+    directions: ["directed"],
+    edges: [{ type: "reviews", sourceKind: "review", targetKind: "execution" }],
+  });
   assert.doesNotThrow(() => compileEntityUpsert({ ...base, entityKind: "execution", entity: execution }));
   assert.doesNotThrow(() => compileEntityUpsert({ ...base, entityKind: "review", entity: review }));
   assert.throws(

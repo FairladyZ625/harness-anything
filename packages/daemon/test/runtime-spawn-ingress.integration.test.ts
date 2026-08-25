@@ -197,6 +197,57 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         true,
       );
     });
+    await t.test("dispatcher can hand off a task held by another executor", async () => {
+      const taskId = "task-runtime-dispatcher-handoff",
+        executionId = "exec-runtime-dispatcher-handoff",
+        leaseExecutor = { kind: "agent", id: "codex-sol" } as const;
+      assert.equal(
+        (await host.run(repoId, { kind: "task-create", taskId, title: "Dispatcher handoff" }, auth)).outcome,
+        "applied",
+      );
+      assert.equal(
+        (await host.run(repoId, { kind: "task-start", taskId, executionId, executor: leaseExecutor }, auth)).outcome,
+        "applied",
+      );
+      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: ingressDefinition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Dispatcher hands off to the runtime session.",
+          taskId,
+          idempotencyKey: "dispatcher-handoff",
+        },
+      });
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      const bound = await eventuallyValue(
+        async () =>
+          makeTaskEventStore({ repoId, rootDir: root })
+            .read()
+            .events.find(
+              (event) =>
+                event.type === "runtime_session_task_bound" &&
+                event.payload.runtimeSessionId === receipt.runtimeSessionId,
+            ) ?? null,
+      );
+      assert.equal(bound?.type, "runtime_session_task_bound");
+      assert.equal(bound?.actor.executor, null);
+      const projection = makeTaskProjection({ rootDir: root, eventStore: makeTaskEventStore({ repoId, rootDir: root }) });
+      try {
+        assert.equal(
+          projection.read(taskId).snapshot.decisionRelations.some(
+            (relation) =>
+              relation.sourceRef === `runtime-session/${receipt.runtimeSessionId}` &&
+              relation.targetRef === `task/${taskId}` &&
+              relation.relationType === "executes" &&
+              relation.state === "active",
+          ),
+          true,
+        );
+      } finally {
+        projection.close();
+      }
+    });
     await t.test("a worker that changes its user root is rejected before it can reach the parent daemon", async () => {
       const scratchUserRoot = path.join(parent, "isolated-user");
       registerDaemonRepo({
