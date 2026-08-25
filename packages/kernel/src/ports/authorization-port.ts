@@ -177,4 +177,4 @@ function evaluatePredicate(
   };
 }
 
-export const authorizationPort = createAuthorizationPort(DEFAULT_POLICY, process.env);
+export const authorizationPort = createAuthorizationPort(DEFAULT_POLICY);

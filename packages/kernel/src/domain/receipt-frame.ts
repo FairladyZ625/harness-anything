@@ -1,4 +1,5 @@
 import type { ActorIdentity } from "./actor-identity.ts";
+import type { EntityRef } from "./entity-ref.ts";
 
 export type ReceiptJsonValue =
   | string
