@@ -141,26 +141,6 @@ export type {
 export type { EngineError, BindingInvariantError, ArtifactStoreError, TemplateLibraryError } from "./errors.ts";
 
 export { isEntityEvent } from "./entity-event.ts";
-export {
-  AGENT_DECLARATION_V1_SCHEMA,
-  AgentEntityContractError,
-  SQUAD_DECLARATION_V1_SCHEMA,
-  entityNonEmpty,
-  entitySlug,
-  parseAgentDeclarationV1,
-  parseSquadDeclarationV1,
-  serializeAgentDeclarationV1,
-  serializeSquadDeclarationV1,
-  validateAgentDeclarationV1,
-  validateSquadDeclarationV1,
-} from "./agent-squad-schema.ts";
-export type {
-  AgentDeclarationV1,
-  AgentEntityKind,
-  AgentRole,
-  AgentSkillDeclarationV1,
-  SquadDeclarationV1,
-} from "./agent-squad-schema.ts";
 
 export {
   validateExtensionInputShape,

@@ -1,7 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createEntityStore, explainEntityKind, validateAgentDeclarationV1 } from "../../src/index.ts";
+import { createEntityStore, explainEntityKind } from "../../src/index.ts";
+import { validateAgentDeclarationV1 } from "../../src/domain/agent-squad-schema.ts";
 import {
   assertEntityUpsertInputs,
   type EntityEventV1,
