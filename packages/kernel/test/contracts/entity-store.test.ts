@@ -141,7 +141,7 @@ test("Entity upsert rejects schema-invalid declarations and tampered declaration
   assert.throws(() => assertEntityUpsertInputs(bundle.event, bundle.plan, tampered), /declaration blob must be exact/u);
 });
 
-test("EntityStore interprets embedded lifecycle values and generic upserts with revision-latest precedence", () => {
+test("EntityStore keeps lifecycle entities on embedded events and applies generic revision precedence independently", () => {
   const fixture = lifecycleFixture(),
     events: CanonicalEventV1[] = [...fixture.events],
     blobs = new Map<string, Uint8Array>(),
@@ -166,21 +166,20 @@ test("EntityStore interprets embedded lifecycle values and generic upserts with 
     [{ id: "review-execution", verdict: "approved", workspaceRevision: 5 }],
   );
 
-  const latestExecution = {
-      ...fixture.snapshot.executions[0]!,
-      state: "abandoned",
-      closedAt: "2026-08-25T01:00:00.000Z",
-    },
-    bundle = upsert(store, "execution", latestExecution, 7);
-  events.push(bundle.event);
-  for (const blob of bundle.blobs) blobs.set(blob.sha256, Buffer.from(blob.body));
+  const installed = upsert(store, "agent", agent, 7),
+    updated = upsert(store, "agent", { ...agent, name: "Terra Updated" }, 8);
+  for (const bundle of [installed, updated]) {
+    events.push(bundle.event);
+    for (const blob of bundle.blobs) blobs.set(blob.sha256, Buffer.from(blob.body));
+  }
   assert.deepEqual(
-    store.get<{ readonly state: string }>("execution", "execution-1") && {
-      state: store.get<{ readonly state: string }>("execution", "execution-1")?.value.state,
-      workspaceRevision: store.get("execution", "execution-1")?.workspaceRevision,
+    store.get<{ readonly name: string }>("agent", "terra") && {
+      name: store.get<{ readonly name: string }>("agent", "terra")?.value.name,
+      workspaceRevision: store.get("agent", "terra")?.workspaceRevision,
     },
-    { state: "abandoned", workspaceRevision: 7 },
+    { name: "Terra Updated", workspaceRevision: 8 },
   );
+  assert.equal(store.get<{ readonly state: string }>("execution", "execution-1")?.value.state, "accepted");
 });
 
 test("entity_upsert receipt detail is closed and registered", () => {

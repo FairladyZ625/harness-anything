@@ -74,8 +74,12 @@ export function compileEntityUpsert(input: {
   readonly source: WriteSource;
   readonly occurredAt: string;
 }): EntityUpsertBundle {
-  const contract = requireEntityStoreKindContract(input.entityKind),
-    entity = parseEntityJsonSchema(contract.schema, input.entity, `${input.entityKind} declaration`),
+  const contract = requireEntityStoreKindContract(input.entityKind);
+  if (contract.authoring.kind !== "generic-entity-store")
+    throw new Error(
+      `Entity kind ${contract.kind} must be authored via lifecycle/runtime events, not generic upsert (${contract.authoring.contractRef}).`,
+    );
+  const entity = parseEntityJsonSchema(contract.schema, input.entity, `${input.entityKind} declaration`),
     entityId = isRecord(entity) ? entity[contract.id.field] : undefined;
   const contractErrors = contract.entityStore.validate?.(entity) ?? [];
   if (contractErrors.length) throw new Error(contractErrors.join("; "));

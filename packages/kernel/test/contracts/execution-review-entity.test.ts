@@ -41,6 +41,29 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
       contentDigest: `sha256:${"b".repeat(64)}`,
       reviewedAt: execution.claimedAt,
     },
+    runtimeSession = {
+      schema: "runtime-session/v1",
+      runtimeSessionId: "runtime_session1",
+      taskBindings: [],
+      liveness: "live",
+      outcome: null,
+      semanticState: "running",
+    },
+    agent = {
+      schema: "agent-declaration/v1",
+      id: "agent-valid",
+      name: "Valid Agent",
+      instructions: "Work precisely.",
+      runtime_type: "codex",
+    },
+    squad = {
+      schema: "squad-declaration/v1",
+      id: "squad-valid",
+      name: "Valid Squad",
+      leader: agent.id,
+      workers: [agent.id],
+      roster: "# Valid Squad",
+    },
     base = {
       eventId: "event-1",
       opId: "op-1",
@@ -52,6 +75,18 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
 
   assert.equal(getEntityKindContract("execution")?.id.field, "executionId");
   assert.equal(getEntityKindContract("review")?.id.field, "reviewId");
+  assert.deepEqual(getEntityKindContract("execution")?.authoring, {
+    kind: "task-lifecycle",
+    contractRef: "task-event/v1",
+  });
+  assert.deepEqual(getEntityKindContract("review")?.authoring, {
+    kind: "task-lifecycle",
+    contractRef: "task-event/v1",
+  });
+  assert.deepEqual(getEntityKindContract("runtime-session")?.authoring, {
+    kind: "agent-runtime-event",
+    contractRef: "agent-runtime-event/v1",
+  });
   assert.deepEqual(getEntityKindContract("execution")?.canonicalProjection, {
     embeddedEvents: [
       {
@@ -120,23 +155,35 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
       },
     ],
   });
-  assert.doesNotThrow(() => compileEntityUpsert({ ...base, entityKind: "execution", entity: execution }));
-  assert.doesNotThrow(() => compileEntityUpsert({ ...base, entityKind: "review", entity: review }));
   assert.throws(
-    () => compileEntityUpsert({ ...base, entityKind: "execution", entity: { ...execution, executionId: "" } }),
-    /invalid|pattern|non-empty/u,
+    () => compileEntityUpsert({ ...base, entityKind: "execution", entity: execution }),
+    /execution.*must be authored via lifecycle\/runtime events, not generic upsert/u,
   );
   assert.throws(
-    () => compileEntityUpsert({ ...base, entityKind: "execution", entity: { ...execution, executionId: "exe/bad" } }),
-    /invalid|pattern/u,
+    () => compileEntityUpsert({ ...base, entityKind: "review", entity: review }),
+    /review.*must be authored via lifecycle\/runtime events, not generic upsert/u,
   );
   assert.throws(
-    () => compileEntityUpsert({ ...base, entityKind: "review", entity: { ...review, reviewId: "" } }),
-    /invalid|pattern|non-empty/u,
+    () => compileEntityUpsert({ ...base, entityKind: "runtime-session", entity: runtimeSession }),
+    /runtime-session.*must be authored via lifecycle\/runtime events, not generic upsert/u,
+  );
+  assert.doesNotThrow(() => compileEntityUpsert({ ...base, entityKind: "agent", entity: agent }));
+  assert.doesNotThrow(() => compileEntityUpsert({ ...base, entityKind: "squad", entity: squad }));
+  assert.throws(
+    () => compileEntityUpsert({ ...base, entityKind: "agent", entity: { ...agent, id: "" } }),
+    /lowercase entity slug|invalid|pattern|non-empty/u,
   );
   assert.throws(
-    () => compileEntityUpsert({ ...base, entityKind: "review", entity: { ...review, reviewId: "rev.bad" } }),
-    /invalid|pattern/u,
+    () => compileEntityUpsert({ ...base, entityKind: "agent", entity: { ...agent, id: "agent/bad" } }),
+    /lowercase entity slug|invalid|pattern/u,
+  );
+  assert.throws(
+    () => compileEntityUpsert({ ...base, entityKind: "squad", entity: { ...squad, id: "" } }),
+    /lowercase entity slug|invalid|pattern|non-empty/u,
+  );
+  assert.throws(
+    () => compileEntityUpsert({ ...base, entityKind: "squad", entity: { ...squad, id: "squad.bad" } }),
+    /lowercase entity slug|invalid|pattern/u,
   );
 
   assert.equal(isAllowedRelationKindTriple("execution", "executes", "task"), true);

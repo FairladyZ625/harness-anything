@@ -553,7 +553,7 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
   });
 });
 
-test("generic entity events use the canonical projection writer for rows and declared relations", async () => {
+test("generic entity events project declaration documents without overriding lifecycle entities", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "generic-entity-projection", rootDir }),
@@ -565,14 +565,16 @@ test("generic entity events use the canonical projection writer for rows and dec
     eventStore.append(taskBundle(started));
     projection.apply(started);
     const bundle = compileEntityUpsert({
-      entityKind: "execution",
+      entityKind: "agent",
       entity: {
-        ...started.payload.execution,
-        state: "abandoned",
-        closedAt: "2026-08-11T00:03:00.000Z",
+        schema: "agent-declaration/v1",
+        id: "projection-agent",
+        name: "Projection Agent",
+        instructions: "Exercise the generic projection writer.",
+        runtime_type: "codex",
       },
-      eventId: "event-generic-execution",
-      opId: "op-generic-execution",
+      eventId: "event-generic-agent",
+      opId: "op-generic-agent",
       workspaceRevision: 3,
       actor: started.actor,
       source: started.source,
@@ -581,7 +583,7 @@ test("generic entity events use the canonical projection writer for rows and dec
     eventStore.append(bundle);
     projection.apply(bundle.event, bundle.plan);
 
-    assert.equal(projection.read("task-1").snapshot.executions[0]?.state, "abandoned");
+    assert.equal(projection.read("task-1").snapshot.executions[0]?.state, "active");
     assert.deepEqual(
       projection
         .readRelationQuery()
@@ -589,12 +591,12 @@ test("generic entity events use the canonical projection writer for rows and dec
         .map(({ sourceRef, targetRef }) => ({ sourceRef, targetRef })),
       [{ sourceRef: "execution/execution-1", targetRef: "task/task-1" }],
     );
-    const db = new DatabaseSync(projection.path),
-      row = db
-        .prepare("SELECT task_id, workspace_revision FROM entity_projection WHERE entity_kind=? AND entity_id=?")
-        .get("execution", "execution-1") as { readonly task_id: string; readonly workspace_revision: number };
-    db.close();
-    assert.deepEqual({ ...row }, { task_id: "task-1", workspace_revision: 3 });
+    const document = projection.readDocument("agents/projection-agent.json").document;
+    assert.ok(document);
+    assert.deepEqual(
+      { path: document.path, workspaceRevision: document.workspaceRevision, id: JSON.parse(document.body).id },
+      { path: "agents/projection-agent.json", workspaceRevision: 3, id: "projection-agent" },
+    );
   });
 });
 

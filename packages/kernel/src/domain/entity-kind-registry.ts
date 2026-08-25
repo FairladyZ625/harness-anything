@@ -86,7 +86,7 @@ export interface EntityKindContract<T = unknown> {
     readonly validate?: (value: unknown) => readonly string[];
   } | null;
   readonly authoring: {
-    readonly kind: "generic-entity-store" | "task-lifecycle" | "fact-event" | "decision-event";
+    readonly kind: "generic-entity-store" | "task-lifecycle" | "fact-event" | "decision-event" | "agent-runtime-event";
     readonly contractRef: string;
   };
   readonly sdkExposure: EntitySdkExposure;
@@ -533,7 +533,7 @@ export const entityKindContracts = Object.freeze([
       "release",
     ]),
     entityStore: genericEntityStore("executions/{id}.json"),
-    authoring: genericAuthoring,
+    authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: noSdkExposure,
   },
   {
@@ -571,7 +571,7 @@ export const entityKindContracts = Object.freeze([
     statusVocabulary: [{ field: "verdict", words: reviewVerdicts }],
     actionCatalog: actionCatalog("kernel/task-lifecycle/v1", "review", "review/{id}", ["record"]),
     entityStore: genericEntityStore("reviews/{id}.json"),
-    authoring: genericAuthoring,
+    authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: noSdkExposure,
   },
   {
@@ -598,7 +598,7 @@ export const entityKindContracts = Object.freeze([
       agentRuntimeEventTypes.filter((type) => type.startsWith("runtime_session_")),
     ),
     entityStore: genericEntityStore("runtime-sessions/{id}.json"),
-    authoring: genericAuthoring,
+    authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,
   },
 ] as const satisfies readonly EntityKindContract[]);
