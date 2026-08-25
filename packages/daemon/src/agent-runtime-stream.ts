@@ -116,9 +116,6 @@ export function makeAgentRuntimeStreamHub(input: {
       };
     },
     publish: (runtimeSessionId, signal) => {
-      const session = input.readSession(runtimeSessionId);
-      if (session === null || !input.canAttach(session))
-        throw runtimeStreamError("unsupported", `Runtime session ${runtimeSessionId} has no live attach capability.`);
       const state = stateFor(runtimeSessionId),
         event = signalEvent(runtimeSessionId, ++state.sequence, now(), signal);
       if (validateAgentRuntimeAttachEvent(event).length) {
