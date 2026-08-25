@@ -78,6 +78,8 @@ function entityEventRecord(
     throw new Error(`entity declaration blob ${claim.sha256} is not JSON`);
   }
   const value = parseEntityJsonSchema(contract.schema, decoded, `${contract.kind} declaration`);
+  const contractErrors = contract.validate?.(value) ?? [];
+  if (contractErrors.length) throw new Error(contractErrors.join("; "));
   if (
     value === null ||
     typeof value !== "object" ||

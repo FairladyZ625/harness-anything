@@ -1,6 +1,9 @@
 import type { VerticalDefinition } from "../schemas/registry.ts";
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
+import { DEFAULT_POLICY } from "./default-policy.ts";
 import { ENTITY_ID_PATTERN, explainEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import { POLICY_DECLARATION_V1_SCHEMA, validatePolicyDeclarationV1 } from "./policy.ts";
+import type { PolicyPredicateName } from "./policy.ts";
 import type { RelationDirection } from "./entity-relation.ts";
 
 export type EntityKindDeclaration = VerticalDefinition["entityKinds"][number];
@@ -44,6 +47,11 @@ export interface EntityKindContract<T = unknown> {
     readonly mediaType: "application/json";
     readonly policyId: typeof ENTITY_DOCUMENT_POLICY_ID;
   };
+  readonly validate?: (value: unknown) => readonly string[];
+  readonly policy?: {
+    readonly predicates: readonly PolicyPredicateName[];
+    readonly actions: readonly string[];
+  };
 }
 
 export interface EntityKindExplanation {
@@ -58,6 +66,10 @@ export interface EntityKindExplanation {
   readonly transitions: {
     readonly catalogRef: string | null;
     readonly available: readonly string[];
+  };
+  readonly policy?: {
+    readonly predicates: readonly PolicyPredicateName[];
+    readonly actions: readonly string[];
   };
 }
 
@@ -84,6 +96,19 @@ export const entityKindContracts = Object.freeze([
     relations: { directions: [] },
     transitionCatalog: null,
     document: declarationDocument("squads/{id}.json"),
+  },
+  {
+    kind: "policy",
+    schema: POLICY_DECLARATION_V1_SCHEMA,
+    id: { ...declarationId, refTemplate: "policy/{id}" },
+    relations: { directions: [] },
+    transitionCatalog: null,
+    document: declarationDocument("policies/{id}.json"),
+    validate: validatePolicyDeclarationV1,
+    policy: {
+      predicates: Object.freeze(["isOwner", "isExecutorOfExecution", "hasCommandClass", "reviewIndependence"]),
+      actions: DEFAULT_POLICY.actions,
+    },
   },
 ] as const satisfies readonly EntityKindContract[]);
 
@@ -114,6 +139,7 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
       catalogRef: contract.transitionCatalog?.ref ?? null,
       available: contract.transitionCatalog?.transitions ?? [],
     },
+    ...(contract.policy ? { policy: contract.policy } : {}),
   };
 }
 

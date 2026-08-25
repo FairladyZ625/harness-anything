@@ -8,9 +8,16 @@ export type EntityJsonSchemaNode = (
       readonly description?: string;
     }
   | {
+      readonly type: "number";
+      readonly integer?: boolean;
+      readonly minimum?: number;
+      readonly description?: string;
+    }
+  | {
       readonly type: "array";
       readonly items: EntityJsonSchemaNode;
       readonly uniqueItems?: boolean;
+      readonly minItems?: number;
       readonly "x-unique-by"?: string;
       readonly description?: string;
     }
@@ -104,11 +111,23 @@ function validateNodeValue(schema: EntityJsonSchemaNode, value: unknown, path: s
       errors.push(`${path} does not match its declared pattern.`);
     return;
   }
+  if (schema.type === "number") {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      errors.push(`${path} must be a finite number.`);
+      return;
+    }
+    if (schema.integer && !Number.isSafeInteger(value)) errors.push(`${path} must be an integer.`);
+    if (schema.minimum !== undefined && value < schema.minimum)
+      errors.push(`${path} must be at least ${schema.minimum}.`);
+    return;
+  }
   if (schema.type === "array") {
     if (!Array.isArray(value)) {
       errors.push(`${path} must be an array.`);
       return;
     }
+    if (schema.minItems !== undefined && value.length < schema.minItems)
+      errors.push(`${path} must contain at least ${schema.minItems} item(s).`);
     value.forEach((item, index) => validateNode(schema.items, item, `${path}[${index}]`, errors));
     if (schema.uniqueItems && new Set(value.map(stableJson)).size !== value.length)
       errors.push(`${path} entries must be unique.`);

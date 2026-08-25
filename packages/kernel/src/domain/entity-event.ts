@@ -55,6 +55,8 @@ export function compileEntityUpsert(input: {
   const contract = requireEntityKindContract(input.entityKind),
     entity = parseEntityJsonSchema(contract.schema, input.entity, `${input.entityKind} declaration`),
     entityId = isRecord(entity) ? entity[contract.id.field] : undefined;
+  const contractErrors = contract.validate?.(entity) ?? [];
+  if (contractErrors.length) throw new Error(contractErrors.join("; "));
   if (typeof entityId !== "string") throw new Error(`${input.entityKind} declaration has no string identity`);
   const body = serializeEntityJsonSchema(contract.schema, entity, `${input.entityKind} declaration`),
     claim: EntityDeclarationClaim = {
