@@ -114,7 +114,8 @@ export function flushWalToGit(wal: WalEventLog, git: CanonicalEventStore, option
       "publication_indeterminate",
       "Git refs changed while preparing the WAL materialization batch",
     );
-  if (authoredParent !== parent) throw new WalMaterializerDivergedError(ledger.rootDir, authoredRef, parent);
+  if (authoredParent !== parent && !localGitObjectRefStore.isAncestor(ledger.rootDir, parent, authoredParent))
+    throw new WalMaterializerDivergedError(ledger.rootDir, authoredRef, parent);
   const flushRef = `refs/ha-wal-flush/${process.pid}-${Date.now()}`;
   const messageText = `harness WAL flush ${pending[0]!.revision}-${last.revision}`;
   const timestamp = Math.floor(Date.parse(last.event.occurredAt) / 1_000);

@@ -159,7 +159,7 @@ test("materialization failures warn, retry with a bound, and do not revoke the w
   });
 });
 
-test("a master branch ahead of canonical stops the materializer once until refs are repaired", async () => {
+test("a master branch forked from canonical stops the materializer once until refs are repaired", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const store = makeWalShadowEventStore({
@@ -170,7 +170,8 @@ test("a master branch ahead of canonical stops the materializer once until refs 
       walRetryBaseMs: 1,
     });
     const canonical = git(rootDir, "rev-parse", "refs/ha/canonical");
-    git(rootDir, "commit", "--allow-empty", "-qm", "worker direct commit");
+    const fork = git(rootDir, "commit-tree", `${canonical}^{tree}`, "-m", "worker direct fork");
+    git(rootDir, "reset", "--hard", fork);
     const errors: string[] = [];
     const originalError = console.error;
     try {
