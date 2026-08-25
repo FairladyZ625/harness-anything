@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_POLICY } from "../../src/domain/default-policy.ts";
-import { evaluateAuthorization } from "../../src/ports/authorization-port.ts";
+import { createAuthorizationPort, evaluateAuthorization } from "../../src/ports/authorization-port.ts";
 import { type ActionEnvelope, type ActorIdentity, type AuthorizationContext, type LeaseV1 } from "../../src/index.ts";
 
 const owner: ActorIdentity = {
@@ -126,7 +126,7 @@ test("v2 requires write-source equality on both direct and delegated document br
   );
 });
 
-test("v2 review and Decision outcome rules keep their distinct command-class semantics", () => {
+test("v2 keeps Decision review independence disabled by default", () => {
   assert.equal(
     decide("execution.review", reviewer, "execution/execution-1", {
       commandClasses: ["arbiter"],
@@ -151,7 +151,7 @@ test("v2 review and Decision outcome rules keep their distinct command-class sem
   assert.equal(
     decide("decision.accept", owner, "decision/decision-1", {
       commandClasses: ["arbiter"],
-      target: {},
+      target: { proposalActor: owner },
     }).outcome,
     "allowed",
   );
@@ -159,6 +159,28 @@ test("v2 review and Decision outcome rules keep their distinct command-class sem
     decide("decision.accept", outsider, "decision/decision-1", { commandClasses: [], target: {} }).outcome,
     "denied",
   );
+});
+
+test("the default port enables Decision review independence only for the declared environment gate", () => {
+  const port = createAuthorizationPort(DEFAULT_POLICY, { HARNESS_REVIEW_INDEPENDENCE: "1" }),
+    decision = (actor: ActorIdentity) =>
+      port.authorize(
+        {
+          actionId: `gated-decision-${actor.executor?.id ?? "human"}`,
+          kind: "decision.accept",
+          target: "decision/decision-1",
+          actor,
+          authorizationRef: "default@2",
+          idempotencyKey: `gated-decision-${actor.executor?.id ?? "human"}`,
+        },
+        {
+          commandClasses: ["arbiter"],
+          target: { proposalActor: owner },
+          evaluatedAtCut: "canonical:17",
+        },
+      );
+  assert.equal(decision(owner).outcome, "denied");
+  assert.equal(decision(reviewer).outcome, "allowed");
 });
 
 test("v2 closeout selects owner and active-lease rules explicitly", () => {

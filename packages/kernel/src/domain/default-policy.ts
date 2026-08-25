@@ -42,7 +42,18 @@ const defaultPolicyDeclaration = {
     },
     {
       action: "decision.accept",
-      anyOf: [{ allOf: [{ predicate: "hasCommandClass", commandClass: "arbiter" }] }],
+      anyOf: [
+        {
+          allOf: [
+            { predicate: "hasCommandClass", commandClass: "arbiter" },
+            {
+              predicate: "reviewIndependence",
+              level: "L1",
+              gatedBy: { env: "HARNESS_REVIEW_INDEPENDENCE" },
+            },
+          ],
+        },
+      ],
     },
     {
       action: "execution.release",

@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import { isSameExecution } from "../domain/actor-domain-services.ts";
 import type { DecisionState } from "../domain/decision-event.ts";
 import {
   assertDecisionContentPin,
@@ -7,7 +6,6 @@ import {
   type DecisionEventV1,
 } from "../domain/decision-event.ts";
 import { validateRelationRecordsForHost } from "../domain/entity-relation.ts";
-import type { ActorIdentity } from "../domain/write-chain.contract.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { readDecisionDocumentState } from "./decision-projection-documents.ts";
@@ -38,8 +36,6 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
   if (!row) fail("entity_not_found", `Decision ${event.decisionId} does not exist.`);
   if (["decision_accepted", "decision_rejected", "decision_deferred"].includes(event.type)) {
     if (row.state !== "proposed") fail("invalid_transition", `${event.type} requires proposed state.`);
-    if (event.actor.executor !== null && isSameExecution(JSON.parse(row.proposer_json) as ActorIdentity, event.actor))
-      fail("invalid_transition", "An agent cannot judge its own Decision proposal.");
     const current = readDecisionDocumentState(db, event.decisionId);
     if (!current) fail("entity_not_found", `Decision ${event.decisionId} does not exist.`);
     try {

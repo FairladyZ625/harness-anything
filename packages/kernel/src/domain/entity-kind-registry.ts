@@ -13,7 +13,7 @@ import {
 import type { RelationDirection } from "./entity-relation.ts";
 import { executionStates } from "./execution.ts";
 import { policyPredicateNames, POLICY_DECLARATION_V1_SCHEMA, validatePolicyDeclarationV1 } from "./policy.ts";
-import type { PolicyPredicateName } from "./policy.ts";
+import type { PolicyActionRule, PolicyPredicateName } from "./policy.ts";
 import { reviewVerdicts } from "./review.ts";
 
 export type EntityKindDeclaration = VerticalDefinition["entityKinds"][number];
@@ -67,6 +67,7 @@ export interface EntityKindContract<T = unknown> {
   readonly policy?: {
     readonly predicates: readonly PolicyPredicateName[];
     readonly actions: readonly string[];
+    readonly rules: readonly PolicyActionRule[];
   };
 }
 
@@ -87,6 +88,7 @@ export interface EntityKindExplanation {
   readonly policy?: {
     readonly predicates: readonly PolicyPredicateName[];
     readonly actions: readonly string[];
+    readonly rules: readonly PolicyActionRule[];
   };
 }
 
@@ -218,6 +220,7 @@ export const entityKindContracts = Object.freeze([
     policy: {
       predicates: policyPredicateNames,
       actions: DEFAULT_POLICY.actions,
+      rules: DEFAULT_POLICY.rules ?? [],
     },
   },
   {

@@ -7,6 +7,7 @@ import {
   validatePolicyDeclarationV1,
   type PolicyActionRule,
   type PolicyDeclarationV1,
+  type PolicyPredicateGate,
   type PolicyPredicateExpression,
 } from "../domain/policy.ts";
 import type { AuthorizationDecision, ReceiptJsonValue } from "../domain/receipt-frame.ts";
@@ -18,6 +19,7 @@ export interface AuthorizationTargetSnapshot {
   readonly lease?: LeaseV1 | null;
   readonly canonicalExecutionExists?: boolean;
   readonly executionActor?: ActorIdentity | null;
+  readonly proposalActor?: ActorIdentity | null;
   readonly runtimeBinding?: LiveTaskBoundRuntimeBinding | null;
 }
 
@@ -43,10 +45,15 @@ type PredicateResult = {
   readonly binding: Readonly<Record<string, ReceiptJsonValue>>;
 };
 
-export function createAuthorizationPort(defaultPolicy: PolicyDeclarationV1 = DEFAULT_POLICY): AuthorizationPort {
+type PolicyGateEvaluator = (gate: PolicyPredicateGate) => boolean;
+
+export function createAuthorizationPort(
+  defaultPolicy: PolicyDeclarationV1 = DEFAULT_POLICY,
+  environment: Readonly<Record<string, string | undefined>> = {},
+): AuthorizationPort {
   return Object.freeze({
     authorize: (action: ActionEnvelope, context: AuthorizationContext, policy = defaultPolicy) =>
-      evaluateAuthorization(policy, action, context),
+      evaluateAuthorization(policy, action, context, (gate) => environment[gate.env] === "1"),
   });
 }
 
@@ -55,6 +62,7 @@ export function evaluateAuthorization(
   policy: PolicyDeclarationV1,
   action: ActionEnvelope,
   context: AuthorizationContext,
+  gateEnabled: PolicyGateEvaluator = () => false,
 ): AuthorizationDecision {
   const policyRef = `${policy.id}@${policy.version}`,
     policyValid = validatePolicyDeclarationV1(policy).length === 0,
@@ -67,7 +75,7 @@ export function evaluateAuthorization(
             (candidate.scope === undefined ? context.ruleScope === undefined : candidate.scope === context.ruleScope),
         ),
     authorizationRefMatches = action.authorizationRef === policyRef,
-    evaluated = rules.map((rule) => evaluateRule(rule, action, context)),
+    evaluated = rules.map((rule) => evaluateRule(rule, action, context, gateEnabled)),
     allowed = policyValid && actionValid && authorizationRefMatches && evaluated.some((result) => result.allowed),
     bindingsUsed = evaluated.flatMap((result) => result.bindings),
     missing = rules.length === 0 ? "policy_rule_missing" : null,
@@ -102,9 +110,12 @@ function evaluateRule(
   rule: PolicyActionRule,
   action: ActionEnvelope,
   context: AuthorizationContext,
+  gateEnabled: PolicyGateEvaluator,
 ): { readonly allowed: boolean; readonly bindings: readonly Readonly<Record<string, ReceiptJsonValue>>[] } {
   const branches = rule.anyOf.map((clause) =>
-      clause.allOf.map((predicate) => evaluatePredicate(predicate, action, context)),
+      clause.allOf
+        .filter((predicate) => predicate.gatedBy === undefined || gateEnabled(predicate.gatedBy))
+        .map((predicate) => evaluatePredicate(predicate, action, context)),
     ),
     selected = branches.find((branch) => branch.every((result) => result.holds));
   return {
@@ -158,10 +169,11 @@ function evaluatePredicate(
     holds = (context.commandClasses ?? []).includes(expression.commandClass);
   else if (expression.predicate === "reviewIndependence")
     holds =
-      target.executionActor !== null &&
-      target.executionActor !== undefined &&
-      isIndependentFrom(target.executionActor, actor) &&
-      runtimeBinding === null;
+      (target.executionActor !== null && target.executionActor !== undefined
+        ? isIndependentFrom(target.executionActor, actor)
+        : target.proposalActor !== null &&
+          target.proposalActor !== undefined &&
+          isIndependentFrom(target.proposalActor, actor)) && runtimeBinding === null;
   else if (expression.predicate === "sameWriteSource")
     holds = context.writeSource !== undefined && lease !== null && sameWriteSource(lease.source, context.writeSource);
   return {
@@ -170,4 +182,4 @@ function evaluatePredicate(
   };
 }
 
-export const authorizationPort = createAuthorizationPort();
+export const authorizationPort = createAuthorizationPort(DEFAULT_POLICY, process.env);

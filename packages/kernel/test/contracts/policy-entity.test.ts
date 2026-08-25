@@ -39,7 +39,16 @@ test("the built-in v2 policy registers its binding predicates and eight applicab
     ],
   );
   assert.deepEqual(DEFAULT_POLICY.rules?.find((rule) => rule.action === "decision.accept")?.anyOf, [
-    { allOf: [{ predicate: "hasCommandClass", commandClass: "arbiter" }] },
+    {
+      allOf: [
+        { predicate: "hasCommandClass", commandClass: "arbiter" },
+        {
+          predicate: "reviewIndependence",
+          level: "L1",
+          gatedBy: { env: "HARNESS_REVIEW_INDEPENDENCE" },
+        },
+      ],
+    },
   ]);
   assert.deepEqual(
     DEFAULT_POLICY.rules?.map(
@@ -52,7 +61,7 @@ test("the built-in v2 policy registers its binding predicates and eight applicab
       'task.consent:-=>{"predicate":"isSameExecutionOwner"}',
       'task.complete:-=>{"predicate":"isOwner"}',
       'execution.review:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"reviewIndependence","level":"L1"}',
-      'decision.accept:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}',
+      'decision.accept:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"reviewIndependence","level":"L1","gatedBy":{"env":"HARNESS_REVIEW_INDEPENDENCE"}}',
       'execution.release:-=>{"predicate":"holdsExecutionLease"}|{"predicate":"reclaimsOrphanedLease"}',
       'runtime.dispatch:-=>{"predicate":"dispatchesExecution"}|{"predicate":"delegatedByRuntimeSession"}',
       'doc.submit:-=>{"predicate":"holdsExecutionLease"}+{"predicate":"sameWriteSource"}|{"predicate":"delegatedByRuntimeSession"}+{"predicate":"sameWriteSource"}',
@@ -62,7 +71,7 @@ test("the built-in v2 policy registers its binding predicates and eight applicab
   );
 });
 
-test("ha entity explain policy exposes the registered predicate vocabulary and Action set", () => {
+test("ha entity explain policy exposes the registered predicate vocabulary, Action set, and gated rules", () => {
   const explanation = explainEntityKind("policy");
   assert.deepEqual(explanation.policy, {
     predicates: [
@@ -77,6 +86,7 @@ test("ha entity explain policy exposes the registered predicate vocabulary and A
       "sameWriteSource",
     ],
     actions: DEFAULT_POLICY.actions,
+    rules: DEFAULT_POLICY.rules,
   });
   assert.equal(explanation.documentSchema.id, "policy/v1");
   assert.equal(explanation.id.refTemplate, "policy/{id}");

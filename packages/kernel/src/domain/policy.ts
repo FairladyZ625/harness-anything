@@ -24,7 +24,11 @@ export type PolicyPredicateName = (typeof policyPredicateNames)[number];
 export const reviewIndependenceLevels = Object.freeze(["L1", "L2"] as const);
 export type ReviewIndependenceLevel = (typeof reviewIndependenceLevels)[number];
 
-export type PolicyPredicateExpression =
+export interface PolicyPredicateGate {
+  readonly env: string;
+}
+
+type PolicyPredicate =
   | { readonly predicate: "isOwner" }
   | { readonly predicate: "isSameExecutionOwner" }
   | { readonly predicate: "holdsExecutionLease" }
@@ -34,6 +38,10 @@ export type PolicyPredicateExpression =
   | { readonly predicate: "hasCommandClass"; readonly commandClass: string }
   | { readonly predicate: "reviewIndependence"; readonly level: ReviewIndependenceLevel }
   | { readonly predicate: "sameWriteSource" };
+
+export type PolicyPredicateExpression = PolicyPredicate & {
+  readonly gatedBy?: PolicyPredicateGate;
+};
 
 export interface PolicyPredicateClause {
   readonly allOf: readonly PolicyPredicateExpression[];
@@ -76,6 +84,15 @@ const predicateSchema = {
       type: "string" as const,
       enum: reviewIndependenceLevels,
       description: "Review independence level (L1 executor axis, L2 principal axis).",
+    },
+    gatedBy: {
+      type: "object" as const,
+      additionalProperties: false as const,
+      required: ["env"] as const,
+      properties: {
+        env: nonEmpty("Environment variable that enables this predicate in the default AuthorizationPort."),
+      },
+      description: "Optional environment gate; the predicate is omitted unless the named variable equals 1.",
     },
   },
 };
@@ -210,7 +227,8 @@ function validatePredicateExpression(value: unknown): readonly string[] {
   )
     return ["reviewIndependence requires level L1 or L2"];
   if (value.predicate !== "hasCommandClass" && value.predicate !== "reviewIndependence") {
-    if (Object.keys(value).length !== 1) return [`${value.predicate} does not accept arguments`];
+    if (Object.keys(value).some((key) => key !== "predicate" && key !== "gatedBy"))
+      return [`${value.predicate} does not accept arguments`];
   }
   return [];
 }
@@ -224,7 +242,9 @@ function rulePredicates(rules: readonly unknown[]): readonly unknown[] {
 }
 
 function predicateKey(value: unknown): string {
-  return isRecord(value)
-    ? JSON.stringify(Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))))
-    : JSON.stringify(value);
+  if (!isRecord(value)) return JSON.stringify(value);
+  const { gatedBy: _gate, ...predicate } = value;
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(predicate).sort(([left], [right]) => left.localeCompare(right))),
+  );
 }

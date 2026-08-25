@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_POLICY } from "../../src/domain/default-policy.ts";
-import type { PolicyDeclarationV1 } from "../../src/domain/policy.ts";
+import type { PolicyDeclarationV1, PolicyPredicateExpression } from "../../src/domain/policy.ts";
 import { evaluateAuthorization } from "../../src/ports/authorization-port.ts";
 import type { ActorIdentity, AuthorizationContext, LeaseV1 } from "../../src/index.ts";
 
@@ -100,19 +100,27 @@ const cases: readonly Case[] = [
     expected: "denied",
   },
   {
-    label: "arbiter Decision outcome",
+    label: "independent arbiter Decision outcome",
+    kind: "decision.accept",
+    target: "decision/decision-1",
+    actor: reviewer,
+    context: { commandClasses: ["arbiter"], target: { proposalActor: owner } },
+    expected: "allowed",
+  },
+  {
+    label: "dependent arbiter Decision outcome",
     kind: "decision.accept",
     target: "decision/decision-1",
     actor: owner,
-    context: { commandClasses: ["arbiter"], target: {} },
-    expected: "allowed",
+    context: { commandClasses: ["arbiter"], target: { proposalActor: owner } },
+    expected: "denied",
   },
   {
     label: "non-arbiter Decision outcome",
     kind: "decision.accept",
     target: "decision/decision-1",
-    actor: outsider,
-    context: { commandClasses: [], target: {} },
+    actor: reviewer,
+    context: { commandClasses: [], target: { proposalActor: owner } },
     expected: "denied",
   },
   {
@@ -258,6 +266,7 @@ function assertLocationOracles(policy: PolicyDeclarationV1): void {
         idempotencyKey: `mutation-${row.label}`,
       },
       { ...row.context, evaluatedAtCut: "canonical:mutation" },
+      (gate) => gate.env === "HARNESS_REVIEW_INDEPENDENCE",
     );
     assert.equal(decision.outcome, row.expected, row.label);
   }
@@ -292,4 +301,36 @@ test("every v2 rule-predicate deletion is killed by its location oracle", async 
           rules[ruleIndex] = { ...mutantRule, anyOf };
           assert.throws(() => assertLocationOracles({ ...mutant, rules }), assert.AssertionError);
         });
+});
+
+test("deleting the Decision environment gate is killed by the default-off oracle", () => {
+  const mutant = clonePolicy(),
+    rules = (mutant.rules ?? []).map((rule) => {
+      if (rule.action !== "decision.accept") return rule;
+      return {
+        ...rule,
+        anyOf: rule.anyOf.map((clause) => ({
+          allOf: clause.allOf.map((predicate): PolicyPredicateExpression => {
+            if (predicate.predicate !== "reviewIndependence") return predicate;
+            const { gatedBy: _gate, ...ungated } = predicate;
+            return ungated;
+          }),
+        })),
+      };
+    }),
+    action = {
+      actionId: "mutation-decision-gate",
+      kind: "decision.accept",
+      target: "decision/decision-1" as const,
+      actor: owner,
+      authorizationRef: "default@2",
+      idempotencyKey: "mutation-decision-gate",
+    },
+    context = {
+      commandClasses: ["arbiter"],
+      target: { proposalActor: owner },
+      evaluatedAtCut: "canonical:mutation",
+    };
+  assert.equal(evaluateAuthorization(DEFAULT_POLICY, action, context).outcome, "allowed");
+  assert.equal(evaluateAuthorization({ ...mutant, rules }, action, context).outcome, "denied");
 });

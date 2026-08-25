@@ -136,13 +136,24 @@ export function makeDecisionActions(input: {
             opId,
             {
               commandClasses: binding.roles?.map((role) => role.replace(/^\$/u, "")) ?? [],
-              target: {},
+              target: {
+                proposalActor:
+                  input.projection.readDecision(requiredFactText(action.decisionId, "decisionId")).decision?.proposer ??
+                  null,
+              },
               evaluatedAtCut: `canonical:${input.store.readHead()?.revision ?? 0}`,
             },
           )
         : null;
     if (authorizationDecision?.outcome === "denied")
-      throw factActionError("actor_unauthorized", "Decision outcome requires a transport-bound $arbiter.");
+      throw factActionError(
+        "actor_unauthorized",
+        authorizationDecision.bindingsUsed.some(
+          (binding) => binding.predicate === "reviewIndependence" && binding.satisfied === false,
+        )
+          ? "Decision outcome requires a reviewer independent from the proposal actor."
+          : "Decision outcome requires a transport-bound $arbiter.",
+      );
     const normalized =
         action.kind === "decision-amend"
           ? prepareDecisionAmend(action, service.show(requiredFactText(action.decisionId, "decisionId")).decision)
