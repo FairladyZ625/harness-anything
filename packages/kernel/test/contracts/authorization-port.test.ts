@@ -150,7 +150,7 @@ test("v2 requires write-source equality on both direct and delegated document br
   );
 });
 
-test("v2 always requires independent Decision review", () => {
+test("v2 keeps execution review independent and rejects Decision outcomes from the proposal agent", () => {
   assert.equal(
     decide("execution.review", reviewer, "execution/execution-1", {
       commandClasses: ["arbiter"],
@@ -184,7 +184,7 @@ test("v2 always requires independent Decision review", () => {
       commandClasses: ["arbiter"],
       target: { proposalActor: humanOwner },
     }).outcome,
-    "denied",
+    "allowed",
   );
   assert.equal(
     decide("decision.accept", outsider, "decision/decision-1", { commandClasses: [], target: {} }).outcome,
@@ -192,7 +192,7 @@ test("v2 always requires independent Decision review", () => {
   );
 });
 
-test("the default port always applies Decision review independence", () => {
+test("the default port keeps broader Decision review independence disabled", () => {
   const port = createAuthorizationPort(DEFAULT_POLICY),
     decision = (actor: ActorIdentity) =>
       port.authorize(
@@ -230,7 +230,7 @@ test("the default port always applies Decision review independence", () => {
         evaluatedAtCut: "canonical:17",
       },
     ).outcome,
-    "denied",
+    "allowed",
   );
 });
 

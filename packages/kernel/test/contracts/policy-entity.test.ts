@@ -42,11 +42,7 @@ test("the built-in v2 policy registers its binding predicates and applicable Act
   );
   assert.deepEqual(DEFAULT_POLICY.rules?.find((rule) => rule.action === "decision.accept")?.anyOf, [
     {
-      allOf: [
-        { predicate: "hasCommandClass", commandClass: "arbiter" },
-        { predicate: "isNotProposalAgent" },
-        { predicate: "reviewIndependence", level: "L1" },
-      ],
+      allOf: [{ predicate: "hasCommandClass", commandClass: "arbiter" }, { predicate: "isNotProposalAgent" }],
     },
   ]);
   assert.deepEqual(
@@ -61,7 +57,7 @@ test("the built-in v2 policy registers its binding predicates and applicable Act
       'task.complete:-=>{"predicate":"isOwner"}',
       'execution.start:-=>{"predicate":"hasCommandClass","commandClass":"repo-write"}',
       'execution.review:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"reviewIndependence","level":"L1"}',
-      'decision.accept:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"isNotProposalAgent"}+{"predicate":"reviewIndependence","level":"L1"}',
+      'decision.accept:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"isNotProposalAgent"}',
       'execution.release:-=>{"predicate":"holdsExecutionLease"}|{"predicate":"reclaimsOrphanedLease"}',
       'runtime.dispatch:-=>{"predicate":"dispatchesExecution"}|{"predicate":"delegatedByRuntimeSession"}',
       'doc.submit:-=>{"predicate":"holdsExecutionLease"}+{"predicate":"sameWriteSource"}|{"predicate":"delegatedByRuntimeSession"}+{"predicate":"sameWriteSource"}',

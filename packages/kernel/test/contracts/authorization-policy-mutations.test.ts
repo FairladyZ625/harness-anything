@@ -137,12 +137,12 @@ const cases: readonly Case[] = [
     expected: "denied",
   },
   {
-    label: "human Decision self-judgment",
+    label: "human proposer Decision outcome",
     kind: "decision.accept",
     target: "decision/decision-1",
     actor: humanOwner,
     context: { commandClasses: ["arbiter"], target: { proposalActor: humanOwner } },
-    expected: "denied",
+    expected: "allowed",
   },
   {
     label: "non-arbiter Decision outcome",
