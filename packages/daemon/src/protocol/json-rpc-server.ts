@@ -29,7 +29,7 @@ import {
   type JsonRpcResponse,
 } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
-import { isContractVersionCompatible } from "@harness-anything/kernel/contract-version";
+import { isContractVersionCompatible } from "../../../kernel/src/domain/contract-version.ts";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 export interface JsonRpcProtocolServer {
   readonly handle: (

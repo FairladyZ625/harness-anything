@@ -8,10 +8,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./src/index.ts"
-    },
-    "./contract-version": {
-      "types": "./src/domain/contract-version.ts",
-      "default": "./src/domain/contract-version.ts"
     }
   }
 }

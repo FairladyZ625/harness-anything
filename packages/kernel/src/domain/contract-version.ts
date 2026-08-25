@@ -1,4 +1,4 @@
-import { consumeKnownError } from "../error-consumption.ts";
+// 本文件被 effect-free 门直接加载，禁止加 import。
 
 export type ContractVersion = Readonly<{ major: number; minor: number }>;
 
@@ -31,13 +31,16 @@ export function serializeContractVersion(version: ContractVersion): string {
   return JSON.stringify(version);
 }
 
+function invalidSerializedContractVersion(_error: unknown): null {
+  return null;
+}
+
 export function parseContractVersion(value: string | null | undefined): ContractVersion | null {
   if (value === null || value === undefined) return null;
   try {
     const parsed: unknown = JSON.parse(value);
     return isContractVersion(parsed) ? contractVersion(parsed.major, parsed.minor) : null;
   } catch (error) {
-    consumeKnownError(error);
-    return null;
+    return invalidSerializedContractVersion(error);
   }
 }

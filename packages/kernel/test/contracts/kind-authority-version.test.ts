@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { contractVersion } from "../../src/domain/contract-version.ts";
 import { entityKindContracts } from "../../src/domain/entity-kind-registry.ts";
@@ -21,6 +22,11 @@ const expectedKinds = [
   "squad",
   "task",
 ] as const;
+
+test("contract version authority remains import-free", async () => {
+  const source = await readFile(new URL("../../src/domain/contract-version.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /(?:^\s*import\s|(?:\bimport|\brequire)\s*\()/mu);
+});
 
 test("one named kind-contract authority explains all nine entity kinds with one shape", () => {
   assert.deepEqual(entityKindContracts.map(({ kind }) => kind).sort(), [...expectedKinds]);
