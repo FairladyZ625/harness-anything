@@ -1,11 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 
-// Version 7 adds Decision session provenance to the disposable projection.
+// Version 8 replaces the legacy execution/review tables with entity_projection.
 // A version mismatch takes the
 // existing discard-and-replay path in rebuildable-task-projection.ts, so each
 // machine cold-rebuilds task.sqlite once on its first read.
-export const taskProjectionSchemaVersion = 7;
+export const taskProjectionSchemaVersion = 8;
 
 export function readTaskProjectionSchemaVersion(projectionPath: string): number | null {
   if (!localRuntimeStateFileSystem.exists(projectionPath)) return null;

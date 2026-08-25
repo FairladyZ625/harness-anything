@@ -244,6 +244,52 @@ export function taskSurfaceWrite(cell: any, action: RepoTaskAction, binding: Rep
       snapshot.revision,
       `Remove --dry-run to publish this validated ${action.kind} event.`,
     );
+  if (mutation.type === "lease_released" && mutation.execution === undefined) {
+    const reservation = mutation.releasedLease;
+    if (!reservation) throw cell.cellCodedError("invalid_command", "A reservation release requires the current lease.");
+    const published = cell.store
+      .read()
+      .events.some(
+        (event: TaskEventV1) =>
+          event.type === "execution_started" &&
+          event.taskId === taskId &&
+          event.payload.execution.executionId === reservation.executionId,
+      );
+    if (published)
+      throw cell.cellCodedError(
+        "projection_pending",
+        [
+          `Execution ${reservation.executionId} is canonical but missing from the projection; `,
+          "retry after projection rebuild.",
+        ].join(""),
+      );
+    cell.projection.releaseLease(reservation);
+    const revision = cell.store.readHead()?.revision ?? snapshot.revision;
+    return {
+      outcome: "no_changes",
+      opId: canonicalOpId,
+      revision,
+      code: "no_changes",
+      origin: "task-release",
+      evidence: `projection-reservation-released:${reservation.executionId}`,
+      visibility: "center",
+      proof: {
+        committedRevision: revision,
+        appliedCut: revision,
+        durable: true,
+        canonicalVisible: true,
+        worktreeVisible: true,
+      },
+      nextAction: `Reservation released; run ha task start ${taskId} to claim a new execution.`,
+      taskId,
+      executionId: reservation.executionId,
+      report: {
+        command: action.kind,
+        reason: mutation.audit.reason,
+        fields: mutation.audit.fields,
+      },
+    } as WriteReceipt;
+  }
   const opId = canonicalOpId,
     existing = cell.store.readEvent(opId);
   if (existing) return cell.receiptForOperation(opId, binding);

@@ -50,27 +50,14 @@ export function taskMutation(
   if (action.kind === "task-release") {
     if (!activeLease)
       throw cell.cellCodedError("lease_not_found", `Start task ${task.taskId} before releasing its lease.`);
-    if (!isSameExecution(activeLease.actor, binding.actor) && !canReclaim(activeLease, binding.actor, cell.now()))
+    const execution = snapshot.executions.find((value) => value.executionId === activeLease.executionId),
+      reclaimableLease = execution === undefined ? { ...activeLease, phase: "orphaned" as const } : activeLease;
+    if (!isSameExecution(activeLease.actor, binding.actor) && !canReclaim(reclaimableLease, binding.actor, cell.now()))
       throw cell.cellCodedError(
         "lease_conflict",
         [
-          "The current holder, or the same principal after the lease becomes ",
-          "orphaned, must run ha task release ",
-          `${task.taskId}`,
-          ".",
-        ].join(""),
-      );
-    const execution = snapshot.executions.find((value) => value.executionId === activeLease.executionId);
-    if (!execution)
-      throw cell.cellCodedError(
-        "orphaned_reservation",
-        [
-          "Lease ",
-          `${activeLease.executionId}`,
-          " is an in-flight reservation with no published execution behind it; wait ",
-          "for the holder to publish it or for the reservation to lapse at ",
-          `${activeLease.expiresAt}`,
-          ", then rerun ha task release ",
+          "The current holder, or the same principal reclaiming an orphaned lease or reservation, must run ",
+          "ha task release ",
           `${task.taskId}`,
           ".",
         ].join(""),
@@ -78,7 +65,7 @@ export function taskMutation(
     return {
       type: "lease_released",
       task,
-      execution,
+      ...(execution === undefined ? {} : { execution }),
       releasedLease: activeLease,
       audit: { command: "release", reason, fields: ["lease"] },
     };
