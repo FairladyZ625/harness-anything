@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+canonical_root=${HARNESS_CANONICAL_ROOT:-}
+if [ -z "$canonical_root" ] || [ ! -d "$canonical_root" ]; then
+  exit 0
+fi
+
+canonical_root=$(cd "$canonical_root" && pwd -P)
+if [ "$canonical_root" != "$(cd "$repo_root" && pwd -P)" ]; then
+  exit 0
+fi
+
+case ${HARNESS_ACTOR:-} in
+  agent:*)
+    printf 'Refusing a worker checkout in the canonical repository root.\n' >&2
+    printf 'Use the assigned worktree; only the CEO may change the canonical checkout.\n' >&2
+    exit 1
+    ;;
+esac

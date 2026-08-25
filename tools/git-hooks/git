@@ -1,0 +1,46 @@
+#!/usr/bin/env sh
+set -eu
+
+guard_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+filtered_path=
+old_ifs=$IFS
+IFS=:
+for entry in ${PATH:-}; do
+  [ "$entry" = "$guard_dir" ] && continue
+  if [ -n "$filtered_path" ]; then filtered_path="$filtered_path:$entry"; else filtered_path=$entry; fi
+done
+IFS=$old_ifs
+
+repo_root=$(PATH=$filtered_path command git rev-parse --show-toplevel 2>/dev/null || true)
+canonical_root=${HARNESS_CANONICAL_ROOT:-}
+if [ -n "$repo_root" ] && [ -n "$canonical_root" ] && [ -d "$canonical_root" ]; then
+  canonical_root=$(cd "$canonical_root" && pwd -P)
+  if [ "$canonical_root" = "$(cd "$repo_root" && pwd -P)" ]; then
+    case ${HARNESS_ACTOR:-} in
+      agent:*)
+        for argument in "$@"; do
+          case "$argument" in
+            commit)
+              printf 'Refusing a worker git commit in the canonical repository root.\n' >&2
+              exit 1
+              ;;
+          esac
+        done
+        previous=""
+        for argument in "$@"; do
+          if [ "$previous" = "checkout" ] && [ "$argument" = "-b" -o "$argument" = "-B" ]; then
+            printf 'Refusing a worker branch checkout in the canonical repository root.\n' >&2
+            exit 1
+          fi
+          if [ "$previous" = "switch" ] && [ "$argument" = "-c" -o "$argument" = "-C" ]; then
+            printf 'Refusing a worker branch checkout in the canonical repository root.\n' >&2
+            exit 1
+          fi
+          previous=$argument
+        done
+        ;;
+    esac
+  fi
+fi
+
+PATH=$filtered_path exec git "$@"

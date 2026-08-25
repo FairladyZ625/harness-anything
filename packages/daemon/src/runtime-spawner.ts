@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import path from "node:path";
 import type {
   AgentRuntimeEventV1,
   CanonicalEventStore,
@@ -108,10 +109,7 @@ export function makeRuntimeSpawner(input: {
   readonly launch?: RuntimeLauncher;
   readonly schedule: (work: () => void | Promise<void>) => void;
   readonly onRuntimeOutcome?: (
-    event: Extract<
-      AgentRuntimeEventV1,
-      { readonly type: "runtime_session_outcome_observed" }
-    >,
+    event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
   ) => void;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }) {
@@ -365,6 +363,13 @@ export function makeRuntimeSpawner(input: {
               ...prepared,
               env: {
                 ...prepared.env,
+                HARNESS_CANONICAL_ROOT: input.rootDir,
+                PATH: [
+                  path.join(input.rootDir, "tools", "git-hooks"),
+                  prepared.env.PATH ?? globalThis.process?.env.PATH ?? "",
+                ]
+                  .filter(Boolean)
+                  .join(path.delimiter),
                 HARNESS_DAEMON_USER_ROOT: daemonRoute.userRoot,
                 HARNESS_DAEMON_ID: daemonRoute.daemonId,
                 HARNESS_DAEMON_ENDPOINT: daemonRoute.endpoint,
@@ -378,33 +383,34 @@ export function makeRuntimeSpawner(input: {
       let process: RuntimeProcess | undefined;
       let resumeObservation: ResumeProcessObservation | undefined;
       let stream: DispatchStreamWriter | undefined;
-      const openStream = (): DispatchStreamWriter => stream ??= openDispatchStream(input.rootDir, {
-        dispatchId: newDispatchId,
-        taskId: taskBinding?.taskId ?? null,
-        executionId: taskBinding?.executionId ?? null,
-        runtimeSessionId,
-        instanceId: definition.instanceId,
-        startedAt: streamStartedAt,
-        dispatchOpId,
-        kindId: definition.kindId,
-        permissionMode: launchedPermissionMode ?? null,
-        binding,
-        cwd,
-        prompt: scrubProviderValue(prompt) as string,
-        ...(promptSource ? { promptSource } : {}),
-        model: definition.model,
-        reasoningEffort: definition.reasoningEffort,
-        resumeProviderSessionId: providerSessionId ?? null,
-        ...(onExitCommand ? { onExitCommand } : {}),
-        ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
-        ...(delegatedBy
-          ? {
-            delegatedByAgentId: delegatedBy.id,
-            delegatedByAgentName: delegatedBy.name,
-            squadId: target!.squadId,
-          }
-          : {}),
-      });
+      const openStream = (): DispatchStreamWriter =>
+        (stream ??= openDispatchStream(input.rootDir, {
+          dispatchId: newDispatchId,
+          taskId: taskBinding?.taskId ?? null,
+          executionId: taskBinding?.executionId ?? null,
+          runtimeSessionId,
+          instanceId: definition.instanceId,
+          startedAt: streamStartedAt,
+          dispatchOpId,
+          kindId: definition.kindId,
+          permissionMode: launchedPermissionMode ?? null,
+          binding,
+          cwd,
+          prompt: scrubProviderValue(prompt) as string,
+          ...(promptSource ? { promptSource } : {}),
+          model: definition.model,
+          reasoningEffort: definition.reasoningEffort,
+          resumeProviderSessionId: providerSessionId ?? null,
+          ...(onExitCommand ? { onExitCommand } : {}),
+          ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
+          ...(delegatedBy
+            ? {
+                delegatedByAgentId: delegatedBy.id,
+                delegatedByAgentName: delegatedBy.name,
+                squadId: target!.squadId,
+              }
+            : {}),
+        }));
       if (providerSessionId)
         try {
           openStream();

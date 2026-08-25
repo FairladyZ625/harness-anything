@@ -4,4 +4,25 @@ set -eu
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
+staged_paths=$(git diff --cached --name-only --diff-filter=ACMRTUXB)
+if printf '%s\n' "$staged_paths" | grep -Eq '(^|/)(artifacts|harness)(/|$)'; then
+  printf 'Refusing to commit authored or task artifacts from the public repository.\n' >&2
+  printf 'Use `ha doc sync --submit --path tasks/<pkg>/artifacts/reports/<file>.md` for receipts.\n' >&2
+  exit 1
+fi
+
+canonical_root=${HARNESS_CANONICAL_ROOT:-}
+if [ -n "$canonical_root" ] && [ -d "$canonical_root" ]; then
+  canonical_root=$(cd "$canonical_root" && pwd -P)
+  if [ "$canonical_root" = "$(pwd -P)" ]; then
+    case ${HARNESS_ACTOR:-} in
+      agent:*)
+        printf 'Refusing a worker commit in the canonical repository root.\n' >&2
+        printf 'Commit from the worker worktree; CEO publication owns the canonical root.\n' >&2
+        exit 1
+        ;;
+    esac
+  fi
+fi
+
 npx --no-install lint-staged

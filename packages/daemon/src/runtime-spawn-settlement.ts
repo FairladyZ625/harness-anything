@@ -5,6 +5,7 @@ import { markRuntimeSessionResult, scrubProviderValue } from "./dispatch-stream.
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
+import { pushWorkerBranch } from "./runtime-worker-push.ts";
 
 export async function publishExit(context: any, active: ActiveRuntime, code: number | null): Promise<void> {
   if (
@@ -40,8 +41,12 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
               ? ("unknown" as const)
               : (active.providerOutcome ?? ("unknown" as const));
     let outcome = letOutcome;
-    const body = context.runtimeResultText(active, code, outcome),
-      sha256 = createHash("sha256").update(body).digest("hex"),
+    let body = context.runtimeResultText(active, code, outcome);
+    if (active.task && outcome === "succeeded") {
+      const push = await pushWorkerBranch({ cwd: active.cwd, canonicalRoot: context.input.rootDir });
+      if (push.attempted && !push.ok) body = `${body}\n\nWorker branch push failed (no retry): ${push.detail}`;
+    }
+    const sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
         sha256,
         size: Buffer.byteLength(body),
