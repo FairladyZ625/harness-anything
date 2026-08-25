@@ -127,32 +127,6 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     };
   mkdirSync(root);
   initIngressRepo(root, 4306);
-  mkdirSync(path.join(root, "harness", "agents"), { recursive: true });
-  writeFileSync(
-    path.join(root, "harness", "agents", "declared-model.json"),
-    `${JSON.stringify({ schema: "agent-declaration/v1", id: "declared-model", name: "Declared Model", instructions: "Include the identity marker exactly: AGENT_INSTRUCTIONS_WITNESS.", runtime_type: "codex", role: "worker", model: "agent-declared", prompts: ["PROMPT_FRAGMENT_FIRST", "PROMPT_FRAGMENT_SECOND"], preset: "standard-task" })}\n`,
-  );
-  writeFileSync(
-    path.join(root, "harness", "agents", "default-model.json"),
-    `${JSON.stringify({ schema: "agent-declaration/v1", id: "default-model", name: "Default Model", instructions: "Use instance default.", runtime_type: "codex", role: "commander" })}\n`,
-  );
-  writeFileSync(
-    path.join(root, "harness", "agents", "any-model.json"),
-    `${JSON.stringify({ schema: "agent-declaration/v1", id: "any-model", name: "Any Model", instructions: "Use any compatible runtime.", runtime_type: "any" })}\n`,
-  );
-  writeFileSync(
-    path.join(root, "harness", "agents", "opencode-model.json"),
-    `${JSON.stringify({ schema: "agent-declaration/v1", id: "opencode-model", name: "OpenCode Model", instructions: "Use OpenCode only.", runtime_type: "opencode" })}\n`,
-  );
-  writeFileSync(
-    path.join(root, "harness", "agents", "missing-preset.json"),
-    `${JSON.stringify({ schema: "agent-declaration/v1", id: "missing-preset", name: "Missing Preset", instructions: "Do not dispatch without the preset.", runtime_type: "codex", preset: "missing-preset" })}\n`,
-  );
-  mkdirSync(path.join(root, "harness", "squads"), { recursive: true });
-  writeFileSync(
-    path.join(root, "harness", "squads", "persona-squad.json"),
-    `${JSON.stringify({ schema: "squad-declaration/v1", id: "persona-squad", name: "Persona Squad", leader: "default-model", workers: ["declared-model"], roster: "persona work -> declared-model" })}\n`,
-  );
   const probed: string[] = [],
     unavailableReadiness = {
       status: "not-ready" as const,
@@ -271,11 +245,67 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       };
     },
   });
+  const binding = {
+    actor: { principal: { personId: "person-agent-model" }, executor: null },
+    source: "local" as const,
+  };
+  for (const declaration of [
+    {
+      schema: "agent-declaration/v1",
+      id: "declared-model",
+      name: "Declared Model",
+      instructions: "Include the identity marker exactly: AGENT_INSTRUCTIONS_WITNESS.",
+      runtime_type: "codex",
+      role: "worker",
+      model: "agent-declared",
+      prompts: ["PROMPT_FRAGMENT_FIRST", "PROMPT_FRAGMENT_SECOND"],
+      preset: "standard-task",
+    },
+    {
+      schema: "agent-declaration/v1",
+      id: "default-model",
+      name: "Default Model",
+      instructions: "Use instance default.",
+      runtime_type: "codex",
+      role: "commander",
+    },
+    {
+      schema: "agent-declaration/v1",
+      id: "any-model",
+      name: "Any Model",
+      instructions: "Use any compatible runtime.",
+      runtime_type: "any",
+    },
+    {
+      schema: "agent-declaration/v1",
+      id: "opencode-model",
+      name: "OpenCode Model",
+      instructions: "Use OpenCode only.",
+      runtime_type: "opencode",
+    },
+    {
+      schema: "agent-declaration/v1",
+      id: "missing-preset",
+      name: "Missing Preset",
+      instructions: "Do not dispatch without the preset.",
+      runtime_type: "codex",
+      preset: "missing-preset",
+    },
+    {
+      schema: "squad-declaration/v1",
+      id: "persona-squad",
+      name: "Persona Squad",
+      leader: "default-model",
+      workers: ["declared-model"],
+      roster: "persona work -> declared-model",
+    },
+  ] as const) {
+    await cell.run(
+      { kind: declaration.schema === "agent-declaration/v1" ? "agent-install" : "squad-install", declaration },
+      binding,
+    );
+  }
   try {
-    const binding = {
-      actor: { principal: { personId: "person-agent-model" }, executor: null },
-      source: "local" as const,
-    };
     assert.deepEqual(
       instances
         .listPublic()
@@ -482,9 +512,19 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       ),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "agent_runtime_type_mismatch",
     );
-    writeFileSync(
-      path.join(root, "harness", "agents", "declared-model.json"),
-      `${JSON.stringify({ schema: "agent-declaration/v1", id: "declared-model", name: "Declared Model", instructions: "Include the identity marker exactly: AGENT_INSTRUCTIONS_WITNESS.", runtime_type: "codex", model: "unavailable-model" })}\n`,
+    await cell.run(
+      {
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "declared-model",
+          name: "Declared Model",
+          instructions: "Include the identity marker exactly: AGENT_INSTRUCTIONS_WITNESS.",
+          runtime_type: "codex",
+          model: "unavailable-model",
+        },
+      },
+      binding,
     );
     await assert.rejects(
       cell.spawnRuntime(
@@ -537,20 +577,6 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
     path.join(skillDir, "SKILL.md"),
     "---\nname: squad-witness\ndescription: Squad witness\n---\nSQUAD_SKILL_WITNESS\n",
   );
-  mkdirSync(path.join(root, "harness", "agents"), { recursive: true });
-  mkdirSync(path.join(root, "harness", "squads"), { recursive: true });
-  writeFileSync(
-    path.join(root, "harness", "agents", "squad-leader.json"),
-    `${JSON.stringify({ schema: "agent-declaration/v1", id: "squad-leader", name: "Squad Leader", instructions: "Delegate work.", runtime_type: "codex" })}\n`,
-  );
-  writeFileSync(
-    path.join(root, "harness", "agents", "squad-worker.json"),
-    `${JSON.stringify({ schema: "agent-declaration/v1", id: "squad-worker", name: "Squad Worker", instructions: "Use the squad skill.", runtime_type: "any", skills: [{ id: "squad-witness", path: skillDir }] })}\n`,
-  );
-  writeFileSync(
-    path.join(root, "harness", "squads", "runtime-squad.json"),
-    `${JSON.stringify({ schema: "squad-declaration/v1", id: "runtime-squad", name: "Runtime Squad", leader: "squad-leader", workers: ["squad-worker"], roster: "# Runtime Squad" })}\n`,
-  );
   const cell = await openRepoCell({
     repoId: workspaceId("runtime-squad-worker"),
     rootDir: canonicalRoot(root),
@@ -595,15 +621,50 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
       terminate: () => undefined,
     }),
   });
-  try {
-    const binding = {
-        actor: {
-          principal: { personId: "person-squad-worker" },
-          executor: null,
-        },
-        source: "local" as const,
+  const binding = {
+      actor: {
+        principal: { personId: "person-squad-worker" },
+        executor: null,
       },
-      skillFile = realpathSync(path.join(skillDir, "SKILL.md"));
+      source: "local" as const,
+    },
+    skillFile = realpathSync(path.join(skillDir, "SKILL.md"));
+  for (const [kind, declaration] of [
+    [
+      "agent",
+      {
+        schema: "agent-declaration/v1",
+        id: "squad-leader",
+        name: "Squad Leader",
+        instructions: "Delegate work.",
+        runtime_type: "codex",
+      },
+    ],
+    [
+      "agent",
+      {
+        schema: "agent-declaration/v1",
+        id: "squad-worker",
+        name: "Squad Worker",
+        instructions: "Use the squad skill.",
+        runtime_type: "any",
+        skills: [{ id: "squad-witness", path: skillDir }],
+      },
+    ],
+    [
+      "squad",
+      {
+        schema: "squad-declaration/v1",
+        id: "runtime-squad",
+        name: "Runtime Squad",
+        leader: "squad-leader",
+        workers: ["squad-worker"],
+        roster: "# Runtime Squad",
+      },
+    ],
+  ] as const)
+    await cell.run({ kind: `${kind}-install`, declaration }, binding);
+  try {
     for (const kindId of kinds) {
       const receipt = await cell.spawnRuntime(
         {
@@ -659,11 +720,6 @@ test("Agent skill is really read by the provider from the absolute path in its f
     path.join(root, "harness", "skills", "provider-witness", "SKILL.md"),
     "---\nname: provider-witness\ndescription: Provider witness\n---\nSKILL_PROVIDER_WITNESS\n",
   );
-  mkdirSync(path.join(root, "harness", "agents"), { recursive: true });
-  writeFileSync(
-    path.join(root, "harness", "agents", "skill-agent.json"),
-    `${JSON.stringify({ schema: "agent-declaration/v1", id: "skill-agent", name: "Skill Agent", instructions: "Use the provider skill.", runtime_type: "codex", skills: [{ id: "provider-witness", path: "skills/provider-witness" }] })}\n`,
-  );
   registerDaemonRepo({
     canonicalRoot: root,
     repoId,
@@ -683,6 +739,22 @@ test("Agent skill is really read by the provider from the absolute path in its f
       runtimeDiscover: () => [installation],
     });
   await host.attachmentsSettled();
+  const install = await host.run(
+    repoId,
+    {
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "skill-agent",
+        name: "Skill Agent",
+        instructions: "Use the provider skill.",
+        runtime_type: "codex",
+        skills: [{ id: "provider-witness", path: "skills/provider-witness" }],
+      },
+    },
+    auth,
+  );
+  assert.equal(install.outcome, "applied", JSON.stringify(install));
   try {
     host.runtimeInstance(
       "daemon.runtimeInstance.create",

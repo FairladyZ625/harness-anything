@@ -4,13 +4,15 @@ import {
   closeoutReadiness,
   compileExecutionExecutorDeclaration,
   compileTaskLifecycleWrite,
+  createEntityStore,
+  explainEntityKind,
   executionExecutorDeclarationCandidates,
   isLedgerLayoutMigrationEvent,
   lifecycleDocumentPaths,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
-import { runAgentEntityAction } from "./agent-entities.ts";
+import { prepareAgentEntityInstall, runAgentEntityAction } from "./agent-entities.ts";
 import { distillPromotionAction, prepareDistillCandidate } from "./distill-actions.ts";
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
@@ -181,11 +183,48 @@ export async function executeAction(
     );
   }
   if (action.kind === "preset-upgrade") return cell.upgradePresetSnapshot(action, binding);
-  if (/^(?:agent|squad)-install$/u.test(action.kind)) return cell.installAgentEntity(action, binding);
+  if (/^entity-(?:explain|get|list)$/u.test(action.kind)) {
+    const revision = cell.store.readHead()?.revision ?? 0,
+      kind = cell.requiredCellText(action.entityKind, "entityKind"),
+      entities = createEntityStore(cell.store);
+    if (action.kind === "entity-explain")
+      return cell.readResult(
+        cell.operationId(action, binding, cell.input.repoId, revision),
+        explainEntityKind(kind),
+        revision,
+        null,
+      );
+    if (action.kind === "entity-list")
+      return cell.readResult(
+        cell.operationId(action, binding, cell.input.repoId, revision),
+        { schema: "entity-list/v1", kind, entities: entities.list(kind) },
+        revision,
+        null,
+      );
+    const entityId = cell.requiredCellText(action.entityId, "entityId"),
+      entity = entities.get(kind, entityId);
+    if (entity === null) throw cell.cellCodedError("entity_not_found", `Entity ${kind}/${entityId} is not installed.`);
+    const result = { schema: "entity-get/v1", kind, entity };
+    return cell.readResult(cell.operationId(action, binding, cell.input.repoId, revision), result, revision, null);
+  }
+  if (/^(?:agent|squad)-install$/u.test(action.kind)) {
+    const prepared = prepareAgentEntityInstall({
+      rootDir: cell.rootDir,
+      action,
+      entityStore: createEntityStore(cell.store),
+      runtimeInstances: cell.input.runtimeInstances?.(),
+    });
+    return cell.upsertEntity(action, binding, {
+      entityKind: prepared.kind,
+      entity: prepared.declaration,
+      report: prepared.report,
+    });
+  }
   if (/^(?:agent|squad)-(?:list|inspect|validate)$/u.test(action.kind)) {
     const revision = cell.store.readHead()?.revision ?? 0,
       result = runAgentEntityAction({
         rootDir: cell.rootDir,
+        entityStore: createEntityStore(cell.store),
         action,
         runtimeInstances: cell.input.runtimeInstances?.(),
       });

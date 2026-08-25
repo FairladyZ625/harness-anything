@@ -15,7 +15,7 @@ import { emit, main, resolveCliVersion } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 112);
+  assert.equal(thinCliCommands.length, 115);
   for (const domain of [
     ...new Set(daemonProtocolCommands.map((command) => command.path[0])),
   ]
@@ -136,6 +136,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "doc-sync-dry-run",
       "doc-sync-submit",
     ],
+    entity: ["entity-explain", "entity-get", "entity-list"],
     fact: ["fact-record", "fact-search", "fact-show"],
     init: ["repo-bootstrap"],
     migrate: ["ledger-migrate", "migrate-import"],

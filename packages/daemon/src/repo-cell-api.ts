@@ -1,5 +1,6 @@
 import {
   assertCurrentWriter,
+  createEntityStore,
   projectDecisionReadiness,
   type TaskProjectionListQuery,
   type WriteReceipt,
@@ -213,24 +214,36 @@ export function createRepoCellApi(context: any): RepoCell {
         projection: context.projection,
         ...taskDispatchesPayloadFromCell(payload),
       }),
-    "repo.agent.entities.list": () => readAgentEntityGuiProjection({ rootDir: context.rootDir, kind: "agent-list" }),
+    "repo.agent.entities.list": () =>
+      readAgentEntityGuiProjection({
+        rootDir: context.rootDir,
+        kind: "agent-list",
+        entityStore: createEntityStore(context.store),
+      }),
     "repo.agent.entity.read": (payload: Readonly<Record<string, unknown>>) =>
       readAgentEntityGuiProjection({
         rootDir: context.rootDir,
         kind: "agent-inspect",
         entityId: context.requiredCellText(payload.agentId, "agentId"),
+        entityStore: createEntityStore(context.store),
       }),
     "repo.agent.skills.list": () => ({
       schema: "agent-skill-catalog/v1" as const,
       ok: true as const,
       skills: discoverAgentSkills({ rootDir: context.rootDir }),
     }),
-    "repo.squad.entities.list": () => readAgentEntityGuiProjection({ rootDir: context.rootDir, kind: "squad-list" }),
+    "repo.squad.entities.list": () =>
+      readAgentEntityGuiProjection({
+        rootDir: context.rootDir,
+        kind: "squad-list",
+        entityStore: createEntityStore(context.store),
+      }),
     "repo.squad.entity.read": (payload: Readonly<Record<string, unknown>>) =>
       readAgentEntityGuiProjection({
         rootDir: context.rootDir,
         kind: "squad-inspect",
         entityId: context.requiredCellText(payload.squadId, "squadId"),
+        entityStore: createEntityStore(context.store),
       }),
     "repo.decisions.list": () => {
       const read = context.projection.listDecisions({}),

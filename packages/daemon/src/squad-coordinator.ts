@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import type { AgentRuntimeEventV1, CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import {
+  consumeKnownError,
+  createEntityStore,
+  type AgentRuntimeEventV1,
+  type CanonicalEventStore,
+  type TaskProjection,
+} from "../../kernel/src/index.ts";
 import { readSquadDeclaration } from "./agent-entities.ts";
 import { appendRuntimeWorkerRecord, readDispatchStreams } from "./dispatch-stream.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
@@ -93,7 +98,11 @@ export function makeSquadCoordinator(input: {
       taskId = requiredSquadText(action.taskId, "taskId"),
       mission = requiredSquadText(action.prompt, "prompt"),
       cwd = resolveCwd(input.rootDir, action.cwd),
-      squad = readSquadDeclaration({ rootDir: input.rootDir, squadId }),
+      squad = readSquadDeclaration({
+        rootDir: input.rootDir,
+        squadId,
+        entityStore: createEntityStore(input.store()),
+      }),
       squadRunId = `squad_${randomUUID().replaceAll("-", "").slice(0, 24)}`,
       state: SquadState = {
         schema: "squad-run/v1",

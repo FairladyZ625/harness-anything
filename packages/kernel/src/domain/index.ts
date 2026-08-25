@@ -101,7 +101,12 @@ export {
 } from "./fact-event.ts";
 export type { FactConfidence, FactEventDraftV1, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
 
-export { createEntityKindRegistry, getEntityKind } from "./entity-kind-registry.ts";
+export {
+  createEntityKindRegistry,
+  explainEntityKind,
+  getEntityKind,
+  requireEntityKindContract,
+} from "./entity-kind-registry.ts";
 export type {
   EntityKindDeclaration,
   EntityKindRegistration,
@@ -135,7 +140,7 @@ export type {
 
 export type { EngineError, BindingInvariantError, ArtifactStoreError, TemplateLibraryError } from "./errors.ts";
 
-export { compileAgentEntityWrite, isAgentEntityEvent } from "./agent-entity-event.ts";
+export { isEntityEvent } from "./entity-event.ts";
 
 export {
   validateExtensionInputShape,

@@ -53,11 +53,15 @@ export class AgentEntityContractError extends Error {
     this.name = "AgentEntityContractError";
   }
 }
-// runtime_type is an open identifier, not a closed union: the Agent declares which class of runtime it
-// needs (claude, codex, opencode, dsh, ...); whether a concrete instance can serve it is decided at spawn.
 const runtimeTypeIdentifier = /^[a-z0-9][a-z0-9-]{0,63}$/u;
 export function isRuntimeTypeIdentifier(value: string): boolean {
   return runtimeTypeIdentifier.test(value);
+}
+export function entitySlug(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value);
+}
+export function entityNonEmpty(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 export function validateAgentDeclarationV1(value: unknown): readonly string[] {
   if (!isEntityRecord(value)) return ["agent declaration must be a JSON object; expected agent-declaration/v1."];
@@ -144,16 +148,14 @@ export function serializeAgentDeclarationV1(value: unknown): string {
 export function serializeSquadDeclarationV1(value: unknown): string {
   return serializeEntity(value, validateSquadDeclarationV1);
 }
+
+function isEntityRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 function serializeEntity(value: unknown, validate: (input: unknown) => readonly string[]): string {
   const errors = validate(value);
   if (errors.length) throw new AgentEntityContractError(errors.join("; "));
   return `${JSON.stringify(value, null, 2)}\n`;
-}
-function isEntityRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-export function entityNonEmpty(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
 }
 function nonEmptyStrings(value: unknown): boolean {
   return Array.isArray(value) && value.every(entityNonEmpty);
@@ -171,9 +173,6 @@ function agentSkills(value: unknown): value is readonly AgentSkillDeclarationV1[
     ) &&
     new Set(value.map((item) => (item as AgentSkillDeclarationV1).id)).size === value.length
   );
-}
-export function entitySlug(value: unknown): value is string {
-  return typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value);
 }
 // GUI read envelopes for the identity layers. These validators live in this pure contract
 // module (no runtime imports) because the schema-closure gate imports them from a checkout

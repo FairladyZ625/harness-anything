@@ -19,7 +19,7 @@ import {
   reduceRuntimeSession,
   runtimeSessionId,
 } from "../domain/agent-runtime.ts";
-import { isAgentEntityEvent } from "../domain/agent-entity-event.ts";
+import { isEntityEvent } from "../domain/entity-event.ts";
 import { isTaskBootstrapEvent, taskBootstrapPackagePath } from "../domain/task-bootstrap-event.ts";
 import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
@@ -92,19 +92,18 @@ export function applyEvent(
     projectMigration(db, event, eventJson, readBlob);
     return;
   }
-  if (isAgentEntityEvent(event)) {
+  if (isEntityEvent(event)) {
     const claim = event.payload.declarationDocumentClaim,
       bytes = readBlob(claim.sha256);
     if (!bytes || bytes.byteLength !== claim.size)
-      throw new Error(`agent entity declaration blob ${claim.sha256} is unavailable`);
+      throw new Error(`entity declaration blob ${claim.sha256} is unavailable`);
     let body: string;
     try {
       body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
-      throw new Error(`agent entity declaration blob ${claim.sha256} is not UTF-8`);
+      throw new Error(`entity declaration blob ${claim.sha256} is not UTF-8`);
     }
-    if (sha256Text(body) !== claim.sha256)
-      throw new Error(`agent entity declaration blob ${claim.sha256} hash mismatch`);
+    if (sha256Text(body) !== claim.sha256) throw new Error(`entity declaration blob ${claim.sha256} hash mismatch`);
     const document: DocumentState = {
       path: claim.path as DocumentState["path"],
       blobSha256: claim.sha256,
@@ -180,10 +179,9 @@ export function applyEvent(
     );
     for (const change of event.payload.changes) {
       const previous =
-        /* @gate-identity check-bypass-write-boundary/bypass-write-011 */
-        db.prepare("SELECT value_json FROM document WHERE path = ?").get(change.path) as
-          | { readonly value_json: string }
-          | undefined,
+          /* @gate-identity check-bypass-write-boundary/bypass-write-011 */
+          db.prepare("SELECT value_json FROM document WHERE path = ?").get(change.path) as
+            { readonly value_json: string } | undefined,
         base = previous ? (JSON.parse(previous.value_json) as DocumentState) : null;
       if (change.candidate === null) {
         if (

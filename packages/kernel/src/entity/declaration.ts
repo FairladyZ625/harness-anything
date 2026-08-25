@@ -1,5 +1,4 @@
 import path from "node:path";
-import { Schema } from "effect";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath } from "../layout/index.ts";
 import { localLayoutFileSystem } from "../local/local-layout-file-system.ts";
@@ -13,11 +12,17 @@ import {
   type EntityStorageForm,
 } from "./registry.ts";
 
+export interface EntitySchemaLike {
+  readonly ast: object;
+}
+
 export type EntityDeclaration = Omit<
   EntityRegistration<string, string>,
   "schema" | "rootResolver" | "projection" | "documentCodec"
 > & {
-  readonly schema: Schema.Schema<any, any, never>;
+  // Keep the declaration boundary runtime-agnostic. Concrete schema implementations
+  // (including Effect Schema) belong to the package that consumes the declaration.
+  readonly schema: EntitySchemaLike;
   readonly rootResolver: EntityRootResolverDeclaration;
   readonly projection: EntityProjectionDeclaration;
   readonly documentCodec: EntityDocumentCodec;
@@ -37,8 +42,8 @@ export function decodeEntityDeclaration(input: unknown): EntityDeclaration {
 }
 
 function validateFiveTuple(candidate: Partial<EntityDeclaration>): void {
-  if (!Schema.isSchema(candidate.schema)) {
-    throw new Error("entity declaration schema must be an Effect Schema");
+  if (!isSchemaLike(candidate.schema)) {
+    throw new Error("entity declaration schema must be a schema value");
   }
   if (!candidate.mutabilityContract || Object.keys(candidate.mutabilityContract).length === 0) {
     throw new Error("entity declaration mutability contract must not be empty");
@@ -53,6 +58,10 @@ function validateFiveTuple(candidate: Partial<EntityDeclaration>): void {
   if (!candidate.dispositionMatrix || !candidate.dispositionMatrix.entries) {
     throw new Error("entity declaration disposition matrix is required");
   }
+}
+
+function isSchemaLike(value: unknown): value is EntitySchemaLike {
+  return typeof value === "function" && "ast" in value && value.ast !== null && typeof value.ast === "object";
 }
 
 export function decodeEntityPathDeclaration(input: unknown): EntityPathDeclaration {

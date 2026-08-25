@@ -4,21 +4,14 @@ import {
   executeAction as executeActionImpl,
   lifecycleAction as lifecycleActionImpl,
 } from "./repo-cell-action-dispatch.ts";
-import {
-  decisionProposalAction,
-  taskCreateAction,
-} from "./repo-cell-action-parse.ts";
+import { decisionProposalAction, taskCreateAction } from "./repo-cell-action-parse.ts";
 import { buildCommand, withServerMeta } from "./repo-cell-command.ts";
 import {
   completionKillpoint as completionKillpointImpl,
   publishCiWitness as publishCiWitnessImpl,
   showTask as showTaskImpl,
 } from "./repo-cell-completion.ts";
-import {
-  cellCodedError,
-  errorOperationId,
-  publishGeneratedArtifact,
-} from "./repo-cell-errors.ts";
+import { cellCodedError, errorOperationId, publishGeneratedArtifact } from "./repo-cell-errors.ts";
 import {
   decodeEvidencePayload,
   renderEvidencePayload,
@@ -79,7 +72,7 @@ import {
 } from "./repo-cell-task-create.ts";
 import {
   archiveTasks as archiveTasksImpl,
-  installAgentEntity as installAgentEntityImpl,
+  upsertEntity as upsertEntityImpl,
   migrateTaskContracts as migrateTaskContractsImpl,
   supersedeWithNewTask as supersedeWithNewTaskImpl,
 } from "./repo-cell-task-maintenance.ts";
@@ -118,9 +111,7 @@ export function createRepoCellActionContext(bindings: {
   readonly getSquadCoordinator: () => any;
 }): any {
   const bind =
-    <Args extends readonly unknown[], Result>(
-      implementation: (context: any, ...args: Args) => Result,
-    ) =>
+    <Args extends readonly unknown[], Result>(implementation: (context: any, ...args: Args) => Result) =>
     (...args: Args): Result =>
       implementation(context, ...args);
 
@@ -154,7 +145,7 @@ export function createRepoCellActionContext(bindings: {
       return bindings.getDecisionActions();
     },
     upgradePresetSnapshot: bind(upgradePresetSnapshotImpl),
-    installAgentEntity: bind(installAgentEntityImpl),
+    upsertEntity: bind(upsertEntityImpl),
     readResult: bind(readResultImpl),
     taskWipEnteringAction: bind(taskWipEnteringActionImpl),
     assertTaskWipCapacity: bind(assertTaskWipCapacityImpl),

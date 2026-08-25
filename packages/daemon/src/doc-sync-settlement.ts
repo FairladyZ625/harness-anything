@@ -251,18 +251,19 @@ export function scannerSettlement(
   scan: DocCandidateScan,
   receipt: DocSettlementReceipt,
 ): DocSettlementReceipt {
-  const scanned = scanDetail(input, scan, receipt.outcome),
+  const receiptDetail = receipt.detail?.kind === "doc_sync" ? receipt.detail : undefined,
+    scanned = scanDetail(input, scan, receipt.outcome),
     skipped = scanned.unresolvedTouches.length + scanned.deletions.length,
-    detail = receipt.detail && {
-      ...receipt.detail,
+    detail = receiptDetail && {
+      ...receiptDetail,
       unresolvedTouches: scanned.unresolvedTouches,
       deletions: scanned.deletions,
-      nextAction: skipped ? scanned.nextAction : receipt.detail.nextAction,
+      nextAction: skipped ? scanned.nextAction : receiptDetail.nextAction,
     };
   return {
     ...receipt,
     ...(detail ? { detail } : {}),
-    summary: submitSummary(receipt.outcome, receipt.detail?.paths.map((row) => row.path) ?? [], scan),
+    summary: submitSummary(receipt.outcome, receiptDetail?.paths.map((row) => row.path) ?? [], scan),
   };
 }
 
