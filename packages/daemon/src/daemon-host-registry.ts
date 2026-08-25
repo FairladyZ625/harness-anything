@@ -138,6 +138,7 @@ export async function performOpenRegistered(
       runtimeDaemonRoute: context.runtimeDaemonRoute,
       authoredBranch: repo.authoredBranch,
       ...(context.input.shutdownRequested ? { shouldStop: context.input.shutdownRequested } : {}),
+      ...(context.input.recordLifecycle ? { recordLifecycle: context.input.recordLifecycle } : {}),
       ...context.runtimePorts,
       ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
     });

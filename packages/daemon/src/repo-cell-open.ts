@@ -42,6 +42,7 @@ import { makeDaemonRuntimeAdmissionGuard } from "./runtime-admission.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
+import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 
 export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
   return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };
@@ -72,6 +73,7 @@ export async function openRepoCell(input: {
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
+  readonly recordLifecycle?: DaemonLifecycleRecorder;
 }): Promise<RepoCell> {
   const rootDir = input.rootDir,
     mode = input.mode ?? "local",
@@ -269,6 +271,7 @@ export async function openRepoCell(input: {
     onRuntimeOutcome: (event) => {
       schedule(() => squadCoordinator.observeOutcome(event));
     },
+    ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });
   const squadCoordinator = makeSquadCoordinator({

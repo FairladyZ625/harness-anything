@@ -32,6 +32,7 @@ const dispatchSortRank: Readonly<Record<TaskDispatchRow["status"], number>> = {
   failed: 1,
   unknown: 1,
   cancelled: 1,
+  lost: 1,
 };
 export function runtimePanoramaDelegation(row: RuntimePanoramaRow): string | null {
   if (!row.delegatedByAgentId || !row.agentId) return null;
@@ -82,6 +83,7 @@ export const runtimeDockStatusDot: Readonly<Record<RuntimeDockStatus, "live" | "
   succeeded: "idle",
   cancelled: "idle",
   unknown: "idle",
+  lost: "failed",
   "ended-indeterminate": "idle",
   unavailable: "idle",
 };
@@ -91,6 +93,7 @@ export const runtimeDockStatusKey: Record<RuntimeDockStatus, string> = {
   failed: "agentRuntime.sessionStatusFailed",
   cancelled: "agentRuntime.sessionStatusCancelled",
   unknown: "agentRuntime.sessionStatusUnknown",
+  lost: "agentRuntime.sessionStatusUnknown",
   "ended-indeterminate": "agentRuntime.sessionStatusEndedIndeterminate",
   unavailable: "agentRuntime.sessionStatusUnavailable",
 };

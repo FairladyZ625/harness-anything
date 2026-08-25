@@ -93,6 +93,9 @@ export type ActiveRuntime = {
   cancelRequested: boolean;
   cancelBinding: RuntimeBinding | null;
   cancelOpId: string | null;
+  lossReason: string | null;
+  lossSignal: string | null;
+  lossExitCode: number | null;
 };
 
 export type ProviderFrame = {

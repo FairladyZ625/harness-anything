@@ -20,6 +20,7 @@ import {
 } from "./cli/thin-command.ts";
 import {
   daemonAutostartFailureCode,
+  daemonBuildStaleCode,
   daemonResponseTimeoutCode,
   daemonTargetFailureCode,
   runCommandThroughDaemon,
@@ -92,7 +93,8 @@ export async function main(
     const autostartCode = daemonAutostartFailureCode(error),
       timeoutCode = daemonResponseTimeoutCode(error),
       targetCode = daemonTargetFailureCode(error),
-      direct = autostartCode ?? targetCode;
+      buildStaleCode = daemonBuildStaleCode(error),
+      direct = autostartCode ?? targetCode ?? buildStaleCode;
     emit(
       cliFailure(
         parsed.command.action.kind,

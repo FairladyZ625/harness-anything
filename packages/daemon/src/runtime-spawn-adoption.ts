@@ -1,4 +1,5 @@
 import {
+  markRuntimeSessionLost,
   readDispatchStream,
   readDispatchStreams,
   reopenDispatchStream,
@@ -73,11 +74,23 @@ export async function adoptRuntimes(context: any): Promise<void> {
       );
     }
     attachActiveRuntime(context, active);
-    if (!stream.process.exited && !runtimePidIsAlive(stream.process.pid)) {
+    const processState = stream.process;
+    if (processState && !processState.exited && !runtimePidIsAlive(processState.pid)) {
       const timer = setTimeout(() => {
         const current = readDispatchStream(context.input.rootDir, active.dispatchId);
         if (!current?.process?.exited && context.processes.get(active.runtimeSessionId) === active) {
-          context.input.schedule(() => context.publishExit(active, null));
+          const reason = `runtime process ${String(processState.pid)} is no longer alive after daemon restart`;
+          active.lossReason = reason;
+          active.lossExitCode = current?.process?.exitCode ?? null;
+          active.lossSignal = current?.process?.signal ?? null;
+          markRuntimeSessionLost(
+            context.input.rootDir,
+            active.dispatchId,
+            reason,
+            active.lossExitCode,
+            active.lossSignal,
+          );
+          context.input.schedule(() => context.publishExit(active, active.lossExitCode));
         }
       }, 50);
       timer.unref();

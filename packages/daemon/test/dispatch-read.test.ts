@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchLiveIndex } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, markRuntimeSessionLost, openDispatchStream, readDispatchLiveIndex } from "../src/dispatch-stream.ts";
 import { readTaskDispatches } from "../src/dispatch-read.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c", runtimeSessionId = "runtime-1", taskId = "task-1";
@@ -36,6 +36,16 @@ test("a dispatch whose session has exited reports unknown, not running", () => {
   assert.equal(statusFor(session("exited", null)), "unknown");
   assert.equal(statusFor(session("unknown", null)), "unknown");
   assert.equal(statusFor(session("stale", null)), "unknown");
+});
+
+test("a daemon restart loss is a terminal lost dispatch", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-lost-"));
+  try {
+    openDispatchStream(rootDir, { dispatchId, taskId, executionId: "execution-1", runtimeSessionId, instanceId: "instance-1", startedAt: "2026-08-23T00:00:00.000Z" });
+    markRuntimeSessionLost(rootDir, dispatchId, "provider pid disappeared");
+    const result = readTaskDispatches({ rootDir, projection: projectionFor(session("exited", null)), taskId });
+    assert.equal(result.dispatches[0]?.status, "lost");
+  } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 test("a dispatch whose session is live still reports running", () => {
