@@ -1,7 +1,6 @@
 import { consumeKnownError, type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
 import {
   readDispatchLiveIndex,
-  readRuntimeSessionIndex,
   readDispatchStream,
   removeDispatchLiveIndexEntries,
   type DispatchStreamHeader,
@@ -60,22 +59,23 @@ export function readTaskDispatches(
     if (sessions.has(entry.runtimeSessionId)) staleIndexEntries.set(entry.dispatchId, entry);
   }
   const rows = new Map<string, TaskDispatchRow>();
-  const sessionIndex = new Map(readRuntimeSessionIndex(input.rootDir).map((entry) => [entry.dispatchId, entry]));
   for (const [dispatchId, candidate] of candidates) {
+    const stream = /^dispatch_[a-f0-9]{24}$/u.test(dispatchId) ? readDispatchStream(input.rootDir, dispatchId) : null,
+      lost =
+        stream?.records.some((record) => record.kind === "process_lost") === true ||
+        (stream?.process?.exited === false &&
+          candidate.session?.liveness === "exited" &&
+          candidate.session.outcome === "unknown");
     for (const target of candidate.taskPackages) {
       const documentPath = `${target.packagePath}/artifacts/dispatches/${dispatchId}.json`;
       const read = input.projection.readDocument(documentPath);
       const archive = read.document ? parseArchive(read.document.body) : null;
       if (archive?.taskId !== target.taskId) continue;
-      rows.set(
-        dispatchId,
-        archiveRow(archive, candidate.session, target.packagePath, sessionIndex.get(dispatchId)?.state === "lost"),
-      );
+      rows.set(dispatchId, archiveRow(archive, candidate.session, target.packagePath, lost));
       if (candidate.indexed) staleIndexEntries.set(dispatchId, indexedEntries.get(dispatchId)!);
       break;
     }
-    if (rows.has(dispatchId) || !/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) continue;
-    const stream = readDispatchStream(input.rootDir, dispatchId);
+    if (rows.has(dispatchId)) continue;
     if (!stream?.header.taskId || !tasks.has(stream.header.taskId)) {
       if (candidate.indexed) staleIndexEntries.set(dispatchId, indexedEntries.get(dispatchId)!);
       continue;
@@ -89,7 +89,7 @@ export function readTaskDispatches(
         candidate.session,
         live,
         candidate.taskPackages[0]?.packagePath ?? null,
-        sessionIndex.get(dispatchId)?.state === "lost",
+        lost,
       ),
     );
   }
@@ -203,7 +203,7 @@ function liveRow(
     startedAt: header.startedAt,
     endedAt: null,
     outcome,
-    status: outcome ?? (lost ? "lost" : session?.liveness === "live" || processRunning ? "running" : "unknown"),
+    status: lost ? "lost" : (outcome ?? (session?.liveness === "live" || processRunning ? "running" : "unknown")),
     resultRef: session?.resultRef ?? null,
     exitCode: session?.exitCode ?? null,
     ...(packagePath
