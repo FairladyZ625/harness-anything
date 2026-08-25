@@ -1,10 +1,6 @@
 import { type SessionProvenanceV1 } from "./agent-runtime.ts";
 import { type EntityRelationRecord } from "./entity-relation.ts";
-import {
-  type ActorIdentity,
-  type EventEnvelope,
-  type FrozenWritePlan,
-} from "./write-chain.contract.ts";
+import { type ActorIdentity, type EventEnvelope, type FrozenWritePlan } from "./write-chain.contract.ts";
 
 export const decisionEventTypes = [
   "decision_proposed",
@@ -29,11 +25,9 @@ export const decisionStates = [
   "superseded",
   "outcome_retired",
 ] as const;
-export const decisionFulfillmentModes = [
-  "evidenced",
-  "delivered",
-  "standing_policy",
-] as const;
+export const policyStates = ["draft", "active", "retired"] as const;
+export type PolicyState = (typeof policyStates)[number];
+export const decisionFulfillmentModes = ["evidenced", "delivered", "standing_policy"] as const;
 export type DecisionState = (typeof decisionStates)[number];
 export type DecisionFulfillmentMode = (typeof decisionFulfillmentModes)[number];
 export interface DecisionProposalPayload {
@@ -93,8 +87,7 @@ export interface DecisionAmendmentV1 {
 export interface DecisionContentPinV1 {
   readonly schema: "decision-content-pin/v1";
   readonly pinId: string;
-  readonly action:
-    "accept" | "reject" | "defer" | "supersede" | "retire" | "amend" | "repin";
+  readonly action: "accept" | "reject" | "defer" | "supersede" | "retire" | "amend" | "repin";
   readonly state: DecisionState;
   readonly pinnedAt: string;
   readonly evidence: string;
@@ -155,8 +148,7 @@ export interface DecisionJudgmentConsentV1 {
   readonly source: DecisionEventDraftV1["source"];
   readonly consentedAt: string;
 }
-export const DECISION_DOCUMENT_POLICY_ID =
-  "markdown-body-replaceable/v1" as const;
+export const DECISION_DOCUMENT_POLICY_ID = "markdown-body-replaceable/v1" as const;
 export interface DecisionDocumentClaim {
   readonly path: string;
   readonly sha256: string;
@@ -169,38 +161,25 @@ export interface DecisionDocumentMutation {
   readonly decisionDocumentClaim: DecisionDocumentClaim;
 }
 export type DecisionEventDraftV1 = {
-  [T in keyof DecisionPayloads]: EventEnvelope<
-    "decision-event/v1",
-    T,
-    ActorIdentity,
-    DecisionPayloads[T]
-  > & { readonly decisionId: string };
+  [T in keyof DecisionPayloads]: EventEnvelope<"decision-event/v1", T, ActorIdentity, DecisionPayloads[T]> & {
+    readonly decisionId: string;
+  };
 }[keyof DecisionPayloads];
-export type DecisionOutcomeType =
-  "decision_accepted" | "decision_rejected" | "decision_deferred";
-export type DecisionTransitionType =
-  DecisionOutcomeType | "decision_superseded" | "decision_retired";
-type DecisionPublishedPayload<T extends keyof DecisionPayloads> =
-  DecisionPayloads[T] &
-    DecisionDocumentMutation &
-    (T extends DecisionOutcomeType
-      ? { readonly judgmentConsent: DecisionJudgmentConsentV1 }
+export type DecisionOutcomeType = "decision_accepted" | "decision_rejected" | "decision_deferred";
+export type DecisionTransitionType = DecisionOutcomeType | "decision_superseded" | "decision_retired";
+type DecisionPublishedPayload<T extends keyof DecisionPayloads> = DecisionPayloads[T] &
+  DecisionDocumentMutation &
+  (T extends DecisionOutcomeType ? { readonly judgmentConsent: DecisionJudgmentConsentV1 } : object) &
+  (T extends DecisionTransitionType | "decision_repinned"
+    ? { readonly contentPin?: DecisionContentPinV1 }
+    : T extends "decision_amended"
+      ? { readonly contentPin: DecisionContentPinV1 }
       : object) &
-    (T extends DecisionTransitionType | "decision_repinned"
-      ? { readonly contentPin?: DecisionContentPinV1 }
-      : T extends "decision_amended"
-        ? { readonly contentPin: DecisionContentPinV1 }
-        : object) &
-    (T extends "decision_amended"
-      ? { readonly amendment: DecisionAmendmentV1 }
-      : object);
+  (T extends "decision_amended" ? { readonly amendment: DecisionAmendmentV1 } : object);
 export type DecisionEventV1 = {
-  [T in keyof DecisionPayloads]: EventEnvelope<
-    "decision-event/v1",
-    T,
-    ActorIdentity,
-    DecisionPublishedPayload<T>
-  > & { readonly decisionId: string };
+  [T in keyof DecisionPayloads]: EventEnvelope<"decision-event/v1", T, ActorIdentity, DecisionPublishedPayload<T>> & {
+    readonly decisionId: string;
+  };
 }[keyof DecisionPayloads];
 export interface DecisionDocumentState {
   readonly decisionId: string;

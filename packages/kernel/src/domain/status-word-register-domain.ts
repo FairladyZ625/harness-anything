@@ -1,6 +1,52 @@
 import type { StatusWordRegistration } from "./status-vocabulary-types.ts";
 
 export const domainStatusWords: readonly StatusWordRegistration[] = [
+  // ---- Agent.state (declaration lifecycle) ----
+  {
+    word: "configured",
+    entity: "Agent",
+    field: "state",
+    meaning: "Agent declaration is present and has passed schema validation.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "active",
+    entity: "Agent",
+    field: "state",
+    meaning: "Agent is eligible to receive dispatches.",
+    divergence: "divergent",
+    resolution: "Agent availability, not task execution occupancy; retained as an entity-scoped state.",
+  },
+  {
+    word: "retired",
+    entity: "Agent",
+    field: "state",
+    meaning: "Agent declaration is retained for history but no longer dispatchable.",
+    divergence: "entity-scoped",
+  },
+  // ---- Policy.state (policy lifecycle) ----
+  {
+    word: "draft",
+    entity: "Policy",
+    field: "state",
+    meaning: "Policy has been authored but is not in effect.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "active",
+    entity: "Policy",
+    field: "state",
+    meaning: "Policy is currently in effect for authorized executions.",
+    divergence: "divergent",
+    resolution: "Policy effect, not task or execution activity; retained as an entity-scoped state.",
+  },
+  {
+    word: "retired",
+    entity: "Policy",
+    field: "state",
+    meaning: "Policy is no longer in effect but remains auditable.",
+    divergence: "entity-scoped",
+  },
   // ---- Slice-3 domain judgments (registered here when the two slices met on main) ----
   {
     word: "blocked",

@@ -6,13 +6,29 @@ import {
   canonicalRelationDirections,
   incomingRelations,
   type CanonicalRelationDirection,
-  type RelationEndpointKind
+  type RelationEndpointKind,
 } from "../../src/domain/relation-direction.ts";
 
-const kinds: readonly RelationEndpointKind[] = ["task", "decision", "fact"];
+const kinds: readonly RelationEndpointKind[] = [
+  "task",
+  "decision",
+  "fact",
+  "execution",
+  "review",
+  "agent",
+  "runtime-session",
+  "policy",
+];
 
-function row(sourceKind: RelationEndpointKind, type: (typeof relationTypes)[number], targetKind: RelationEndpointKind): CanonicalRelationDirection | undefined {
-  return canonicalRelationDirections.find((direction) => direction.sourceKind === sourceKind && direction.type === type && direction.targetKind === targetKind);
+function row(
+  sourceKind: RelationEndpointKind,
+  type: (typeof relationTypes)[number],
+  targetKind: RelationEndpointKind,
+): CanonicalRelationDirection | undefined {
+  return canonicalRelationDirections.find(
+    (direction) =>
+      direction.sourceKind === sourceKind && direction.type === type && direction.targetKind === targetKind,
+  );
 }
 
 test("the canonical direction registry is the allowlist: every triple agrees, cell for cell", () => {
@@ -21,8 +37,9 @@ test("the canonical direction registry is the allowlist: every triple agrees, ce
       for (const targetKind of kinds) {
         assert.equal(
           isAllowedRelationKindTriple(sourceKind, type, targetKind),
-          row(sourceKind, type, targetKind) !== undefined,
-          `${sourceKind} --${type}--> ${targetKind}: allowlist and registry disagree`
+          row(sourceKind, type, targetKind) !== undefined &&
+            row(sourceKind, type, targetKind)?.registration !== "derived",
+          `${sourceKind} --${type}--> ${targetKind}: allowlist and registry disagree`,
         );
       }
     }
@@ -48,7 +65,7 @@ test("every replaced reverse alias is refused on the mirrored endpoint pair", ()
     assert.equal(
       isAllowedRelationKindTriple(direction.targetKind, alias, direction.sourceKind),
       false,
-      `retired alias ${direction.targetKind} --${alias}--> ${direction.sourceKind} must stay unwritable (mirror of ${direction.sourceKind} --${direction.type}--> ${direction.targetKind})`
+      `retired alias ${direction.targetKind} --${alias}--> ${direction.sourceKind} must stay unwritable (mirror of ${direction.sourceKind} --${direction.type}--> ${direction.targetKind})`,
     );
   }
 });
@@ -63,12 +80,12 @@ test("the reverse query agrees with the canonical direction for every registry r
     assert.deepEqual(
       incomingRelations(target, direction.type, edges).map((hit) => hit.source),
       [source],
-      `reverse query at the target of ${direction.sourceKind} --${direction.type}--> ${direction.targetKind} must return the canonical source only`
+      `reverse query at the target of ${direction.sourceKind} --${direction.type}--> ${direction.targetKind} must return the canonical source only`,
     );
     assert.deepEqual(
       incomingRelations(source, direction.type, edges),
       [noise],
-      `asking at the source with the same verb returns only the literal target-side edges`
+      `asking at the source with the same verb returns only the literal target-side edges`,
     );
   }
 });
@@ -78,7 +95,7 @@ test("semantics with no registered reading are flagged, not silently ratified", 
   assert.deepEqual(
     unregistered.map(({ type }) => type).sort(),
     ["blocks"],
-    "only the decision->decision blocks cell lacks registered semantics"
+    "only the decision->decision blocks cell lacks registered semantics",
   );
   for (const direction of unregistered) {
     assert.equal(direction.sourceKind, "decision");
@@ -90,4 +107,14 @@ test("a non-canonical active edge is refused at the write boundary", () => {
   // The same validation the daemon and frontmatter ingest path apply to active edges.
   assert.equal(isAllowedRelationKindTriple("fact", "invalidated-by", "decision"), false);
   assert.equal(isAllowedRelationKindTriple("task", "blocks", "task"), false);
+});
+
+test("Phase 1 relation directions are registered and owns remains derived-only", () => {
+  assert.equal(isAllowedRelationKindTriple("execution", "executes", "task"), true);
+  assert.equal(isAllowedRelationKindTriple("runtime-session", "executes", "task"), true);
+  assert.equal(isAllowedRelationKindTriple("review", "reviews", "execution"), true);
+  assert.equal(isAllowedRelationKindTriple("task", "owns", "agent"), false);
+  assert.equal(isAllowedRelationKindTriple("agent", "dispatches", "runtime-session"), true);
+  assert.equal(isAllowedRelationKindTriple("policy", "authorizes", "execution"), true);
+  assert.equal(canonicalRelationDirections.find((row) => row.type === "owns")?.registration, "derived");
 });

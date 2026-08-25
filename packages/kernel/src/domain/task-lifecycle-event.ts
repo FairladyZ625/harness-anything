@@ -1,9 +1,4 @@
-import {
-  isNativeCommitSha,
-  validateExecutionV1,
-  validateLeaseHolder,
-  validateLeaseV1,
-} from "./execution.ts";
+import { isNativeCommitSha, validateExecutionV1, validateLeaseHolder, validateLeaseV1 } from "./execution.ts";
 import type { ExecutionV1, LeaseHolder, LeaseV1 } from "./execution.ts";
 import { validateReviewConsentV1, validateReviewV1 } from "./review.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
@@ -17,10 +12,7 @@ import {
   type CodeDocRepointV1,
   type CodeDocWitnessV1,
 } from "./code-doc-witness.ts";
-import {
-  validateCompletionGateWitnessV1,
-  type CompletionGateWitnessV1,
-} from "./completion-gate-witness.ts";
+import { validateCompletionGateWitnessV1, type CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import {
   hasOnlyFields,
   hasRequiredFields,
@@ -33,10 +25,7 @@ import {
 } from "./write-chain.contract.ts";
 import type { EventEnvelope } from "./write-chain.contract.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import {
-  isValidDocEventChange,
-  type DocEventChange,
-} from "./doc-sync.contract.ts";
+import { isValidDocEventChange, type DocEventChange } from "./doc-sync.contract.ts";
 export const taskEventTypes = [
   "task_created",
   "execution_started",
@@ -91,8 +80,7 @@ export type TaskCreatedEvent = EventEnvelope<
     readonly carriedDocumentClaims?: readonly TaskCarriedDocumentChange[];
   }
 > & { readonly taskId: string };
-export type LeaseChangeReason =
-  "initial_claim" | "same_principal_reconnect" | "ttl_expired_takeover";
+export type LeaseChangeReason = "initial_claim" | "same_principal_reconnect" | "ttl_expired_takeover";
 export type ExecutionStartedEvent = TaskEventEnvelope<
   "execution_started",
   {
@@ -244,10 +232,7 @@ export type TaskLifecycleErrorCode =
 export class TaskLifecycleContractError extends Error {
   readonly code: TaskLifecycleErrorCode;
   readonly issues: readonly ContractValidationIssue[];
-  constructor(
-    code: TaskLifecycleErrorCode,
-    issues: readonly ContractValidationIssue[],
-  ) {
+  constructor(code: TaskLifecycleErrorCode, issues: readonly ContractValidationIssue[]) {
     super(issues.map((issue) => issue.message).join("; "));
     this.name = "TaskLifecycleContractError";
     this.code = code;
@@ -270,32 +255,18 @@ export const TASK_EVENT_V1_SCHEMA = Object.freeze({
   ]),
   types: taskEventTypes,
 });
-export function validateTaskEvent(
-  value: unknown,
-): readonly ContractValidationIssue[] {
+export function validateTaskEvent(value: unknown): readonly ContractValidationIssue[] {
   return validateTaskEventFields(value, true);
 }
-export function validateCurrentTaskEvent(
-  value: unknown,
-): readonly ContractValidationIssue[] {
+export function validateCurrentTaskEvent(value: unknown): readonly ContractValidationIssue[] {
   return validateTaskEventFields(value, false);
 }
-function validateTaskEventFields(
-  value: unknown,
-  allowUnknownFields: boolean,
-): readonly ContractValidationIssue[] {
+function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): readonly ContractValidationIssue[] {
   if (
     !isRecord(value) ||
-    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(
-      value,
-      TASK_EVENT_V1_SCHEMA.required,
-    )
+    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, TASK_EVENT_V1_SCHEMA.required)
   )
-    return [
-      invalidEventPayloadIssue(
-        "task-event/v1 fields are incomplete or unknown",
-      ),
-    ];
+    return [invalidEventPayloadIssue("task-event/v1 fields are incomplete or unknown")];
   const issues: ContractValidationIssue[] = [];
   if (value.schema !== "task-event/v1")
     issues.push({
@@ -311,25 +282,15 @@ function validateTaskEventFields(
     (value.workspaceRevision as number) < 1 ||
     !taskEventTypes.includes(value.type as TaskEventType)
   )
-    issues.push(
-      invalidEventPayloadIssue("event identity, revision, or type is invalid"),
-    );
+    issues.push(invalidEventPayloadIssue("event identity, revision, or type is invalid"));
   issues.push(...validateActorAxes(value.actor, allowUnknownFields));
   if (validateWriteSource(value.source, allowUnknownFields).length)
     issues.push(invalidEventPayloadIssue("event source is invalid"));
-  if (!isRecord(value.payload))
-    return [
-      ...issues,
-      invalidEventPayloadIssue("event payload must be an object"),
-    ];
+  if (!isRecord(value.payload)) return [...issues, invalidEventPayloadIssue("event payload must be an object")];
   const payload = value.payload,
     carried = payload.carriedDocumentClaims,
     payloadWithoutCarried = isRecord(payload)
-      ? Object.fromEntries(
-          Object.entries(payload).filter(
-            ([key]) => key !== "carriedDocumentClaims",
-          ),
-        )
+      ? Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "carriedDocumentClaims"))
       : payload,
     fields = lifecyclePayloadFields(
       String(value.type),
@@ -339,39 +300,24 @@ function validateTaskEventFields(
   const claimlessFields =
     value.type === "task_created"
       ? ["task"]
-      : lifecyclePayloadFields(
-          String(value.type),
-          Object.hasOwn(payload, "edge"),
-        ).filter((field) => field !== "documentClaims");
+      : lifecyclePayloadFields(String(value.type), Object.hasOwn(payload, "edge")).filter(
+          (field) => field !== "documentClaims",
+        );
   const payloadFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   const validPayloadFields =
-    (value.type === "task_created" || value.type === "lease_renewed") &&
-    claims === undefined
-      ? payloadFields(
-          payloadWithoutCarried as Record<string, unknown>,
-          claimlessFields,
-        )
+    (value.type === "task_created" || value.type === "lease_renewed") && claims === undefined
+      ? payloadFields(payloadWithoutCarried as Record<string, unknown>, claimlessFields)
       : payloadFields(payloadWithoutCarried as Record<string, unknown>, fields);
   if (
     !validPayloadFields ||
     (claims !== undefined &&
-      (!Array.isArray(claims) ||
-        claims.some(
-          (claim) => !validLifecycleClaim(claim, allowUnknownFields),
-        ))) ||
+      (!Array.isArray(claims) || claims.some((claim) => !validLifecycleClaim(claim, allowUnknownFields)))) ||
     (carried !== undefined &&
       (!Array.isArray(carried) ||
         carried.length === 0 ||
-        carried.some(
-          (change) => !isValidDocEventChange(change, allowUnknownFields),
-        )))
+        carried.some((change) => !isValidDocEventChange(change, allowUnknownFields))))
   )
-    return [
-      ...issues,
-      invalidEventPayloadIssue(
-        `${String(value.type)} payload fields or document claims are invalid`,
-      ),
-    ];
+    return [...issues, invalidEventPayloadIssue(`${String(value.type)} payload fields or document claims are invalid`)];
   issues.push(...validateTaskV1(payload.task, allowUnknownFields));
   if (
     [
@@ -392,32 +338,21 @@ function validateTaskEventFields(
   if (value.type === "execution_started" || value.type === "lease_renewed") {
     issues.push(...validateLeaseV1(payload.lease, allowUnknownFields));
     if (payload.previousHolder !== null)
-      issues.push(
-        ...validateLeaseHolder(payload.previousHolder, allowUnknownFields),
-      );
+      issues.push(...validateLeaseHolder(payload.previousHolder, allowUnknownFields));
     if (
       !isNonEmptyString(payload.leaseExpiresAt) ||
-      ![
-        "initial_claim",
-        "same_principal_reconnect",
-        "ttl_expired_takeover",
-      ].includes(String(payload.reason)) ||
+      !["initial_claim", "same_principal_reconnect", "ttl_expired_takeover"].includes(String(payload.reason)) ||
       (value.type === "lease_renewed" &&
-        (payload.previousHolder === null ||
-          payload.reason !== "same_principal_reconnect"))
+        (payload.previousHolder === null || payload.reason !== "same_principal_reconnect"))
     )
       issues.push(invalidEventPayloadIssue("lease event history is invalid"));
   }
   if (value.type === "execution_executor_declared") {
-    issues.push(
-      ...validateActorAxes(payload.previousActor, allowUnknownFields),
-    );
+    issues.push(...validateActorAxes(payload.previousActor, allowUnknownFields));
     if (
       !isNonEmptyString(payload.reason) ||
-      (isRecord(payload.previousActor) &&
-        payload.previousActor.executor !== null) ||
-      (isRecord(payload.execution) &&
-        !sameActorIdentity(payload.execution.actor, value.actor))
+      (isRecord(payload.previousActor) && payload.previousActor.executor !== null) ||
+      (isRecord(payload.execution) && !sameActorIdentity(payload.execution.actor, value.actor))
     )
       issues.push(
         invalidEventPayloadIssue(
@@ -425,21 +360,15 @@ function validateTaskEventFields(
         ),
       );
   }
-  if (value.type === "review_recorded")
-    issues.push(...validateReviewV1(payload.review, allowUnknownFields));
+  if (value.type === "review_recorded") issues.push(...validateReviewV1(payload.review, allowUnknownFields));
   if (value.type === "review_consent_recorded")
     issues.push(
       ...validateReviewV1(payload.review, allowUnknownFields),
       ...validateReviewConsentV1(payload.consent, allowUnknownFields),
     );
   if (value.type === "code_doc_reconciled")
-    issues.push(
-      ...validateCodeDocWitnessV1(payload.witness, allowUnknownFields),
-    );
-  if (value.type === "code_doc_repointed")
-    issues.push(
-      ...validateCodeDocRepointV1(payload.record, allowUnknownFields),
-    );
+    issues.push(...validateCodeDocWitnessV1(payload.witness, allowUnknownFields));
+  if (value.type === "code_doc_repointed") issues.push(...validateCodeDocRepointV1(payload.record, allowUnknownFields));
   if (
     value.type === "code_doc_repointed" &&
     isRecord(payload.record) &&
@@ -450,13 +379,9 @@ function validateTaskEventFields(
       !sameWriteSource(payload.record.source, value.source) ||
       payload.record.repointedAt !== value.occurredAt)
   )
-    issues.push(
-      invalidEventPayloadIssue("code-doc repoint record must be pinned to its canonical event envelope"),
-    );
+    issues.push(invalidEventPayloadIssue("code-doc repoint record must be pinned to its canonical event envelope"));
   if (value.type === "completion_gate_verified") {
-    issues.push(
-      ...validateCompletionGateWitnessV1(payload.witness, allowUnknownFields),
-    );
+    issues.push(...validateCompletionGateWitnessV1(payload.witness, allowUnknownFields));
     if (
       isRecord(payload.witness) &&
       (payload.witness.receiptId !== value.opId ||
@@ -464,79 +389,49 @@ function validateTaskEventFields(
         !sameActorIdentity(payload.witness.actor, value.actor) ||
         !sameWriteSource(payload.witness.source, value.source))
     )
-      issues.push(
-        invalidEventPayloadIssue(
-          "completion gate witness must be pinned to its canonical event receipt",
-        ),
-      );
+      issues.push(invalidEventPayloadIssue("completion gate witness must be pinned to its canonical event receipt"));
   }
-  if ("edge" in payload)
-    issues.push(...validateEdge(payload.edge, allowUnknownFields));
+  if ("edge" in payload) issues.push(...validateEdge(payload.edge, allowUnknownFields));
   if (value.type === "lease_released") {
     issues.push(...validateLeaseV1(payload.releasedLease, allowUnknownFields));
     if (
       !validMutation(payload.mutation, allowUnknownFields) ||
-      (isRecord(payload.releasedLease) &&
-        payload.releasedLease.taskId !== value.taskId)
+      (isRecord(payload.releasedLease) && payload.releasedLease.taskId !== value.taskId)
     )
-      issues.push(
-        invalidEventPayloadIssue("lease release mutation is invalid"),
-      );
+      issues.push(invalidEventPayloadIssue("lease release mutation is invalid"));
   }
   if (
     String(value.type).startsWith("task_") &&
     !["task_created", "task_completed"].includes(String(value.type)) &&
     !validMutation(payload.mutation, allowUnknownFields)
   )
-    issues.push(
-      invalidEventPayloadIssue("task mutation audit fields are invalid"),
-    );
+    issues.push(invalidEventPayloadIssue("task mutation audit fields are invalid"));
   if (isRecord(payload.task) && "graph" in payload.task)
     issues.push(...validateTaskGraph(payload.task.graph, allowUnknownFields));
   if (isRecord(payload.task) && payload.task.taskId !== value.taskId)
-    issues.push(
-      invalidEventPayloadIssue("payload Task identity must match the envelope"),
-    );
+    issues.push(invalidEventPayloadIssue("payload Task identity must match the envelope"));
   return issues;
 }
-function lifecyclePayloadFields(
-  type: string,
-  edge: boolean,
-): readonly string[] {
+function lifecyclePayloadFields(type: string, edge: boolean): readonly string[] {
   const common = ["task", "execution", "documentClaims"];
   if (type === "task_created") return ["task", "documentClaims"];
   if (type === "execution_started" || type === "lease_renewed")
     return [...common, "lease", "previousHolder", "leaseExpiresAt", "reason"];
   if (type === "execution_submitted") return [...common, "edge"];
-  if (type === "execution_executor_declared")
-    return [...common, "previousActor", "reason"];
-  if (type === "review_recorded")
-    return [...common, "review", ...(edge ? ["edge"] : [])];
-  if (type === "review_consent_recorded")
-    return [...common, "review", "consent"];
-  if (type === "code_doc_reconciled" || type === "completion_gate_verified")
-    return [...common, "witness"];
+  if (type === "execution_executor_declared") return [...common, "previousActor", "reason"];
+  if (type === "review_recorded") return [...common, "review", ...(edge ? ["edge"] : [])];
+  if (type === "review_consent_recorded") return [...common, "review", "consent"];
+  if (type === "code_doc_reconciled" || type === "completion_gate_verified") return [...common, "witness"];
   if (type === "code_doc_repointed") return [...common, "record"];
-  if (type === "lease_released")
-    return [...common, "releasedLease", "mutation"];
-  if (
-    type.startsWith("task_") &&
-    !["task_created", "task_completed"].includes(type)
-  )
+  if (type === "lease_released") return [...common, "releasedLease", "mutation"];
+  if (type.startsWith("task_") && !["task_created", "task_completed"].includes(type))
     return ["task", "mutation", "documentClaims"];
   return common;
 }
-function validMutation(
-  value: unknown,
-  allowUnknownFields: boolean,
-): value is TaskMutationV1 {
+function validMutation(value: unknown, allowUnknownFields: boolean): value is TaskMutationV1 {
   return (
     isRecord(value) &&
-    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
-      "command",
-      "reason",
-      "fields",
-    ]) &&
+    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["command", "reason", "fields"]) &&
     [
       "release",
       "transition",
@@ -550,13 +445,13 @@ function validMutation(
     ].includes(String(value.command)) &&
     isNonEmptyString(value.reason) &&
     Array.isArray(value.fields) &&
-    value.fields.every(isNonEmptyString)
+    value.fields.every((field) => isNonEmptyString(field) && !isImmutableTaskField(field))
   );
 }
-function validLifecycleClaim(
-  value: unknown,
-  allowUnknownFields: boolean,
-): value is LifecycleDocumentClaim {
+function isImmutableTaskField(value: string): boolean {
+  return value.startsWith("owner") || value.startsWith("createdBy");
+}
+function validLifecycleClaim(value: unknown, allowUnknownFields: boolean): value is LifecycleDocumentClaim {
   if (
     !isRecord(value) ||
     !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
@@ -582,14 +477,10 @@ function validLifecycleClaim(
   if (!canonical) return false;
   const planClaim = path.endsWith("/task_plan.md");
   return planClaim
-    ? value.policyId === "markdown-body-replaceable/v1" &&
-        value.mediaType === "text/markdown"
+    ? value.policyId === "markdown-body-replaceable/v1" && value.mediaType === "text/markdown"
     : value.policyId === "typed-machine-writer/v1";
 }
-function validateEdge(
-  value: unknown,
-  allowUnknownFields: boolean,
-): readonly ContractValidationIssue[] {
+function validateEdge(value: unknown, allowUnknownFields: boolean): readonly ContractValidationIssue[] {
   return !isRecord(value) ||
     !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
       "edgeId",
@@ -624,7 +515,6 @@ function invalidEventPayloadIssue(message: string): ContractValidationIssue {
 }
 export function serializeTaskEvent(value: TaskEventV1): string {
   const issues = validateCurrentTaskEvent(value);
-  if (issues.length)
-    throw new TaskLifecycleContractError("invalid_schema", issues);
+  if (issues.length) throw new TaskLifecycleContractError("invalid_schema", issues);
   return serializeEventEnvelope(value);
 }

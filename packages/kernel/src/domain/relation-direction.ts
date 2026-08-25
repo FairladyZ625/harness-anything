@@ -2,10 +2,18 @@ import type { RelationType } from "./entity-relation.ts";
 
 /** Endpoint kinds that can host a canonical relation edge. Parsed refs may also be
  * "relation" or external-harness aliases; neither can host an edge. */
-export type RelationEndpointKind = "task" | "decision" | "fact";
+export type RelationEndpointKind =
+  | "task"
+  | "decision"
+  | "fact"
+  | "execution"
+  | "review"
+  | "agent"
+  | "runtime-session"
+  | "policy";
 
 /** Whether the reading of an allowed triple has a registered semantics. */
-export type RelationDirectionRegistration = "ratified" | "unregistered";
+export type RelationDirectionRegistration = "ratified" | "unregistered" | "derived";
 
 /**
  * The canonical direction registry (blueprint 铁律三): one row per writable
@@ -159,6 +167,51 @@ export const canonicalRelationDirections: readonly CanonicalRelationDirection[] 
     sourceKind: "fact",
     targetKind: "fact",
     reads: "the fact supersedes the target fact",
+    registration: "ratified",
+  },
+  // Phase 1 execution/review/runtime relations. `owns` is a read-only semantic
+  // projection of task.createdBy.principal, so it is registered for direction
+  // and reverse-query purposes but is not a writable relation edge.
+  {
+    type: "executes",
+    sourceKind: "execution",
+    targetKind: "task",
+    reads: "the execution executes the target task",
+    registration: "ratified",
+  },
+  {
+    type: "executes",
+    sourceKind: "runtime-session",
+    targetKind: "task",
+    reads: "the runtime session executes the target task",
+    registration: "ratified",
+  },
+  {
+    type: "reviews",
+    sourceKind: "review",
+    targetKind: "execution",
+    reads: "the review reviews the target execution",
+    registration: "ratified",
+  },
+  {
+    type: "owns",
+    sourceKind: "task",
+    targetKind: "agent",
+    reads: "the task is owned by the agent derived from createdBy.principal",
+    registration: "derived",
+  },
+  {
+    type: "dispatches",
+    sourceKind: "agent",
+    targetKind: "runtime-session",
+    reads: "the agent dispatches the target runtime session",
+    registration: "ratified",
+  },
+  {
+    type: "authorizes",
+    sourceKind: "policy",
+    targetKind: "execution",
+    reads: "the policy authorizes the target execution",
     registration: "ratified",
   },
 ];

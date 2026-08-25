@@ -49,6 +49,11 @@ export const KIND_AXIS: Record<RelationKind, SemanticAxis> = {
   evidences: "evidence",
   "refuted-by": "evidence",
   "invalidated-by": "evidence",
+  executes: "execution",
+  reviews: "execution",
+  owns: "assoc",
+  dispatches: "execution",
+  authorizes: "authority",
 };
 
 export function axisForKind(kind: RelationKind): SemanticAxis {
@@ -94,6 +99,11 @@ export const KIND_LABEL: Record<RelationKind, string> = {
   "refuted-by": "反驳",
   "invalidated-by": "失效于",
   "supersedes-fact": "取代事实",
+  executes: "执行",
+  reviews: "审查",
+  owns: "拥有",
+  dispatches: "派发",
+  authorizes: "授权",
 };
 
 export const KIND_LABEL_IN: Record<string, string> = {

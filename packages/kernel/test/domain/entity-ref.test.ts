@@ -6,7 +6,7 @@ import {
   deriveRelationId,
   formatRelationFlowRecord,
   isAllowedRelationKindTriple,
-  validateRelationRecordsForHost
+  validateRelationRecordsForHost,
 } from "../../src/domain/entity-relation.ts";
 import type { EntityRelationRecord } from "../../src/domain/entity-relation.ts";
 
@@ -15,14 +15,14 @@ test("EntityRef parser accepts local and prefixed task references", () => {
     raw: "task/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q",
     kind: "task",
     id: "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q",
-    externalHarness: false
+    externalHarness: false,
   });
   assert.deepEqual(parseEntityRef("team-a:task/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q"), {
     raw: "team-a:task/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q",
     kind: "task",
     id: "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q",
     harnessAlias: "team-a",
-    externalHarness: true
+    externalHarness: true,
   });
   assert.equal(parseEntityRef("issue/123"), null);
   assert.equal(parseEntityRef("task/v1"), null);
@@ -35,14 +35,14 @@ test("EntityRef parser accepts M3 decision and fact endpoints", () => {
     kind: "decision",
     id: "dec_01K7Z",
     anchor: "C1",
-    externalHarness: false
+    externalHarness: false,
   });
   assert.deepEqual(parseEntityRef("fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/F-a3f2"), {
     raw: "fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/F-a3f2",
     kind: "fact",
     id: "F-a3f2",
     ownerTaskId: "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q",
-    externalHarness: false
+    externalHarness: false,
   });
   assert.equal(parseEntityRef("decision/doc"), null);
   assert.equal(parseEntityRef("fact/F-a3f2"), null);
@@ -54,29 +54,50 @@ test("EntityRef parser accepts hosted relation entity refs", () => {
     raw: "relation/rel_b75516c583945a52",
     kind: "relation",
     id: "rel_b75516c583945a52",
-    externalHarness: false
+    externalHarness: false,
   });
   assert.equal(parseEntityRef("relation/not-a-relation"), null);
+});
+
+test("EntityRef parser accepts Phase 1 relation endpoints", () => {
+  for (const [kind, ref] of [
+    ["execution", "execution/exe-1"],
+    ["review", "review/rev-1"],
+    ["agent", "agent/codex"],
+    ["runtime-session", "runtime-session/run-1"],
+    ["policy", "policy/policy-1"],
+  ] as const) {
+    assert.equal(parseEntityRef(ref)?.kind, kind);
+  }
+  assert.equal(parseEntityRef("squad/codex"), null);
 });
 
 test("EntityRef scanner preserves external harness prefixes without resolving them", () => {
   const refs = findEntityRefs("depends on task/local-task and other-harness:task/remote-task");
 
-  assert.deepEqual(refs.map((ref) => [ref.raw, ref.externalHarness]), [
-    ["task/local-task", false],
-    ["other-harness:task/remote-task", true]
-  ]);
+  assert.deepEqual(
+    refs.map((ref) => [ref.raw, ref.externalHarness]),
+    [
+      ["task/local-task", false],
+      ["other-harness:task/remote-task", true],
+    ],
+  );
 });
 
 test("EntityRef scanner ignores task-like prose, package markers, and paths", () => {
-  const refs = findEntityRefs([
-    "Task Contract: harness-task/v1",
-    "workspace has task/doc/terminal panes",
-    "path scripts/domain/task/task-subjects.mts",
-    "real refs task/local-task, decision/decision-local/C1, and fact/task_local/F-a3f2 remain"
-  ].join("\n"));
+  const refs = findEntityRefs(
+    [
+      "Task Contract: harness-task/v1",
+      "workspace has task/doc/terminal panes",
+      "path scripts/domain/task/task-subjects.mts",
+      "real refs task/local-task, decision/decision-local/C1, and fact/task_local/F-a3f2 remain",
+    ].join("\n"),
+  );
 
-  assert.deepEqual(refs.map((ref) => ref.raw), ["task/local-task", "decision/decision-local/C1", "fact/task_local/F-a3f2"]);
+  assert.deepEqual(
+    refs.map((ref) => ref.raw),
+    ["task/local-task", "decision/decision-local/C1", "fact/task_local/F-a3f2"],
+  );
 });
 
 test("relation ids are deterministic and ignore mutable relation attributes", () => {
@@ -85,7 +106,7 @@ test("relation ids are deterministic and ignore mutable relation attributes", ()
     ...base,
     strength: "weak",
     rationale: "Different rationale, same canonical edge.",
-    state: "retired"
+    state: "retired",
   } satisfies EntityRelationRecord;
 
   assert.equal(deriveRelationId(base), "rel_472c68c5d5dff1ed");
@@ -97,28 +118,30 @@ test("relation validator rejects host drift, duplicates, missing rationale, and 
   const duplicateWithDifferentAttributes = {
     ...base,
     strength: "weak",
-    rationale: "A different authored attribute set on the same canonical edge."
+    rationale: "A different authored attribute set on the same canonical edge.",
   } satisfies EntityRelationRecord;
 
   assert.deepEqual(
-    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [base, duplicateWithDifferentAttributes])
-      .map((issue) => issue.code),
-    ["duplicate_relation_id"]
+    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [base, duplicateWithDifferentAttributes]).map(
+      (issue) => issue.code,
+    ),
+    ["duplicate_relation_id"],
   );
   assert.deepEqual(
-    validateRelationRecordsForHost("decision/dec_OTHER", [base])
-      .map((issue) => issue.code),
-    ["relation_host_source_mismatch"]
+    validateRelationRecordsForHost("decision/dec_OTHER", [base]).map((issue) => issue.code),
+    ["relation_host_source_mismatch"],
   );
   assert.deepEqual(
-    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [{ ...base, rationale: "   " }])
-      .map((issue) => issue.code),
-    ["relation_rationale_missing"]
+    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [{ ...base, rationale: "   " }]).map(
+      (issue) => issue.code,
+    ),
+    ["relation_rationale_missing"],
   );
   assert.deepEqual(
-    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [{ ...base, target: "fact/F-a3f2" }])
-      .map((issue) => issue.code),
-    ["invalid_relation_endpoint"]
+    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [{ ...base, target: "fact/F-a3f2" }]).map(
+      (issue) => issue.code,
+    ),
+    ["invalid_relation_endpoint"],
   );
 });
 
@@ -149,7 +172,7 @@ test("type-subset whitelist only governs active relations", () => {
       source: "decision/dec_01K7ZTRIADIC/CH1",
       target: "task/task_01KV5TBASE",
       type: "implements",
-      direction: "directed"
+      direction: "directed",
     }),
     source: "decision/dec_01K7ZTRIADIC/CH1",
     target: "task/task_01KV5TBASE",
@@ -158,20 +181,17 @@ test("type-subset whitelist only governs active relations", () => {
     direction: "directed",
     origin: "declared",
     rationale: "Wrong-direction edge retired by the ledger migration.",
-    state: "retired"
+    state: "retired",
   } satisfies EntityRelationRecord;
 
   // Retired audit history does not re-trip the whitelist ...
-  assert.deepEqual(
-    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [retiredIllegal]),
-    []
-  );
+  assert.deepEqual(validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [retiredIllegal]), []);
   // ... but the same edge in active state still does.
   assert.deepEqual(
-    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [
-      { ...retiredIllegal, state: "active" }
-    ]).map((issue) => issue.code),
-    ["invalid_relation_type_subset"]
+    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [{ ...retiredIllegal, state: "active" }]).map(
+      (issue) => issue.code,
+    ),
+    ["invalid_relation_type_subset"],
   );
 });
 
@@ -194,6 +214,6 @@ function relationRecord(): EntityRelationRecord {
     direction: "directed",
     origin: "declared",
     rationale: "C1 is supported by the measured finding F-a3f2.",
-    state: "active"
+    state: "active",
   };
 }
