@@ -27,7 +27,7 @@ const squad = {
   roster: "# Core Squad",
 };
 
-test("registered Entity kinds explain the same contract shape from their JSON schemas", () => {
+test("registered declaration Entity kinds explain the same contract shape from their JSON schemas", () => {
   const explanations = [explainEntityKind("agent"), explainEntityKind("squad")];
   assert.deepEqual(Object.keys(explanations[0]!).sort(), Object.keys(explanations[1]!).sort());
   for (const explanation of explanations) {
@@ -39,8 +39,12 @@ test("registered Entity kinds explain the same contract shape from their JSON sc
     ]);
     assert.equal(explanation.id.field, "id");
     assert.equal(explanation.relations.directions.length, 0);
-    assert.deepEqual(explanation.transitions, { catalogRef: null, available: [] });
   }
+  assert.deepEqual(explanations[0]!.transitions, {
+    catalogRef: "kernel/agent-declaration/v1",
+    available: ["configure", "activate", "retire"],
+  });
+  assert.deepEqual(explanations[1]!.transitions, { catalogRef: null, available: [] });
   assert.equal(explanations[0]!.documentSchema.fields.find(({ name }) => name === "runtime_type")?.required, true);
   assert.match(
     validateAgentDeclarationV1({
@@ -74,9 +78,9 @@ test("RuntimeSession explains its identity, task handoff, status vocabulary, and
     },
   ]);
   assert.deepEqual(
-    explanation.documentSchema.fields.filter(({ name }) =>
-      ["runtimeSessionId", "taskBindings", "liveness", "outcome", "semanticState"].includes(name),
-    ).map(({ name, required }) => ({ name, required })),
+    explanation.documentSchema.fields
+      .filter(({ name }) => ["runtimeSessionId", "taskBindings", "liveness", "outcome", "semanticState"].includes(name))
+      .map(({ name, required }) => ({ name, required })),
     [
       { name: "runtimeSessionId", required: true },
       { name: "taskBindings", required: true },

@@ -11,6 +11,7 @@ export type StatusEntity =
   | "Review"
   | "RuntimeSession"
   | "WriteReceipt"
+  | "AuthorizationDecision"
   | "Recovery"
   | "PresetRun"
   | "TaskCloseout"

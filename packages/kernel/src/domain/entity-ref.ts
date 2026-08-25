@@ -18,6 +18,7 @@ export interface ParsedEntityRef {
   readonly harnessAlias?: string;
   readonly externalHarness: boolean;
 }
+export type EntityRef = ParsedEntityRef["raw"];
 
 const entityRefPrefixPattern = /^(?:(?<alias>[A-Za-z][A-Za-z0-9_-]*):)?(?<body>.+)$/u;
 const taskOrDecisionRefPattern = /^(?<kind>task|decision)\/(?<id>[A-Za-z0-9_-]+)(?:\/(?<anchor>[A-Za-z0-9_-]+))?$/u;

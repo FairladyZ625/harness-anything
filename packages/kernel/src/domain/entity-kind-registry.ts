@@ -1,6 +1,7 @@
 import type { VerticalDefinition } from "../schemas/registry.ts";
-import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
-import { runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
+import { AGENT_DECLARATION_V1_SCHEMA, agentStates, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
+import { agentRuntimeEventTypes, runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
+import { policyStates } from "./decision-event-types.ts";
 import { DEFAULT_POLICY } from "./default-policy.ts";
 import {
   ENTITY_ID_PATTERN,
@@ -10,8 +11,10 @@ import {
   type EntityJsonSchemaNode,
 } from "./entity-json-schema.ts";
 import type { RelationDirection } from "./entity-relation.ts";
+import { executionStates } from "./execution.ts";
 import { POLICY_DECLARATION_V1_SCHEMA, validatePolicyDeclarationV1 } from "./policy.ts";
 import type { PolicyPredicateName } from "./policy.ts";
+import { reviewVerdicts } from "./review.ts";
 
 export type EntityKindDeclaration = VerticalDefinition["entityKinds"][number];
 export type EntityPackageScaffold = VerticalDefinition["packageScaffolds"][number];
@@ -185,7 +188,11 @@ export const entityKindContracts = Object.freeze([
     schema: AGENT_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "agent/{id}" },
     relations: { directions: [], edges: [] },
-    transitionCatalog: null,
+    statusVocabulary: [{ field: "state", words: agentStates }],
+    transitionCatalog: {
+      ref: "kernel/agent-declaration/v1",
+      transitions: ["configure", "activate", "retire"],
+    },
     document: declarationDocument("agents/{id}.json"),
   },
   {
@@ -201,7 +208,11 @@ export const entityKindContracts = Object.freeze([
     schema: POLICY_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "policy/{id}" },
     relations: { directions: [], edges: [] },
-    transitionCatalog: null,
+    statusVocabulary: [{ field: "state", words: policyStates }],
+    transitionCatalog: {
+      ref: "kernel/policy/v1",
+      transitions: ["draft", "activate", "retire"],
+    },
     document: declarationDocument("policies/{id}.json"),
     validate: validatePolicyDeclarationV1,
     policy: {
@@ -217,6 +228,7 @@ export const entityKindContracts = Object.freeze([
       directions: ["directed"],
       edges: [{ type: "executes", sourceKind: "execution", targetKind: "task" }],
     },
+    statusVocabulary: [{ field: "state", words: executionStates }],
     transitionCatalog: {
       ref: "kernel/task-lifecycle/v1",
       transitions: ["start", "renew", "submit", "complete", "release"],
@@ -231,6 +243,7 @@ export const entityKindContracts = Object.freeze([
       directions: ["directed"],
       edges: [{ type: "reviews", sourceKind: "review", targetKind: "execution" }],
     },
+    statusVocabulary: [{ field: "verdict", words: reviewVerdicts }],
     transitionCatalog: {
       ref: "kernel/task-lifecycle/v1",
       transitions: ["record"],
@@ -253,7 +266,10 @@ export const entityKindContracts = Object.freeze([
         words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
       },
     ],
-    transitionCatalog: null,
+    transitionCatalog: {
+      ref: "kernel/agent-runtime-event/v1",
+      transitions: agentRuntimeEventTypes.filter((type) => type.startsWith("runtime_session_")),
+    },
     document: declarationDocument("runtime-sessions/{id}.json"),
   },
 ] as const satisfies readonly EntityKindContract[]);
