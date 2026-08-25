@@ -45,6 +45,32 @@ export interface EntityAnchorDeclaration {
   readonly entityRef: string;
   readonly anchors: ReadonlyArray<{ readonly field: string; readonly idField: string; readonly ref: string }>;
 }
+export interface EmbeddedCanonicalEventDeclaration {
+  readonly schema: string;
+  readonly types: ReadonlyArray<string>;
+  readonly payloadField: string;
+}
+export interface EntityCanonicalProjectionDeclaration {
+  readonly embeddedEvents: ReadonlyArray<EmbeddedCanonicalEventDeclaration>;
+  readonly row: {
+    readonly idField: string;
+    readonly ownerField: string;
+  };
+}
+export interface EntityRelationProjectionDeclaration {
+  readonly source: {
+    readonly field: string;
+    readonly refTemplate: string;
+  };
+  readonly target: {
+    readonly field: string;
+    readonly refTemplate: string;
+  };
+  readonly direction: "directed";
+  readonly strength: "strong" | "weak";
+  readonly origin: "generated" | "inferred";
+  readonly rationale: string;
+}
 export interface DispositionMatrixEntry {
   readonly level: DispositionLevel;
   readonly action: DispositionAction;

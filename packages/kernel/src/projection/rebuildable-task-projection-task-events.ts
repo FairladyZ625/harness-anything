@@ -6,6 +6,7 @@ import { lifecycleDocumentPaths } from "../domain/task-lifecycle-publication.ts"
 import { slugifyTaskTitle } from "../layout/index.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
+import { projectEmbeddedCanonicalEntities } from "./rebuildable-task-projection-entities.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { readSnapshot, replayClaim, replayRelease, replayRenew } from "./rebuildable-task-projection-runtime.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
@@ -23,12 +24,6 @@ const UPSERT_DOCUMENT_SQL = [
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
   "value_json=excluded.value_json",
 ].join(" ");
-const UPSERT_ENTITY_SQL = [
-  "INSERT INTO entity_projection(entity_kind, entity_id, task_id, workspace_revision, value_json)",
-  "VALUES (?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id) DO UPDATE SET",
-  "task_id=excluded.task_id, workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-].join(" ");
-
 // Lifecycle task-event reduction, document claims, and materialized task rows.
 export function applyTaskEvent(
   db: DatabaseSync,
@@ -137,36 +132,7 @@ export function applyTaskEvent(
     runSql(db, UPSERT_DOCUMENT_SQL, change.path, event.workspaceRevision, canonicalJson(document));
     refreshDecisionDocumentSearch(db, document);
   }
-  if ("execution" in event.payload)
-    runSql(
-      db,
-      UPSERT_ENTITY_SQL,
-      "execution",
-      event.payload.execution.executionId,
-      event.taskId,
-      event.workspaceRevision,
-      canonicalJson(event.payload.execution),
-    );
-  if (event.type === "review_recorded")
-    runSql(
-      db,
-      UPSERT_ENTITY_SQL,
-      "review",
-      event.payload.review.reviewId,
-      event.taskId,
-      event.workspaceRevision,
-      canonicalJson(event.payload.review),
-    );
-  if (event.type === "review_consent_recorded")
-    runSql(
-      db,
-      UPSERT_ENTITY_SQL,
-      "review",
-      event.payload.review.reviewId,
-      event.taskId,
-      event.workspaceRevision,
-      canonicalJson(event.payload.review),
-    );
+  projectEmbeddedCanonicalEntities(db, event);
   const edge =
     event.type === "execution_submitted"
       ? event.payload.edge
