@@ -7,6 +7,7 @@ import {
   type ActorIdentity,
   type EventEnvelope,
 } from "./write-chain.contract.ts";
+import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 
 export const runtimeProtocolFamilies = ["claude-compatible", "codex", "agy"] as const;
 export const runtimeCapabilities = ["structured_witness", "resume", "attach", "session_identity"] as const;
@@ -109,6 +110,64 @@ export type RuntimeSessionSemanticState =
   | "cancelled"
   | "ended-indeterminate"
   | "unavailable";
+
+const runtimeSessionSemanticStates = [
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "ended-indeterminate",
+  "unavailable",
+] as const;
+
+const runtimeSessionTaskLinkSchema = {
+  type: "object" as const,
+  additionalProperties: false as const,
+  required: ["taskId", "executionId"] as const,
+  properties: {
+    taskId: { type: "string" as const, minLength: 1, description: "Task bound during runtime handoff." },
+    executionId: { type: "string" as const, minLength: 1, description: "Execution opened by the task lease." },
+  },
+  description: "Task handoffs represented by the runtime-session executes edge.",
+};
+
+export const runtimeSessionEntityV1Schema = Object.freeze({
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "runtime-session/v1",
+  type: "object",
+  additionalProperties: false,
+  required: ["schema", "runtimeSessionId", "taskBindings", "liveness", "outcome", "semanticState"],
+  properties: {
+    schema: { type: "string", const: "runtime-session/v1", description: "Schema discriminator." },
+    runtimeSessionId: {
+      type: "string",
+      pattern: "^runtime_[a-z0-9]+$",
+      minLength: 1,
+      description: "Stable runtime session identity.",
+    },
+    taskBindings: {
+      type: "array",
+      items: runtimeSessionTaskLinkSchema,
+      description: "Tasks this session executes after authenticated handoff.",
+    },
+    liveness: {
+      type: "string",
+      enum: runtimeLivenessStates,
+      description: "Provider/process liveness vocabulary.",
+    },
+    outcome: {
+      type: "string",
+      enum: ["succeeded", "failed", "unknown", "cancelled"],
+      "x-nullable": true,
+      description: "Provider outcome, null before settlement.",
+    },
+    semanticState: {
+      type: "string",
+      enum: runtimeSessionSemanticStates,
+      description: "Derived semantic state from liveness and outcome.",
+    },
+  },
+}) as EntityDocumentJsonSchema;
 /** A domain judgment over independent liveness and outcome facts. */
 export function runtimeSessionSemanticState(
   session: Pick<RuntimeSession, "liveness" | "outcome">,
@@ -118,6 +177,7 @@ export function runtimeSessionSemanticState(
   if (session.outcome === "unknown") return "ended-indeterminate";
   return session.liveness === "live" ? "running" : "unavailable";
 }
+
 interface RuntimePayloads {
   readonly runtime_installation_observed: {
     readonly installationId: string;

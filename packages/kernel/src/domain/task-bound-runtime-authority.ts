@@ -16,6 +16,18 @@ export function runtimeSessionIdFromActor(actor: ActorIdentity): string | null {
   return id.startsWith(prefix) && id.length > prefix.length ? id.slice(prefix.length) : null;
 }
 
+/** The handoff edge is the authenticated executor relation for a live runtime. */
+export function runtimeSessionExecutesTask(
+  session: RuntimeSession | null,
+  taskId: string,
+  executionId: string,
+): boolean {
+  return (
+    session?.liveness === "live" &&
+    session.taskBindings.some((binding) => binding.taskId === taskId && binding.executionId === executionId)
+  );
+}
+
 /** Resolves authority only from a canonical live runtime-session projection. */
 export function resolveLiveTaskBoundRuntimeBinding(
   session: RuntimeSession | null,
