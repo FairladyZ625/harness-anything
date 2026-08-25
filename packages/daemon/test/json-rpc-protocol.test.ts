@@ -446,6 +446,7 @@ test("code-doc repoint appends a replacement witness and rejects stale or unknow
     assert.equal(lines[1]!.disposition, "repointed");
     const projection = await cell.read("repo.tasks.list"),
       row = projection.rows.find((value) => value.taskId === taskId)!;
+    assert.deepEqual(validateDaemonTaskSnapshotList(projection), []);
     assert.equal(
       row.closeoutAssessment.gates.find((gate) => gate.gateId === "code-doc-reconciliation")?.status,
       "passed",
@@ -480,6 +481,7 @@ test("code-doc repoint appends a replacement witness and rejects stale or unknow
     assert.equal(invalidLines[2]!.disposition, "known-invalid");
     const invalidProjection = await cell.read("repo.tasks.list"),
       invalidRow = invalidProjection.rows.find((value) => value.taskId === taskId)!;
+    assert.deepEqual(validateDaemonTaskSnapshotList(invalidProjection), []);
     assert.equal(
       invalidRow.closeoutAssessment.gates.find((gate) => gate.gateId === "code-doc-reconciliation")?.status,
       "missing",
