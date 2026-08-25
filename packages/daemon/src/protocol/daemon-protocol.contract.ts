@@ -129,7 +129,6 @@ export const runtimeInstanceMethods = Object.freeze([
         agy: "json?",
         authMode: "string",
         credentialRef: "string?",
-        githubCredentialRef: "string?",
       }),
     }),
     guiBridgeMethod: "createRuntimeInstance",
@@ -179,26 +178,19 @@ export const runtimeInstanceMethods = Object.freeze([
     params: shape({ payload: shape({ instanceId: "string" }) }),
     guiBridgeMethod: "deleteRuntimeInstance",
   },
-] as const);
-
-export const runtimeInstanceCredentialMethods = Object.freeze([
   {
     id: "daemon.runtimeInstance.githubCredential.set",
     phase: "Runtime-Instances-S1",
     method: "daemon.runtimeInstance.githubCredential.set",
     requiresRepo: false,
-    params: shape({
-      payload: shape({ instanceId: "string", githubCredentialRef: "string" }),
-    }),
+    params: shape({ payload: shape({ instanceId: "string", githubCredentialRef: "string" }) }),
   },
   {
     id: "daemon.runtimeInstance.githubCredential.unset",
     phase: "Runtime-Instances-S1",
     method: "daemon.runtimeInstance.githubCredential.unset",
     requiresRepo: false,
-    params: shape({
-      payload: shape({ instanceId: "string" }),
-    }),
+    params: shape({ payload: shape({ instanceId: "string" }) }),
   },
 ] as const);
 
@@ -349,7 +341,6 @@ export const fleetProtocolMethods = Object.freeze([
 export const allDaemonProtocolMethods = Object.freeze([
   ...daemonProtocolMethods,
   ...runtimeInstanceMethods,
-  ...runtimeInstanceCredentialMethods,
   ...runtimeInstanceAuthMethods,
   ...fleetProtocolMethods,
   ...presetMethods,
@@ -366,7 +357,7 @@ export const DAEMON_RPC_SCHEMA = Object.freeze({
 export const daemonGuiInvokeFacets = Object.freeze([
   ...daemonGuiReadMethods,
   ...daemonGuiActionMethods,
-  ...runtimeInstanceMethods,
+  ...runtimeInstanceMethods.filter((method) => "guiBridgeMethod" in method),
   ...runtimeInstanceAuthMethods,
 ]);
 
@@ -400,7 +391,6 @@ export default Object.freeze({
   methods: Object.freeze([
     ...daemonProtocolMethods,
     ...runtimeInstanceMethods,
-    ...runtimeInstanceCredentialMethods,
     ...runtimeInstanceAuthMethods,
     ...fleetProtocolMethods,
     ...daemonGuiReadMethods,

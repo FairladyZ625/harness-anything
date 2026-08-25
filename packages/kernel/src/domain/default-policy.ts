@@ -51,11 +51,7 @@ const defaultPolicyDeclaration = {
           allOf: [
             { predicate: "hasCommandClass", commandClass: "arbiter" },
             { predicate: "isNotProposalAgent" },
-            {
-              predicate: "reviewIndependence",
-              level: "L1",
-              gatedBy: { env: "HARNESS_REVIEW_INDEPENDENCE" },
-            },
+            { predicate: "reviewIndependence", level: "L1" },
           ],
         },
       ],

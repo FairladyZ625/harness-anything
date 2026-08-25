@@ -8,7 +8,6 @@ import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
-const REVIEW_INDEPENDENCE_ENV = "HARNESS_REVIEW_INDEPENDENCE";
 const proposer = {
   actor: {
     principal: { personId: "person-proposer" },
@@ -17,11 +16,9 @@ const proposer = {
   source: "local" as const,
 };
 
-test("Decision outcomes always reject the proposer agent and gate broader reviewer independence", async () => {
+test("Decision outcomes always require independent review", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-independence-"));
   initRepo(rootDir);
-  const previous = process.env[REVIEW_INDEPENDENCE_ENV];
-  delete process.env[REVIEW_INDEPENDENCE_ENV];
   const cell = await openRepoCell({
     repoId: workspaceId("decision-review-independence"),
     rootDir: canonicalRoot(rootDir),
@@ -37,9 +34,13 @@ test("Decision outcomes always reject the proposer agent and gate broader review
           }[];
         }
       ).rules.find((rule) => rule.action === "decision.accept");
-    assert.deepEqual(decisionRule?.anyOf[0]?.allOf.find((predicate) => predicate.gatedBy)?.gatedBy, {
-      env: REVIEW_INDEPENDENCE_ENV,
-    });
+    assert.deepEqual(
+      decisionRule?.anyOf[0]?.allOf.find((predicate) => predicate.predicate === "reviewIndependence"),
+      {
+        predicate: "reviewIndependence",
+        level: "L1",
+      },
+    );
 
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
@@ -66,7 +67,6 @@ test("Decision outcomes always reject the proposer agent and gate broader review
       { outcome: "op_rejected", code: "actor_unauthorized" },
     );
     assert.equal(denied.nextAction, "An agent cannot judge its own Decision proposal; use an independent reviewer.");
-    process.env[REVIEW_INDEPENDENCE_ENV] = "1";
     const accepted = await cell.run(
       {
         kind: "decision-accept",
@@ -78,8 +78,6 @@ test("Decision outcomes always reject the proposer agent and gate broader review
     );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
   } finally {
-    if (previous === undefined) delete process.env[REVIEW_INDEPENDENCE_ENV];
-    else process.env[REVIEW_INDEPENDENCE_ENV] = previous;
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -97,7 +95,7 @@ function decisionProposal() {
       preset: "standard-task",
       decisionClass: "ordinary",
       appliesTo: { modules: ["daemon"], productLines: [] },
-      chosen: [{ id: "CH1", text: "Require the gated independent review" }],
+      chosen: [{ id: "CH1", text: "Require independent review" }],
       rejected: [{ id: "RJ1", text: "Allow self-review", whyNot: "It lacks executor-axis independence" }],
       claims: [{ id: "C1", text: "The reviewer is independent.", loadBearing: true }],
       fulfillments: [],

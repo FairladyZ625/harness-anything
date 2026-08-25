@@ -208,7 +208,6 @@ test("G02/G07 expose one four-state receipt and bounded recovery contract", asyn
     }),
     {
       authorizationDecision: null,
-      delta: { fact: [], decision: [], task: [] },
       outcome: "applied",
       opId: "op_1",
       revision: 1,

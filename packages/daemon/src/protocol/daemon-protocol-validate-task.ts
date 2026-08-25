@@ -37,47 +37,7 @@ export const availabilityFields = ["consents", "codeDocWitnesses", "gateWitnesse
   ] as const;
 
 export function snapshot(value: unknown, availability: unknown): boolean {
-  if (
-    !exactRecord(availability, availabilityFields) ||
-    availabilityFields.some((field) => availability[field] !== "known" && availability[field] !== "unknown") ||
-    !isJsonObject(value)
-  )
-    return false;
-  const known = availabilityFields.filter((field) => availability[field] === "known"),
-    expected = [...snapshotBaseFields, ...known];
-  if (
-    !exactRecord(value, expected) ||
-    !integer(value.revision) ||
-    (value.task !== null && !task(value.task)) ||
-    !Array.isArray(value.executions) ||
-    value.executions.some((item) => !execution(item)) ||
-    !Array.isArray(value.reviews) ||
-    value.reviews.some((item) => !review(item)) ||
-    !Array.isArray(value.edgesTaken) ||
-    value.edgesTaken.some(
-      (edge) =>
-        !exactRecord(edge, ["edgeId", "from", "to", "on", "actorRole", "reason", "commitSha", "iteration"]) ||
-        !nonEmpty(edge.edgeId) ||
-        !nonEmpty(edge.reason) ||
-        !sha(edge.commitSha) ||
-        !iteration(edge.iteration),
-    ) ||
-    (value.lease !== null && !lease(value.lease)) ||
-    !Array.isArray(value.decisionRelations) ||
-    value.decisionRelations.some(
-      (relation) =>
-        !exactRecord(relation, ["relationId", "sourceRef", "targetRef", "relationType", "state"]) ||
-        ![relation.relationId, relation.sourceRef, relation.targetRef, relation.relationType].every(nonEmpty) ||
-        !statusWord(relationStateWords, relation.state),
-    )
-  )
-    return false;
-  const validators = {
-    consents: consent,
-    codeDocWitnesses: codeDocRecord,
-    gateWitnesses: gate,
-  };
-  return known.every((field) => Array.isArray(value[field]) && value[field].every(validators[field]));
+  return snapshotFailurePaths(value, availability).length === 0;
 }
 
 export function placement(value: unknown): boolean {
@@ -285,7 +245,7 @@ function snapshotFailurePaths(value: unknown, availability: unknown): readonly s
     if (!Array.isArray(rows)) paths.push(`snapshot.${field}`);
     else rows.forEach((row, index) => !validators[field](row) && paths.push(`snapshot.${field}[${index}]`));
   }
-  return paths.length ? [...new Set(paths)] : ["snapshot"];
+  return [...new Set(paths)];
 }
 
 export function validateDaemonWorkspaceSummary(value: unknown): readonly string[] {

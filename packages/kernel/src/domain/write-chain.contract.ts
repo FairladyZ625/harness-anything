@@ -1,16 +1,11 @@
 import { stablePayloadHash, stableStringify } from "../integrity/stable-hash.ts";
 import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
-import { EMPTY_TRIADIC_DELTA, validateWriteReceipt, type WriteReceipt } from "./receipt-domain-registry.ts";
+import { validateWriteReceipt, type WriteReceipt } from "./receipt-domain-registry.ts";
 export { validateActorIdentity } from "./actor-identity.ts";
 export type { ActorIdentity } from "./actor-identity.ts";
 export { isNonEmptyString } from "./contract-validation.ts";
-export {
-  EMPTY_TRIADIC_DELTA,
-  receiptDetailRegistry,
-  validateWriteReceipt,
-  WRITE_RECEIPT_SCHEMA,
-} from "./receipt-domain-registry.ts";
+export { receiptDetailRegistry, validateWriteReceipt, WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
 export type {
   AuthorizationDecision,
   DocSyncReceiptDetail,
@@ -20,8 +15,6 @@ export type {
   ReceiptVisibility,
   WriteReceipt,
   WriteReceiptDetail,
-  TriadicDelta,
-  TriadicDeltaEntry,
 } from "./receipt-domain-registry.ts";
 
 export type WriteSource =
@@ -255,8 +248,8 @@ export function sameWriteSource(left: unknown, right: unknown): boolean {
 
 export function createWriteReceipt<R extends WriteReceipt>(
   receipt: R,
-): Readonly<R & Pick<WriteReceipt, "authorizationDecision" | "delta">> {
-  const framed = { authorizationDecision: null, delta: EMPTY_TRIADIC_DELTA, ...receipt },
+): Readonly<R & Pick<WriteReceipt, "authorizationDecision">> {
+  const framed = { authorizationDecision: null, ...receipt },
     errors = validateWriteReceipt(framed);
   if (errors.length > 0) throw new WriteChainContractError("invalid_contract", `invalid receipt: ${errors.join("; ")}`);
   return Object.freeze(framed);

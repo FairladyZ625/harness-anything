@@ -45,11 +45,7 @@ test("the built-in v2 policy registers its binding predicates and applicable Act
       allOf: [
         { predicate: "hasCommandClass", commandClass: "arbiter" },
         { predicate: "isNotProposalAgent" },
-        {
-          predicate: "reviewIndependence",
-          level: "L1",
-          gatedBy: { env: "HARNESS_REVIEW_INDEPENDENCE" },
-        },
+        { predicate: "reviewIndependence", level: "L1" },
       ],
     },
   ]);
@@ -65,7 +61,7 @@ test("the built-in v2 policy registers its binding predicates and applicable Act
       'task.complete:-=>{"predicate":"isOwner"}',
       'execution.start:-=>{"predicate":"hasCommandClass","commandClass":"repo-write"}',
       'execution.review:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"reviewIndependence","level":"L1"}',
-      'decision.accept:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"isNotProposalAgent"}+{"predicate":"reviewIndependence","level":"L1","gatedBy":{"env":"HARNESS_REVIEW_INDEPENDENCE"}}',
+      'decision.accept:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"isNotProposalAgent"}+{"predicate":"reviewIndependence","level":"L1"}',
       'execution.release:-=>{"predicate":"holdsExecutionLease"}|{"predicate":"reclaimsOrphanedLease"}',
       'runtime.dispatch:-=>{"predicate":"dispatchesExecution"}|{"predicate":"delegatedByRuntimeSession"}',
       'doc.submit:-=>{"predicate":"holdsExecutionLease"}+{"predicate":"sameWriteSource"}|{"predicate":"delegatedByRuntimeSession"}+{"predicate":"sameWriteSource"}',
@@ -75,7 +71,7 @@ test("the built-in v2 policy registers its binding predicates and applicable Act
   );
 });
 
-test("ha entity explain policy exposes the registered predicate vocabulary, Action set, and gated rules", () => {
+test("ha entity explain policy exposes the registered predicate vocabulary, Action set, and rules", () => {
   const explanation = explainEntityKind("policy");
   assert.deepEqual(explanation.policy, {
     predicates: [

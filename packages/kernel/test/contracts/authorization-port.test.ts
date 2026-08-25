@@ -150,7 +150,7 @@ test("v2 requires write-source equality on both direct and delegated document br
   );
 });
 
-test("v2 always rejects proposal-agent self-judgment while keeping broader Decision independence disabled", () => {
+test("v2 always requires independent Decision review", () => {
   assert.equal(
     decide("execution.review", reviewer, "execution/execution-1", {
       commandClasses: ["arbiter"],
@@ -184,7 +184,7 @@ test("v2 always rejects proposal-agent self-judgment while keeping broader Decis
       commandClasses: ["arbiter"],
       target: { proposalActor: humanOwner },
     }).outcome,
-    "allowed",
+    "denied",
   );
   assert.equal(
     decide("decision.accept", outsider, "decision/decision-1", { commandClasses: [], target: {} }).outcome,
@@ -192,8 +192,8 @@ test("v2 always rejects proposal-agent self-judgment while keeping broader Decis
   );
 });
 
-test("the default port applies broader Decision review independence only for the declared environment gate", () => {
-  const port = createAuthorizationPort(DEFAULT_POLICY, { HARNESS_REVIEW_INDEPENDENCE: "1" }),
+test("the default port always applies Decision review independence", () => {
+  const port = createAuthorizationPort(DEFAULT_POLICY),
     decision = (actor: ActorIdentity) =>
       port.authorize(
         {

@@ -1,9 +1,8 @@
 import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
-import { type AuthorizationDecision, type TriadicDelta, type TriadicDeltaEntry } from "./receipt-frame.ts";
-export { EMPTY_TRIADIC_DELTA } from "./receipt-frame.ts";
-export type { AuthorizationDecision, ReceiptJsonValue, TriadicDelta, TriadicDeltaEntry } from "./receipt-frame.ts";
+import type { AuthorizationDecision } from "./receipt-frame.ts";
+export type { AuthorizationDecision, ReceiptJsonValue } from "./receipt-frame.ts";
 
 export type ReceiptVisibility = "center" | { readonly kind: "replica"; readonly viewId: string };
 export interface ReceiptProof {
@@ -97,7 +96,6 @@ export interface WriteReceipt {
   readonly detail?: WriteReceiptDetail;
   readonly commitSha?: string | null;
   readonly authorizationDecision?: AuthorizationDecision | null;
-  readonly delta?: TriadicDelta;
   readonly cut?: {
     readonly repoId: string;
     readonly revision: number;
@@ -120,7 +118,6 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "detail",
     "commitSha",
     "authorizationDecision",
-    "delta",
     "cut",
   ]),
 });
@@ -184,8 +181,6 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     !validAuthorizationDecision(value.authorizationDecision)
   )
     errors.push("authorizationDecision must match AuthorizationDecision or be null before authorization wiring");
-  if ("delta" in value && !validTriadicDelta(value.delta))
-    errors.push("delta must contain closed fact, decision, and task change arrays");
   if ("cut" in value && !validPublicationCut) errors.push("cut must identify repoId, revision, opId, and headDigest");
   if (
     ("cut" in value && !("commitSha" in value)) ||
@@ -262,26 +257,6 @@ function validAuthorizationDecision(value: unknown): value is AuthorizationDecis
     value.nextActions.every(isNonEmptyString) &&
     (!denied || (value.reasonCodes.length > 0 && value.nextActions.length > 0)) &&
     isNonEmptyString(value.evaluatedAtCut)
-  );
-}
-function validTriadicDelta(value: unknown): value is TriadicDelta {
-  return (
-    isReceiptDomainRecord(value) &&
-    exact(value, ["fact", "decision", "task"]) &&
-    (["fact", "decision", "task"] as const).every(
-      (kind) => Array.isArray(value[kind]) && value[kind].every((entry) => validDeltaEntry(entry, kind)),
-    )
-  );
-}
-function validDeltaEntry(value: unknown, kind: "fact" | "decision" | "task"): value is TriadicDeltaEntry {
-  if (!isReceiptDomainRecord(value) || !exact(value, ["ref", "before", "after"]) || typeof value.ref !== "string")
-    return false;
-  const ref = parseEntityRef(value.ref);
-  return (
-    ref?.kind === kind &&
-    jsonValue(value.before) &&
-    jsonValue(value.after) &&
-    !(value.before === null && value.after === null)
   );
 }
 function validateDocSyncDetail(value: Readonly<Record<string, unknown>>): boolean {
