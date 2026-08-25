@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createEntityStore, makeTaskEventStore } from "../../kernel/src/index.ts";
+import { createEntityStore, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import {
   prepareAgentEntityInstall,
   readAgentEntityGuiProjection,
@@ -428,13 +428,24 @@ test("entity validation names every malformed manifest and refuses squads that r
 test("the GUI entity projection lists closed rows and reads closed declarations", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-entities-gui-")),
     source = path.join(rootDir, "source");
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     writeEntity(source, "terra", "agent", agent);
     writeEntity(source, "core-squad", "squad", squad);
     await install({ rootDir, kind: "agent-install", packageSource: path.join(source, "terra") });
     await install({ rootDir, kind: "squad-install", packageSource: path.join(source, "core-squad") });
-    const agentRows = readAgentEntityGuiProjection({ rootDir, kind: "agent-list" }),
-      squadRows = readAgentEntityGuiProjection({ rootDir, kind: "squad-list" });
+    const eventStore = makeTaskEventStore({ repoId: "agent-entities-gui", rootDir });
+    let canonicalReads = 0;
+    const guardedEventStore = {
+      ...eventStore,
+      read: () => {
+        canonicalReads += 1;
+        return eventStore.read();
+      },
+    };
+    projection = makeTaskProjection({ rootDir, eventStore: guardedEventStore });
+    const agentRows = readAgentEntityGuiProjection({ kind: "agent-list", projection }),
+      squadRows = readAgentEntityGuiProjection({ kind: "squad-list", projection });
     assert.equal(agentRows.schema, "agent-entity-catalog/v1");
     assert.equal(agentRows.ok, true);
     assert.deepEqual(
@@ -462,8 +473,17 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       squadRows.squads.map(({ id, leader, workers }) => ({ id, leader, workers })),
       [{ id: "core-squad", leader: "terra", workers: ["terra"] }],
     );
-    const agentDetail = readAgentEntityGuiProjection({ rootDir, kind: "agent-inspect", entityId: "terra" }),
-      squadDetail = readAgentEntityGuiProjection({ rootDir, kind: "squad-inspect", entityId: "core-squad" });
+    const agentDetail = readAgentEntityGuiProjection({
+        kind: "agent-inspect",
+        entityId: "terra",
+        projection,
+      }),
+      squadDetail = readAgentEntityGuiProjection({
+        kind: "squad-inspect",
+        entityId: "core-squad",
+        projection,
+      });
+    assert.equal(canonicalReads, 0, "GUI projection reads must not replay the canonical event stream");
     assert.equal(agentDetail.ok, true);
     assert.equal(squadDetail.ok, true);
     assert.deepEqual(agentDetail.agent, {
@@ -485,10 +505,11 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       roster: squad.roster,
     });
     assert.throws(
-      () => readAgentEntityGuiProjection({ rootDir, kind: "agent-inspect", entityId: "unknown" }),
+      () => readAgentEntityGuiProjection({ kind: "agent-inspect", entityId: "unknown", projection: projection! }),
       (error: unknown) => (error as { code?: string }).code === "agent_not_found",
     );
   } finally {
+    projection?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

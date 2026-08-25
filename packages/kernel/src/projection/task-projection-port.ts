@@ -44,12 +44,21 @@ export interface RuntimeSessionPageRead {
   readonly remainingCount: number;
 }
 
+export interface EntityProjectionRow {
+  readonly kind: string;
+  readonly id: string;
+  readonly ownerId: string | null;
+  readonly workspaceRevision: number;
+  readonly value: Readonly<Record<string, unknown>>;
+}
 export interface TaskProjection {
   readonly path: string;
   readonly close: () => void;
   readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt;
   readonly rebuild: () => ProjectionRebuildReceipt;
   readonly readStateDigest: () => `sha256:${string}` | null;
+  readonly listEntities: (entityKind: string) => readonly EntityProjectionRow[];
+  readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
   readonly read: (taskId: string) => TaskProjectionRead;
   readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead;
   readonly readWorkspaceSummary: () => WorkspaceSummaryProjectionRead;

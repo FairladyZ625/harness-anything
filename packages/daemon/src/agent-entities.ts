@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, openEntityStore, type EntityStore } from "../../kernel/src/index.ts";
+import { consumeKnownError, openEntityStore, type EntityStore, type TaskProjection } from "../../kernel/src/index.ts";
 import {
   entitySlug,
   parseAgentDeclarationV1,
@@ -139,10 +139,9 @@ export function runAgentEntityAction(input: {
 export function readAgentEntityGuiProjection<
   const K extends "agent-list" | "squad-list" | "agent-inspect" | "squad-inspect",
 >(input: {
-  readonly rootDir: string;
   readonly kind: K;
   readonly entityId?: string;
-  readonly entityStore?: EntityStore;
+  readonly projection: Pick<TaskProjection, "listEntities" | "getEntity">;
 }): K extends "agent-list"
   ? Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-catalog/v1" }>
   : K extends "squad-list"
@@ -150,46 +149,61 @@ export function readAgentEntityGuiProjection<
     : K extends "agent-inspect"
       ? Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-detail/v1" }>
       : Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-detail/v1" }> {
-  const action = input.kind.endsWith("-inspect")
-      ? {
-          kind: input.kind,
-          [input.kind === "agent-inspect" ? "agentId" : "squadId"]: requiredEntityText(input.entityId, "entityId"),
-        }
-      : { kind: input.kind },
-    evidence = agentEntityRecord(
-      runAgentEntityAction({ rootDir: input.rootDir, entityStore: input.entityStore, action }),
-    );
-  if (input.kind === "agent-list")
+  if (input.kind === "agent-list") {
+    const entities = readyEntityList(input.projection, "agent");
     return {
       schema: "agent-entity-catalog/v1",
       ok: true,
-      agents: Array.isArray(evidence.agents) ? evidence.agents.map(agentEntityRecord).map(agentEntityRow) : [],
+      agents: entities.map(({ value }) =>
+        agentEntityRow({ ...parseAgentDeclarationV1(value), layer: "user", validity: "valid", issues: [] }),
+      ),
     } as never;
-  if (input.kind === "squad-list")
+  }
+  if (input.kind === "squad-list") {
+    const entities = readyEntityList(input.projection, "squad");
     return {
       schema: "squad-entity-catalog/v1",
       ok: true,
-      squads: Array.isArray(evidence.squads) ? evidence.squads.map(agentEntityRecord).map(squadEntityRow) : [],
+      squads: entities.map(({ value }) =>
+        squadEntityRow({ ...parseSquadDeclarationV1(value), layer: "user", validity: "valid", issues: [] }),
+      ),
     } as never;
+  }
+  const entityId = requiredEntityText(input.entityId, "entityId");
   if (input.kind === "agent-inspect") {
-    const agent = agentEntityRecord(evidence.agent);
+    const agent = parseAgentDeclarationV1(readyEntityValue(input.projection, "agent", entityId));
     return {
       schema: "agent-entity-detail/v1",
       ok: true,
       agent: {
         id: entityText(agent.id),
         name: entityText(agent.name),
-        runtimeType: entityText(agent.runtime_type),
-        role: entityAgentRole(agent.role),
-        instructions: entityText(agent.instructions),
-        model: agent.model === undefined ? null : entityText(agent.model),
+        runtimeType: agent.runtime_type,
+        role: agent.role ?? "worker",
+        instructions: agent.instructions,
+        model: agent.model ?? null,
         skills: entitySkills(agent.skills),
-        prompts: entityStrings(agent.prompts),
-        preset: agent.preset === undefined ? null : entityText(agent.preset),
+        prompts: agent.prompts ?? [],
+        preset: agent.preset ?? null,
       },
     } as never;
   }
-  const squad = agentEntityRecord(evidence.squad);
+  const squad = parseSquadDeclarationV1(readyEntityValue(input.projection, "squad", entityId)),
+    missing = [squad.leader, ...squad.workers].filter((agentId) => {
+      try {
+        parseAgentDeclarationV1(readyEntityValue(input.projection, "agent", agentId));
+        return false;
+      } catch (error) {
+        if ((error as { code?: string }).code === "projection_pending") throw error;
+        consumeKnownError(error);
+        return true;
+      }
+    });
+  if (missing.length)
+    throw entityError(
+      "squad_agent_not_found",
+      `Squad ${squad.id} references unavailable agents: ${[...new Set(missing)].join(", ")}.`,
+    );
   return {
     schema: "squad-entity-detail/v1",
     ok: true,
@@ -201,6 +215,21 @@ export function readAgentEntityGuiProjection<
       roster: entityText(squad.roster),
     },
   } as never;
+}
+
+function readyEntityList(projection: Pick<TaskProjection, "listEntities">, kind: AgentEntityKind) {
+  return projection.listEntities(kind);
+}
+
+function readyEntityValue(
+  projection: Pick<TaskProjection, "getEntity">,
+  kind: AgentEntityKind,
+  id: string,
+): Readonly<Record<string, unknown>> {
+  if (!entitySlug(id)) throw entityError(`${kind}_not_found`, `${id} is not a valid ${kind} id.`);
+  const entity = projection.getEntity(kind, id);
+  if (entity === null) throw entityError(`${kind}_not_found`, `${id} is not an installed ${kind}.`);
+  return entity.value;
 }
 export function readAgentDeclaration(input: {
   readonly rootDir: string;

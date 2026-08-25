@@ -39,6 +39,7 @@ import {
 import { reduceBatch } from "./rebuildable-task-projection-catch-up.ts";
 import { listProjection, readProjection, rebuildProjection } from "./rebuildable-task-projection-reads.ts";
 import { knowledgeQueryApi } from "./rebuildable-task-projection-knowledge-queries.ts";
+import { entityQueryApi } from "./rebuildable-task-projection-entity-api.ts";
 import { runtimeLeaseApi } from "./rebuildable-task-projection-runtime-api.ts";
 import { taskQueryApi } from "./rebuildable-task-projection-task-queries.ts";
 import { markRuntimeSessionsUnknown } from "./rebuildable-task-projection-runtime.ts";
@@ -137,6 +138,7 @@ export function makeTaskProjection(options: {
     readStateDigest: () => withDatabase(projectionPath, readHead, readStateDigest),
     read: (taskId) => readProjection(projectionPath, readHead, options.eventStore, taskId, limit, now),
     list: (query) => listProjection(projectionPath, readHead, options.eventStore, limit, now, query),
+    ...entityQueryApi(context),
     ...taskQueryApi(context),
     ...knowledgeQueryApi(context),
     ...runtimeLeaseApi(context),
