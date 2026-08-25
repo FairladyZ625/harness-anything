@@ -24,8 +24,12 @@ const taskOrDecisionRefPattern = /^(?<kind>task|decision)\/(?<id>[A-Za-z0-9_-]+)
 const phaseOneEntityRefPattern = /^(?<kind>execution|review|agent|runtime-session|policy)\/(?<id>[A-Za-z0-9_-]+)$/u;
 const factRefPattern = /^fact\/(?<ownerTaskId>[A-Za-z0-9_-]+)\/(?<factId>[A-Za-z0-9_-]+)$/u;
 const relationRefPattern = /^relation\/(?<relationId>rel_[a-f0-9]{16})$/u;
-const entityRefSearchPattern =
-  /(?<![A-Za-z0-9_/-])(?:[A-Za-z][A-Za-z0-9_-]*:)?(?:fact\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|relation\/rel_[a-f0-9]{16}|(?:task|decision)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?|(?:execution|review|agent|runtime-session|policy)\/[A-Za-z0-9_-]+)\b(?!\/)/gu;
+const entityRefSearchPattern = new RegExp(
+  String.raw`(?<![A-Za-z0-9_/-])(?:[A-Za-z][A-Za-z0-9_-]*:)?(?:fact\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|` +
+    String.raw`relation\/rel_[a-f0-9]{16}|(?:task|decision)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?|` +
+    String.raw`(?:execution|review|agent|runtime-session|policy)\/[A-Za-z0-9_-]+)\b(?!\/)`,
+  "gu",
+);
 
 function isPlausibleTaskRefId(id: string): boolean {
   return id.startsWith("task_") || id.includes("-");
