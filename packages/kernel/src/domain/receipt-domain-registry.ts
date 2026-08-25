@@ -1,3 +1,10 @@
+import { validateActorIdentity } from "./actor-identity.ts";
+import { isNonEmptyString } from "./contract-validation.ts";
+import { parseEntityRef } from "./entity-ref.ts";
+import { type AuthorizationDecision, type TriadicDelta, type TriadicDeltaEntry } from "./receipt-frame.ts";
+export { EMPTY_TRIADIC_DELTA } from "./receipt-frame.ts";
+export type { AuthorizationDecision, ReceiptJsonValue, TriadicDelta, TriadicDeltaEntry } from "./receipt-frame.ts";
+
 export type ReceiptVisibility = "center" | { readonly kind: "replica"; readonly viewId: string };
 export interface ReceiptProof {
   readonly committedRevision: number;
@@ -89,6 +96,8 @@ export interface WriteReceipt {
   readonly proof?: ReceiptProof;
   readonly detail?: WriteReceiptDetail;
   readonly commitSha?: string | null;
+  readonly authorizationDecision?: AuthorizationDecision | null;
+  readonly delta?: TriadicDelta;
   readonly cut?: {
     readonly repoId: string;
     readonly revision: number;
@@ -110,6 +119,8 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "proof",
     "detail",
     "commitSha",
+    "authorizationDecision",
+    "delta",
     "cut",
   ]),
 });
@@ -120,16 +131,16 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     .map((key) => `unexpected field: ${key}`);
   if (!(WRITE_RECEIPT_SCHEMA.outcomes as readonly unknown[]).includes(value.outcome))
     errors.push("receipt outcome is invalid");
-  if (!text(value.opId)) errors.push("opId is required");
+  if (!isNonEmptyString(value.opId)) errors.push("opId is required");
   if ("revision" in value && !cut(value.revision)) errors.push("revision must be a non-negative integer");
   for (const field of ["code", "origin", "nextAction", "evidence"] as const)
-    if (field in value && !text(value[field])) errors.push(`${field} must be a non-empty string`);
+    if (field in value && !isNonEmptyString(value[field])) errors.push(`${field} must be a non-empty string`);
   const visibility = value.visibility,
     replica =
       isReceiptDomainRecord(visibility) &&
       exact(visibility, ["kind", "viewId"]) &&
       visibility.kind === "replica" &&
-      text(visibility.viewId);
+      isNonEmptyString(visibility.viewId);
   if ("visibility" in value && visibility !== "center" && !replica)
     errors.push("visibility must be center or replica(viewId)");
   const proof = value.proof,
@@ -160,13 +171,21 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     validPublicationCut =
       isReceiptDomainRecord(publicationCut) &&
       exact(publicationCut, ["repoId", "revision", "opId", "headDigest"]) &&
-      text(publicationCut.repoId) &&
+      isNonEmptyString(publicationCut.repoId) &&
       cut(publicationCut.revision) &&
-      text(publicationCut.opId) &&
+      isNonEmptyString(publicationCut.opId) &&
       typeof publicationCut.headDigest === "string" &&
       /^sha256:[0-9a-f]{64}$/u.test(publicationCut.headDigest);
   if ("commitSha" in value && value.commitSha !== null && !sha(value.commitSha))
     errors.push("commitSha must be a Git SHA or null while materialization is pending");
+  if (
+    "authorizationDecision" in value &&
+    value.authorizationDecision !== null &&
+    !validAuthorizationDecision(value.authorizationDecision)
+  )
+    errors.push("authorizationDecision must match AuthorizationDecision or be null before authorization wiring");
+  if ("delta" in value && !validTriadicDelta(value.delta))
+    errors.push("delta must contain closed fact, decision, and task change arrays");
   if ("cut" in value && !validPublicationCut) errors.push("cut must identify repoId, revision, opId, and headDigest");
   if (
     ("cut" in value && !("commitSha" in value)) ||
@@ -193,19 +212,77 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     errors.push("replica applied requires worktree visibility and ackCut at the same cut");
   if (
     (value.outcome === "applied" || value.outcome === "no_changes") &&
-    (!cut(value.revision) || !text(value.evidence))
+    (!cut(value.revision) || !isNonEmptyString(value.evidence))
   )
     errors.push(`${String(value.outcome)} requires revision and evidence`);
-  if (value.outcome === "no_changes" && (value.code !== "no_changes" || !text(value.origin) || !text(value.nextAction)))
+  if (
+    value.outcome === "no_changes" &&
+    (value.code !== "no_changes" || !isNonEmptyString(value.origin) || !isNonEmptyString(value.nextAction))
+  )
     errors.push("no_changes requires code, origin, and nextAction");
-  if (value.outcome === "pending" && (!cut(value.revision) || !text(value.evidence) || !text(value.nextAction)))
+  if (
+    value.outcome === "pending" &&
+    (!cut(value.revision) || !isNonEmptyString(value.evidence) || !isNonEmptyString(value.nextAction))
+  )
     errors.push("pending requires committed evidence, revision, and nextAction");
   if (value.outcome === "indeterminate" || value.outcome === "op_rejected")
     for (const field of ["code", "origin", "nextAction"] as const)
-      if (!text(value[field])) errors.push(`${field} is required for ${value.outcome}`);
-  if (!text(value.evidence) && (value.outcome !== "indeterminate" || value.origin !== "N/A"))
+      if (!isNonEmptyString(value[field])) errors.push(`${field} is required for ${value.outcome}`);
+  if (!isNonEmptyString(value.evidence) && (value.outcome !== "indeterminate" || value.origin !== "N/A"))
     errors.push("evidence-free receipt must be N/A indeterminate");
   return errors;
+}
+function validAuthorizationDecision(value: unknown): value is AuthorizationDecision {
+  if (
+    !isReceiptDomainRecord(value) ||
+    !exact(value, [
+      "policyRef",
+      "actor",
+      "subject",
+      "bindingsUsed",
+      "outcome",
+      "reasonCodes",
+      "nextActions",
+      "evaluatedAtCut",
+    ])
+  )
+    return false;
+  const denied = value.outcome === "denied";
+  return (
+    /^\S+@[1-9][0-9]*$/u.test(String(value.policyRef)) &&
+    validateActorIdentity(value.actor).length === 0 &&
+    typeof value.subject === "string" &&
+    parseEntityRef(value.subject) !== null &&
+    Array.isArray(value.bindingsUsed) &&
+    value.bindingsUsed.every((binding) => isReceiptDomainRecord(binding) && jsonValue(binding)) &&
+    (value.outcome === "allowed" || denied) &&
+    Array.isArray(value.reasonCodes) &&
+    value.reasonCodes.every(isNonEmptyString) &&
+    Array.isArray(value.nextActions) &&
+    value.nextActions.every(isNonEmptyString) &&
+    (!denied || (value.reasonCodes.length > 0 && value.nextActions.length > 0)) &&
+    isNonEmptyString(value.evaluatedAtCut)
+  );
+}
+function validTriadicDelta(value: unknown): value is TriadicDelta {
+  return (
+    isReceiptDomainRecord(value) &&
+    exact(value, ["fact", "decision", "task"]) &&
+    (["fact", "decision", "task"] as const).every(
+      (kind) => Array.isArray(value[kind]) && value[kind].every((entry) => validDeltaEntry(entry, kind)),
+    )
+  );
+}
+function validDeltaEntry(value: unknown, kind: "fact" | "decision" | "task"): value is TriadicDeltaEntry {
+  if (!isReceiptDomainRecord(value) || !exact(value, ["ref", "before", "after"]) || typeof value.ref !== "string")
+    return false;
+  const ref = parseEntityRef(value.ref);
+  return (
+    ref?.kind === kind &&
+    jsonValue(value.before) &&
+    jsonValue(value.after) &&
+    !(value.before === null && value.after === null)
+  );
 }
 function validateDocSyncDetail(value: Readonly<Record<string, unknown>>): boolean {
   return (
@@ -222,31 +299,33 @@ function validateDocSyncDetail(value: Readonly<Record<string, unknown>>): boolea
       "nextAction",
     ]) &&
     value.kind === "doc_sync" &&
-    text(value.code) &&
+    isNonEmptyString(value.code) &&
     receiptLedgerIdentity(value.baseLedgerSha) &&
     ledgerCut(value.currentLedgerSha) &&
-    text(value.nextAction) &&
+    isNonEmptyString(value.nextAction) &&
     Array.isArray(value.paths) &&
     value.paths.every(
       (row) =>
         isReceiptDomainRecord(row) &&
         exact(row, ["path", "baseBlobSha256", "currentBlobSha256", "candidateBlobSha256"]) &&
-        text(row.path) &&
+        isNonEmptyString(row.path) &&
         [row.baseBlobSha256, row.currentBlobSha256, row.candidateBlobSha256].every(nullableSha),
     ) &&
     (value.holder === null ||
       (isReceiptDomainRecord(value.holder) &&
         exact(value.holder, ["taskId", "executionId", "personId", "executorId", "source", "expiresAt", "version"]) &&
-        [value.holder.taskId, value.holder.executionId, value.holder.personId, value.holder.expiresAt].every(text) &&
-        (value.holder.executorId === null || text(value.holder.executorId)) &&
+        [value.holder.taskId, value.holder.executionId, value.holder.personId, value.holder.expiresAt].every(
+          isNonEmptyString,
+        ) &&
+        (value.holder.executorId === null || isNonEmptyString(value.holder.executorId)) &&
         cut(value.holder.version))) &&
     Array.isArray(value.differences) &&
     value.differences.every(
       (row) =>
         isReceiptDomainRecord(row) &&
         exact(row, ["path", "regionId", "insertBytes", "deleteBytes", "replaceBytes", "firstChange"]) &&
-        text(row.path) &&
-        text(row.regionId) &&
+        isNonEmptyString(row.path) &&
+        isNonEmptyString(row.regionId) &&
         [row.insertBytes, row.deleteBytes, row.replaceBytes].every(cut) &&
         (row.firstChange === null ||
           (isReceiptDomainRecord(row.firstChange) &&
@@ -259,16 +338,16 @@ function validateDocSyncDetail(value: Readonly<Record<string, unknown>>): boolea
       (row) =>
         isReceiptDomainRecord(row) &&
         exact(row, ["path", "regionId", "anchor", "reason", "requiredRoute", "policy"]) &&
-        [row.path, row.reason, row.requiredRoute, row.policy].every(text) &&
-        (row.regionId === null || text(row.regionId)) &&
-        (row.anchor === null || text(row.anchor)),
+        [row.path, row.reason, row.requiredRoute, row.policy].every(isNonEmptyString) &&
+        (row.regionId === null || isNonEmptyString(row.regionId)) &&
+        (row.anchor === null || isNonEmptyString(row.anchor)),
     ) &&
     Array.isArray(value.deletions) &&
     value.deletions.every(
       (row) =>
         isReceiptDomainRecord(row) &&
         exact(row, ["path", "baseBlobSha256", "source"]) &&
-        text(row.path) &&
+        isNonEmptyString(row.path) &&
         nullableSha(row.baseBlobSha256) &&
         row.baseBlobSha256 !== null &&
         row.source === "intent",
@@ -280,10 +359,10 @@ function validateEntityUpsertDetail(value: Readonly<Record<string, unknown>>): b
   return (
     exact(value, ["kind", "entityKind", "entityId", "schemaId", "path"]) &&
     value.kind === "entity_upsert" &&
-    text(value.entityKind) &&
-    text(value.entityId) &&
-    text(value.schemaId) &&
-    text(value.path)
+    isNonEmptyString(value.entityKind) &&
+    isNonEmptyString(value.entityId) &&
+    isNonEmptyString(value.schemaId) &&
+    isNonEmptyString(value.path)
   );
 }
 function isReceiptDomainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -292,8 +371,11 @@ function isReceiptDomainRecord(value: unknown): value is Readonly<Record<string,
 function exact(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
   return Object.keys(value).length === fields.length && fields.every((field) => field in value);
 }
-function text(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+function jsonValue(value: unknown): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(jsonValue);
+  return isReceiptDomainRecord(value) && Object.values(value).every(jsonValue);
 }
 function cut(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 0;
@@ -307,14 +389,17 @@ function nullableSha(value: unknown): boolean {
 function receiptLedgerIdentity(value: unknown): value is LedgerIdentity {
   return (
     ledgerCut(value) ||
-    (isReceiptDomainRecord(value) && exact(value, ["repoId", "sha"]) && text(value.repoId) && sha(value.sha))
+    (isReceiptDomainRecord(value) &&
+      exact(value, ["repoId", "sha"]) &&
+      isNonEmptyString(value.repoId) &&
+      sha(value.sha))
   );
 }
 function ledgerCut(value: unknown): value is LedgerCutIdentity {
   return (
     isReceiptDomainRecord(value) &&
     exact(value, ["repoId", "revision", "headDigest"]) &&
-    text(value.repoId) &&
+    isNonEmptyString(value.repoId) &&
     cut(value.revision) &&
     typeof value.headDigest === "string" &&
     /^sha256:[0-9a-f]{64}$/u.test(value.headDigest)

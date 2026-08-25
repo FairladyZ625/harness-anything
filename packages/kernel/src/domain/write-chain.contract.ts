@@ -1,19 +1,28 @@
 import { stablePayloadHash, stableStringify } from "../integrity/stable-hash.ts";
-import { validateWriteReceipt, type WriteReceipt } from "./receipt-domain-registry.ts";
-export { receiptDetailRegistry, validateWriteReceipt, WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
+import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
+import { isNonEmptyString } from "./contract-validation.ts";
+import { EMPTY_TRIADIC_DELTA, validateWriteReceipt, type WriteReceipt } from "./receipt-domain-registry.ts";
+export { validateActorIdentity } from "./actor-identity.ts";
+export type { ActorIdentity } from "./actor-identity.ts";
+export { isNonEmptyString } from "./contract-validation.ts";
+export {
+  EMPTY_TRIADIC_DELTA,
+  receiptDetailRegistry,
+  validateWriteReceipt,
+  WRITE_RECEIPT_SCHEMA,
+} from "./receipt-domain-registry.ts";
 export type {
+  AuthorizationDecision,
   DocSyncReceiptDetail,
   LedgerCutIdentity,
   ReceiptProof,
+  ReceiptJsonValue,
   ReceiptVisibility,
   WriteReceipt,
   WriteReceiptDetail,
+  TriadicDelta,
+  TriadicDeltaEntry,
 } from "./receipt-domain-registry.ts";
-
-export interface ActorIdentity {
-  readonly principal: { readonly personId: string };
-  readonly executor: { readonly kind: "agent"; readonly id: string } | null;
-}
 
 export type WriteSource =
   | "local"
@@ -177,10 +186,6 @@ export class WriteChainContractError extends Error {
   }
 }
 
-export function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
 export function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -200,26 +205,6 @@ export function hasContractFields(
   allowUnknownFields: boolean,
 ): boolean {
   return allowUnknownFields ? hasRequiredFields(value, fields) : hasOnlyFields(value, fields);
-}
-
-export function validateActorIdentity(value: unknown, allowUnknownFields = false): readonly string[] {
-  if (
-    !isRecord(value) ||
-    !hasContractFields(value, ["principal", "executor"], allowUnknownFields) ||
-    !isRecord(value.principal) ||
-    !hasContractFields(value.principal, ["personId"], allowUnknownFields) ||
-    !isNonEmptyString(value.principal.personId)
-  )
-    return ["principal must be a person identity"];
-  if (
-    value.executor !== null &&
-    (!isRecord(value.executor) ||
-      !hasContractFields(value.executor, ["kind", "id"], allowUnknownFields) ||
-      value.executor.kind !== "agent" ||
-      !isNonEmptyString(value.executor.id))
-  )
-    return ["executor must be an agent identity or null"];
-  return [];
 }
 
 export function validateWriteSource(value: unknown, allowUnknownFields = false): readonly string[] {
@@ -268,10 +253,13 @@ export function sameWriteSource(left: unknown, right: unknown): boolean {
   return shape !== null && stableStringify(shape) === stableStringify(writeSourceShape(right));
 }
 
-export function createWriteReceipt<R extends WriteReceipt>(receipt: R): Readonly<R> {
-  const errors = validateWriteReceipt(receipt);
+export function createWriteReceipt<R extends WriteReceipt>(
+  receipt: R,
+): Readonly<R & Pick<WriteReceipt, "authorizationDecision" | "delta">> {
+  const framed = { authorizationDecision: null, delta: EMPTY_TRIADIC_DELTA, ...receipt },
+    errors = validateWriteReceipt(framed);
   if (errors.length > 0) throw new WriteChainContractError("invalid_contract", `invalid receipt: ${errors.join("; ")}`);
-  return Object.freeze({ ...receipt });
+  return Object.freeze(framed);
 }
 
 export function serializeWriteReceipt(receipt: WriteReceipt): string {

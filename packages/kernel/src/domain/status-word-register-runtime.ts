@@ -169,6 +169,22 @@ export const runtimeAndRecoveryStatusWords: readonly StatusWordRegistration[] = 
       "one-shot operation result no longer collides with Decision.rejected.",
   },
 
+  // ---- AuthorizationDecision.outcome (policy evaluation carried by a receipt) ----
+  {
+    word: "allowed",
+    entity: "AuthorizationDecision",
+    field: "outcome",
+    meaning: "The evaluated policy permits the Action for the recorded actor and subject.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "denied",
+    entity: "AuthorizationDecision",
+    field: "outcome",
+    meaning: "The evaluated policy refuses the Action and records reasons and next Actions.",
+    divergence: "entity-scoped",
+  },
+
   // ---- Recovery.state (write-chain recovery batches; runtime-only) ----
   {
     word: "queued",

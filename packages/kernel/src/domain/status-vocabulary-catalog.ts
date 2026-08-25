@@ -284,6 +284,15 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     note: "The WriteReceipt interface repeats the outcome vocabulary; must stay equal to writeReceiptOutcomes.",
   },
   {
+    id: "authorization-decision.outcome",
+    entity: "AuthorizationDecision",
+    field: "outcome",
+    module: "packages/kernel/src/domain/receipt-frame.ts",
+    anchor: "#outcome",
+    words: ["allowed", "denied"],
+    note: "Append-only policy evaluation result carried by a write receipt.",
+  },
+  {
     id: "recovery.state",
     entity: "Recovery",
     field: "state",
