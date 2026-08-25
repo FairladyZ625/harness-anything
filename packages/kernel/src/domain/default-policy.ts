@@ -14,6 +14,7 @@ const defaultPolicyDeclaration = {
     { predicate: "delegatedByRuntimeSession" },
     { predicate: "hasCommandClass", commandClass: "arbiter" },
     { predicate: "reviewIndependence", level: "L1" },
+    { predicate: "isNotProposalAgent" },
     { predicate: "sameWriteSource" },
   ]),
   actions: Object.freeze([
@@ -46,6 +47,7 @@ const defaultPolicyDeclaration = {
         {
           allOf: [
             { predicate: "hasCommandClass", commandClass: "arbiter" },
+            { predicate: "isNotProposalAgent" },
             {
               predicate: "reviewIndependence",
               level: "L1",

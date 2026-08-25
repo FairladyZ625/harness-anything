@@ -156,7 +156,7 @@ function evaluatePredicate(
     holds =
       leaseTargetsSubject &&
       lease !== null &&
-      target.canonicalExecutionExists === false &&
+      (lease.phase === "orphaned" || target.canonicalExecutionExists === false) &&
       isSamePerson(lease.actor, actor);
   else if (expression.predicate === "dispatchesExecution")
     holds =
@@ -174,6 +174,11 @@ function evaluatePredicate(
         : target.proposalActor !== null &&
           target.proposalActor !== undefined &&
           isIndependentFrom(target.proposalActor, actor)) && runtimeBinding === null;
+  else if (expression.predicate === "isNotProposalAgent")
+    holds =
+      target.proposalActor !== null &&
+      target.proposalActor !== undefined &&
+      (actor.executor === null || !isSameExecution(target.proposalActor, actor));
   else if (expression.predicate === "sameWriteSource")
     holds = context.writeSource !== undefined && lease !== null && sameWriteSource(lease.source, context.writeSource);
   return {

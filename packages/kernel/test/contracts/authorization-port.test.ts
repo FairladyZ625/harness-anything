@@ -79,6 +79,12 @@ test("v2 models held and orphaned release bindings without overloading ownership
   );
   assert.equal(
     decide("execution.release", humanOwner, "execution/execution-1", {
+      target: { lease: { ...lease, phase: "orphaned" }, canonicalExecutionExists: true },
+    }).outcome,
+    "allowed",
+  );
+  assert.equal(
+    decide("execution.release", humanOwner, "execution/execution-1", {
       target: { lease, canonicalExecutionExists: false },
     }).outcome,
     "allowed",
@@ -126,7 +132,7 @@ test("v2 requires write-source equality on both direct and delegated document br
   );
 });
 
-test("v2 keeps Decision review independence disabled by default", () => {
+test("v2 always rejects proposal-agent self-judgment while keeping broader Decision independence disabled", () => {
   assert.equal(
     decide("execution.review", reviewer, "execution/execution-1", {
       commandClasses: ["arbiter"],
@@ -153,6 +159,13 @@ test("v2 keeps Decision review independence disabled by default", () => {
       commandClasses: ["arbiter"],
       target: { proposalActor: owner },
     }).outcome,
+    "denied",
+  );
+  assert.equal(
+    decide("decision.accept", humanOwner, "decision/decision-1", {
+      commandClasses: ["arbiter"],
+      target: { proposalActor: humanOwner },
+    }).outcome,
     "allowed",
   );
   assert.equal(
@@ -161,7 +174,7 @@ test("v2 keeps Decision review independence disabled by default", () => {
   );
 });
 
-test("the default port enables Decision review independence only for the declared environment gate", () => {
+test("the default port applies broader Decision review independence only for the declared environment gate", () => {
   const port = createAuthorizationPort(DEFAULT_POLICY, { HARNESS_REVIEW_INDEPENDENCE: "1" }),
     decision = (actor: ActorIdentity) =>
       port.authorize(
@@ -181,6 +194,24 @@ test("the default port enables Decision review independence only for the declare
       );
   assert.equal(decision(owner).outcome, "denied");
   assert.equal(decision(reviewer).outcome, "allowed");
+  assert.equal(
+    port.authorize(
+      {
+        actionId: "gated-decision-human",
+        kind: "decision.accept",
+        target: "decision/decision-1",
+        actor: humanOwner,
+        authorizationRef: "default@2",
+        idempotencyKey: "gated-decision-human",
+      },
+      {
+        commandClasses: ["arbiter"],
+        target: { proposalActor: humanOwner },
+        evaluatedAtCut: "canonical:17",
+      },
+    ).outcome,
+    "denied",
+  );
 });
 
 test("v2 closeout selects owner and active-lease rules explicitly", () => {

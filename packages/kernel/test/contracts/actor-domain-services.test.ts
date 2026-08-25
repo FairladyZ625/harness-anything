@@ -1,8 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canReclaim } from "../../src/domain/actor-domain-services.ts";
-import { isIndependentFrom, isSameExecution, isSamePerson, type ActorIdentity } from "../../src/index.ts";
+import { canReclaim, isIndependentFrom } from "../../src/domain/actor-domain-services.ts";
+import { isSameExecution, isSamePerson, type ActorIdentity } from "../../src/index.ts";
 
 const person = (personId: string, executor: ActorIdentity["executor"]): ActorIdentity => ({
   principal: { personId },

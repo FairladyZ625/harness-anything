@@ -33,7 +33,7 @@ export {
   reviewDigest,
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
-export { isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
+export { isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
 export {
   resolveLiveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,

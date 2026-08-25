@@ -17,6 +17,7 @@ export const policyPredicateNames = Object.freeze([
   "delegatedByRuntimeSession",
   "hasCommandClass",
   "reviewIndependence",
+  "isNotProposalAgent",
   "sameWriteSource",
 ] as const);
 export type PolicyPredicateName = (typeof policyPredicateNames)[number];
@@ -37,6 +38,7 @@ type PolicyPredicate =
   | { readonly predicate: "delegatedByRuntimeSession" }
   | { readonly predicate: "hasCommandClass"; readonly commandClass: string }
   | { readonly predicate: "reviewIndependence"; readonly level: ReviewIndependenceLevel }
+  | { readonly predicate: "isNotProposalAgent" }
   | { readonly predicate: "sameWriteSource" };
 
 export type PolicyPredicateExpression = PolicyPredicate & {

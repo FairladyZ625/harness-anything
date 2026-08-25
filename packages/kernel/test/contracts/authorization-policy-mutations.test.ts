@@ -40,6 +40,7 @@ type Case = {
   readonly actor: ActorIdentity;
   readonly context: Omit<AuthorizationContext, "evaluatedAtCut">;
   readonly expected: "allowed" | "denied";
+  readonly gateEnabled?: boolean;
 };
 
 const cases: readonly Case[] = [
@@ -114,6 +115,16 @@ const cases: readonly Case[] = [
     actor: owner,
     context: { commandClasses: ["arbiter"], target: { proposalActor: owner } },
     expected: "denied",
+    gateEnabled: false,
+  },
+  {
+    label: "gated human Decision self-judgment",
+    kind: "decision.accept",
+    target: "decision/decision-1",
+    actor: humanOwner,
+    context: { commandClasses: ["arbiter"], target: { proposalActor: humanOwner } },
+    expected: "denied",
+    gateEnabled: true,
   },
   {
     label: "non-arbiter Decision outcome",
@@ -136,7 +147,7 @@ const cases: readonly Case[] = [
     kind: "execution.release",
     target: "execution/execution-1",
     actor: humanOwner,
-    context: { target: { lease, canonicalExecutionExists: false } },
+    context: { target: { lease: { ...lease, phase: "orphaned" }, canonicalExecutionExists: true } },
     expected: "allowed",
   },
   {
@@ -266,7 +277,7 @@ function assertLocationOracles(policy: PolicyDeclarationV1): void {
         idempotencyKey: `mutation-${row.label}`,
       },
       { ...row.context, evaluatedAtCut: "canonical:mutation" },
-      (gate) => gate.env === "HARNESS_REVIEW_INDEPENDENCE",
+      (gate) => row.gateEnabled !== false && gate.env === "HARNESS_REVIEW_INDEPENDENCE",
     );
     assert.equal(decision.outcome, row.expected, row.label);
   }
@@ -322,13 +333,13 @@ test("deleting the Decision environment gate is killed by the default-off oracle
       actionId: "mutation-decision-gate",
       kind: "decision.accept",
       target: "decision/decision-1" as const,
-      actor: owner,
+      actor: humanOwner,
       authorizationRef: "default@2",
       idempotencyKey: "mutation-decision-gate",
     },
     context = {
       commandClasses: ["arbiter"],
-      target: { proposalActor: owner },
+      target: { proposalActor: humanOwner },
       evaluatedAtCut: "canonical:mutation",
     };
   assert.equal(evaluateAuthorization(DEFAULT_POLICY, action, context).outcome, "allowed");

@@ -17,15 +17,16 @@ const proposer = {
   source: "local" as const,
 };
 
-test("Decision review independence gate rejects the proposer agent and admits an independent agent", async () => {
+test("Decision outcomes always reject the proposer agent and gate broader reviewer independence", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-independence-"));
   initRepo(rootDir);
+  const previous = process.env[REVIEW_INDEPENDENCE_ENV];
+  delete process.env[REVIEW_INDEPENDENCE_ENV];
   const cell = await openRepoCell({
-      repoId: workspaceId("decision-review-independence"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "decision-review-independence-test",
-    }),
-    previous = process.env[REVIEW_INDEPENDENCE_ENV];
+    repoId: workspaceId("decision-review-independence"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-review-independence-test",
+  });
   try {
     const explanation = receiptJson(await cell.run({ kind: "entity-explain", entityKind: "policy" }, proposer)),
       decisionRule = (
@@ -36,7 +37,7 @@ test("Decision review independence gate rejects the proposer agent and admits an
           }[];
         }
       ).rules.find((rule) => rule.action === "decision.accept");
-    assert.deepEqual(decisionRule?.anyOf[0]?.allOf[1]?.gatedBy, {
+    assert.deepEqual(decisionRule?.anyOf[0]?.allOf.find((predicate) => predicate.gatedBy)?.gatedBy, {
       env: REVIEW_INDEPENDENCE_ENV,
     });
 
@@ -51,7 +52,6 @@ test("Decision review independence gate rejects the proposer agent and admits an
         source: "local" as const,
         roles: ["$arbiter"],
       };
-    process.env[REVIEW_INDEPENDENCE_ENV] = "1";
     const denied = await cell.run(
       {
         kind: "decision-accept",
@@ -65,6 +65,8 @@ test("Decision review independence gate rejects the proposer agent and admits an
       { outcome: denied.outcome, code: denied.code },
       { outcome: "op_rejected", code: "actor_unauthorized" },
     );
+    assert.equal(denied.nextAction, "An agent cannot judge its own Decision proposal; use an independent reviewer.");
+    process.env[REVIEW_INDEPENDENCE_ENV] = "1";
     const accepted = await cell.run(
       {
         kind: "decision-accept",

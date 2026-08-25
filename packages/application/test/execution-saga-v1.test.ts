@@ -1,8 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeTaskLifecycleCommand } from "../../kernel/src/index.ts";
-import { commitSha, lifecycleHarness, owner } from "./task-lifecycle-test-harness.ts";
+import { authorizationPort } from "../../kernel/src/index.ts";
+import { lifecycleHarness, owner } from "./task-lifecycle-test-harness.ts";
 
 test("event saga rejects a second executor and self-review, then completes on Review plus consent", async () => {
   const harness = lifecycleHarness();
@@ -13,16 +13,26 @@ test("event saga rejects a second executor and self-review, then completes on Re
     await harness.submit("execution-1");
     await assert.rejects(harness.complete("execution-1", "op-complete-early"), /approved|in_review/iu);
 
-    await assert.rejects(harness.service.execute({ ...normalizeTaskLifecycleCommand({ workspaceId: harness.rootDir, actor: owner, source: "local", expectedRevision: 3 }, {
-      type: "RecordReview", taskId: "task-1", executionId: "execution-1", reviewId: "review-self",
-      verdict: "approved", reason: "self review",
-      evidenceChecked: [], commitSha, iteration: 0, contentDigest: `sha256:${"b".repeat(64)}`
-    }), eventId: "event-review-self", workspaceRevision: 4,
-      occurredAt: "2026-08-11T00:04:00.000Z"
-    }, {
-      actorBinding: owner, capability: "execution-review@v1",
-      capabilityRef: "cap-self"
-    }), /independent reviewer/iu);
+    const selfReview = authorizationPort.authorize(
+      {
+        actionId: "action-review-self",
+        kind: "execution.review",
+        target: "execution/execution-1",
+        actor: owner,
+        authorizationRef: "default@2",
+        idempotencyKey: "review-self",
+      },
+      {
+        commandClasses: ["arbiter"],
+        target: { executionActor: owner, runtimeBinding: null },
+        evaluatedAtCut: "canonical:3",
+      },
+    );
+    assert.equal(selfReview.outcome, "denied");
+    assert.equal(
+      selfReview.bindingsUsed.find((binding) => binding.predicate === "reviewIndependence")?.satisfied,
+      false,
+    );
 
     await harness.review("execution-1", "anti_entropy", "approved");
     await harness.consent("execution-1");

@@ -31,6 +31,7 @@ test("the built-in v2 policy registers its binding predicates and eight applicab
       "isOwner",
       "hasCommandClass",
       "reviewIndependence",
+      "isNotProposalAgent",
       "holdsExecutionLease",
       "reclaimsOrphanedLease",
       "dispatchesExecution",
@@ -42,6 +43,7 @@ test("the built-in v2 policy registers its binding predicates and eight applicab
     {
       allOf: [
         { predicate: "hasCommandClass", commandClass: "arbiter" },
+        { predicate: "isNotProposalAgent" },
         {
           predicate: "reviewIndependence",
           level: "L1",
@@ -61,7 +63,7 @@ test("the built-in v2 policy registers its binding predicates and eight applicab
       'task.consent:-=>{"predicate":"isSameExecutionOwner"}',
       'task.complete:-=>{"predicate":"isOwner"}',
       'execution.review:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"reviewIndependence","level":"L1"}',
-      'decision.accept:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"reviewIndependence","level":"L1","gatedBy":{"env":"HARNESS_REVIEW_INDEPENDENCE"}}',
+      'decision.accept:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"isNotProposalAgent"}+{"predicate":"reviewIndependence","level":"L1","gatedBy":{"env":"HARNESS_REVIEW_INDEPENDENCE"}}',
       'execution.release:-=>{"predicate":"holdsExecutionLease"}|{"predicate":"reclaimsOrphanedLease"}',
       'runtime.dispatch:-=>{"predicate":"dispatchesExecution"}|{"predicate":"delegatedByRuntimeSession"}',
       'doc.submit:-=>{"predicate":"holdsExecutionLease"}+{"predicate":"sameWriteSource"}|{"predicate":"delegatedByRuntimeSession"}+{"predicate":"sameWriteSource"}',
@@ -83,6 +85,7 @@ test("ha entity explain policy exposes the registered predicate vocabulary, Acti
       "delegatedByRuntimeSession",
       "hasCommandClass",
       "reviewIndependence",
+      "isNotProposalAgent",
       "sameWriteSource",
     ],
     actions: DEFAULT_POLICY.actions,

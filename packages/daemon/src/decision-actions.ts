@@ -145,15 +145,22 @@ export function makeDecisionActions(input: {
             },
           )
         : null;
-    if (authorizationDecision?.outcome === "denied")
+    if (authorizationDecision?.outcome === "denied") {
+      const proposalAgentFailed = authorizationDecision.bindingsUsed.some(
+          (binding) => binding.predicate === "isNotProposalAgent" && binding.satisfied === false,
+        ),
+        reviewIndependenceFailed = authorizationDecision.bindingsUsed.some(
+          (binding) => binding.predicate === "reviewIndependence" && binding.satisfied === false,
+        );
       throw factActionError(
         "actor_unauthorized",
-        authorizationDecision.bindingsUsed.some(
-          (binding) => binding.predicate === "reviewIndependence" && binding.satisfied === false,
-        )
-          ? "Decision outcome requires a reviewer independent from the proposal actor."
-          : "Decision outcome requires a transport-bound $arbiter.",
+        proposalAgentFailed
+          ? "An agent cannot judge its own Decision proposal; use an independent reviewer."
+          : reviewIndependenceFailed
+            ? "Decision outcome requires a reviewer independent from the proposal actor."
+            : "Decision outcome requires a transport-bound $arbiter.",
       );
+    }
     const normalized =
         action.kind === "decision-amend"
           ? prepareDecisionAmend(action, service.show(requiredFactText(action.decisionId, "decisionId")).decision)
