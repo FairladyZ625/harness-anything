@@ -135,6 +135,8 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
     const firstAction = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
     const first = await fixture.cell.run(firstAction, binding);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
+    assert.equal(first.authorizationDecision?.policyRef, "default@2");
+    assert.equal(first.authorizationDecision?.outcome, "allowed");
     const retried = await fixture.cell.run(firstAction, binding);
     assert.equal(retried.outcome, "no_changes");
     assert.equal(retried.code, "no_changes");

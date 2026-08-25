@@ -1,6 +1,4 @@
-import { isIndependentFrom, type ActorIdentity } from "../../kernel/src/index.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
-import type { Snapshot } from "./repo-cell-types.ts";
 
 export function legacyReviewLint(body: string, taskId: string, reviewerId: string, verifiedAt: string) {
   const lines = body.split(/\r?\n/u),
@@ -78,30 +76,6 @@ export function legacyReviewLint(body: string, taskId: string, reviewerId: strin
       findingSummary: { total: findings.length, openBlocking: blocking.length },
     },
   };
-}
-
-// Independence is decided on the executor axis, never on the shared transport principal. Reporting both
-// failures as one "independent transport-bound arbiter" sentence sent #1541 hunting a transport defect for
-// what is an undeclared executor on the original start, so each cause now names itself and its own repair.
-export function reviewerDependence(actor: ActorIdentity, snapshot: Snapshot): string | null {
-  const execution = snapshot.executions.find(
-    (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
-  );
-  if (execution === undefined)
-    return "Execution Review requires a submitted execution on the current iteration; submit the execution first.";
-  if (isIndependentFrom(execution.actor, actor)) return null;
-  return execution.actor.executor === null && actor.executor === null
-    ? [
-        "Execution Review requires a reviewer independent of the submitter: the ",
-        "submitted execution's original start declared no executor, so only a ",
-        "different person can review it. Run ha task declare-executor with that ",
-        "principal and an agent executor to record an auditable recovery before ",
-        "same-person review.",
-      ].join("")
-    : [
-        "Execution Review requires a reviewer independent of the submitting ",
-        "executor; review without declaring that executor.",
-      ].join("");
 }
 
 export function reviewVerdict(value: unknown): "approved" | "changes_requested" | "dismissed" {

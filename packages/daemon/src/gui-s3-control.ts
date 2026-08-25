@@ -425,6 +425,7 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
       visibility: "string",
       proof: "object",
       nextAction: "null-string",
+      authorizationDecision: "nullable-object",
     },
     "runtime spawn receipt",
   );

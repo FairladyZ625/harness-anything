@@ -2,18 +2,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
-import {
-  DOC_POLICY_ID,
-  decideDocWrite,
-  documentPath,
-  type DocumentState,
-} from "../../src/domain/doc-sync.contract.ts";
+import { DOC_POLICY_ID, decideDocWrite, documentPath, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
 import { resolveLiveTaskBoundRuntimeBinding } from "../../src/domain/task-bound-runtime-authority.ts";
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
 import {
   actor,
+  authorizeDocWrite,
   baseLedgerSha,
   claim,
   currentLedgerSha,
@@ -33,11 +29,7 @@ test("a live task-bound runtime may write only its assigned task artifacts subtr
       executionId: lease.executionId,
     },
     body = "runtime report\n";
-  const run = (
-    path: string,
-    resolvedTaskId: string | null,
-    overrides: Record<string, unknown> = {},
-  ) =>
+  const run = (path: string, resolvedTaskId: string | null, overrides: Record<string, unknown> = {}) =>
     decideDocWrite({
       intent: {
         schema: "doc-write-intent/v1",
@@ -60,35 +52,26 @@ test("a live task-bound runtime may write only its assigned task artifacts subtr
       occurredAt: "2026-08-12T11:00:00.000Z",
       currentLedgerSha,
       lease,
+      authorizationDecision: authorizeDocWrite(runtimeActor, runtimeBinding),
       runtimeBinding,
       documents: [null],
       claims: [Buffer.from(body)],
       resolvedTaskIds: [resolvedTaskId],
       ...overrides,
     });
-  const accepted = run(
-    "tasks/task-owner-docs/artifacts/report.md",
-    lease.taskId,
-  );
+  const accepted = run("tasks/task-owner-docs/artifacts/report.md", lease.taskId);
   assert.equal(accepted.accepted, true, JSON.stringify(accepted));
   for (const [name, result, code] of [
     [
       "canonical live binding required",
       run("tasks/task-owner-docs/artifacts/unbound.md", lease.taskId, {
         runtimeBinding: undefined,
+        authorizationDecision: authorizeDocWrite(runtimeActor),
       }),
       "lease_conflict",
     ],
-    [
-      "assigned task required",
-      run("tasks/task-other-docs/artifacts/report.md", "task-other"),
-      "unresolved_touch",
-    ],
-    [
-      "artifacts subtree required",
-      run("tasks/task-owner-docs/task_plan.md", lease.taskId),
-      "unresolved_touch",
-    ],
+    ["assigned task required", run("tasks/task-other-docs/artifacts/report.md", "task-other"), "unresolved_touch"],
+    ["artifacts subtree required", run("tasks/task-owner-docs/task_plan.md", lease.taskId), "unresolved_touch"],
   ] as const) {
     assert.equal(result.accepted, false, name);
     if (!result.accepted) assert.equal(result.code, code, name);
@@ -119,28 +102,16 @@ test("a live task-bound runtime may write only its assigned task artifacts subtr
     resultRef: null,
     lastObservedAt: "2026-08-12T10:00:00.000Z",
   } as const;
-  assert.deepEqual(
-    resolveLiveTaskBoundRuntimeBinding(
-      session,
-      lease.taskId,
-      lease.executionId,
-    ),
-    runtimeBinding,
-  );
+  assert.deepEqual(resolveLiveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId), runtimeBinding);
   assert.equal(
-    resolveLiveTaskBoundRuntimeBinding(
-      { ...session, liveness: "stale" },
-      lease.taskId,
-      lease.executionId,
-    ),
+    resolveLiveTaskBoundRuntimeBinding({ ...session, liveness: "stale" }, lease.taskId, lease.executionId),
     null,
   );
 });
 
 test("an opaque artifact write reclassifies an existing prose record without a policy upgrade", () => {
   const base = "---\ntitle: Legacy report\n---\n\n# Same\n\n# Same\n",
-    candidate =
-      "---\ntitle: Rewritten report\n---\n\n# Same\n\n# Same\n\nAll bytes are opaque.\n",
+    candidate = "---\ntitle: Rewritten report\n---\n\n# Same\n\n# Same\n\nAll bytes are opaque.\n",
     path = documentPath("tasks/task-owner/artifacts/report.md"),
     document: DocumentState = { ...state(base), path, policyId: DOC_POLICY_ID };
   const result = decide(
@@ -200,6 +171,7 @@ test("mixed body-replaceable rejection produces a valid typed receipt", () => {
     occurredAt: "2026-08-12T11:00:00.000Z",
     currentLedgerSha,
     lease,
+    authorizationDecision: authorizeDocWrite(),
     documents,
     claims: [Buffer.from(shorter), Buffer.from(protectedEdit)],
   });
@@ -208,16 +180,8 @@ test("mixed body-replaceable rejection produces a valid typed receipt", () => {
   assert.equal(result.code, "unresolved_touch");
   assert.equal("plan" in result, false);
   for (const difference of result.detail.differences)
-    for (const count of [
-      difference.insertBytes,
-      difference.deleteBytes,
-      difference.replaceBytes,
-    ])
-      assert.equal(
-        Number.isSafeInteger(count) && count >= 0,
-        true,
-        JSON.stringify(difference),
-      );
+    for (const count of [difference.insertBytes, difference.deleteBytes, difference.replaceBytes])
+      assert.equal(Number.isSafeInteger(count) && count >= 0, true, JSON.stringify(difference));
   const receipt = {
     outcome: "op_rejected",
     opId: "doc-op",
@@ -231,11 +195,8 @@ test("mixed body-replaceable rejection produces a valid typed receipt", () => {
 });
 
 test("Decision documents admit body-only sync and route new or frontmatter edits to typed commands", () => {
-  const path = documentPath(
-      "decisions/decision-dec_IMPORTED_E12_ALPHA/decision.md",
-    ),
-    base =
-      "---\ndecision_id: dec_IMPORTED_E12_ALPHA\nstate: proposed\n---\n# Decision\n\nCanonical prose.\n",
+  const path = documentPath("decisions/decision-dec_IMPORTED_E12_ALPHA/decision.md"),
+    base = "---\ndecision_id: dec_IMPORTED_E12_ALPHA\nstate: proposed\n---\n# Decision\n\nCanonical prose.\n",
     bodyOnly = base.replace("Canonical prose.", "Updated prose."),
     frontmatter = base.replace("state: proposed", "state: active"),
     mixed = frontmatter.replace("Canonical prose.", "Updated prose."),
@@ -261,10 +222,7 @@ test("Decision documents admit body-only sync and route new or frontmatter edits
     assert.equal(result.accepted, false, name);
     if (!result.accepted) {
       assert.equal(result.code, "unresolved_touch");
-      assert.equal(
-        result.detail.unresolvedTouches[0]?.requiredRoute,
-        "ha decision --help",
-      );
+      assert.equal(result.detail.unresolvedTouches[0]?.requiredRoute, "ha decision --help");
     }
   }
 });

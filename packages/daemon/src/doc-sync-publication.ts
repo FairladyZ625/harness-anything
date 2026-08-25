@@ -255,7 +255,10 @@ export function publishDocIntent(
         nextAction: `run ha receipt show ${envelope.opId} after the canonical projection catches up`,
       };
     recycleClaims(input.rootDir, intent);
-    return rejectDocSyncAction(envelope.opId, adjudication.code, adjudication.detail, adjudication.detail.nextAction);
+    return {
+      ...rejectDocSyncAction(envelope.opId, adjudication.code, adjudication.detail, adjudication.detail.nextAction),
+      authorizationDecision: adjudication.authorizationDecision,
+    };
   }
   input.store.append({
     event: adjudication.decision.event,
@@ -268,5 +271,5 @@ export function publishDocIntent(
   const applied = readDocReceipt(input, adjudication.decision.event);
   postCommit(input, "after_response_write", envelope.opId);
   recycleClaims(input.rootDir, intent);
-  return applied;
+  return { ...applied, authorizationDecision: adjudication.decision.authorizationDecision };
 }

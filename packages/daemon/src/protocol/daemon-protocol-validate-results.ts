@@ -160,6 +160,7 @@ export const writeReceiptFields = [
     "proof",
     "detail",
     "commitSha",
+    "authorizationDecision",
     "cut",
   ],
   guiReceiptExtensions = [

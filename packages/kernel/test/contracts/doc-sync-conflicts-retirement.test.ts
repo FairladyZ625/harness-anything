@@ -1,22 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  DOC_POLICY_ID,
-  decideDocWrite,
-  validateCurrentDocEvent,
-} from "../../src/domain/doc-sync.contract.ts";
+import { DOC_POLICY_ID, decideDocWrite, validateCurrentDocEvent } from "../../src/domain/doc-sync.contract.ts";
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
-import {
-  actor,
-  baseLedgerSha,
-  claim,
-  currentLedgerSha,
-  decide,
-  state,
-} from "./doc-sync.fixtures.ts";
+import { actor, baseLedgerSha, claim, currentLedgerSha, decide, state } from "./doc-sync.fixtures.ts";
 test("stale ledger and stale blob reject the entire batch with current holder and typed conflict detail", () => {
   const body = "# Notes\nA\n",
     change = {
@@ -35,10 +24,7 @@ test("stale ledger and stale blob reject the entire batch with current holder an
   if (staleLedger.accepted) return;
   assert.equal(staleLedger.code, "base_ledger_changed");
   assert.equal(staleLedger.detail.holder?.personId, "person-owner");
-  assert.equal(
-    staleLedger.detail.paths[0]?.currentBlobSha256,
-    sha256Text(body),
-  );
+  assert.equal(staleLedger.detail.paths[0]?.currentBlobSha256, sha256Text(body));
   assert.deepEqual(
     validateWriteReceipt({
       outcome: "op_rejected",
@@ -51,11 +37,7 @@ test("stale ledger and stale blob reject the entire batch with current holder an
     }),
     [],
   );
-  const staleBlob = decide(
-    { ...change, baseBlobSha256: "c".repeat(64) },
-    state(body),
-    Buffer.from(`${body}B\n`),
-  );
+  const staleBlob = decide({ ...change, baseBlobSha256: "c".repeat(64) }, state(body), Buffer.from(`${body}B\n`));
   assert.equal(staleBlob.accepted, false);
   if (!staleBlob.accepted) {
     assert.equal(staleBlob.code, "base_blob_changed");
@@ -81,14 +63,8 @@ test("claim mismatch, deletion, heading rename, machine touch, and ambiguous hea
     assert.equal(deletion.code, "deletion_forbidden");
     assert.equal(deletion.detail.deletions[0]?.source, "intent");
   }
-  for (const candidate of [
-    "# Renamed\nA\n",
-    "---\nowner: other\n---\n# Notes\nA\n",
-    "# Same\nA\n# Same\nB\n",
-  ]) {
-    const current = candidate.startsWith("---")
-        ? "---\nowner: owner\n---\n# Notes\nA\n"
-        : base,
+  for (const candidate of ["# Renamed\nA\n", "---\nowner: other\n---\n# Notes\nA\n", "# Same\nA\n# Same\nB\n"]) {
+    const current = candidate.startsWith("---") ? "---\nowner: owner\n---\n# Notes\nA\n" : base,
       rejected = decide(
         {
           path: "context/notes.md",
@@ -133,22 +109,18 @@ test("an explicit single-document retirement records its reason and declares the
     occurredAt: "2026-08-12T11:00:00.000Z",
     currentLedgerSha,
     lease: null,
+    authorizationDecision: null,
     documents: [document],
     claims: [null],
     retirementReason: "superseded temporary evidence",
   });
   assert.equal(result.accepted, true);
   if (!result.accepted) return;
-  assert.equal(
-    result.event.payload.retirementReason,
-    "superseded temporary evidence",
-  );
+  assert.equal(result.event.payload.retirementReason, "superseded temporary evidence");
   assert.equal(result.event.payload.changes[0]?.candidate, null);
   assert.deepEqual(validateCurrentDocEvent(result.event), []);
   assert.deepEqual(
-    result.plan.targets.filter(
-      (target) => target.kind === "authored_file_delete",
-    ),
+    result.plan.targets.filter((target) => target.kind === "authored_file_delete"),
     [
       {
         kind: "authored_file_delete",
@@ -168,6 +140,7 @@ test("an explicit single-document retirement records its reason and declares the
     occurredAt: "2026-08-12T11:00:00.000Z",
     currentLedgerSha,
     lease: null,
+    authorizationDecision: null,
     documents: [document],
     claims: [null],
     retirementReason: "   ",
@@ -177,12 +150,7 @@ test("an explicit single-document retirement records its reason and declares the
 });
 
 test("direct CRLF claims name the line-ending repair when the contract rejects them", () => {
-  const crlf =
-      "# Notes" +
-      String.fromCharCode(13) +
-      "\nA" +
-      String.fromCharCode(13) +
-      "\n",
+  const crlf = "# Notes" + String.fromCharCode(13) + "\nA" + String.fromCharCode(13) + "\n",
     result = decide(
       {
         path: "context/notes.md",
@@ -196,10 +164,7 @@ test("direct CRLF claims name the line-ending repair when the contract rejects t
   assert.equal(result.accepted, false);
   if (!result.accepted) {
     assert.equal(result.code, "unresolved_touch");
-    assert.equal(
-      result.detail.unresolvedTouches[0]?.reason,
-      "claim is not canonical LF text",
-    );
+    assert.equal(result.detail.unresolvedTouches[0]?.reason, "claim is not canonical LF text");
     assert.match(result.detail.nextAction, /LF line endings.*resubmit/u);
   }
 });
@@ -216,47 +181,22 @@ test("prose regression controls reject deletion and duplicate headings while nam
   assert.equal(deletion.accepted, false);
   if (!deletion.accepted) assert.equal(deletion.code, "deletion_forbidden");
   const duplicate = "# Same\nA\n# Same\nB\n",
-    duplicateResult = decide(
-      { ...prose, candidate: claim(duplicate) },
-      state(base),
-      Buffer.from(duplicate),
-    );
+    duplicateResult = decide({ ...prose, candidate: claim(duplicate) }, state(base), Buffer.from(duplicate));
   assert.equal(duplicateResult.accepted, false);
   if (!duplicateResult.accepted)
-    assert.equal(
-      duplicateResult.detail.unresolvedTouches[0]?.reason,
-      "duplicate heading anchor",
-    );
+    assert.equal(duplicateResult.detail.unresolvedTouches[0]?.reason, "duplicate heading anchor");
   const missing = "# One\nA\n",
-    missingResult = decide(
-      { ...prose, candidate: claim(missing) },
-      state(base),
-      Buffer.from(missing),
-    );
+    missingResult = decide({ ...prose, candidate: claim(missing) }, state(base), Buffer.from(missing));
   assert.equal(missingResult.accepted, false);
   if (!missingResult.accepted)
-    assert.equal(
-      missingResult.detail.unresolvedTouches[0]?.reason,
-      'base region is missing: "# Two"',
-    );
+    assert.equal(missingResult.detail.unresolvedTouches[0]?.reason, 'base region is missing: "# Two"');
   const allMissing = "Replacement prose.\n",
-    allMissingResult = decide(
-      { ...prose, candidate: claim(allMissing) },
-      state(base),
-      Buffer.from(allMissing),
-    );
+    allMissingResult = decide({ ...prose, candidate: claim(allMissing) }, state(base), Buffer.from(allMissing));
   assert.equal(allMissingResult.accepted, false);
   if (!allMissingResult.accepted)
-    assert.equal(
-      allMissingResult.detail.unresolvedTouches[0]?.reason,
-      'base regions are missing: "# One", "# Two"',
-    );
+    assert.equal(allMissingResult.detail.unresolvedTouches[0]?.reason, 'base regions are missing: "# One", "# Two"');
   const reordered = "# Two\nB\n# One\nA\n",
-    reorderedResult = decide(
-      { ...prose, candidate: claim(reordered) },
-      state(base),
-      Buffer.from(reordered),
-    );
+    reorderedResult = decide({ ...prose, candidate: claim(reordered) }, state(base), Buffer.from(reordered));
   assert.equal(reorderedResult.accepted, false);
   if (!reorderedResult.accepted)
     assert.equal(

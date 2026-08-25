@@ -6,6 +6,7 @@ import {
   deriveRelationId,
   sessionProvenance,
   type ActorIdentity,
+  type AuthorizationDecision,
   type CanonicalEventCut,
   type CanonicalEventStore,
   type DecisionAmendableSnapshot,
@@ -18,6 +19,7 @@ import {
   type WriteReceipt,
   type WriteSource,
 } from "../../kernel/src/index.ts";
+import { authorizeAction } from "./authorization.ts";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import {
   compileFact,
@@ -122,13 +124,43 @@ export function makeDecisionActions(input: {
         result = facts.record(bundle);
       return factReceipt(result, bundle.event);
     }
-    if (
-      ["decision-accept", "decision-reject", "decision-defer"].includes(action.kind) ||
-      (action.kind === "decision-transition" &&
-        ["in_effect", "rejected", "deferred"].includes(String(action.targetState)))
-    )
-      if (!binding.roles?.includes("$arbiter"))
-        throw factActionError("actor_unauthorized", "Decision outcome requires a transport-bound $arbiter.");
+    const judgmentAction =
+        ["decision-accept", "decision-reject", "decision-defer"].includes(action.kind) ||
+        (action.kind === "decision-transition" &&
+          ["in_effect", "rejected", "deferred"].includes(String(action.targetState))),
+      authorizationDecision = judgmentAction
+        ? authorizeAction(
+            "decision.accept",
+            `decision/${requiredFactText(action.decisionId, "decisionId")}`,
+            binding.actor,
+            opId,
+            {
+              commandClasses: binding.roles?.map((role) => role.replace(/^\$/u, "")) ?? [],
+              target: {
+                proposalActor:
+                  input.projection.readDecision(requiredFactText(action.decisionId, "decisionId")).decision?.proposer ??
+                  null,
+              },
+              evaluatedAtCut: `canonical:${input.store.readHead()?.revision ?? 0}`,
+            },
+          )
+        : null;
+    if (authorizationDecision?.outcome === "denied") {
+      const proposalAgentFailed = authorizationDecision.bindingsUsed.some(
+          (binding) => binding.predicate === "isNotProposalAgent" && binding.satisfied === false,
+        ),
+        reviewIndependenceFailed = authorizationDecision.bindingsUsed.some(
+          (binding) => binding.predicate === "reviewIndependence" && binding.satisfied === false,
+        );
+      throw factActionError(
+        "actor_unauthorized",
+        proposalAgentFailed
+          ? "An agent cannot judge its own Decision proposal; use an independent reviewer."
+          : reviewIndependenceFailed
+            ? "Decision outcome requires a reviewer independent from the proposal actor."
+            : "Decision outcome requires a transport-bound $arbiter.",
+      );
+    }
     const normalized =
         action.kind === "decision-amend"
           ? prepareDecisionAmend(action, service.show(requiredFactText(action.decisionId, "decisionId")).decision)
@@ -153,12 +185,16 @@ export function makeDecisionActions(input: {
               (input.store.readHead()?.revision ?? 0) + 1,
             ),
           );
-    if (dryRun) return decisionPreview(bundle.event, input.store.readHead()?.revision ?? 0);
+    if (dryRun)
+      return {
+        ...decisionPreview(bundle.event, input.store.readHead()?.revision ?? 0),
+        authorizationDecision,
+      };
     const result = service.record(bundle);
     input.killpoint?.("after_sqlite_commit");
     input.killpoint?.("before_response_write");
     input.killpoint?.("after_response_write");
-    return decisionReceipt(result, bundle.event);
+    return decisionReceipt(result, bundle.event, authorizationDecision);
   };
   return Object.freeze({ run });
 }
@@ -469,6 +505,7 @@ function decisionReceipt(
     readonly decision: unknown;
   },
   event: DecisionEventV1,
+  authorizationDecision: AuthorizationDecision | null,
 ): WriteReceipt & {
   readonly path: string;
   readonly commitSha: string | null;
@@ -513,6 +550,7 @@ function decisionReceipt(
       documentSha256: result.documentSha256,
       worktreeVisible: true as const,
       consentId,
+      authorizationDecision,
     };
   return canonicalVisible
     ? { outcome: "applied", ...base }

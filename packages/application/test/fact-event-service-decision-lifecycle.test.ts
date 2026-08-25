@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import test from "node:test";
-import { type DecisionEventDraftV1 } from "../../kernel/src/index.ts";
+import { authorizationPort, type DecisionEventDraftV1 } from "../../kernel/src/index.ts";
 
 import {
   actor,
@@ -16,107 +16,70 @@ import {
 } from "./fact-event-service.fixtures.ts";
 test("Decision transition matrix, transport arbiter, claims, relation retirement, and replay are canonical", () => {
   withDecisionFixture(({ service, projection, store }) => {
-    const proposed = compileDecision(
-        projection,
-        decisionEvent(1, "decision_proposed"),
-      ),
+    const proposed = compileDecision(projection, decisionEvent(1, "decision_proposed")),
       first = service.record(proposed);
     assert.deepEqual(first, service.record(proposed));
     assert.equal(first.path, "decisions/decision-dec_FIXTURE/decision.md");
-    assert.equal(
-      first.documentSha256,
-      proposed.event.payload.decisionDocumentClaim.sha256,
-    );
-    assert.equal(
-      Buffer.from(store.readContentBlob(first.documentSha256)!).toString(
-        "utf8",
-      ),
-      proposed.body,
-    );
-    assert.equal(
-      projection.readDocument(first.path).document?.workspaceRevision,
-      first.revision,
-    );
-    const rejectsRelation = (
-      relation: ReturnType<typeof relationRecord>,
-      expected: string,
-    ) =>
+    assert.equal(first.documentSha256, proposed.event.payload.decisionDocumentClaim.sha256);
+    assert.equal(Buffer.from(store.readContentBlob(first.documentSha256)!).toString("utf8"), proposed.body);
+    assert.equal(projection.readDocument(first.path).document?.workspaceRevision, first.revision);
+    const rejectsRelation = (relation: ReturnType<typeof relationRecord>, expected: string) =>
       assert.throws(
-        () =>
-          recordDecision(
-            service,
-            projection,
-            decisionEvent(2, "decision_related", undefined, relation),
-          ),
+        () => recordDecision(service, projection, decisionEvent(2, "decision_related", undefined, relation)),
         (error: unknown) => code(error) === expected,
       );
     rejectsRelation(
-      relationRecord(
-        "decision/dec_OTHER/CH1",
-        "decision/dec_FIXTURE/CH1",
-        "supports",
-      ),
+      relationRecord("decision/dec_OTHER/CH1", "decision/dec_FIXTURE/CH1", "supports"),
       "relation_invalid",
     );
     rejectsRelation(
-      relationRecord(
-        "decision/dec_FIXTURE/C404",
-        "decision/dec_FIXTURE/CH1",
-        "supports",
-      ),
+      relationRecord("decision/dec_FIXTURE/C404", "decision/dec_FIXTURE/CH1", "supports"),
       "anchor_not_found",
     );
     rejectsRelation(
-      relationRecord(
-        "decision/dec_FIXTURE/CH1",
-        "fact/task-fact/F-12345678",
-        "evidenced-by",
-      ),
+      relationRecord("decision/dec_FIXTURE/CH1", "fact/task-fact/F-12345678", "evidenced-by"),
       "entity_not_found",
     );
     rejectsRelation(
-      relationRecord(
-        "decision/dec_FIXTURE/CH1",
-        "decision/dec_FIXTURE/RJ1",
-        "produces",
-      ),
+      relationRecord("decision/dec_FIXTURE/CH1", "decision/dec_FIXTURE/RJ1", "produces"),
       "relation_invalid",
     );
     rejectsRelation(
       {
-        ...relationRecord(
-          "decision/dec_FIXTURE/CH1",
-          "decision/dec_FIXTURE/RJ1",
-          "supports",
-        ),
+        ...relationRecord("decision/dec_FIXTURE/CH1", "decision/dec_FIXTURE/RJ1", "supports"),
         relation_id: "rel_0000000000000000",
       },
       "relation_invalid",
     );
-    assert.throws(
-      () =>
-        recordDecision(
-          service,
-          projection,
-          decisionEvent(2, "decision_accepted", actor),
-        ),
-      (error: unknown) => code(error) === "invalid_transition",
+    const selfJudgment = authorizationPort.authorize(
+      {
+        actionId: "action-decision-self-judgment",
+        kind: "decision.accept",
+        target: "decision/dec_FIXTURE",
+        actor,
+        authorizationRef: "default@2",
+        idempotencyKey: "decision-self-judgment",
+      },
+      {
+        commandClasses: ["arbiter"],
+        target: { proposalActor: actor },
+        evaluatedAtCut: "canonical:1",
+      },
     );
-    const accepted = recordDecision(
-      service,
-      projection,
-      decisionEvent(2, "decision_accepted"),
+    assert.equal(selfJudgment.outcome, "denied");
+    assert.equal(
+      selfJudgment.bindingsUsed.find((binding) => binding.predicate === "isNotProposalAgent")?.satisfied,
+      false,
     );
+    const accepted = recordDecision(service, projection, decisionEvent(2, "decision_accepted"));
     assert.equal(accepted.decision.state, "in_effect");
     assert.deepEqual(
-      accepted.decision.judgmentConsents.map(
-        ({ action, targetState, actor: consentActor, source }) => ({
-          action,
-          targetState,
-          actor: consentActor,
-          source,
-        }),
-      ),
+      accepted.decision.judgmentConsents.map(({ action, targetState, actor: consentActor, source }) => ({
+        action,
+        targetState,
+        actor: consentActor,
+        source,
+      })),
       [
         {
           action: "accept",
@@ -126,70 +89,32 @@ test("Decision transition matrix, transport arbiter, claims, relation retirement
         },
       ],
     );
-    recordDecision(
-      service,
-      projection,
-      decisionEvent(3, "decision_claim_declared"),
-    );
-    recordDecision(
-      service,
-      projection,
-      decisionEvent(4, "decision_claim_fulfillment_declared"),
-    );
-    assert.deepEqual(
-      projection.readDecisionGraph().decisionAnchors[0]?.anchorRefs,
-      [
-        "decision/dec_FIXTURE",
-        "decision/dec_FIXTURE/C1",
-        "decision/dec_FIXTURE/CH1",
-        "decision/dec_FIXTURE/RJ1",
-      ],
-    );
-    const relation = relationRecord(
-        "decision/dec_FIXTURE/C1",
-        "decision/dec_FIXTURE/CH1",
-        "supports",
-      ),
+    recordDecision(service, projection, decisionEvent(3, "decision_claim_declared"));
+    recordDecision(service, projection, decisionEvent(4, "decision_claim_fulfillment_declared"));
+    assert.deepEqual(projection.readDecisionGraph().decisionAnchors[0]?.anchorRefs, [
+      "decision/dec_FIXTURE",
+      "decision/dec_FIXTURE/C1",
+      "decision/dec_FIXTURE/CH1",
+      "decision/dec_FIXTURE/RJ1",
+    ]);
+    const relation = relationRecord("decision/dec_FIXTURE/C1", "decision/dec_FIXTURE/CH1", "supports"),
       relationId = relation.relation_id;
-    recordDecision(
-      service,
-      projection,
-      decisionEvent(5, "decision_related", undefined, relation),
-    );
+    recordDecision(service, projection, decisionEvent(5, "decision_related", undefined, relation));
     assert.throws(
-      () =>
-        recordDecision(
-          service,
-          projection,
-          decisionEvent(6, "decision_related", undefined, relation),
-        ),
+      () => recordDecision(service, projection, decisionEvent(6, "decision_related", undefined, relation)),
       (error: unknown) => code(error) === "relation_invalid",
     );
-    assert.equal(
-      store.readHead()?.revision,
-      5,
-      "deterministic relation collision is zero-write",
-    );
-    recordDecision(
-      service,
-      projection,
-      decisionEvent(6, "decision_relation_retired", undefined, relationId),
-    );
+    assert.equal(store.readHead()?.revision, 5, "deterministic relation collision is zero-write");
+    recordDecision(service, projection, decisionEvent(6, "decision_relation_retired", undefined, relationId));
     const edge = projection.readDecisionGraph().edges[0]!;
     assert.equal(edge.state, "edge_retired");
     assert.equal(edge.retiredRevision, 6);
     assert.equal(
-      recordDecision(service, projection, decisionEvent(7, "decision_retired"))
-        .decision.state,
+      recordDecision(service, projection, decisionEvent(7, "decision_retired")).decision.state,
       "outcome_retired",
     );
     assert.throws(
-      () =>
-        recordDecision(
-          service,
-          projection,
-          decisionEvent(8, "decision_deferred"),
-        ),
+      () => recordDecision(service, projection, decisionEvent(8, "decision_deferred")),
       (error: unknown) => code(error) === "invalid_transition",
     );
     const path = "decisions/decision-dec_FIXTURE/decision.md",
@@ -216,11 +141,7 @@ test("Decision transition matrix, transport arbiter, claims, relation retirement
     ["decision_deferred", "deferred"],
   ] as const)
     withDecisionFixture(({ service, projection }) => {
-      recordDecision(
-        service,
-        projection,
-        decisionEvent(1, "decision_proposed"),
-      );
+      recordDecision(service, projection, decisionEvent(1, "decision_proposed"));
       assert.throws(
         () =>
           recordDecision(service, projection, {
@@ -230,16 +151,8 @@ test("Decision transition matrix, transport arbiter, claims, relation retirement
           }),
         /base must agree/u,
       );
-      assert.equal(
-        recordDecision(service, projection, decisionEvent(2, terminal)).decision
-          .state,
-        state,
-      );
-      for (const illegal of [
-        "decision_accepted",
-        "decision_rejected",
-        "decision_deferred",
-      ] as const)
+      assert.equal(recordDecision(service, projection, decisionEvent(2, terminal)).decision.state, state);
+      for (const illegal of ["decision_accepted", "decision_rejected", "decision_deferred"] as const)
         assert.throws(
           () => recordDecision(service, projection, decisionEvent(3, illegal)),
           (error: unknown) => code(error) === "invalid_transition",
@@ -247,30 +160,16 @@ test("Decision transition matrix, transport arbiter, claims, relation retirement
         );
       if (state === "in_effect") {
         assert.equal(
-          recordDecision(
-            service,
-            projection,
-            decisionEvent(3, "decision_retired"),
-          ).decision.state,
+          recordDecision(service, projection, decisionEvent(3, "decision_retired")).decision.state,
           "outcome_retired",
         );
         assert.throws(
-          () =>
-            recordDecision(
-              service,
-              projection,
-              decisionEvent(4, "decision_retired"),
-            ),
+          () => recordDecision(service, projection, decisionEvent(4, "decision_retired")),
           (error: unknown) => code(error) === "invalid_transition",
         );
       } else
         assert.throws(
-          () =>
-            recordDecision(
-              service,
-              projection,
-              decisionEvent(3, "decision_retired"),
-            ),
+          () => recordDecision(service, projection, decisionEvent(3, "decision_retired")),
           (error: unknown) => code(error) === "invalid_transition",
           `${state} -> retired`,
         );
@@ -279,11 +178,7 @@ test("Decision transition matrix, transport arbiter, claims, relation retirement
 
 test("Decision proposal publishes initial prose, claim fulfillment, and relation in one rebuildable revision", () => {
   withDecisionFixture(({ service, projection, store }) => {
-    const relation = relationRecord(
-        "decision/dec_FIXTURE/C1",
-        "decision/dec_FIXTURE/CH1",
-        "supports",
-      ),
+    const relation = relationRecord("decision/dec_FIXTURE/C1", "decision/dec_FIXTURE/CH1", "supports"),
       proposal = decisionEvent(1, "decision_proposed") as Extract<
         DecisionEventDraftV1,
         { readonly type: "decision_proposed" }
@@ -314,14 +209,8 @@ test("Decision proposal publishes initial prose, claim fulfillment, and relation
         fulfillment: "evidenced",
       },
     ]);
-    assert.equal(
-      projection.readDecisionGraph().edges[0]?.relationId,
-      relation.relation_id,
-    );
-    assert.equal(
-      result.decision.body?.body,
-      "# Canonical Decision\n\n初始正文。\n",
-    );
+    assert.equal(projection.readDecisionGraph().edges[0]?.relationId, relation.relation_id);
+    assert.equal(result.decision.body?.body, "# Canonical Decision\n\n初始正文。\n");
     const before = {
       decision: result.decision,
       graph: projection.readDecisionGraph(),
@@ -356,26 +245,10 @@ test("Decision accept requires explicit evidence or judgment-only, while human C
         }),
       (error: unknown) => code(error) === "invalid_transition",
     );
-    assert.equal(
-      store.readHead()?.revision,
-      before,
-      "evidence-floor rejection is zero-write",
-    );
-    recordDecision(
-      service,
-      projection,
-      decisionEvent(2, "decision_claim_declared"),
-    );
-    const evidence = relationRecord(
-      "decision/dec_FIXTURE/C1",
-      "decision/dec_FIXTURE/CH1",
-      "supports",
-    );
-    recordDecision(
-      service,
-      projection,
-      decisionEvent(3, "decision_related", undefined, evidence),
-    );
+    assert.equal(store.readHead()?.revision, before, "evidence-floor rejection is zero-write");
+    recordDecision(service, projection, decisionEvent(2, "decision_claim_declared"));
+    const evidence = relationRecord("decision/dec_FIXTURE/C1", "decision/dec_FIXTURE/CH1", "supports");
+    recordDecision(service, projection, decisionEvent(3, "decision_related", undefined, evidence));
     assert.equal(
       recordDecision(service, projection, {
         ...decisionEvent(4, "decision_accepted"),
@@ -396,25 +269,11 @@ test("Decision accept requires explicit evidence or judgment-only, while human C
         DecisionEventDraftV1,
         { readonly type: "decision_proposed" }
       >;
-    recordDecision(
-      service,
-      projection,
-      decisionAt(
-        1,
-        "dec_FIXTURE",
-        "decision_proposed",
-        proposal.payload,
-        human,
-      ),
-    );
+    recordDecision(service, projection, decisionAt(1, "dec_FIXTURE", "decision_proposed", proposal.payload, human));
     const accepted = decisionEvent(2, "decision_accepted", human) as Extract<
       DecisionEventDraftV1,
       { readonly type: "decision_accepted" }
     >;
-    assert.equal(
-      recordDecision(service, projection, accepted).decision.arbiter?.principal
-        .personId,
-      "person-ceo",
-    );
+    assert.equal(recordDecision(service, projection, accepted).decision.arbiter?.principal.personId, "person-ceo");
   });
 });

@@ -10,25 +10,50 @@ import { isRecord } from "./write-chain.contract.ts";
 
 export const policyPredicateNames = Object.freeze([
   "isOwner",
-  "isExecutorOfExecution",
+  "isSameExecutionOwner",
+  "holdsExecutionLease",
+  "reclaimsOrphanedLease",
+  "dispatchesExecution",
+  "delegatedByRuntimeSession",
   "hasCommandClass",
   "reviewIndependence",
+  "isNotProposalAgent",
+  "sameWriteSource",
 ] as const);
 export type PolicyPredicateName = (typeof policyPredicateNames)[number];
 
 export const reviewIndependenceLevels = Object.freeze(["L1", "L2"] as const);
 export type ReviewIndependenceLevel = (typeof reviewIndependenceLevels)[number];
 
-export type PolicyPredicateExpression =
+export interface PolicyPredicateGate {
+  readonly env: string;
+}
+
+type PolicyPredicate =
   | { readonly predicate: "isOwner" }
-  | { readonly predicate: "isExecutorOfExecution" }
+  | { readonly predicate: "isSameExecutionOwner" }
+  | { readonly predicate: "holdsExecutionLease" }
+  | { readonly predicate: "reclaimsOrphanedLease" }
+  | { readonly predicate: "dispatchesExecution" }
+  | { readonly predicate: "delegatedByRuntimeSession" }
   | { readonly predicate: "hasCommandClass"; readonly commandClass: string }
-  | { readonly predicate: "reviewIndependence"; readonly level: ReviewIndependenceLevel };
+  | { readonly predicate: "reviewIndependence"; readonly level: ReviewIndependenceLevel }
+  | { readonly predicate: "isNotProposalAgent" }
+  | { readonly predicate: "sameWriteSource" };
+
+export type PolicyPredicateExpression = PolicyPredicate & {
+  readonly gatedBy?: PolicyPredicateGate;
+};
+
+export interface PolicyPredicateClause {
+  readonly allOf: readonly PolicyPredicateExpression[];
+}
 
 export interface PolicyActionRule {
   readonly action: string;
-  readonly mode: "all" | "any";
-  readonly predicates: readonly PolicyPredicateExpression[];
+  readonly scope?: string;
+  /** Disjunctive normal form: one allOf clause must hold. */
+  readonly anyOf: readonly PolicyPredicateClause[];
 }
 
 export interface PolicyDeclarationV1 {
@@ -61,6 +86,28 @@ const predicateSchema = {
       type: "string" as const,
       enum: reviewIndependenceLevels,
       description: "Review independence level (L1 executor axis, L2 principal axis).",
+    },
+    gatedBy: {
+      type: "object" as const,
+      additionalProperties: false as const,
+      required: ["env"] as const,
+      properties: {
+        env: nonEmpty("Environment variable that enables this predicate in the default AuthorizationPort."),
+      },
+      description: "Optional environment gate; the predicate is omitted unless the named variable equals 1.",
+    },
+  },
+};
+const predicateClauseSchema = {
+  type: "object" as const,
+  additionalProperties: false as const,
+  required: ["allOf"] as const,
+  properties: {
+    allOf: {
+      type: "array" as const,
+      minItems: 1,
+      items: predicateSchema,
+      description: "Predicate expressions that must all hold in this authorization branch.",
     },
   },
 };
@@ -102,19 +149,15 @@ export const POLICY_DECLARATION_V1_SCHEMA = Object.freeze({
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["action", "mode", "predicates"],
+        required: ["action", "anyOf"],
         properties: {
           action: nonEmpty("Action identifier covered by this rule."),
-          mode: {
-            type: "string",
-            enum: ["all", "any"],
-            description: "Whether all or any rule predicates must hold.",
-          },
-          predicates: {
+          scope: nonEmpty("Optional lifecycle scope for an Action with multiple authorization stages."),
+          anyOf: {
             type: "array",
             minItems: 1,
-            items: predicateSchema,
-            description: "Kernel predicate expressions for the Action.",
+            items: predicateClauseSchema,
+            description: "Authorization branches; at least one allOf branch must hold.",
           },
         },
       },
@@ -135,13 +178,32 @@ export function validatePolicyDeclarationV1(value: unknown): readonly string[] {
   const policy = value as Partial<PolicyDeclarationV1>,
     actions = Array.isArray(policy.actions) ? policy.actions : [],
     rules = Array.isArray(policy.rules) ? policy.rules : [],
-    actionSet = new Set(actions);
+    actionSet = new Set(actions),
+    predicateDeclarations = Array.isArray(policy.predicates) ? policy.predicates : [],
+    declared = new Set(predicateDeclarations.map(predicateKey));
   if (rules.some((rule) => !isRecord(rule) || typeof rule.action !== "string" || !actionSet.has(rule.action)))
     errors.push("every policy rule must target an applicable Action");
-  if (new Set(rules.map((rule) => (isRecord(rule) ? rule.action : undefined))).size !== rules.length)
-    errors.push("policy rules must contain one rule per Action");
-  for (const expression of [...(Array.isArray(policy.predicates) ? policy.predicates : []), ...rulePredicates(rules)])
+  if (
+    new Set(
+      rules.map((rule) =>
+        isRecord(rule) ? `${String(rule.action)}\0${typeof rule.scope === "string" ? rule.scope : ""}` : undefined,
+      ),
+    ).size !== rules.length
+  )
+    errors.push("policy rules must contain one rule per Action and scope");
+  if (actions.some((action) => !rules.some((rule) => isRecord(rule) && rule.action === action)))
+    errors.push("every applicable Action must have at least one policy rule");
+  const usedPredicates = rulePredicates(rules);
+  for (const expression of [...predicateDeclarations, ...usedPredicates])
     errors.push(...validatePredicateExpression(expression));
+  if (usedPredicates.some((expression) => !declared.has(predicateKey(expression))))
+    errors.push("every rule predicate expression must be declared by the Policy");
+  if (
+    predicateDeclarations.some(
+      (expression) => !usedPredicates.some((used) => predicateKey(used) === predicateKey(expression)),
+    )
+  )
+    errors.push("every declared Policy predicate expression must be used by a rule");
   return errors;
 }
 
@@ -166,12 +228,25 @@ function validatePredicateExpression(value: unknown): readonly string[] {
     !reviewIndependenceLevels.includes(value.level as ReviewIndependenceLevel)
   )
     return ["reviewIndependence requires level L1 or L2"];
-  if (value.predicate === "isOwner" || value.predicate === "isExecutorOfExecution") {
-    if (Object.keys(value).length !== 1) return [`${value.predicate} does not accept arguments`];
+  if (value.predicate !== "hasCommandClass" && value.predicate !== "reviewIndependence") {
+    if (Object.keys(value).some((key) => key !== "predicate" && key !== "gatedBy"))
+      return [`${value.predicate} does not accept arguments`];
   }
   return [];
 }
 
 function rulePredicates(rules: readonly unknown[]): readonly unknown[] {
-  return rules.flatMap((rule) => (isRecord(rule) && Array.isArray(rule.predicates) ? rule.predicates : []));
+  return rules.flatMap((rule) =>
+    isRecord(rule) && Array.isArray(rule.anyOf)
+      ? rule.anyOf.flatMap((clause) => (isRecord(clause) && Array.isArray(clause.allOf) ? clause.allOf : []))
+      : [],
+  );
+}
+
+function predicateKey(value: unknown): string {
+  if (!isRecord(value)) return JSON.stringify(value);
+  const { gatedBy: _gate, ...predicate } = value;
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(predicate).sort(([left], [right]) => left.localeCompare(right))),
+  );
 }

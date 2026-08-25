@@ -1,13 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -193,9 +187,7 @@ test("an activated source persists zero-change revisions as exact cuts with an e
           ? basis.value
           : {
               ...basis.value,
-              events: basis.value.events.filter(
-                (event) => event.workspaceRevision > after,
-              ),
+              events: basis.value.events.filter((event) => event.workspaceRevision > after),
             },
       readContentBlob: () => body,
     });
@@ -217,8 +209,7 @@ test("an activated source persists zero-change revisions as exact cuts with an e
       readdirSync(path.join(root, "replica/manifests/sha256"), {
         recursive: true,
         withFileTypes: true,
-      }).filter((entry) => entry.isFile() && /^[0-9a-f]{64}$/u.test(entry.name))
-        .length,
+      }).filter((entry) => entry.isFile() && /^[0-9a-f]{64}$/u.test(entry.name)).length,
       1,
     );
     source.close();
@@ -236,11 +227,7 @@ test("an active cut pump yields after its 100ms round budget and resumes from th
       two = Buffer.from("two"),
       three = Buffer.from("three"),
       four = Buffer.from("four"),
-      events = [
-        docEvent(2, itemPath, one, two),
-        docEvent(3, itemPath, two, three),
-        docEvent(4, itemPath, three, four),
-      ],
+      events = [docEvent(2, itemPath, one, two), docEvent(3, itemPath, two, three), docEvent(4, itemPath, three, four)],
       initial: ReplicaProjectionBasis = {
         watermark: 1,
         sourceRevision: 1,
@@ -280,9 +267,7 @@ test("an active cut pump yields after its 100ms round budget and resumes from th
             ? initial
             : {
                 ...current,
-                events: current.events.filter(
-                  (event) => event.workspaceRevision > after,
-                ),
+                events: current.events.filter((event) => event.workspaceRevision > after),
               };
         },
         readContentBlob: () => null,
@@ -332,12 +317,9 @@ test("document revisions persist only adjacent path/blob changes", async () => {
           ? basis.value
           : {
               ...basis.value,
-              events: basis.value.events.filter(
-                (candidate) => candidate.workspaceRevision > after,
-              ),
+              events: basis.value.events.filter((candidate) => candidate.workspaceRevision > after),
             },
-      readContentBlob: (sha256) =>
-        sha256 === oldSha ? oldBody : sha256 === newSha ? newBody : null,
+      readContentBlob: (sha256) => (sha256 === oldSha ? oldBody : sha256 === newSha ? newBody : null),
     });
     source.activate();
     basis.value = {
@@ -365,13 +347,9 @@ test("document revisions persist only adjacent path/blob changes", async () => {
         mediaType: "text/plain",
       },
     };
-    assert.deepEqual(source.changeLog(), [
-      { fromRevision: 1, toRevision: 2, change },
-    ]);
+    assert.deepEqual(source.changeLog(), [{ fromRevision: 1, toRevision: 2, change }]);
     assert.deepEqual(source.changes(1, 2), [change]);
-    assert.deepEqual(source.manifest(2), [
-      { path: itemPath, blob: change.blob },
-    ]);
+    assert.deepEqual(source.manifest(2), [{ path: itemPath, blob: change.blob }]);
     source.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -409,9 +387,7 @@ test("retention keeps exactly 64 cuts and 63 adjacent changelogs per repo", asyn
           ? basis.value
           : {
               ...basis.value,
-              events: basis.value.events.filter(
-                (event) => event.workspaceRevision > after,
-              ),
+              events: basis.value.events.filter((event) => event.workspaceRevision > after),
             },
       readContentBlob: (sha256) => blobs.get(sha256) ?? null,
     });
@@ -485,9 +461,7 @@ test("a manifest that drifts from the exact L2 basis cannot publish a cut", asyn
             ? basis.value
             : {
                 ...basis.value,
-                events: basis.value.events.filter(
-                  (candidate) => candidate.workspaceRevision > after,
-                ),
+                events: basis.value.events.filter((candidate) => candidate.workspaceRevision > after),
               },
         readContentBlob: () => oldBody,
       });
@@ -557,67 +531,34 @@ test("RepoCell returns writes before the active replica pump builds the next rep
     };
   await host.attachmentsSettled();
   try {
-    const first = await host.run(
-      "replica-repo",
-      { kind: "task-create", taskId: "task-one", title: "One" },
-      auth,
-    );
+    const first = await host.run("replica-repo", { kind: "task-create", taskId: "task-one", title: "One" }, auth);
     assert.equal(first.outcome, "applied");
     const replica = host.replica("replica-repo"),
       bootstrap = replica.activate()!;
     assert.equal(bootstrap.revision, first.revision);
-    const second = await host.run(
-      "replica-repo",
-      { kind: "task-create", taskId: "task-two", title: "Two" },
-      auth,
-    );
+    const second = await host.run("replica-repo", { kind: "task-create", taskId: "task-two", title: "Two" }, auth);
     assert.equal(second.outcome, "applied");
     assert.equal(replica.latest()?.revision, bootstrap.revision);
     const cut = await replica.waitForCut(second.revision!);
     assert.equal(cut.revision, second.revision);
     assert.equal(
-      replica
-        .manifest(cut.revision)
-        ?.some((entry) => entry.path.includes("task-one")),
+      replica.manifest(cut.revision)?.some((entry) => entry.path.includes("task-one")),
       true,
     );
     assert.equal(
-      replica
-        .manifest(cut.revision)
-        ?.some((entry) => entry.path.includes("task-two")),
+      replica.manifest(cut.revision)?.some((entry) => entry.path.includes("task-two")),
       true,
     );
     writeFileSync(
-      path.join(
-        repo,
-        ".harness/replica/manifests/sha256",
-        cut.manifest.digest.slice(0, 2),
-        cut.manifest.digest,
-      ),
+      path.join(repo, ".harness/replica/manifests/sha256", cut.manifest.digest.slice(0, 2), cut.manifest.digest),
       "corrupt",
     );
-    const third = await host.run(
-      "replica-repo",
-      { kind: "task-create", taskId: "task-three", title: "Three" },
-      auth,
-    );
+    const third = await host.run("replica-repo", { kind: "task-create", taskId: "task-three", title: "Three" }, auth);
     assert.equal(third.outcome, "applied");
-    await assert.rejects(
-      replica.waitForCut(third.revision!),
-      /manifest .* corrupt/u,
-    );
+    await assert.rejects(replica.waitForCut(third.revision!), /manifest .* corrupt/u);
+    assert.equal((await host.read("replica-repo", "repo.tasks.list", {}, auth)).status, "ready");
     assert.equal(
-      (await host.read("replica-repo", "repo.tasks.list", {}, auth)).status,
-      "ready",
-    );
-    assert.equal(
-      (
-        await host.run(
-          "replica-repo",
-          { kind: "task-create", taskId: "task-four", title: "Four" },
-          auth,
-        )
-      ).outcome,
+      (await host.run("replica-repo", { kind: "task-create", taskId: "task-four", title: "Four" }, auth)).outcome,
       "applied",
     );
   } finally {
@@ -626,12 +567,7 @@ test("RepoCell returns writes before the active replica pump builds the next rep
   }
 });
 
-function docEvent(
-  workspaceRevision: number,
-  itemPath: string,
-  prior: Buffer,
-  body: Buffer,
-): DocEventV1 {
+function docEvent(workspaceRevision: number, itemPath: string, prior: Buffer, body: Buffer): DocEventV1 {
   const actor = { principal: { personId: "person-one" }, executor: null },
     baseBlobSha256 = sha256Bytes(prior),
     baseLedgerSha = {
@@ -667,11 +603,10 @@ function docEvent(
       workspaceRevision,
       actor,
       source: "local",
-      occurredAt: new Date(
-        Date.UTC(2026, 7, 14, 0, 0, workspaceRevision),
-      ).toISOString(),
+      occurredAt: new Date(Date.UTC(2026, 7, 14, 0, 0, workspaceRevision)).toISOString(),
       currentLedgerSha: intent.baseLedgerSha,
       lease: null,
+      authorizationDecision: null,
       documents: [
         {
           path: intent.changes[0]!.path,

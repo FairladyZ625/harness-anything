@@ -1,14 +1,14 @@
 import {
-  canReclaim,
   deriveRelationId,
-  isSameExecution,
   isTerminalStatus,
   taskClasses,
   validateRelationRecordsForHost,
   type EntityRelationRecord,
+  type AuthorizationDecision,
   type TaskEventV1,
   type TaskV1,
 } from "../../kernel/src/index.ts";
+import { authorizeAction } from "./authorization.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 
 export function taskMutation(
@@ -35,6 +35,7 @@ export function taskMutation(
   };
   readonly execution?: Snapshot["executions"][number];
   readonly releasedLease?: NonNullable<Snapshot["lease"]>;
+  readonly authorizationDecision?: AuthorizationDecision;
 } {
   const reason =
       typeof action.reason === "string" && action.reason.trim()
@@ -51,8 +52,18 @@ export function taskMutation(
     if (!activeLease)
       throw cell.cellCodedError("lease_not_found", `Start task ${task.taskId} before releasing its lease.`);
     const execution = snapshot.executions.find((value) => value.executionId === activeLease.executionId),
-      reclaimableLease = execution === undefined ? { ...activeLease, phase: "orphaned" as const } : activeLease;
-    if (!isSameExecution(activeLease.actor, binding.actor) && !canReclaim(reclaimableLease, binding.actor, cell.now()))
+      actionId = `task-release:${task.taskId}:${activeLease.executionId}:${snapshot.revision}`,
+      authorizationDecision = authorizeAction(
+        "execution.release",
+        `execution/${activeLease.executionId}`,
+        binding.actor,
+        actionId,
+        {
+          target: { lease: activeLease, canonicalExecutionExists: execution !== undefined },
+          evaluatedAtCut: `canonical:${snapshot.revision}`,
+        },
+      );
+    if (authorizationDecision.outcome === "denied")
       throw cell.cellCodedError(
         "lease_conflict",
         [
@@ -67,6 +78,7 @@ export function taskMutation(
       task,
       ...(execution === undefined ? {} : { execution }),
       releasedLease: activeLease,
+      authorizationDecision,
       audit: { command: "release", reason, fields: ["lease"] },
     };
   }

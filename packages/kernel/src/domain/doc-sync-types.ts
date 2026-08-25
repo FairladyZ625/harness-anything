@@ -19,6 +19,7 @@ import type { LiveTaskBoundRuntimeBinding } from "./task-bound-runtime-authority
 import type { TaskEventV1 } from "./task-lifecycle.contract.ts";
 import type { TaskProgressEventV1 } from "./task-progress-event.ts";
 import type { ActorIdentity, EventEnvelope, FrozenWritePlan, WriteSource } from "./write-chain.contract.ts";
+import type { AuthorizationDecision } from "./receipt-frame.ts";
 
 export const DOC_POLICY_ID = "markdown-body-replaceable/v1",
   DOC_CODEC_ID = "markdown-regions/v1";
@@ -202,6 +203,8 @@ export interface DocWriteDecisionInput {
   readonly occurredAt: string;
   readonly currentLedgerSha: LedgerCutIdentity;
   readonly lease: LeaseV1 | null;
+  /** Decision evaluated by the daemon AuthorizationPort for execution-bound writes. */
+  readonly authorizationDecision: AuthorizationDecision | null;
   readonly runtimeBinding?: LiveTaskBoundRuntimeBinding;
   readonly documents: readonly (DocumentState | null)[];
   readonly claims: readonly (Uint8Array | null)[];
@@ -215,9 +218,11 @@ export type DocWriteDecision =
       readonly event: CurrentDocEventV1;
       readonly blobs: readonly DocContentBlob[];
       readonly plan: FrozenWritePlan<"DocSyncSubmit">;
+      readonly authorizationDecision: AuthorizationDecision | null;
     }
   | {
       readonly accepted: false;
       readonly code: string;
       readonly detail: DocSyncReceiptDetail;
+      readonly authorizationDecision: AuthorizationDecision | null;
     };

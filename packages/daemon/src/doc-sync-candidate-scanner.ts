@@ -1,6 +1,7 @@
 import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-006 */
-  execFileSync } from "node:child_process";
+  execFileSync,
+} from "node:child_process";
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -9,8 +10,6 @@ import {
   decideDocWrite,
   DOC_POLICY_ID,
   documentPath,
-  isSameExecution,
-  isTaskBoundRuntimeWriter,
   parseDocWriteIntent,
   resolveDocRoute,
   resolveHarnessLayout,
@@ -19,7 +18,6 @@ import {
   resolveRetirableDocument,
   runtimeSessionIdFromActor,
   sha256Bytes,
-  stableStringify,
   type ActorIdentity,
   type CanonicalEventStore,
   type DocWriteIntent,
@@ -27,6 +25,7 @@ import {
   type TaskProjection,
   type WriteSource,
 } from "../../kernel/src/index.ts";
+import { authorizeAction } from "./authorization.ts";
 import { docSyncError } from "./doc-sync-files.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
@@ -85,8 +84,9 @@ export function scanDocCandidates(input: {
       .flatMap((event) => canonicalDocumentClaims(event).map((claim) => claim.path)),
     candidates = selected?.length
       ? [...new Set(selected)]
-      : [...new Set([...dirtyPaths(ledger.rootDir, ledger.authoredPrefix), ...pendingPaths])]
-          .filter((value) => taskPrefix === null || value.startsWith(taskPrefix)),
+      : [...new Set([...dirtyPaths(ledger.rootDir, ledger.authoredPrefix), ...pendingPaths])].filter(
+          (value) => taskPrefix === null || value.startsWith(taskPrefix),
+        ),
     paths = candidates
       .filter(
         (value) =>
@@ -96,13 +96,29 @@ export function scanDocCandidates(input: {
       )
       .sort(),
     baseLedgerSha = input.store.currentCut(),
-    execution = executionBinding(paths, input.executionId, input.projection, input.actor, input.source, input.now),
+    execution = executionBinding(
+      paths,
+      input.executionId,
+      input.projection,
+      input.actor,
+      input.source,
+      input.now,
+      `canonical:${baseLedgerSha.revision}:${baseLedgerSha.headDigest}`,
+    ),
     runtimeSessionId = runtimeSessionIdFromActor(input.actor),
     runtimeSession = runtimeSessionId === null ? null : input.projection.readRuntimeSession(runtimeSessionId),
     runtimeBinding =
       execution.lease === null
         ? null
         : resolveLiveTaskBoundRuntimeBinding(runtimeSession, execution.lease.taskId, execution.lease.executionId),
+    authorizationDecision =
+      execution.id === null
+        ? null
+        : authorizeAction("doc.submit", `execution/${execution.id}`, input.actor, "doc-scan", {
+            writeSource: input.source,
+            target: { lease: execution.lease, runtimeBinding },
+            evaluatedAtCut: `canonical:${baseLedgerSha.revision}:${baseLedgerSha.headDigest}`,
+          }),
     rows = paths.map((logical) => scanOne(logical));
   return {
     baseLedgerSha,
@@ -222,6 +238,7 @@ export function scanDocCandidates(input: {
         occurredAt: input.now,
         currentLedgerSha: baseLedgerSha,
         lease: execution.lease,
+        authorizationDecision,
         documents: [projected.document],
         claims: [bytes],
         resolvedTaskIds: [input.projection.taskIdForDocumentPath(logical)],
@@ -300,11 +317,7 @@ export function scanDocCandidates(input: {
   }
 }
 
-export function validateSelectedDocPaths(
-  rootDir: string,
-  selected: readonly string[],
-  scan: DocCandidateScan,
-): void {
+export function validateSelectedDocPaths(rootDir: string, selected: readonly string[], scan: DocCandidateScan): void {
   if (selected.length === 0) return;
   const authoredPrefix = resolveLedgerGitLayout(rootDir).authoredPrefix,
     prefixed = authoredPrefix
@@ -321,9 +334,7 @@ export function validateSelectedDocPaths(
     );
   }
   const missing = scan.rows
-    .filter(
-      (row) => row.state === "clean" && row.baseBlobSha256 === null && row.candidateBlobSha256 === null,
-    )
+    .filter((row) => row.state === "clean" && row.baseBlobSha256 === null && row.candidateBlobSha256 === null)
     .map((row) => row.path);
   if (missing.length > 0)
     throw docSyncError(
@@ -385,6 +396,7 @@ function executionBinding(
   actor: ActorIdentity,
   source: WriteSource,
   now: string,
+  evaluatedAtCut: string,
 ) {
   if (explicit) return { id: explicit, candidates: [], lease: projection.currentLeaseForExecution(explicit, now) };
   const tasks = new Set(paths.flatMap((value) => projection.taskIdForDocumentPath(value) ?? [])),
@@ -396,9 +408,13 @@ function executionBinding(
           if (!tasks.has(binding.taskId)) return [];
           const lease = projection.currentLeaseForExecution(binding.executionId, now),
             live = resolveLiveTaskBoundRuntimeBinding(session, binding.taskId, binding.executionId);
-          return lease?.phase === "held" && live !== null && isTaskBoundRuntimeWriter(lease, actor, source, live)
-            ? [{ id: binding.executionId, lease }]
-            : [];
+          if (lease === null || live === null) return [];
+          const decision = authorizeAction("doc.submit", `execution/${binding.executionId}`, actor, "doc-scan", {
+            writeSource: source,
+            target: { lease, runtimeBinding: live },
+            evaluatedAtCut,
+          });
+          return decision.outcome === "allowed" ? [{ id: binding.executionId, lease }] : [];
         }) ?? [],
       unique = [...new Map(matches.map((match) => [match.id, match])).values()];
     return unique.length === 1
@@ -415,12 +431,15 @@ function executionBinding(
   // being rejected.
   const taskIds = [...tasks],
     current = taskIds.length === 1 ? projection.currentLease(taskIds[0]!, now) : null,
-    lease =
-      current?.phase === "held" &&
-      isSameExecution(current.actor, actor) &&
-      stableStringify(current.source) === stableStringify(source)
-        ? current
-        : null;
+    decision =
+      current?.phase !== "held"
+        ? null
+        : authorizeAction("doc.submit", `execution/${current.executionId}`, actor, "doc-scan", {
+            writeSource: source,
+            target: { lease: current },
+            evaluatedAtCut,
+          }),
+    lease = decision?.outcome === "allowed" ? current : null;
   return { id: lease?.executionId ?? null, candidates: [], lease };
 }
 function dirtyPaths(repoRoot: string, authoredPrefix: string): string[] {

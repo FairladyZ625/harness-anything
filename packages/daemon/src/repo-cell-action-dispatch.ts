@@ -359,6 +359,7 @@ export async function closeoutTask(cell: any, action: RepoTaskAction, binding: R
     readWorkspaceText: cell.workspaceText,
     read: async () =>
       (await cell.service.read(taskId)).snapshot as Parameters<typeof closeoutReadiness>[0] & {
+        readonly revision: number;
         readonly task: NonNullable<Snapshot["task"]>;
         readonly lease: Snapshot["lease"];
       },
@@ -395,16 +396,15 @@ export async function lifecycleAction(
     cell.store.readHead()?.revision ?? 0,
     cell.now(),
   );
-  const result = await cell.service.execute(
-    command,
-    await cell.proofFor(command, current.snapshot, binding, cell.projection),
-  );
+  const authorityProof = await cell.proofFor(command, current.snapshot, binding, cell.projection),
+    result = await cell.service.execute(command, authorityProof);
   if (result.outcome === "applied" && result.event && result.proof)
     return cell.lifecycleReceipt(
       result.event,
       result.snapshot,
       cell.publicPublication(cell.store.publication(result.event)),
       result.proof,
+      authorityProof.authorizationDecision ?? null,
     );
   if (result.outcome === "pending")
     return {

@@ -151,6 +151,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@2");
+      assert.equal((receipt.authorizationDecision as { outcome?: string } | null)?.outcome, "allowed");
       assert.equal(launchedEnv?.HARNESS_ACTOR, `agent:runtime-session:${receipt.runtimeSessionId}`);
       assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, userRoot);
       assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "runtime-spawn-ingress");
@@ -220,6 +222,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@2");
+      assert.equal((receipt.authorizationDecision as { outcome?: string } | null)?.outcome, "allowed");
       const bound = await eventuallyValue(
         async () =>
           makeTaskEventStore({ repoId, rootDir: root })
@@ -232,16 +236,21 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       );
       assert.equal(bound?.type, "runtime_session_task_bound");
       assert.equal(bound?.actor.executor, null);
-      const projection = makeTaskProjection({ rootDir: root, eventStore: makeTaskEventStore({ repoId, rootDir: root }) });
+      const projection = makeTaskProjection({
+        rootDir: root,
+        eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+      });
       try {
         assert.equal(
-          projection.read(taskId).snapshot.decisionRelations.some(
-            (relation) =>
-              relation.sourceRef === `runtime-session/${receipt.runtimeSessionId}` &&
-              relation.targetRef === `task/${taskId}` &&
-              relation.relationType === "executes" &&
-              relation.state === "active",
-          ),
+          projection
+            .read(taskId)
+            .snapshot.decisionRelations.some(
+              (relation) =>
+                relation.sourceRef === `runtime-session/${receipt.runtimeSessionId}` &&
+                relation.targetRef === `task/${taskId}` &&
+                relation.relationType === "executes" &&
+                relation.state === "active",
+            ),
           true,
         );
       } finally {
