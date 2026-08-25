@@ -1,20 +1,15 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ListChecks, MagnifyingGlass } from "@phosphor-icons/react";
 import type { DecisionRow } from "../../model/types";
 import { DecisionStateBadge } from "../../components/badges";
 import { dayKeyOf } from "../../graph/genealogy";
 
 /**
- * 侧栏一次渲染这么多行,剩下的靠批量按钮显形——照抄本仓 TaskStream / DecisionStream 的
- * ROW_BATCH_SIZE 做法。规模不是常数:participants 是「出现在任意谱系边端点上的决策」去重,
- * 本仓实测 252 行(2026-08-24),随台账谱系边被动累积。分批把 DOM 节点数与决策总量脱钩;
- * 标题计数报真实总数,按钮报出剩余条数,被推迟的行是显形的、不是被吞掉的。
- * 搜索始终在**全量** participants 上过滤,再对过滤结果分批——不是在已渲染的那一批里搜。
- */
-const ROW_BATCH_SIZE = 12;
-
-/**
  * 谱系参与者侧栏(REQ-GUI-05):列焦点谱系内所有 decision,可搜索换焦点。
+ * 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):
+ * 规模不是常数——participants 是「出现在任意谱系边端点上的决策」去重,本仓实测 252 行
+ * (2026-08-24),随台账谱系边被动累积;每行带 content-visibility:auto,离屏行的布局与
+ * 绘制由渲染器跳过,标题计数报真实总数。搜索始终在**全量** participants 上过滤。
  */
 export function ParticipantsSidebar({
   participants,
@@ -28,17 +23,10 @@ export function ParticipantsSidebar({
   onFocus: (id: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [rowsVisible, setRowsVisible] = useState(ROW_BATCH_SIZE);
   const needle = query.trim().toLowerCase();
   const filtered = needle
     ? participants.filter((d) => d.title.toLowerCase().includes(needle) || d.decisionId.toLowerCase().includes(needle))
     : participants;
-  // 搜索词换了行集的全部组员,展开状态不能跟着过去。
-  useEffect(() => {
-    setRowsVisible(ROW_BATCH_SIZE);
-  }, [needle]);
-  const shown = filtered.slice(0, rowsVisible);
-  const hidden = filtered.length - shown.length;
 
   return (
     <aside className="flex w-[240px] shrink-0 flex-col border-r border-border bg-surface">
@@ -62,14 +50,14 @@ export function ParticipantsSidebar({
         data-testid="genealogy-participants-rows"
         className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1.5 py-1.5"
       >
-        {shown.map((d) => {
+        {filtered.map((d) => {
           const active = d.decisionId === focusId;
           const size = lineageSize.get(d.decisionId) ?? 0;
           return (
             <button
               key={d.decisionId}
               onClick={() => onFocus(d.decisionId)}
-              className={`flex flex-col gap-1 rounded px-2 py-1.5 text-left ${
+              className={`flex flex-col gap-1 rounded px-2 py-1.5 text-left [contain-intrinsic-size:auto_3rem] [content-visibility:auto] ${
                 active ? "bg-surface-raised ring-1 ring-accent/40" : "hover:bg-surface-raised"
               }`}
             >
@@ -84,19 +72,6 @@ export function ParticipantsSidebar({
             </button>
           );
         })}
-        {hidden > 0 && (
-          <button
-            type="button"
-            data-testid="genealogy-participants-more"
-            onClick={() => setRowsVisible((count) => Math.min(count + ROW_BATCH_SIZE, filtered.length))}
-            className={
-              "w-full rounded px-2 py-1 text-center font-mono text-[11px] text-text-muted " +
-              "hover:bg-surface-raised hover:text-text"
-            }
-          >
-            再显示 {Math.min(ROW_BATCH_SIZE, hidden)} 条 · 还有 {hidden} 条
-          </button>
-        )}
         {filtered.length === 0 && <span className="px-2 py-4 text-center text-[11px] text-text-faint">无匹配</span>}
       </div>
     </aside>

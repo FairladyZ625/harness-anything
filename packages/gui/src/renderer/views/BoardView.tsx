@@ -13,7 +13,6 @@ import {
 import { Lock, Archive, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
-import { t } from "../i18n/index.tsx";
 import {
   STATUS_META,
   CloseoutBadge,
@@ -35,7 +34,6 @@ const ENGINE_HINT: Record<string, string> = {
   github: "由 GitHub Issues 管理，去 GitHub 改状态",
   linear: "由 Linear 管理，去 Linear 改状态",
 };
-const COLUMN_BATCH_SIZE = 30;
 
 function taskControlHint(task: TaskRow): string {
   if (isExternal(task)) return ENGINE_HINT[task.engine] ?? `由外部引擎 ${task.engine} 管理，GUI 只读`;
@@ -140,7 +138,12 @@ function DraggableCard({
     disabled: !draggable,
   });
   return (
-    <div ref={setNodeRef} {...attributes} {...listeners} className={isDragging ? "opacity-30" : ""}>
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={`[contain-intrinsic-size:auto_7rem] [content-visibility:auto] ${isDragging ? "opacity-30" : ""}`}
+    >
       <Card
         task={task}
         onSelect={onSelect}
@@ -171,13 +174,9 @@ function Column({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const meta = STATUS_META[status];
+  // 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):
+  // 每张卡外层的拖拽容器带 content-visibility:auto,离屏卡的布局与绘制由渲染器跳过。
   const ordered = sortByFavoritesFirst(tasks, (t) => t.taskId, favorites);
-  const [visibleCount, setVisibleCount] = useState(COLUMN_BATCH_SIZE);
-  useEffect(() => {
-    setVisibleCount(COLUMN_BATCH_SIZE);
-  }, [tasks.length]);
-  const visible = ordered.slice(0, visibleCount),
-    hiddenCount = ordered.length - visible.length;
   return (
     <div
       ref={setNodeRef}
@@ -206,7 +205,7 @@ function Column({
       </div>
       <div className="flex flex-col gap-2 overflow-y-auto pb-1">
         {ordered.length > 0 ? (
-          visible.map((t) => (
+          ordered.map((t) => (
             <DraggableCard
               key={t.taskId}
               task={t}
@@ -220,16 +219,6 @@ function Column({
           <div className="rounded-lg border border-dashed border-border px-3 py-5 text-[14px] text-text-faint">
             当前筛选下无 {meta.label} 任务
           </div>
-        )}
-        {hiddenCount > 0 && (
-          <button
-            type="button"
-            data-testid={`board-column-more-${status}`}
-            onClick={() => setVisibleCount((count) => Math.min(count + COLUMN_BATCH_SIZE, ordered.length))}
-            className="rounded-lg border border-dashed border-border px-3 py-2 text-center font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text"
-          >
-            {t("views.boardView.showMore", { count: Math.min(COLUMN_BATCH_SIZE, hiddenCount), remaining: hiddenCount })}
-          </button>
         )}
       </div>
     </div>

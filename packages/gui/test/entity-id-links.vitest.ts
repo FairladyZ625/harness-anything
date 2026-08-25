@@ -34,10 +34,28 @@ import type { ViewId } from "../src/renderer/navigation/viewHistory.ts";
 import type { SystemRepoRow } from "../src/renderer/api-client.ts";
 import type { RelationCoverageRow } from "../src/renderer/api/renderer-dto.ts";
 import {
-  REPO_ID, TASK_A_ID, DECISION_ID, FACT_REF, AGENT_ID, SQUAD_ID, PROVIDER_ID, SESSION_ID,
-  FIXTURE_TASKS, FIXTURE_DECISIONS, FIXTURE_FACTS, FIXTURE_RELATIONS, FIXTURE_PROJECT,
-  FIXTURE_WORKSPACE_SUMMARY, FIXTURE_SESSION_DTO, FIXTURE_RUNTIME_OVERVIEW, FIXTURE_INSTANCE,
-  FIXTURE_AGENT_ROW, FIXTURE_SQUAD_ROW, FIXTURE_AGENT_DETAIL, FIXTURE_SQUAD_DETAIL, FIXTURE_DOCK_ROW,
+  REPO_ID,
+  TASK_A_ID,
+  DECISION_ID,
+  FACT_REF,
+  AGENT_ID,
+  SQUAD_ID,
+  PROVIDER_ID,
+  SESSION_ID,
+  FIXTURE_TASKS,
+  FIXTURE_DECISIONS,
+  FIXTURE_FACTS,
+  FIXTURE_RELATIONS,
+  FIXTURE_PROJECT,
+  FIXTURE_WORKSPACE_SUMMARY,
+  FIXTURE_SESSION_DTO,
+  FIXTURE_RUNTIME_OVERVIEW,
+  FIXTURE_INSTANCE,
+  FIXTURE_AGENT_ROW,
+  FIXTURE_SQUAD_ROW,
+  FIXTURE_AGENT_DETAIL,
+  FIXTURE_SQUAD_DETAIL,
+  FIXTURE_DOCK_ROW,
   ENTITY_ID_NEEDLES,
 } from "./entityIdGateFixtures.ts";
 import { scanDeadEntityIds } from "./entityIdScan.ts";
@@ -65,7 +83,9 @@ beforeAll(() => {
 afterEach(() => {
   while (mounted.length > 0) {
     const { root, container } = mounted.pop()!;
-    act(() => { root.unmount(); });
+    act(() => {
+      root.unmount();
+    });
     container.remove();
   }
   vi.restoreAllMocks();
@@ -73,51 +93,114 @@ afterEach(() => {
 
 function fixtureRepoRow(): SystemRepoRow {
   return {
-    repoId: REPO_ID, displayName: "G10 Probe Repo", canonicalRoot: "/tmp/g10-probe", authoredBranch: "main",
-    registrationState: "enabled", cellState: "attached", generation: 1, queueDepth: 0, lockState: "not_applicable",
-    recoveryMs: null, lastError: null, unavailableReason: null,
+    repoId: REPO_ID,
+    displayName: "G10 Probe Repo",
+    canonicalRoot: "/tmp/g10-probe",
+    authoredBranch: "main",
+    registrationState: "enabled",
+    cellState: "attached",
+    generation: 1,
+    queueDepth: 0,
+    lockState: "not_applicable",
+    recoveryMs: null,
+    lastError: null,
+    unavailableReason: null,
   };
 }
 
 function seedRuntimeQueries(client: QueryClient): void {
   client.setQueryData(["runtime-instances", "machine"], {
-    installations: FIXTURE_RUNTIME_OVERVIEW.installations, instances: [FIXTURE_INSTANCE],
+    installations: FIXTURE_RUNTIME_OVERVIEW.installations,
+    instances: [FIXTURE_INSTANCE],
   });
   client.setQueryData(["runtime-control", REPO_ID, "overview"], FIXTURE_RUNTIME_OVERVIEW);
   client.setQueryData(["agents", REPO_ID], [FIXTURE_AGENT_ROW]);
   client.setQueryData(["squads", REPO_ID], [FIXTURE_SQUAD_ROW]);
   client.setQueryData(["runtime-panorama", REPO_ID, TASK_A_ID], [FIXTURE_DOCK_ROW]);
   client.setQueryData(["catalog", REPO_ID, "snapshot"], {
-    status: "ready", catalogDigest: "digest-g10digest-g10digest-g10",
+    status: "ready",
+    catalogDigest: "digest-g10digest-g10digest-g10",
     defaults: { presetId: "preset-g10", locale: "zh-CN" },
-    presets: [{ id: "preset-g10", title: "G10 Preset", description: "fixture 预设", verticalId: "g10", sourceKind: "bundled", validity: "valid", version: "1", defaultProfile: null, entrypoints: [], issues: [], shadows: null }],
-    verticals: [], templates: [], adapters: [],
+    presets: [
+      {
+        id: "preset-g10",
+        title: "G10 Preset",
+        description: "fixture 预设",
+        verticalId: "g10",
+        sourceKind: "bundled",
+        validity: "valid",
+        version: "1",
+        defaultProfile: null,
+        entrypoints: [],
+        issues: [],
+        shadows: null,
+      },
+    ],
+    verticals: [],
+    templates: [],
+    adapters: [],
   });
-  client.setQueryData(["catalog", REPO_ID, "preset", "preset-g10", "zh-CN"], { preset: { id: "preset-g10", verticalId: "g10", extends: null, capabilityImports: [] }, resolved: { digest: "digest-g10", provenance: {} } });
+  client.setQueryData(["catalog", REPO_ID, "preset", "preset-g10", "zh-CN"], {
+    preset: { id: "preset-g10", verticalId: "g10", extends: null, capabilityImports: [] },
+    resolved: { digest: "digest-g10", provenance: {} },
+  });
   client.setQueryData(["agent-skills", REPO_ID], []);
   client.setQueryData(["agent-detail", REPO_ID, AGENT_ID], FIXTURE_AGENT_DETAIL);
   client.setQueryData(["squad-detail", REPO_ID, SQUAD_ID], FIXTURE_SQUAD_DETAIL);
   client.setQueryData(["task-detail", REPO_ID, TASK_A_ID, "dispatches"], {
-    ok: true, status: "ready", taskId: TASK_A_ID, watermark: 1, sourceRevision: 1,
+    ok: true,
+    status: "ready",
+    taskId: TASK_A_ID,
+    watermark: 1,
+    sourceRevision: 1,
     dispatches: [{ ...FIXTURE_DOCK_ROW, squad: null }],
   });
   client.setQueryData(["task-detail", REPO_ID, SESSION_ID, "session"], {
-    ok: true, status: "ready", session: FIXTURE_SESSION_DTO, result: { ref: "artifact:g10", text: "G10 fixture 报告。" }, watermark: 1, sourceRevision: 1,
+    ok: true,
+    status: "ready",
+    session: FIXTURE_SESSION_DTO,
+    result: { ref: "artifact:g10", text: "G10 fixture 报告。" },
+    watermark: 1,
+    sourceRevision: 1,
   });
   client.setQueryData(["task-detail", REPO_ID, SESSION_ID, "events", "lifecycle:0"], {
-    ok: true, runtimeSessionId: SESSION_ID, events: [{ cursor: "lifecycle:1", runtimeSessionId: SESSION_ID, type: "activity", occurredAt: AT }], cursor: "lifecycle:1", sourceCursor: "lifecycle:1", done: true,
+    ok: true,
+    runtimeSessionId: SESSION_ID,
+    events: [{ cursor: "lifecycle:1", runtimeSessionId: SESSION_ID, type: "activity", occurredAt: AT }],
+    cursor: "lifecycle:1",
+    sourceCursor: "lifecycle:1",
+    done: true,
   });
   // 决策详情正文(decision-show 单体 read 的缓存面):避免该视图在无桥环境下落到错误态。
   client.setQueryData(["decision-body", REPO_ID, DECISION_ID], {
-    status: "ready", hint: null,
+    status: "ready",
+    hint: null,
     decision: {
       decisionId: DECISION_ID,
-      body: { path: `decisions/decision-${DECISION_ID}/decision.md`, blobSha256: `sha256:${"g10".repeat(32)}`, size: 64, mediaType: "text/markdown", body: "# 探针决策正文\n\n正文经单体 read 取回。", workspaceRevision: 1 },
+      body: {
+        path: `decisions/decision-${DECISION_ID}/decision.md`,
+        blobSha256: `sha256:${"g10".repeat(32)}`,
+        size: 64,
+        mediaType: "text/markdown",
+        body: "# 探针决策正文\n\n正文经单体 read 取回。",
+        workspaceRevision: 1,
+      },
     },
   } as never);
   client.setQueryData(["system", "global", "status"], {
-    schema: "gui-system-status/v1", ok: true, observedAt: AT,
-    daemon: { daemonId: "daemon-g10", pid: 1, startedAt: AT, protocolVersion: { major: 1, minor: 0 }, uptimeMs: 1000, endpoint: "sock", build: { version: "g10", commitSha: null }, activeControl: null },
+    schema: "gui-system-status/v1",
+    ok: true,
+    observedAt: AT,
+    daemon: {
+      daemonId: "daemon-g10",
+      pid: 1,
+      startedAt: AT,
+      protocolVersion: { major: 1, minor: 0 },
+      uptimeMs: 1000,
+      endpoint: "sock",
+      build: { version: "g10", commitSha: null },
+      activeControl: null,
+    },
     repos: [fixtureRepoRow()],
   });
 }
@@ -126,11 +209,21 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (seed) seedRuntimeQueries(client);
   vi.spyOn(agentRuntimeClient, "session").mockResolvedValue({
-    ok: true, status: "ready", session: FIXTURE_SESSION_DTO, result: null, watermark: 1, sourceRevision: 1,
+    ok: true,
+    status: "ready",
+    session: FIXTURE_SESSION_DTO,
+    result: null,
+    watermark: 1,
+    sourceRevision: 1,
   } as never);
   vi.spyOn(agentRuntimeClient, "attach").mockImplementation((() => () => undefined) as never);
   vi.spyOn(agentRuntimeClient, "events").mockResolvedValue({
-    ok: true, runtimeSessionId: SESSION_ID, events: [], cursor: "lifecycle:1", sourceCursor: "lifecycle:1", done: true,
+    ok: true,
+    runtimeSessionId: SESSION_ID,
+    events: [],
+    cursor: "lifecycle:1",
+    sourceCursor: "lifecycle:1",
+    done: true,
   } as never);
   const container = document.createElement("div");
   document.body.append(container);
@@ -139,8 +232,12 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
   await act(async () => {
     root.render(createElement(QueryClientProvider, { client }, element));
   });
-  await act(async () => { await Promise.resolve(); });
-  await act(async () => { await Promise.resolve(); });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
   return container;
 }
 
@@ -154,67 +251,150 @@ const runtimeTasks = [{ taskId: TASK_A_ID, title: "G10 探针任务甲" }];
 
 const VIEW_RENDERERS = {
   home: () => createElement(HomeView, { repos: [fixtureRepoRow()], currentRepoId: REPO_ID, onOpenProject: noop }),
-  overview: () => createElement(OverviewView, {
-    project: FIXTURE_PROJECT, tasks: FIXTURE_TASKS, decisions: FIXTURE_DECISIONS,
-    workspaceSummary: FIXTURE_WORKSPACE_SUMMARY, relations: FIXTURE_RELATIONS, systemHealth: SYSTEM_HEALTH,
-    onSelect: noop, onDrill: noop, onOpenInbox: noop, onOpenDecision: noop, onOpenSystem: noop,
-  }),
-  board: () => createElement(BoardView, {
-    tasks: FIXTURE_TASKS, allTasks: FIXTURE_TASKS, filters: DEFAULT_TASK_FILTERS, onFiltersChange: noop,
-    onSelect: noop, relations: FIXTURE_RELATIONS, favorites: new Set<string>(), onToggleFavorite: noop,
-    onStartTask: noop, mutationFeedback: noop,
-  }),
-  graph: () => createElement(EntityWorkspace, {
-    focusedEntityRef: `decision/${DECISION_ID}`, tasks: FIXTURE_TASKS, relations: FIXTURE_RELATIONS,
-    decisions: FIXTURE_DECISIONS, facts: FIXTURE_FACTS, coverageRows: [], factAnchors: [],
-    onNavigateEntity: noop, onOpenDecisionPool: noop, onFocusEntityChange: noop,
-    recentRefs: [`decision/${DECISION_ID}`], entries: [], onOpenPalette: noop,
-  }),
-  decisions: () => createElement(DecisionsView, {
-    decisions: FIXTURE_DECISIONS, tasks: FIXTURE_TASKS, relations: FIXTURE_RELATIONS, facts: FIXTURE_FACTS,
-    onJudge: () => Promise.resolve({ state: "success", kind: "accept", opId: "op-g10", hint: "fixture" } as never),
-    mutationFeedback: noop, onCheckReceipt: noop, relationState: "ready",
-    onNavigateDecision: noop, onNavigateTask: noop, onFocusGraph: noop, coverageRows: [],
-  }),
-  decisionPool: () => createElement(DecisionPoolView, {
-    repoId: REPO_ID, decisions: FIXTURE_DECISIONS, summary: FIXTURE_WORKSPACE_SUMMARY.decisions,
-    facts: FIXTURE_FACTS, relations: FIXTURE_RELATIONS, coverageRows: [], relationState: "ready",
-    onPropose: () => Promise.resolve({ state: "success", kind: "propose", opId: "op-g10", hint: "fixture" } as never),
-    proposalFeedback: undefined, onJudge: () => Promise.resolve({ state: "success", kind: "accept", opId: "op-g10", hint: "fixture" } as never),
-    mutationFeedback: noop, onCheckReceipt: noop, focusedDecisionId: DECISION_ID, onFocusGraph: noop,
-  }),
-  freshness: () => createElement(FreshnessView, {
-    decisions: FIXTURE_DECISIONS, coverageRows: FRESHNESS_COVERAGE_ROWS, relationState: "ready",
-    onNavigateEntity: noop,
-  }),
-  decisionDetail: () => createElement(DecisionDetailView, {
-    repoId: REPO_ID, decisionId: DECISION_ID, decisions: FIXTURE_DECISIONS, tasks: FIXTURE_TASKS,
-    relations: FIXTURE_RELATIONS, loading: false, onBack: noop, projectName: "G10", fromViewLabel: "决策池",
-    onNavigateDecision: noop, onNavigateTask: noop, onNavigateEntity: noop, onFocusGraph: noop, onOpenPool: noop,
-  }),
-  factDetail: () => createElement(FactDetailView, {
-    factRef: FACT_REF, facts: FIXTURE_FACTS, tasks: FIXTURE_TASKS, decisions: FIXTURE_DECISIONS,
-    relations: FIXTURE_RELATIONS, factAnchors: [], coverageRows: [], loading: false,
-    onNavigateEntity: noop, onNavigateDecision: noop, onNavigateTask: noop, onFocusGraph: noop,
-  }),
+  overview: () =>
+    createElement(OverviewView, {
+      project: FIXTURE_PROJECT,
+      tasks: FIXTURE_TASKS,
+      decisions: FIXTURE_DECISIONS,
+      workspaceSummary: FIXTURE_WORKSPACE_SUMMARY,
+      relations: FIXTURE_RELATIONS,
+      systemHealth: SYSTEM_HEALTH,
+      onSelect: noop,
+      onDrill: noop,
+      onOpenInbox: noop,
+      onOpenDecision: noop,
+      onOpenSystem: noop,
+    }),
+  board: () =>
+    createElement(BoardView, {
+      tasks: FIXTURE_TASKS,
+      allTasks: FIXTURE_TASKS,
+      filters: DEFAULT_TASK_FILTERS,
+      onFiltersChange: noop,
+      onSelect: noop,
+      relations: FIXTURE_RELATIONS,
+      favorites: new Set<string>(),
+      onToggleFavorite: noop,
+      onStartTask: noop,
+      mutationFeedback: noop,
+    }),
+  graph: () =>
+    createElement(EntityWorkspace, {
+      focusedEntityRef: `decision/${DECISION_ID}`,
+      tasks: FIXTURE_TASKS,
+      relations: FIXTURE_RELATIONS,
+      decisions: FIXTURE_DECISIONS,
+      facts: FIXTURE_FACTS,
+      coverageRows: [],
+      factAnchors: [],
+      onNavigateEntity: noop,
+      onOpenDecisionPool: noop,
+      onFocusEntityChange: noop,
+      recentRefs: [`decision/${DECISION_ID}`],
+      entries: [],
+      onOpenPalette: noop,
+    }),
+  decisions: () =>
+    createElement(DecisionsView, {
+      decisions: FIXTURE_DECISIONS,
+      tasks: FIXTURE_TASKS,
+      relations: FIXTURE_RELATIONS,
+      facts: FIXTURE_FACTS,
+      onJudge: () => Promise.resolve({ state: "success", kind: "accept", opId: "op-g10", hint: "fixture" } as never),
+      mutationFeedback: noop,
+      onCheckReceipt: noop,
+      relationState: "ready",
+      onNavigateDecision: noop,
+      onNavigateTask: noop,
+      onFocusGraph: noop,
+      coverageRows: [],
+    }),
+  decisionPool: () =>
+    createElement(DecisionPoolView, {
+      repoId: REPO_ID,
+      decisions: FIXTURE_DECISIONS,
+      summary: FIXTURE_WORKSPACE_SUMMARY.decisions,
+      facts: FIXTURE_FACTS,
+      relations: FIXTURE_RELATIONS,
+      coverageRows: [],
+      relationState: "ready",
+      onPropose: () => Promise.resolve({ state: "success", kind: "propose", opId: "op-g10", hint: "fixture" } as never),
+      proposalFeedback: undefined,
+      onJudge: () => Promise.resolve({ state: "success", kind: "accept", opId: "op-g10", hint: "fixture" } as never),
+      mutationFeedback: noop,
+      onCheckReceipt: noop,
+      focusedDecisionId: DECISION_ID,
+      onFocusGraph: noop,
+    }),
+  freshness: () =>
+    createElement(FreshnessView, {
+      decisions: FIXTURE_DECISIONS,
+      coverageRows: FRESHNESS_COVERAGE_ROWS,
+      relationState: "ready",
+      onNavigateEntity: noop,
+    }),
+  decisionDetail: () =>
+    createElement(DecisionDetailView, {
+      repoId: REPO_ID,
+      decisionId: DECISION_ID,
+      decisions: FIXTURE_DECISIONS,
+      tasks: FIXTURE_TASKS,
+      relations: FIXTURE_RELATIONS,
+      loading: false,
+      onBack: noop,
+      projectName: "G10",
+      fromViewLabel: "决策池",
+      onNavigateDecision: noop,
+      onNavigateTask: noop,
+      onNavigateEntity: noop,
+      onFocusGraph: noop,
+      onOpenPool: noop,
+    }),
+  factDetail: () =>
+    createElement(FactDetailView, {
+      factRef: FACT_REF,
+      facts: FIXTURE_FACTS,
+      tasks: FIXTURE_TASKS,
+      decisions: FIXTURE_DECISIONS,
+      relations: FIXTURE_RELATIONS,
+      factAnchors: [],
+      coverageRows: [],
+      loading: false,
+      onNavigateEntity: noop,
+      onNavigateDecision: noop,
+      onNavigateTask: noop,
+      onFocusGraph: noop,
+    }),
   presets: () => createElement(PresetsView, { repoId: REPO_ID }),
   adapters: () => createElement(AdaptersView, { repoId: REPO_ID, tasks: FIXTURE_TASKS }),
-  sessions: () => createElement(SessionsView, {
-    repoId: REPO_ID, tasks: runtimeTasks, focusedEntityRef: `session/${SESSION_ID}`,
-    onSelectEntity: noop, onOpenTask: noop,
-  }),
-  agentSquad: () => createElement(AgentSquadView, {
-    repoId: REPO_ID, tasks: runtimeTasks.map((task) => ({ ...task, heldLease: false })),
-    focusedEntityRef: `agent/${AGENT_ID}`, onSelectEntity: noop,
-  }),
-  providers: () => createElement(ProvidersView, {
-    repoId: REPO_ID, focusedEntityRef: `provider/${PROVIDER_ID}`, onSelectEntity: noop,
-  }),
+  sessions: () =>
+    createElement(SessionsView, {
+      repoId: REPO_ID,
+      tasks: runtimeTasks,
+      focusedEntityRef: `session/${SESSION_ID}`,
+      onSelectEntity: noop,
+      onOpenTask: noop,
+    }),
+  agentSquad: () =>
+    createElement(AgentSquadView, {
+      repoId: REPO_ID,
+      tasks: runtimeTasks.map((task) => ({ ...task, heldLease: false })),
+      focusedEntityRef: `agent/${AGENT_ID}`,
+      onSelectEntity: noop,
+    }),
+  providers: () =>
+    createElement(ProvidersView, {
+      repoId: REPO_ID,
+      focusedEntityRef: `provider/${PROVIDER_ID}`,
+      onSelectEntity: noop,
+    }),
   system: () => createElement(SystemView, { activeRepoId: REPO_ID }),
   settings: () => createElement(SettingsView, {}),
 } satisfies Record<ViewId, () => ReturnType<typeof createElement>>;
 
-const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readonly { id: ViewId }[] }) => group.items.map((item) => item.id));
+const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readonly { id: ViewId }[] }) =>
+  group.items.map((item) => item.id),
+);
 
 /**
  * 风化视图的 coverage 夹具:fixture 决策 dec_g10alpha 的承重 claim CH1 处于
@@ -224,9 +404,14 @@ const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readon
  */
 function freshnessCoverage(patch: Partial<RelationCoverageRow> = {}): RelationCoverageRow {
   return {
-    decisionRef: `decision/${DECISION_ID}`, claimRef: `decision/${DECISION_ID}/CH1`,
-    status: "covered", fulfillment: "standing-policy", refutingFactRefs: [],
-    relationPath: [], basisRevision: 1, ...patch,
+    decisionRef: `decision/${DECISION_ID}`,
+    claimRef: `decision/${DECISION_ID}/CH1`,
+    status: "covered",
+    fulfillment: "standing-policy",
+    refutingFactRefs: [],
+    relationPath: [],
+    basisRevision: 1,
+    ...patch,
   };
 }
 const FRESHNESS_COVERAGE_ROWS: readonly RelationCoverageRow[] = [
@@ -244,7 +429,9 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
   });
 
   it.each(Object.keys(VIEW_RENDERERS))("视图 %s:fixture 实体宇宙渲染后无死 ID", async (viewId) => {
-    const container = await mountSurface((VIEW_RENDERERS as Record<string, () => ReturnType<typeof createElement>>)[viewId]!());
+    const container = await mountSurface(
+      (VIEW_RENDERERS as Record<string, () => ReturnType<typeof createElement>>)[viewId]!(),
+    );
     const findings = scanDeadEntityIds(container, viewId, ENTITY_ID_NEEDLES);
     expect(findings).toEqual([]);
   });
@@ -253,67 +440,132 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
     const container = await mountSurface(VIEW_RENDERERS.overview());
     const row = container.querySelector<HTMLButtonElement>('[data-testid="decision-stream-rows"] button');
     expect(row).not.toBeNull();
-    await act(async () => { row!.click(); });
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      row!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(scanDeadEntityIds(container, "overview+decisionPreviewDrawer", ENTITY_ID_NEEDLES)).toEqual([]);
   });
 
   it("额外表面:Task 详情 / 预览抽屉 / 命令面板", async () => {
-    const detail = await mountSurface(createElement(TaskDetailView, {
-      task: FIXTURE_TASKS[0]!, tasks: FIXTURE_TASKS, relations: FIXTURE_RELATIONS, decisions: FIXTURE_DECISIONS,
-      onBack: noop, onSelect: noop, projectName: FIXTURE_PROJECT.name, fromViewLabel: "总览",
-      onNavigateDecision: noop, onNavigateEntity: noop, mutationFeedback: undefined,
-      onProgress: noop, onSubmit: () => Promise.resolve(),
-    }));
+    const detail = await mountSurface(
+      createElement(TaskDetailView, {
+        task: FIXTURE_TASKS[0]!,
+        tasks: FIXTURE_TASKS,
+        relations: FIXTURE_RELATIONS,
+        decisions: FIXTURE_DECISIONS,
+        onBack: noop,
+        onSelect: noop,
+        projectName: FIXTURE_PROJECT.name,
+        fromViewLabel: "总览",
+        onNavigateDecision: noop,
+        onNavigateEntity: noop,
+        mutationFeedback: undefined,
+        onProgress: noop,
+        onSubmit: () => Promise.resolve(),
+      }),
+    );
     // 派工页签是 Task 详情最大的实体 ID 面:点开后再扫。
     const dispatchTab = detail.querySelector<HTMLButtonElement>("#task-tab-dispatch");
     expect(dispatchTab).not.toBeNull();
-    await act(async () => { dispatchTab!.click(); });
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      dispatchTab!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(scanDeadEntityIds(detail, "taskDetailView", ENTITY_ID_NEEDLES)).toEqual([]);
 
-    const drawer = await mountSurface(createElement(TaskPreviewDrawer, {
-      task: FIXTURE_TASKS[0]!, tasks: FIXTURE_TASKS, relations: FIXTURE_RELATIONS,
-      onClose: noop, onOpenDetail: noop, onPreviewTask: noop,
-    }));
+    const drawer = await mountSurface(
+      createElement(TaskPreviewDrawer, {
+        task: FIXTURE_TASKS[0]!,
+        tasks: FIXTURE_TASKS,
+        relations: FIXTURE_RELATIONS,
+        onClose: noop,
+        onOpenDetail: noop,
+        onPreviewTask: noop,
+      }),
+    );
     expect(scanDeadEntityIds(drawer, "taskPreviewDrawer", ENTITY_ID_NEEDLES)).toEqual([]);
 
-    const inspector = await mountSurface(createElement(FactInspector, {
-      factRef: FACT_REF, facts: FIXTURE_FACTS, tasks: FIXTURE_TASKS, decisions: FIXTURE_DECISIONS,
-      relations: FIXTURE_RELATIONS, onClose: noop, onNavigateDecision: noop, onNavigateTask: noop,
-      onFocusGraph: noop, coverageRows: [],
-    }));
+    const inspector = await mountSurface(
+      createElement(FactInspector, {
+        factRef: FACT_REF,
+        facts: FIXTURE_FACTS,
+        tasks: FIXTURE_TASKS,
+        decisions: FIXTURE_DECISIONS,
+        relations: FIXTURE_RELATIONS,
+        onClose: noop,
+        onNavigateDecision: noop,
+        onNavigateTask: noop,
+        onFocusGraph: noop,
+        coverageRows: [],
+      }),
+    );
     expect(scanDeadEntityIds(inspector, "factInspector", ENTITY_ID_NEEDLES)).toEqual([]);
 
-    const palette = await mountSurface(createElement(CommandPalette, {
-      open: true, entries: buildPaletteIndex(FIXTURE_TASKS, FIXTURE_DECISIONS, FIXTURE_FACTS),
-      onSelect: noop, onClose: noop,
-    }));
+    const palette = await mountSurface(
+      createElement(CommandPalette, {
+        open: true,
+        entries: buildPaletteIndex(FIXTURE_TASKS, FIXTURE_DECISIONS, FIXTURE_FACTS),
+        onSelect: noop,
+        onClose: noop,
+      }),
+    );
     expect(scanDeadEntityIds(palette, "commandPalette", ENTITY_ID_NEEDLES)).toEqual([]);
   });
 
   it("阳性对照:扫描器必须抓到死 ID(用真实 fixture ID,不靠字段名)", async () => {
-    const container = await mountSurface(createElement(() => createElement("p", null, `派工会话 ${SESSION_ID} 已绑定 ${AGENT_ID}`), {}), { seed: false });
+    const container = await mountSurface(
+      createElement(() => createElement("p", null, `派工会话 ${SESSION_ID} 已绑定 ${AGENT_ID}`), {}),
+      { seed: false },
+    );
     const findings = scanDeadEntityIds(container, "positive-control", ENTITY_ID_NEEDLES);
     expect(findings.map((finding) => finding.needle).sort()).toEqual([AGENT_ID, SESSION_ID].sort());
   });
 
   it("阴性对照:同一 ID 经 EntityRefLink 渲染即通过,且点击带出正确 ref", async () => {
     const navigated: string[] = [];
-    const container = await mountSurface(createElement(() => createElement(
-      "p", null, "会话 ", createElement(EntityRefLink, { entityRef: `session/${SESSION_ID}`, onNavigate: (ref) => navigated.push(ref) }),
-    ), {}), { seed: false });
+    const container = await mountSurface(
+      createElement(
+        () =>
+          createElement(
+            "p",
+            null,
+            "会话 ",
+            createElement(EntityRefLink, {
+              entityRef: `session/${SESSION_ID}`,
+              onNavigate: (ref) => navigated.push(ref),
+            }),
+          ),
+        {},
+      ),
+      { seed: false },
+    );
     expect(scanDeadEntityIds(container, "negative-control", ENTITY_ID_NEEDLES)).toEqual([]);
     const link = container.querySelector("button");
     expect(link).not.toBeNull();
-    await act(async () => { link!.click(); });
+    await act(async () => {
+      link!.click();
+    });
     expect(navigated).toEqual([`session/${SESSION_ID}`]);
   });
 
   it("阴性对照:非可寻址标识符(execution/dispatch/person)不误报", async () => {
-    const container = await mountSurface(createElement(() => createElement(
-      "p", null, `execution exec-g10 · dispatch dispatch-g10 · holder person-zeyu · preset preset-g10`,
-    ), {}), { seed: false });
+    const container = await mountSurface(
+      createElement(
+        () =>
+          createElement(
+            "p",
+            null,
+            `execution exec-g10 · dispatch dispatch-g10 · holder person-zeyu · preset preset-g10`,
+          ),
+        {},
+      ),
+      { seed: false },
+    );
     expect(scanDeadEntityIds(container, "non-entity-ids", ENTITY_ID_NEEDLES)).toEqual([]);
   });
 });
@@ -324,38 +576,58 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
 // tools/gui-test-manifest.mjs——该文件在本任务禁区(tools/**)——故并档于此;
 // 若登记 manifest,可原样拆出 freshness-view.vitest.ts。
 describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
-  function mountFreshness(props: Partial<Parameters<typeof FreshnessView>[0]> = {}, onNavigateEntity: (ref: string) => void = noop) {
-    return mountSurface(createElement(FreshnessView, {
-      decisions: FIXTURE_DECISIONS, coverageRows: FRESHNESS_COVERAGE_ROWS, relationState: "ready",
-      onNavigateEntity, ...props,
-    } as Parameters<typeof FreshnessView>[0]));
+  function mountFreshness(
+    props: Partial<Parameters<typeof FreshnessView>[0]> = {},
+    onNavigateEntity: (ref: string) => void = noop,
+  ) {
+    return mountSurface(
+      createElement(FreshnessView, {
+        decisions: FIXTURE_DECISIONS,
+        coverageRows: FRESHNESS_COVERAGE_ROWS,
+        relationState: "ready",
+        onNavigateEntity,
+        ...props,
+      } as Parameters<typeof FreshnessView>[0]),
+    );
   }
 
   it("纯函数:只收带成因分类的行,join 出 claim 原文与决策标题,按成因排序", () => {
     const rows = [
       freshnessCoverage({
-        status: "uncovered", refutingFactRefs: [FACT_REF], freshnessReason: "refuted",
+        status: "uncovered",
+        refutingFactRefs: [FACT_REF],
+        freshnessReason: "refuted",
       }),
       freshnessCoverage({ claimRef: `decision/${DECISION_ID}/CH9`, status: "covered" }),
       freshnessCoverage({
-        claimRef: `decision/${DECISION_ID}/CH8`, status: "uncovered",
-        fulfillment: "evidenced", refutingFactRefs: [], freshnessReason: "no-live-evidence",
+        claimRef: `decision/${DECISION_ID}/CH8`,
+        status: "uncovered",
+        fulfillment: "evidenced",
+        refutingFactRefs: [],
+        freshnessReason: "no-live-evidence",
       }),
       freshnessCoverage({
-        claimRef: `decision/${DECISION_ID}/CH7`, status: "uncovered",
-        fulfillment: null, refutingFactRefs: [], freshnessReason: "fulfillment-undeclared",
+        claimRef: `decision/${DECISION_ID}/CH7`,
+        status: "uncovered",
+        fulfillment: null,
+        refutingFactRefs: [],
+        freshnessReason: "fulfillment-undeclared",
       }),
       // 阴性:无 freshnessReason 的 uncovered 行(旧 daemon)不进候选——缺判据不猜。
       freshnessCoverage({
-        claimRef: `decision/${DECISION_ID}/CH0`, status: "uncovered",
-        fulfillment: "evidenced", refutingFactRefs: [],
+        claimRef: `decision/${DECISION_ID}/CH0`,
+        status: "uncovered",
+        fulfillment: "evidenced",
+        refutingFactRefs: [],
       }),
     ];
     const candidates = freshnessCandidates(FIXTURE_DECISIONS, rows);
     expect(candidates.map((candidate) => candidate.claimId)).toEqual(["CH1", "CH8", "CH7"]);
     expect(candidates[0]).toMatchObject({
-      decisionId: DECISION_ID, decisionTitle: "G10 探针决策",
-      claimText: "判据必须是机制不是文案", reason: "refuted",
+      decisionId: DECISION_ID,
+      decisionTitle: "G10 探针决策",
+      claimText: "判据必须是机制不是文案",
+      reason: "refuted",
     });
     expect(candidates[1].reason).toBe("no-live-evidence");
     expect(candidates[2].reason).toBe("fulfillment-undeclared");
@@ -391,17 +663,16 @@ describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
     }
   });
 
-  it("规模:超过 12 行先显 12 行,批量按钮报出剩余数,点击再显一批", async () => {
+  it("规模:全部候选一次完整渲染,不再有「再显示」按钮", async () => {
     const coverageRows = Array.from({ length: 15 }, (_, index) =>
       freshnessCoverage({
-        claimRef: `decision/${DECISION_ID}/C${index}`, status: "uncovered",
-        refutingFactRefs: [], freshnessReason: "no-live-evidence",
-      }));
+        claimRef: `decision/${DECISION_ID}/C${index}`,
+        status: "uncovered",
+        refutingFactRefs: [],
+        freshnessReason: "no-live-evidence",
+      }),
+    );
     const container = await mountFreshness({ coverageRows });
-    expect(container.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(12);
-    const more = container.querySelector<HTMLButtonElement>("[data-testid='freshness-more']")!;
-    expect(more.textContent).toContain("3");
-    await act(async () => { more.click(); });
     expect(container.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(15);
     expect(container.querySelector("[data-testid='freshness-more']")).toBeNull();
   });

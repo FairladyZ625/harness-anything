@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { ArrowSquareOut, CheckCircle, Lock, X, XCircle } from "@phosphor-icons/react";
 import type { RelationEdge, TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
@@ -9,9 +9,6 @@ import { EntityRefLink } from "./EntityRefLink.tsx";
 import { localMonthDayTime } from "../model/local-time.ts";
 
 const timeOf = (iso: string) => localMonthDayTime(iso) ?? "—";
-
-/** 事件流一次显示这么多条,剩下的靠批量按钮显形(照抄 BoardView 的做法)。 */
-const EVENT_BATCH_SIZE = 4;
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -37,7 +34,6 @@ export function TaskPreviewDrawer({
   onOpenDetail: (id: string) => void;
   onPreviewTask: (id: string) => void;
 }) {
-  const [visibleEvents, setVisibleEvents] = useState(EVENT_BATCH_SIZE);
   useEffect(() => {
     if (!task) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -46,10 +42,6 @@ export function TaskPreviewDrawer({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose, task]);
-  useEffect(() => {
-    setVisibleEvents(EVENT_BATCH_SIZE);
-  }, [task?.taskId]);
-
   if (!task) return null;
 
   const related = relations
@@ -65,9 +57,8 @@ export function TaskPreviewDrawer({
     })
     .filter((item) => item.task);
   const missingDocs = task.docs.filter((doc) => doc.required && doc.presence !== "unknown" && !doc.present);
+  // 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击)。
   const orderedEvents = [...(task.events ?? [])].sort((a, b) => b.at.localeCompare(a.at));
-  const taskEvents = orderedEvents.slice(0, visibleEvents);
-  const hiddenEvents = orderedEvents.length - taskEvents.length;
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-bg/45">
@@ -253,33 +244,19 @@ export function TaskPreviewDrawer({
           </Section>
 
           <Section title={t("components.taskPreviewDrawer.recentEvents")}>
-            {taskEvents.length === 0 ? (
+            {orderedEvents.length === 0 ? (
               <p className="text-[14px] text-text-faint">{t("components.taskPreviewDrawer.noEventsYet")}</p>
             ) : (
               <div className="space-y-2">
-                {taskEvents.map((event) => (
-                  <div key={`${event.at}-${event.summary}`} className="text-[14px]">
+                {orderedEvents.map((event) => (
+                  <div
+                    key={`${event.at}-${event.summary}`}
+                    className="text-[14px] [contain-intrinsic-size:auto_1.25rem] [content-visibility:auto]"
+                  >
                     <span className="font-mono text-[12px] text-text-faint">{timeOf(event.at)}</span>
                     <span className="ml-2 text-text-muted">{event.summary}</span>
                   </div>
                 ))}
-                {hiddenEvents > 0 && (
-                  <button
-                    type="button"
-                    data-testid="task-preview-events-more"
-                    onClick={() =>
-                      setVisibleEvents((count) => Math.min(count + EVENT_BATCH_SIZE, orderedEvents.length))
-                    }
-                    className="w-full rounded-lg border border-dashed border-border px-3 py-2
-                      text-center font-mono text-[12px] text-text-muted hover:border-border-strong
-                      hover:text-text"
-                  >
-                    {t("components.taskPreviewDrawer.showMoreEvents", {
-                      count: Math.min(EVENT_BATCH_SIZE, hiddenEvents),
-                      remaining: hiddenEvents,
-                    })}
-                  </button>
-                )}
               </div>
             )}
           </Section>

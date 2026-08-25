@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { HourglassMedium } from "@phosphor-icons/react";
 import type { DecisionRow } from "../model/types";
 import type { RelationCoverageRow } from "../../api/renderer-dto.ts";
@@ -10,11 +10,9 @@ import { t } from "../i18n/index.tsx";
 /**
  * 风化视图(O-08):全仓「承重 claim 失去可达支撑」的聚合列表。
  * 数据只来自 canonical coverageRows(App 级 triadic 投影),判据见 model/freshness.ts。
- * 行集规模随 decisions × claims 增长,照抄 TaskStream 的 ROW_BATCH_SIZE 分批约定:
- * 被推迟的行由批量按钮报出剩余数,标题报出真实总数,不许静默截断。
+ * 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):
+ * 每行带 content-visibility:auto,离屏行的布局与绘制由渲染器跳过;标题报出真实总数。
  */
-const ROW_BATCH_SIZE = 12;
-
 const REASON_CLASS: Record<FreshnessReason, string> = {
   refuted: "border-danger/50 bg-danger/10 text-danger",
   "no-live-evidence": "border-stale/50 bg-stale/10 text-stale",
@@ -42,7 +40,7 @@ function FreshnessRow({
   return (
     <div
       data-testid="freshness-row"
-      className="flex w-full items-start gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-left"
+      className="flex w-full items-start gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-left [contain-intrinsic-size:auto_3rem] [content-visibility:auto]"
     >
       <ReasonBadge reason={candidate.reason} />
       <div className="min-w-0 flex-1">
@@ -85,9 +83,6 @@ export function FreshnessView({
   onNavigateEntity: (ref: string) => void;
 }) {
   const candidates = useMemo(() => freshnessCandidates(decisions, coverageRows), [decisions, coverageRows]);
-  const [visible, setVisible] = useState(ROW_BATCH_SIZE);
-  const shown = candidates.slice(0, visible);
-  const hidden = candidates.length - shown.length;
   const decisionsInvolved = new Set(candidates.map((candidate) => candidate.decisionId)).size;
   const basis = basisRevisionOf(coverageRows);
 
@@ -122,26 +117,13 @@ export function FreshnessView({
           <StreamEmpty>{t("views.freshnessView.empty")}</StreamEmpty>
         ) : (
           <StreamBody testId="freshness-rows">
-            {shown.map((candidate) => (
+            {candidates.map((candidate) => (
               <FreshnessRow
                 key={`${candidate.decisionId}/${candidate.claimId}`}
                 candidate={candidate}
                 onNavigateEntity={onNavigateEntity}
               />
             ))}
-            {hidden > 0 && (
-              <button
-                type="button"
-                data-testid="freshness-more"
-                onClick={() => setVisible((count) => Math.min(count + ROW_BATCH_SIZE, candidates.length))}
-                className="w-full px-1 py-1 text-center font-mono text-[11px] text-text-muted hover:text-text"
-              >
-                {t("views.freshnessView.showMore", {
-                  count: Math.min(ROW_BATCH_SIZE, hidden),
-                  remaining: hidden,
-                })}
-              </button>
-            )}
           </StreamBody>
         )}
       </div>

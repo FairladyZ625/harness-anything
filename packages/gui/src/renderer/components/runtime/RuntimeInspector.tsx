@@ -31,13 +31,23 @@ type OpenSession = (runtimeSessionId: string) => void;
 // liveness word decides the dot through a table lookup alone.
 const LIVENESS_DOT: Record<string, "live" | "idle"> = { live: "live" };
 
-/** 每个 inspector 段落一次显示这么多行,剩下的靠批量按钮显形(照抄 BoardView 的做法)。 */
-const SECTION_BATCH_SIZE = 8;
+/**
+ * Provider 页与 Agent/Squad 页的会话段完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用
+ * 按需渲染解决,不转嫁给用户点击):每行带 content-visibility:auto,离屏行的布局与绘制由
+ * 渲染器跳过;段落标题的 `{count}` 就是行集的真实总数。
+ * 会话页右栏 SessionInspector 的分批不在本任务文件面内(该页归会话页重构任务),
+ * 仍用下面的 BatchedRows。
+ */
 
 /**
  * 只显示前 N 行时必须把剩余条数显形:段落标题里的 `{count}` 是截断前的真实总数,
  * 若下面只列 8 行又不交代,界面就会出现"标题写 23、下面 8 行"这种没有出口的组合。
  */
+const SECTION_BATCH_SIZE = 8;
+
+/** 会话段整行渲染的按需渲染类:离屏行跳过布局与绘制。 */
+const SESSION_ROW_CV = "[contain-intrinsic-size:auto_2rem] [content-visibility:auto]";
+
 function BatchedRows<Row>({
   rows,
   testId,
@@ -101,11 +111,9 @@ export function ProviderInspector({
         {sessions.length === 0 ? (
           <Empty>{t("agentRuntime.noSessions")}</Empty>
         ) : (
-          <BatchedRows rows={sessions} testId="runtime-inspector-sessions-more">
-            {(session) => (
-              <LiveSessionRow key={session.runtimeSessionId} session={session} onOpenSession={onOpenSession} />
-            )}
-          </BatchedRows>
+          sessions.map((session) => (
+            <LiveSessionRow key={session.runtimeSessionId} session={session} onOpenSession={onOpenSession} />
+          ))
         )}
       </Section>
     </aside>
@@ -155,9 +163,9 @@ export function IdentityInspector({
         {related.length === 0 ? (
           <Empty>{t("agentRuntime.noSessions")}</Empty>
         ) : (
-          <BatchedRows rows={related} testId="runtime-inspector-related-more">
-            {(row) => <DispatchSessionRow key={row.runtimeSessionId} row={row} onOpenSession={onOpenSession} />}
-          </BatchedRows>
+          related.map((row) => (
+            <DispatchSessionRow key={row.runtimeSessionId} row={row} onOpenSession={onOpenSession} />
+          ))
         )}
       </Section>
     </aside>
@@ -225,7 +233,7 @@ function LiveSessionRow({
     <button
       type="button"
       onClick={() => onOpenSession(session.runtimeSessionId)}
-      className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
+      className={`flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised ${SESSION_ROW_CV}`}
     >
       <LiveDot state={LIVENESS_DOT[session.liveness] ?? "idle"} tip={session.liveness} />
       <span className="min-w-0 flex-1">
@@ -249,7 +257,7 @@ function DispatchSessionRow({
     <button
       type="button"
       onClick={() => onOpenSession(row.runtimeSessionId)}
-      className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
+      className={`flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised ${SESSION_ROW_CV}`}
     >
       <LiveDot state={runtimeDockStatusDot[row.status]} tip={t(runtimeDockStatusKey[row.status] as never)} />
       <span className="min-w-0 flex-1">

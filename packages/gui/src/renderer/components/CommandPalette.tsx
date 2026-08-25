@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MagnifyingGlass, ArrowRight } from "@phosphor-icons/react";
-import { t } from "../i18n/index.tsx";
 
 /**
  * ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。
  *
  * 纯前端派生:从 tasks/decisions/facts 建索引,typeahead 过滤,Enter 跳转。
  * 不消费任何写 IPC;只触发导航(onSelect ref)。
+ * 完整渲染匹配结果,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户
+ * 点击):每条带 content-visibility:auto,离屏条目的布局与绘制由渲染器跳过。
  */
 export interface PaletteEntry {
   ref: string;
@@ -33,9 +34,6 @@ export function buildPaletteIndex(
   return entries;
 }
 
-/** 一屏批量:命令面板一次只渲染这么多条,剩下的靠批量按钮显形(照抄 BoardView 的做法)。 */
-const PALETTE_BATCH_SIZE = 50;
-
 export function CommandPalette({
   open,
   entries,
@@ -49,7 +47,6 @@ export function CommandPalette({
 }) {
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
-  const [visibleCount, setVisibleCount] = useState(PALETTE_BATCH_SIZE);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -66,12 +63,10 @@ export function CommandPalette({
     if (!needle) return entries;
     return entries.filter((e) => e.label.toLowerCase().includes(needle) || e.ref.toLowerCase().includes(needle));
   }, [query, entries]);
-  const filtered = useMemo(() => matches.slice(0, visibleCount), [matches, visibleCount]);
-  const hiddenCount = matches.length - filtered.length;
+  const filtered = useMemo(() => matches, [matches]);
 
   useEffect(() => {
     setActiveIdx(0);
-    setVisibleCount(PALETTE_BATCH_SIZE);
   }, [query, entries.length]);
 
   if (!open) return null;
@@ -130,7 +125,7 @@ export function CommandPalette({
                   onSelect(entry.ref);
                   onClose();
                 }}
-                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left ${
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left [contain-intrinsic-size:auto_2rem] [content-visibility:auto] ${
                   i === activeIdx ? "bg-surface" : ""
                 }`}
               >
@@ -158,19 +153,6 @@ export function CommandPalette({
                 {i === activeIdx && <ArrowRight weight="bold" className="shrink-0 text-[11px] text-text-faint" />}
               </button>
             ))
-          )}
-          {hiddenCount > 0 && (
-            <button
-              type="button"
-              data-testid="command-palette-more"
-              onClick={() => setVisibleCount((count) => Math.min(count + PALETTE_BATCH_SIZE, matches.length))}
-              className="w-full px-3 py-2 text-center font-mono text-[11px] text-text-muted hover:text-text"
-            >
-              {t("components.commandPalette.showMore", {
-                count: Math.min(PALETTE_BATCH_SIZE, hiddenCount),
-                remaining: hiddenCount,
-              })}
-            </button>
           )}
         </div>
       </div>

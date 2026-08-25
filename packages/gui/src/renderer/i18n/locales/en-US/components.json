@@ -96,8 +96,6 @@
   "components.taskPreviewDrawer.package": "package",
   "components.taskPreviewDrawer.rawStatus": "raw status",
   "components.taskPreviewDrawer.readOnlySource": "read-only source",
-  "components.commandPalette.showMore": "Show {count} more · {remaining} remaining",
-  "components.taskPreviewDrawer.showMoreEvents": "Show {count} more · {remaining} remaining",
   "components.taskPreviewDrawer.recentEvents": "Recent events",
   "components.taskPreviewDrawer.requiredDocumentationComplete": "Required documentation is complete.",
   "components.taskPreviewDrawer.source": "source",
