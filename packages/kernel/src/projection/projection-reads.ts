@@ -51,6 +51,7 @@ export interface TaskRuntimeBatchQuery {
 }
 export interface TaskRuntimeBatchRow {
   readonly taskId: string;
+  readonly title: string;
   readonly packagePath: string | null;
   readonly sessions: readonly RuntimeSession[];
 }

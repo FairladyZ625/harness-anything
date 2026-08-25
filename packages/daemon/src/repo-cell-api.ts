@@ -260,6 +260,7 @@ export function createRepoCellApi(context: any): RepoCell {
     "repo.tasks.document.read": (payload) => readProjectedDocument(context.projection, payload),
     "repo.tasks.documents.list": (payload) => listProjectedTaskDocuments(context.projection, payload),
     "repo.agentRuntime.overview": (payload) => context.runtimeReads.overview(payload),
+    "repo.agentRuntime.sessionGroups": (payload) => context.runtimeReads.sessionGroups(payload),
     "repo.agentRuntime.sessions.read": (payload) => context.runtimeReads.session(payload),
     "repo.agentRuntime.events.read": (payload) => context.runtimeReads.events(payload),
   } satisfies DaemonGuiReadHandlers;

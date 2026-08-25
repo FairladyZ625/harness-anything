@@ -10,6 +10,7 @@ import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts
 import type {
   AgentRuntimeEventsResult,
   AgentRuntimeOverviewResult,
+  AgentRuntimeSessionGroupsResult,
   AgentRuntimeSessionResult,
 } from "../agent-runtime-contract.ts";
 import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
@@ -90,6 +91,7 @@ export type DaemonGuiReadResultMap = {
   };
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
   readonly "repo.agentRuntime.overview": AgentRuntimeOverviewResult;
+  readonly "repo.agentRuntime.sessionGroups": AgentRuntimeSessionGroupsResult;
   readonly "repo.agentRuntime.sessions.read": AgentRuntimeSessionResult;
   readonly "repo.agentRuntime.events.read": AgentRuntimeEventsResult;
   readonly "repo.task.dispatches": DaemonTaskDispatchesResult;
@@ -129,6 +131,12 @@ export type DaemonGuiReadPayloadMap = {
     readonly taskId?: string;
     readonly limit?: number;
     readonly cursor?: string;
+  };
+  readonly "repo.agentRuntime.sessionGroups": {
+    readonly groupBy?: "task" | "squad" | "agent" | "day";
+    readonly since?: string;
+    readonly query?: string;
+    readonly limit?: number;
   };
   readonly "repo.agentRuntime.sessions.read": {
     readonly runtimeSessionId: string;

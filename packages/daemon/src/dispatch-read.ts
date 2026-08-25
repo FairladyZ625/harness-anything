@@ -1,7 +1,13 @@
-import { consumeKnownError, type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
+import {
+  consumeKnownError,
+  type AgentRuntimeEventV1,
+  type RuntimeSession,
+  type TaskProjection,
+} from "../../kernel/src/index.ts";
 import {
   readDispatchLiveIndex,
   readDispatchStream,
+  readDispatchStreamHeader,
   removeDispatchLiveIndexEntries,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
@@ -114,6 +120,35 @@ export function readTaskDispatches(
         watermark: batch.watermark,
         sourceRevision: batch.sourceRevision,
       };
+}
+
+/** Header-only dispatch metadata for the grouped-session read. Unlike the task
+ * detail facet this never opens archived documents or provider-event bodies. */
+export function readSessionGroupDispatches(input: {
+  readonly rootDir: string;
+  readonly sessions: readonly RuntimeSession[];
+  readonly events: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+}): readonly TaskDispatchRow[] {
+  const sessions = new Map(input.sessions.map((session) => [session.runtimeSessionId, session]));
+  return input.events.flatMap((event) => {
+    const session = sessions.get(event.payload.runtimeSessionId);
+    if (!session) return [];
+    const dispatchId = event.payload.dispatchId,
+      header = readDispatchStreamHeader(input.rootDir, dispatchId),
+      binding = session.taskBindings[0],
+      sourceHeader: DispatchStreamHeader = header ?? {
+        schema: "runtime-dispatch-stream/v1",
+        kind: "dispatch",
+        dispatchId,
+        taskId: binding?.taskId ?? "unattributed",
+        executionId: binding?.executionId ?? "unattributed",
+        runtimeSessionId: session.runtimeSessionId,
+        instanceId: session.instanceId,
+        startedAt: event.occurredAt,
+        eventStreamRef: `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
+      };
+    return [liveRow(sourceHeader, session.providerSessionId, session, false, null, false)];
+  });
 }
 
 function addCandidate(

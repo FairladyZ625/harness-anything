@@ -41,6 +41,7 @@ test("runtime read facets expose safe overview/session/events through the shared
       daemonGuiReadMethods.filter(({ phase }) => phase === "Runtime-B").map(({ method }) => method),
       [
         "repo.agentRuntime.overview",
+        "repo.agentRuntime.sessionGroups",
         "repo.agentRuntime.sessions.read",
         "repo.agentRuntime.events.read",
         "repo.task.dispatches",

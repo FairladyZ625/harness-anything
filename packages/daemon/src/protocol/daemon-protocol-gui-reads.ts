@@ -1,11 +1,12 @@
 import type { DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
-import { shape } from "./daemon-protocol-gui-types.ts";
+import { optionalEnum, shape } from "./daemon-protocol-gui-types.ts";
 import {
   DAEMON_AGENDA_SCHEMA,
   DAEMON_AGENT_ENTITY_CATALOG_SCHEMA,
   DAEMON_AGENT_ENTITY_DETAIL_SCHEMA,
   DAEMON_AGENT_RUNTIME_EVENTS_SCHEMA,
   DAEMON_AGENT_RUNTIME_OVERVIEW_SCHEMA,
+  DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA,
   DAEMON_AGENT_RUNTIME_SESSION_SCHEMA,
   DAEMON_AGENT_SKILL_CATALOG_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
@@ -206,6 +207,30 @@ export const daemonGuiReadMethods = Object.freeze([
     outputSchemaId: DAEMON_AGENT_RUNTIME_OVERVIEW_SCHEMA.id,
     errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
     serviceMethod: "readAgentRuntimeOverview",
+    auth: "local-session-token",
+    commandClass: "repo-read",
+  },
+  {
+    id: "agentRuntime.sessionGroups",
+    phase: "Runtime-B",
+    method: "repo.agentRuntime.sessionGroups",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({
+        groupBy: optionalEnum(["task", "squad", "agent", "day"]),
+        since: "string?",
+        query: "string?",
+        limit: "number?",
+      }),
+    }),
+    guiBridgeMethod: "getAgentRuntimeSessionGroups",
+    httpMethod: "GET",
+    path: "/api/agent-runtime/session-groups",
+    inputSchemaId: "gui.agent-runtime-session-groups/v1",
+    outputSchemaId: DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA.id,
+    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+    serviceMethod: "readAgentRuntimeSessionGroups",
     auth: "local-session-token",
     commandClass: "repo-read",
   },

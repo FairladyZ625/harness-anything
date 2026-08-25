@@ -1,6 +1,7 @@
 import {
   validateAgentRuntimeEvents,
   validateAgentRuntimeOverview,
+  validateAgentRuntimeSessionGroups,
   validateAgentRuntimeSession,
 } from "../agent-runtime-contract.ts";
 import {
@@ -63,6 +64,7 @@ const resultValidators = {
   "repo.tasks.document.read": validateDaemonDocumentRead,
   "repo.tasks.documents.list": validateDaemonTaskDocumentList,
   "repo.agentRuntime.overview": validateAgentRuntimeOverview,
+  "repo.agentRuntime.sessionGroups": validateAgentRuntimeSessionGroups,
   "repo.agentRuntime.sessions.read": validateAgentRuntimeSession,
   "repo.agentRuntime.events.read": validateAgentRuntimeEvents,
   "repo.task.dispatches": validateDaemonTaskDispatches,

@@ -751,6 +751,10 @@ test("completion lookup answers from the projection index and stays scoped to on
       eventStore.append(taskBundle(event));
       projection.apply(event);
     }
+    assert.deepEqual(
+      projection.readTaskRuntimeBatch({ taskIds: ["task-1"] }).rows.map(({ taskId, title }) => ({ taskId, title })),
+      [{ taskId: "task-1", title: "Fixture" }],
+    );
     assert.deepEqual(projection.readTaskCompletion("task-1", "execution-1"), completion);
     assert.equal(projection.readTaskCompletion("task-1", "execution-2"), null);
     assert.equal(projection.readTaskCompletion("task-2", "execution-1"), null);

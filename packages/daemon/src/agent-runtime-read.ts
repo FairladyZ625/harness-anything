@@ -1,6 +1,8 @@
 import {
+  runtimeSessionInActivityWindow,
   runtimeSessionSemanticState,
   type AgentDefinitionSnapshot,
+  type AgentRuntimeEventV1,
   type CanonicalEventStore,
   type RuntimeInstallation,
   type RuntimeSession,
@@ -12,21 +14,26 @@ import {
   type AgentRuntimeInstallationDto,
   type AgentRuntimeOverviewResult,
   type AgentRuntimeSessionDto,
+  type AgentRuntimeSessionGroupsResult,
   type AgentRuntimeSessionResult,
 } from "./agent-runtime-contract.ts";
+import { buildAgentRuntimeSessionGroups } from "./agent-runtime-session-groups.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { runtimeKindForInstallation } from "./runtime-inventory.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 
 export function makeAgentRuntimeReadModel(input: {
-  readonly readDispatch?: (
-    taskId: string,
-    dispatchId: string,
-  ) => { readonly runtimeSessionId: string } | null;
+  readonly readDispatch?: (taskId: string, dispatchId: string) => { readonly runtimeSessionId: string } | null;
+  readonly readDispatches?: (input: {
+    readonly sessions: readonly RuntimeSession[];
+    readonly events: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+  }) => readonly TaskDispatchRow[];
   readonly projection: TaskProjection;
   readonly store: CanonicalEventStore;
   readonly stream: AgentRuntimeStreamHub;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+  readonly now?: () => string;
 }) {
   const synchronize = () => input.projection.readTaskStatuses([]);
   const installationDto = (installation: RuntimeInstallation): AgentRuntimeInstallationDto => ({
@@ -134,12 +141,40 @@ export function makeAgentRuntimeReadModel(input: {
         sourceRevision: cut.sourceRevision,
       };
     },
+    sessionGroups: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionGroupsResult => {
+      const query = sessionGroupsQuery(payload, input.now?.() ?? new Date().toISOString()),
+        cut = synchronize(),
+        sessions = input.projection
+          .readRuntimeSessions()
+          .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
+        sessionIds = new Set(sessions.map(({ runtimeSessionId }) => runtimeSessionId)),
+        dispatchEvents = input.projection
+          .readRuntimeDispatches()
+          .filter((event) => sessionIds.has(event.payload.runtimeSessionId)),
+        dispatchStartedAt = new Map(
+          dispatchEvents.map((event) => [event.payload.runtimeSessionId, event.occurredAt] as const),
+        ),
+        taskIds = [...new Set(sessions.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)))],
+        taskLabels = runtimeTaskLabels(input.projection, taskIds),
+        dispatches = input.readDispatches?.({ sessions, events: dispatchEvents }) ?? [];
+      return buildAgentRuntimeSessionGroups({
+        sessions,
+        dispatches,
+        dispatchStartedAt,
+        taskLabels,
+        entityLabel: (kind, id) => {
+          const value = cut.status === "ready" ? input.projection.getEntity(kind, id)?.value : undefined;
+          return typeof value?.name === "string" && value.name ? value.name : null;
+        },
+        query,
+        cut,
+      });
+    },
     session: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionResult => {
       const cut = synchronize(),
         target = runtimeSessionTarget(payload),
-        runtimeSessionIdValue = target.runtimeSessionId ??
-          input.readDispatch?.(target.taskId!, target.dispatchId!)?.runtimeSessionId ??
-          null;
+        runtimeSessionIdValue =
+          target.runtimeSessionId ?? input.readDispatch?.(target.taskId!, target.dispatchId!)?.runtimeSessionId ?? null;
       const session =
         runtimeSessionIdValue === null ? null : input.projection.readRuntimeSession(runtimeSessionIdValue);
       if (!session)
@@ -202,6 +237,51 @@ export function makeAgentRuntimeReadModel(input: {
     }
     return { ref: session.resultRef, text };
   }
+}
+
+function runtimeTaskLabels(projection: TaskProjection, taskIds: readonly string[]): ReadonlyMap<string, string> {
+  const result = new Map<string, string>();
+  for (let offset = 0; offset < taskIds.length; offset += 500)
+    for (const row of projection.readTaskRuntimeBatch({ taskIds: taskIds.slice(offset, offset + 500) }).rows)
+      result.set(row.taskId, row.title);
+  return result;
+}
+
+function sessionGroupsQuery(
+  payload: Readonly<Record<string, unknown>>,
+  now: string,
+): {
+  readonly groupBy: "task" | "squad" | "agent" | "day";
+  readonly since: string;
+  readonly tokens: readonly string[];
+  readonly limit: number;
+} {
+  const keys = Object.keys(payload),
+    groupBy = payload.groupBy,
+    since = payload.since,
+    query = payload.query,
+    limit = payload.limit;
+  if (
+    keys.some((key) => !["groupBy", "since", "query", "limit"].includes(key)) ||
+    (groupBy !== undefined && !["task", "squad", "agent", "day"].includes(String(groupBy))) ||
+    (since !== undefined && (typeof since !== "string" || !Number.isFinite(Date.parse(since)))) ||
+    (query !== undefined && typeof query !== "string") ||
+    (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000)) ||
+    !Number.isFinite(Date.parse(now))
+  )
+    throw coded(
+      "invalid_request",
+      "Agent runtime session groups accept groupBy, ISO since, text query, and limit 1..1000.",
+    );
+  return {
+    groupBy: groupBy === "squad" || groupBy === "agent" || groupBy === "day" ? groupBy : "task",
+    since:
+      typeof since === "string"
+        ? new Date(since).toISOString()
+        : new Date(Date.parse(now) - 24 * 60 * 60 * 1_000).toISOString(),
+    tokens: typeof query === "string" ? query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean) : [],
+    limit: typeof limit === "number" ? limit : 200,
+  };
 }
 
 function overviewQuery(payload: Readonly<Record<string, unknown>>): {

@@ -7,6 +7,7 @@ import {
   DAEMON_AGENT_RUNTIME_ATTACH_SCHEMA,
   DAEMON_AGENT_RUNTIME_EVENTS_SCHEMA,
   DAEMON_AGENT_RUNTIME_OVERVIEW_SCHEMA,
+  DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA,
   DAEMON_AGENT_RUNTIME_SESSION_SCHEMA,
   DAEMON_AGENT_SKILL_CATALOG_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
@@ -156,6 +157,16 @@ export const daemonGuiReadSchemas = Object.freeze([
     negativeFixtures: Object.freeze([
       "packages/daemon/fixtures/contracts/daemon-agent-runtime-overview-invalid.json",
       "packages/daemon/fixtures/contracts/daemon-agent-runtime-overview-profiles-invalid.json",
+    ]),
+  },
+  {
+    id: DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA",
+    parser: "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroups",
+    writer: "packages/daemon/src/agent-runtime-contract.ts#serializeAgentRuntimeSessionGroups",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze([
+      "packages/daemon/fixtures/contracts/daemon-agent-runtime-session-groups-invalid.json",
     ]),
   },
   {
