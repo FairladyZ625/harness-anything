@@ -1,4 +1,5 @@
 export { createTaskIdentity } from "./task.ts";
+export { currentActionEnvelopeVersion } from "./action-envelope.ts";
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
 export { DEFAULT_POLICY } from "./default-policy.ts";

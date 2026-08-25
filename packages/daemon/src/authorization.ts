@@ -1,5 +1,6 @@
 import {
   authorizationPort,
+  currentActionEnvelopeVersion,
   DEFAULT_POLICY,
   type ActionEnvelope,
   type ActorIdentity,
@@ -19,6 +20,7 @@ export function authorizeAction(
   context: Omit<AuthorizationContext, "evaluatedAtCut"> & { readonly evaluatedAtCut?: string },
 ): AuthorizationDecision {
   const action: ActionEnvelope = {
+    version: currentActionEnvelopeVersion,
     actionId,
     kind,
     target,
