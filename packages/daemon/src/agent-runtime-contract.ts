@@ -28,6 +28,7 @@ interface AgentRuntimeInstanceCommonDto {
     readonly code: string | null;
     readonly hint: string | null;
   };
+  readonly githubCredentialState?: "configured";
   readonly isolationState: "enforced" | "operator-environment";
 }
 export type AgentRuntimeInstanceDto = AgentRuntimeInstanceCommonDto &
@@ -209,23 +210,27 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
   if (!isAgentRuntimeContractRecord(value)) return false;
   const field = value.kindId === "codex" ? "codex" : value.kindId === "agy" ? "agy" : "claude",
     common =
-      hasExactAgentRuntimeContractFields(value, [
-        "schemaVersion",
-        "instanceId",
-        "name",
-        "kindId",
-        "installationId",
-        "providerId",
-        "models",
-        "defaultModel",
-        "enabled",
-        "permissionMode",
-        field,
-        "authMode",
-        "authState",
-        "authReadiness",
-        "isolationState",
-      ]) &&
+      hasAgentRuntimeContractFields(
+        value,
+        [
+          "schemaVersion",
+          "instanceId",
+          "name",
+          "kindId",
+          "installationId",
+          "providerId",
+          "models",
+          "defaultModel",
+          "enabled",
+          "permissionMode",
+          field,
+          "authMode",
+          "authState",
+          "authReadiness",
+          "isolationState",
+        ],
+        ["githubCredentialState"],
+      ) &&
       value.schemaVersion === 2 &&
       Array.isArray(value.models) &&
       value.models.length > 0 &&
@@ -240,6 +245,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
       ) &&
       ["subscription", "api-key"].includes(String(value.authMode)) &&
       ["configured", "authenticated", "unauthenticated", "unknown"].includes(String(value.authState)) &&
+      (value.githubCredentialState === undefined || value.githubCredentialState === "configured") &&
       ["enforced", "operator-environment"].includes(String(value.isolationState)) &&
       validReadiness(value.authReadiness);
   if (!common) return false;

@@ -110,6 +110,7 @@ export async function openDaemonHost(input: {
     runtimePorts = {
       runtimeInstances: instances.listPublic,
       prepareRuntimeLaunch: instances.prepareLaunch,
+      prepareWorkerGitEnvironment: instances.prepareWorkerGitEnvironment,
     },
     startedAt = input.startedAt ?? new Date().toISOString(),
     now = input.now ?? (() => new Date().toISOString()),

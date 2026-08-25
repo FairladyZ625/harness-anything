@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -58,6 +59,49 @@ test("canonical hooks reject worker commit and checkout", (context) => {
   assert.match(checkout.stderr, /Refusing a worker checkout in the canonical repository root/u);
 });
 
+test("task-bound git wrapper permits only explicit codex branch push targets", (context) => {
+  const root = makeRepo(context, "hook-push-guard-"),
+    bare = path.join(path.dirname(root), `${path.basename(root)}.git`);
+  context.after(() => rmSync(bare, { recursive: true, force: true }));
+  installHook(root, "git");
+  git(root, "init", "--bare", bare);
+  git(root, "checkout", "-b", "codex/push-guard");
+  git(root, "remote", "add", "origin", bare);
+  const env = {
+    ...process.env,
+    HARNESS_TASK_BOUND: "1",
+    PATH: `${path.join(root, "tools", "git-hooks")}${path.delimiter}${process.env.PATH ?? ""}`,
+  };
+  const refused = spawnSync("git", ["-C", root, "push", "origin", "HEAD:main"], {
+    cwd: root,
+    encoding: "utf8",
+    env,
+  });
+  assert.equal(refused.status, 1, refused.stderr);
+  assert.match(refused.stderr, /outside refs\/heads\/codex/u);
+  const allowed = spawnSync("git", ["-C", root, "push", "origin", "HEAD:refs/heads/codex/push-guard"], {
+    cwd: root,
+    encoding: "utf8",
+    env,
+  });
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.match(git(bare, "show-ref", "--verify", "refs/heads/codex/push-guard"), /codex\/push-guard/u);
+});
+
+test("GitHub askpass answers only standard HTTPS GitHub prompts", (context) => {
+  const root = makeRepo(context, "hook-askpass-guard-"),
+    secret = randomUUID();
+  installHook(root, "git-askpass");
+  const helper = path.join(root, "tools", "git-hooks", "git-askpass"),
+    env = { ...process.env, HARNESS_GITHUB_TOKEN: secret },
+    username = spawnSync(helper, ["Username for 'https://github.com':"], { encoding: "utf8", env }),
+    password = spawnSync(helper, ["Password for 'https://x-access-token@github.com':"], { encoding: "utf8", env }),
+    hostile = spawnSync(helper, ["Password for 'https://github.com.example.invalid':"], { encoding: "utf8", env });
+  assert.deepEqual([username.status, username.stdout.trim()], [0, "x-access-token"]);
+  assert.deepEqual([password.status, digest(password.stdout.trim())], [0, digest(secret)]);
+  assert.deepEqual([hostile.status, hostile.stdout], [1, ""]);
+});
+
 test("worker handoff templates carry framework-owned publication rules", () => {
   const templatePaths = [
     "packages/preset/assets/software-coding/templates/task.worker.flow/en-US.md",
@@ -108,4 +152,8 @@ function runHook(root, name) {
 
 function git(root, ...args) {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" });
+}
+
+function digest(value) {
+  return createHash("sha256").update(value).digest("hex");
 }

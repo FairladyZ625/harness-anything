@@ -126,6 +126,7 @@ export const runtimeInstanceMethods = Object.freeze([
         agy: "json?",
         authMode: "string",
         credentialRef: "string?",
+        githubCredentialRef: "string?",
       }),
     }),
     guiBridgeMethod: "createRuntimeInstance",

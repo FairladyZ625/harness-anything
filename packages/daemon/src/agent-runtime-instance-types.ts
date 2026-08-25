@@ -21,6 +21,7 @@ export interface RuntimeInstanceCommon {
   readonly permissionMode?: RuntimePermissionMode;
   readonly isolationState: RuntimeIsolationState;
   readonly auth: RuntimeInstanceAuth;
+  readonly githubCredentialRef?: string;
 }
 
 export interface ClaudeRuntimeInstanceConfig {

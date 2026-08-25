@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+set -eu
+
+prompt=${1:-}
+case "$prompt" in
+  *https://github.com/*|*https://github.com\'*|*https://*@github.com/*|*https://*@github.com\'*) ;;
+  *) exit 1 ;;
+esac
+
+case "$prompt" in
+  *Username*) printf '%s\n' x-access-token ;;
+  *Password*)
+    [ -n "${HARNESS_GITHUB_TOKEN:-}" ] || exit 1
+    printf '%s\n' "$HARNESS_GITHUB_TOKEN"
+    ;;
+  *) exit 1 ;;
+esac

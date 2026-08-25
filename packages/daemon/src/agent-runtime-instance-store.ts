@@ -288,6 +288,26 @@ export function openRuntimeInstanceStore(input: {
       ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
     };
   }
+  async function prepareWorkerGitEnvironment(instanceId: string): Promise<NodeJS.ProcessEnv | null> {
+    const config = readOne(instanceId);
+    if (!config)
+      throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
+    if (config.githubCredentialRef === undefined) return null;
+    let secret: string;
+    try {
+      secret = await resolveCredential(config.githubCredentialRef);
+    } catch (error) {
+      consumeKnownError(error);
+      throw runtimeInstanceError("runtime_credential_unavailable", "The configured GitHub credential is unavailable.");
+    }
+    if (!secret)
+      throw runtimeInstanceError("runtime_credential_unavailable", "The configured GitHub credential is unavailable.");
+    return {
+      HARNESS_GITHUB_TOKEN: secret,
+      GIT_ASKPASS_REQUIRE: "force",
+      GIT_TERMINAL_PROMPT: "0",
+    };
+  }
   function command(
     action: Readonly<Record<string, unknown>>,
   ): Record<string, unknown> | Promise<Record<string, unknown>> {
@@ -350,6 +370,7 @@ export function openRuntimeInstanceStore(input: {
           ...(action.isolationState !== undefined ? { isolationState: action.isolationState } : {}),
           ...kindConfig,
           auth,
+          ...(action.githubCredentialRef === undefined ? {} : { githubCredentialRef: action.githubCredentialRef }),
         } as RuntimeInstanceConfig),
         instance = publicConfig(config, readiness.get(config.instanceId));
       return {
@@ -502,6 +523,7 @@ export function openRuntimeInstanceStore(input: {
     authStatus,
     prepareAuthCommand,
     prepareLaunch,
+    prepareWorkerGitEnvironment,
     command,
   };
   function read(): RuntimeInstanceConfig[] {
@@ -550,8 +572,7 @@ export function openRuntimeInstanceStore(input: {
     // workers; rewriting it here would expose an unauthenticated window.
     if (config.kindId === "codex") {
       const configPath = path.join(provider, "config.toml");
-      if (config.auth.mode === "subscription" || !existsSync(configPath))
-        writeCodexConfig(configPath, config);
+      if (config.auth.mode === "subscription" || !existsSync(configPath)) writeCodexConfig(configPath, config);
     }
     if (config.auth.mode === "subscription") {
       const authFile = providerAuthFile(config.kindId),

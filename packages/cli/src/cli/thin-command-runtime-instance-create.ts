@@ -12,41 +12,20 @@ export function parseRuntimeInstanceCreate(
 ): ThinParseResult {
   const authMode = flags.one.get("--auth"),
     credentialRef = flags.one.get("--credential-ref"),
+    githubCredentialRef = flags.one.get("--github-credential-ref"),
     kindId = flags.one.get("--kind"),
     header = runtimeHttpHeaderFlags(flags.many.get("--http-header") ?? []);
   if (authMode === "api-key" && !credentialRef)
-    return rejected(
-      "missing_field",
-      "API-key instances require --credential-ref <opaque-ref>.",
-      json,
-    );
+    return rejected("missing_field", "API-key instances require --credential-ref <opaque-ref>.", json);
   if (authMode === "subscription" && credentialRef)
-    return rejected(
-      "invalid_field",
-      "Subscription instances cannot accept a credential reference.",
-      json,
-    );
+    return rejected("invalid_field", "Subscription instances cannot accept a credential reference.", json);
   if (kindId === "agy" && authMode !== "subscription")
-    return rejected(
-      "invalid_field",
-      "agy runtime instances support subscription OAuth only.",
-      json,
-    );
+    return rejected("invalid_field", "agy runtime instances support subscription OAuth only.", json);
   if (!header.ok) return rejected("invalid_field", header.hint, json);
   if (hasForeignAdapterOptions(kindId, flags, header.value))
-    return rejected(
-      "invalid_field",
-      "This runtime kind does not accept options for another adapter.",
-      json,
-    );
+    return rejected("invalid_field", "This runtime kind does not accept options for another adapter.", json);
   const baseUrl = flags.one.get("--base-url"),
-    kindConfig = runtimeInstanceKindConfig(
-      kindId,
-      flags.one,
-      flags.booleans,
-      baseUrl,
-      header.value,
-    );
+    kindConfig = runtimeInstanceKindConfig(kindId, flags.one, flags.booleans, baseUrl, header.value);
   return accepted(
     rootDir,
     undefined,
@@ -56,23 +35,16 @@ export function parseRuntimeInstanceCreate(
       instanceId: flags.one.get("--id"),
       name: flags.one.get("--name"),
       kindId,
-      ...(flags.one.get("--installation")
-        ? { installationId: flags.one.get("--installation") }
-        : {}),
+      ...(flags.one.get("--installation") ? { installationId: flags.one.get("--installation") } : {}),
       providerId: flags.one.get("--provider"),
       models: flags.many.get("--model") ?? [],
-      ...(flags.one.get("--default-model")
-        ? { defaultModel: flags.one.get("--default-model") }
-        : {}),
-      ...(flags.one.get("--permission-mode")
-        ? { permissionMode: flags.one.get("--permission-mode") }
-        : {}),
-      ...(flags.one.get("--isolation")
-        ? { isolationState: flags.one.get("--isolation") }
-        : {}),
+      ...(flags.one.get("--default-model") ? { defaultModel: flags.one.get("--default-model") } : {}),
+      ...(flags.one.get("--permission-mode") ? { permissionMode: flags.one.get("--permission-mode") } : {}),
+      ...(flags.one.get("--isolation") ? { isolationState: flags.one.get("--isolation") } : {}),
       ...kindConfig,
       authMode,
       ...(credentialRef ? { credentialRef } : {}),
+      ...(githubCredentialRef ? { githubCredentialRef } : {}),
     },
     route.method,
   );
@@ -109,14 +81,10 @@ function runtimeInstanceKindConfig(
   return kindId === "codex"
     ? {
         codex: {
-          ...(one.get("--effort")
-            ? { reasoningEffort: one.get("--effort") }
-            : {}),
+          ...(one.get("--effort") ? { reasoningEffort: one.get("--effort") } : {}),
           ...(baseUrl ? { baseUrl } : {}),
           ...(one.get("--wire-api") ? { wireApi: one.get("--wire-api") } : {}),
-          ...(booleans.has("--requires-openai-auth")
-            ? { requiresOpenAiAuth: true }
-            : {}),
+          ...(booleans.has("--requires-openai-auth") ? { requiresOpenAiAuth: true } : {}),
           ...(headers ? { httpHeaders: headers } : {}),
         },
       }

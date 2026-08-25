@@ -70,6 +70,7 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
           "codex",
           "agy",
           "auth",
+          "githubCredentialRef",
         ];
   if (
     Object.keys(value).some((key) => !allowed.includes(key)) ||
@@ -151,6 +152,9 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     ...(permissionMode ? { permissionMode } : {}),
     isolationState,
     auth,
+    ...(value.githubCredentialRef === undefined
+      ? {}
+      : { githubCredentialRef: credentialReference(value.githubCredentialRef, "githubCredentialRef") }),
   };
   if (value.kindId === "claude")
     return {
@@ -347,12 +351,12 @@ export function identifier(value: unknown, field: string): string {
   return text;
 }
 
-export function credentialReference(value: unknown): string {
-  const text = requiredRuntimeInstanceText(value, "credentialRef");
+export function credentialReference(value: unknown, field = "credentialRef"): string {
+  const text = requiredRuntimeInstanceText(value, field);
   if (!isCredentialReferenceText(text))
     throw runtimeInstanceError(
       "invalid_credential_reference",
-      "credentialRef must be an opaque credential:v1 reference (legacy keychain: references resolve on macOS only).",
+      `${field} must be an opaque credential:v1 reference (legacy keychain: references resolve on macOS only).`,
     );
   return text;
 }
