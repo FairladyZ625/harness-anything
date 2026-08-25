@@ -15,7 +15,7 @@ const actor = { principal: { personId: "person-1" }, executor: { kind: "agent" a
 test("execution and review are dependency-free EntityKindContracts with lifecycle relations", () => {
   const execution = {
       schema: "execution/v1",
-      executionId: "exe_01j00000000000000000000000",
+      executionId: "exe_01KXZ6PY19GBXMBRHBXQT3Q0DH",
       taskId: "task_01j00000000000000000000000",
       nodeId: "implementation",
       iteration: 0,
@@ -28,7 +28,7 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
     },
     review = {
       schema: "review/v1",
-      reviewId: "rev_01j00000000000000000000000",
+      reviewId: "rev_88E36DD4172ECC8AC1C0FF318A",
       taskId: execution.taskId,
       executionId: execution.executionId,
       verdict: "approved",
@@ -125,6 +125,18 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
   assert.throws(
     () => compileEntityUpsert({ ...base, entityKind: "execution", entity: { ...execution, executionId: "" } }),
     /invalid|pattern|non-empty/u,
+  );
+  assert.throws(
+    () => compileEntityUpsert({ ...base, entityKind: "execution", entity: { ...execution, executionId: "exe/bad" } }),
+    /invalid|pattern/u,
+  );
+  assert.throws(
+    () => compileEntityUpsert({ ...base, entityKind: "review", entity: { ...review, reviewId: "" } }),
+    /invalid|pattern|non-empty/u,
+  );
+  assert.throws(
+    () => compileEntityUpsert({ ...base, entityKind: "review", entity: { ...review, reviewId: "rev.bad" } }),
+    /invalid|pattern/u,
   );
 
   assert.equal(isAllowedRelationKindTriple("execution", "executes", "task"), true);

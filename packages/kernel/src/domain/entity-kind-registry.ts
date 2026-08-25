@@ -184,8 +184,8 @@ const taskExposure = capabilityExposure("task", "task-frontmatter");
 const factExposure = capabilityExposure("fact", "fact-event");
 const decisionExposure = capabilityExposure("decision", "decision-package");
 
-const executionIdPattern = "^[a-z0-9][a-z0-9_-]{0,127}$";
-const reviewIdPattern = "^[a-z0-9][a-z0-9_-]{0,127}$";
+const executionIdPattern = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
+const reviewIdPattern = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
 const lifecycleTaskIdPattern = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
 const opaqueObject = (): EntityJsonObjectSchema => ({
   type: "object",
