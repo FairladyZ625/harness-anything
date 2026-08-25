@@ -19,6 +19,7 @@ import {
 import { packetFile, reviewPacket, submissionPacket } from "./repo-cell-packets.ts";
 import { actorHint, startExecutionId } from "./repo-cell-proof.ts";
 import { digest, iteration, reviewVerdict } from "./repo-cell-review-lint.ts";
+import { resolveTaskLifecycleIntent } from "./repo-cell-lifecycle-intent.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   DaemonGuiReadHandlers,
@@ -51,14 +52,16 @@ export function buildCommand(
     source: binding.source,
     expectedRevision,
   };
-  if (action.kind === "task-start")
+  const resolution = resolveTaskLifecycleIntent(action);
+  if (resolution.type !== "participant") throw new Error(`unsupported lifecycle command ${action.kind}`);
+  if (resolution.intentId === "StartExecution")
     return normalizeTaskLifecycleCommand(bound, {
       type: "StartExecution",
       taskId,
       executionId: startExecutionId(action, snapshot, binding, workspaceId, expectedRevision),
       ...(Number.isSafeInteger(action.ttlMs) ? { ttlMs: action.ttlMs as number } : {}),
     });
-  if (action.kind === "task-transition") {
+  if (resolution.intentId === "TransitionTask") {
     const status = String(action.status);
     if (!isDomainStatus(status))
       throw cellCodedError(
@@ -75,7 +78,7 @@ export function buildCommand(
       force: action.force === true,
     });
   }
-  if (action.kind === "task-submit") {
+  if (resolution.intentId === "SubmitExecution") {
     const held = heldLeaseForExecutionActor(snapshot, undefined, binding.actor),
       executionId =
         explicitExecutionId(action) ??
@@ -104,7 +107,7 @@ export function buildCommand(
       submission: submissionPacket(action, rootDir),
     });
   }
-  if (action.kind === "task-review-execution") {
+  if (resolution.intentId === "RecordReview") {
     const packet = reviewPacket(rootDir, action),
       executionId =
         explicitExecutionId(action) ??
@@ -153,7 +156,7 @@ export function buildCommand(
       contentDigest: packet.digest,
     });
   }
-  if (action.kind === "task-review-consent") {
+  if (resolution.intentId === "RecordReviewConsent") {
     const consentId = requiredCellText(action.consentId, "consentId"),
       selected = reviewConsentSelection(action, snapshot, taskId, consentId),
       executionId = selected.executionId,
@@ -212,7 +215,7 @@ export function buildCommand(
       contentDigest: recorded.contentDigest,
     });
   }
-  if (action.kind === "task-code-doc-reconcile")
+  if (resolution.intentId === "ReconcileCodeDoc")
     return normalizeTaskLifecycleCommand(bound, {
       type: "ReconcileCodeDoc",
       taskId,
@@ -222,7 +225,7 @@ export function buildCommand(
       iteration: iteration(action.iteration),
       paths: cellStringList(action.paths),
     });
-  if (action.kind === "task-code-doc-repoint")
+  if (resolution.intentId === "RepointCodeDoc")
     return normalizeTaskLifecycleCommand(bound, {
       type: "RepointCodeDoc",
       taskId,
@@ -232,13 +235,13 @@ export function buildCommand(
       paths: cellStringList(action.paths),
       reason: requiredCellText(action.reason, "reason"),
     });
-  if (action.kind === "task-complete")
+  if (resolution.intentId === "CompleteTask")
     return normalizeTaskLifecycleCommand(bound, {
       type: "CompleteTask",
       taskId,
       executionId: requiredCellText(action.executionId, "executionId"),
     });
-  throw new Error(`unsupported lifecycle command ${action.kind}`);
+  throw new Error(`unsupported lifecycle intent ${resolution.intentId}`);
 }
 
 export function withServerMeta(

@@ -14,12 +14,14 @@
 // concurrent first-grab queues instead of racing the winner.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, sha256Text, stableStringify } from "../../kernel/src/index.ts";
+import { consumeKnownError, requireEntityKindContract, sha256Text, stableStringify } from "../../kernel/src/index.ts";
+import { coordinateAction, type ActionCoordinationPlan } from "./action-coordination.ts";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { FLEET_TASK_COMMAND_KINDS, type FleetFrameV1, type FleetTaskAction } from "./fleet/contract.ts";
 import type { FleetAssignmentRecord } from "./fleet/center.ts";
 import { writeFileDurably } from "./durable-file.ts";
+import { resolveTaskLifecycleIntent, resolveUniqueCatalogActionByIntent } from "./repo-cell-lifecycle-intent.ts";
 
 export interface FleetLeaseTimers {
   readonly orphanTimeoutMs: number;
@@ -139,7 +141,40 @@ type ParkRegistration = {
   readonly clientGone: () => boolean;
 };
 type TaskDisposition = { readonly result: FleetTaskResultFields } | { readonly parked: Promise<FleetTaskResultFields> };
+type FleetActionCoordination =
+  | {
+      readonly type: "participant";
+      readonly plan: ActionCoordinationPlan;
+    }
+  | {
+      readonly type: "non-participant";
+    }
+  | {
+      readonly type: "unavailable";
+    };
+type ExecutableFleetActionCoordination = Exclude<FleetActionCoordination, { readonly type: "unavailable" }>;
 const RECEIPT_RING = 512;
+
+function resolveFleetActionCoordination(action: FleetTaskAction): FleetActionCoordination {
+  const ingress = resolveTaskLifecycleIntent(action);
+  if (ingress.type === "unknown")
+    return {
+      type: "unavailable",
+    };
+  if (ingress.type === "non-participant") return { type: "non-participant" };
+  const catalog = requireEntityKindContract("task").actionCatalog?.actions ?? [],
+    declaration = resolveUniqueCatalogActionByIntent(catalog, ingress.intentId);
+  if (declaration.type !== "matched")
+    return {
+      type: "unavailable",
+    };
+  return {
+    type: "participant",
+    plan: coordinateAction(declaration.action.coordination, {
+      dryRunRequested: action.dryRun === true,
+    }),
+  };
+}
 
 export function openFleetLeaseBroker(options: {
   readonly stateRoot: string;
@@ -337,20 +372,16 @@ export function openFleetLeaseBroker(options: {
             return "stop";
           }
           state.queue[key] = items.slice(1);
-          if (head.action.kind === "task-start" && head.action.dryRun !== true)
-            reserveProvisional(key, head.assignment, Number(head.action.ttlMs ?? timers.orphanTimeoutMs));
           persist();
+          const coordination = resolveFleetActionCoordination(head.action);
+          if (coordination.type === "unavailable") {
+            resolvePark(head.opId, unavailableCoordination(head.opId));
+            return "continue";
+          }
           inFlight.add(head.opId);
           let result: FleetTaskResultFields;
           try {
-            result = await execute(
-              head.assignment,
-              head.action,
-              head.opId,
-              key,
-              head.action.kind === "task-start" && head.action.dryRun !== true,
-              head.docs,
-            );
+            result = await execute(head.assignment, head.action, head.opId, coordination, key, true, head.docs);
           } catch (error) {
             consumeKnownError(error);
             result = {
@@ -361,15 +392,15 @@ export function openFleetLeaseBroker(options: {
               ),
               opId: head.opId,
             };
-            if (head.action.kind === "task-start") {
-              delete state.leases[key];
-              persist();
-            }
           } finally {
             inFlight.delete(head.opId);
           }
           resolvePark(head.opId, result);
-          return result.outcome === "applied" && head.action.kind === "task-start" ? "stop" : "continue";
+          return result.outcome === "applied" &&
+            coordination.type === "participant" &&
+            coordination.plan.fifo === "enqueue"
+            ? "stop"
+            : "continue";
         });
         if (advanced === "stop") return;
       }
@@ -413,24 +444,39 @@ export function openFleetLeaseBroker(options: {
       queuePosition: null,
     };
   }
+  function unavailableCoordination(opId: string): FleetTaskResultFields {
+    return {
+      ...failure(
+        "op_rejected",
+        "action_catalog_unavailable",
+        "Lifecycle coordination is unavailable because the ingress or catalog Action did not resolve uniquely.",
+      ),
+      opId,
+    };
+  }
   async function execute(
     assignment: FleetAssignmentRecord,
     action: FleetTaskAction,
     opId: string,
+    coordination: ExecutableFleetActionCoordination,
     key: string | null,
-    preReserved = false,
+    provisionalAvailable = false,
     docs: FleetTaskDocs | null = null,
   ): Promise<FleetTaskResultFields> {
     const digest = digestFor(assignment, action, docs);
+    const reservationKey =
+      coordination.type === "participant" &&
+      coordination.plan.fleetProvisionalReservation === "reserve" &&
+      key !== null &&
+      provisionalAvailable
+        ? key
+        : null;
+    const ttlMs = Number.isSafeInteger(action.ttlMs) ? Number(action.ttlMs) : timers.orphanTimeoutMs;
     const effective: FleetTaskAction =
-      action.kind === "task-start" && action.dryRun !== true && !Number.isSafeInteger(action.ttlMs)
-        ? { ...action, ttlMs: timers.orphanTimeoutMs }
-        : action;
-    const ttlMs = Number(effective.ttlMs ?? timers.orphanTimeoutMs),
-      dryRun = action.dryRun === true;
-    let reserved = preReserved;
-    if (action.kind === "task-start" && !dryRun && key && !reserved) {
-      reserveProvisional(key, assignment, ttlMs);
+      reservationKey !== null && !Number.isSafeInteger(action.ttlMs) ? { ...action, ttlMs } : action;
+    let reserved = false;
+    if (reservationKey !== null) {
+      reserveProvisional(reservationKey, assignment, ttlMs);
       persist();
       reserved = true;
     }
@@ -454,6 +500,10 @@ export function openFleetLeaseBroker(options: {
       );
     } catch (error) {
       consumeKnownError(error);
+      if (reserved && reservationKey !== null) {
+        delete state.leases[reservationKey];
+        persist();
+      }
       if (typeof error === "object" && error !== null && "code" in error && error.code === "writer_epoch_stale")
         return {
           outcome: "op_rejected",
@@ -473,7 +523,7 @@ export function openFleetLeaseBroker(options: {
     const applied = receipt.outcome === "applied",
       record = receipt as unknown as Record<string, unknown>;
     let lease: FleetTaskResultFields["lease"] = null;
-    if (!dryRun && key) {
+    if (key) {
       const { taskId } = splitKey(key);
       if (reserved) {
         if (applied) {
@@ -609,7 +659,10 @@ export function openFleetLeaseBroker(options: {
     if (kind === "task-create") {
       inFlight.add(frame.opId);
       try {
-        return await execute(assignment, action, frame.opId, null);
+        const coordination = resolveFleetActionCoordination(action);
+        return coordination.type === "unavailable"
+          ? unavailableCoordination(frame.opId)
+          : await execute(assignment, action, frame.opId, coordination, null);
       } finally {
         inFlight.delete(frame.opId);
       }
@@ -708,6 +761,11 @@ export function openFleetLeaseBroker(options: {
             row = state.leases[key] ?? null;
           }
         }
+        const coordination = resolveFleetActionCoordination(action);
+        if (coordination.type === "unavailable")
+          return {
+            result: unavailableCoordination(frame.opId),
+          };
         const heldBySelf =
           domain && domain.phase !== "released"
             ? domain.sourceJson === sourceJson(assignment)
@@ -721,13 +779,9 @@ export function openFleetLeaseBroker(options: {
           return {
             parked: enqueue(key, assignment, action, frame.opId, nowMs, waitCap(frame.waitMs), clientGone, docs),
           };
-        if (row === null && action.kind === "task-start" && action.dryRun !== true) {
-          const effectiveTtl = Number.isSafeInteger(action.ttlMs) ? Number(action.ttlMs) : timers.orphanTimeoutMs;
-          reserveProvisional(key, assignment, effectiveTtl);
-          persist();
-          return { result: await execute(assignment, action, frame.opId, key, true, docs) };
-        }
-        return { result: await execute(assignment, action, frame.opId, key, false, docs) };
+        return {
+          result: await execute(assignment, action, frame.opId, coordination, key, row === null, docs),
+        };
       } finally {
         inFlight.delete(frame.opId);
       }
