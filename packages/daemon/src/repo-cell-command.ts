@@ -17,7 +17,8 @@ import {
   uniqueDerivedExecutionId,
 } from "./repo-cell-execution-selection.ts";
 import { packetFile, reviewPacket, submissionPacket } from "./repo-cell-packets.ts";
-import { actorHint, startExecutionId } from "./repo-cell-proof.ts";
+import { actorHint, operationId } from "./repo-cell-proof.ts";
+import { resolveLifecycleAction } from "./repo-cell-lifecycle-action.ts";
 import { digest, iteration, reviewVerdict } from "./repo-cell-review-lint.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
@@ -46,18 +47,25 @@ export function buildCommand(
   snapshot: Snapshot,
 ): Omit<TaskLifecycleCommand, "eventId" | "workspaceRevision" | "occurredAt"> {
   const bound = {
-    workspaceId,
-    actor: binding.actor,
-    source: binding.source,
-    expectedRevision,
-  };
-  if (action.kind === "task-start")
+      workspaceId,
+      actor: binding.actor,
+      source: binding.source,
+      expectedRevision,
+    },
+    lifecycleAction = resolveLifecycleAction(action);
+  if (lifecycleAction?.coordination === "reserve") {
+    const executionId =
+      typeof action.executionId === "string" && action.executionId
+        ? action.executionId
+        : (snapshot.executions.find((value) => value.iteration === snapshot.task?.iteration && value.state === "active")
+            ?.executionId ?? `exe_${operationId(action, binding, workspaceId, expectedRevision).slice(-26)}`);
     return normalizeTaskLifecycleCommand(bound, {
-      type: "StartExecution",
+      type: lifecycleAction.commandType,
       taskId,
-      executionId: startExecutionId(action, snapshot, binding, workspaceId, expectedRevision),
+      [lifecycleAction.targetIdField]: executionId,
       ...(Number.isSafeInteger(action.ttlMs) ? { ttlMs: action.ttlMs as number } : {}),
-    });
+    } as Parameters<typeof normalizeTaskLifecycleCommand>[1]);
+  }
   if (action.kind === "task-transition") {
     const status = String(action.status);
     if (!isDomainStatus(status))
@@ -238,7 +246,10 @@ export function buildCommand(
       taskId,
       executionId: requiredCellText(action.executionId, "executionId"),
     });
-  throw new Error(`unsupported lifecycle command ${action.kind}`);
+  throw cellCodedError(
+    "unsupported_command",
+    "No domain contract exists for this write command; run the leaf --help and select a supported repair command.",
+  );
 }
 
 export function withServerMeta(

@@ -27,6 +27,7 @@ export interface RepoCellBinding {
   readonly source: WriteSource;
   readonly sessionEnvironment?: Readonly<Record<string, string | undefined>>;
   readonly roles?: readonly string[];
+  readonly commandClasses?: readonly string[];
   readonly docWriteAllowed?: boolean;
   readonly assignmentScope?: FleetAssignmentScope;
   readonly writerEpoch?: number;

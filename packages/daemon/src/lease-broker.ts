@@ -20,6 +20,7 @@ import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { FLEET_TASK_COMMAND_KINDS, type FleetFrameV1, type FleetTaskAction } from "./fleet/contract.ts";
 import type { FleetAssignmentRecord } from "./fleet/center.ts";
 import { writeFileDurably } from "./durable-file.ts";
+import { resolveLifecycleAction } from "./repo-cell-lifecycle-action.ts";
 
 export interface FleetLeaseTimers {
   readonly orphanTimeoutMs: number;
@@ -337,20 +338,14 @@ export function openFleetLeaseBroker(options: {
             return "stop";
           }
           state.queue[key] = items.slice(1);
-          if (head.action.kind === "task-start" && head.action.dryRun !== true)
+          const coordination = resolveLifecycleAction(head.action)?.coordination ?? null;
+          if (coordination === "reserve")
             reserveProvisional(key, head.assignment, Number(head.action.ttlMs ?? timers.orphanTimeoutMs));
           persist();
           inFlight.add(head.opId);
           let result: FleetTaskResultFields;
           try {
-            result = await execute(
-              head.assignment,
-              head.action,
-              head.opId,
-              key,
-              head.action.kind === "task-start" && head.action.dryRun !== true,
-              head.docs,
-            );
+            result = await execute(head.assignment, head.action, head.opId, key, coordination === "reserve", head.docs);
           } catch (error) {
             consumeKnownError(error);
             result = {
@@ -361,7 +356,7 @@ export function openFleetLeaseBroker(options: {
               ),
               opId: head.opId,
             };
-            if (head.action.kind === "task-start") {
+            if (coordination === "reserve") {
               delete state.leases[key];
               persist();
             }
@@ -369,7 +364,7 @@ export function openFleetLeaseBroker(options: {
             inFlight.delete(head.opId);
           }
           resolvePark(head.opId, result);
-          return result.outcome === "applied" && head.action.kind === "task-start" ? "stop" : "continue";
+          return result.outcome === "applied" && coordination === "reserve" ? "stop" : "continue";
         });
         if (advanced === "stop") return;
       }
@@ -421,15 +416,16 @@ export function openFleetLeaseBroker(options: {
     preReserved = false,
     docs: FleetTaskDocs | null = null,
   ): Promise<FleetTaskResultFields> {
-    const digest = digestFor(assignment, action, docs);
+    const digest = digestFor(assignment, action, docs),
+      coordination = resolveLifecycleAction(action)?.coordination ?? null;
     const effective: FleetTaskAction =
-      action.kind === "task-start" && action.dryRun !== true && !Number.isSafeInteger(action.ttlMs)
+      coordination === "reserve" && !Number.isSafeInteger(action.ttlMs)
         ? { ...action, ttlMs: timers.orphanTimeoutMs }
         : action;
     const ttlMs = Number(effective.ttlMs ?? timers.orphanTimeoutMs),
       dryRun = action.dryRun === true;
     let reserved = preReserved;
-    if (action.kind === "task-start" && !dryRun && key && !reserved) {
+    if (coordination === "reserve" && key && !reserved) {
       reserveProvisional(key, assignment, ttlMs);
       persist();
       reserved = true;
@@ -533,7 +529,8 @@ export function openFleetLeaseBroker(options: {
         opId: frame.opId,
       };
     const action = frame.action,
-      kind = action.kind;
+      kind = action.kind,
+      coordination = resolveLifecycleAction(action)?.coordination ?? null;
     if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(kind))
       return {
         ...failure(
@@ -721,7 +718,7 @@ export function openFleetLeaseBroker(options: {
           return {
             parked: enqueue(key, assignment, action, frame.opId, nowMs, waitCap(frame.waitMs), clientGone, docs),
           };
-        if (row === null && action.kind === "task-start" && action.dryRun !== true) {
+        if (row === null && coordination === "reserve") {
           const effectiveTtl = Number.isSafeInteger(action.ttlMs) ? Number(action.ttlMs) : timers.orphanTimeoutMs;
           reserveProvisional(key, assignment, effectiveTtl);
           persist();

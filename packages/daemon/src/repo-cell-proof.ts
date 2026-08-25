@@ -8,6 +8,7 @@ import {
   makeTaskProjection,
   normalizeCommandEnvelope,
   runtimeSessionIdFromActor,
+  TASK_LIFECYCLE_TRANSITIONS,
   type ActorIdentity,
   type AuthorizationDecision,
   type CompleteTaskCommand,
@@ -19,6 +20,7 @@ import { cellCodedError } from "./repo-cell-errors.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { submitLeaseRequiredMessage } from "./repo-cell-execution-selection.ts";
 import { authorizeAction } from "./authorization.ts";
+import { resolveLifecycleTransition } from "./repo-cell-lifecycle-action.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
 
@@ -30,19 +32,43 @@ export async function proofFor(
   rootDir: string,
 ): Promise<TaskLifecycleServiceProof<typeof command> & { readonly authorizationDecision?: AuthorizationDecision }> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
-  if (command.type === "StartExecution") {
-    const ttlMs = command.ttlMs ?? leaseTtlMs;
+  const transition = TASK_LIFECYCLE_TRANSITIONS.find((candidate) => candidate.matches(command, snapshot)),
+    lifecycleAction = transition ? resolveLifecycleTransition(transition.id) : null;
+  if (lifecycleAction?.coordination === "reserve") {
+    const commandFields = command as unknown as Readonly<Record<string, unknown>>,
+      executionId = commandFields[lifecycleAction.targetIdField],
+      ttlMs = typeof commandFields.ttlMs === "number" ? commandFields.ttlMs : leaseTtlMs;
+    if (typeof executionId !== "string")
+      throw cellCodedError("invalid_command", `${lifecycleAction.commandType} requires a target entity id.`);
+    const authorizationDecision = authorizeAction(
+      lifecycleAction.actionKind,
+      lifecycleAction.targetRef(executionId),
+      command.actor,
+      `authorization:${command.eventId}`,
+      {
+        commandClasses: binding.commandClasses ?? [],
+        target: {},
+        evaluatedAtCut: `canonical:${snapshot.revision}`,
+      },
+      command.opId,
+    );
+    if (authorizationDecision.outcome === "denied")
+      throw cellCodedError(
+        "actor_unauthorized",
+        `${lifecycleAction.commandType} requires an admitted repo-write command.`,
+      );
     return {
       actorBinding: command.actor,
       reservation: {
         taskId: command.taskId,
-        executionId: command.executionId,
+        executionId,
         expiresAt: new Date(Date.parse(command.occurredAt) + ttlMs).toISOString(),
         ttlMs,
         previousHolder: null,
         reason: "initial_claim",
         version: 0,
       },
+      authorizationDecision,
     };
   }
   if (command.type === "TransitionTask") return {};
@@ -212,6 +238,8 @@ export async function proofFor(
       commitPaths: { commitSha: verified.commitSha, paths: verified.paths },
     };
   }
+  if (command.type !== "CompleteTask")
+    throw cellCodedError("invalid_command", `No authority proof plan exists for ${command.type}.`);
   return completeProof(command, snapshot) as TaskLifecycleServiceProof<typeof command>;
 }
 
@@ -253,33 +281,6 @@ export function completeProof(
 export function createTaskId(action: RepoTaskAction, binding: RepoCellBinding, workspaceId: string): string {
   if (typeof action.taskId === "string" && action.taskId) return action.taskId;
   return `task_${operationId(action, binding, workspaceId, 0).slice(-26)}`;
-}
-
-/** StartExecution 的 id 选择：显式给了就用它；没给则优先 rejoin 当前轮那个
- * unleased active execution，
- * 只有在没有可 rejoin 的执行时才派生新 id。派生新 id 会被 canStartExecution 判为不可接纳，
- * 因此「不带 --execution-id 就必然被拒」曾是唯一结果。 */
-export function startExecutionId(
-  action: RepoTaskAction,
-  snapshot: Snapshot,
-  binding: RepoCellBinding,
-  workspaceId: string,
-  expectedRevision: number,
-): string {
-  if (typeof action.executionId === "string" && action.executionId) return action.executionId;
-  const rejoin = snapshot.executions.find(
-    (value) => value.iteration === snapshot.task?.iteration && value.state === "active",
-  );
-  return rejoin?.executionId ?? derivedExecutionId(action, binding, workspaceId, expectedRevision);
-}
-
-export function derivedExecutionId(
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-  workspaceId: string,
-  expectedRevision: number,
-): string {
-  return `exe_${operationId(action, binding, workspaceId, expectedRevision).slice(-26)}`;
 }
 
 export function withoutDryRun(action: RepoTaskAction): RepoTaskAction {

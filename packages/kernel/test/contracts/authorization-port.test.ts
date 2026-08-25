@@ -65,6 +65,17 @@ test("v2 separates principal ownership from exact execution ownership", () => {
   assert.equal(decide("task.consent", owner, "task/task-1", { target: { owner } }).outcome, "allowed");
 });
 
+test("v2 admits execution start only through the server-admitted repo-write command class", () => {
+  assert.equal(
+    decide("execution.start", owner, "execution/execution-1", { commandClasses: ["repo-write"], target: {} }).outcome,
+    "allowed",
+  );
+  assert.equal(
+    decide("execution.start", owner, "execution/execution-1", { commandClasses: [], target: {} }).outcome,
+    "denied",
+  );
+});
+
 test("v2 models held and orphaned release bindings without overloading ownership", () => {
   assert.equal(
     decide("execution.release", owner, "execution/execution-1", {

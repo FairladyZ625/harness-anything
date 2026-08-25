@@ -14,7 +14,7 @@ export type {
   Sha256Fingerprint,
 } from "./task.ts";
 export { REPLAY_TASK_GRAPH } from "./task-graph.ts";
-export { TASK_LIFECYCLE_COMMAND_CATALOG } from "./task-lifecycle.contract.ts";
+export { TASK_LIFECYCLE_COMMAND_CATALOG, TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle.contract.ts";
 export type {
   CompleteTaskCommand,
   CreateReplayTaskCommand,
@@ -112,6 +112,7 @@ export {
   createEntityKindRegistry,
   explainEntityKind,
   getEntityKind,
+  getEntityKindContract,
   requireEntityKindContract,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";

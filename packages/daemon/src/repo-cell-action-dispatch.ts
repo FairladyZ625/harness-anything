@@ -7,7 +7,9 @@ import {
   createEntityStore,
   explainEntityKind,
   executionExecutorDeclarationCandidates,
+  canStartExecution,
   isLedgerLayoutMigrationEvent,
+  isTerminalStatus,
   lifecycleDocumentPaths,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -16,7 +18,7 @@ import { prepareAgentEntityInstall, runAgentEntityAction } from "./agent-entitie
 import { distillPromotionAction, prepareDistillCandidate } from "./distill-actions.ts";
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
-import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
+import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 
 export async function executeAction(
   cell: any,
@@ -292,7 +294,12 @@ export async function executeAction(
         : "Remove --dry-run to perform the local preset write; it will remain non-canonical.",
     };
   }
-  const entering = cell.taskWipEnteringAction(action);
+  const resolvedLifecycle = cell.resolveLifecycleAction(action),
+    lifecycleEntering =
+      resolvedLifecycle !== null && resolvedLifecycle.coordination !== "execute"
+        ? { taskId: cell.requiredCellText(action.taskId, "taskId"), nextStatus: "active" as const }
+        : null,
+    entering = lifecycleEntering ?? cell.taskWipEnteringAction(action);
   if (entering) cell.assertTaskWipCapacity(entering.taskId, entering.nextStatus);
   if (action.kind === "task-create") return cell.createTask(cell.taskCreateAction(cell.rootDir, action), binding);
   if (isDocAction(action.kind))
@@ -317,6 +324,7 @@ export async function executeAction(
       now: cell.now,
       killpoint: cell.input.killpoint,
     });
+  if (resolvedLifecycle?.coordination === "preview") return cell.lifecycleAction(action, binding);
   if (
     Array.isArray(
       (
@@ -328,7 +336,6 @@ export async function executeAction(
   )
     return cell.runTaskCommandWithDocs(action as RepoTaskAction & { readonly docChanges: readonly any[] }, binding);
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
-  if (action.kind === "task-start" && action.dryRun === true) return cell.previewStart(action, binding);
   if (action.kind === "task-contract-migrate") return cell.migrateTaskContracts(action, binding);
   if (action.kind === "task-archive" && (Array.isArray(action.taskIds) || typeof action.filter === "string"))
     return cell.archiveTasks(action, binding);
@@ -338,12 +345,6 @@ export async function executeAction(
   if (action.kind === "task-closeout") return cell.closeoutTask(action, binding);
   if (action.kind === "task-complete") return cell.completeTask(action, binding);
   if (cell.taskSurfaceWriteKind(action.kind)) return cell.taskSurfaceWrite(action, binding);
-  if (!cell.taskWriteKind(action.kind))
-    return cell.rejected(
-      cell.operationId(action, binding, cell.input.repoId, 0),
-      "unsupported_command",
-      "No domain contract exists for this write command; run the leaf --help and select a supported repair command.",
-    );
   return cell.lifecycleAction(action, binding);
 }
 
@@ -380,9 +381,24 @@ export async function lifecycleAction(
 ): Promise<WriteReceipt> {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     current = await cell.service.read(taskId),
-    expectedRevision = current.snapshot.revision;
+    expectedRevision = current.snapshot.revision,
+    resolvedLifecycle = cell.resolveLifecycleAction(action),
+    preview = resolvedLifecycle?.coordination === "preview";
+  if (preview && !current.snapshot.task)
+    throw cell.cellCodedError("task_not_found", "Run ha task list, choose an existing task id, then retry task start.");
+  if (preview && current.snapshot.lease)
+    throw cell.cellCodedError(
+      "lease_conflict",
+      `Run ha task release ${taskId} as the current holder before starting another execution.`,
+    );
+  if (preview && current.snapshot.task && isTerminalStatus(current.snapshot.task.status))
+    throw cell.cellCodedError(
+      "terminal_task",
+      `Run ha task supersede ${taskId} --title <follow-up-title> for new work.`,
+    );
+  const canonicalAction = preview ? cell.withoutDryRun(action) : action;
   const normalized = cell.buildCommand(
-    action,
+    canonicalAction,
     taskId,
     binding,
     cell.input.repoId,
@@ -390,6 +406,23 @@ export async function lifecycleAction(
     cell.rootDir,
     current.snapshot,
   );
+  if (preview && resolvedLifecycle) {
+    const commandFields = normalized as unknown as Readonly<Record<string, unknown>>,
+      executionId = commandFields[resolvedLifecycle.targetIdField];
+    if (typeof executionId !== "string")
+      throw cell.cellCodedError("invalid_command", `${resolvedLifecycle.commandType} requires a target entity id.`);
+    return cell.previewResult(
+      `preview:${normalized.opId}`,
+      {
+        taskId,
+        executionId,
+        ttlMs: typeof commandFields.ttlMs === "number" ? commandFields.ttlMs : leaseTtlMs,
+        admissible: canStartExecution(current.snapshot, executionId),
+      },
+      current.snapshot.revision,
+      "Remove --dry-run to acquire the lease and publish the execution-start event.",
+    );
+  }
   const command = cell.withServerMeta(
     normalized,
     cell.store.readTaskEvent(normalized.opId),

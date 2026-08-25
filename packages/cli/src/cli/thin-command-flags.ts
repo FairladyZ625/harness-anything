@@ -1,44 +1,13 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import type {
-  ThinCliInputDirectory,
-  ThinCommand,
-  ThinParseResult,
-} from "./thin-command-types.ts";
+import type { ThinCliInputDirectory, ThinCommand, ThinParseResult } from "./thin-command-types.ts";
 
 export function optionalFlags(
   values: ReadonlyMap<string, string>,
   mappings: readonly (readonly [string, string])[],
 ): Record<string, string> {
   return Object.fromEntries(
-    mappings.flatMap(([flag, field]) =>
-      values.get(flag) ? [[field, values.get(flag)!]] : [],
-    ),
+    mappings.flatMap(([flag, field]) => (values.get(flag) ? [[field, values.get(flag)!]] : [])),
   );
-}
-
-export function oneExecution(
-  rootDir: SafePath,
-  repoId: string | undefined,
-  json: boolean,
-  args: readonly string[],
-  taskId: string,
-  kind: string,
-  commandType: string,
-  inputs: ThinCliInputDirectory,
-): ThinParseResult {
-  const f = readFlags(kind, args.slice(3), inputs);
-  if (!f.ok) return rejected(f.code, f.nextAction, json);
-  const executionId = f.one.get("--execution-id"),
-    ttlMs = f.one.get("--ttl-ms");
-  return accepted(rootDir, repoId, json, {
-    kind,
-    verb: args[1],
-    commandType,
-    taskId,
-    ...(executionId ? { executionId } : {}),
-    ...(ttlMs ? { ttlMs: Number(ttlMs) } : {}),
-    ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
-  });
 }
 
 export function readFlags(
@@ -62,12 +31,7 @@ export function readFlags(
     many = new Map<string, string[]>(),
     flags = new Set<string>();
   for (const input of inputs)
-    (input.kind === "single"
-      ? singles
-      : input.kind === "repeated"
-        ? repeated
-        : booleans
-    ).add(input.name);
+    (input.kind === "single" ? singles : input.kind === "repeated" ? repeated : booleans).add(input.name);
   for (let index = 0; index < tokens.length; ) {
     const token = tokens[index],
       split = token?.indexOf("=") ?? -1,
@@ -98,8 +62,7 @@ export function readFlags(
         code: "unknown_field",
         nextAction: `Unknown option ${name ?? "<missing>"}. Run ${descriptor.helpCommand}.`,
       };
-    if (!nonEmpty(value) || (inline === undefined && value.startsWith("--")))
-      return { ok: false, ...input.error };
+    if (!nonEmpty(value) || (inline === undefined && value.startsWith("--"))) return { ok: false, ...input.error };
     if (singles.has(input.name)) {
       if (one.has(input.name))
         return {
@@ -122,14 +85,12 @@ export function readFlags(
           : flags.has(input.name)
             ? [input.name]
             : [];
-    if (input.required && values.length === 0)
-      return { ok: false, ...input.error };
+    if (input.required && values.length === 0) return { ok: false, ...input.error };
     if (
       values.some(
         (value) =>
           (input.enum !== undefined && !input.enum.includes(value)) ||
-          (input.regex !== undefined &&
-            !new RegExp(input.regex, "u").test(value)),
+          (input.regex !== undefined && !new RegExp(input.regex, "u").test(value)),
       )
     )
       return { ok: false, ...input.error };
@@ -143,14 +104,8 @@ export function rejectInput(
   name: string,
   json: boolean,
 ): ThinParseResult {
-  const error = directory
-    .get(commandId)
-    ?.inputs.find((input) => input.name === name)?.error;
-  return rejected(
-    error?.code ?? "invalid_field",
-    error?.nextAction ?? `${name} is invalid.`,
-    json,
-  );
+  const error = directory.get(commandId)?.inputs.find((input) => input.name === name)?.error;
+  return rejected(error?.code ?? "invalid_field", error?.nextAction ?? `${name} is invalid.`, json);
 }
 
 export function accepted(
@@ -176,17 +131,12 @@ export function accepted(
   };
 }
 
-export function rejected(
-  code: string,
-  nextAction: string,
-  json: boolean,
-): ThinParseResult {
+export function rejected(code: string, nextAction: string, json: boolean): ThinParseResult {
   return {
     ok: false,
     code,
     nextAction:
-      nextAction ===
-      "This runtime kind does not accept options for another adapter."
+      nextAction === "This runtime kind does not accept options for another adapter."
         ? "Claude runtime instances cannot accept Codex options: --effort, --wire-api, " +
           "--requires-openai-auth, or --http-header."
         : nextAction,
@@ -194,10 +144,7 @@ export function rejected(
   };
 }
 
-export function globalOption(
-  argv: readonly string[],
-  name: string,
-): string | undefined {
+export function globalOption(argv: readonly string[], name: string): string | undefined {
   const at = argv.indexOf(name);
   return at < 0 ? undefined : argv[at + 1];
 }
@@ -216,11 +163,7 @@ export function promptInput(
 ): { readonly prompt: string } | { readonly promptFile: string } | null {
   const prompt = one.get("--prompt"),
     promptFile = one.get("--prompt-file");
-  return Boolean(prompt) === Boolean(promptFile)
-    ? null
-    : prompt
-      ? { prompt }
-      : { promptFile: promptFile! };
+  return Boolean(prompt) === Boolean(promptFile) ? null : prompt ? { prompt } : { promptFile: promptFile! };
 }
 
 export function nonEmpty(value: string | undefined): value is string {
