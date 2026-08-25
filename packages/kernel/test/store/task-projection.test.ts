@@ -710,6 +710,33 @@ test("stale persistent event projection schema is discarded and replayed from th
   });
 });
 
+test("squad run cache rows are replaceable, monotonic, and cleared for stream replay on rebuild", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore }),
+      initial = {
+        squadRunId: "squad_0123456789abcdef01234567",
+        revision: 2,
+        state: { schema: "squad-run/v1", phase: "leader_running" },
+      };
+    assert.equal(projection.squadRunProjectionReady(), false);
+    projection.replaceSquadRuns([initial]);
+    assert.equal(projection.squadRunProjectionReady(), true);
+    assert.deepEqual(projection.readSquadRun(initial.squadRunId), initial);
+    projection.upsertSquadRun({ ...initial, revision: 1, state: { phase: "stale" } });
+    assert.deepEqual(projection.readSquadRun(initial.squadRunId), initial);
+    projection.markSquadRunProjectionDirty();
+    assert.equal(projection.squadRunProjectionReady(), false);
+    projection.upsertSquadRun({ ...initial, revision: 3, state: { phase: "converged" } });
+    assert.equal(projection.squadRunProjectionReady(), true);
+    assert.equal(projection.readSquadRun(initial.squadRunId)?.revision, 3);
+    projection.rebuild();
+    assert.equal(projection.squadRunProjectionReady(), false);
+    assert.deepEqual(projection.readSquadRuns(), []);
+  });
+});
+
 // The title's "64-item/100ms" is pinned by check-implementation-contracts.mjs and no longer
 // describes this test: it runs at catchUpLimit 2, and the 100ms budget was an unenforced
 // literal removed with the receipt field that carried it. Renaming needs that gate updated.

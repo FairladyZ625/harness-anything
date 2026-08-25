@@ -97,6 +97,12 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
   }),
   DAEMON_SQUAD_ENTITY_DETAIL_SCHEMA = Object.freeze({
     id: "daemon.squad-entity-detail/v1",
+  }),
+  DAEMON_SQUAD_RUN_LIST_SCHEMA = Object.freeze({
+    id: "daemon.squad-run-list/v1",
+  }),
+  DAEMON_SQUAD_RUN_READ_SCHEMA = Object.freeze({
+    id: "daemon.squad-run-read/v1",
   });
 
 export const GUI_SYSTEM_STATUS_SCHEMA = Object.freeze({

@@ -1,12 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 
-// Version 10 projects generic Agent/Squad entity events, including the historical
-// agent-entity-event/v1 alias, into entity_projection with no task owner.
-// A version mismatch takes the
-// existing discard-and-replay path in rebuildable-task-projection.ts, so each
-// machine cold-rebuilds task.sqlite once on its first read.
-export const taskProjectionSchemaVersion = 10;
+// Version 11 adds the rebuildable squad-run projection. A version mismatch takes
+// the existing discard-and-replay path in rebuildable-task-projection.ts. The
+// canonical ledger is replayed first; squad-coordinator then sees its durable
+// ready marker cleared and replays the dispatch streams into the local-only table.
+export const taskProjectionSchemaVersion = 11;
 
 export function readTaskProjectionSchemaVersion(projectionPath: string): number | null {
   if (!localRuntimeStateFileSystem.exists(projectionPath)) return null;

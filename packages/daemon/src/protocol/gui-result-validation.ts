@@ -16,6 +16,7 @@ import {
   type AgentRuntimeAttachEvent,
 } from "../agent-runtime-stream.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
+import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
 import {
   validateCatalogPreset,
   validateCatalogRereadReceipt,
@@ -70,6 +71,8 @@ const resultValidators = {
   "repo.agent.skills.list": validateAgentSkillCatalog,
   "repo.squad.entities.list": validateSquadEntityCatalog,
   "repo.squad.entity.read": validateSquadEntityDetail,
+  "repo.squad.runs.list": validateSquadRunsList,
+  "repo.squad.runs.read": validateSquadRunRead,
   "repo.gui.catalog.snapshot": validateCatalogSnapshot,
   "repo.gui.catalog.preset.read": validateCatalogPreset,
   "repo.terminal.sessions.list": validateTerminalSessionList,

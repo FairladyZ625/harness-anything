@@ -13,6 +13,7 @@ import type {
   AgentRuntimeSessionResult,
 } from "../agent-runtime-contract.ts";
 import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
+import type { SquadRunReadResult, SquadRunsListResult } from "../squad-run-contract.ts";
 import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import { type JsonObject } from "./json-rpc-types.ts";
@@ -97,6 +98,8 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.agent.skills.list": AgentSkillGuiRead;
   readonly "repo.squad.entities.list": Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-catalog/v1" }>;
   readonly "repo.squad.entity.read": Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-detail/v1" }>;
+  readonly "repo.squad.runs.list": SquadRunsListResult;
+  readonly "repo.squad.runs.read": SquadRunReadResult;
   readonly "repo.gui.catalog.snapshot": JsonObject;
   readonly "repo.gui.catalog.preset.read": JsonObject;
   readonly "repo.terminal.sessions.list": JsonObject;
@@ -140,6 +143,13 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.agent.skills.list": Readonly<Record<string, never>>;
   readonly "repo.squad.entities.list": Readonly<Record<string, never>>;
   readonly "repo.squad.entity.read": { readonly squadId: string };
+  readonly "repo.squad.runs.list": {
+    readonly since?: string;
+    readonly query?: string;
+    readonly limit?: number;
+    readonly cursor?: string;
+  };
+  readonly "repo.squad.runs.read": { readonly squadRunId: string };
   readonly "repo.gui.catalog.snapshot": Readonly<Record<string, never>>;
   readonly "repo.gui.catalog.preset.read": {
     readonly presetId: string;

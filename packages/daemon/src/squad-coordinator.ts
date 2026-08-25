@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   consumeKnownError,
   createEntityStore,
+  runtimeSessionSemanticState,
   type AgentRuntimeEventV1,
   type CanonicalEventStore,
   type TaskProjection,
@@ -13,8 +14,13 @@ import { readTaskDispatches } from "./dispatch-read.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
-
-type SquadPhase = "planning" | "leader_running" | "workers_running" | "converged" | "failed";
+import type {
+  SquadRunDetailDto,
+  SquadRunPhase,
+  SquadRunReadResult,
+  SquadRunsListResult,
+  SquadRunSummaryDto,
+} from "./squad-run-contract.ts";
 
 type LeaderDecision =
   | { readonly kind: "converged" }
@@ -77,7 +83,7 @@ type SquadState = {
   readonly workerAttempts: readonly WorkerAttempt[];
   readonly observedWorkerRuntimeSessionIds: readonly string[];
   readonly pendingLeaderTriggers: readonly LeaderTrigger[];
-  readonly phase: SquadPhase;
+  readonly phase: SquadRunPhase;
   readonly revision: number;
   readonly error: string | null;
 };
@@ -160,41 +166,59 @@ export function makeSquadCoordinator(input: {
       );
     const state = readSquadRunState(squadRunId);
     if (!state) return rejection("squad-status", "squad_run_not_found", `Squad run ${squadRunId} does not exist.`);
-    const rows = dispatchRows(state),
-      byDispatchId = new Map(rows.map((row) => [row.dispatchId, row]));
+    const { phase, ...detail } = detailDto(state);
     return {
       schema: "command-receipt/v2",
       ok: true,
       command: "squad-status",
       outcome: "applied",
-      squadRunId: state.squadRunId,
-      squadId: state.squadId,
-      taskId: state.taskId,
-      status: state.phase,
-      revision: state.revision,
-      currentLeaderRuntimeSessionId: state.currentLeaderRuntimeSessionId,
-      leaderRuntimeSessionIds: state.leaderTurns.map((turn) => turn.runtimeSessionId),
-      leaders: state.leaderTurns.map((turn) => ({
-        ...byDispatchId.get(turn.dispatchId),
-        turnId: turn.turnId,
-        trigger: turn.trigger,
-        dispatchId: turn.dispatchId,
-        runtimeSessionId: turn.runtimeSessionId,
-        decision: turn.decision,
-      })),
-      workers: state.workerAttempts.map((attempt) => ({
-        ...(attempt.dispatchId ? byDispatchId.get(attempt.dispatchId) : undefined),
-        attemptId: attempt.attemptId,
-        workerId: attempt.workerId,
-        dispatchId: attempt.dispatchId,
-        runtimeSessionId: attempt.runtimeSessionId,
-        ...(attempt.rejection ? { status: "rejected", rejection: attempt.rejection } : {}),
-      })),
-      workerCallbackCount: state.observedWorkerRuntimeSessionIds.length,
-      pendingLeaderCallbackCount: state.pendingLeaderTriggers.length,
-      error: state.error,
+      ...detail,
+      status: phase,
       summary: `squad-run ${state.squadId}: ${state.phase}`,
       exitCode: 0,
+    };
+  };
+
+  const list = (payload: Readonly<Record<string, unknown>>): SquadRunsListResult => {
+    const query = listQuery(payload),
+      cut = input.projection().readTaskStatuses([]),
+      matching = readStates()
+        .map(summaryDto)
+        .filter((run) => activePhase(run.phase) || query.since === null || run.latestActivityAt >= query.since)
+        .filter((run) => matchesRunQuery(run, query.tokens))
+        .sort(compareRunSummaries),
+      start = query.cursor === null ? 0 : indexAfterCursor(matching, query.cursor),
+      selected = matching.slice(start, start + query.limit),
+      remainingCount = Math.max(0, matching.length - start - selected.length);
+    return {
+      ok: true,
+      status: cut.status,
+      runs: selected,
+      totals: { runs: matching.length },
+      truncated: start > 0 || remainingCount > 0,
+      page: {
+        limit: query.limit,
+        cursor: query.cursor,
+        nextCursor: remainingCount > 0 ? runCursor(selected.at(-1)!) : null,
+        remainingCount,
+      },
+      watermark: cut.watermark,
+      sourceRevision: cut.sourceRevision,
+    };
+  };
+
+  const read = (payload: Readonly<Record<string, unknown>>): SquadRunReadResult => {
+    if (Object.keys(payload).some((field) => field !== "squadRunId") || !validSquadRunId(payload.squadRunId))
+      throw squadReadError("invalid_request", "Squad run reads require one valid squadRunId.");
+    const cut = input.projection().readTaskStatuses([]),
+      state = readSquadRunState(payload.squadRunId);
+    if (!state) throw squadReadError("squad_run_not_found", `Squad run ${payload.squadRunId} does not exist.`);
+    return {
+      ok: true,
+      status: cut.status,
+      run: detailDto(state),
+      watermark: cut.watermark,
+      sourceRevision: cut.sourceRevision,
     };
   };
 
@@ -512,33 +536,121 @@ export function makeSquadCoordinator(input: {
 
   function readSquadRunState(squadRunId: string): SquadState | null {
     if (!validSquadRunId(squadRunId)) return null;
-    return readStates().find((state) => state.squadRunId === squadRunId) ?? null;
+    ensureSquadRunProjection();
+    const row = input.projection().readSquadRun(squadRunId),
+      state = squadState(row?.state);
+    if (row !== null && state === null) throw new Error(`Squad run projection ${squadRunId} is invalid.`);
+    return state;
   }
 
   function readStates(): readonly SquadState[] {
+    ensureSquadRunProjection();
+    return input
+      .projection()
+      .readSquadRuns()
+      .map((row) => {
+        const state = squadState(row.state);
+        if (!state) throw new Error(`Squad run projection ${row.squadRunId} is invalid.`);
+        return state;
+      });
+  }
+
+  function ensureSquadRunProjection(): void {
+    const projection = input.projection();
+    if (projection.squadRunProjectionReady()) return;
     const states = new Map<string, SquadState>();
     for (const stream of readDispatchStreams(input.rootDir)) {
       for (const record of stream.records) {
+        if (record.kind !== "squad_run_state") continue;
         const state = squadState(record.state);
-        if (record.kind !== "squad_run_state" || !state) continue;
+        if (!state) continue;
         const current = states.get(state.squadRunId);
         if (!current || current.revision < state.revision) states.set(state.squadRunId, state);
       }
     }
-    return [...states.values()];
+    projection.replaceSquadRuns(
+      [...states.values()].map((state) => ({
+        squadRunId: state.squadRunId,
+        revision: state.revision,
+        state,
+      })),
+    );
   }
 
   function writeState(state: SquadState): void {
     if (!state.stateDispatchId) throw new Error("Squad state has no owning dispatch stream.");
+    ensureSquadRunProjection();
+    const projection = input.projection();
+    projection.markSquadRunProjectionDirty();
     appendRuntimeWorkerRecord(input.rootDir, state.stateDispatchId, {
       kind: "squad_run_state",
       squadRunId: state.squadRunId,
       revision: state.revision,
       state,
     });
+    projection.upsertSquadRun({ squadRunId: state.squadRunId, revision: state.revision, state });
   }
 
-  return { start, status, observeOutcome, reconcile };
+  function detailDto(state: SquadState): SquadRunDetailDto {
+    const rows = dispatchRows(state),
+      byDispatchId = new Map(rows.map((row) => [row.dispatchId, row]));
+    return {
+      squadRunId: state.squadRunId,
+      squadId: state.squadId,
+      taskId: state.taskId,
+      mission: state.mission,
+      phase: state.phase,
+      revision: state.revision,
+      currentLeaderRuntimeSessionId: state.currentLeaderRuntimeSessionId,
+      leaderRuntimeSessionIds: state.leaderTurns.map((turn) => turn.runtimeSessionId),
+      leaders: state.leaderTurns.map((turn) => ({
+        ...byDispatchId.get(turn.dispatchId),
+        turnId: turn.turnId,
+        trigger: turn.trigger,
+        dispatchId: turn.dispatchId,
+        runtimeSessionId: turn.runtimeSessionId,
+        decision: turn.decision,
+      })),
+      workers: state.workerAttempts.map((attempt) => ({
+        ...(attempt.dispatchId ? byDispatchId.get(attempt.dispatchId) : undefined),
+        attemptId: attempt.attemptId,
+        workerId: attempt.workerId,
+        dispatchId: attempt.dispatchId,
+        runtimeSessionId: attempt.runtimeSessionId,
+        ...(attempt.rejection ? { status: "rejected", rejection: attempt.rejection } : {}),
+      })),
+      workerCallbackCount: state.observedWorkerRuntimeSessionIds.length,
+      pendingLeaderCallbackCount: state.pendingLeaderTriggers.length,
+      error: state.error,
+    };
+  }
+
+  function summaryDto(state: SquadState): SquadRunSummaryDto {
+    const sessions = [
+      ...state.leaderTurns.map((turn) => turn.runtimeSessionId),
+      ...state.workerAttempts.flatMap((attempt) => (attempt.runtimeSessionId ? [attempt.runtimeSessionId] : [])),
+    ]
+      .map((runtimeSessionId) => input.projection().readRuntimeSession(runtimeSessionId))
+      .filter((session) => session !== null);
+    return {
+      squadRunId: state.squadRunId,
+      squadId: state.squadId,
+      taskId: state.taskId,
+      mission: state.mission,
+      phase: state.phase,
+      revision: state.revision,
+      leaderTurnCount: state.leaderTurns.length,
+      workerAttemptCount: state.workerAttempts.length,
+      runningCount: sessions.filter((session) => runtimeSessionSemanticState(session) === "running").length,
+      latestActivityAt: sessions.reduce(
+        (latest, session) => (session.lastObservedAt > latest ? session.lastObservedAt : latest),
+        "1970-01-01T00:00:00.000Z",
+      ),
+      currentLeaderRuntimeSessionId: state.currentLeaderRuntimeSessionId,
+    };
+  }
+
+  return { start, status, list, read, observeOutcome, reconcile };
 }
 
 function initialLeaderPrompt(state: SquadState): string {
@@ -689,8 +801,72 @@ function triggerKey(trigger: Exclude<LeaderTrigger, { readonly kind: "initial" }
   return trigger.kind === "worker_outcome" ? `outcome:${trigger.runtimeSessionId}` : `rejected:${trigger.attemptId}`;
 }
 
-function validSquadRunId(value: string): boolean {
-  return /^squad_[a-f0-9]{24}$/u.test(value);
+function listQuery(payload: Readonly<Record<string, unknown>>): {
+  readonly since: string | null;
+  readonly tokens: readonly string[];
+  readonly limit: number;
+  readonly cursor: string | null;
+} {
+  const fields = Object.keys(payload),
+    since = payload.since,
+    query = payload.query,
+    limit = payload.limit,
+    cursor = payload.cursor;
+  if (
+    fields.some((field) => !["since", "query", "limit", "cursor"].includes(field)) ||
+    (since !== undefined && (typeof since !== "string" || !Number.isFinite(Date.parse(since)))) ||
+    (query !== undefined && typeof query !== "string") ||
+    (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000)) ||
+    (cursor !== undefined && (typeof cursor !== "string" || !cursor))
+  )
+    throw squadReadError(
+      "invalid_request",
+      "Squad run lists accept ISO since, text query, limit 1..1000, and a non-empty cursor.",
+    );
+  return {
+    since: typeof since === "string" ? new Date(since).toISOString() : null,
+    tokens: typeof query === "string" ? query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean) : [],
+    limit: typeof limit === "number" ? limit : 200,
+    cursor: typeof cursor === "string" ? cursor : null,
+  };
+}
+
+function matchesRunQuery(run: SquadRunSummaryDto, tokens: readonly string[]): boolean {
+  const searchable = [run.squadRunId, run.squadId, run.taskId, run.mission, run.phase].join("\n").toLocaleLowerCase();
+  return tokens.every((token) => searchable.includes(token));
+}
+
+function activePhase(phase: SquadRunPhase): boolean {
+  return phase === "planning" || phase === "leader_running" || phase === "workers_running";
+}
+
+function compareRunSummaries(left: SquadRunSummaryDto, right: SquadRunSummaryDto): number {
+  const active = Number(activePhase(right.phase)) - Number(activePhase(left.phase));
+  return (
+    active ||
+    right.latestActivityAt.localeCompare(left.latestActivityAt) ||
+    left.squadRunId.localeCompare(right.squadRunId)
+  );
+}
+
+function runCursor(run: SquadRunSummaryDto): string {
+  return `squad-run:${Buffer.from(JSON.stringify([run.latestActivityAt, run.squadRunId])).toString("base64url")}`;
+}
+
+function indexAfterCursor(runs: readonly SquadRunSummaryDto[], cursor: string): number {
+  const index = runs.findIndex((run) => runCursor(run) === cursor);
+  if (index < 0) throw squadReadError("invalid_cursor", `Invalid or stale squad run cursor: ${cursor}.`);
+  return index + 1;
+}
+
+function validSquadRunId(value: unknown): value is string {
+  return typeof value === "string" && /^squad_[a-f0-9]{24}$/u.test(value);
+}
+
+function squadReadError(code: string, message: string): Error {
+  const error = new Error(message) as Error & { code: string };
+  error.code = code;
+  return error;
 }
 
 function errorText(error: unknown): string {

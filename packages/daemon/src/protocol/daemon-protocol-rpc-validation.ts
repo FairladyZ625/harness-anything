@@ -67,6 +67,10 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateTaskDispatchesPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agentRuntime.sessions.read")
     errors.push(...validateRuntimeSessionReadPayload((value.params as JsonObject).payload));
+  if (!errors.length && value.method === "repo.squad.runs.list")
+    errors.push(...validateSquadRunListPayload((value.params as JsonObject).payload));
+  if (!errors.length && value.method === "repo.squad.runs.read")
+    errors.push(...validateSquadRunReadPayload((value.params as JsonObject).payload));
   if (!errors.length && isDaemonGuiActionMethod(value.method))
     errors.push(...validateGuiActionPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.terminal.attach") {
@@ -97,6 +101,22 @@ function validateRuntimeSessionReadPayload(value: unknown): string[] {
   if (runtimeSessionId !== undefined && (taskId !== undefined || dispatchId !== undefined))
     return ["runtime session read cannot mix runtimeSessionId with taskId or dispatchId"];
   return [];
+}
+
+function validateSquadRunListPayload(value: unknown): string[] {
+  if (!isJsonObject(value)) return ["squad run list payload must be an object"];
+  if (
+    (value.since !== undefined && !Number.isFinite(Date.parse(String(value.since)))) ||
+    (value.limit !== undefined && (!integer(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 1_000))
+  )
+    return ["squad run list facets are invalid"];
+  return [];
+}
+
+function validateSquadRunReadPayload(value: unknown): string[] {
+  return isJsonObject(value) && /^squad_[a-f0-9]{24}$/u.test(String(value.squadRunId))
+    ? []
+    : ["squad run read requires a valid squadRunId"];
 }
 
 // The wide task reads accept optional narrow/paged facets; absent payload or absent
