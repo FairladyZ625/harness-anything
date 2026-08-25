@@ -439,7 +439,12 @@ export function DecisionPoolView({
                   key={decision.decisionId}
                   id={`decision-card-${decision.decisionId}`}
                   data-focused={decision.decisionId === focusedDecisionId || undefined}
-                  className={`rounded-lg border bg-surface px-3.5 py-3 transition-colors duration-100 [contain-intrinsic-size:auto_10rem] [content-visibility:auto] ${decision.decisionId === focusedDecisionId ? "border-accent ring-1 ring-accent/30" : "border-border hover:border-border-strong"}`}
+                  className={[
+                    "rounded-lg border bg-surface px-3.5 py-3 transition-colors duration-100 cv-auto-10r",
+                    decision.decisionId === focusedDecisionId
+                      ? "border-accent ring-1 ring-accent/30"
+                      : "border-border hover:border-border-strong",
+                  ].join(" ")}
                 >
                   <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">

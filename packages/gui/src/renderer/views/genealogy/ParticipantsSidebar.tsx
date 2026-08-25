@@ -57,7 +57,7 @@ export function ParticipantsSidebar({
             <button
               key={d.decisionId}
               onClick={() => onFocus(d.decisionId)}
-              className={`flex flex-col gap-1 rounded px-2 py-1.5 text-left [contain-intrinsic-size:auto_3rem] [content-visibility:auto] ${
+              className={`flex flex-col gap-1 rounded px-2 py-1.5 text-left cv-auto-3r ${
                 active ? "bg-surface-raised ring-1 ring-accent/40" : "hover:bg-surface-raised"
               }`}
             >

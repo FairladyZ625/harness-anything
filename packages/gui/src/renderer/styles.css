@@ -2,6 +2,26 @@
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 
+.cv-auto-2r {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 2rem;
+}
+
+.cv-auto-3r {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3rem;
+}
+
+.cv-auto-4-5r {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 4.5rem;
+}
+
+.cv-auto-10r {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 10rem;
+}
+
 /*
  * Harness GUI 暗色变量（OKLch）
  * 三轴视觉通道分配：

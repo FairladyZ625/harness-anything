@@ -57,9 +57,13 @@ function LaneCard({
     <div
       onClick={() => onSelect(task.taskId)}
       title={external ? "外部引擎管理 · 只读" : undefined}
-      className={`flex min-h-[150px] cursor-pointer flex-col rounded-lg bg-surface-raised px-3.5 py-3 [contain-intrinsic-size:auto_10rem] [content-visibility:auto] ${freshnessBorder(
-        task.freshness,
-      )} ${archived ? "opacity-50" : ""} ${isFavorite ? "ring-1 ring-accent/40" : ""} hover:border-border-strong`}
+      className={[
+        "flex min-h-[150px] cursor-pointer flex-col rounded-lg bg-surface-raised px-3.5 py-3 cv-auto-10r",
+        freshnessBorder(task.freshness),
+        archived ? "opacity-50" : "",
+        isFavorite ? "ring-1 ring-accent/40" : "",
+        "hover:border-border-strong",
+      ].join(" ")}
     >
       <div className="flex min-w-0 items-center gap-1.5">
         {external && <Lock weight="bold" className="shrink-0 text-[13px] text-text-faint" />}
@@ -301,7 +305,7 @@ export function SwimlaneBoard({
               <div
                 key={lane}
                 data-testid="swimlane-row"
-                className={`grid ${GRID_COLS} gap-2 border-b border-border py-2.5 [contain-intrinsic-size:auto_4.5rem] [content-visibility:auto]`}
+                className={`grid ${GRID_COLS} gap-2 border-b border-border py-2.5 cv-auto-4-5r`}
               >
                 <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
                   <span

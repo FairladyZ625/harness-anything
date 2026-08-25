@@ -125,7 +125,7 @@ export function CommandPalette({
                   onSelect(entry.ref);
                   onClose();
                 }}
-                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left [contain-intrinsic-size:auto_2rem] [content-visibility:auto] ${
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left cv-auto-2r ${
                   i === activeIdx ? "bg-surface" : ""
                 }`}
               >

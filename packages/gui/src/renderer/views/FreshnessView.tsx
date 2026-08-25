@@ -40,7 +40,10 @@ function FreshnessRow({
   return (
     <div
       data-testid="freshness-row"
-      className="flex w-full items-start gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-left [contain-intrinsic-size:auto_3rem] [content-visibility:auto]"
+      className={
+        "flex w-full items-start gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-left " +
+        "cv-auto-3r"
+      }
     >
       <ReasonBadge reason={candidate.reason} />
       <div className="min-w-0 flex-1">

@@ -46,7 +46,7 @@ const LIVENESS_DOT: Record<string, "live" | "idle"> = { live: "live" };
 const SECTION_BATCH_SIZE = 8;
 
 /** 会话段整行渲染的按需渲染类:离屏行跳过布局与绘制。 */
-const SESSION_ROW_CV = "[contain-intrinsic-size:auto_2rem] [content-visibility:auto]";
+const SESSION_ROW_CV = "cv-auto-2r";
 
 function BatchedRows<Row>({
   rows,
@@ -233,7 +233,10 @@ function LiveSessionRow({
     <button
       type="button"
       onClick={() => onOpenSession(session.runtimeSessionId)}
-      className={`flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised ${SESSION_ROW_CV}`}
+      className={[
+        "flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised",
+        SESSION_ROW_CV,
+      ].join(" ")}
     >
       <LiveDot state={LIVENESS_DOT[session.liveness] ?? "idle"} tip={session.liveness} />
       <span className="min-w-0 flex-1">
@@ -257,7 +260,10 @@ function DispatchSessionRow({
     <button
       type="button"
       onClick={() => onOpenSession(row.runtimeSessionId)}
-      className={`flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised ${SESSION_ROW_CV}`}
+      className={[
+        "flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised",
+        SESSION_ROW_CV,
+      ].join(" ")}
     >
       <LiveDot state={runtimeDockStatusDot[row.status]} tip={t(runtimeDockStatusKey[row.status] as never)} />
       <span className="min-w-0 flex-1">
