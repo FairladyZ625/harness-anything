@@ -15,3 +15,5 @@ The ledger-derived events below were de-identified and then reserialized with th
 | `ledger-layout-event/v1` | `packages/kernel/fixtures/canonical-events/ledger-layout-event-v1/accepted.json` | `canonical ledger refs/ha/canonical:events/9f/op_73c908af2852b5ccafefa8eade5ad7fb045c4cd4435f16771bac6cc8071b287b.json` | `afe448f4450735a2a60338d45293081c554f519e` |
 | `doc-event/v1` | `packages/kernel/fixtures/canonical-events/doc-event-v1/legacy-ledger-identity.json` | `packages/kernel/fixtures/events/doc-event-v1-legacy-ledger-identity.json` | `0948c1ba15338d108edd4bae136b9840a3e5d78a` |
 | `entity-event/v1` | `packages/kernel/fixtures/canonical-events/entity-event-v1/accepted.json` | `compileEntityUpsert production compiler (no canonical event existed yet)` | N/A (compiler-generated) |
+
+- `agent-entity-event-v1/accepted.json`: historical ledger event `op_ecb4101d…` (2026-08-21 agent install written before the generic entity store; principal redacted). The envelope was retired by 1.1 but the ledger is append-only, so readers must keep accepting it.

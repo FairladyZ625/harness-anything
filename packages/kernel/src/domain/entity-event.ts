@@ -24,16 +24,34 @@ export interface EntityDeclarationClaim {
   readonly mediaType: "application/json";
   readonly policyId: typeof ENTITY_DOCUMENT_POLICY_ID;
 }
-export type EntityEventV1 = EventEnvelope<
-  "entity-event/v1",
-  "entity_upserted",
+interface EntityEventPayload {
+  readonly entityKind: string;
+  readonly entityId: string;
+  readonly declarationDocumentClaim: EntityDeclarationClaim;
+}
+export type EntityEventV1 = EventEnvelope<"entity-event/v1", "entity_upserted", ActorIdentity, EntityEventPayload>;
+// Ledger history written before the generic entity store (agent/squad installs up to 2026-08-25) carries the
+// same payload under the retired agent-specific envelope. The ledger is append-only, so readers accept both.
+export type LegacyAgentEntityEventV1 = EventEnvelope<
+  "agent-entity-event/v1",
+  "agent_entity_written",
   ActorIdentity,
-  {
-    readonly entityKind: string;
-    readonly entityId: string;
-    readonly declarationDocumentClaim: EntityDeclarationClaim;
-  }
+  EntityEventPayload
 >;
+export type StoredEntityEventV1 = EntityEventV1 | LegacyAgentEntityEventV1;
+const entityEventEnvelopes: ReadonlyArray<readonly [schema: string, type: string]> = [
+  ["entity-event/v1", "entity_upserted"],
+  ["agent-entity-event/v1", "agent_entity_written"],
+];
+const LEGACY_AGENT_ENTITY_POLICY_ID = "typed-agent-entity/v1";
+function acceptedPolicyIds(schema: unknown): readonly string[] {
+  return schema === "agent-entity-event/v1"
+    ? [ENTITY_DOCUMENT_POLICY_ID, LEGACY_AGENT_ENTITY_POLICY_ID]
+    : [ENTITY_DOCUMENT_POLICY_ID];
+}
+function isEntityEventEnvelope(schema: unknown, type: unknown): boolean {
+  return entityEventEnvelopes.some(([s, t]) => s === schema && t === type);
+}
 export interface EntityUpsertBundle {
   readonly event: EntityEventV1;
   readonly plan: FrozenWritePlan<"EntityUpsert">;
@@ -107,8 +125,7 @@ function validateEntityEventFields(value: unknown, allowUnknownFields: boolean):
       "occurredAt",
       "payload",
     ]) ||
-    value.schema !== "entity-event/v1" ||
-    value.type !== "entity_upserted" ||
+    !isEntityEventEnvelope(value.schema, value.type) ||
     !isRecord(value.payload) ||
     !hasFields(value.payload, ["entityKind", "entityId", "declarationDocumentClaim"])
   )
@@ -132,14 +149,17 @@ function validateEntityEventFields(value: unknown, allowUnknownFields: boolean):
     !Number.isSafeInteger(claim.size) ||
     (claim.size as number) < 0 ||
     claim.mediaType !== contract.document.mediaType ||
-    claim.policyId !== contract.document.policyId
+    !acceptedPolicyIds(value.schema).includes(String(claim.policyId))
   )
     return ["entity declaration claim is invalid"];
   return validateEventEnvelopeIdentity(value, allowUnknownFields).length ? ["entity event identity is invalid"] : [];
 }
 
-export function isEntityEvent(event: { readonly schema: string }): event is EntityEventV1 {
-  return event.schema === "entity-event/v1";
+export function isEntityEvent(event: {
+  readonly schema: string;
+  readonly type: string;
+}): event is StoredEntityEventV1 {
+  return isEntityEventEnvelope(event.schema, event.type);
 }
 export function entityUpsertWritePlan(event: EntityEventV1): FrozenWritePlan<"EntityUpsert"> {
   const claim = event.payload.declarationDocumentClaim,
