@@ -82,6 +82,22 @@ const cases: readonly Case[] = [
     expected: "denied",
   },
   {
+    label: "start through repo writer",
+    kind: "execution.start",
+    target: "execution/execution-1",
+    actor: owner,
+    context: { commandClasses: ["repo-write"], target: {} },
+    expected: "allowed",
+  },
+  {
+    label: "start without repo writer",
+    kind: "execution.start",
+    target: "execution/execution-1",
+    actor: owner,
+    context: { commandClasses: [], target: {} },
+    expected: "denied",
+  },
+  {
     label: "independent arbiter review",
     kind: "execution.review",
     target: "execution/execution-1",

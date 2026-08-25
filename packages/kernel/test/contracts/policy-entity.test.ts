@@ -5,12 +5,13 @@ import { DEFAULT_POLICY } from "../../src/domain/default-policy.ts";
 import { parsePolicyDeclarationV1, validatePolicyDeclarationV1 } from "../../src/domain/policy.ts";
 import { createEntityStore, explainEntityKind } from "../../src/index.ts";
 
-test("the built-in v2 policy registers its binding predicates and eight applicable Actions", () => {
+test("the built-in v2 policy registers its binding predicates and applicable Actions", () => {
   assert.deepEqual(validatePolicyDeclarationV1(DEFAULT_POLICY), []);
   assert.equal(DEFAULT_POLICY.version, 2);
   assert.deepEqual(DEFAULT_POLICY.actions, [
     "task.consent",
     "task.complete",
+    "execution.start",
     "execution.review",
     "decision.accept",
     "execution.release",
@@ -62,6 +63,7 @@ test("the built-in v2 policy registers its binding predicates and eight applicab
     [
       'task.consent:-=>{"predicate":"isSameExecutionOwner"}',
       'task.complete:-=>{"predicate":"isOwner"}',
+      'execution.start:-=>{"predicate":"hasCommandClass","commandClass":"repo-write"}',
       'execution.review:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"reviewIndependence","level":"L1"}',
       'decision.accept:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"isNotProposalAgent"}+{"predicate":"reviewIndependence","level":"L1","gatedBy":{"env":"HARNESS_REVIEW_INDEPENDENCE"}}',
       'execution.release:-=>{"predicate":"holdsExecutionLease"}|{"predicate":"reclaimsOrphanedLease"}',

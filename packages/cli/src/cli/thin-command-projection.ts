@@ -1,13 +1,8 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { accepted, readFlags, rejected } from "./thin-command-flags.ts";
-import type {
-  ThinCliInputDirectory,
-  ThinParseResult,
-} from "./thin-command-types.ts";
+import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
-export const projectedAliases: Readonly<
-  Record<string, Readonly<Record<string, string>>>
-> = Object.freeze({
+export const projectedAliases: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.freeze({
   "task-list": { "--kind": "workKind", "--parent": "parentTaskId" },
   "relation-list": { "--type": "relationType" },
   "task-review": { "--reviewer": "reviewerId" },
@@ -34,9 +29,7 @@ export const projectedAliases: Readonly<
 export function projectedField(commandId: string, name: string): string {
   return (
     projectedAliases[commandId]?.[name] ??
-    name
-      .slice(2)
-      .replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase())
+    name.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase())
   );
 }
 
@@ -47,12 +40,10 @@ export function projectFlags(
   const projected: Record<string, unknown> = {};
   for (const [name, value] of flags.one) {
     const field = projectedField(commandId, name);
-    projected[field] = field === "limit" ? Number(value) : value;
+    projected[field] = field === "limit" || field === "ttlMs" ? Number(value) : value;
   }
-  for (const [name, values] of flags.many)
-    projected[projectedField(commandId, name)] = values;
-  for (const name of flags.booleans)
-    projected[projectedField(commandId, name)] = true;
+  for (const [name, values] of flags.many) projected[projectedField(commandId, name)] = values;
+  for (const name of flags.booleans) projected[projectedField(commandId, name)] = true;
   return projected;
 }
 

@@ -53,19 +53,6 @@ export function renderEvidenceRows(rows: readonly unknown[], named = false): str
         .join("\n");
 }
 
-export function taskWriteKind(kind: string): boolean {
-  return [
-    "task-start",
-    "task-transition",
-    "task-submit",
-    "task-review-execution",
-    "task-review-consent",
-    "task-code-doc-reconcile",
-    "task-code-doc-repoint",
-    "task-complete",
-  ].includes(kind);
-}
-
 export function taskSurfaceWriteKind(kind: string): boolean {
   return [
     "task-release",

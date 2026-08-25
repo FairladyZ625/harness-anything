@@ -13,6 +13,7 @@ const defaultPolicyDeclaration = {
     { predicate: "dispatchesExecution" },
     { predicate: "delegatedByRuntimeSession" },
     { predicate: "hasCommandClass", commandClass: "arbiter" },
+    { predicate: "hasCommandClass", commandClass: "repo-write" },
     { predicate: "reviewIndependence", level: "L1" },
     { predicate: "isNotProposalAgent" },
     { predicate: "sameWriteSource" },
@@ -20,6 +21,7 @@ const defaultPolicyDeclaration = {
   actions: Object.freeze([
     "task.consent",
     "task.complete",
+    "execution.start",
     "execution.review",
     "decision.accept",
     "execution.release",
@@ -30,6 +32,7 @@ const defaultPolicyDeclaration = {
   rules: Object.freeze([
     { action: "task.consent", anyOf: [{ allOf: [{ predicate: "isSameExecutionOwner" }] }] },
     { action: "task.complete", anyOf: [{ allOf: [{ predicate: "isOwner" }] }] },
+    { action: "execution.start", anyOf: [{ allOf: [{ predicate: "hasCommandClass", commandClass: "repo-write" }] }] },
     {
       action: "execution.review",
       anyOf: [

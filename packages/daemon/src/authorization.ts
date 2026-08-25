@@ -18,6 +18,7 @@ export function authorizeAction(
   actor: ActorIdentity,
   actionId: string,
   context: Omit<AuthorizationContext, "evaluatedAtCut"> & { readonly evaluatedAtCut?: string },
+  idempotencyKey = actionId,
 ): AuthorizationDecision {
   const action: ActionEnvelope = {
     version: currentActionEnvelopeVersion,
@@ -26,7 +27,7 @@ export function authorizeAction(
     target,
     actor,
     authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}`,
-    idempotencyKey: actionId,
+    idempotencyKey,
   };
   return daemonAuthorizationPort.authorize(action, {
     ...context,

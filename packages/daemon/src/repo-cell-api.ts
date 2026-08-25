@@ -110,13 +110,7 @@ export function createRepoCellApi(context: any): RepoCell {
       return pending.catch(failAction);
     };
     if (action.kind === "squad-run")
-      return enqueuePublication(
-        () =>
-          context.squadCoordinator.start(
-            action,
-            binding,
-          ) as unknown as WriteReceipt,
-      );
+      return enqueuePublication(() => context.squadCoordinator.start(action, binding) as unknown as WriteReceipt);
     if (action.kind === "squad-status")
       return Promise.resolve(
         context.squadCoordinator.status(
@@ -151,7 +145,7 @@ export function createRepoCellApi(context: any): RepoCell {
             ),
           failAction,
         );
-    return enqueuePublication(() => context.executeAction(action, binding));
+    return enqueuePublication(() => context.executeAction(action, { ...binding, commandClasses: [commandClass] }));
   };
   const presetRun: RepoCell["presetRun"] = async (action, binding) => {
     const commandClass = action.kind === "preset-run-status" ? "repo-read" : "repo-write",

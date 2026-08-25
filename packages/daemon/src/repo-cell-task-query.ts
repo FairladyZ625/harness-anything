@@ -1,12 +1,10 @@
 import {
   admitTaskExecutionWip,
   allowsTaskStatusMove,
-  canStartExecution,
   deriveTaskRoot,
   explainStatusTransition,
   hasCloseoutEvidence,
   isDomainStatus,
-  isTerminalStatus,
   readRelationGraphProjection,
   taskWipOccupyingStatuses,
   type DomainStatus,
@@ -99,11 +97,6 @@ export function taskWipEnteringAction(
   readonly taskId: string;
   readonly nextStatus: DomainStatus;
 } | null {
-  if (action.kind === "task-start")
-    return {
-      taskId: cell.requiredCellText(action.taskId, "taskId"),
-      nextStatus: "active",
-    };
   if (action.kind !== "task-transition") return null;
   const target = String(action.status);
   return isDomainStatus(target) &&
@@ -231,41 +224,5 @@ export function reviewTask(cell: any, action: RepoTaskAction, binding: RepoCellB
     },
     current.sourceRevision,
     null,
-  );
-}
-
-export function previewStart(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
-  const taskId = cell.requiredCellText(action.taskId, "taskId"),
-    current = cell.projection.read(taskId);
-  if (!cell.projectionReady(current) || !current.snapshot.task)
-    throw cell.cellCodedError("task_not_found", `Run ha task list, choose an existing task id, then retry task start.`);
-  if (current.snapshot.lease)
-    throw cell.cellCodedError(
-      "lease_conflict",
-      `Run ha task release ${taskId} as the current holder before starting another execution.`,
-    );
-  if (isTerminalStatus(current.snapshot.task.status))
-    throw cell.cellCodedError(
-      "terminal_task",
-      `Run ha task supersede ${taskId} --title <follow-up-title> for new work.`,
-    );
-  const canonical = cell.withoutDryRun(action),
-    executionId = cell.startExecutionId(
-      canonical,
-      current.snapshot,
-      binding,
-      cell.input.repoId,
-      current.snapshot.revision,
-    );
-  return cell.previewResult(
-    `preview:${cell.operationId(canonical, binding, cell.input.repoId, current.snapshot.revision)}`,
-    {
-      taskId,
-      executionId,
-      ttlMs: Number.isSafeInteger(action.ttlMs) ? action.ttlMs : cell.leaseTtlMs,
-      admissible: canStartExecution(current.snapshot, executionId),
-    },
-    current.snapshot.revision,
-    "Remove --dry-run to acquire the lease and publish the execution-start event.",
   );
 }

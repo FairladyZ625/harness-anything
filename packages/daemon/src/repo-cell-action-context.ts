@@ -12,12 +12,7 @@ import {
   showTask as showTaskImpl,
 } from "./repo-cell-completion.ts";
 import { cellCodedError, errorOperationId, publishGeneratedArtifact } from "./repo-cell-errors.ts";
-import {
-  decodeEvidencePayload,
-  renderEvidencePayload,
-  taskSurfaceWriteKind,
-  taskWriteKind,
-} from "./repo-cell-evidence.ts";
+import { decodeEvidencePayload, renderEvidencePayload, taskSurfaceWriteKind } from "./repo-cell-evidence.ts";
 import {
   completeExecutionId,
   completeRetryCommand,
@@ -25,14 +20,8 @@ import {
   uniqueDerivedExecutionId,
 } from "./repo-cell-execution-selection.ts";
 import { lifecycleReceipt, workspaceText } from "./repo-cell-packets.ts";
-import {
-  createTaskId,
-  operationId,
-  proofFor,
-  receiptProof,
-  startExecutionId,
-  withoutDryRun,
-} from "./repo-cell-proof.ts";
+import { resolveLifecycleAction } from "./repo-cell-lifecycle-action.ts";
+import { createTaskId, operationId, proofFor, receiptProof, withoutDryRun } from "./repo-cell-proof.ts";
 import {
   canonicalSettlement as canonicalSettlementImpl,
   progressReceipt as progressReceiptImpl,
@@ -86,12 +75,11 @@ import {
   directChildCounts as directChildCountsImpl,
   listRelations as listRelationsImpl,
   listTasks as listTasksImpl,
-  previewStart as previewStartImpl,
   reviewTask as reviewTaskImpl,
   taskWipEnteringAction as taskWipEnteringActionImpl,
   wipSnapshotEntries as wipSnapshotEntriesImpl,
 } from "./repo-cell-task-query.ts";
-import { leaseTtlMs, runtimeIngressEventTypes } from "./repo-cell-types.ts";
+import { runtimeIngressEventTypes } from "./repo-cell-types.ts";
 
 export function createRepoCellActionContext(bindings: {
   readonly input: any;
@@ -153,7 +141,6 @@ export function createRepoCellActionContext(bindings: {
     taskCreateAction,
     runTaskCommandWithDocs: bind(runTaskCommandWithDocsImpl),
     appendProgress: bind(appendProgressImpl),
-    previewStart: bind(previewStartImpl),
     migrateTaskContracts: bind(migrateTaskContractsImpl),
     archiveTasks: bind(archiveTasksImpl),
     supersedeWithNewTask: bind(supersedeWithNewTaskImpl),
@@ -162,7 +149,7 @@ export function createRepoCellActionContext(bindings: {
     completeTask: bind(completeTaskImpl),
     taskSurfaceWriteKind,
     taskSurfaceWrite: bind(taskSurfaceWriteImpl),
-    taskWriteKind,
+    resolveLifecycleAction,
     rejected,
     lifecycleAction: bind(lifecycleActionImpl),
     get service() {
@@ -191,8 +178,6 @@ export function createRepoCellActionContext(bindings: {
     directChildCounts: bind(directChildCountsImpl),
     wipSnapshotEntries: bind(wipSnapshotEntriesImpl),
     legacyReviewLint,
-    startExecutionId,
-    leaseTtlMs,
     cellStringList,
     decodeEvidencePayload,
     renderEvidencePayload,
