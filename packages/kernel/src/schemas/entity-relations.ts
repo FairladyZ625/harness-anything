@@ -13,7 +13,16 @@ const NonBlankStringSchema = Schema.String.pipe(Schema.pattern(/\S/u));
 const RelationIdSchema = Schema.String.pipe(Schema.pattern(/^rel_[a-f0-9]{16}$/u));
 const EntityRelationRefSchema = Schema.String.pipe(
   Schema.pattern(
-    /^(?:(?:task|decision)\/[A-Za-z0-9_-]+(?:\/[A-Za-z][A-Za-z0-9_-]*)?|fact\/[A-Za-z0-9_-]+\/F-[A-Za-z0-9_-]+|runtime-session\/runtime_[a-z0-9]+)$/u,
+    new RegExp(
+      [
+        "^(?:",
+        "(?:task|decision)/[A-Za-z0-9_-]+(?:/[A-Za-z][A-Za-z0-9_-]*)?",
+        "|fact/[A-Za-z0-9_-]+/F-[A-Za-z0-9_-]+",
+        "|runtime-session/runtime_[a-z0-9]+",
+        ")$",
+      ].join(""),
+      "u",
+    ),
   ),
 );
 

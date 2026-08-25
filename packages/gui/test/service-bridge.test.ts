@@ -204,7 +204,11 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.deepEqual(tasks.rows[0]?.placement.moduleKeys, ["gui"]);
     assert.equal(tasks.rows[0]?.placement.origin, "native");
     const graph = parseDaemonGuiReadResult("repo.triadic.relationGraph", results.get("repo.triadic.relationGraph"));
-    assert.deepEqual(graph.edges.map(({ relationType }) => relationType).sort(), ["derives", "evidenced-by"]);
+    assert.deepEqual(graph.edges.map(({ relationType }) => relationType).sort(), [
+      "derives",
+      "evidenced-by",
+      "executes",
+    ]);
     assert.equal(graph.factAnchors.length, 1);
     assert.equal(graph.facts.length, 1);
     assert.equal(graph.facts[0]?.statement, "The GUI renderer received event-backed triadic rows.");
