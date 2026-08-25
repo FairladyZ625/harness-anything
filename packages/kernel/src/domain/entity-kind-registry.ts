@@ -14,7 +14,7 @@ import {
   type EntityJsonObjectSchema,
   type EntityJsonSchemaNode,
 } from "./entity-json-schema.ts";
-import type { RelationDirection } from "./entity-relation.ts";
+import type { RelationDirection, RelationType } from "./entity-relation.ts";
 import { executionStates } from "./execution.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
 import { policyPredicateNames, POLICY_DECLARATION_V1_SCHEMA, validatePolicyDeclarationV1 } from "./policy.ts";
@@ -27,7 +27,9 @@ import {
   supported,
   unsupported,
   type EntityAnchorDeclaration,
+  type EntityCanonicalProjectionDeclaration,
   type EntityDispositionMatrix,
+  type EntityRelationProjectionDeclaration,
   type EntityStorageForm,
 } from "../entity/registry-contract.ts";
 
@@ -63,11 +65,13 @@ export interface EntityKindContract<T = unknown> {
   readonly relations: {
     readonly directions: readonly RelationDirection[];
     readonly edges: readonly {
-      readonly type: string;
+      readonly type: RelationType;
       readonly sourceKind: string;
       readonly targetKind: string;
+      readonly projection?: EntityRelationProjectionDeclaration;
     }[];
   };
+  readonly canonicalProjection: EntityCanonicalProjectionDeclaration | null;
   readonly statusVocabulary?: readonly { readonly field: string; readonly words: readonly string[] }[];
   readonly actionCatalog: {
     readonly ref: string;
@@ -82,7 +86,7 @@ export interface EntityKindContract<T = unknown> {
     readonly validate?: (value: unknown) => readonly string[];
   } | null;
   readonly authoring: {
-    readonly kind: "generic-entity-store" | "task-lifecycle" | "fact-event" | "decision-event";
+    readonly kind: "generic-entity-store" | "task-lifecycle" | "fact-event" | "decision-event" | "agent-runtime-event";
     readonly contractRef: string;
   };
   readonly sdkExposure: EntitySdkExposure;
@@ -124,6 +128,7 @@ export interface EntityKindExplanation {
   };
   readonly id: EntityKindContract["id"];
   readonly relations: EntityKindContract["relations"];
+  readonly canonicalProjection: EntityKindContract["canonicalProjection"];
   readonly statusVocabulary: NonNullable<EntityKindContract["statusVocabulary"]>;
   readonly transitions: {
     readonly catalogRef: string | null;
@@ -179,8 +184,8 @@ const taskExposure = capabilityExposure("task", "task-frontmatter");
 const factExposure = capabilityExposure("fact", "fact-event");
 const decisionExposure = capabilityExposure("decision", "decision-package");
 
-const executionIdPattern = "^[a-z0-9][a-z0-9_-]{0,127}$";
-const reviewIdPattern = "^[a-z0-9][a-z0-9_-]{0,127}$";
+const executionIdPattern = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
+const reviewIdPattern = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
 const lifecycleTaskIdPattern = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
 const opaqueObject = (): EntityJsonObjectSchema => ({
   type: "object",
@@ -385,6 +390,7 @@ export const entityKindContracts = Object.freeze([
     schema: taskSchema,
     id: { field: "task_id", pattern: lifecycleTaskIdPattern, refTemplate: "task/{id}" },
     relations: relationsFor("task"),
+    canonicalProjection: null,
     statusVocabulary: [{ field: "lifecycle.status", words: domainStatuses }],
     actionCatalog: actionCatalog(
       "kernel/task-lifecycle/v1",
@@ -403,6 +409,7 @@ export const entityKindContracts = Object.freeze([
     schema: factSchema,
     id: { field: "factId", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$", refTemplate: "fact/{id}" },
     relations: relationsFor("fact"),
+    canonicalProjection: null,
     statusVocabulary: [{ field: "state", words: ["standing", "superseded_fact"] }],
     actionCatalog: actionCatalog("kernel/fact-event/v1", "fact", "fact/{id}", ["record"], factExposure),
     entityStore: null,
@@ -415,6 +422,7 @@ export const entityKindContracts = Object.freeze([
     schema: decisionSchema,
     id: { field: "decisionId", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$", refTemplate: "decision/{id}" },
     relations: relationsFor("decision"),
+    canonicalProjection: null,
     statusVocabulary: [{ field: "state", words: decisionStates }],
     actionCatalog: actionCatalog(
       "kernel/decision-event/v1",
@@ -433,6 +441,7 @@ export const entityKindContracts = Object.freeze([
     schema: AGENT_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "agent/{id}" },
     relations: { directions: [], edges: [] },
+    canonicalProjection: null,
     statusVocabulary: [{ field: "state", words: agentStates }],
     actionCatalog: actionCatalog("kernel/agent-declaration/v1", "agent", "agent/{id}", [
       "configure",
@@ -448,6 +457,7 @@ export const entityKindContracts = Object.freeze([
     schema: SQUAD_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "squad/{id}" },
     relations: { directions: [], edges: [] },
+    canonicalProjection: null,
     actionCatalog: null,
     entityStore: genericEntityStore("squads/{id}.json"),
     authoring: genericAuthoring,
@@ -458,6 +468,7 @@ export const entityKindContracts = Object.freeze([
     schema: POLICY_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "policy/{id}" },
     relations: { directions: [], edges: [] },
+    canonicalProjection: null,
     statusVocabulary: [{ field: "state", words: policyStates }],
     actionCatalog: actionCatalog("kernel/policy/v1", "policy", "policy/{id}", ["draft", "activate", "retire"]),
     entityStore: genericEntityStore("policies/{id}.json", validatePolicyDeclarationV1),
@@ -475,7 +486,43 @@ export const entityKindContracts = Object.freeze([
     id: { field: "executionId", pattern: executionIdPattern, refTemplate: "execution/{id}" },
     relations: {
       directions: ["directed"],
-      edges: [{ type: "executes", sourceKind: "execution", targetKind: "task" }],
+      edges: [
+        {
+          type: "executes",
+          sourceKind: "execution",
+          targetKind: "task",
+          projection: {
+            source: { field: "executionId", refTemplate: "execution/{id}" },
+            target: { field: "taskId", refTemplate: "task/{id}" },
+            direction: "directed",
+            strength: "strong",
+            origin: "generated",
+            rationale: "Execution belongs to its task lifecycle.",
+          },
+        },
+      ],
+    },
+    canonicalProjection: {
+      embeddedEvents: [
+        {
+          schema: "task-event/v1",
+          types: [
+            "execution_started",
+            "lease_renewed",
+            "execution_submitted",
+            "execution_executor_declared",
+            "review_recorded",
+            "review_consent_recorded",
+            "code_doc_reconciled",
+            "code_doc_repointed",
+            "completion_gate_verified",
+            "task_completed",
+            "lease_released",
+          ],
+          payloadField: "execution",
+        },
+      ],
+      row: { idField: "executionId", ownerField: "taskId" },
     },
     statusVocabulary: [{ field: "state", words: executionStates }],
     actionCatalog: actionCatalog("kernel/task-lifecycle/v1", "execution", "execution/{id}", [
@@ -486,7 +533,7 @@ export const entityKindContracts = Object.freeze([
       "release",
     ]),
     entityStore: genericEntityStore("executions/{id}.json"),
-    authoring: genericAuthoring,
+    authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: noSdkExposure,
   },
   {
@@ -495,12 +542,36 @@ export const entityKindContracts = Object.freeze([
     id: { field: "reviewId", pattern: reviewIdPattern, refTemplate: "review/{id}" },
     relations: {
       directions: ["directed"],
-      edges: [{ type: "reviews", sourceKind: "review", targetKind: "execution" }],
+      edges: [
+        {
+          type: "reviews",
+          sourceKind: "review",
+          targetKind: "execution",
+          projection: {
+            source: { field: "reviewId", refTemplate: "review/{id}" },
+            target: { field: "executionId", refTemplate: "execution/{id}" },
+            direction: "directed",
+            strength: "strong",
+            origin: "generated",
+            rationale: "Review records judgment for its execution.",
+          },
+        },
+      ],
+    },
+    canonicalProjection: {
+      embeddedEvents: [
+        {
+          schema: "task-event/v1",
+          types: ["review_recorded", "review_consent_recorded"],
+          payloadField: "review",
+        },
+      ],
+      row: { idField: "reviewId", ownerField: "taskId" },
     },
     statusVocabulary: [{ field: "verdict", words: reviewVerdicts }],
     actionCatalog: actionCatalog("kernel/task-lifecycle/v1", "review", "review/{id}", ["record"]),
     entityStore: genericEntityStore("reviews/{id}.json"),
-    authoring: genericAuthoring,
+    authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: noSdkExposure,
   },
   {
@@ -511,6 +582,7 @@ export const entityKindContracts = Object.freeze([
       directions: ["directed"],
       edges: [{ type: "executes", sourceKind: "runtime-session", targetKind: "task" }],
     },
+    canonicalProjection: null,
     statusVocabulary: [
       { field: "liveness", words: ["live", "stale", "unknown", "exited"] },
       { field: "outcome", words: ["succeeded", "failed", "unknown", "cancelled"] },
@@ -526,7 +598,7 @@ export const entityKindContracts = Object.freeze([
       agentRuntimeEventTypes.filter((type) => type.startsWith("runtime_session_")),
     ),
     entityStore: genericEntityStore("runtime-sessions/{id}.json"),
-    authoring: genericAuthoring,
+    authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,
   },
 ] as const satisfies readonly EntityKindContract[]);
@@ -567,6 +639,7 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
     documentSchema: { id: contract.schema.$id, fields: explainEntityJsonSchema(contract.schema) },
     id: contract.id,
     relations: contract.relations,
+    canonicalProjection: contract.canonicalProjection,
     statusVocabulary: contract.statusVocabulary ?? [],
     transitions: {
       catalogRef: contract.actionCatalog?.ref ?? null,

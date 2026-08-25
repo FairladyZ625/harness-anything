@@ -2,12 +2,14 @@
 import { DatabaseSync } from "node:sqlite";
 import { emptyTaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
 import { docByteLength, type DocumentState } from "../domain/doc-sync.contract.ts";
+import { requireEntityStoreKindContract } from "../domain/entity-kind-registry.ts";
 import { type MigrationDocumentClaim, type MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
 import { readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
@@ -32,12 +34,6 @@ const UPSERT_DOCUMENT_SQL = [
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
   "value_json=excluded.value_json",
 ].join(" ");
-const UPSERT_ENTITY_SQL = [
-  "INSERT INTO entity_projection(entity_kind, entity_id, task_id, workspace_revision, value_json)",
-  "VALUES (?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id) DO UPDATE SET",
-  "task_id=excluded.task_id, workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-].join(" ");
-
 // Legacy migration-import replay and its document materialization.
 export function projectMigration(
   db: DatabaseSync,
@@ -212,14 +208,13 @@ export function projectMigration(
       event.occurredAt,
     );
     refreshTaskRelationProjection(db, value.taskId, next.task, event.workspaceRevision, event.occurredAt);
-    runSql(
+    const contract = requireEntityStoreKindContract(entity.kind);
+    projectInterpretedEntityValue(
       db,
-      UPSERT_ENTITY_SQL,
-      "execution",
-      value.executionId,
-      value.taskId,
+      contract,
+      { kind: contract.kind, id: value.executionId, value: { ...value } },
       event.workspaceRevision,
-      canonicalJson(value),
+      `event:${event.opId}`,
     );
     storeMigrationDocument(db, event, entity.documentClaim, readBlob);
     return;

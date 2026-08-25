@@ -204,11 +204,24 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.deepEqual(tasks.rows[0]?.placement.moduleKeys, ["gui"]);
     assert.equal(tasks.rows[0]?.placement.origin, "native");
     const graph = parseDaemonGuiReadResult("repo.triadic.relationGraph", results.get("repo.triadic.relationGraph"));
-    assert.deepEqual(graph.edges.map(({ relationType }) => relationType).sort(), [
-      "derives",
-      "evidenced-by",
-      "executes",
-    ]);
+    assert.deepEqual(
+      graph.edges
+        .map(({ sourceRef, targetRef, relationType }) => ({ sourceRef, targetRef, relationType }))
+        .sort((left, right) =>
+          `${left.relationType}|${left.sourceRef}`.localeCompare(`${right.relationType}|${right.sourceRef}`),
+        ),
+      [
+        { sourceRef: "decision/dec_gui_smoke", targetRef: "task/task-gui-smoke", relationType: "derives" },
+        {
+          sourceRef: "decision/dec_gui_smoke/C1",
+          targetRef: "fact/task-gui-smoke/F-ABCDEFGH",
+          relationType: "evidenced-by",
+        },
+        { sourceRef: "execution/execution-gui-bridge", targetRef: "task/task-gui-smoke", relationType: "executes" },
+        { sourceRef: "runtime-session/runtime-gui", targetRef: "task/task-gui", relationType: "executes" },
+      ],
+      "the execution and the runtime session each carry a distinct executes edge to their task",
+    );
     assert.equal(graph.factAnchors.length, 1);
     assert.equal(graph.facts.length, 1);
     assert.equal(graph.facts[0]?.statement, "The GUI renderer received event-backed triadic rows.");

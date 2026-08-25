@@ -1,12 +1,15 @@
 import type { HarnessLayoutInput } from "../layout/index.ts";
-import { parseEntityJsonSchema } from "../domain/entity-json-schema.ts";
 import {
   compileEntityUpsert,
   isEntityEvent,
   type EntityUpsertBundle,
   type StoredEntityEventV1,
 } from "../domain/entity-event.ts";
-import { isTaskEvent } from "../domain/doc-sync.contract.ts";
+import {
+  interpretEmbeddedEntityProjections,
+  interpretEntityValue,
+  type InterpretedEntityProjection,
+} from "../domain/entity-kind-projection.ts";
 import { entityDocumentPath, requireEntityStoreKindContract } from "../domain/entity-kind-registry.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveLedgerGitLayout } from "./ledger-git-layout.ts";
@@ -34,23 +37,15 @@ export function createEntityStore(source: EntityEventSource): EntityStore {
   const records = (kind: string): readonly StoredEntity[] => {
     const contract = requireEntityStoreKindContract(kind),
       latest = new Map<string, ReturnType<typeof entityEventRecord>>();
+    const keepLatest = (record: StoredEntity): void => {
+      const current = latest.get(record.id);
+      if (current === undefined || current.workspaceRevision <= record.workspaceRevision) latest.set(record.id, record);
+    };
     for (const event of source.read().events) {
       if (isEntityEvent(event) && event.payload.entityKind === contract.kind)
-        latest.set(event.payload.entityId, entityEventRecord(event, source, contract));
-      if (contract.kind === "execution" && isTaskEvent(event) && "execution" in event.payload)
-        latest.set(
-          event.payload.execution.executionId,
-          taskEventRecord(event.payload.execution, event.workspaceRevision, contract),
-        );
-      if (
-        contract.kind === "review" &&
-        isTaskEvent(event) &&
-        (event.type === "review_recorded" || event.type === "review_consent_recorded")
-      )
-        latest.set(
-          event.payload.review.reviewId,
-          taskEventRecord(event.payload.review, event.workspaceRevision, contract),
-        );
+        keepLatest(entityEventRecord(event, source, contract));
+      for (const projection of interpretEmbeddedEntityProjections(contract, event))
+        keepLatest(embeddedEventRecord(projection, contract));
     }
     return [...latest.values()].sort((left, right) => left.id.localeCompare(right.id));
   };
@@ -62,20 +57,16 @@ export function createEntityStore(source: EntityEventSource): EntityStore {
   };
 }
 
-function taskEventRecord(
-  value: unknown,
-  workspaceRevision: number,
+function embeddedEventRecord(
+  projection: InterpretedEntityProjection,
   contract: ReturnType<typeof requireEntityStoreKindContract>,
 ): StoredEntity {
-  const parsed = parseEntityJsonSchema(contract.schema, value, `${contract.kind} declaration`),
-    id = (parsed as Record<string, unknown>)[contract.id.field];
-  if (typeof id !== "string") throw new Error(`${contract.kind} lifecycle event has no string identity`);
   return {
     kind: contract.kind,
-    id,
-    value: parsed,
-    documentPath: entityDocumentPath(contract, id),
-    workspaceRevision,
+    id: projection.id,
+    value: projection.value,
+    documentPath: entityDocumentPath(contract, projection.id),
+    workspaceRevision: projection.workspaceRevision,
   };
 }
 
@@ -115,20 +106,15 @@ function entityEventRecord(
   } catch {
     throw new Error(`entity declaration blob ${claim.sha256} is not JSON`);
   }
-  const value = parseEntityJsonSchema(contract.schema, decoded, `${contract.kind} declaration`);
-  const contractErrors = contract.entityStore.validate?.(value) ?? [];
+  const entity = interpretEntityValue(contract, decoded),
+    contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
   if (contractErrors.length) throw new Error(contractErrors.join("; "));
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    (value as Readonly<Record<string, unknown>>)[contract.id.field] !== event.payload.entityId
-  )
+  if (entity.id !== event.payload.entityId)
     throw new Error(`entity declaration blob ${claim.sha256} identity mismatch`);
   return {
     kind: contract.kind,
     id: event.payload.entityId,
-    value,
+    value: entity.value,
     documentPath: claim.path,
     workspaceRevision: event.workspaceRevision,
   };

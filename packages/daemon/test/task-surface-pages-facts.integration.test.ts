@@ -4,10 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
@@ -31,11 +28,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       ["Epsilon", "Epsilon"],
     ] as const) {
       const taskId = `task_real_${index}`;
-      assert.equal(
-        (await cell.run({ kind: "task-create", taskId, title }, binding))
-          .outcome,
-        "applied",
-      );
+      assert.equal((await cell.run({ kind: "task-create", taskId, title }, binding)).outcome, "applied");
     }
     assert.equal(
       (
@@ -142,9 +135,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     assert.equal(factReceipt.outcome, "applied", JSON.stringify(factReceipt));
 
     const taskBytes = JSON.stringify(await cell.read("repo.tasks.list", {})),
-      graphBytes = JSON.stringify(
-        await cell.read("repo.triadic.relationGraph", {}),
-      );
+      graphBytes = JSON.stringify(await cell.read("repo.triadic.relationGraph", {}));
     const unparameterized = JSON.parse(taskBytes) as {
       page?: unknown;
       rows: {
@@ -152,11 +143,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
         blockingAssessment: { blockers: { targetTaskId: string }[] };
       }[];
     };
-    assert.equal(
-      unparameterized.page,
-      undefined,
-      "unparameterized task list must not carry a page facet",
-    );
+    assert.equal(unparameterized.page, undefined, "unparameterized task list must not carry a page facet");
     assert.deepEqual(
       unparameterized.rows
         .find(({ taskId }) => taskId === "task_real_Alpha")
@@ -165,9 +152,9 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       "unparameterized guiTasks must judge blockers from the complete relation graph",
     );
     const alphaPlacement = (
-      unparameterized.rows.find(
-        ({ taskId }) => taskId === "task_real_Alpha",
-      ) as { placement: { moduleKeys: string[]; productLines: string[] } }
+      unparameterized.rows.find(({ taskId }) => taskId === "task_real_Alpha") as {
+        placement: { moduleKeys: string[]; productLines: string[] };
+      }
     ).placement;
     assert.deepEqual(
       {
@@ -207,10 +194,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     assert.deepEqual(
       windowed.rows.map((row) => row.taskId),
       JSON.parse(taskBytes)
-        .rows.filter(
-          (row: { updatedAt: string }) =>
-            row.updatedAt >= "2026-08-15T00:00:00.000Z",
-        )
+        .rows.filter((row: { updatedAt: string }) => row.updatedAt >= "2026-08-15T00:00:00.000Z")
         .map((row: { taskId: string }) => row.taskId),
     );
     const changed = await cell.read("repo.tasks.list", {
@@ -219,9 +203,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     assert.deepEqual(
       changed.rows.map((row) => row.taskId),
       JSON.parse(taskBytes)
-        .rows.filter(
-          (row: { workspaceRevision: number }) => row.workspaceRevision > 7,
-        )
+        .rows.filter((row: { workspaceRevision: number }) => row.workspaceRevision > 7)
         .map((row: { taskId: string }) => row.taskId),
     );
     let page = await cell.read("repo.tasks.list", { limit: 2 }),
@@ -244,18 +226,15 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     const graphPage = await cell.read("repo.triadic.relationGraph", {
       limit: 1,
     });
-    const graphEdges = JSON.parse(graphBytes).edges as { relationId: string }[];
-    assert.equal(
-      graphEdges.length,
-      3,
-      `fixture should carry two task edges and one Decision edge, saw ${graphEdges.length}`,
+    const graphEdges = JSON.parse(graphBytes).edges as { relationId: string; relationType: string }[];
+    assert.deepEqual(
+      graphEdges.map((edge) => edge.relationType).sort(),
+      ["depends-on", "depends-on", "derives", "executes", "executes"],
+      "fixture carries two depends-on task edges, one Decision derives edge, and two execution→task executes edges",
     );
     assert.equal(graphPage.edges.length, 1);
     assert.equal(graphPage.page?.limit, 1);
-    assert.ok(
-      graphPage.page?.nextCursor,
-      "one edge per page must leave a next cursor when more edges remain",
-    );
+    assert.ok(graphPage.page?.nextCursor, "one edge per page must leave a next cursor when more edges remain");
     let graphWalk = await cell.read("repo.triadic.relationGraph", { limit: 1 }),
       walked: typeof graphWalk.edges = [];
     while (true) {
@@ -271,9 +250,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       graphEdges.map((edge) => edge.relationId),
       "relation graph pages must concatenate to the unparameterized edges",
     );
-    let taskActionPage = evidence(
-        await cell.run({ kind: "task-list", limit: 2 }, binding),
-      ),
+    let taskActionPage = evidence(await cell.run({ kind: "task-list", limit: 2 }, binding)),
       taskActionRows = [...(taskActionPage.rows as { taskId: string }[])];
     while ((taskActionPage.page as { nextCursor: string | null }).nextCursor) {
       taskActionPage = evidence(
@@ -286,61 +263,38 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
           binding,
         ),
       );
-      taskActionRows = [
-        ...taskActionRows,
-        ...(taskActionPage.rows as { taskId: string }[]),
-      ];
+      taskActionRows = [...taskActionRows, ...(taskActionPage.rows as { taskId: string }[])];
     }
     assert.deepEqual(
       taskActionRows.map(({ taskId }) => taskId),
       unparameterizedRows.map((row: { taskId: string }) => row.taskId),
     );
-    const relationActionFull = evidence(
-      await cell.run({ kind: "relation-list" }, binding),
-    );
-    let relationActionPage = evidence(
-        await cell.run({ kind: "relation-list", limit: 1 }, binding),
-      ),
-      relationActionRows = [
-        ...(relationActionPage.rows as { relationId: string }[]),
-      ];
-    while (
-      (relationActionPage.page as { nextCursor: string | null }).nextCursor
-    ) {
+    const relationActionFull = evidence(await cell.run({ kind: "relation-list" }, binding));
+    let relationActionPage = evidence(await cell.run({ kind: "relation-list", limit: 1 }, binding)),
+      relationActionRows = [...(relationActionPage.rows as { relationId: string }[])];
+    while ((relationActionPage.page as { nextCursor: string | null }).nextCursor) {
       relationActionPage = evidence(
         await cell.run(
           {
             kind: "relation-list",
             limit: 1,
-            cursor: (relationActionPage.page as { nextCursor: string })
-              .nextCursor,
+            cursor: (relationActionPage.page as { nextCursor: string }).nextCursor,
           },
           binding,
         ),
       );
-      relationActionRows = [
-        ...relationActionRows,
-        ...(relationActionPage.rows as { relationId: string }[]),
-      ];
+      relationActionRows = [...relationActionRows, ...(relationActionPage.rows as { relationId: string }[])];
     }
     assert.deepEqual(
       relationActionRows.map(({ relationId }) => relationId),
-      (relationActionFull.rows as { relationId: string }[]).map(
-        ({ relationId }) => relationId,
-      ),
+      (relationActionFull.rows as { relationId: string }[]).map(({ relationId }) => relationId),
     );
     const graphState = await cell.read("repo.triadic.relationGraph", {
       status: "active",
     });
     assert.ok(graphState.edges.every((edge) => edge.state === "active"));
-    await assert.rejects(
-      cell.read("repo.tasks.list", { status: "not-a-status" }),
-      /status is invalid/u,
-    );
-    await assert.rejects(
-      cell.read("repo.triadic.relationGraph", { limit: 0 }),
-      /limit must be an integer/u,
-    );
+    await assert.rejects(cell.read("repo.tasks.list", { status: "not-a-status" }), /status is invalid/u);
+    await assert.rejects(cell.read("repo.triadic.relationGraph", { limit: 0 }), /limit must be an integer/u);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -391,18 +345,8 @@ test("fact search action forwards observed-time windows and preserves keyset pag
         ).outcome,
         "applied",
       );
-    const full = evidence(
-        await cell.run(
-          { kind: "fact-search", taskId: "task_fact_query" },
-          binding,
-        ),
-      ),
-      first = evidence(
-        await cell.run(
-          { kind: "fact-search", taskId: "task_fact_query", limit: 2 },
-          binding,
-        ),
-      );
+    const full = evidence(await cell.run({ kind: "fact-search", taskId: "task_fact_query" }, binding)),
+      first = evidence(await cell.run({ kind: "fact-search", taskId: "task_fact_query", limit: 2 }, binding));
     assert.deepEqual(
       (full.facts as { factId: string }[]).map(({ factId }) => factId),
       ["F-00000005", "F-00000004", "F-00000003", "F-00000002", "F-00000001"],
@@ -412,10 +356,7 @@ test("fact search action forwards observed-time windows and preserves keyset pag
       rows = [...(first.facts as { factId: string }[])];
     while (cursor) {
       const next = evidence(
-        await cell.run(
-          { kind: "fact-search", taskId: "task_fact_query", limit: 2, cursor },
-          binding,
-        ),
+        await cell.run({ kind: "fact-search", taskId: "task_fact_query", limit: 2, cursor }, binding),
       );
       rows = [...rows, ...(next.facts as { factId: string }[])];
       cursor = (next.page as { nextCursor: string | null }).nextCursor;
@@ -453,10 +394,7 @@ test("fact search action forwards observed-time windows and preserves keyset pag
         },
         binding,
       ),
-      invalidLimit = await cell.run(
-        { kind: "fact-search", taskId: "task_fact_query", limit: 0 },
-        binding,
-      );
+      invalidLimit = await cell.run({ kind: "fact-search", taskId: "task_fact_query", limit: 0 }, binding);
     const unknownField = await cell.run(
       {
         kind: "fact-search",
