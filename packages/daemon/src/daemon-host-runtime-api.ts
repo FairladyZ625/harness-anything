@@ -115,11 +115,13 @@ export function createDaemonHostRuntimeApi(
       edgeSync: async (payload, auth) => {
         context.localOnly(auth);
         const request = payload as unknown as FleetEdgeSyncRequest["payload"],
-          registered = readDaemonRegistry({ userRoot: context.input.userRoot }).repos
-            .find((repo) => repo.repoId === request.repoId && repo.state === "enabled");
-        const modeMatches = registered !== undefined
-          && registered.mode === "remote-edge"
-          && canonicalRoot(request.workspaceRoot) === canonicalRoot(registered.canonicalRoot);
+          registered = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+            (repo) => repo.repoId === request.repoId && repo.state === "enabled",
+          );
+        const modeMatches =
+          registered !== undefined &&
+          registered.mode === "remote-edge" &&
+          canonicalRoot(request.workspaceRoot) === canonicalRoot(registered.canonicalRoot);
         if (!modeMatches)
           throw context.hostCodedError(
             "repo_mode_read_only",
@@ -162,12 +164,20 @@ export function createDaemonHostRuntimeApi(
     system: context.system,
     runtimeInstance: async (method, payload, auth) => {
       context.localOnly(auth);
-      const operation = method.replace("daemon.runtimeInstance.", "");
-      if (!["create", "list", "show", "update", "delete"].includes(operation))
+      const operation = method.replace("daemon.runtimeInstance.", ""),
+        actionKind =
+          operation === "githubCredential.set"
+            ? "runtime-instance-github-credential-set"
+            : operation === "githubCredential.unset"
+              ? "runtime-instance-github-credential-unset"
+              : ["create", "list", "show", "update", "delete"].includes(operation)
+                ? `runtime-instance-${operation}`
+                : null;
+      if (!actionKind)
         throw context.hostCodedError("unsupported_command", `Unsupported runtime instance method: ${method}.`);
       return (await context.instances.command({
         ...payload,
-        kind: `runtime-instance-${operation}`,
+        kind: actionKind,
       })) as JsonObject;
     },
     runtimeInstanceAuth: async (repoId, method, payload, auth) => {

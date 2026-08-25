@@ -181,6 +181,27 @@ export const runtimeInstanceMethods = Object.freeze([
   },
 ] as const);
 
+export const runtimeInstanceCredentialMethods = Object.freeze([
+  {
+    id: "daemon.runtimeInstance.githubCredential.set",
+    phase: "Runtime-Instances-S1",
+    method: "daemon.runtimeInstance.githubCredential.set",
+    requiresRepo: false,
+    params: shape({
+      payload: shape({ instanceId: "string", githubCredentialRef: "string" }),
+    }),
+  },
+  {
+    id: "daemon.runtimeInstance.githubCredential.unset",
+    phase: "Runtime-Instances-S1",
+    method: "daemon.runtimeInstance.githubCredential.unset",
+    requiresRepo: false,
+    params: shape({
+      payload: shape({ instanceId: "string" }),
+    }),
+  },
+] as const);
+
 export const runtimeInstanceAuthMethods = Object.freeze([
   {
     id: "repo.runtimeInstance.auth.login",
@@ -328,6 +349,7 @@ export const fleetProtocolMethods = Object.freeze([
 export const allDaemonProtocolMethods = Object.freeze([
   ...daemonProtocolMethods,
   ...runtimeInstanceMethods,
+  ...runtimeInstanceCredentialMethods,
   ...runtimeInstanceAuthMethods,
   ...fleetProtocolMethods,
   ...presetMethods,
@@ -378,6 +400,7 @@ export default Object.freeze({
   methods: Object.freeze([
     ...daemonProtocolMethods,
     ...runtimeInstanceMethods,
+    ...runtimeInstanceCredentialMethods,
     ...runtimeInstanceAuthMethods,
     ...fleetProtocolMethods,
     ...daemonGuiReadMethods,

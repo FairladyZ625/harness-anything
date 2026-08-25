@@ -2,50 +2,28 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import {
-  daemonProtocolCommands,
-  thinCliCommands,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  deriveCliCapabilities,
-  parseThinCommand,
-  renderThinHelp,
-} from "../src/cli/thin-command.ts";
+import { daemonProtocolCommands, thinCliCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 import { emit, main, resolveCliVersion } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 115);
-  for (const domain of [
-    ...new Set(daemonProtocolCommands.map((command) => command.path[0])),
-  ]
+  assert.equal(thinCliCommands.length, 117);
+  for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))]
     .filter((value): value is string => value !== undefined)
     .sort())
     assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
-  for (const command of thinCliCommands.filter(
-    ({ usage }) => usage.split(" ")[1] === "task",
-  ))
-    assert.match(
-      taskHelp,
-      new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"),
-    );
+  for (const command of thinCliCommands.filter(({ usage }) => usage.split(" ")[1] === "task"))
+    assert.match(taskHelp, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.doesNotMatch(taskHelp, /ha decision propose|ha preset list/u);
   for (const domain of ["decision", "distill"]) {
     const domainHelp = renderThinHelp([], domain);
-    for (const command of thinCliCommands.filter(
-      ({ usage }) => usage.split(" ")[1] === domain,
-    ))
-      assert.match(
-        domainHelp,
-        new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"),
-      );
+    for (const command of thinCliCommands.filter(({ usage }) => usage.split(" ")[1] === domain))
+      assert.match(domainHelp, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   }
-  assert.match(
-    help,
-    /capabilities \[--json\].*--version.*ha daemon start --service/su,
-  );
+  assert.match(help, /capabilities \[--json\].*--version.*ha daemon start --service/su);
 });
 
 test("an unknown command domain reports unknown with the available set instead of an empty help page", async () => {
@@ -61,11 +39,7 @@ test("an unknown command domain reports unknown with the available set instead o
   };
   const exits: number[] = [];
   try {
-    exits.push(
-      await main(["bananas", "--help"]),
-      await main(["bananas"]),
-      await main(["migrate", "--help"]),
-    );
+    exits.push(await main(["bananas", "--help"]), await main(["bananas"]), await main(["migrate", "--help"]));
   } finally {
     console.log = log;
     console.error = error;
@@ -76,8 +50,7 @@ test("an unknown command domain reports unknown with the available set instead o
   for (const line of errors) {
     assert.match(line, /code=unsupported_command/u);
     assert.match(line, /bananas is not a command domain/u);
-    for (const domain of Object.keys(deriveCliCapabilities()))
-      assert.match(line, new RegExp(`\\b${domain}\\b`, "u"));
+    for (const domain of Object.keys(deriveCliCapabilities())) assert.match(line, new RegExp(`\\b${domain}\\b`, "u"));
   }
   assert.equal(logs.length, 1);
   assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate import/u);
@@ -86,13 +59,7 @@ test("an unknown command domain reports unknown with the available set instead o
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
     agenda: ["agenda"],
-    agent: [
-      "agent-create",
-      "agent-inspect",
-      "agent-install",
-      "agent-list",
-      "agent-validate",
-    ],
+    agent: ["agent-create", "agent-inspect", "agent-install", "agent-list", "agent-validate"],
     daemon: [
       "daemon-fleet-center-start",
       "daemon-fleet-edge-sync",
@@ -158,6 +125,8 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "runtime-cancel",
       "runtime-instance-create",
       "runtime-instance-delete",
+      "runtime-instance-github-credential-set",
+      "runtime-instance-github-credential-unset",
       "runtime-instance-list",
       "runtime-instance-login",
       "runtime-instance-logout",
@@ -167,14 +136,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "runtime-status",
     ],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
-    squad: [
-      "squad-inspect",
-      "squad-install",
-      "squad-list",
-      "squad-run",
-      "squad-status",
-      "squad-validate",
-    ],
+    squad: ["squad-inspect", "squad-install", "squad-list", "squad-run", "squad-status", "squad-validate"],
     task: [
       "task-amend",
       "task-archive",
@@ -210,9 +172,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
 });
 
 test("CLI version is read from the CLI package metadata", () => {
-  const packageJson = JSON.parse(
-    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-  );
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(resolveCliVersion(), packageJson.version);
 });
 
@@ -318,25 +278,12 @@ test("human preset and task receipts print resolved completion contracts byte-fo
       false,
     ),
   );
-  assert.equal(
-    replayOutput,
-    "reused task task-one for the supplied idempotency key",
-  );
+  assert.equal(replayOutput, "reused task task-one for the supplied idempotency key");
 });
 
 test("thin parser derives closed preset and task-create payloads from descriptors", () => {
   assert.equal(parseThinCommand(["doc", "sync"]).ok, false);
-  assert.equal(
-    parseThinCommand([
-      "task",
-      "create",
-      "--title",
-      "Bound",
-      "--completion-gate",
-      "G32",
-    ]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["task", "create", "--title", "Bound", "--completion-gate", "G32"]).ok, false);
   const create = parseThinCommand([
       "task",
       "create",
@@ -348,54 +295,16 @@ test("thin parser derives closed preset and task-create payloads from descriptor
       "milestone",
       "--dry-run",
     ]),
-    inspect = parseThinCommand([
-      "preset",
-      "inspect",
-      "standard-task",
-      "--locale",
-      "en-US",
-    ]),
-    check = parseThinCommand([
-      "preset",
-      "check",
-      "standard-task",
-      "--snapshot-digest",
-      `sha256:${"a".repeat(64)}`,
-    ]),
+    inspect = parseThinCommand(["preset", "inspect", "standard-task", "--locale", "en-US"]),
+    check = parseThinCommand(["preset", "check", "standard-task", "--snapshot-digest", `sha256:${"a".repeat(64)}`]),
     validate = parseThinCommand(["preset", "validate", "--source", "package"]),
-    install = parseThinCommand([
-      "preset",
-      "install",
-      "--source",
-      "package",
-      "--dry-run",
-    ]),
+    install = parseThinCommand(["preset", "install", "--source", "package", "--dry-run"]),
     seed = parseThinCommand(["preset", "seed", "--dry-run"]),
-    audit = parseThinCommand([
-      "preset",
-      "audit",
-      "--vertical",
-      "software/coding",
-    ]),
-    uninstall = parseThinCommand([
-      "preset",
-      "uninstall",
-      "standard-task",
-      "--dry-run",
-    ]),
+    audit = parseThinCommand(["preset", "audit", "--vertical", "software/coding"]),
+    uninstall = parseThinCommand(["preset", "uninstall", "standard-task", "--dry-run"]),
     upgrade = parseThinCommand(["preset", "upgrade", "task-1"]);
   assert.equal(
-    [
-      create,
-      inspect,
-      check,
-      validate,
-      install,
-      seed,
-      audit,
-      uninstall,
-      upgrade,
-    ].every((result) => result.ok),
+    [create, inspect, check, validate, install, seed, audit, uninstall, upgrade].every((result) => result.ok),
     true,
   );
   if (create.ok) {
@@ -416,11 +325,7 @@ test("thin parser derives closed preset and task-create payloads from descriptor
       locale: "en-US",
     });
   }
-  if (check.ok)
-    assert.equal(
-      check.command.action.snapshotDigest,
-      `sha256:${"a".repeat(64)}`,
-    );
+  if (check.ok) assert.equal(check.command.action.snapshotDigest, `sha256:${"a".repeat(64)}`);
   if (validate.ok)
     assert.deepEqual(validate.command.action, {
       kind: "preset-validate",
@@ -456,9 +361,7 @@ test("thin parser derives closed preset and task-create payloads from descriptor
 });
 
 test("thin parser validates only the selected command descriptor", () => {
-  const selected = daemonProtocolCommands.find(
-    (command) => command.id === "task-show",
-  );
+  const selected = daemonProtocolCommands.find((command) => command.id === "task-show");
   assert.ok(selected);
   const unrelatedInvalid = {
       ...selected,
@@ -475,39 +378,24 @@ test("thin parser validates only the selected command descriptor", () => {
 });
 
 test("shared CLI option rejections point to descriptor-derived leaf help", () => {
-  assert.deepEqual(
-    parseThinCommand(["task", "create", "--policy-conformance-probe"]),
-    {
-      ok: false,
-      code: "unknown_field",
-      nextAction:
-        "Unknown option --policy-conformance-probe. Run ha task create --help.",
-      json: false,
-    },
-  );
-  assert.deepEqual(
-    parseThinCommand([
-      "task",
-      "dispatches",
-      "task-1",
-      "--policy-conformance-probe",
-    ]),
-    {
-      ok: false,
-      code: "unsupported_command",
-      nextAction: "Run ha task dispatches --help.",
-      json: false,
-    },
-  );
-  assert.deepEqual(
-    parseThinCommand(["task", "show", "task-1", "--policy-conformance-probe"]),
-    {
-      ok: false,
-      code: "unsupported_command",
-      nextAction: "Run ha task show --help.",
-      json: false,
-    },
-  );
+  assert.deepEqual(parseThinCommand(["task", "create", "--policy-conformance-probe"]), {
+    ok: false,
+    code: "unknown_field",
+    nextAction: "Unknown option --policy-conformance-probe. Run ha task create --help.",
+    json: false,
+  });
+  assert.deepEqual(parseThinCommand(["task", "dispatches", "task-1", "--policy-conformance-probe"]), {
+    ok: false,
+    code: "unsupported_command",
+    nextAction: "Run ha task dispatches --help.",
+    json: false,
+  });
+  assert.deepEqual(parseThinCommand(["task", "show", "task-1", "--policy-conformance-probe"]), {
+    ok: false,
+    code: "unsupported_command",
+    nextAction: "Run ha task show --help.",
+    json: false,
+  });
 });
 
 function captureStdout(run: () => void): string {

@@ -65,6 +65,10 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
       permissionMode: "read-only",
       codex: {},
       auth: { mode: "subscription" },
+    });
+    const bound = instances.command({
+      kind: "runtime-instance-github-credential-set",
+      instanceId,
       githubCredentialRef: credentialRef,
     });
 
@@ -145,9 +149,12 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
         "utf8",
       );
     assert.equal((shown.instance as Record<string, unknown>).githubCredentialState, "configured");
-    for (const observed of [shown, events, stream]) {
+    const unsetReceipt = instances.command({ kind: "runtime-instance-github-credential-unset", instanceId });
+    assert.equal("githubCredentialState" in (unsetReceipt.instance as Record<string, unknown>), false);
+    assert.equal(await instances.prepareWorkerGitEnvironment(instanceId), null);
+    for (const observed of [bound, shown, unsetReceipt, events, stream]) {
       assert.doesNotMatch(JSON.stringify(observed), new RegExp(secret, "u"));
-      assert.doesNotMatch(JSON.stringify(observed), /githubCredentialRef/u);
+      assert.doesNotMatch(JSON.stringify(observed), /githubCredentialRef|credential:v1:github-worker/u);
     }
   } finally {
     await cell?.close();
