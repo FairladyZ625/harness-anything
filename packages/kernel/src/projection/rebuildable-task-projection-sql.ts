@@ -17,8 +17,7 @@ const stateDigestTables = [
   ["task_generation", "task_id"],
   ["task_relation", "relation_id"],
   ["task_progress", "workspace_revision"],
-  ["execution", "execution_id"],
-  ["review", "review_id"],
+  ["entity_projection", "entity_kind, entity_id"],
   ["edge", "task_id, edge_id, iteration"],
   ["lease_cas", "task_id"],
   ["lease_interval", "task_id, execution_id, acquired_revision"],
@@ -36,8 +35,8 @@ export function watermark(db: DatabaseSync): number {
   const row =
     /* @gate-identity check-bypass-write-boundary/bypass-write-031 */
     db.prepare("SELECT watermark FROM projection_meta WHERE singleton = 1").get() as {
-    readonly watermark: number;
-  };
+      readonly watermark: number;
+    };
   return Number(row.watermark);
 }
 
@@ -45,21 +44,19 @@ export function readStateDigest(db: DatabaseSync): `sha256:${string}` | null {
   const row =
     /* @gate-identity check-bypass-write-boundary/bypass-write-032 */
     db.prepare("SELECT state_digest FROM projection_meta WHERE singleton = 1").get() as {
-    readonly state_digest: string | null;
-  };
+      readonly state_digest: string | null;
+    };
   return row.state_digest === null ? null : (row.state_digest as `sha256:${string}`);
 }
 
 export function isAtSourceCut(db: DatabaseSync, sourceRevision: number): boolean {
   const state =
     /* @gate-identity check-bypass-write-boundary/bypass-write-033 */
-    db
-    .prepare("SELECT watermark, scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1")
-    .get() as {
-    readonly watermark: number;
-    readonly scan_cursor: string | null;
-    readonly scanned_revision: number;
-  };
+    db.prepare("SELECT watermark, scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
+      readonly watermark: number;
+      readonly scan_cursor: string | null;
+      readonly scanned_revision: number;
+    };
   return (
     Number(state.watermark) === sourceRevision &&
     state.scan_cursor === null &&

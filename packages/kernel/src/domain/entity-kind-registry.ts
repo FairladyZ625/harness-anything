@@ -1,10 +1,16 @@
 import type { VerticalDefinition } from "../schemas/registry.ts";
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
 import { DEFAULT_POLICY } from "./default-policy.ts";
-import { ENTITY_ID_PATTERN, explainEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import {
+  ENTITY_ID_PATTERN,
+  explainEntityJsonSchema,
+  type EntityDocumentJsonSchema,
+  type EntityJsonObjectSchema,
+  type EntityJsonSchemaNode,
+} from "./entity-json-schema.ts";
+import type { RelationDirection } from "./entity-relation.ts";
 import { POLICY_DECLARATION_V1_SCHEMA, validatePolicyDeclarationV1 } from "./policy.ts";
 import type { PolicyPredicateName } from "./policy.ts";
-import type { RelationDirection } from "./entity-relation.ts";
 
 export type EntityKindDeclaration = VerticalDefinition["entityKinds"][number];
 export type EntityPackageScaffold = VerticalDefinition["packageScaffolds"][number];
@@ -80,6 +86,91 @@ const declarationId = Object.freeze({
 const declarationDocument = (pathTemplate: string) =>
   Object.freeze({ pathTemplate, mediaType: "application/json" as const, policyId: ENTITY_DOCUMENT_POLICY_ID });
 
+const executionIdPattern = "^[a-z0-9][a-z0-9_-]{0,127}$";
+const reviewIdPattern = "^[a-z0-9][a-z0-9_-]{0,127}$";
+const lifecycleTaskIdPattern = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
+const opaqueObject = (): EntityJsonObjectSchema => ({
+  type: "object",
+  properties: {},
+  required: [],
+  additionalProperties: true,
+});
+const nullableOpaqueObject = (): EntityJsonSchemaNode => ({
+  type: "object",
+  properties: {},
+  required: [],
+  additionalProperties: true,
+  "x-nullable": true,
+});
+const executionSchema: EntityDocumentJsonSchema = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "Execution/v1",
+  type: "object",
+  properties: {
+    schema: { type: "string", const: "execution/v1" },
+    executionId: { type: "string", pattern: executionIdPattern, minLength: 1 },
+    taskId: { type: "string", pattern: lifecycleTaskIdPattern, minLength: 1 },
+    nodeId: { type: "string", const: "implementation" },
+    iteration: { type: "integer" },
+    state: { type: "string", enum: ["active", "submitted", "accepted", "changes_requested", "abandoned"] },
+    actor: opaqueObject(),
+    claimedAt: { type: "string", minLength: 1 },
+    submittedAt: { type: "string", minLength: 1, "x-nullable": true },
+    closedAt: { type: "string", minLength: 1, "x-nullable": true },
+    submission: nullableOpaqueObject(),
+  },
+  required: [
+    "schema",
+    "executionId",
+    "taskId",
+    "nodeId",
+    "iteration",
+    "state",
+    "actor",
+    "claimedAt",
+    "submittedAt",
+    "closedAt",
+    "submission",
+  ],
+  additionalProperties: false,
+};
+const reviewSchema: EntityDocumentJsonSchema = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "Review/v1",
+  type: "object",
+  properties: {
+    schema: { type: "string", const: "review/v1" },
+    reviewId: { type: "string", pattern: reviewIdPattern, minLength: 1 },
+    taskId: { type: "string", pattern: lifecycleTaskIdPattern, minLength: 1 },
+    executionId: { type: "string", pattern: executionIdPattern, minLength: 1 },
+    verdict: { type: "string", enum: ["approved", "changes_requested", "dismissed"] },
+    actor: opaqueObject(),
+    capabilityRef: { type: "string", minLength: 1 },
+    reason: { type: "string", minLength: 1 },
+    evidenceChecked: { type: "array", items: { type: "string", minLength: 1 } },
+    commitSha: { type: "string", pattern: "^[0-9a-f]{40}$" },
+    iteration: { type: "integer" },
+    contentDigest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
+    reviewedAt: { type: "string", minLength: 1 },
+  },
+  required: [
+    "schema",
+    "reviewId",
+    "taskId",
+    "executionId",
+    "verdict",
+    "actor",
+    "capabilityRef",
+    "reason",
+    "evidenceChecked",
+    "commitSha",
+    "iteration",
+    "contentDigest",
+    "reviewedAt",
+  ],
+  additionalProperties: false,
+};
+
 export const entityKindContracts = Object.freeze([
   {
     kind: "agent",
@@ -109,6 +200,28 @@ export const entityKindContracts = Object.freeze([
       predicates: Object.freeze(["isOwner", "isExecutorOfExecution", "hasCommandClass", "reviewIndependence"]),
       actions: DEFAULT_POLICY.actions,
     },
+  },
+  {
+    kind: "execution",
+    schema: executionSchema,
+    id: { field: "executionId", pattern: executionIdPattern, refTemplate: "execution/{id}" },
+    relations: { directions: ["directed"] },
+    transitionCatalog: {
+      ref: "kernel/task-lifecycle/v1",
+      transitions: ["start", "renew", "submit", "complete", "release"],
+    },
+    document: declarationDocument("executions/{id}.json"),
+  },
+  {
+    kind: "review",
+    schema: reviewSchema,
+    id: { field: "reviewId", pattern: reviewIdPattern, refTemplate: "review/{id}" },
+    relations: { directions: ["directed"] },
+    transitionCatalog: {
+      ref: "kernel/task-lifecycle/v1",
+      transitions: ["record"],
+    },
+    document: declarationDocument("reviews/{id}.json"),
   },
 ] as const satisfies readonly EntityKindContract[]);
 

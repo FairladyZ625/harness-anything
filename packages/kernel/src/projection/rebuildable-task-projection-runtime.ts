@@ -101,8 +101,8 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
   const row =
     /* @gate-identity check-bypass-write-boundary/bypass-write-024 */
     db.prepare("SELECT snapshot_json FROM task_snapshot WHERE task_id = ?").get(taskId) as
-    | { readonly snapshot_json: string }
-    | undefined;
+      | { readonly snapshot_json: string }
+      | undefined;
   if (row === undefined) return emptyTaskLifecycleSnapshot();
   let snapshot: TaskLifecycleSnapshot;
   try {
@@ -110,6 +110,16 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
   } catch {
     throw new Error(`projection snapshot mismatch for task ${taskId}`);
   }
+  const executions = queryRows(
+      db,
+      "SELECT value_json FROM entity_projection WHERE entity_kind = 'execution' AND task_id = ? ORDER BY entity_id",
+      taskId,
+    ).map((value) => JSON.parse(String(value.value_json)) as TaskLifecycleSnapshot["executions"][number]),
+    reviews = queryRows(
+      db,
+      "SELECT value_json FROM entity_projection WHERE entity_kind = 'review' AND task_id = ? ORDER BY entity_id",
+      taskId,
+    ).map((value) => JSON.parse(String(value.value_json)) as TaskLifecycleSnapshot["reviews"][number]);
   const lease = now === undefined ? storedLease(db, taskId) : effectiveLease(db, taskId, now);
   // The stored snapshot is pure task-aggregate state; the decision relations this task is a
   // target of are stamped at read time as-of the applied cut, the same join the live lease uses.
@@ -135,6 +145,8 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
   });
   return {
     ...snapshot,
+    executions,
+    reviews,
     lease: lease?.phase === "released" ? null : lease,
     decisionRelations,
   };
@@ -144,8 +156,8 @@ export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseI
   const rows =
     /* @gate-identity check-bypass-write-boundary/bypass-write-025 */
     db
-    .prepare("SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision")
-    .all(taskId) as unknown as readonly Record<string, unknown>[];
+      .prepare("SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision")
+      .all(taskId) as unknown as readonly Record<string, unknown>[];
   return rows.map((row) => ({
     taskId: String(row.task_id),
     executionId: String(row.execution_id),
@@ -249,30 +261,50 @@ export function readRuntimeSessionsForTask(db: DatabaseSync, taskId: string): Ru
     taskId,
   ).map((row) => JSON.parse(String(row.value_json)) as RuntimeSession);
 }
-export function readRuntimeSessionPage(db: DatabaseSync,
-  query: RuntimeSessionPageQuery): RuntimeSessionPageRead {
+export function readRuntimeSessionPage(db: DatabaseSync, query: RuntimeSessionPageQuery): RuntimeSessionPageRead {
   if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 64)
     throw new Error("runtime session page limit must be between 1 and 64");
-  const after = query.afterRuntimeSessionId, taskId = query.taskId;
-  const rows = taskId ? queryRows(db,
-    ["SELECT runtime_session.value_json FROM runtime_session_task_binding",
-      "JOIN runtime_session USING(runtime_session_id)",
-      "WHERE runtime_session_task_binding.task_id = ?",
-      ...(after === undefined ? [] : ["AND runtime_session.runtime_session_id > ?"]),
-      "GROUP BY runtime_session.runtime_session_id ORDER BY runtime_session.runtime_session_id LIMIT ?"
-    ].join(" "), taskId, ...(after === undefined ? [] : [after]), query.limit) : queryRows(db,
-    ["SELECT value_json FROM runtime_session", ...(after === undefined ? [] :
-      ["WHERE runtime_session_id > ?"]), "ORDER BY runtime_session_id LIMIT ?"].join(" "),
-    ...(after === undefined ? [] : [after]), query.limit);
+  const after = query.afterRuntimeSessionId,
+    taskId = query.taskId;
+  const rows = taskId
+    ? queryRows(
+        db,
+        [
+          "SELECT runtime_session.value_json FROM runtime_session_task_binding",
+          "JOIN runtime_session USING(runtime_session_id)",
+          "WHERE runtime_session_task_binding.task_id = ?",
+          ...(after === undefined ? [] : ["AND runtime_session.runtime_session_id > ?"]),
+          "GROUP BY runtime_session.runtime_session_id ORDER BY runtime_session.runtime_session_id LIMIT ?",
+        ].join(" "),
+        taskId,
+        ...(after === undefined ? [] : [after]),
+        query.limit,
+      )
+    : queryRows(
+        db,
+        [
+          "SELECT value_json FROM runtime_session",
+          ...(after === undefined ? [] : ["WHERE runtime_session_id > ?"]),
+          "ORDER BY runtime_session_id LIMIT ?",
+        ].join(" "),
+        ...(after === undefined ? [] : [after]),
+        query.limit,
+      );
   const sessions = rows.map((row) => JSON.parse(String(row.value_json)) as RuntimeSession),
     lastId = sessions.at(-1)?.runtimeSessionId;
   if (lastId === undefined) return { rows: sessions, nextRuntimeSessionId: null, remainingCount: 0 };
-  const countRow = taskId ? queryRows(db,
-    ["SELECT COUNT(DISTINCT runtime_session.runtime_session_id) AS count",
-      "FROM runtime_session_task_binding JOIN runtime_session USING(runtime_session_id)",
-      "WHERE runtime_session_task_binding.task_id = ? AND runtime_session.runtime_session_id > ?"
-    ].join(" "), taskId, lastId)[0] : queryRows(db,
-    "SELECT COUNT(*) AS count FROM runtime_session WHERE runtime_session_id > ?", lastId)[0];
+  const countRow = taskId
+    ? queryRows(
+        db,
+        [
+          "SELECT COUNT(DISTINCT runtime_session.runtime_session_id) AS count",
+          "FROM runtime_session_task_binding JOIN runtime_session USING(runtime_session_id)",
+          "WHERE runtime_session_task_binding.task_id = ? AND runtime_session.runtime_session_id > ?",
+        ].join(" "),
+        taskId,
+        lastId,
+      )[0]
+    : queryRows(db, "SELECT COUNT(*) AS count FROM runtime_session WHERE runtime_session_id > ?", lastId)[0];
   const remainingCount = Number(countRow?.count ?? 0);
   return { rows: sessions, nextRuntimeSessionId: remainingCount > 0 ? lastId : null, remainingCount };
 }

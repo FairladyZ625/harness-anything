@@ -21,12 +21,15 @@ export interface ParsedEntityRef {
 
 const entityRefPrefixPattern = /^(?:(?<alias>[A-Za-z][A-Za-z0-9_-]*):)?(?<body>.+)$/u;
 const taskOrDecisionRefPattern = /^(?<kind>task|decision)\/(?<id>[A-Za-z0-9_-]+)(?:\/(?<anchor>[A-Za-z0-9_-]+))?$/u;
+const executionRefPattern = /^execution\/(?<ownerTaskId>[A-Za-z0-9_-]+)\/(?<executionId>[A-Za-z0-9_-]+)$/u;
+const reviewRefPattern = /^review\/(?<ownerExecutionId>[A-Za-z0-9_-]+)\/(?<reviewId>[A-Za-z0-9_-]+)$/u;
 const phaseOneEntityRefPattern = /^(?<kind>execution|review|agent|runtime-session|policy)\/(?<id>[A-Za-z0-9_-]+)$/u;
 const factRefPattern = /^fact\/(?<ownerTaskId>[A-Za-z0-9_-]+)\/(?<factId>[A-Za-z0-9_-]+)$/u;
 const relationRefPattern = /^relation\/(?<relationId>rel_[a-f0-9]{16})$/u;
 const entityRefSearchPattern = new RegExp(
   String.raw`(?<![A-Za-z0-9_/-])(?:[A-Za-z][A-Za-z0-9_-]*:)?(?:fact\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|` +
-    String.raw`relation\/rel_[a-f0-9]{16}|(?:task|decision)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?|` +
+    String.raw`relation\/rel_[a-f0-9]{16}|(?:execution|review)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|` +
+    String.raw`(?:task|decision)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?|` +
     String.raw`(?:execution|review|agent|runtime-session|policy)\/[A-Za-z0-9_-]+)\b(?!\/)`,
   "gu",
 );
@@ -73,6 +76,31 @@ export function parseEntityRef(value: string): ParsedEntityRef | null {
       raw: value,
       kind: "relation",
       id: relation.groups.relationId,
+      ...(harnessAlias ? { harnessAlias } : {}),
+      externalHarness: Boolean(harnessAlias),
+    };
+  }
+
+  const execution = body.match(executionRefPattern);
+  if (execution?.groups?.ownerTaskId && execution.groups.executionId) {
+    if (!isPlausibleTaskRefId(execution.groups.ownerTaskId)) return null;
+    return {
+      raw: value,
+      kind: "execution",
+      id: execution.groups.executionId,
+      ownerTaskId: execution.groups.ownerTaskId,
+      ...(harnessAlias ? { harnessAlias } : {}),
+      externalHarness: Boolean(harnessAlias),
+    };
+  }
+
+  const review = body.match(reviewRefPattern);
+  if (review?.groups?.ownerExecutionId && review.groups.reviewId) {
+    return {
+      raw: value,
+      kind: "review",
+      id: review.groups.reviewId,
+      ownerTaskId: review.groups.ownerExecutionId,
       ...(harnessAlias ? { harnessAlias } : {}),
       externalHarness: Boolean(harnessAlias),
     };

@@ -23,6 +23,11 @@ const UPSERT_DOCUMENT_SQL = [
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
   "value_json=excluded.value_json",
 ].join(" ");
+const UPSERT_ENTITY_SQL = [
+  "INSERT INTO entity_projection(entity_kind, entity_id, task_id, workspace_revision, value_json)",
+  "VALUES (?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id) DO UPDATE SET",
+  "task_id=excluded.task_id, workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
+].join(" ");
 
 // Lifecycle task-event reduction, document claims, and materialized task rows.
 export function applyTaskEvent(
@@ -45,7 +50,7 @@ export function applyTaskEvent(
     UPSERT_TASK_SNAPSHOT_SQL,
     event.taskId,
     event.workspaceRevision,
-    canonicalJson(snapshot),
+    canonicalJson({ ...snapshot, executions: [], reviews: [] }),
     snapshot.task?.status ?? null,
     event.occurredAt,
   );
@@ -135,7 +140,8 @@ export function applyTaskEvent(
   if ("execution" in event.payload)
     runSql(
       db,
-      "INSERT OR REPLACE INTO execution(execution_id, task_id, workspace_revision, value_json) VALUES (?, ?, ?, ?)",
+      UPSERT_ENTITY_SQL,
+      "execution",
       event.payload.execution.executionId,
       event.taskId,
       event.workspaceRevision,
@@ -144,10 +150,20 @@ export function applyTaskEvent(
   if (event.type === "review_recorded")
     runSql(
       db,
-      "INSERT INTO review(review_id, task_id, execution_id, workspace_revision, value_json) VALUES (?, ?, ?, ?, ?)",
+      UPSERT_ENTITY_SQL,
+      "review",
       event.payload.review.reviewId,
       event.taskId,
-      event.payload.review.executionId,
+      event.workspaceRevision,
+      canonicalJson(event.payload.review),
+    );
+  if (event.type === "review_consent_recorded")
+    runSql(
+      db,
+      UPSERT_ENTITY_SQL,
+      "review",
+      event.payload.review.reviewId,
+      event.taskId,
       event.workspaceRevision,
       canonicalJson(event.payload.review),
     );
