@@ -21,7 +21,6 @@ type TimeRange = "all" | "14d" | "30d";
 type RelationState = "ready" | "loading" | "error";
 const selectClass =
   "rounded-md border border-border bg-surface px-2 py-1 font-mono text-[12px] text-text-muted outline-none transition-colors duration-100 hover:border-border-strong focus-visible:border-border-strong";
-const DECISION_BATCH_SIZE = 30;
 
 function withinRange(decision: DecisionRow, range: TimeRange) {
   if (range === "all") return true;
@@ -176,7 +175,6 @@ export function DecisionPoolView({
     [productLineFilter, setProductLineFilter] = useState("all"),
     [proposalOpen, setProposalOpen] = useState(false);
   const [groupBy, setGroupBy] = useState<PoolGroupBy>("none");
-  const [page, setPage] = useState({ scope: "", count: DECISION_BATCH_SIZE });
   const handledFocusRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -273,39 +271,7 @@ export function DecisionPoolView({
     urgencyFilter,
     verticalFilter,
   ]);
-  const pageScope = [
-    tab,
-    stateFilter,
-    riskFilter,
-    urgencyFilter,
-    verticalFilter,
-    presetFilter,
-    proposedByFilter,
-    timeRange,
-    search.trim(),
-    moduleFilter,
-    productLineFilter,
-    groupBy,
-  ].join("\0");
-  const visibleLimit = page.scope === pageScope ? page.count : DECISION_BATCH_SIZE;
-  const visibleIds = useMemo(() => {
-    const ids = new Set(rows.slice(0, visibleLimit).map((decision) => decision.decisionId));
-    if (focusedDecisionId && rows.some((decision) => decision.decisionId === focusedDecisionId))
-      ids.add(focusedDecisionId);
-    return ids;
-  }, [focusedDecisionId, rows, visibleLimit]);
-  const groups = useMemo(
-    () =>
-      groupDecisions(rows, groupBy)
-        .map((group) => ({
-          ...group,
-          total: group.rows.length,
-          rows: group.rows.filter((decision) => visibleIds.has(decision.decisionId)),
-        }))
-        .filter((group) => group.rows.length > 0),
-    [groupBy, rows, visibleIds],
-  );
-  const hiddenCount = rows.length - visibleIds.size;
+  const groups = useMemo(() => groupDecisions(rows, groupBy), [groupBy, rows]);
 
   return (
     <div className="flex h-full flex-col">
@@ -464,7 +430,7 @@ export function DecisionPoolView({
                 >
                   <span className="font-semibold text-text">{group.title}</span>
                   <span className="text-text-faint">
-                    {t("views.decisionPoolView.groupCount", { count: group.total })}
+                    {t("views.decisionPoolView.groupCount", { count: group.rows.length })}
                   </span>
                 </div>
               )}
@@ -473,7 +439,12 @@ export function DecisionPoolView({
                   key={decision.decisionId}
                   id={`decision-card-${decision.decisionId}`}
                   data-focused={decision.decisionId === focusedDecisionId || undefined}
-                  className={`rounded-lg border bg-surface px-3.5 py-3 transition-colors duration-100 ${decision.decisionId === focusedDecisionId ? "border-accent ring-1 ring-accent/30" : "border-border hover:border-border-strong"}`}
+                  className={[
+                    "rounded-lg border bg-surface px-3.5 py-3 transition-colors duration-100 cv-auto-10r",
+                    decision.decisionId === focusedDecisionId
+                      ? "border-accent ring-1 ring-accent/30"
+                      : "border-border hover:border-border-strong",
+                  ].join(" ")}
                 >
                   <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
@@ -549,21 +520,6 @@ export function DecisionPoolView({
               ))}
             </section>
           ))}
-          {hiddenCount > 0 && (
-            <button
-              type="button"
-              data-testid="decision-pool-more"
-              onClick={() =>
-                setPage({ scope: pageScope, count: Math.min(visibleLimit + DECISION_BATCH_SIZE, rows.length) })
-              }
-              className="w-full rounded-lg border border-dashed border-border px-3 py-2 font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text"
-            >
-              {t("views.decisionPoolView.showMore", {
-                count: Math.min(DECISION_BATCH_SIZE, hiddenCount),
-                remaining: hiddenCount,
-              })}
-            </button>
-          )}
           {rows.length === 0 && (!remoteEnabled || remote.data?.status === "ready") && (
             <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">
               {t("views.decisionPoolView.emptyFilter")}

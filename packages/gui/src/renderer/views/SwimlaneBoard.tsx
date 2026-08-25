@@ -2,15 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { CaretRight, Lock, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
-import { t } from "../i18n/index.tsx";
 import { STATUS_META, CloseoutBadge, DecisionSourceBadge, FreshnessTag, freshnessBorder } from "../components/badges";
 import { spawningDecisionOf } from "../model/triadic";
 import { sortByFavoritesFirst } from "../model/taskFilters";
 
 export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
 
-const PAGE_SIZE = 5;
-const LANE_BATCH_SIZE = 20;
 const GRID_COLS = "grid-cols-[180px_repeat(7,230px)]";
 
 const cellKey = (lane: string, status: SnapshotStatus) => `${lane}::${status}`;
@@ -60,9 +57,13 @@ function LaneCard({
     <div
       onClick={() => onSelect(task.taskId)}
       title={external ? "外部引擎管理 · 只读" : undefined}
-      className={`flex min-h-[150px] cursor-pointer flex-col rounded-lg bg-surface-raised px-3.5 py-3 ${freshnessBorder(
-        task.freshness,
-      )} ${archived ? "opacity-50" : ""} ${isFavorite ? "ring-1 ring-accent/40" : ""} hover:border-border-strong`}
+      className={[
+        "flex min-h-[150px] cursor-pointer flex-col rounded-lg bg-surface-raised px-3.5 py-3 cv-auto-10r",
+        freshnessBorder(task.freshness),
+        archived ? "opacity-50" : "",
+        isFavorite ? "ring-1 ring-accent/40" : "",
+        "hover:border-border-strong",
+      ].join(" ")}
     >
       <div className="flex min-w-0 items-center gap-1.5">
         {external && <Lock weight="bold" className="shrink-0 text-[13px] text-text-faint" />}
@@ -166,12 +167,6 @@ function DrilldownPanel({
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
 }) {
-  const [showAll, setShowAll] = useState(false);
-
-  useEffect(() => {
-    setShowAll(false);
-  }, [active?.lane, active?.status]);
-
   if (!active) {
     return (
       <section className="min-h-[320px] shrink-0 bg-bg px-4 py-3">
@@ -184,8 +179,6 @@ function DrilldownPanel({
 
   const meta = STATUS_META[active.status];
   const sorted = sortByFavoritesFirst(tasks, (t) => t.taskId, favorites);
-  const visible = showAll ? sorted : sorted.slice(0, PAGE_SIZE);
-  const hiddenCount = sorted.length - visible.length;
   const laneLabel = groupLabelOf(active.lane, groupBy, allTasks);
 
   return (
@@ -206,7 +199,7 @@ function DrilldownPanel({
 
       <div className="max-h-[280px] overflow-auto pr-1">
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-          {visible.map((t) => (
+          {sorted.map((t) => (
             <LaneCard
               key={t.taskId}
               task={t}
@@ -216,14 +209,6 @@ function DrilldownPanel({
               onToggleFavorite={onToggleFavorite}
             />
           ))}
-          {hiddenCount > 0 && (
-            <button
-              onClick={() => setShowAll(true)}
-              className="min-h-[150px] rounded-lg border border-dashed border-border px-3 text-center font-mono text-[13px] text-text-muted hover:border-border-strong hover:text-text"
-            >
-              +{hiddenCount} 更多
-            </button>
-          )}
         </div>
       </div>
 
@@ -276,17 +261,9 @@ export function SwimlaneBoard({
     }
     return grouped;
   }, [groupBy, tasks]);
+  // 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):
+  // 每条泳道行带 content-visibility:auto,离屏行的布局与绘制由渲染器跳过。
   const lanes = useMemo(() => [...tasksByLane.keys()], [tasksByLane]);
-  const [visibleLaneCount, setVisibleLaneCount] = useState(LANE_BATCH_SIZE);
-  useEffect(() => {
-    setVisibleLaneCount(LANE_BATCH_SIZE);
-  }, [groupBy, tasks]);
-  const visibleLanes = useMemo(() => {
-    const visible = lanes.slice(0, visibleLaneCount);
-    if (drillMatches && drillLane && lanes.includes(drillLane) && !visible.includes(drillLane)) visible.push(drillLane);
-    return visible;
-  }, [drillLane, drillMatches, lanes, visibleLaneCount]);
-  const hiddenLaneCount = lanes.length - visibleLanes.length;
 
   useEffect(() => {
     if (activeCell && !lanes.includes(activeCell.lane)) setActiveCell(null);
@@ -321,14 +298,14 @@ export function SwimlaneBoard({
               );
             })}
           </div>
-          {visibleLanes.map((lane) => {
+          {lanes.map((lane) => {
             const laneTasks = tasksByLane.get(lane) ?? [];
             const laneLabel = groupLabelOf(lane, groupBy, tasks);
             return (
               <div
                 key={lane}
                 data-testid="swimlane-row"
-                className={`grid ${GRID_COLS} gap-2 border-b border-border py-2.5`}
+                className={`grid ${GRID_COLS} gap-2 border-b border-border py-2.5 cv-auto-4-5r`}
               >
                 <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
                   <span
@@ -356,19 +333,6 @@ export function SwimlaneBoard({
               </div>
             );
           })}
-          {hiddenLaneCount > 0 && (
-            <button
-              type="button"
-              data-testid="swimlane-more"
-              onClick={() => setVisibleLaneCount((count) => Math.min(count + LANE_BATCH_SIZE, lanes.length))}
-              className="mt-3 w-full rounded-lg border border-dashed border-border px-3 py-2 font-mono text-[12px] text-text-muted hover:border-border-strong hover:text-text"
-            >
-              {t("views.swimlaneBoard.showMore", {
-                count: Math.min(LANE_BATCH_SIZE, hiddenLaneCount),
-                remaining: hiddenLaneCount,
-              })}
-            </button>
-          )}
           {lanes.length === 0 && (
             <div className="rounded-lg border border-dashed border-border px-4 py-8 text-[15px] text-text-faint">
               当前筛选下没有可展示的泳道任务。

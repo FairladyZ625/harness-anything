@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Scales } from "@phosphor-icons/react";
 import type { DecisionRow, DecisionState } from "../../model/types";
 import type { WorkspaceSummaryRead } from "../../../api/renderer-dto.ts";
@@ -19,13 +19,11 @@ export const DECISION_STREAM_STATES = [
 type DecisionStreamState = (typeof DECISION_STREAM_STATES)[number];
 
 /**
- * 主行集一次渲染这么多行,剩下的靠批量按钮显形——照抄本仓 BoardView 与 TaskStream 的做法。
- *
- * 这一段的规模不是常数:它是选中状态的全部决策,本仓实测最大一档 in_effect 598 行。
- * 分批渲染把 DOM 节点数与决策总量脱钩;状态页签计数照抄 daemon census 报出真实总数,
- * 按钮报出剩余条数,所以被推迟渲染的行是显形的、不是被吞掉的。
+ * 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击)。
+ * 每行带 content-visibility:auto:离屏行的布局与绘制由渲染器跳过,DOM 仍是全量;
+ * 状态页签计数照抄 daemon census 报出真实总数。这一段的规模不是常数:
+ * 它是选中状态的全部决策,本仓实测最大一档 in_effect 608 行。
  */
-const ROW_BATCH_SIZE = 12;
 
 /**
  * 总览「决策流」:等裁决的决策以行式紧凑列表给出,按状态就地切换。
@@ -50,13 +48,6 @@ export function DecisionStream({
     () => sortDecisionQueue(decisions.filter((decision) => decision.state === state)),
     [decisions, state],
   );
-  const [rowsVisible, setRowsVisible] = useState(ROW_BATCH_SIZE);
-  // 切换状态会换掉主行集的全部组员,展开状态不能跟着过去。
-  useEffect(() => {
-    setRowsVisible(ROW_BATCH_SIZE);
-  }, [state]);
-  const rowsShown = useMemo(() => rows.slice(0, rowsVisible), [rows, rowsVisible]);
-  const rowsHidden = rows.length - rowsShown.length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -77,7 +68,7 @@ export function DecisionStream({
         <StreamEmpty>{t("views.overviewView.decisionEmpty")}</StreamEmpty>
       ) : (
         <StreamBody testId="decision-stream-rows">
-          {rowsShown.map((decision) => (
+          {rows.map((decision) => (
             <button
               key={decision.decisionId}
               type="button"
@@ -94,19 +85,6 @@ export function DecisionStream({
               </span>
             </button>
           ))}
-          {rowsHidden > 0 && (
-            <button
-              type="button"
-              data-testid="decision-stream-more"
-              onClick={() => setRowsVisible((count) => Math.min(count + ROW_BATCH_SIZE, rows.length))}
-              className="w-full px-1 py-1 text-center font-mono text-[11px] text-text-muted hover:text-text"
-            >
-              {t("views.overviewView.decisionShowMore", {
-                count: Math.min(ROW_BATCH_SIZE, rowsHidden),
-                remaining: rowsHidden,
-              })}
-            </button>
-          )}
         </StreamBody>
       )}
     </div>

@@ -12,8 +12,8 @@ import { StreamBody, StreamEmpty, streamTime } from "./streamParts.tsx";
  * 不分批(判据,留给下一个人核对):本流成员的唯一来源是「被人手动 `ha task pin` 过」,
  * 每一行都是一次显式的人为动作,unpin 即移除;规模不随台账增长——台账 1543 个任务时
  * 实测 pin 数为 3(2026-08-24,`SELECT COUNT(*) FROM task_snapshot WHERE pinned = 1`)。
- * TaskStream / DecisionStream 的主行集是「一整个状态的行」,随台账被动累积,所以分批;
- * 这里若是哪天出现程序化批量 pin、规模开始随台账走,再照 TaskStream 的 ROW_BATCH_SIZE 分批。
+ * 全站已不再用「再显示」分批(2026-08-25 泽宇裁决):行集增长也走完整渲染 +
+ * content-visibility,按 TaskStream 同款类名即可。
  */
 export function PinnedStream({
   tasks,

@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { harnessClient } from "../../api-client.ts";
 import { t } from "../../i18n/index.tsx";
 
-/** 长正文按块分批显形,照抄 TaskStream/DecisionPoolView 的 ROW_BATCH_SIZE 机制。 */
-const BODY_BLOCK_BATCH_SIZE = 12;
+/**
+ * 正文块渲染:完整渲染、永不截断(2026-08-25 泽宇裁决——性能顾虑不许转嫁成用户点击)。
+ * 每块带 content-visibility:auto:离屏块的布局与绘制由渲染器跳过,DOM 仍是全量,
+ * 长正文的滚动成本只与视口内块数相关。
+ */
+const BLOCK_CLASS = "[contain-intrinsic-size:auto_5rem] [content-visibility:auto]";
 
 export function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; decisionId: string }) {
   const query = useQuery({
@@ -56,52 +60,27 @@ export function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; deci
       </p>
     );
   }
-  return <DecisionBodyDocument source={body.body} resetKey={decisionId} />;
+  return <DecisionBodyDocument source={body.body} />;
 }
 
-function DecisionBodyDocument({ source, resetKey }: { source: string; resetKey: string }) {
+function DecisionBodyDocument({ source }: { source: string }) {
   const blocks = useMemo(() => splitMarkdownBlocks(source), [source]);
-  const [visible, setVisible] = useState(BODY_BLOCK_BATCH_SIZE);
-  useEffect(() => {
-    setVisible(BODY_BLOCK_BATCH_SIZE);
-  }, [resetKey]);
-  const shown = blocks.slice(0, visible),
-    hidden = blocks.length - shown.length;
   return (
     <div data-testid="decision-body-document">
       <div className="prose-harness">
-        {shown.map((block, index) => (
-          <div key={index} data-testid="decision-body-block">
+        {blocks.map((block, index) => (
+          <div key={index} data-testid="decision-body-block" className={BLOCK_CLASS}>
             <Markdown remarkPlugins={[remarkGfm]}>{block}</Markdown>
           </div>
         ))}
       </div>
-      {hidden > 0 && (
-        <button
-          type="button"
-          data-testid="decision-body-more"
-          onClick={() =>
-            setVisible((count) => Math.min(count + BODY_BLOCK_BATCH_SIZE, blocks.length))
-          }
-          className={[
-            "mt-3 w-full rounded-lg border border-dashed border-border px-4 py-2 font-mono text-[12px]",
-            "text-text-muted hover:border-border-strong hover:text-text",
-          ].join(" ")}
-        >
-          {t("views.decisionDetailView.bodyShowMore", {
-            count: Math.min(BODY_BLOCK_BATCH_SIZE, hidden),
-            remaining: hidden,
-          })}
-        </button>
-      )}
     </div>
   );
 }
 
 /**
  * 把 Markdown 正文切成顶层块(空行分界),围栏代码块内的空行不切,
- * 纯空白的段不产生块。分批渲染的单位是块:批大小、显形按钮与剩余量上报沿用
- * TaskStream 的机制。
+ * 纯空白的段不产生块。块是渲染与测量的单位,渲染不再分批。
  */
 export function splitMarkdownBlocks(source: string): string[] {
   const blocks: string[] = [];

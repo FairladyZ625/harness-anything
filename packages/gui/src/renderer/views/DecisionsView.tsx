@@ -10,17 +10,14 @@ import { t } from "../i18n/index.tsx";
 
 export type DecideAction = DecisionAction;
 
-/** canonical 判定历史一次显示这么多条,剩下的靠批量按钮显形(照抄 BoardView 的做法)。 */
-const HISTORY_BATCH_SIZE = 12;
-
 type JudgmentHistoryRow = {
   readonly decision: DecisionRow;
   readonly consent: DecisionRow["judgmentConsents"][number];
 };
 
 /**
- * 判定历史原本只渲染前 12 条,超出的条数在界面上没有任何出口——标题只写
- * 「canonical judgment 历史」,用户看不出第 13 条以后被吞了。剩余条数现在显形并可展开。
+ * 判定历史完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户
+ * 点击):每条带 content-visibility:auto,离屏行的布局与绘制由渲染器跳过。
  */
 function JudgmentHistory({
   history,
@@ -29,12 +26,6 @@ function JudgmentHistory({
   readonly history: ReadonlyArray<JudgmentHistoryRow>;
   readonly mutationFeedback?: (decisionId: string) => DecisionMutationFeedback | undefined;
 }) {
-  const [visibleCount, setVisibleCount] = useState(HISTORY_BATCH_SIZE);
-  useEffect(() => {
-    setVisibleCount(HISTORY_BATCH_SIZE);
-  }, [history.length]);
-  const visible = history.slice(0, visibleCount),
-    hiddenCount = history.length - visible.length;
   if (history.length === 0) return null;
   return (
     <section className="mt-4 rounded-lg border border-border bg-surface p-3">
@@ -42,10 +33,13 @@ function JudgmentHistory({
         {t("views.decisionsView.canonicalJudgmentHistory")}
       </h2>
       <ul className="mt-1.5 space-y-1">
-        {visible.map(({ decision, consent }) => {
+        {history.map(({ decision, consent }) => {
           const receipt = mutationFeedback?.(decision.decisionId)?.receipt;
           return (
-            <li key={consent.consentId} className="text-[11px] leading-relaxed">
+            <li
+              key={consent.consentId}
+              className="text-[11px] leading-relaxed [contain-intrinsic-size:auto_1rem] [content-visibility:auto]"
+            >
               <span className="font-mono text-text-muted">
                 {consent.action} · {decision.decisionId} ·{consent.consentId}
               </span>
@@ -57,20 +51,6 @@ function JudgmentHistory({
           );
         })}
       </ul>
-      {hiddenCount > 0 && (
-        <button
-          type="button"
-          data-testid="decisions-history-more"
-          onClick={() => setVisibleCount((count) => Math.min(count + HISTORY_BATCH_SIZE, history.length))}
-          className="mt-1.5 w-full rounded-lg border border-dashed border-border px-3 py-2 text-center
-        font-mono text-[11px] text-text-muted hover:border-border-strong hover:text-text"
-        >
-          {t("views.decisionsView.showMoreHistory", {
-            count: Math.min(HISTORY_BATCH_SIZE, hiddenCount),
-            remaining: hiddenCount,
-          })}
-        </button>
-      )}
     </section>
   );
 }

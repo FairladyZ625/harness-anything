@@ -96,8 +96,6 @@
   "components.taskPreviewDrawer.package": "交付包",
   "components.taskPreviewDrawer.rawStatus": "原始状态",
   "components.taskPreviewDrawer.readOnlySource": "只读源",
-  "components.commandPalette.showMore": "再显示 {count} 条 · 还有 {remaining} 条",
-  "components.taskPreviewDrawer.showMoreEvents": "再显示 {count} 条 · 还有 {remaining} 条",
   "components.taskPreviewDrawer.recentEvents": "近期事件",
   "components.taskPreviewDrawer.requiredDocumentationComplete": "必需文档齐备。",
   "components.taskPreviewDrawer.source": "来源",

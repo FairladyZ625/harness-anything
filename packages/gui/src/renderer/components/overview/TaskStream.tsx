@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { SnapshotStatus, TaskRow } from "../../model/types";
 import type { WorkspaceSummaryRead } from "../../../api/renderer-dto.ts";
 import { BOARD_COLUMNS } from "../../model/types";
@@ -8,19 +8,15 @@ import { t } from "../../i18n/index.tsx";
 import { StreamBody, StreamEmpty, StreamExitButton, StreamTabs, streamTime } from "./streamParts.tsx";
 
 /**
- * 流里每一段(主行集与「更新的」带)一次渲染这么多行,剩下的靠批量按钮显形——
- * 照抄本仓 BoardView 与命令面板的做法。两段共用同一批次大小:同一条流,同一套分批约定。
+ * 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击)。
+ * 每行带 content-visibility:auto:离屏行的布局与绘制由渲染器跳过,DOM 仍是全量,
+ * 行集的真实总数由状态页签计数照抄 daemon census 报出。
  *
- * 两段的规模都不是常数。主行集 = 选中状态的全部任务:本仓 1543 个任务时选 done 实测 1109 行、
- * planned 281 行。「更新的」这一段的组员是「比当前筛选里最新那行还新、且不属于该筛选状态」的任务,
+ * 两段的规模都不是常数。主行集 = 选中状态的全部任务:本仓 1656 个任务时选 done 实测 1165 行。
+ * 「更新的」这一段的组员是「比当前筛选里最新那行还新、且不属于该筛选状态」的任务,
  * 当前筛选一行都没有时阈值按设计退化为无阈值(那是为了让全新仓库刚建的第一条任务能浮现),
- * 于是全部有已知创建时间的任务都合格——本仓 1538 个任务时,那一档实测会渲染 1475 行。
- * 分批渲染把 DOM 节点数与任务总量脱钩,所以被推迟渲染的行是显形的、不是被吞掉的:
- * 主行集的真实总数由状态页签计数照抄 daemon census 报出,「更新的」带由标题报出;
- * 两段的按钮都报出剩余条数。
+ * 于是全部有已知创建时间的任务都合格。
  */
-const ROW_BATCH_SIZE = 12;
-
 const ROW_CLASS =
   "flex w-full items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-left" +
   " transition-colors duration-100 [contain-intrinsic-size:auto_1.75rem] [content-visibility:auto]" +
@@ -99,17 +95,6 @@ export function TaskStream({
     [tasks, status],
   );
   const ahead = useMemo(() => tasksAheadOfStatus(tasks, status), [tasks, status]);
-  const [aheadVisible, setAheadVisible] = useState(ROW_BATCH_SIZE);
-  const [rowsVisible, setRowsVisible] = useState(ROW_BATCH_SIZE);
-  // 切换筛选会换掉两段的全部组员,展开状态不能跟着过去。
-  useEffect(() => {
-    setAheadVisible(ROW_BATCH_SIZE);
-    setRowsVisible(ROW_BATCH_SIZE);
-  }, [status]);
-  const aheadShown = useMemo(() => ahead.slice(0, aheadVisible), [ahead, aheadVisible]);
-  const aheadHidden = ahead.length - aheadShown.length;
-  const rowsShown = useMemo(() => rows.slice(0, rowsVisible), [rows, rowsVisible]);
-  const rowsHidden = rows.length - rowsShown.length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -143,22 +128,9 @@ export function TaskStream({
             {t("views.overviewView.taskAhead", { count: ahead.length })}
           </p>
           <div className="max-h-[6rem] space-y-0.5 overflow-y-auto pr-1" data-testid="task-stream-ahead-rows">
-            {aheadShown.map((task) => (
+            {ahead.map((task) => (
               <TaskStreamRow key={task.taskId} task={task} onOpenPreview={onOpenPreview} />
             ))}
-            {aheadHidden > 0 && (
-              <button
-                type="button"
-                data-testid="task-stream-ahead-more"
-                onClick={() => setAheadVisible((count) => Math.min(count + ROW_BATCH_SIZE, ahead.length))}
-                className="w-full px-1 py-1 text-center font-mono text-[11px] text-text-muted hover:text-text"
-              >
-                {t("views.overviewView.taskAheadShowMore", {
-                  count: Math.min(ROW_BATCH_SIZE, aheadHidden),
-                  remaining: aheadHidden,
-                })}
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -166,22 +138,9 @@ export function TaskStream({
         <StreamEmpty>{t("views.overviewView.taskEmpty")}</StreamEmpty>
       ) : (
         <StreamBody testId="task-stream-rows">
-          {rowsShown.map((task) => (
+          {rows.map((task) => (
             <TaskStreamRow key={task.taskId} task={task} onOpenPreview={onOpenPreview} />
           ))}
-          {rowsHidden > 0 && (
-            <button
-              type="button"
-              data-testid="task-stream-more"
-              onClick={() => setRowsVisible((count) => Math.min(count + ROW_BATCH_SIZE, rows.length))}
-              className="w-full px-1 py-1 text-center font-mono text-[11px] text-text-muted hover:text-text"
-            >
-              {t("views.overviewView.taskShowMore", {
-                count: Math.min(ROW_BATCH_SIZE, rowsHidden),
-                remaining: rowsHidden,
-              })}
-            </button>
-          )}
         </StreamBody>
       )}
     </div>
