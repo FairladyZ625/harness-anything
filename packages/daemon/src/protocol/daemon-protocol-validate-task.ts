@@ -1,6 +1,6 @@
 import { DAEMON_TASK_SNAPSHOT_LIST_SCHEMA, DAEMON_WORKSPACE_SUMMARY_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import {
-  codeDoc,
+  codeDocRecord,
   consent,
   exactRecord,
   execution,
@@ -74,7 +74,7 @@ export function snapshot(value: unknown, availability: unknown): boolean {
     return false;
   const validators = {
     consents: consent,
-    codeDocWitnesses: codeDoc,
+    codeDocWitnesses: codeDocRecord,
     gateWitnesses: gate,
   };
   return known.every((field) => Array.isArray(value[field]) && value[field].every(validators[field]));
@@ -195,37 +195,97 @@ export function validateDaemonTaskSnapshotList(value: unknown): readonly string[
     "placement",
     "executionEvidence",
   ];
+  if (!recordWith(value, DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.required)) return ["daemon task snapshot list is invalid"];
   if (
-    !recordWith(value, DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.required) ||
-    (isJsonObject(value) &&
-      Object.keys(value).some((field) => ![...DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.required, "page"].includes(field))) ||
+    Object.keys(value).some((field) => ![...DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.required, "page"].includes(field)) ||
     value.ok !== true ||
     (value.status !== "ready" && value.status !== "pending") ||
     !integer(value.watermark) ||
     !integer(value.sourceRevision) ||
     !warningArray(value.warnings) ||
     (value.page !== undefined && !queryPageRow(value.page)) ||
-    !Array.isArray(value.rows) ||
-    value.rows.some(
-      (row) =>
-        !exactRecord(row, rowFields) ||
-        !nonEmpty(row.taskId) ||
-        (row.packagePath !== null && !nonEmpty(row.packagePath)) ||
-        (row.generation !== "v0" && row.generation !== "v1") ||
-        !integer(row.workspaceRevision) ||
-        (row.createdAt !== null && !nonEmpty(row.createdAt)) ||
-        !nonEmpty(row.updatedAt) ||
-        !statusWord([...taskStatusWords, "unknown"], row.coordinationStatus) ||
-        !snapshot(row.snapshot, row.snapshotAvailability) ||
-        !closeoutAssessment(row.closeoutAssessment) ||
-        !blockingAssessment(row.blockingAssessment) ||
-        !placement(row.placement) ||
-        !Array.isArray(row.executionEvidence) ||
-        row.executionEvidence.some((item) => !executionEvidence(item)),
-    )
+    !Array.isArray(value.rows)
   )
     return ["daemon task snapshot list is invalid"];
-  return [];
+  return value.rows.flatMap((row, index) => taskSnapshotRowErrors(row, index, rowFields));
+}
+
+function taskSnapshotRowErrors(value: unknown, index: number, rowFields: readonly string[]): readonly string[] {
+  const taskId = isJsonObject(value) && nonEmpty(value.taskId) ? value.taskId : "<unknown>",
+    error = (field: string) =>
+      `daemon task snapshot taskId=${taskId} field=rows[${index}]${field ? `.${field}` : ""} is invalid`;
+  if (!exactRecord(value, rowFields)) return [error("")];
+  const errors: string[] = [];
+  if (!nonEmpty(value.taskId)) errors.push(error("taskId"));
+  if (value.packagePath !== null && !nonEmpty(value.packagePath)) errors.push(error("packagePath"));
+  if (value.generation !== "v0" && value.generation !== "v1") errors.push(error("generation"));
+  if (!integer(value.workspaceRevision)) errors.push(error("workspaceRevision"));
+  if (value.createdAt !== null && !nonEmpty(value.createdAt)) errors.push(error("createdAt"));
+  if (!nonEmpty(value.updatedAt)) errors.push(error("updatedAt"));
+  if (!statusWord([...taskStatusWords, "unknown"], value.coordinationStatus)) errors.push(error("coordinationStatus"));
+  if (!snapshot(value.snapshot, value.snapshotAvailability))
+    errors.push(...snapshotFailurePaths(value.snapshot, value.snapshotAvailability).map(error));
+  if (!closeoutAssessment(value.closeoutAssessment)) errors.push(error("closeoutAssessment"));
+  if (!blockingAssessment(value.blockingAssessment)) errors.push(error("blockingAssessment"));
+  if (!placement(value.placement)) errors.push(error("placement"));
+  if (!Array.isArray(value.executionEvidence)) errors.push(error("executionEvidence"));
+  else
+    value.executionEvidence.forEach((item, evidenceIndex) => {
+      if (!executionEvidence(item)) errors.push(error(`executionEvidence[${evidenceIndex}]`));
+    });
+  return errors;
+}
+
+function snapshotFailurePaths(value: unknown, availability: unknown): readonly string[] {
+  if (
+    !exactRecord(availability, availabilityFields) ||
+    availabilityFields.some((field) => availability[field] !== "known" && availability[field] !== "unknown")
+  )
+    return ["snapshotAvailability"];
+  if (!isJsonObject(value)) return ["snapshot"];
+  const known = availabilityFields.filter((field) => availability[field] === "known"),
+    paths: string[] = [];
+  if (!exactRecord(value, [...snapshotBaseFields, ...known])) paths.push("snapshot");
+  if (!integer(value.revision)) paths.push("snapshot.revision");
+  if (value.task !== null && !task(value.task)) paths.push("snapshot.task");
+  for (const [field, validate] of [
+    ["executions", execution],
+    ["reviews", review],
+  ] as const) {
+    const rows = value[field];
+    if (!Array.isArray(rows)) paths.push(`snapshot.${field}`);
+    else rows.forEach((row, index) => !validate(row) && paths.push(`snapshot.${field}[${index}]`));
+  }
+  if (
+    !Array.isArray(value.edgesTaken) ||
+    value.edgesTaken.some(
+      (edge) =>
+        !exactRecord(edge, ["edgeId", "from", "to", "on", "actorRole", "reason", "commitSha", "iteration"]) ||
+        !nonEmpty(edge.edgeId) ||
+        !nonEmpty(edge.reason) ||
+        !sha(edge.commitSha) ||
+        !iteration(edge.iteration),
+    )
+  )
+    paths.push("snapshot.edgesTaken");
+  if (value.lease !== null && !lease(value.lease)) paths.push("snapshot.lease");
+  if (
+    !Array.isArray(value.decisionRelations) ||
+    value.decisionRelations.some(
+      (relation) =>
+        !exactRecord(relation, ["relationId", "sourceRef", "targetRef", "relationType", "state"]) ||
+        ![relation.relationId, relation.sourceRef, relation.targetRef, relation.relationType].every(nonEmpty) ||
+        !statusWord(relationStateWords, relation.state),
+    )
+  )
+    paths.push("snapshot.decisionRelations");
+  const validators = { consents: consent, codeDocWitnesses: codeDocRecord, gateWitnesses: gate };
+  for (const field of known) {
+    const rows = value[field];
+    if (!Array.isArray(rows)) paths.push(`snapshot.${field}`);
+    else rows.forEach((row, index) => !validators[field](row) && paths.push(`snapshot.${field}[${index}]`));
+  }
+  return paths.length ? [...new Set(paths)] : ["snapshot"];
 }
 
 export function validateDaemonWorkspaceSummary(value: unknown): readonly string[] {
