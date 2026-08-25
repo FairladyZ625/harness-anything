@@ -18,3 +18,10 @@ export const TASK_LIFECYCLE_TRANSITIONS: readonly Transition[] = Object.freeze([
   repoint,
   complete,
 ]);
+
+export function findTaskLifecycleTransition(
+  command: Parameters<Transition["matches"]>[0],
+  snapshot: Parameters<Transition["matches"]>[1],
+): Transition | undefined {
+  return TASK_LIFECYCLE_TRANSITIONS.find((transition) => transition.matches(command, snapshot));
+}

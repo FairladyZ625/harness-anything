@@ -95,11 +95,18 @@ export function adjudicateDocIntent(
     authorizationDecision =
       intent.executionId === null
         ? null
-        : authorizeAction("doc.submit", `execution/${intent.executionId}`, input.binding.actor, opId, {
-            writeSource: input.binding.source,
-            target: { lease, runtimeBinding },
-            evaluatedAtCut: `canonical:${cut.revision}:${cut.headDigest}`,
-          });
+        : authorizeAction(
+            "doc.submit",
+            `execution/${intent.executionId}`,
+            input.binding.actor,
+            `authorization:${opId}`,
+            opId,
+            {
+              writeSource: input.binding.source,
+              target: { lease, runtimeBinding },
+              evaluatedAtCut: `canonical:${cut.revision}:${cut.headDigest}`,
+            },
+          );
   const decision = decideDocWrite({
     intent,
     opId,

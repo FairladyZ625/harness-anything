@@ -74,6 +74,7 @@ export async function proofFor(
         "execution.review",
         `execution/${command.executionId}`,
         command.actor,
+        `authorization:${command.eventId}`,
         command.opId,
         {
           commandClasses: binding.roles?.map((role) => role.replace(/^\$/u, "")) ?? [],
@@ -140,6 +141,7 @@ export async function proofFor(
       "task.consent",
       `task/${command.taskId}`,
       command.actor,
+      `authorization:${command.eventId}`,
       command.opId,
       { target: { owner: snapshot.task?.createdBy ?? null }, evaluatedAtCut: `canonical:${snapshot.revision}` },
     );
@@ -225,6 +227,7 @@ export function completeProof(
     "task.complete",
     `task/${command.taskId}`,
     command.actor,
+    `authorization:${command.eventId}`,
     command.opId,
     { target: { owner: snapshot.task?.createdBy ?? null }, evaluatedAtCut: `canonical:${snapshot.revision}` },
   );

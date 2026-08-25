@@ -12,6 +12,7 @@ import type { TaskEdgeTaken, TaskGraphV1 } from "./task-graph.ts";
 import type { NormalizedCommandEnvelope } from "./write-chain.contract.ts";
 import type { LeaseChangeReason, TaskEventType, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
+import type { ActionCoordinationFacet } from "./action-envelope.ts";
 
 // Shared public contract shapes and internal transition protocol.
 export interface TaskLifecycleSnapshot {
@@ -204,9 +205,9 @@ export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTas
               ? CodeDocProof
               : C extends RepointCodeDocCommand
                 ? RepointCodeDocProof
-              : C extends CompleteTaskCommand
-                ? CompleteTaskProof
-                : never;
+                : C extends CompleteTaskCommand
+                  ? CompleteTaskProof
+                  : never;
 export interface TransitionResult {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly event: TaskEventV1;
@@ -214,6 +215,7 @@ export interface TransitionResult {
 export interface Transition {
   readonly id: string;
   readonly commandType: TaskLifecycleCommand["type"];
+  readonly coordination: ActionCoordinationFacet;
   readonly from: string;
   readonly proof: readonly string[];
   readonly eventType: TaskEventType;

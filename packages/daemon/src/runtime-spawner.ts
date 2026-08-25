@@ -241,10 +241,17 @@ export function makeRuntimeSpawner(input: {
                   taskId,
                   lease.executionId,
                 );
-        authorizationDecision = authorizeAction("runtime.dispatch", `task/${taskId}`, binding.actor, dispatchOpId, {
-          target: { lease, runtimeBinding },
-          evaluatedAtCut: `canonical:${store!.readHead()?.revision ?? 0}`,
-        });
+        authorizationDecision = authorizeAction(
+          "runtime.dispatch",
+          `task/${taskId}`,
+          binding.actor,
+          dispatchOpId,
+          idempotencyKey,
+          {
+            target: { lease, runtimeBinding },
+            evaluatedAtCut: `canonical:${store!.readHead()?.revision ?? 0}`,
+          },
+        );
       }
       if (authorizationDecision?.outcome === "denied")
         throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId!, lease));

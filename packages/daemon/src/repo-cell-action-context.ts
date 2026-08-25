@@ -88,7 +88,6 @@ import {
   listTasks as listTasksImpl,
   previewStart as previewStartImpl,
   reviewTask as reviewTaskImpl,
-  taskWipEnteringAction as taskWipEnteringActionImpl,
   wipSnapshotEntries as wipSnapshotEntriesImpl,
 } from "./repo-cell-task-query.ts";
 import { leaseTtlMs, runtimeIngressEventTypes } from "./repo-cell-types.ts";
@@ -147,7 +146,6 @@ export function createRepoCellActionContext(bindings: {
     upgradePresetSnapshot: bind(upgradePresetSnapshotImpl),
     upsertEntity: bind(upsertEntityImpl),
     readResult: bind(readResultImpl),
-    taskWipEnteringAction: bind(taskWipEnteringActionImpl),
     assertTaskWipCapacity: bind(assertTaskWipCapacityImpl),
     createTask: bind(createTaskImpl),
     taskCreateAction,

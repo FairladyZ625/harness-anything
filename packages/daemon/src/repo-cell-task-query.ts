@@ -5,7 +5,6 @@ import {
   deriveTaskRoot,
   explainStatusTransition,
   hasCloseoutEvidence,
-  isDomainStatus,
   isTerminalStatus,
   readRelationGraphProjection,
   taskWipOccupyingStatuses,
@@ -92,31 +91,8 @@ export function listTasks(cell: any, action: RepoTaskAction, binding: RepoCellBi
   );
 }
 
-export function taskWipEnteringAction(
-  cell: any,
-  action: RepoTaskAction,
-): {
-  readonly taskId: string;
-  readonly nextStatus: DomainStatus;
-} | null {
-  if (action.kind === "task-start")
-    return {
-      taskId: cell.requiredCellText(action.taskId, "taskId"),
-      nextStatus: "active",
-    };
-  if (action.kind !== "task-transition") return null;
-  const target = String(action.status);
-  return isDomainStatus(target) &&
-    target === "blocked" &&
-    (taskWipOccupyingStatuses as readonly DomainStatus[]).includes(target)
-    ? {
-        taskId: cell.requiredCellText(action.taskId, "taskId"),
-        nextStatus: target,
-      }
-    : null;
-}
-
 export function assertTaskWipCapacity(cell: any, taskId: string, nextStatus: DomainStatus): void {
+  if (!(taskWipOccupyingStatuses as readonly DomainStatus[]).includes(nextStatus)) return;
   const tasks = cell.wipSnapshotEntries(),
     activating = tasks.find((task: TaskWipSnapshotEntryV1) => task.taskId === taskId);
   if (!activating) return;

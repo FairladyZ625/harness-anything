@@ -133,6 +133,7 @@ export function makeDecisionActions(input: {
             "decision.accept",
             `decision/${requiredFactText(action.decisionId, "decisionId")}`,
             binding.actor,
+            `authorization:${opId}`,
             opId,
             {
               commandClasses: binding.roles?.map((role) => role.replace(/^\$/u, "")) ?? [],

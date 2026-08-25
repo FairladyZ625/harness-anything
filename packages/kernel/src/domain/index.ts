@@ -1,6 +1,6 @@
 export { createTaskIdentity } from "./task.ts";
 export { currentActionEnvelopeVersion } from "./action-envelope.ts";
-export type { ActionEnvelope } from "./action-envelope.ts";
+export type { ActionCoordinationFacet, ActionEnvelope } from "./action-envelope.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
 export { DEFAULT_POLICY } from "./default-policy.ts";
 export type {
@@ -112,6 +112,7 @@ export {
   createEntityKindRegistry,
   explainEntityKind,
   getEntityKind,
+  requireEntityActionContractByTransition,
   requireEntityKindContract,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";

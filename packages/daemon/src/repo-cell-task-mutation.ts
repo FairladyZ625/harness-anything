@@ -58,6 +58,7 @@ export function taskMutation(
         `execution/${activeLease.executionId}`,
         binding.actor,
         actionId,
+        `task-release:${task.taskId}:${activeLease.executionId}`,
         {
           target: { lease: activeLease, canonicalExecutionExists: execution !== undefined },
           evaluatedAtCut: `canonical:${snapshot.revision}`,

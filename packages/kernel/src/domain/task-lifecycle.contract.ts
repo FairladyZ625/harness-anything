@@ -83,7 +83,7 @@ export {
 } from "./task-lifecycle-contract-support.ts";
 export { allowsTaskStatusMove, canStartExecution } from "./task-lifecycle-command-transitions.ts";
 export { isReadyToComplete } from "./task-lifecycle-review-transitions.ts";
-export { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
+export { findTaskLifecycleTransition, TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
 export {
   applyTransition,
   compileExecutionExecutorDeclaration,

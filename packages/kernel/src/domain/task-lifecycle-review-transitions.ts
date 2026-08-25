@@ -8,6 +8,7 @@ import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
 import type { ContractValidationIssue, TaskV1 } from "./task.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
+import { ACTION_COORDINATION_DISABLED } from "./action-envelope.ts";
 import type {
   CodeDocReconciledEvent,
   ReviewConsentRecordedEvent,
@@ -103,6 +104,7 @@ function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 
 export const review: Transition = {
   id: "record_execution_review",
   commandType: "RecordReview",
+  coordination: ACTION_COORDINATION_DISABLED,
   from: "in_review/review",
   proof: ["independentActor", "execution-review@v1", "contentCut"],
   eventType: "review_recorded",
@@ -165,6 +167,7 @@ export const review: Transition = {
 export const consent: Transition = {
   id: "record_review_consent",
   commandType: "RecordReviewConsent",
+  coordination: ACTION_COORDINATION_DISABLED,
   from: "in_review/review/approved",
   proof: ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest"],
   eventType: "review_consent_recorded",
@@ -236,6 +239,7 @@ export const consent: Transition = {
 export const reconcile: Transition = {
   id: "reconcile_code_doc",
   commandType: "ReconcileCodeDoc",
+  coordination: ACTION_COORDINATION_DISABLED,
   from: "in_review/review",
   proof: ["actorBinding", "code-doc-reconcile@v1", "commitPaths"],
   eventType: "code_doc_reconciled",
@@ -305,6 +309,7 @@ export function isReadyToComplete(snapshot: TaskLifecycleSnapshot): boolean {
 export const complete: Transition = {
   id: "complete_task",
   commandType: "CompleteTask",
+  coordination: ACTION_COORDINATION_DISABLED,
   from: "in_review/review/ready",
   proof: ["ownerOrCommander", "reviewConsent", "typedGateReceipts", "noActiveLease"],
   eventType: "task_completed",

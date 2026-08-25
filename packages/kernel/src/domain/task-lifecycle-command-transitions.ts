@@ -5,6 +5,7 @@ import type { TaskV1 } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
+import { ACTION_COORDINATION_DISABLED } from "./action-envelope.ts";
 import type {
   ExecutionStartedEvent,
   ExecutionSubmittedEvent,
@@ -39,6 +40,7 @@ import {
 export const create: Transition = {
   id: "create_replay_task",
   commandType: "CreateReplayTask",
+  coordination: ACTION_COORDINATION_DISABLED,
   from: "missing",
   proof: ["taskIdUnique", "actorBinding", "validGraph"],
   eventType: "task_created",
@@ -115,6 +117,12 @@ export function allowsTaskStatusMove(
 export const start: Transition = {
   id: "start_execution",
   commandType: "StartExecution",
+  coordination: {
+    dryRun: "supported",
+    wipAdmission: { nextStatus: "active" },
+    fleetProvisionalReservation: "required",
+    fifo: "required",
+  },
   from: "planned|active/implementation",
   proof: ["actorBinding", "reservation"],
   eventType: "execution_started",
@@ -223,6 +231,12 @@ function transitionTask(
 export const block: Transition = {
   id: "block_task",
   commandType: "TransitionTask",
+  coordination: {
+    dryRun: "disabled",
+    wipAdmission: { nextStatus: "blocked" },
+    fleetProvisionalReservation: "disabled",
+    fifo: "disabled",
+  },
   from: "planned|active|in_review",
   proof: [],
   eventType: "task_transitioned",
@@ -250,6 +264,7 @@ export const block: Transition = {
 export const reinstate: Transition = {
   id: "reinstate_task",
   commandType: "TransitionTask",
+  coordination: ACTION_COORDINATION_DISABLED,
   from: "cancelled",
   proof: ["auditedReason"],
   eventType: "task_transitioned",
@@ -286,6 +301,7 @@ export const reinstate: Transition = {
 export const unblock: Transition = {
   id: "unblock_task",
   commandType: "TransitionTask",
+  coordination: ACTION_COORDINATION_DISABLED,
   from: "blocked",
   proof: [],
   eventType: "task_transitioned",
@@ -302,6 +318,7 @@ export const unblock: Transition = {
 export const cancel: Transition = {
   id: "cancel_task",
   commandType: "TransitionTask",
+  coordination: ACTION_COORDINATION_DISABLED,
   from: "planned|active|blocked|in_review",
   proof: ["forcedReason"],
   eventType: "task_transitioned",
@@ -320,6 +337,7 @@ export const cancel: Transition = {
 export const submit: Transition = {
   id: "submit_execution",
   commandType: "SubmitExecution",
+  coordination: ACTION_COORDINATION_DISABLED,
   from: "active/implementation",
   proof: ["actorBinding", "leaseVersion", "submission"],
   eventType: "execution_submitted",

@@ -3,6 +3,7 @@ import { canonicalCodeDocPaths, codeDocRecordId, currentCodeDocRecord, sameCodeD
 import type { CodeDocRepointV1 } from "./code-doc-witness.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
+import { ACTION_COORDINATION_DISABLED } from "./action-envelope.ts";
 import type { TaskV1 } from "./task.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import type { CodeDocRepointedEvent } from "./task-lifecycle-event.ts";
@@ -16,6 +17,7 @@ import { envelope, execution, lifecycleContractIssue, revisionIssues } from "./t
 export const repoint: Transition = {
   id: "repoint_code_doc",
   commandType: "RepointCodeDoc",
+  coordination: ACTION_COORDINATION_DISABLED,
   from: "done",
   proof: ["actorBinding", "code-doc-repoint@v1", "commitPaths"],
   eventType: "code_doc_repointed",

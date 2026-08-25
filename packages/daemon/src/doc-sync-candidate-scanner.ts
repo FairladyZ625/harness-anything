@@ -114,11 +114,18 @@ export function scanDocCandidates(input: {
     authorizationDecision =
       execution.id === null
         ? null
-        : authorizeAction("doc.submit", `execution/${execution.id}`, input.actor, "doc-scan", {
-            writeSource: input.source,
-            target: { lease: execution.lease, runtimeBinding },
-            evaluatedAtCut: `canonical:${baseLedgerSha.revision}:${baseLedgerSha.headDigest}`,
-          }),
+        : authorizeAction(
+            "doc.submit",
+            `execution/${execution.id}`,
+            input.actor,
+            `doc-scan:${baseLedgerSha.revision}`,
+            `doc-channel:${execution.id}:${baseLedgerSha.headDigest}`,
+            {
+              writeSource: input.source,
+              target: { lease: execution.lease, runtimeBinding },
+              evaluatedAtCut: `canonical:${baseLedgerSha.revision}:${baseLedgerSha.headDigest}`,
+            },
+          ),
     rows = paths.map((logical) => scanOne(logical));
   return {
     baseLedgerSha,
@@ -409,11 +416,18 @@ function executionBinding(
           const lease = projection.currentLeaseForExecution(binding.executionId, now),
             live = resolveLiveTaskBoundRuntimeBinding(session, binding.taskId, binding.executionId);
           if (lease === null || live === null) return [];
-          const decision = authorizeAction("doc.submit", `execution/${binding.executionId}`, actor, "doc-scan", {
-            writeSource: source,
-            target: { lease, runtimeBinding: live },
-            evaluatedAtCut,
-          });
+          const decision = authorizeAction(
+            "doc.submit",
+            `execution/${binding.executionId}`,
+            actor,
+            `doc-scan:${evaluatedAtCut}`,
+            `doc-channel:${source}:${binding.executionId}`,
+            {
+              writeSource: source,
+              target: { lease, runtimeBinding: live },
+              evaluatedAtCut,
+            },
+          );
           return decision.outcome === "allowed" ? [{ id: binding.executionId, lease }] : [];
         }) ?? [],
       unique = [...new Map(matches.map((match) => [match.id, match])).values()];
@@ -434,11 +448,18 @@ function executionBinding(
     decision =
       current?.phase !== "held"
         ? null
-        : authorizeAction("doc.submit", `execution/${current.executionId}`, actor, "doc-scan", {
-            writeSource: source,
-            target: { lease: current },
-            evaluatedAtCut,
-          }),
+        : authorizeAction(
+            "doc.submit",
+            `execution/${current.executionId}`,
+            actor,
+            `doc-scan:${evaluatedAtCut}`,
+            `doc-channel:${source}:${current.executionId}`,
+            {
+              writeSource: source,
+              target: { lease: current },
+              evaluatedAtCut,
+            },
+          ),
     lease = decision?.outcome === "allowed" ? current : null;
   return { id: lease?.executionId ?? null, candidates: [], lease };
 }

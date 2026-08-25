@@ -7,8 +7,10 @@ import {
   createEntityStore,
   explainEntityKind,
   executionExecutorDeclarationCandidates,
+  findTaskLifecycleTransition,
   isLedgerLayoutMigrationEvent,
   lifecycleDocumentPaths,
+  requireEntityActionContractByTransition,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
@@ -16,6 +18,7 @@ import { prepareAgentEntityInstall, runAgentEntityAction } from "./agent-entitie
 import { distillPromotionAction, prepareDistillCandidate } from "./distill-actions.ts";
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
+import { coordinateAction, executeActionCoordination } from "./action-coordination.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 
 export async function executeAction(
@@ -292,8 +295,6 @@ export async function executeAction(
         : "Remove --dry-run to perform the local preset write; it will remain non-canonical.",
     };
   }
-  const entering = cell.taskWipEnteringAction(action);
-  if (entering) cell.assertTaskWipCapacity(entering.taskId, entering.nextStatus);
   if (action.kind === "task-create") return cell.createTask(cell.taskCreateAction(cell.rootDir, action), binding);
   if (isDocAction(action.kind))
     return runDocAction({
@@ -326,9 +327,10 @@ export async function executeAction(
       ).docChanges,
     )
   )
-    return cell.runTaskCommandWithDocs(action as RepoTaskAction & { readonly docChanges: readonly any[] }, binding);
+    return cell.taskWriteKind(action.kind)
+      ? cell.lifecycleAction(action, binding)
+      : cell.runTaskCommandWithDocs(action as RepoTaskAction & { readonly docChanges: readonly any[] }, binding);
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
-  if (action.kind === "task-start" && action.dryRun === true) return cell.previewStart(action, binding);
   if (action.kind === "task-contract-migrate") return cell.migrateTaskContracts(action, binding);
   if (action.kind === "task-archive" && (Array.isArray(action.taskIds) || typeof action.filter === "string"))
     return cell.archiveTasks(action, binding);
@@ -396,31 +398,52 @@ export async function lifecycleAction(
     cell.store.readHead()?.revision ?? 0,
     cell.now(),
   );
-  const authorityProof = await cell.proofFor(command, current.snapshot, binding, cell.projection),
-    result = await cell.service.execute(command, authorityProof);
-  if (result.outcome === "applied" && result.event && result.proof)
-    return cell.lifecycleReceipt(
-      result.event,
-      result.snapshot,
-      cell.publicPublication(cell.store.publication(result.event)),
-      result.proof,
-      authorityProof.authorizationDecision ?? null,
+  const execute = async (): Promise<WriteReceipt> => {
+    if (
+      Array.isArray(
+        (
+          action as {
+            readonly docChanges?: unknown;
+          }
+        ).docChanges,
+      )
+    )
+      return cell.runTaskCommandWithDocs(action as RepoTaskAction & { readonly docChanges: readonly any[] }, binding);
+    const authorityProof = await cell.proofFor(command, current.snapshot, binding, cell.projection),
+      result = await cell.service.execute(command, authorityProof);
+    if (result.outcome === "applied" && result.event && result.proof)
+      return cell.lifecycleReceipt(
+        result.event,
+        result.snapshot,
+        cell.publicPublication(cell.store.publication(result.event)),
+        result.proof,
+        authorityProof.authorizationDecision ?? null,
+      );
+    if (result.outcome === "pending")
+      return {
+        outcome: "pending",
+        opId: command.opId,
+        revision: result.revision,
+        evidence: result.evidence,
+        visibility: result.visibility,
+        proof: result.proof,
+        nextAction: result.nextAction ?? "Retry receipt show.",
+      };
+    return cell.rejected(
+      command.opId,
+      result.code ?? "publication_unknown",
+      result.nextAction ?? "Retry receipt show before resubmitting.",
     );
-  if (result.outcome === "pending")
-    return {
-      outcome: "pending",
-      opId: command.opId,
-      revision: result.revision,
-      evidence: result.evidence,
-      visibility: result.visibility,
-      proof: result.proof,
-      nextAction: result.nextAction ?? "Retry receipt show.",
-    };
-  return cell.rejected(
-    command.opId,
-    result.code ?? "publication_unknown",
-    result.nextAction ?? "Retry receipt show before resubmitting.",
-  );
+  };
+  const transition = findTaskLifecycleTransition(command, current.snapshot);
+  if (!transition) return execute();
+  const declaration = requireEntityActionContractByTransition("task", transition.id);
+  const coordination = coordinateAction(declaration.coordination, { dryRunRequested: action.dryRun === true });
+  return executeActionCoordination(coordination, {
+    admitWip: (nextStatus) => cell.assertTaskWipCapacity(command.taskId, nextStatus),
+    preview: () => cell.previewStart(action, binding),
+    execute,
+  });
 }
 
 export function declareExecutionExecutor(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {

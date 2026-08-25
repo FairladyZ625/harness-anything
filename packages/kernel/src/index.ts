@@ -28,6 +28,7 @@ export {
   codeDocRecordId,
   currentCodeDocWitness,
   executionExecutorDeclarationCandidates,
+  findTaskLifecycleTransition,
   heldLeaseForExecutionActor,
   normalizeTaskLifecycleCommand,
   reviewDigest,

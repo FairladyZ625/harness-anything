@@ -4,8 +4,23 @@ import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
 import { parseEntityRef, type EntityRef } from "./entity-ref.ts";
 import { CONTRACT_VERSION_1_0, isContractVersionCompatible, type ContractVersion } from "./contract-version.ts";
+import type { DomainStatus } from "./lifecycle-status.ts";
 
 export const currentActionEnvelopeVersion = CONTRACT_VERSION_1_0;
+
+export interface ActionCoordinationFacet {
+  readonly dryRun: "supported" | "disabled";
+  readonly wipAdmission: { readonly nextStatus: DomainStatus } | null;
+  readonly fleetProvisionalReservation: "required" | "disabled";
+  readonly fifo: "required" | "disabled";
+}
+
+export const ACTION_COORDINATION_DISABLED: ActionCoordinationFacet = Object.freeze({
+  dryRun: "disabled",
+  wipAdmission: null,
+  fleetProvisionalReservation: "disabled",
+  fifo: "disabled",
+});
 
 export interface ActionEnvelope<Kind extends string = string> {
   readonly version: ContractVersion;

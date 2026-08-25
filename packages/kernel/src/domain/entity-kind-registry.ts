@@ -4,6 +4,7 @@ import decisionPackageJsonSchema from "../../schemas/json/decision-package.schem
 import factEventJsonSchema from "../../schemas/json/fact-event.schema.json" with { type: "json" };
 import { AGENT_DECLARATION_V1_SCHEMA, agentStates, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
 import { agentRuntimeEventTypes, runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
+import { ACTION_COORDINATION_DISABLED, type ActionCoordinationFacet } from "./action-envelope.ts";
 import { decisionEventTypes, decisionStates, policyStates } from "./decision-event-types.ts";
 import { CONTRACT_VERSION_1_0, type ContractVersion } from "./contract-version.ts";
 import { DEFAULT_POLICY } from "./default-policy.ts";
@@ -113,6 +114,9 @@ export interface EntityActionContract {
     readonly refTemplate: string;
   };
   readonly sdkExposure: EntitySdkExposure;
+  readonly intentId: string;
+  readonly transitionId: string;
+  readonly coordination: ActionCoordinationFacet;
 }
 
 export interface EntityKindExplanation {
@@ -157,12 +161,18 @@ const entityAction = (
   refTemplate: string,
   id: string,
   sdkExposure: EntitySdkExposure = noSdkExposure,
+  semantics: {
+    readonly intentId: string;
+    readonly transitionId: string;
+    readonly coordination: ActionCoordinationFacet;
+  },
 ): EntityActionContract =>
   Object.freeze({
     id,
     version: CONTRACT_VERSION_1_0,
     target: Object.freeze({ kind, refTemplate }),
     sdkExposure,
+    ...semantics,
   });
 const actionCatalog = (
   ref: string,
@@ -170,7 +180,32 @@ const actionCatalog = (
   refTemplate: string,
   ids: readonly string[],
   sdkExposure: EntitySdkExposure = noSdkExposure,
-) => Object.freeze({ ref, actions: Object.freeze(ids.map((id) => entityAction(kind, refTemplate, id, sdkExposure))) });
+) =>
+  Object.freeze({
+    ref,
+    actions: Object.freeze(
+      ids.map((id) =>
+        entityAction(kind, refTemplate, id, sdkExposure, {
+          intentId: id,
+          transitionId: id,
+          coordination: ACTION_COORDINATION_DISABLED,
+        }),
+      ),
+    ),
+  });
+const taskActionCatalog = (ref: string, refTemplate: string) =>
+  Object.freeze({
+    ref,
+    actions: Object.freeze(
+      TASK_LIFECYCLE_TRANSITIONS.map((transition) =>
+        entityAction("task", refTemplate, transition.id, taskExposure, {
+          intentId: transition.commandType,
+          transitionId: transition.id,
+          coordination: transition.coordination,
+        }),
+      ),
+    ),
+  });
 const genericAuthoring = Object.freeze({ kind: "generic-entity-store" as const, contractRef: "entity-event/v1" });
 const genericEntityStore = (pathTemplate: string, validate?: (value: unknown) => readonly string[]) =>
   Object.freeze({ document: declarationDocument(pathTemplate), ...(validate ? { validate } : {}) });
@@ -362,23 +397,6 @@ const relationsFor = (kind: string): EntityKindContract["relations"] => {
   return Object.freeze({ directions: edges.length ? (["directed"] as const) : [], edges: Object.freeze(edges) });
 };
 
-const decisionActionByEvent = {
-  decision_proposed: "propose",
-  decision_accepted: "accept",
-  decision_rejected: "reject",
-  decision_deferred: "defer",
-  decision_superseded: "supersede",
-  decision_retired: "retire",
-  decision_amended: "amend",
-  decision_repinned: "repin",
-  decision_claim_declared: "declare-claim",
-  decision_claim_fulfillment_declared: "fulfill-claim",
-  decision_related: "relate",
-  decision_relation_retired: "retire-relation",
-  decision_relation_replaced: "replace-relation",
-} as const satisfies Record<(typeof decisionEventTypes)[number], string>;
-const decisionActionIds = decisionEventTypes.map((type) => decisionActionByEvent[type]);
-
 export const entityKindContracts = Object.freeze([
   {
     kind: "task",
@@ -386,13 +404,7 @@ export const entityKindContracts = Object.freeze([
     id: { field: "task_id", pattern: lifecycleTaskIdPattern, refTemplate: "task/{id}" },
     relations: relationsFor("task"),
     statusVocabulary: [{ field: "lifecycle.status", words: domainStatuses }],
-    actionCatalog: actionCatalog(
-      "kernel/task-lifecycle/v1",
-      "task",
-      "task/{id}",
-      TASK_LIFECYCLE_TRANSITIONS.map(({ id }) => id),
-      taskExposure,
-    ),
+    actionCatalog: taskActionCatalog("kernel/task-lifecycle/v1", "task/{id}"),
     entityStore: null,
     authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: taskExposure,
@@ -404,7 +416,13 @@ export const entityKindContracts = Object.freeze([
     id: { field: "factId", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$", refTemplate: "fact/{id}" },
     relations: relationsFor("fact"),
     statusVocabulary: [{ field: "state", words: ["standing", "superseded_fact"] }],
-    actionCatalog: actionCatalog("kernel/fact-event/v1", "fact", "fact/{id}", ["record"], factExposure),
+    actionCatalog: actionCatalog(
+      "kernel/fact-event/v1",
+      "fact",
+      "fact/{id}",
+      [factEventJsonSchema.properties.type.const],
+      factExposure,
+    ),
     entityStore: null,
     authoring: { kind: "fact-event", contractRef: "fact-event/v1" },
     sdkExposure: factExposure,
@@ -420,7 +438,7 @@ export const entityKindContracts = Object.freeze([
       "kernel/decision-event/v1",
       "decision",
       "decision/{id}",
-      decisionActionIds,
+      decisionEventTypes,
       decisionExposure,
     ),
     entityStore: null,
@@ -544,6 +562,16 @@ export function requireEntityKindContract(kind: string): EntityKindContract {
   if (!contract)
     throw Object.assign(new Error(`Entity kind ${kind} is not registered.`), { code: "entity_kind_not_found" });
   return contract;
+}
+
+export function requireEntityActionContractByTransition(kind: string, transitionId: string): EntityActionContract {
+  const contract = requireEntityKindContract(kind),
+    action = contract.actionCatalog?.actions.find((candidate) => candidate.transitionId === transitionId);
+  if (!action)
+    throw Object.assign(new Error(`Entity kind ${kind} does not declare transition ${transitionId}.`), {
+      code: "entity_action_not_found",
+    });
+  return action;
 }
 
 export type EntityStoreKindContract = EntityKindContract & {
