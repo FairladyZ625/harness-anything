@@ -1,5 +1,5 @@
 import { presetMethods } from "../../../preset/src/preset-command-contract.ts";
-import type { ContractVersion } from "../../../kernel/src/index.ts";
+import type { ContractVersion } from "@harness-anything/kernel/contract-version";
 import { effectiveDaemonOwnedProtocolCommands } from "./daemon-protocol-commands.ts";
 import { daemonGuiActionMethods, daemonGuiStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
