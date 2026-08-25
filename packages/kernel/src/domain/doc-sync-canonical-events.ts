@@ -55,6 +55,11 @@ export const canonicalEventSchemas = Object.freeze([
     validateCurrent: validateCurrentEntityEvent,
   },
   {
+    schema: "agent-entity-event/v1",
+    validate: validateEntityEvent,
+    validateCurrent: validateCurrentEntityEvent,
+  },
+  {
     schema: "fact-event/v1",
     validate: validateFactEvent,
     validateCurrent: validateCurrentFactEvent,

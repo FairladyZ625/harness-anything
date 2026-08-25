@@ -1,6 +1,11 @@
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { parseEntityJsonSchema } from "../domain/entity-json-schema.ts";
-import { compileEntityUpsert, isEntityEvent, type EntityUpsertBundle } from "../domain/entity-event.ts";
+import {
+  compileEntityUpsert,
+  isEntityEvent,
+  type EntityUpsertBundle,
+  type StoredEntityEventV1,
+} from "../domain/entity-event.ts";
 import { requireEntityKindContract } from "../domain/entity-kind-registry.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveLedgerGitLayout } from "./ledger-git-layout.ts";
@@ -56,7 +61,7 @@ export function openEntityStore(rootInput: HarnessLayoutInput): EntityStore {
 }
 
 function entityEventRecord(
-  event: Extract<ReturnType<EntityEventSource["read"]>["events"][number], { readonly schema: "entity-event/v1" }>,
+  event: StoredEntityEventV1,
   source: EntityEventSource,
   contract: ReturnType<typeof requireEntityKindContract>,
 ): StoredEntity {
