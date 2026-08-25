@@ -627,21 +627,17 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       },
     );
     await t.test(
-      "the live task-bound runtime publishes only its assigned artifacts while lifecycle authority stays holder-only",
+      "the task-bound runtime publishes only its assigned artifacts after projection reopen while lifecycle authority stays holder-only",
       async () => {
         const taskId = "task-runtime-artifact",
           executionId = "exec-runtime-artifact",
           otherTaskId = "task-runtime-artifact-other",
-          otherExecutionId = "exec-runtime-artifact-other",
-          holder = { kind: "agent", id: "dispatch-holder" } as const;
+          otherExecutionId = "exec-runtime-artifact-other";
         assert.equal(
           (await host.run(repoId, { kind: "task-create", taskId, title: "Runtime artifact" }, auth)).outcome,
           "applied",
         );
-        assert.equal(
-          (await host.run(repoId, { kind: "task-start", taskId, executionId, executor: holder }, auth)).outcome,
-          "applied",
-        );
+        assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
         assert.equal(
           (
             await host.run(
@@ -664,7 +660,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
                 kind: "task-start",
                 taskId: otherTaskId,
                 executionId: otherExecutionId,
-                executor: holder,
               },
               auth,
             )
@@ -679,7 +674,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             prompt: "Publish the report",
             taskId,
             idempotencyKey: "runtime-artifact",
-            executor: holder,
           },
         });
         await eventuallyValue(
@@ -712,11 +706,18 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         );
         assert.equal(published.outcome, "applied", JSON.stringify(published));
         assert.equal(published.destination, `tasks/task-runtime-artifact-runtime-artifact/artifacts/${ownDestination}`);
+        const rebuilt = await host.run(repoId, { kind: "projection-rebuild" }, auth);
+        assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
+        const reopened = await host.read(repoId, "repo.agentRuntime.overview", {}, auth),
+          reopenedSession = reopened.sessions.find(
+            (candidate) => candidate.runtimeSessionId === spawned.runtimeSessionId,
+          );
+        assert.equal(reopenedSession?.liveness, "unknown");
         const syncedPath = "tasks/task-runtime-artifact-runtime-artifact/artifacts/reports/runtime-doc-sync.md",
           syncedTarget = path.join(root, "harness", syncedPath);
         mkdirSync(path.dirname(syncedTarget), { recursive: true });
         writeFileSync(syncedTarget, "# Runtime doc sync artifact\n");
-        const synced = await host.run(repoId, { kind: "doc-submit", paths: [], executor: worker }, auth);
+        const synced = await host.run(repoId, { kind: "doc-submit", paths: [syncedPath], executor: worker }, auth);
         assert.equal(synced.outcome, "applied", JSON.stringify(synced));
         assert.match(String(synced.summary), new RegExp(`applied:[\\s\\S]*${syncedPath}`, "u"));
 
@@ -792,7 +793,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         assert.match(
           String(lifecycle.nextAction),
           new RegExp(
-            `authenticated holder \\(personId=owner, executor=agent:dispatch-holder\\) must run ha task submit ${taskId} --execution-id ${executionId} --from-file <submission.json>, or ha task release ${taskId}`,
+            `authenticated holder \\(personId=owner, executor=none\\) must run ha task submit ${taskId} --execution-id ${executionId} --from-file <submission.json>, or ha task release ${taskId}`,
             "u",
           ),
         );
@@ -806,7 +807,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
                 taskId,
                 executionId,
                 fromFile: "submission.json",
-                executor: holder,
               },
               auth,
             )

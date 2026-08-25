@@ -18,7 +18,7 @@ import {
   opaqueClaim,
   state,
 } from "./doc-sync.fixtures.ts";
-test("a live task-bound runtime may write only its assigned task artifacts subtree", () => {
+test("a task-bound runtime may write only its assigned task artifacts subtree while its execution lease is held", () => {
   const runtimeActor = {
       principal: actor.principal,
       executor: { kind: "agent", id: "runtime-session:runtime-doc" },
@@ -63,7 +63,7 @@ test("a live task-bound runtime may write only its assigned task artifacts subtr
   assert.equal(accepted.accepted, true, JSON.stringify(accepted));
   for (const [name, result, code] of [
     [
-      "canonical live binding required",
+      "canonical binding required",
       run("tasks/task-owner-docs/artifacts/unbound.md", lease.taskId, {
         runtimeBinding: undefined,
         authorizationDecision: authorizeDocWrite(runtimeActor),
@@ -103,10 +103,11 @@ test("a live task-bound runtime may write only its assigned task artifacts subtr
     lastObservedAt: "2026-08-12T10:00:00.000Z",
   } as const;
   assert.deepEqual(resolveLiveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId), runtimeBinding);
-  assert.equal(
-    resolveLiveTaskBoundRuntimeBinding({ ...session, liveness: "stale" }, lease.taskId, lease.executionId),
-    null,
+  assert.deepEqual(
+    resolveLiveTaskBoundRuntimeBinding({ ...session, liveness: "unknown" }, lease.taskId, lease.executionId),
+    runtimeBinding,
   );
+  assert.equal(resolveLiveTaskBoundRuntimeBinding(session, lease.taskId, "another-execution"), null);
 });
 
 test("an opaque artifact write reclassifies an existing prose record without a policy upgrade", () => {

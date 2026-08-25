@@ -16,28 +16,24 @@ export function runtimeSessionIdFromActor(actor: ActorIdentity): string | null {
   return id.startsWith(prefix) && id.length > prefix.length ? id.slice(prefix.length) : null;
 }
 
-/** The handoff edge is the authenticated executor relation for a live runtime. */
+/** The handoff edge is the authenticated executor relation; the execution lease controls write lifetime. */
 export function runtimeSessionExecutesTask(
   session: RuntimeSession | null,
   taskId: string,
   executionId: string,
 ): boolean {
   return (
-    session?.liveness === "live" &&
-    session.taskBindings.some((binding) => binding.taskId === taskId && binding.executionId === executionId)
+    session?.taskBindings.some((binding) => binding.taskId === taskId && binding.executionId === executionId) ?? false
   );
 }
 
-/** Resolves authority only from a canonical live runtime-session projection. */
+/** Resolves the canonical runtime-session handoff; callers pair it with the current execution lease. */
 export function resolveLiveTaskBoundRuntimeBinding(
   session: RuntimeSession | null,
   taskId: string,
   executionId: string,
 ): LiveTaskBoundRuntimeBinding | null {
-  if (
-    session?.liveness !== "live" ||
-    !session.taskBindings.some((binding) => binding.taskId === taskId && binding.executionId === executionId)
-  )
+  if (!session?.taskBindings.some((binding) => binding.taskId === taskId && binding.executionId === executionId))
     return null;
   return { runtimeSessionId: session.runtimeSessionId, taskId, executionId };
 }
