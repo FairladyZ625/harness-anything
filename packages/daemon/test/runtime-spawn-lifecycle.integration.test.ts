@@ -527,6 +527,11 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         repoId: workspaceId(repoId),
         rootDir: canonicalRoot(root),
         ownerId,
+        runtimeDaemonRoute: {
+          userRoot: path.join(parent, "daemon-user"),
+          daemonId: "runtime-re-adopt-test",
+          endpoint: path.join(parent, "daemon.sock"),
+        },
         runtimeInstances: () => [definition],
         prepareRuntimeLaunch: async (_instanceId, request) => ({
           definition: preparedDefinition,
@@ -660,6 +665,105 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       },
       { liveness: "exited", outcome: "succeeded", exitCode: 0 },
     );
+
+    const taskId = "task-runtime-lost",
+      executionId = "execution-runtime-lost",
+      binding = {
+        actor: { principal: { personId: "owner" }, executor: null },
+        source: "local" as const,
+      };
+    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Runtime Lost" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
+    rmSync(release, { force: true });
+    const lostReceipt = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: definition.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Lose the worker host while the daemon is absent",
+        taskId,
+        idempotencyKey: "re-adopt-lost",
+      },
+      binding,
+    );
+    providerPid = await eventuallyValue(() => {
+      try {
+        const value = Number(readFileSync(pidFile, "utf8"));
+        return Number.isInteger(value) && value > 0 ? value : null;
+      } catch {
+        return null;
+      }
+    });
+    const lostDispatchId = String(lostReceipt.dispatchId),
+      hostPid = await eventuallyValue(() => {
+        const started = readFileSync(
+          path.join(root, ".harness", "runtime", "dispatches", `${lostDispatchId}.jsonl`),
+          "utf8",
+        )
+          .trim()
+          .split(/\r?\n/u)
+          .map((line) => JSON.parse(line) as Record<string, unknown>)
+          .find((record) => record.kind === "process_started");
+        return Number.isInteger(started?.pid) && Number(started?.pid) > 0 ? Number(started?.pid) : null;
+      });
+    await cell.close();
+    cell = undefined;
+    process.kill(hostPid, "SIGKILL");
+    try {
+      process.kill(providerPid, "SIGKILL");
+    } catch (error) {
+      consumeKnownError(error);
+    }
+    await eventuallyValue(() => {
+      try {
+        process.kill(hostPid, 0);
+        return null;
+      } catch {
+        return true;
+      }
+    });
+    cell = await open("re-adopt-lost");
+    await eventually(() =>
+      makeTaskEventStore({ repoId, rootDir: root })
+        .read()
+        .events.some(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === lostReceipt.runtimeSessionId,
+        ),
+    );
+    rmSync(path.join(root, ".harness", "runtime", "dispatches", "runtime-sessions.json"), { force: true });
+    const lostDispatches = await cell.read("repo.task.dispatches", { taskId }),
+      lostRow = lostDispatches.dispatches.find((row) => row.dispatchId === lostDispatchId),
+      lostProjection = makeTaskProjection({
+        rootDir: root,
+        eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+      }),
+      lostSession = lostProjection.readRuntimeSession(String(lostReceipt.runtimeSessionId))!;
+    lostProjection.close();
+    assert.ok(lostRow, "lost dispatch row missing after daemon restart");
+    assert.equal(
+      readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${lostDispatchId}.jsonl`), "utf8")
+        .split(/\r?\n/u)
+        .some((line) => line.includes('"kind":"process_lost"')),
+      true,
+      "daemon restart loss must be durable in the dispatch stream",
+    );
+    assert.deepEqual(
+      {
+        status: lostRow.status,
+        outcome: lostRow.outcome,
+        exitCode: lostRow.exitCode,
+        resultRef: lostRow.resultRef,
+        liveness: lostSession.liveness,
+      },
+      {
+        status: "lost",
+        outcome: "unknown",
+        exitCode: null,
+        resultRef: lostSession.resultRef,
+        liveness: "exited",
+      },
+    );
   } finally {
     writeFileSync(release, "release");
     await cell?.close();
@@ -673,159 +777,173 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
   }
 });
 
-test("explicit runtime cancel terminates every detached native provider descendant group", { skip: process.platform === "win32" ? "requires POSIX process-group semantics" : false }, async (t) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-detached-cancel-")),
-    root = path.join(parent, "repo"),
-    pidFile = path.join(parent, "provider-pids.json"),
-    repoId = "runtime-detached-cancel",
-    executablePath = writeProviderExecutable(
-      path.join(parent, "cancel-tree-provider.mjs"),
-      `import fs from "node:fs"; import { spawn } from "node:child_process";\nfs.readFileSync(0, "utf8"); const child = spawn(process.execPath, ["-e", "setInterval(() => undefined, 1000)"], { stdio: "ignore", detached: true }); child.unref(); fs.writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify([process.pid, child.pid])); console.log(JSON.stringify({ type: "thread.started", thread_id: "provider-cancel-tree" })); setInterval(() => undefined, 1000);\n`,
-    ),
-    installation = installationFixture("codex", executablePath),
-    instance = {
-      schemaVersion: 2 as const,
-      instanceId: "codex-cancel-tree",
-      name: "Codex Cancel Tree",
-      kindId: "codex" as const,
-      installationId: installation.installationId,
-      providerId: "openai",
-      models: ["codex-model"],
-      defaultModel: "codex-model",
-      enabled: true,
-      permissionMode: "read-only" as const,
-      codex: {},
-      authMode: "subscription" as const,
-      authState: "configured" as const,
-      authReadiness: { status: "ready" as const, code: null, hint: null },
-      isolationState: "enforced" as const,
-    },
-    preparedDefinition: AgentDefinitionSnapshot = {
-      schema: "agent-definition-snapshot/v1",
-      configVersion: 1,
-      instanceId: "codex-cancel-tree",
-      installationId: installation.installationId,
-      kindId: "codex",
-      providerId: "openai",
-      model: "codex-model",
-      reasoningEffort: null,
-      baseUrl: null,
-      authMode: "subscription",
-    };
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
-    runtimeSessionId = "",
-    pids: number[] = [];
-  try {
-    initIngressRepo(root, 4310);
-    cell = await openRepoCell({
-      repoId: workspaceId(repoId),
-      rootDir: canonicalRoot(root),
-      ownerId: "cancel-tree",
-      runtimeInstances: () => [instance],
-      prepareRuntimeLaunch: async (_instanceId, request) => ({
-        definition: preparedDefinition,
-        installation,
-        executablePath,
-        args: ["exec", "--json", "--model", "codex-model", "-"],
-        env: process.env,
-        cwd: request.cwd,
-        prompt: request.prompt,
-      }),
-    });
-    const spawned = await cell.spawnRuntime(
-      {
-        runtimeInstanceId: instance.instanceId,
-        cwd: { scope: "repo-root" },
-        prompt: "Wait for cancellation",
-        taskId: null,
-        idempotencyKey: "cancel-tree",
+test(
+  "explicit runtime cancel terminates every detached native provider descendant group",
+  { skip: process.platform === "win32" ? "requires POSIX process-group semantics" : false },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-detached-cancel-")),
+      root = path.join(parent, "repo"),
+      pidFile = path.join(parent, "provider-pids.json"),
+      repoId = "runtime-detached-cancel",
+      executablePath = writeProviderExecutable(
+        path.join(parent, "cancel-tree-provider.mjs"),
+        `import fs from "node:fs"; import { spawn } from "node:child_process";\nfs.readFileSync(0, "utf8"); const child = spawn(process.execPath, ["-e", "setInterval(() => undefined, 1000)"], { stdio: "ignore", detached: true }); child.unref(); fs.writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify([process.pid, child.pid])); console.log(JSON.stringify({ type: "thread.started", thread_id: "provider-cancel-tree" })); setInterval(() => undefined, 1000);\n`,
+      ),
+      installation = installationFixture("codex", executablePath),
+      instance = {
+        schemaVersion: 2 as const,
+        instanceId: "codex-cancel-tree",
+        name: "Codex Cancel Tree",
+        kindId: "codex" as const,
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["codex-model"],
+        defaultModel: "codex-model",
+        enabled: true,
+        permissionMode: "read-only" as const,
+        codex: {},
+        authMode: "subscription" as const,
+        authState: "configured" as const,
+        authReadiness: { status: "ready" as const, code: null, hint: null },
+        isolationState: "enforced" as const,
       },
-      {
-        actor: {
-          principal: { personId: "person-cancel-tree" },
-          executor: null,
+      preparedDefinition: AgentDefinitionSnapshot = {
+        schema: "agent-definition-snapshot/v1",
+        configVersion: 1,
+        instanceId: "codex-cancel-tree",
+        installationId: installation.installationId,
+        kindId: "codex",
+        providerId: "openai",
+        model: "codex-model",
+        reasoningEffort: null,
+        baseUrl: null,
+        authMode: "subscription",
+      };
+    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+      runtimeSessionId = "",
+      pids: number[] = [];
+    try {
+      initIngressRepo(root, 4310);
+      cell = await openRepoCell({
+        repoId: workspaceId(repoId),
+        rootDir: canonicalRoot(root),
+        ownerId: "cancel-tree",
+        runtimeInstances: () => [instance],
+        prepareRuntimeLaunch: async (_instanceId, request) => ({
+          definition: preparedDefinition,
+          installation,
+          executablePath,
+          args: ["exec", "--json", "--model", "codex-model", "-"],
+          env: process.env,
+          cwd: request.cwd,
+          prompt: request.prompt,
+        }),
+      });
+      const spawned = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: instance.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Wait for cancellation",
+          taskId: null,
+          idempotencyKey: "cancel-tree",
         },
-        source: "local",
-      },
-    );
-    runtimeSessionId = String(spawned.runtimeSessionId);
-    pids = await eventuallyValue(() => {
-      try {
-        const values = JSON.parse(readFileSync(pidFile, "utf8")) as number[];
-        return values.length === 2 && values.every((pid) => Number.isInteger(pid) && pid > 0) ? values : null;
-      } catch {
-        return null;
-      }
-    });
-    const hostPid = await eventuallyValue(() => {
-      try {
-        const records = readFileSync(
-            path.join(root, ".harness", "runtime", "dispatches", `${String(spawned.dispatchId)}.jsonl`),
-            "utf8",
+        {
+          actor: {
+            principal: { personId: "person-cancel-tree" },
+            executor: null,
+          },
+          source: "local",
+        },
+      );
+      runtimeSessionId = String(spawned.runtimeSessionId);
+      pids = await eventuallyValue(() => {
+        try {
+          const values = JSON.parse(readFileSync(pidFile, "utf8")) as number[];
+          return values.length === 2 && values.every((pid) => Number.isInteger(pid) && pid > 0) ? values : null;
+        } catch {
+          return null;
+        }
+      });
+      const hostPid = await eventuallyValue(() => {
+        try {
+          const records = readFileSync(
+              path.join(root, ".harness", "runtime", "dispatches", `${String(spawned.dispatchId)}.jsonl`),
+              "utf8",
+            )
+              .trim()
+              .split(/\r?\n/u)
+              .map((line) => JSON.parse(line) as Record<string, unknown>),
+            pid = records.find((record) => record.kind === "process_started")?.pid;
+          return Number.isInteger(pid) && Number(pid) > 0 ? Number(pid) : null;
+        } catch {
+          return null;
+        }
+      });
+      pids = [hostPid, ...pids];
+      assert.equal(
+        (
+          await cell.cancelRuntime(
+            { runtimeSessionId },
+            {
+              actor: {
+                principal: { personId: "person-cancel-tree" },
+                executor: null,
+              },
+              source: "local",
+            },
           )
+        ).detail,
+        "cancelled",
+      );
+      const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${String(spawned.dispatchId)}.jsonl`),
+        descendants = await eventuallyValue(() => {
+          const records = readFileSync(streamPath, "utf8")
             .trim()
             .split(/\r?\n/u)
-            .map((line) => JSON.parse(line) as Record<string, unknown>),
-          pid = records.find((record) => record.kind === "process_started")?.pid;
-        return Number.isInteger(pid) && Number(pid) > 0 ? Number(pid) : null;
-      } catch {
-        return null;
-      }
-    });
-    pids = [hostPid, ...pids];
-    assert.equal(
-      (
-        await cell.cancelRuntime(
-          { runtimeSessionId },
-          {
-            actor: {
-              principal: { personId: "person-cancel-tree" },
-              executor: null,
-            },
-            source: "local",
-          },
-        )
-      ).detail,
-      "cancelled",
-    );
-    const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${String(spawned.dispatchId)}.jsonl`),
-      descendants = await eventuallyValue(() => {
-        const records = readFileSync(streamPath, "utf8").trim().split(/\r?\n/u).map((line) => JSON.parse(line) as Record<string, unknown>);
-        return records.find((record) => record.kind === "process_descendants") ?? null;
+            .map((line) => JSON.parse(line) as Record<string, unknown>);
+          return records.find((record) => record.kind === "process_descendants") ?? null;
+        });
+      assert.deepEqual(
+        (descendants.pids as number[]).slice().sort((left, right) => left - right),
+        pids.slice().sort((left, right) => left - right),
+      );
+      const survivors = pids.filter((pid) => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
       });
-    assert.deepEqual((descendants.pids as number[]).slice().sort((left, right) => left - right), pids.slice().sort((left, right) => left - right));
-    const survivors = pids.filter((pid) => {
-      try { process.kill(pid, 0); return true; }
-      catch { return false; }
-    });
-    assert.deepEqual(survivors, [], `cancel survivors: ${JSON.stringify(survivors)}`);
-    t.diagnostic(`cancel descendants=${JSON.stringify(pids)} survivors=${JSON.stringify(survivors)}`);
-  } finally {
-    if (runtimeSessionId)
-      try {
-        await cell?.cancelRuntime(
-          { runtimeSessionId },
-          {
-            actor: {
-              principal: { personId: "person-cancel-tree" },
-              executor: null,
+      assert.deepEqual(survivors, [], `cancel survivors: ${JSON.stringify(survivors)}`);
+      t.diagnostic(`cancel descendants=${JSON.stringify(pids)} survivors=${JSON.stringify(survivors)}`);
+    } finally {
+      if (runtimeSessionId)
+        try {
+          await cell?.cancelRuntime(
+            { runtimeSessionId },
+            {
+              actor: {
+                principal: { personId: "person-cancel-tree" },
+                executor: null,
+              },
+              source: "local",
             },
-            source: "local",
-          },
-        );
-      } catch (error) {
-        consumeKnownError(error);
-      }
-    await cell?.close();
-    for (const pid of pids)
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch (error) {
-        consumeKnownError(error);
-      }
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
+          );
+        } catch (error) {
+          consumeKnownError(error);
+        }
+      await cell?.close();
+      for (const pid of pids)
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch (error) {
+          consumeKnownError(error);
+        }
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
 
 test("runtime exit notification records a bounded timeout", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-exit-notification-")),

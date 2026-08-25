@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "../../kernel/src/index.ts";
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import { markRuntimeSessionResult, scrubProviderValue } from "./dispatch-stream.ts";
+import { scrubProviderValue } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
@@ -91,7 +91,6 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
             eventStreamRef: active.stream.ref,
           }
         : null;
-    markRuntimeSessionResult(context.input.rootDir, active.dispatchId, resultRef);
     if (archive)
       try {
         const archived = context.input.remote

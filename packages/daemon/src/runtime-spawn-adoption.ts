@@ -1,5 +1,5 @@
 import {
-  markRuntimeSessionLost,
+  appendRuntimeWorkerRecord,
   readDispatchStream,
   readDispatchStreams,
   reopenDispatchStream,
@@ -15,9 +15,9 @@ export async function adoptRuntimes(context: any): Promise<void> {
   const sessions = context.input.remote
     ? await context.input.remote.readRuntimeSessions()
     : context.requiredRuntimeProjection(context.input).readRuntimeSessions();
-  const byId = new Map(sessions.map(
-    (session: { readonly runtimeSessionId: string }) => [session.runtimeSessionId, session],
-  ));
+  const byId = new Map(
+    sessions.map((session: { readonly runtimeSessionId: string }) => [session.runtimeSessionId, session]),
+  );
   for (const stream of readDispatchStreams(context.input.rootDir)) {
     const session = byId.get(stream.header.runtimeSessionId) as
       | { readonly liveness: string; readonly outcome: string | null }
@@ -43,15 +43,16 @@ export async function adoptRuntimes(context: any): Promise<void> {
         : null,
       delegatedBy: stream.header.delegatedByAgentId
         ? {
-          id: stream.header.delegatedByAgentId,
-          name: stream.header.delegatedByAgentName ?? stream.header.delegatedByAgentId,
-        }
+            id: stream.header.delegatedByAgentId,
+            name: stream.header.delegatedByAgentName ?? stream.header.delegatedByAgentId,
+          }
         : null,
       squadId: stream.header.squadId ?? null,
       binding: metadata.binding,
-      task: stream.header.taskId && stream.header.executionId
-        ? { taskId: stream.header.taskId, executionId: stream.header.executionId }
-        : null,
+      task:
+        stream.header.taskId && stream.header.executionId
+          ? { taskId: stream.header.taskId, executionId: stream.header.executionId }
+          : null,
       cwd: metadata.cwd,
       prompt: metadata.prompt,
       ...(stream.header.promptSource ? { promptSource: stream.header.promptSource } : {}),
@@ -83,13 +84,13 @@ export async function adoptRuntimes(context: any): Promise<void> {
           active.lossReason = reason;
           active.lossExitCode = current?.process?.exitCode ?? null;
           active.lossSignal = current?.process?.signal ?? null;
-          markRuntimeSessionLost(
-            context.input.rootDir,
-            active.dispatchId,
+          appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
+            kind: "process_lost",
+            occurredAt: context.input.now(),
             reason,
-            active.lossExitCode,
-            active.lossSignal,
-          );
+            exitCode: active.lossExitCode,
+            signal: active.lossSignal,
+          });
           context.input.schedule(() => context.publishExit(active, active.lossExitCode));
         }
       }, 50);
@@ -109,16 +110,17 @@ function adoptableMetadata(header: DispatchStreamHeader): {
   readonly reasoningEffort: string | null;
 } | null {
   if (
-    typeof header.dispatchOpId !== "string"
-    || !["claude", "codex", "agy"].includes(String(header.kindId))
-    || header.permissionMode !== null
-      && !["bypass", "workspace-write", "read-only"].includes(String(header.permissionMode))
-    || !isBinding(header.binding)
-    || typeof header.cwd !== "string"
-    || typeof header.prompt !== "string"
-    || typeof header.model !== "string"
-    || header.reasoningEffort !== null && typeof header.reasoningEffort !== "string"
-  ) return null;
+    typeof header.dispatchOpId !== "string" ||
+    !["claude", "codex", "agy"].includes(String(header.kindId)) ||
+    (header.permissionMode !== null &&
+      !["bypass", "workspace-write", "read-only"].includes(String(header.permissionMode))) ||
+    !isBinding(header.binding) ||
+    typeof header.cwd !== "string" ||
+    typeof header.prompt !== "string" ||
+    typeof header.model !== "string" ||
+    (header.reasoningEffort !== null && typeof header.reasoningEffort !== "string")
+  )
+    return null;
   return {
     dispatchOpId: header.dispatchOpId,
     kindId: header.kindId as "claude" | "codex" | "agy",
@@ -134,9 +136,11 @@ function isBinding(value: unknown): value is RuntimeBinding {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const binding = value as Record<string, unknown>;
   const actor = binding.actor;
-  return actor !== null
-    && typeof actor === "object"
-    && !Array.isArray(actor)
-    && typeof (actor as { principal?: { personId?: unknown } }).principal?.personId === "string"
-    && binding.source !== undefined;
+  return (
+    actor !== null &&
+    typeof actor === "object" &&
+    !Array.isArray(actor) &&
+    typeof (actor as { principal?: { personId?: unknown } }).principal?.personId === "string" &&
+    binding.source !== undefined
+  );
 }
