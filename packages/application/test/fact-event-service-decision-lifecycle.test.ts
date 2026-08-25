@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import test from "node:test";
-import { authorizationPort, type DecisionEventDraftV1 } from "../../kernel/src/index.ts";
+import { authorizationPort, currentActionEnvelopeVersion, type DecisionEventDraftV1 } from "../../kernel/src/index.ts";
 
 import {
   actor,
@@ -53,6 +53,7 @@ test("Decision transition matrix, transport arbiter, claims, relation retirement
     );
     const selfJudgment = authorizationPort.authorize(
       {
+        version: currentActionEnvelopeVersion,
         actionId: "action-decision-self-judgment",
         kind: "decision.accept",
         target: "decision/dec_FIXTURE",

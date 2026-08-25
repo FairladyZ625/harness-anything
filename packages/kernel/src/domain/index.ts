@@ -1,4 +1,5 @@
 export { createTaskIdentity } from "./task.ts";
+export { currentActionEnvelopeVersion } from "./action-envelope.ts";
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
 export { DEFAULT_POLICY } from "./default-policy.ts";
@@ -104,11 +105,15 @@ export {
 } from "./fact-event.ts";
 export type { FactConfidence, FactEventDraftV1, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
 
+export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";
+export type { ContractVersion } from "./contract-version.ts";
+
 export {
   createEntityKindRegistry,
   explainEntityKind,
   getEntityKind,
   requireEntityKindContract,
+  requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
 export type {
   EntityKindDeclaration,

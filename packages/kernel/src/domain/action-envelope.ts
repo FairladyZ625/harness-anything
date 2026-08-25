@@ -3,8 +3,12 @@ import type { ActorIdentity } from "./actor-identity.ts";
 import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
 import { parseEntityRef, type EntityRef } from "./entity-ref.ts";
+import { CONTRACT_VERSION_1_0, isContractVersionCompatible, type ContractVersion } from "./contract-version.ts";
+
+export const currentActionEnvelopeVersion = CONTRACT_VERSION_1_0;
 
 export interface ActionEnvelope<Kind extends string = string> {
+  readonly version: ContractVersion;
   readonly actionId: string;
   readonly kind: Kind;
   readonly target: EntityRef;
@@ -13,7 +17,15 @@ export interface ActionEnvelope<Kind extends string = string> {
   readonly idempotencyKey: string;
 }
 
-const actionEnvelopeFields = ["actionId", "kind", "target", "actor", "authorizationRef", "idempotencyKey"] as const;
+const actionEnvelopeFields = [
+  "version",
+  "actionId",
+  "kind",
+  "target",
+  "actor",
+  "authorizationRef",
+  "idempotencyKey",
+] as const;
 
 export function validateActionEnvelope(value: unknown): readonly string[] {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return ["Action envelope must be an object"];
@@ -21,6 +33,8 @@ export function validateActionEnvelope(value: unknown): readonly string[] {
     errors = Object.keys(action)
       .filter((field) => !actionEnvelopeFields.includes(field as (typeof actionEnvelopeFields)[number]))
       .map((field) => `unexpected Action envelope field: ${field}`);
+  if (!isContractVersionCompatible(action.version, currentActionEnvelopeVersion))
+    errors.push("version is not compatible with this Action envelope");
   for (const field of ["actionId", "kind", "authorizationRef", "idempotencyKey"] as const)
     if (!isNonEmptyString(action[field])) errors.push(`${field} is required`);
   if (!isNonEmptyString(action.target) || parseEntityRef(action.target) === null)
@@ -34,6 +48,7 @@ export function actionReplayKey(action: ActionEnvelope): `sha256:${string}` {
   const errors = validateActionEnvelope(action);
   if (errors.length) throw new Error(`invalid Action envelope: ${errors.join("; ")}`);
   return `sha256:${stablePayloadHash({
+    version: action.version,
     kind: action.kind,
     target: action.target,
     actor: action.actor,

@@ -7,7 +7,7 @@ const cut = { revision: 7, headDigest: `sha256:${"b".repeat(64)}` } as const;
 const ledgerCut = { repoId: "repo", ...cut } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
 const frames = [
-  { schema: "fleet.session.hello/v1", messageId: "m1", protocolVersion: 1, nodeId: "node-1", credential: "secret" },
+  { schema: "fleet.session.hello/v1", messageId: "m1", protocolVersion: { major: 1, minor: 0 }, nodeId: "node-1", credential: "secret" },
   { schema: "fleet.session.ready/v1", messageId: "m2", inReplyTo: "m1", sessionId: "s1", maxFrameBytes: FLEET_FRAME_BYTES, chunkBytes: FLEET_CHUNK_BYTES },
   { schema: "fleet.assignment.get/v1", messageId: "m3", assignmentId: "a1" },
   { schema: "fleet.assignment.result/v1", messageId: "m4", inReplyTo: "m3", assignmentId: "a1", repoId: "repo", taskId: "task", executionId: "exec", paths: ["tasks/task/a.md"], baseLedgerSha: ledgerCut, expiresAt: "2099-01-01T00:00:00.000Z", writerEpoch: 1 },
@@ -73,6 +73,6 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     ...spoofFields.map((field) => ({ ...taskCommand, action: { kind: "task-start", taskId: "task_abc", [field]: field === "actor" ? { principal: { personId: "spoof" } } : "spoof" } })),
     { ...frames[0], schema: "fleet.unknown/v1" }
   ]) assert.throws(() => parseFleetFrame(invalid), FleetContractError);
-  assert.throws(() => parseFleetFrame(`{"schema":"fleet.session.hello/v1","messageId":"m","protocolVersion":1,"nodeId":"n","credential":"${"x".repeat(FLEET_FRAME_BYTES)}"}`), /frame exceeds/u);
+  assert.throws(() => parseFleetFrame(`{"schema":"fleet.session.hello/v1","messageId":"m","protocolVersion":{"major":1,"minor":0},"nodeId":"n","credential":"${"x".repeat(FLEET_FRAME_BYTES)}"}`), /frame exceeds/u);
   assert.throws(() => new FleetUtf8LineDecoder().push(Buffer.from([0xc3, 0x28])), /encoded data/u);
 });

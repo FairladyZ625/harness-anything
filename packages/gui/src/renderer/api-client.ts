@@ -1,4 +1,5 @@
 import type {
+  ContractVersion,
   DecisionProjectionRow,
   FactAnchorRow,
   RelationFactRow,
@@ -118,7 +119,7 @@ export interface SystemStatusSuccess {
   readonly ok: true;
   readonly observedAt: string;
   readonly daemon: DaemonPoint & {
-    readonly protocolVersion: number;
+    readonly protocolVersion: ContractVersion;
     readonly uptimeMs: number;
     readonly endpoint: string;
     readonly build: { readonly version: string; readonly commitSha: string | null };

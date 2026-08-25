@@ -2,7 +2,11 @@ import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { parseEntityJsonSchema, serializeEntityJsonSchema } from "./entity-json-schema.ts";
-import { ENTITY_DOCUMENT_POLICY_ID, entityDocumentPath, requireEntityKindContract } from "./entity-kind-registry.ts";
+import {
+  ENTITY_DOCUMENT_POLICY_ID,
+  entityDocumentPath,
+  requireEntityStoreKindContract,
+} from "./entity-kind-registry.ts";
 import {
   freezeDeclaredWritePlan,
   hasOnlyFields,
@@ -70,10 +74,10 @@ export function compileEntityUpsert(input: {
   readonly source: WriteSource;
   readonly occurredAt: string;
 }): EntityUpsertBundle {
-  const contract = requireEntityKindContract(input.entityKind),
+  const contract = requireEntityStoreKindContract(input.entityKind),
     entity = parseEntityJsonSchema(contract.schema, input.entity, `${input.entityKind} declaration`),
     entityId = isRecord(entity) ? entity[contract.id.field] : undefined;
-  const contractErrors = contract.validate?.(entity) ?? [];
+  const contractErrors = contract.entityStore.validate?.(entity) ?? [];
   if (contractErrors.length) throw new Error(contractErrors.join("; "));
   if (typeof entityId !== "string") throw new Error(`${input.entityKind} declaration has no string identity`);
   const body = serializeEntityJsonSchema(contract.schema, entity, `${input.entityKind} declaration`),
@@ -81,8 +85,8 @@ export function compileEntityUpsert(input: {
       path: normalizeRelativeDocumentPath(entityDocumentPath(contract, entityId)),
       sha256: sha256Text(body),
       size: Buffer.byteLength(body),
-      mediaType: contract.document.mediaType,
-      policyId: contract.document.policyId,
+      mediaType: contract.entityStore.document.mediaType,
+      policyId: contract.entityStore.document.policyId,
     },
     event: EntityEventV1 = {
       schema: "entity-event/v1",
@@ -136,7 +140,7 @@ function validateEntityEventFields(value: unknown, allowUnknownFields: boolean):
   if (typeof kind !== "string" || typeof id !== "string") return ["entity event kind and identity are invalid"];
   let contract;
   try {
-    contract = requireEntityKindContract(kind);
+    contract = requireEntityStoreKindContract(kind);
   } catch {
     return ["entity event kind is not registered"];
   }
@@ -148,17 +152,14 @@ function validateEntityEventFields(value: unknown, allowUnknownFields: boolean):
     !/^[0-9a-f]{64}$/u.test(String(claim.sha256)) ||
     !Number.isSafeInteger(claim.size) ||
     (claim.size as number) < 0 ||
-    claim.mediaType !== contract.document.mediaType ||
+    claim.mediaType !== contract.entityStore.document.mediaType ||
     !acceptedPolicyIds(value.schema).includes(String(claim.policyId))
   )
     return ["entity declaration claim is invalid"];
   return validateEventEnvelopeIdentity(value, allowUnknownFields).length ? ["entity event identity is invalid"] : [];
 }
 
-export function isEntityEvent(event: {
-  readonly schema: string;
-  readonly type: string;
-}): event is StoredEntityEventV1 {
+export function isEntityEvent(event: { readonly schema: string; readonly type: string }): event is StoredEntityEventV1 {
   return isEntityEventEnvelope(event.schema, event.type);
 }
 export function entityUpsertWritePlan(event: EntityEventV1): FrozenWritePlan<"EntityUpsert"> {
@@ -192,7 +193,7 @@ export function assertEntityUpsertInputs(
   assertEntityUpsertWritePlan(event, plan);
   const claim = event.payload.declarationDocumentClaim,
     blob = blobs.find((candidate) => candidate.sha256 === claim.sha256),
-    contract = requireEntityKindContract(event.payload.entityKind);
+    contract = requireEntityStoreKindContract(event.payload.entityKind);
   if (!blob || blob.size !== claim.size || blob.mediaType !== claim.mediaType || sha256Text(blob.body) !== claim.sha256)
     throw new Error("entity upsert declaration blob must be exact");
   let value: unknown;

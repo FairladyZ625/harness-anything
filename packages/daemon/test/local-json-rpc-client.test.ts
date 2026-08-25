@@ -31,7 +31,7 @@ test("a reused connection keeps its socket listener counts flat across read roun
   try {
     const socket = await connectSocket(server.socketPath, 2_000), client = new JsonRpcLineClient(socket, socket);
     try {
-      await client.request("protocol.hello", { protocolVersion: 1 }, 5_000);
+      await client.request("protocol.hello", { protocolVersion: { major: 1, minor: 0 } }, 5_000);
       const flat = { data: socket.listenerCount("data"), end: socket.listenerCount("end"), error: socket.listenerCount("error") };
       assert.equal(flat.data >= 1 && flat.end >= 1 && flat.error >= 1, true, `hello must leave a reader attached: ${JSON.stringify(flat)}`);
       for (let round = 1; round <= 150; round += 1) {
@@ -52,7 +52,7 @@ test("a round whose deadline expired does not poison the next round on the same 
   try {
     const socket = await connectSocket(server.socketPath, 2_000), client = new JsonRpcLineClient(socket, socket);
     try {
-      await client.request("protocol.hello", { protocolVersion: 1 }, 5_000);
+      await client.request("protocol.hello", { protocolVersion: { major: 1, minor: 0 } }, 5_000);
       await assert.rejects(() => client.request("stalled", {}, 25), (error: unknown) => (error as { readonly code?: string }).code === "daemon_response_timeout");
       await new Promise((resolve) => setTimeout(resolve, 200)); // the late response lands and must be dropped
       const next = await client.request("prompt", { round: 2 }, 5_000);
@@ -72,7 +72,7 @@ test("a daemon that closes mid-exchange rejects the pending request instead of h
   try {
     const socket = await connectSocket(socketPath, 2_000), client = new JsonRpcLineClient(socket, socket);
     try {
-      await client.request("protocol.hello", { protocolVersion: 1 }, 5_000);
+      await client.request("protocol.hello", { protocolVersion: { major: 1, minor: 0 } }, 5_000);
       await assert.rejects(() => client.request("repo.agentRuntime.sessions.read", {}, 5_000), /daemon closed before JSON-RPC response/u);
       await assert.rejects(() => client.request("repo.agentRuntime.sessions.read", {}, 5_000), /daemon closed before JSON-RPC response/u);
     } finally { clientClose(client); }

@@ -4,6 +4,7 @@ import { createHarnessRuntimeContext } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { sessionEntityDeclaration } from "../entity/session.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
+import { isContractVersionCompatible } from "../domain/contract-version.ts";
 import {
   discoverDeclaredEntityRows,
   projectDeclaredEntities,
@@ -129,7 +130,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
 
-  if (existing.meta.version !== projectionVersion) {
+  if (!isContractVersionCompatible(existing.meta.version, projectionVersion)) {
     warnings.push(
       warning(
         "generated-cache",

@@ -24,8 +24,9 @@ import type {
   RelationGraphEdgeRow,
 } from "./relation-graph-projection.ts";
 import type { ProjectionMeta, TaskFieldExtensionProjection, TaskProjectionRow } from "./types.ts";
+import { contractVersion, parseContractVersion, serializeContractVersion } from "../domain/contract-version.ts";
 
-export const projectionVersion = "entity-projection/d4-v3";
+export const projectionVersion = contractVersion(3, 0);
 const baseTaskProjectionColumns = [
   "task_id",
   "title",
@@ -108,7 +109,7 @@ export function writeProjectionDatabase(
       for (const extension of projectedTaskFieldExtensions) {
         yield* addTaskProjectionColumn(sql, extension.projection.column);
       }
-      yield* insertMeta(sql, "version", projectionVersion);
+      yield* insertMeta(sql, "version", serializeContractVersion(projectionVersion));
       yield* insertMeta(sql, "sourceHash", meta.sourceHash);
       yield* insertMeta(sql, "rowsHash", meta.rowsHash);
       if (relationProjection.truthComplete) yield* insertMeta(sql, "relationTruthSource", "authored-l1/v1");
@@ -170,7 +171,7 @@ function readProjectionDatabase(
       const taskRecords = yield* sql.unsafe<TaskRecord>("SELECT * FROM task_projection ORDER BY task_id");
       return {
         meta: {
-          version: meta.get("version"),
+          version: parseContractVersion(meta.get("version")),
           sourceHash: meta.get("sourceHash") ?? "",
           rowsHash: meta.get("rowsHash") ?? "",
         },

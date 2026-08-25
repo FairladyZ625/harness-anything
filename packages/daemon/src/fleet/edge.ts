@@ -21,6 +21,7 @@ import {
   FLEET_CHUNK_BYTES,
   FLEET_SESSION_SEND_WINDOW_BYTES,
   FleetUtf8LineDecoder,
+  currentFleetProtocolVersion,
   fleetManifestDigest,
   parseFleetFrame,
   serializeFleetFrame,
@@ -700,7 +701,7 @@ async function openPeer(options: FleetPeerOptions) {
   const ready = await request({
     schema: "fleet.session.hello/v1",
     messageId: messageId(),
-    protocolVersion: 1,
+    protocolVersion: currentFleetProtocolVersion,
     nodeId: options.nodeId,
     credential: options.credential,
   });

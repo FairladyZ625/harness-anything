@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { type TLSSocket } from "node:tls";
-import { consumeKnownError } from "../../../kernel/src/index.ts";
+import { consumeKnownError, isContractVersionCompatible } from "../../../kernel/src/index.ts";
 import { writeFileDurably } from "../durable-file.ts";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
@@ -10,6 +10,7 @@ import {
   FLEET_FRAME_BYTES,
   FLEET_KEY_SEND_WINDOW_BYTES,
   FLEET_SESSION_SEND_WINDOW_BYTES,
+  currentFleetProtocolVersion,
   FleetUtf8LineDecoder,
   parseFleetFrame,
   serializeFleetFrame,
@@ -98,7 +99,11 @@ export async function serve(
     try {
       frame = parseFleetFrame(line);
       if (nodeId === null) {
-        if (frame.schema !== "fleet.session.hello/v1" || !(await options.authenticate(frame.nodeId, frame.credential)))
+        if (
+          frame.schema !== "fleet.session.hello/v1" ||
+          !isContractVersionCompatible(frame.protocolVersion, currentFleetProtocolVersion) ||
+          !(await options.authenticate(frame.nodeId, frame.credential))
+        )
           throw new FleetFault("authentication_failed", "Machine credential was rejected.");
         nodeId = frame.nodeId;
         return enqueue(

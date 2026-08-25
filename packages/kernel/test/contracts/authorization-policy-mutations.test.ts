@@ -4,7 +4,12 @@ import test from "node:test";
 import { DEFAULT_POLICY } from "../../src/domain/default-policy.ts";
 import type { PolicyDeclarationV1, PolicyPredicateExpression } from "../../src/domain/policy.ts";
 import { evaluateAuthorization } from "../../src/ports/authorization-port.ts";
-import type { ActorIdentity, AuthorizationContext, LeaseV1 } from "../../src/index.ts";
+import {
+  currentActionEnvelopeVersion,
+  type ActorIdentity,
+  type AuthorizationContext,
+  type LeaseV1,
+} from "../../src/index.ts";
 
 const owner: ActorIdentity = {
     principal: { personId: "owner" },
@@ -269,6 +274,7 @@ function assertLocationOracles(policy: PolicyDeclarationV1): void {
     const decision = evaluateAuthorization(
       policy,
       {
+        version: currentActionEnvelopeVersion,
         actionId: `mutation-${row.label}`,
         kind: row.kind,
         target: row.target,
@@ -330,6 +336,7 @@ test("deleting the Decision environment gate is killed by the default-off oracle
       };
     }),
     action = {
+      version: currentActionEnvelopeVersion,
       actionId: "mutation-decision-gate",
       kind: "decision.accept",
       target: "decision/decision-1" as const,

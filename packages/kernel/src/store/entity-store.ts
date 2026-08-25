@@ -7,7 +7,7 @@ import {
   type StoredEntityEventV1,
 } from "../domain/entity-event.ts";
 import { isTaskEvent } from "../domain/doc-sync.contract.ts";
-import { entityDocumentPath, requireEntityKindContract } from "../domain/entity-kind-registry.ts";
+import { entityDocumentPath, requireEntityStoreKindContract } from "../domain/entity-kind-registry.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveLedgerGitLayout } from "./ledger-git-layout.ts";
 import { publicationRefs } from "./task-event-store-git-refs.ts";
@@ -32,7 +32,7 @@ type EntityEventSource = Pick<CanonicalEventStore, "read" | "readContentBlob">;
 
 export function createEntityStore(source: EntityEventSource): EntityStore {
   const records = (kind: string): readonly StoredEntity[] => {
-    const contract = requireEntityKindContract(kind),
+    const contract = requireEntityStoreKindContract(kind),
       latest = new Map<string, ReturnType<typeof entityEventRecord>>();
     for (const event of source.read().events) {
       if (isEntityEvent(event) && event.payload.entityKind === contract.kind)
@@ -65,7 +65,7 @@ export function createEntityStore(source: EntityEventSource): EntityStore {
 function taskEventRecord(
   value: unknown,
   workspaceRevision: number,
-  contract: ReturnType<typeof requireEntityKindContract>,
+  contract: ReturnType<typeof requireEntityStoreKindContract>,
 ): StoredEntity {
   const parsed = parseEntityJsonSchema(contract.schema, value, `${contract.kind} declaration`),
     id = (parsed as Record<string, unknown>)[contract.id.field];
@@ -96,7 +96,7 @@ export function openEntityStore(rootInput: HarnessLayoutInput): EntityStore {
 function entityEventRecord(
   event: StoredEntityEventV1,
   source: EntityEventSource,
-  contract: ReturnType<typeof requireEntityKindContract>,
+  contract: ReturnType<typeof requireEntityStoreKindContract>,
 ): StoredEntity {
   const claim = event.payload.declarationDocumentClaim,
     bytes = source.readContentBlob(claim.sha256);
@@ -116,7 +116,7 @@ function entityEventRecord(
     throw new Error(`entity declaration blob ${claim.sha256} is not JSON`);
   }
   const value = parseEntityJsonSchema(contract.schema, decoded, `${contract.kind} declaration`);
-  const contractErrors = contract.validate?.(value) ?? [];
+  const contractErrors = contract.entityStore.validate?.(value) ?? [];
   if (contractErrors.length) throw new Error(contractErrors.join("; "));
   if (
     value === null ||

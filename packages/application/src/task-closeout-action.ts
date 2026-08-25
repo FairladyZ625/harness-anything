@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   authorizationPort,
   closeoutReadiness,
+  currentActionEnvelopeVersion,
   currentExecutionCuts,
   DEFAULT_POLICY,
   type ActorIdentity,
@@ -337,6 +338,7 @@ function authorizeCloseout(
 ): AuthorizationDecision {
   return authorizationPort.authorize(
     {
+      version: currentActionEnvelopeVersion,
       actionId: `${opId}:${scope}`,
       kind: "task.closeout",
       target: `task/${snapshot.task?.taskId ?? "missing"}`,

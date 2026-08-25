@@ -1,4 +1,5 @@
 import type { CanonicalStatus, CloseoutReadiness, PriorityTier, TaskWorkKind } from "../domain/index.ts";
+import type { ContractVersion } from "../domain/contract-version.ts";
 import type { PackageDisposition } from "../domain/package-disposition.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
@@ -144,7 +145,7 @@ export interface TaskProjectionOptions {
 }
 
 export interface ProjectionMeta {
-  readonly version?: string;
+  readonly version?: ContractVersion | null;
   readonly sourceHash: string;
   readonly rowsHash: string;
 }

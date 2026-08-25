@@ -6,6 +6,7 @@ import type {
   GuiSubmissionV1,
 } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 export type {
+  ContractVersion,
   DecisionProjectionRow,
   ProjectionWarning,
   RelationType,

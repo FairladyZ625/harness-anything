@@ -117,7 +117,7 @@ function seedRuntimeQueries(client: QueryClient): void {
   } as never);
   client.setQueryData(["system", "global", "status"], {
     schema: "gui-system-status/v1", ok: true, observedAt: AT,
-    daemon: { daemonId: "daemon-g10", pid: 1, startedAt: AT, protocolVersion: 1, uptimeMs: 1000, endpoint: "sock", build: { version: "g10", commitSha: null }, activeControl: null },
+    daemon: { daemonId: "daemon-g10", pid: 1, startedAt: AT, protocolVersion: { major: 1, minor: 0 }, uptimeMs: 1000, endpoint: "sock", build: { version: "g10", commitSha: null }, activeControl: null },
     repos: [fixtureRepoRow()],
   });
 }

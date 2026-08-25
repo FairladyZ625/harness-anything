@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createEntityStore, requireEntityKindContract, type WriteReceipt } from "../../kernel/src/index.ts";
+import { createEntityStore, requireEntityStoreKindContract, type WriteReceipt } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 
 export function archiveTasks(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
@@ -155,7 +155,7 @@ export function upsertEntity(
     readonly report: Readonly<Record<string, unknown>>;
   },
 ): WriteReceipt {
-  const contract = requireEntityKindContract(prepared.entityKind),
+  const contract = requireEntityStoreKindContract(prepared.entityKind),
     currentRevision = cell.store.readHead()?.revision ?? 0,
     canonicalAction = cell.withoutDryRun(action),
     canonicalOpId = cell.operationId(canonicalAction, binding, cell.input.repoId, currentRevision);

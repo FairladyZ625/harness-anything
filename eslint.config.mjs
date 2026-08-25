@@ -9,56 +9,58 @@ import processPortOnly from "./tools/gates/eslint-rules/process-port-only.js";
 import { noSwallowedFailureBaseline } from "./tools/gates/no-swallowed-failure-baseline.mjs";
 import { processPortOnlyBaseline } from "./tools/gates/process-port-only-baseline.mjs";
 
-const nodeGlobals = Object.fromEntries([
-  "AbortController",
-  "AbortSignal",
-  "Blob",
-  "Buffer",
-  "ByteLengthQueuingStrategy",
-  "CompressionStream",
-  "CountQueuingStrategy",
-  "CustomEvent",
-  "DecompressionStream",
-  "Event",
-  "EventTarget",
-  "File",
-  "FormData",
-  "Headers",
-  "MessageChannel",
-  "MessageEvent",
-  "MessagePort",
-  "ReadableStream",
-  "Request",
-  "Response",
-  "TextDecoder",
-  "TextEncoder",
-  "TransformStream",
-  "URL",
-  "URLPattern",
-  "URLSearchParams",
-  "WritableStream",
-  "atob",
-  "btoa",
-  "clearImmediate",
-  "clearInterval",
-  "clearTimeout",
-  "console",
-  "crypto",
-  "fetch",
-  "global",
-  "globalThis",
-  "performance",
-  "process",
-  "queueMicrotask",
-  "setImmediate",
-  "setInterval",
-  "setTimeout",
-  "structuredClone"
-].map((name) => [name, "readonly"]));
+const nodeGlobals = Object.fromEntries(
+  [
+    "AbortController",
+    "AbortSignal",
+    "Blob",
+    "Buffer",
+    "ByteLengthQueuingStrategy",
+    "CompressionStream",
+    "CountQueuingStrategy",
+    "CustomEvent",
+    "DecompressionStream",
+    "Event",
+    "EventTarget",
+    "File",
+    "FormData",
+    "Headers",
+    "MessageChannel",
+    "MessageEvent",
+    "MessagePort",
+    "ReadableStream",
+    "Request",
+    "Response",
+    "TextDecoder",
+    "TextEncoder",
+    "TransformStream",
+    "URL",
+    "URLPattern",
+    "URLSearchParams",
+    "WritableStream",
+    "atob",
+    "btoa",
+    "clearImmediate",
+    "clearInterval",
+    "clearTimeout",
+    "console",
+    "crypto",
+    "fetch",
+    "global",
+    "globalThis",
+    "performance",
+    "process",
+    "queueMicrotask",
+    "setImmediate",
+    "setInterval",
+    "setTimeout",
+    "structuredClone",
+  ].map((name) => [name, "readonly"]),
+);
 
 const kernelDeepImportPattern = {
   group: ["**/kernel/src/**/*", "!**/kernel/src/index.ts"],
-  message: "Import kernel through its public barrel instead of deep src paths."
+  message: "Import kernel through its public barrel instead of deep src paths.",
 };
 
 function noRestrictedKernelImportOptions(allowedPatterns = []) {
@@ -66,12 +68,9 @@ function noRestrictedKernelImportOptions(allowedPatterns = []) {
     patterns: [
       {
         ...kernelDeepImportPattern,
-        group: [
-          ...kernelDeepImportPattern.group,
-          ...allowedPatterns
-        ]
-      }
-    ]
+        group: [...kernelDeepImportPattern.group, ...allowedPatterns],
+      },
+    ],
   };
 }
 
@@ -79,28 +78,29 @@ function noRestrictedKernelImports(allowedPatterns = []) {
   return ["error", noRestrictedKernelImportOptions(allowedPatterns)];
 }
 
-const physicalIoBoundaryMessage = "Kernel/application physical I/O must be routed through an explicit port implementation file.";
+const physicalIoBoundaryMessage =
+  "Kernel/application physical I/O must be routed through an explicit port implementation file.";
 const physicalIoRestrictedImportPaths = [
   "fs",
   "fs/promises",
   "node:fs",
   "node:fs/promises",
   "child_process",
-  "node:child_process"
+  "node:child_process",
 ].map((name) => ({
   name,
-  message: physicalIoBoundaryMessage
+  message: physicalIoBoundaryMessage,
 }));
 const physicalIoSourcePattern = String.raw`^(?:node:)?(?:fs|fs\/promises|child_process)$`;
 const physicalIoSyntaxRestrictions = [
   {
     selector: `ImportExpression[source.type='Literal'][source.value=/${physicalIoSourcePattern}/u]`,
-    message: physicalIoBoundaryMessage
+    message: physicalIoBoundaryMessage,
   },
   {
     selector: `CallExpression[callee.name='require'][arguments.0.value=/${physicalIoSourcePattern}/u]`,
-    message: physicalIoBoundaryMessage
-  }
+    message: physicalIoBoundaryMessage,
+  },
 ];
 const portPhysicalIoBoundaryKnownDebtFiles = portPhysicalIoBoundaryKnownDebt.map((entry) => entry.file);
 
@@ -110,8 +110,8 @@ function noRestrictedKernelAndPhysicalIoImports() {
     "error",
     {
       paths: physicalIoRestrictedImportPaths,
-      patterns: kernelOptions.patterns
-    }
+      patterns: kernelOptions.patterns,
+    },
   ];
 }
 
@@ -122,38 +122,36 @@ function escapeRegExp(value) {
 function kernelDeepImportSyntaxRestrictions(allowedTargets = []) {
   const allowedTails = [
     "index\\.ts",
-    ...allowedTargets.map((target) => escapeRegExp(target.replace(/^packages\/kernel\/src\//u, "")))
+    ...allowedTargets.map((target) => escapeRegExp(target.replace(/^packages\/kernel\/src\//u, ""))),
   ];
   const sourcePattern = `kernel\\/src\\/(?!(?:${allowedTails.join("|")})$)`;
   return [
     {
       selector: `ImportDeclaration[source.value=/${sourcePattern}/u]`,
-      message: kernelDeepImportPattern.message
+      message: kernelDeepImportPattern.message,
     },
     {
       selector: `ExportNamedDeclaration[source.value=/${sourcePattern}/u]`,
-      message: kernelDeepImportPattern.message
+      message: kernelDeepImportPattern.message,
     },
     {
       selector: `ExportAllDeclaration[source.value=/${sourcePattern}/u]`,
-      message: kernelDeepImportPattern.message
+      message: kernelDeepImportPattern.message,
     },
     {
       selector: `ImportExpression[source.type='Literal'][source.value=/${sourcePattern}/u]`,
-      message: "Dynamic imports must not bypass the kernel public barrel."
-    }
+      message: "Dynamic imports must not bypass the kernel public barrel.",
+    },
   ];
 }
 
 const guiBridgeOnlyMessage = "GUI renderer must consume window.harness bridge only.";
-const guiRendererRestrictedImportPaths = [
-  "electron",
-  "@harness-anything/application",
-  "@harness-anything/kernel"
-].map((name) => ({
-  name,
-  message: guiBridgeOnlyMessage
-}));
+const guiRendererRestrictedImportPaths = ["electron", "@harness-anything/application", "@harness-anything/kernel"].map(
+  (name) => ({
+    name,
+    message: guiBridgeOnlyMessage,
+  }),
+);
 const guiRendererRestrictedImportPatterns = [
   "@harness-anything/application/*",
   "@harness-anything/kernel/*",
@@ -171,40 +169,38 @@ const guiRendererRestrictedImportPatterns = [
   "../main/**",
   "../preload/**",
   "**/main/**",
-  "**/preload/**"
+  "**/preload/**",
 ];
 const guiRendererRestrictedImportSourcePattern = String.raw`(?:^electron$|@harness-anything\/(?:application|kernel|adapter-[^/]+)(?:\/|$)|(?:^|\/)(?:packages\/)?(?:application|kernel|adapters)(?:\/|$)|(?:^|\/)(?:main|preload)(?:\/|$))`;
 const guiIpcRestrictedSyntax = [
   {
     selector: "MemberExpression[object.name='ipcMain'][property.name='handle']",
-    message: "Register Harness IPC handlers only in packages/gui/src/main/ipc-handlers.ts."
+    message: "Register Harness IPC handlers only in packages/gui/src/main/ipc-handlers.ts.",
   },
   {
     selector: "Identifier[name='ipcRenderer']",
-    message: "Use ipcRenderer only in packages/gui/src/preload/electron-preload.ts."
-  }
+    message: "Use ipcRenderer only in packages/gui/src/preload/electron-preload.ts.",
+  },
 ];
-const guiIpcSyntaxWithoutIpcRenderer = guiIpcRestrictedSyntax.filter((entry) => !entry.selector.includes("ipcRenderer"));
+const guiIpcSyntaxWithoutIpcRenderer = guiIpcRestrictedSyntax.filter(
+  (entry) => !entry.selector.includes("ipcRenderer"),
+);
 const guiIpcSyntaxWithoutIpcMainHandle = guiIpcRestrictedSyntax.filter((entry) => !entry.selector.includes("ipcMain"));
 const packageSyntaxRestrictions = [
   {
     selector: "ImportExpression[source.type='Literal'][source.value=/kernel\\/src\\/(?!index\\.ts$)/u]",
-    message: "Dynamic imports must not bypass the kernel public barrel."
-  }
+    message: "Dynamic imports must not bypass the kernel public barrel.",
+  },
 ];
 
-const kernelImportKnownDebtOverrides = Object.values(Object.groupBy(
-  kernelImportBoundaryKnownDebt,
-  (entry) => entry.file
-)).map((entries) => ({
+const kernelImportKnownDebtOverrides = Object.values(
+  Object.groupBy(kernelImportBoundaryKnownDebt, (entry) => entry.file),
+).map((entries) => ({
   files: [entries[0].file],
   rules: {
     "no-restricted-imports": "off",
-    "no-restricted-syntax": [
-      "error",
-      ...kernelDeepImportSyntaxRestrictions(entries.map((entry) => entry.target))
-    ]
-  }
+    "no-restricted-syntax": ["error", ...kernelDeepImportSyntaxRestrictions(entries.map((entry) => entry.target))],
+  },
 }));
 
 export default tseslint.config(
@@ -230,8 +226,8 @@ export default tseslint.config(
       "packages/gui/.runtime-cache/",
       "packages/**/dist/",
       "packages/**/dist-electron/",
-      "tmp/"
-    ]
+      "tmp/",
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -240,7 +236,7 @@ export default tseslint.config(
     languageOptions: {
       ecmaVersion: 2024,
       globals: nodeGlobals,
-      sourceType: "module"
+      sourceType: "module",
     },
     rules: {
       "no-control-regex": "off",
@@ -253,22 +249,22 @@ export default tseslint.config(
         {
           argsIgnorePattern: "^_",
           caughtErrorsIgnorePattern: "^_",
-          varsIgnorePattern: "^_"
-        }
-      ]
-    }
+          varsIgnorePattern: "^_",
+        },
+      ],
+    },
   },
   {
     files: ["**/*.{ts,tsx}"],
     rules: {
-      "no-undef": "off"
-    }
+      "no-undef": "off",
+    },
   },
   {
     files: [
       "packages/*/src/**/*.{ts,tsx,js,mjs}",
       "packages/adapters/*/src/**/*.{ts,tsx,js,mjs}",
-      "tools/gates/**/*.{js,mjs}"
+      "tools/gates/**/*.{js,mjs}",
     ],
     plugins: {
       ha: {
@@ -276,45 +272,40 @@ export default tseslint.config(
           "no-manual-contract-projection": noManualContractProjection,
           "no-writer-bypass": noWriterBypass,
           "no-swallowed-failure": noSwallowedFailure,
-          "process-port-only": processPortOnly
-        }
-      }
+          "process-port-only": processPortOnly,
+        },
+      },
     },
     rules: {
       "ha/no-manual-contract-projection": "error",
       "ha/no-writer-bypass": "error",
       "ha/no-swallowed-failure": ["error", { baseline: noSwallowedFailureBaseline }],
-      "ha/process-port-only": ["error", { baseline: processPortOnlyBaseline }]
-    }
+      "ha/process-port-only": ["error", { baseline: processPortOnlyBaseline }],
+    },
   },
   {
     files: ["packages/**/*.{ts,tsx,js,mjs}"],
     rules: {
-      "no-restricted-imports": [
-        ...noRestrictedKernelImports()
-      ],
-      "no-restricted-syntax": [
-        "error",
-        ...packageSyntaxRestrictions
-      ]
-    }
+      "no-restricted-imports": [...noRestrictedKernelImports()],
+      "no-restricted-syntax": ["error", ...packageSyntaxRestrictions],
+    },
   },
   {
-    files: [
-      "packages/application/src/**/*.{ts,tsx,js,mjs}",
-      "packages/kernel/src/**/*.{ts,tsx,js,mjs}"
-    ],
+    files: ["packages/daemon/src/**/*.{ts,tsx,js,mjs}"],
+    rules: {
+      // schema-closure/derived-contracts 门在无依赖上下文加载 daemon parser 图，不得触到 effect；根 barrel 经 disposition→sqlite-task-projection→session 触到 effect，故此纯模块单独放行。
+      "no-restricted-imports": [
+        ...noRestrictedKernelImports(["!**/kernel/src/domain", "!**/kernel/src/domain/contract-version.ts"]),
+      ],
+    },
+  },
+  {
+    files: ["packages/application/src/**/*.{ts,tsx,js,mjs}", "packages/kernel/src/**/*.{ts,tsx,js,mjs}"],
     ignores: portPhysicalIoBoundaryKnownDebtFiles,
     rules: {
-      "no-restricted-imports": [
-        ...noRestrictedKernelAndPhysicalIoImports()
-      ],
-      "no-restricted-syntax": [
-        "error",
-        ...packageSyntaxRestrictions,
-        ...physicalIoSyntaxRestrictions
-      ]
-    }
+      "no-restricted-imports": [...noRestrictedKernelAndPhysicalIoImports()],
+      "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...physicalIoSyntaxRestrictions],
+    },
   },
   {
     files: ["packages/gui/src/renderer/**/*.{ts,tsx,js,mjs}"],
@@ -326,58 +317,43 @@ export default tseslint.config(
           patterns: [
             {
               group: guiRendererRestrictedImportPatterns,
-              message: guiBridgeOnlyMessage
-            }
-          ]
-        }
+              message: guiBridgeOnlyMessage,
+            },
+          ],
+        },
       ],
       "no-restricted-syntax": [
         "error",
         ...packageSyntaxRestrictions,
         {
           selector: `ImportExpression[source.type='Literal'][source.value=/${guiRendererRestrictedImportSourcePattern}/u]`,
-          message: guiBridgeOnlyMessage
+          message: guiBridgeOnlyMessage,
         },
         {
           selector: `CallExpression[callee.name='require'][arguments.0.value=/${guiRendererRestrictedImportSourcePattern}/u]`,
-          message: guiBridgeOnlyMessage
-        }
-      ]
-    }
+          message: guiBridgeOnlyMessage,
+        },
+      ],
+    },
   },
   {
     files: ["packages/gui/src/**/*.{ts,tsx,js,mjs}"],
-    ignores: [
-      "packages/gui/src/main/ipc-handlers.ts",
-      "packages/gui/src/preload/electron-preload.ts"
-    ],
+    ignores: ["packages/gui/src/main/ipc-handlers.ts", "packages/gui/src/preload/electron-preload.ts"],
     rules: {
-      "no-restricted-syntax": [
-        "error",
-        ...packageSyntaxRestrictions,
-        ...guiIpcRestrictedSyntax
-      ]
-    }
+      "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...guiIpcRestrictedSyntax],
+    },
   },
   {
     files: ["packages/gui/src/main/ipc-handlers.ts"],
     rules: {
-      "no-restricted-syntax": [
-        "error",
-        ...packageSyntaxRestrictions,
-        ...guiIpcSyntaxWithoutIpcMainHandle
-      ]
-    }
+      "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...guiIpcSyntaxWithoutIpcMainHandle],
+    },
   },
   {
     files: ["packages/gui/src/preload/electron-preload.ts"],
     rules: {
-      "no-restricted-syntax": [
-        "error",
-        ...packageSyntaxRestrictions,
-        ...guiIpcSyntaxWithoutIpcRenderer
-      ]
-    }
+      "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...guiIpcSyntaxWithoutIpcRenderer],
+    },
   },
   ...kernelImportKnownDebtOverrides,
   {
@@ -386,7 +362,7 @@ export default tseslint.config(
     files: ["tools/**/*.mjs"],
     rules: {
       "no-restricted-imports": "off",
-      "no-restricted-syntax": "off"
-    }
-  }
+      "no-restricted-syntax": "off",
+    },
+  },
 );
