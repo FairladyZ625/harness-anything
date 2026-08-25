@@ -104,6 +104,12 @@ export function applyEvent(
       throw new Error(`entity declaration blob ${claim.sha256} is not UTF-8`);
     }
     if (sha256Text(body) !== claim.sha256) throw new Error(`entity declaration blob ${claim.sha256} hash mismatch`);
+    let value: unknown;
+    try {
+      value = JSON.parse(body);
+    } catch {
+      throw new Error(`entity declaration blob ${claim.sha256} is not JSON`);
+    }
     const document: DocumentState = {
       path: claim.path as DocumentState["path"],
       blobSha256: claim.sha256,
@@ -121,6 +127,21 @@ export function applyEvent(
       eventJson,
     );
     runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+    if (event.payload.entityKind === "execution" || event.payload.entityKind === "review")
+      runSql(
+        db,
+        [
+          "INSERT INTO entity_projection(entity_kind, entity_id, task_id, workspace_revision, value_json)",
+          "VALUES (?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id) DO UPDATE SET",
+          "task_id=excluded.task_id, workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
+        ].join(" "),
+        event.payload.entityKind,
+        event.payload.entityId,
+        typeof record.taskId === "string" ? record.taskId : null,
+        event.workspaceRevision,
+        body,
+      );
     return;
   }
   if (isFactEvent(event)) {
@@ -181,7 +202,8 @@ export function applyEvent(
       const previous =
           /* @gate-identity check-bypass-write-boundary/bypass-write-011 */
           db.prepare("SELECT value_json FROM document WHERE path = ?").get(change.path) as
-            { readonly value_json: string } | undefined,
+            | { readonly value_json: string }
+            | undefined,
         base = previous ? (JSON.parse(previous.value_json) as DocumentState) : null;
       if (change.candidate === null) {
         if (

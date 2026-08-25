@@ -32,6 +32,11 @@ const UPSERT_DOCUMENT_SQL = [
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
   "value_json=excluded.value_json",
 ].join(" ");
+const UPSERT_ENTITY_SQL = [
+  "INSERT INTO entity_projection(entity_kind, entity_id, task_id, workspace_revision, value_json)",
+  "VALUES (?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id) DO UPDATE SET",
+  "task_id=excluded.task_id, workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
+].join(" ");
 
 // Legacy migration-import replay and its document materialization.
 export function projectMigration(
@@ -202,14 +207,15 @@ export function projectMigration(
       UPSERT_TASK_SNAPSHOT_SQL,
       value.taskId,
       event.workspaceRevision,
-      canonicalJson(next),
+      canonicalJson({ ...next, executions: [], reviews: [] }),
       next.task?.status ?? null,
       event.occurredAt,
     );
     refreshTaskRelationProjection(db, value.taskId, next.task, event.workspaceRevision, event.occurredAt);
     runSql(
       db,
-      "INSERT INTO execution(execution_id, task_id, workspace_revision, value_json) VALUES (?, ?, ?, ?)",
+      UPSERT_ENTITY_SQL,
+      "execution",
       value.executionId,
       value.taskId,
       event.workspaceRevision,

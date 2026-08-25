@@ -6,7 +6,8 @@ import {
   type EntityUpsertBundle,
   type StoredEntityEventV1,
 } from "../domain/entity-event.ts";
-import { requireEntityKindContract } from "../domain/entity-kind-registry.ts";
+import { isTaskEvent } from "../domain/doc-sync.contract.ts";
+import { entityDocumentPath, requireEntityKindContract } from "../domain/entity-kind-registry.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveLedgerGitLayout } from "./ledger-git-layout.ts";
 import { publicationRefs } from "./task-event-store-git-refs.ts";
@@ -33,9 +34,24 @@ export function createEntityStore(source: EntityEventSource): EntityStore {
   const records = (kind: string): readonly StoredEntity[] => {
     const contract = requireEntityKindContract(kind),
       latest = new Map<string, ReturnType<typeof entityEventRecord>>();
-    for (const event of source.read().events)
+    for (const event of source.read().events) {
       if (isEntityEvent(event) && event.payload.entityKind === contract.kind)
         latest.set(event.payload.entityId, entityEventRecord(event, source, contract));
+      if (contract.kind === "execution" && isTaskEvent(event) && "execution" in event.payload)
+        latest.set(
+          event.payload.execution.executionId,
+          taskEventRecord(event.payload.execution, event.workspaceRevision, contract),
+        );
+      if (
+        contract.kind === "review" &&
+        isTaskEvent(event) &&
+        (event.type === "review_recorded" || event.type === "review_consent_recorded")
+      )
+        latest.set(
+          event.payload.review.reviewId,
+          taskEventRecord(event.payload.review, event.workspaceRevision, contract),
+        );
+    }
     return [...latest.values()].sort((left, right) => left.id.localeCompare(right.id));
   };
   return {
@@ -43,6 +59,23 @@ export function createEntityStore(source: EntityEventSource): EntityStore {
     get: <T>(kind: string, id: string) =>
       (records(kind).find((record) => record.id === id) as StoredEntity<T> | undefined) ?? null,
     list: <T>(kind: string) => records(kind) as readonly StoredEntity<T>[],
+  };
+}
+
+function taskEventRecord(
+  value: unknown,
+  workspaceRevision: number,
+  contract: ReturnType<typeof requireEntityKindContract>,
+): StoredEntity {
+  const parsed = parseEntityJsonSchema(contract.schema, value, `${contract.kind} declaration`),
+    id = (parsed as Record<string, unknown>)[contract.id.field];
+  if (typeof id !== "string") throw new Error(`${contract.kind} lifecycle event has no string identity`);
+  return {
+    kind: contract.kind,
+    id,
+    value: parsed,
+    documentPath: entityDocumentPath(contract, id),
+    workspaceRevision,
   };
 }
 

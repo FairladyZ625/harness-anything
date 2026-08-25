@@ -8,9 +8,10 @@ export type EntityJsonSchemaNode = (
       readonly description?: string;
     }
   | {
-      readonly type: "number";
+      readonly type: "number" | "integer" | "boolean" | "null";
       readonly integer?: boolean;
       readonly minimum?: number;
+      readonly enum?: readonly (string | number | boolean | null)[];
       readonly description?: string;
     }
   | {
@@ -22,7 +23,7 @@ export type EntityJsonSchemaNode = (
       readonly description?: string;
     }
   | EntityJsonObjectSchema
-) & { readonly "x-error"?: string };
+) & { readonly "x-error"?: string; readonly "x-nullable"?: boolean };
 
 export const ENTITY_ID_PATTERN = "^[a-z0-9][a-z0-9-]{0,63}$";
 
@@ -30,7 +31,7 @@ export interface EntityJsonObjectSchema {
   readonly type: "object";
   readonly properties: Readonly<Record<string, EntityJsonSchemaNode>>;
   readonly required: readonly string[];
-  readonly additionalProperties: false;
+  readonly additionalProperties: boolean;
   readonly description?: string;
 }
 
@@ -89,6 +90,7 @@ export function explainEntityJsonSchema(schema: EntityDocumentJsonSchema): reado
 }
 
 function validateNode(schema: EntityJsonSchemaNode, value: unknown, path: string, errors: string[]): void {
+  if (value === null && schema["x-nullable"] === true) return;
   const errorStart = errors.length;
   validateNodeValue(schema, value, path, errors);
   if (errors.length > errorStart && schema["x-error"] !== undefined)
@@ -111,14 +113,29 @@ function validateNodeValue(schema: EntityJsonSchemaNode, value: unknown, path: s
       errors.push(`${path} does not match its declared pattern.`);
     return;
   }
-  if (schema.type === "number") {
+  if (schema.type === "number" || schema.type === "integer") {
     if (typeof value !== "number" || !Number.isFinite(value)) {
       errors.push(`${path} must be a finite number.`);
       return;
     }
     if (schema.integer && !Number.isSafeInteger(value)) errors.push(`${path} must be an integer.`);
+    if (schema.type === "integer" && !Number.isInteger(value)) errors.push(`${path} must be an integer.`);
     if (schema.minimum !== undefined && value < schema.minimum)
       errors.push(`${path} must be at least ${schema.minimum}.`);
+    if (schema.enum !== undefined && !schema.enum.includes(value)) errors.push(`${path} has an invalid value.`);
+    return;
+  }
+  if (schema.type === "boolean") {
+    if (typeof value !== "boolean") {
+      errors.push(`${path} must be a boolean.`);
+      return;
+    }
+    if (schema.enum !== undefined && !schema.enum.includes(value)) errors.push(`${path} has an invalid value.`);
+    return;
+  }
+  if (schema.type === "null") {
+    if (value !== null) errors.push(`${path} must be null.`);
+    else if (schema.enum !== undefined && !schema.enum.includes(value)) errors.push(`${path} has an invalid value.`);
     return;
   }
   if (schema.type === "array") {
@@ -138,6 +155,7 @@ function validateNodeValue(schema: EntityJsonSchemaNode, value: unknown, path: s
     }
     return;
   }
+  if (schema.type !== "object") return;
   if (!isRecord(value)) {
     errors.push(`${path} must be a JSON object.`);
     return;
@@ -145,9 +163,10 @@ function validateNodeValue(schema: EntityJsonSchemaNode, value: unknown, path: s
   for (const field of schema.required)
     if (!Object.hasOwn(value, field) || value[field] === undefined)
       errors.push(`${path} is missing required field ${JSON.stringify(field)}.`);
-  for (const field of Object.keys(value))
-    if (!Object.hasOwn(schema.properties, field))
-      errors.push(`${path} field ${JSON.stringify(field)} is unknown; remove it.`);
+  if (!schema.additionalProperties)
+    for (const field of Object.keys(value))
+      if (!Object.hasOwn(schema.properties, field))
+        errors.push(`${path} field ${JSON.stringify(field)} is unknown; remove it.`);
   for (const [field, fieldSchema] of Object.entries(schema.properties))
     if (Object.hasOwn(value, field) && value[field] !== undefined)
       validateNode(fieldSchema, value[field], `${path} field ${JSON.stringify(field)}`, errors);

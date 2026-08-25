@@ -8,11 +8,7 @@ import { createRelationGraphProjectionTables } from "./relation-graph-projection
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
-import {
-  queryRows,
-  runSql,
-  transaction,
-} from "./rebuildable-task-projection-sql.ts";
+import { queryRows, runSql, transaction } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -186,13 +182,11 @@ function projectionFileFingerprint(projectionPath: string): string | null {
 function matchesLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): boolean {
   const row =
     /* @gate-identity check-bypass-write-boundary/bypass-write-010 */
-    db
-    .prepare("SELECT watermark, scanned_revision, head_digest FROM projection_meta WHERE singleton = 1")
-    .get() as {
-    readonly watermark: number;
-    readonly scanned_revision: number;
-    readonly head_digest: string | null;
-  };
+    db.prepare("SELECT watermark, scanned_revision, head_digest FROM projection_meta WHERE singleton = 1").get() as {
+      readonly watermark: number;
+      readonly scanned_revision: number;
+      readonly head_digest: string | null;
+    };
   const sourceRevision = head?.revision ?? 0;
   if (Number(row.watermark) > sourceRevision || Number(row.scanned_revision) > sourceRevision) return false;
   return Number(row.scanned_revision) !== sourceRevision || row.head_digest === (head?.eventDigest ?? null);
@@ -297,19 +291,16 @@ function createTables(db: DatabaseSync): void {
       execution_id TEXT NOT NULL,
       event_json TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS execution (
-      execution_id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS entity_projection (
+      entity_kind TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      task_id TEXT,
       workspace_revision INTEGER NOT NULL,
-      value_json TEXT NOT NULL
+      value_json TEXT NOT NULL,
+      PRIMARY KEY(entity_kind, entity_id)
     );
-    CREATE TABLE IF NOT EXISTS review (
-      review_id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL,
-      execution_id TEXT NOT NULL,
-      workspace_revision INTEGER NOT NULL,
-      value_json TEXT NOT NULL
-    );
+    CREATE INDEX IF NOT EXISTS entity_projection_task
+      ON entity_projection(entity_kind, task_id, workspace_revision, entity_id);
     CREATE TABLE IF NOT EXISTS edge (
       task_id TEXT NOT NULL,
       edge_id TEXT NOT NULL,
@@ -334,7 +325,9 @@ function createTables(db: DatabaseSync): void {
   // This table is a disposable lookup over runtime_session.value_json, so adding it must not
   // invalidate the self-contained projection database (event_source lives in the same file).
   // Backfill once in place; steady-state runtime events maintain the rows transactionally.
-  runSql(db, `
+  runSql(
+    db,
+    `
     INSERT OR IGNORE INTO runtime_session_task_binding(task_id, runtime_session_id, execution_id, bound_at)
     SELECT
       json_extract(binding.value, '$.taskId'),
@@ -346,7 +339,8 @@ function createTables(db: DatabaseSync): void {
     WHERE json_type(binding.value, '$.taskId') = 'text'
       AND json_type(binding.value, '$.executionId') = 'text'
       AND json_type(binding.value, '$.boundAt') = 'text';
-  `);
+  `,
+  );
   createTaskRelationProjectionTable(db);
   createRelationGraphProjectionTables(db);
   createFactProjectionTables(db);
