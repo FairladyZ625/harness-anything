@@ -259,9 +259,15 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     mkdirSync(path.dirname(authored), { recursive: true });
     writeFileSync(authored, docBody);
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath]).outcome, "applied");
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--task", "task-alpha"]).outcome,
-      "applied",
+    // The daemon's background local-repair reconciliation (repo-cell settleAuthoredCandidates, fired on
+    // every WAL flush) is the same idempotent doc-sync as this explicit submit; it may incorporate the
+    // freshly authored doc into canonical first. So this submit either applies it ("applied") or finds it
+    // already reconciled ("no_changes") — both mean the doc reached canonical, which the doc show below is
+    // the real proof of. Asserting a single outcome raced the background reconciliation (flake).
+    const notesSubmit = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--task", "task-alpha"]);
+    assert.ok(
+      notesSubmit.outcome === "applied" || notesSubmit.outcome === "no_changes",
+      `submit must reconcile the authored doc (applied or no_changes), saw ${JSON.stringify(notesSubmit)}`,
     );
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", docPath]).evidence, docBody);
     const cleanSubmit = runMaybe(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", docPath]);
