@@ -425,6 +425,25 @@ export function openRuntimeInstanceStore(input: {
       };
     }
     const instanceId = requiredRuntimeInstanceText(action.instanceId, "instanceId");
+    if (kind === "runtime-instance-github-credential-set" || kind === "runtime-instance-github-credential-unset") {
+      const current = readOne(instanceId);
+      if (!current)
+        throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
+      const { githubCredentialRef: _githubCredentialRef, ...withoutGithubCredential } = current,
+        updated = runtimeInstanceConfig(
+          kind === "runtime-instance-github-credential-set"
+            ? { ...current, githubCredentialRef: action.githubCredentialRef }
+            : withoutGithubCredential,
+        ),
+        instance = publicConfig(updated, readiness.get(updated.instanceId));
+      persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
+      return {
+        ...base,
+        instance,
+        evidence: JSON.stringify(instance),
+        summary: `${kind}: ${instanceId}`,
+      };
+    }
     if (kind === "runtime-instance-update") {
       const current = readOne(instanceId);
       if (!current)

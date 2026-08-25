@@ -1,6 +1,9 @@
 import { cliInput, defineCliCommand } from "../../../preset/src/preset-command-contract.ts";
 import { daemonRepoModeWords } from "./daemon-protocol-vocabulary.ts";
 
+const credentialReferenceRegex =
+  "^credential:v1:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$|^keychain:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$";
+
 export const runtimeConfigProtocolCommands = Object.freeze([
   defineCliCommand({
     id: "daemon-projection-rebuild",
@@ -192,9 +195,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
             "resolve on macOS only); never pass the API key.",
           ].join(""),
         },
-        {
-          regex: "^credential:v1:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$|^keychain:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
-        },
+        { regex: credentialReferenceRegex },
       ),
       cliInput(
         "--github-credential-ref",
@@ -207,11 +208,43 @@ export const runtimeConfigProtocolCommands = Object.freeze([
             "resolve on macOS only); never pass the GitHub token.",
           ].join(""),
         },
-        {
-          regex: "^credential:v1:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$|^keychain:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
-        },
+        { regex: credentialReferenceRegex },
       ),
     ],
+  }),
+  defineCliCommand({
+    id: "runtime-instance-github-credential-set",
+    phase: "Runtime-Instances-S1",
+    path: ["runtime", "instance", "github-credential", "set", "<instance-id>"],
+    positional: "instanceId",
+    summary: "Bind a GitHub credential reference to an existing runtime instance.",
+    method: "daemon.runtimeInstance.githubCredential.set",
+    commandClass: "admin",
+    inputs: [
+      cliInput(
+        "--ref",
+        "single",
+        true,
+        {
+          code: "invalid_field",
+          nextAction: [
+            "Use an opaque credential:v1 reference (legacy keychain: references ",
+            "resolve on macOS only); never pass the GitHub token.",
+          ].join(""),
+        },
+        { regex: credentialReferenceRegex },
+      ),
+    ],
+  }),
+  defineCliCommand({
+    id: "runtime-instance-github-credential-unset",
+    phase: "Runtime-Instances-S1",
+    path: ["runtime", "instance", "github-credential", "unset", "<instance-id>"],
+    positional: "instanceId",
+    summary: "Unbind the GitHub credential reference from an existing runtime instance.",
+    method: "daemon.runtimeInstance.githubCredential.unset",
+    commandClass: "admin",
+    inputs: [],
   }),
   defineCliCommand({
     id: "runtime-instance-list",
