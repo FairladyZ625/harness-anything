@@ -29,7 +29,7 @@ export interface InterpretedEntityRelation {
 }
 
 export interface InterpretedEntityProjection extends InterpretedEntityValue {
-  readonly ownerId: string;
+  readonly ownerId: string | null;
   readonly workspaceRevision: number;
   readonly relations: readonly InterpretedEntityRelation[];
 }
@@ -73,7 +73,10 @@ export function deriveEntityProjection(
   if (declaration === null) return null;
   if (entity.kind !== contract.kind) throw new Error(`${entity.kind} cannot be projected by ${contract.kind}`);
   const rowId = stringField(entity.value, declaration.row.idField, `${contract.kind} projection identity`),
-    ownerId = stringField(entity.value, declaration.row.ownerField, `${contract.kind} projection owner`);
+    ownerId =
+      declaration.row.ownerField === null
+        ? null
+        : stringField(entity.value, declaration.row.ownerField, `${contract.kind} projection owner`);
   if (rowId !== entity.id)
     throw new Error(`${contract.kind} projection identity does not match its EntityKindContract identity`);
   const relations = contract.relations.edges.flatMap((edge, recordIndex) => {

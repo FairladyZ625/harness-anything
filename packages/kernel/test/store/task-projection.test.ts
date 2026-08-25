@@ -23,6 +23,7 @@ import {
   decideDocWrite,
   parseDocWriteIntent,
   serializeCanonicalEvent,
+  type CanonicalEventV1,
   type DocEventV1,
 } from "../../src/domain/doc-sync.contract.ts";
 import {
@@ -583,6 +584,28 @@ test("generic entity events project declaration documents without overriding lif
     eventStore.append(bundle);
     projection.apply(bundle.event, bundle.plan);
 
+    const listedAgents = projection.listEntities("agent");
+    assert.deepEqual(
+      listedAgents.map(({ kind, id, ownerId, workspaceRevision, value }) => ({
+        kind,
+        id,
+        ownerId,
+        workspaceRevision,
+        name: value.name,
+      })),
+      [
+        {
+          kind: "agent",
+          id: "projection-agent",
+          ownerId: null,
+          workspaceRevision: 3,
+          name: "Projection Agent",
+        },
+      ],
+    );
+    assert.deepEqual(projection.getEntity("agent", "projection-agent"), listedAgents[0]);
+    assert.equal(projection.getEntity("agent", "missing"), null);
+
     assert.equal(projection.read("task-1").snapshot.executions[0]?.state, "active");
     assert.deepEqual(
       projection
@@ -597,6 +620,72 @@ test("generic entity events project declaration documents without overriding lif
       { path: document.path, workspaceRevision: document.workspaceRevision, id: JSON.parse(document.body).id },
       { path: "agents/projection-agent.json", workspaceRevision: 3, id: "projection-agent" },
     );
+  });
+});
+
+test("historical agent entity envelopes replay into the generic entity projection", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const actor = lifecycleFixture().events[0]!.actor,
+      bundle = compileEntityUpsert({
+        entityKind: "agent",
+        entity: {
+          schema: "agent-declaration/v1",
+          id: "historical-agent",
+          name: "Historical Agent",
+          instructions: "Remain readable after projection cutover.",
+          runtime_type: "codex",
+        },
+        eventId: "event-historical-agent",
+        opId: "op-historical-agent",
+        workspaceRevision: 1,
+        actor,
+        source: "local",
+        occurredAt: "2026-08-11T00:01:00.000Z",
+      }),
+      event = {
+        ...bundle.event,
+        schema: "agent-entity-event/v1",
+        type: "agent_entity_written",
+      } as unknown as CanonicalEventV1,
+      body = bundle.blobs[0].body,
+      bytes = new TextEncoder().encode(body),
+      eventDigest = `sha256:${sha256Text(serializeCanonicalEvent(event))}` as const,
+      eventStore = {
+        readHead: () => ({ revision: 1, eventDigest }),
+        readBatch: () => ({
+          sourceRevision: 1,
+          events: [event],
+          cursor: null,
+          done: true,
+          accessedItems: 1,
+          prefetchContent: () => new Map([[bundle.blobs[0].sha256, bytes]]),
+        }),
+        readContentBlob: (sha256: string) => (sha256 === bundle.blobs[0].sha256 ? bytes : null),
+      },
+      projection = makeTaskProjection({ rootDir, eventStore });
+    try {
+      const read = projection.getEntity("agent", "historical-agent");
+      assert.deepEqual(
+        read === null
+          ? null
+          : {
+              kind: read.kind,
+              id: read.id,
+              ownerId: read.ownerId,
+              workspaceRevision: read.workspaceRevision,
+              name: read.value.name,
+            },
+        {
+          kind: "agent",
+          id: "historical-agent",
+          ownerId: null,
+          workspaceRevision: 1,
+          name: "Historical Agent",
+        },
+      );
+    } finally {
+      projection.close();
+    }
   });
 });
 

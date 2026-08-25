@@ -54,7 +54,7 @@ export interface EntityCanonicalProjectionDeclaration {
   readonly embeddedEvents: ReadonlyArray<EmbeddedCanonicalEventDeclaration>;
   readonly row: {
     readonly idField: string;
-    readonly ownerField: string;
+    readonly ownerField: string | null;
   };
 }
 export interface EntityRelationProjectionDeclaration {

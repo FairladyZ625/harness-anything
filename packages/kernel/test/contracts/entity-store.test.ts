@@ -41,6 +41,10 @@ test("registered declaration Entity kinds explain the same contract shape from t
     ]);
     assert.equal(explanation.id.field, "id");
     assert.equal(explanation.relations.directions.length, 0);
+    assert.deepEqual(explanation.canonicalProjection, {
+      embeddedEvents: [],
+      row: { idField: "id", ownerField: null },
+    });
   }
   assert.deepEqual(
     { catalogRef: explanations[0]!.transitions.catalogRef, available: explanations[0]!.transitions.available },

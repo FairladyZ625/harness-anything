@@ -441,7 +441,7 @@ export const entityKindContracts = Object.freeze([
     schema: AGENT_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "agent/{id}" },
     relations: { directions: [], edges: [] },
-    canonicalProjection: null,
+    canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
     statusVocabulary: [{ field: "state", words: agentStates }],
     actionCatalog: actionCatalog("kernel/agent-declaration/v1", "agent", "agent/{id}", [
       "configure",
@@ -457,7 +457,7 @@ export const entityKindContracts = Object.freeze([
     schema: SQUAD_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "squad/{id}" },
     relations: { directions: [], edges: [] },
-    canonicalProjection: null,
+    canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
     actionCatalog: null,
     entityStore: genericEntityStore("squads/{id}.json"),
     authoring: genericAuthoring,
