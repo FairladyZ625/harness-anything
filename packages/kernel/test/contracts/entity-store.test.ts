@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createEntityStore, explainEntityKind } from "../../src/index.ts";
 import { validateAgentDeclarationV1 } from "../../src/domain/agent-squad-schema.ts";
+import type { CanonicalEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import {
   assertEntityUpsertInputs,
   type EntityEventV1,
   type EntityUpsertBundle,
 } from "../../src/domain/entity-event.ts";
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
+import { lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
 const actor = { principal: { personId: "person-entity-store" }, executor: null } as const;
 const agent = {
@@ -137,6 +139,48 @@ test("Entity upsert rejects schema-invalid declarations and tampered declaration
   const bundle = upsert(store, "agent", agent, 1),
     tampered = [{ ...bundle.blobs[0], body: `${bundle.blobs[0].body} ` }];
   assert.throws(() => assertEntityUpsertInputs(bundle.event, bundle.plan, tampered), /declaration blob must be exact/u);
+});
+
+test("EntityStore interprets embedded lifecycle values and generic upserts with revision-latest precedence", () => {
+  const fixture = lifecycleFixture(),
+    events: CanonicalEventV1[] = [...fixture.events],
+    blobs = new Map<string, Uint8Array>(),
+    store = createEntityStore({
+      read: () => ({ schema: "canonical-event-stream/v1", revision: events.length, events }),
+      readContentBlob: (sha256) => blobs.get(sha256) ?? null,
+    });
+  assert.deepEqual(
+    store.list<{ readonly state: string }>("execution").map(({ id, value, workspaceRevision }) => ({
+      id,
+      state: value.state,
+      workspaceRevision,
+    })),
+    [{ id: "execution-1", state: "accepted", workspaceRevision: 6 }],
+  );
+  assert.deepEqual(
+    store.list<{ readonly verdict: string }>("review").map(({ id, value, workspaceRevision }) => ({
+      id,
+      verdict: value.verdict,
+      workspaceRevision,
+    })),
+    [{ id: "review-execution", verdict: "approved", workspaceRevision: 5 }],
+  );
+
+  const latestExecution = {
+      ...fixture.snapshot.executions[0]!,
+      state: "abandoned",
+      closedAt: "2026-08-25T01:00:00.000Z",
+    },
+    bundle = upsert(store, "execution", latestExecution, 7);
+  events.push(bundle.event);
+  for (const blob of bundle.blobs) blobs.set(blob.sha256, Buffer.from(blob.body));
+  assert.deepEqual(
+    store.get<{ readonly state: string }>("execution", "execution-1") && {
+      state: store.get<{ readonly state: string }>("execution", "execution-1")?.value.state,
+      workspaceRevision: store.get("execution", "execution-1")?.workspaceRevision,
+    },
+    { state: "abandoned", workspaceRevision: 7 },
+  );
 });
 
 test("entity_upsert receipt detail is closed and registered", () => {

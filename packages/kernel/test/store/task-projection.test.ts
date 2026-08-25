@@ -14,6 +14,7 @@ import {
 import { makeWalShadowEventStore } from "../../src/store/wal-shadow-event-store.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
+import { compileEntityUpsert } from "../../src/domain/entity-event.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import {
   DOC_CODEC_ID,
@@ -511,6 +512,15 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
       })),
       [{ executionId: "execution-1", acquiredRevision: 2, releasedRevision: 3, reason: "initial_claim" }],
     );
+    const firstDerivedRelations = projection
+      .readRelationQuery()
+      .rows.filter(({ relationType }) => relationType === "executes" || relationType === "reviews")
+      .map(({ sourceRef, targetRef, relationType }) => ({ sourceRef, targetRef, relationType }))
+      .sort((left, right) => left.relationType.localeCompare(right.relationType));
+    assert.deepEqual(firstDerivedRelations, [
+      { sourceRef: "execution/execution-1", targetRef: "task/task-1", relationType: "executes" },
+      { sourceRef: "review/review-execution", targetRef: "execution/execution-1", relationType: "reviews" },
+    ]);
     const incrementalStateDigest = projection.readStateDigest();
     if (incrementalStateDigest === null)
       assert.fail("a source-complete incremental projection must persist its state digest");
@@ -524,6 +534,14 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     assert.equal(rebuilt.metrics.reducedItems, 6);
     assert.equal(rebuilt.metrics.maxBatchItems <= 64, true);
     assert.deepEqual(projection.read("task-1").snapshot, first.snapshot);
+    assert.deepEqual(
+      projection
+        .readRelationQuery()
+        .rows.filter(({ relationType }) => relationType === "executes" || relationType === "reviews")
+        .map(({ sourceRef, targetRef, relationType }) => ({ sourceRef, targetRef, relationType }))
+        .sort((left, right) => left.relationType.localeCompare(right.relationType)),
+      firstDerivedRelations,
+    );
     assert.equal(projection.readOperation(startOpId)?.event.type, "execution_started");
 
     const db = new DatabaseSync(projection.path);
@@ -532,6 +550,51 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     assert.throws(() => projection.read("task-1"), /projection.*mismatch/u);
     projection.rebuild();
     assert.equal(projection.read("task-1").snapshot.executions[0]?.state, "accepted");
+  });
+});
+
+test("generic entity events use the canonical projection writer for rows and declared relations", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "generic-entity-projection", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore }),
+      [created, started] = lifecycleFixture().events;
+    if (created === undefined || started?.type !== "execution_started") throw new Error("fixture requires start event");
+    eventStore.append(taskBundle(created));
+    projection.apply(created);
+    eventStore.append(taskBundle(started));
+    projection.apply(started);
+    const bundle = compileEntityUpsert({
+      entityKind: "execution",
+      entity: {
+        ...started.payload.execution,
+        state: "abandoned",
+        closedAt: "2026-08-11T00:03:00.000Z",
+      },
+      eventId: "event-generic-execution",
+      opId: "op-generic-execution",
+      workspaceRevision: 3,
+      actor: started.actor,
+      source: started.source,
+      occurredAt: "2026-08-11T00:03:00.000Z",
+    });
+    eventStore.append(bundle);
+    projection.apply(bundle.event, bundle.plan);
+
+    assert.equal(projection.read("task-1").snapshot.executions[0]?.state, "abandoned");
+    assert.deepEqual(
+      projection
+        .readRelationQuery()
+        .rows.filter(({ relationType }) => relationType === "executes")
+        .map(({ sourceRef, targetRef }) => ({ sourceRef, targetRef })),
+      [{ sourceRef: "execution/execution-1", targetRef: "task/task-1" }],
+    );
+    const db = new DatabaseSync(projection.path),
+      row = db
+        .prepare("SELECT task_id, workspace_revision FROM entity_projection WHERE entity_kind=? AND entity_id=?")
+        .get("execution", "execution-1") as { readonly task_id: string; readonly workspace_revision: number };
+    db.close();
+    assert.deepEqual({ ...row }, { task_id: "task-1", workspace_revision: 3 });
   });
 });
 

@@ -20,6 +20,8 @@ import {
   runtimeSessionId,
 } from "../domain/agent-runtime.ts";
 import { isEntityEvent } from "../domain/entity-event.ts";
+import { interpretEntityValue } from "../domain/entity-kind-projection.ts";
+import { requireEntityStoreKindContract } from "../domain/entity-kind-registry.ts";
 import { isTaskBootstrapEvent, taskBootstrapPackagePath } from "../domain/task-bootstrap-event.ts";
 import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
@@ -30,6 +32,7 @@ import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { projectMigration } from "./rebuildable-task-projection-migration.ts";
 import { projectDecision, projectFact, projectProgress } from "./rebuildable-task-projection-write-model.ts";
 import { applyTaskEvent } from "./rebuildable-task-projection-task-events.ts";
+import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
 import {
   readRuntimeInstallation,
   readRuntimeSession,
@@ -111,6 +114,12 @@ export function applyEvent(
     } catch {
       throw new Error(`entity declaration blob ${claim.sha256} is not JSON`);
     }
+    const contract = requireEntityStoreKindContract(event.payload.entityKind),
+      entity = interpretEntityValue(contract, value),
+      contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
+    if (contractErrors.length) throw new Error(contractErrors.join("; "));
+    if (entity.id !== event.payload.entityId)
+      throw new Error(`entity declaration blob ${claim.sha256} identity mismatch`);
     const document: DocumentState = {
       path: claim.path as DocumentState["path"],
       blobSha256: claim.sha256,
@@ -128,21 +137,7 @@ export function applyEvent(
       eventJson,
     );
     runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
-    const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-    if (event.payload.entityKind === "execution" || event.payload.entityKind === "review")
-      runSql(
-        db,
-        [
-          "INSERT INTO entity_projection(entity_kind, entity_id, task_id, workspace_revision, value_json)",
-          "VALUES (?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id) DO UPDATE SET",
-          "task_id=excluded.task_id, workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
-        ].join(" "),
-        event.payload.entityKind,
-        event.payload.entityId,
-        typeof record.taskId === "string" ? record.taskId : null,
-        event.workspaceRevision,
-        body,
-      );
+    projectInterpretedEntityValue(db, contract, entity, event.workspaceRevision, `event:${event.opId}`);
     return;
   }
   if (isFactEvent(event)) {
