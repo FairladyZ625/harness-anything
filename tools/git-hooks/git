@@ -43,4 +43,100 @@ if [ -n "$repo_root" ] && [ -n "$canonical_root" ] && [ -d "$canonical_root" ]; 
   fi
 fi
 
+refuse_push() {
+  printf 'Refusing a task-bound git push outside refs/heads/codex/*.\n' >&2
+  exit 1
+}
+
+if [ "${HARNESS_TASK_BOUND:-}" = "1" ]; then
+  git_command=
+  global_value=
+  for argument in "$@"; do
+    if [ -n "$global_value" ]; then
+      global_value=
+      continue
+    fi
+    case "$argument" in
+      -C|-c|--git-dir|--work-tree|--namespace|--exec-path|--config-env)
+        global_value=1
+        ;;
+      --git-dir=*|--work-tree=*|--namespace=*|--exec-path=*|--config-env=*)
+        ;;
+      -*)
+        ;;
+      *)
+        git_command=$argument
+        break
+        ;;
+    esac
+  done
+
+  if [ "$git_command" = "push" ]; then
+    push_seen=
+    option_value=
+    remote_seen=
+    refspec_seen=
+    options_done=
+    for argument in "$@"; do
+      if [ -z "$push_seen" ]; then
+        [ "$argument" = "push" ] && push_seen=1
+        continue
+      fi
+      if [ -n "$option_value" ]; then
+        option_value=
+        continue
+      fi
+      if [ -z "$options_done" ]; then
+        case "$argument" in
+          --)
+            options_done=1
+            continue
+            ;;
+          --all|--mirror|--tags|--delete|--prune|--follow-tags)
+            refuse_push
+            ;;
+          --repo)
+            option_value=repo
+            remote_seen=1
+            continue
+            ;;
+          --receive-pack|--exec|-o|--push-option)
+            option_value=1
+            continue
+            ;;
+          --repo=*)
+            remote_seen=1
+            continue
+            ;;
+          --receive-pack=*|--exec=*|--push-option=*|--force-with-lease=*|--force-if-includes|--no-force-if-includes|--signed=*|--recurse-submodules=*)
+            continue
+            ;;
+          -n|--dry-run|-f|--force|-u|--set-upstream|-q|--quiet|-v|--verbose|--porcelain|--progress|--no-progress|--atomic|--no-atomic|--thin|--no-thin|-4|--ipv4|-6|--ipv6|--force-with-lease|--signed)
+            continue
+            ;;
+          -*)
+            refuse_push
+            ;;
+        esac
+      fi
+      if [ -z "$remote_seen" ]; then
+        remote_seen=1
+        continue
+      fi
+      refspec_seen=1
+      refspec=${argument#+}
+      case "$refspec" in
+        :*) refuse_push ;;
+        *:*) target=${refspec#*:} ;;
+        *) target=$refspec ;;
+      esac
+      case "$target" in
+        codex/?*|refs/heads/codex/?*) ;;
+        *) refuse_push ;;
+      esac
+    done
+    [ -n "$refspec_seen" ] || refuse_push
+  fi
+fi
+
 PATH=$filtered_path exec git "$@"

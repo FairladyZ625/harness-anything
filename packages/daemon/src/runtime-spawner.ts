@@ -104,6 +104,7 @@ export function makeRuntimeSpawner(input: {
       readonly permissionMode?: string;
     },
   ) => Promise<PreparedRuntimeLaunch>;
+  readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
   readonly resolveAgent?: (agentId: string) => RuntimeAgent;
   readonly resolveSquadDispatchTarget?: (leaderId: string, workerId: string) => SquadDispatchTarget;
   readonly launch?: RuntimeLauncher;
@@ -115,7 +116,17 @@ export function makeRuntimeSpawner(input: {
 }) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
-    launch = input.launch ?? launchNative;
+    launch = input.launch ?? launchNative,
+    prepareWorkerGitEnvironment = async (instanceId: string): Promise<NodeJS.ProcessEnv | undefined> => {
+      const credentialEnvironment = await input.prepareWorkerGitEnvironment?.(instanceId);
+      return credentialEnvironment
+        ? {
+            ...credentialEnvironment,
+            GIT_ASKPASS: path.join(input.rootDir, "tools", "git-hooks", "git-askpass"),
+            HARNESS_TASK_BOUND: "1",
+          }
+        : undefined;
+    };
   const extracted = {
     input,
     requiredRuntimeStore,
@@ -137,6 +148,7 @@ export function makeRuntimeSpawner(input: {
     publishExit,
     controlReceipt,
     captureErrorOutput,
+    prepareWorkerGitEnvironment,
   };
 
   return {
@@ -363,7 +375,8 @@ export function makeRuntimeSpawner(input: {
           "",
         ].join(""),
         runtimeKind = runtimeKindForId(definition.kindId),
-        protocolFamily = runtimeKind.protocolFamily;
+        protocolFamily = runtimeKind.protocolFamily,
+        workerGitEnvironment = taskId ? await prepareWorkerGitEnvironment(runtimeInstanceId) : undefined;
       // Enforced runtimes replace HOME and TMPDIR, so a task worker needs the daemon's sealed callback
       // route as well as its own executor identity.
       const workerLaunch =
@@ -372,6 +385,7 @@ export function makeRuntimeSpawner(input: {
               ...prepared,
               env: {
                 ...prepared.env,
+                ...workerGitEnvironment,
                 HARNESS_CANONICAL_ROOT: input.rootDir,
                 PATH: [
                   path.join(input.rootDir, "tools", "git-hooks"),
@@ -384,6 +398,7 @@ export function makeRuntimeSpawner(input: {
                 HARNESS_DAEMON_ENDPOINT: daemonRoute.endpoint,
                 HARNESS_DAEMON_REPO_ID: input.repoId,
                 HARNESS_ACTOR: runtimeActor,
+                HARNESS_TASK_BOUND: "1",
               },
             }
           : prepared;

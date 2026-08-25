@@ -68,6 +68,7 @@ export async function openRepoCell(input: {
       readonly permissionMode?: string;
     },
   ) => Promise<PreparedRuntimeLaunch>;
+  readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
   readonly bootstrap?: RepoBootstrapInput;
   readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;
   readonly now?: () => string;
@@ -265,6 +266,7 @@ export async function openRepoCell(input: {
     schedule,
     runtimeInstances: input.runtimeInstances,
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
+    ...(input.prepareWorkerGitEnvironment ? { prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment } : {}),
     resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId, entityStore: createEntityStore(store) }),
     resolveSquadDispatchTarget: (leaderId, workerId) =>
       resolveSquadDispatchTarget({ rootDir, leaderId, workerId, entityStore: createEntityStore(store) }),

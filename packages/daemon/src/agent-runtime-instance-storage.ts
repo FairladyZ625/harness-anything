@@ -140,6 +140,7 @@ export function publicConfig(
             ? ("unauthenticated" as const)
             : ("unknown" as const),
     authReadiness,
+    ...(config.githubCredentialRef === undefined ? {} : { githubCredentialState: "configured" as const }),
     isolationState: config.isolationState,
   };
   if (config.kindId === "claude")

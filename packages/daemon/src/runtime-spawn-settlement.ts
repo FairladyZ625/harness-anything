@@ -43,8 +43,15 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
     let outcome = letOutcome;
     let body = context.runtimeResultText(active, code, outcome);
     if (active.task && outcome === "succeeded") {
-      const push = await pushWorkerBranch({ cwd: active.cwd, canonicalRoot: context.input.rootDir });
-      if (push.attempted && !push.ok) body = `${body}\n\nWorker branch push failed (no retry): ${push.detail}`;
+      try {
+        const env = await context.prepareWorkerGitEnvironment(active.instanceId),
+          push = await pushWorkerBranch({ cwd: active.cwd, canonicalRoot: context.input.rootDir, env });
+        if (push.attempted && !push.ok) body = `${body}\n\nWorker branch push failed (no retry): ${push.detail}`;
+      } catch (error) {
+        consumeKnownError(error);
+        const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+        body = `${body}\n\nWorker branch push failed (no retry): ${detail || "GitHub credential resolution failed."}`;
+      }
     }
     const sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {

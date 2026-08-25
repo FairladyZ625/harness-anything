@@ -58,6 +58,7 @@ type RuntimePorts = {
       readonly permissionMode?: string;
     },
   ) => Promise<PreparedRuntimeLaunch>;
+  readonly prepareWorkerGitEnvironment: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
 };
 const runtimeOverviewPageLimit = 16;
 
@@ -236,6 +237,7 @@ export function openFleetEdgeRuntime(input: {
     now,
     runtimeInstances: input.ports.runtimeInstances,
     prepareLaunch: input.ports.prepareRuntimeLaunch,
+    prepareWorkerGitEnvironment: input.ports.prepareWorkerGitEnvironment,
     resolveAgent: (agentId) =>
       readAgentDeclaration({ rootDir: request.workspaceRoot, agentId, entityStore: getEntityStore() }),
     resolveSquadDispatchTarget: (leaderId, workerId) =>
