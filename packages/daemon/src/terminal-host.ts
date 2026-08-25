@@ -24,6 +24,7 @@ import {
   type TerminalBackendWarningCode,
   type TmuxController,
 } from "./terminal-tmux.ts";
+import { resolveContainedPath } from "./contained-path.ts";
 
 const scrollbackLimit = 1024 * 1024,
   replayLimit = 256 * 1024,
@@ -666,15 +667,15 @@ function resolveTerminalCwd(rootDir: string, value: unknown): string {
     !["repo-root", "repo-relative"].includes(String(cwd.scope))
   )
     throw terminalHostError("invalid_cwd", "cwd scope is invalid.");
-  const resolved =
-    cwd.scope === "repo-root" ? rootDir : path.resolve(rootDir, requiredTerminalText(cwd.path, "cwd.path"));
-  if (resolved !== rootDir && !resolved.startsWith(`${rootDir}${path.sep}`))
+  const requestedPath = cwd.scope === "repo-root" ? "." : requiredTerminalText(cwd.path, "cwd.path"),
+    resolved = resolveContainedPath(rootDir, requestedPath);
+  if (resolved === null)
     throw terminalHostError("invalid_cwd", "cwd must stay inside the repository.");
   return resolved;
 }
 function restoreTerminalCwd(rootDir: string, stored: string): string {
-  const resolved = stored === "." ? rootDir : path.resolve(rootDir, stored);
-  if (resolved !== rootDir && !resolved.startsWith(`${rootDir}${path.sep}`))
+  const resolved = resolveContainedPath(rootDir, stored);
+  if (resolved === null)
     throw new Error("invalid terminal session registry cwd");
   return resolved;
 }

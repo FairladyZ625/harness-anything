@@ -6,6 +6,7 @@ import { agentRolePrompt } from "./agent-role-prompts.ts";
 import { runtimeTypeMatchesKind } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { type ResolvedAgentSkill } from "./agent-skills.ts";
+import { resolveContainedPath } from "./contained-path.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeDaemonRoute, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 
@@ -19,9 +20,9 @@ export function resolveRuntimeCwd(root: string, value: unknown): string {
     !["repo-root", "repo-relative"].includes(String(cwd.scope))
   )
     throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd scope is invalid.");
-  const resolved =
-    cwd.scope === "repo-root" ? root : path.resolve(root, requiredRuntimeSpawnText(cwd.path, "cwd.path"));
-  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`))
+  const requestedPath = cwd.scope === "repo-root" ? "." : requiredRuntimeSpawnText(cwd.path, "cwd.path"),
+    resolved = resolveContainedPath(root, requestedPath);
+  if (resolved === null)
     throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd must stay inside the repository.");
   return resolved;
 }
