@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { authorizationPort } from "../../kernel/src/index.ts";
+import { authorizationPort, currentActionEnvelopeVersion } from "../../kernel/src/index.ts";
 import { lifecycleHarness, owner } from "./task-lifecycle-test-harness.ts";
 
 test("event saga rejects a second executor and self-review, then completes on Review plus consent", async () => {
@@ -15,6 +15,7 @@ test("event saga rejects a second executor and self-review, then completes on Re
 
     const selfReview = authorizationPort.authorize(
       {
+        version: currentActionEnvelopeVersion,
         actionId: "action-review-self",
         kind: "execution.review",
         target: "execution/execution-1",

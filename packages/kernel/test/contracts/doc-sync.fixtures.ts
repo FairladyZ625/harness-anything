@@ -12,6 +12,7 @@ import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { authorizationPort } from "../../src/ports/authorization-port.ts";
 import type { ActorIdentity, WriteSource } from "../../src/domain/write-chain.contract.ts";
 import type { LiveTaskBoundRuntimeBinding } from "../../src/domain/task-bound-runtime-authority.ts";
+import { currentActionEnvelopeVersion } from "../../src/index.ts";
 
 export const actor = {
   principal: { personId: "person-owner" },
@@ -45,6 +46,7 @@ export function authorizeDocWrite(
 ) {
   return authorizationPort.authorize(
     {
+      version: currentActionEnvelopeVersion,
       actionId: "doc-op",
       kind: "doc.submit",
       target: `execution/${lease.executionId}`,

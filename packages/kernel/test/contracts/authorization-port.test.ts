@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_POLICY } from "../../src/domain/default-policy.ts";
 import { createAuthorizationPort, evaluateAuthorization } from "../../src/ports/authorization-port.ts";
-import { type ActionEnvelope, type ActorIdentity, type AuthorizationContext, type LeaseV1 } from "../../src/index.ts";
+import {
+  currentActionEnvelopeVersion,
+  type ActionEnvelope,
+  type ActorIdentity,
+  type AuthorizationContext,
+  type LeaseV1,
+} from "../../src/index.ts";
 
 const owner: ActorIdentity = {
     principal: { personId: "owner" },
@@ -40,6 +46,7 @@ function decide(
   return evaluateAuthorization(
     DEFAULT_POLICY,
     {
+      version: currentActionEnvelopeVersion,
       actionId: `action-${kind}`,
       kind,
       target,
@@ -179,6 +186,7 @@ test("the default port applies broader Decision review independence only for the
     decision = (actor: ActorIdentity) =>
       port.authorize(
         {
+          version: currentActionEnvelopeVersion,
           actionId: `gated-decision-${actor.executor?.id ?? "human"}`,
           kind: "decision.accept",
           target: "decision/decision-1",
@@ -197,6 +205,7 @@ test("the default port applies broader Decision review independence only for the
   assert.equal(
     port.authorize(
       {
+        version: currentActionEnvelopeVersion,
         actionId: "gated-decision-human",
         kind: "decision.accept",
         target: "decision/decision-1",
@@ -235,6 +244,7 @@ test("v2 closeout selects owner and active-lease rules explicitly", () => {
 
 test("evaluation fails closed for stale policy references and missing action or scoped rules", () => {
   const action: ActionEnvelope = {
+    version: currentActionEnvelopeVersion,
     actionId: "stale",
     kind: "task.complete",
     target: "task/task-1",
