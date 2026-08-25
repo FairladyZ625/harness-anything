@@ -86,6 +86,22 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: ["active", "submitted", "accepted", "changes_requested", "abandoned"],
   },
   {
+    id: "agent.state",
+    entity: "Agent",
+    field: "state",
+    module: "packages/kernel/src/domain/agent-squad-schema.ts",
+    anchor: "agentStates",
+    words: ["configured", "active", "retired"],
+  },
+  {
+    id: "policy.state",
+    entity: "Policy",
+    field: "state",
+    module: "packages/kernel/src/domain/decision-event-types.ts",
+    anchor: "policyStates",
+    words: ["draft", "active", "retired"],
+  },
+  {
     id: "execution.state.v1",
     entity: "Execution",
     field: "state",

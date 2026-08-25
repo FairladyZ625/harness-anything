@@ -17,7 +17,7 @@ export interface EntityRootResolution {
 export function resolveEntityRootForLayout(
   layout: HarnessLayout,
   ref: string | ParsedEntityRef,
-  _intent: EntityRootIntent = "read"
+  _intent: EntityRootIntent = "read",
 ): EntityRootResolution {
   const entityRef = typeof ref === "string" ? parseEntityRef(ref) : ref;
   if (!entityRef) throw new Error(`invalid entity ref: ${String(ref)}`);
@@ -29,7 +29,7 @@ export function resolveEntityRootForLayout(
         entityRef,
         rootPath,
         documentPath: path.join(rootPath, "INDEX.md"),
-        ...(entityRef.anchor ? { anchor: entityRef.anchor } : {})
+        ...(entityRef.anchor ? { anchor: entityRef.anchor } : {}),
       };
     }
     case "decision": {
@@ -39,7 +39,7 @@ export function resolveEntityRootForLayout(
         entityRef,
         rootPath,
         documentPath: layout.decisionDocumentPath(decisionId),
-        ...(entityRef.anchor ? { anchor: entityRef.anchor } : {})
+        ...(entityRef.anchor ? { anchor: entityRef.anchor } : {}),
       };
     }
     case "fact": {
@@ -47,6 +47,12 @@ export function resolveEntityRootForLayout(
     }
     case "relation":
       throw new Error(`hosted relation refs cannot be resolved without their source host: ${entityRef.raw}`);
+    case "execution":
+    case "review":
+    case "agent":
+    case "runtime-session":
+    case "policy":
+      throw new Error(`Phase 1 relation endpoint has no authored layout root: ${entityRef.raw}`);
   }
 }
 

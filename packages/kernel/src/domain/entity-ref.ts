@@ -1,4 +1,13 @@
-export type EntityRefKind = "task" | "decision" | "fact" | "relation";
+export type EntityRefKind =
+  | "task"
+  | "decision"
+  | "fact"
+  | "execution"
+  | "review"
+  | "agent"
+  | "runtime-session"
+  | "policy"
+  | "relation";
 
 export interface ParsedEntityRef {
   readonly raw: string;
@@ -12,10 +21,11 @@ export interface ParsedEntityRef {
 
 const entityRefPrefixPattern = /^(?:(?<alias>[A-Za-z][A-Za-z0-9_-]*):)?(?<body>.+)$/u;
 const taskOrDecisionRefPattern = /^(?<kind>task|decision)\/(?<id>[A-Za-z0-9_-]+)(?:\/(?<anchor>[A-Za-z0-9_-]+))?$/u;
+const phaseOneEntityRefPattern = /^(?<kind>execution|review|agent|runtime-session|policy)\/(?<id>[A-Za-z0-9_-]+)$/u;
 const factRefPattern = /^fact\/(?<ownerTaskId>[A-Za-z0-9_-]+)\/(?<factId>[A-Za-z0-9_-]+)$/u;
 const relationRefPattern = /^relation\/(?<relationId>rel_[a-f0-9]{16})$/u;
 const entityRefSearchPattern =
-  /(?<![A-Za-z0-9_/-])(?:[A-Za-z][A-Za-z0-9_-]*:)?(?:fact\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|relation\/rel_[a-f0-9]{16}|(?:task|decision)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?)\b(?!\/)/gu;
+  /(?<![A-Za-z0-9_/-])(?:[A-Za-z][A-Za-z0-9_-]*:)?(?:fact\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|relation\/rel_[a-f0-9]{16}|(?:task|decision)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?|(?:execution|review|agent|runtime-session|policy)\/[A-Za-z0-9_-]+)\b(?!\/)/gu;
 
 function isPlausibleTaskRefId(id: string): boolean {
   return id.startsWith("task_") || id.includes("-");
@@ -59,6 +69,17 @@ export function parseEntityRef(value: string): ParsedEntityRef | null {
       raw: value,
       kind: "relation",
       id: relation.groups.relationId,
+      ...(harnessAlias ? { harnessAlias } : {}),
+      externalHarness: Boolean(harnessAlias),
+    };
+  }
+
+  const phaseOneEntity = body.match(phaseOneEntityRefPattern);
+  if (phaseOneEntity?.groups?.kind && phaseOneEntity.groups.id) {
+    return {
+      raw: value,
+      kind: phaseOneEntity.groups.kind as Exclude<EntityRefKind, "task" | "decision" | "fact" | "relation">,
+      id: phaseOneEntity.groups.id,
       ...(harnessAlias ? { harnessAlias } : {}),
       externalHarness: Boolean(harnessAlias),
     };

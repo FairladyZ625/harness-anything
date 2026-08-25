@@ -12,6 +12,8 @@ export interface AgentSkillDeclarationV1 {
   readonly path: string;
 }
 export type AgentRole = "worker" | "commander";
+export const agentStates = ["configured", "active", "retired"] as const;
+export type AgentState = (typeof agentStates)[number];
 export interface AgentDeclarationV1 {
   readonly id: string;
   readonly name: string;

@@ -242,10 +242,10 @@ function otherEndpointRefs(edge: RelationGraphEdgeRow, entityRef: string): Reado
 
 function entityKindFromRef(entityRef: string): KernelEntityKind {
   const parsed = parseEntityRef(entityRef);
-  if (!parsed || parsed.externalHarness) {
+  if (!parsed || parsed.externalHarness || !["task", "decision", "fact", "relation", "session"].includes(parsed.kind)) {
     throw new Error(`Unsupported entity ref for disposition: ${entityRef}`);
   }
-  return parsed.kind;
+  return parsed.kind as KernelEntityKind;
 }
 
 function nonDestructiveSupportedActions(entityKind: KernelEntityKind): ReadonlyArray<DispositionAction> {

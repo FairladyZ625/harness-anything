@@ -2,6 +2,8 @@ export type StatusEntity =
   | "Task"
   | "Decision"
   | "Execution"
+  | "Agent"
+  | "Policy"
   | "Lease"
   | "RelationEdge"
   | "Package"

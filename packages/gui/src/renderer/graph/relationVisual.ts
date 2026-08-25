@@ -34,6 +34,11 @@ export const RELATION_VISUAL: Record<RelationKind, RelationVisual> = {
   produces: { dasharray: undefined, strokeWidth: 1.5 },
   relates: { dasharray: "4 3", strokeWidth: 1.2 },
   implements: { dasharray: "1.5 2.5", strokeWidth: 1.4 },
+  executes: { dasharray: undefined, strokeWidth: 1.6 },
+  reviews: { dasharray: "4 3", strokeWidth: 1.5 },
+  owns: { dasharray: "2 3", strokeWidth: 1.2 },
+  dispatches: { dasharray: undefined, strokeWidth: 1.4 },
+  authorizes: { dasharray: "6 3", strokeWidth: 1.5 },
 };
 
 /** 稳定顺序:按语义轴分组,便于筛选 UI 与图例。 */
@@ -53,6 +58,11 @@ export const RELATION_KIND_ORDER: ReadonlyArray<RelationKind> = [
   "produces",
   "relates",
   "implements",
+  "executes",
+  "reviews",
+  "owns",
+  "dispatches",
+  "authorizes",
 ];
 
 export function visualForKind(kind: RelationKind): RelationVisual {
@@ -61,9 +71,7 @@ export function visualForKind(kind: RelationKind): RelationVisual {
 
 /** 默认关系类型筛选:assoc 轴(relates/implements)默认关,降噪。 */
 export function defaultKindFilter(): Set<RelationKind> {
-  return new Set(
-    RELATION_KIND_ORDER.filter((k) => KIND_AXIS[k] !== "assoc"),
-  );
+  return new Set(RELATION_KIND_ORDER.filter((k) => KIND_AXIS[k] !== "assoc"));
 }
 
 /** 默认语义轴筛选:assoc 默认关。 */
@@ -72,10 +80,7 @@ export function defaultAxisFilter(): Record<SemanticAxis, boolean> {
 }
 
 /** 边是否通过关系类型筛选。kinds 空集 = 全部隐藏。 */
-export function edgePassesKindFilter(
-  edge: Pick<RelationEdge, "kind">,
-  kinds: ReadonlySet<string>,
-): boolean {
+export function edgePassesKindFilter(edge: Pick<RelationEdge, "kind">, kinds: ReadonlySet<string>): boolean {
   return kinds.has(edge.kind);
 }
 

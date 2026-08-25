@@ -19,6 +19,11 @@ export const relationTypes = [
   "refuted-by",
   "invalidated-by",
   "supersedes-fact",
+  "executes",
+  "reviews",
+  "owns",
+  "dispatches",
+  "authorizes",
 ] as const;
 
 export const relationStrengths = ["strong", "weak"] as const;
@@ -167,7 +172,10 @@ export function isAllowedRelationKindTriple(
   // `incomingRelations` in relation-direction.ts.
   return canonicalRelationDirections.some(
     (direction) =>
-      direction.sourceKind === sourceKind && direction.type === type && direction.targetKind === targetKind,
+      direction.registration !== "derived" &&
+      direction.sourceKind === sourceKind &&
+      direction.type === type &&
+      direction.targetKind === targetKind,
   );
 }
 

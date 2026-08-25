@@ -20,6 +20,11 @@ export const OUT_LABEL: Record<RelationKind, string> = {
   "refuted-by": "反驳",
   "invalidated-by": "失效于",
   "supersedes-fact": "取代事实",
+  executes: "执行",
+  reviews: "审查",
+  owns: "拥有",
+  dispatches: "派发",
+  authorizes: "授权",
 };
 
 export const IN_LABEL: Record<RelationKind, string> = {
@@ -38,4 +43,9 @@ export const IN_LABEL: Record<RelationKind, string> = {
   "refuted-by": "反驳来自",
   "invalidated-by": "令…失效",
   "supersedes-fact": "事实被取代",
+  executes: "执行→",
+  reviews: "被审查",
+  owns: "归属",
+  dispatches: "被派发",
+  authorizes: "获授权",
 };
