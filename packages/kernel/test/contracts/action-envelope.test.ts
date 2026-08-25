@@ -51,7 +51,7 @@ test("the five promoted Entity explanations expose status-aligned transition Act
   ]);
 });
 
-test("new receipts default to an unwired AuthorizationDecision and an empty triadic delta", () => {
+test("new receipts default to an unwired AuthorizationDecision", () => {
   const receipt = createWriteReceipt({
     outcome: "applied",
     opId: "op-action",
@@ -67,7 +67,6 @@ test("new receipts default to an unwired AuthorizationDecision and an empty tria
     },
   });
   assert.equal(receipt.authorizationDecision, null);
-  assert.deepEqual(receipt.delta, { fact: [], decision: [], task: [] });
   assert.deepEqual(validateWriteReceipt(receipt), []);
 
   const authorized = {
@@ -82,11 +81,6 @@ test("new receipts default to an unwired AuthorizationDecision and an empty tria
       nextActions: [],
       evaluatedAtCut: "canonical:1",
     },
-    delta: {
-      fact: [{ ref: "fact/task-action/F-action", before: null, after: { statement: "observed" } }],
-      decision: [],
-      task: [{ ref: "task/task-action", before: { status: "planned" }, after: { status: "active" } }],
-    },
   };
   assert.deepEqual(validateWriteReceipt(authorized), []);
   assert.match(
@@ -95,9 +89,5 @@ test("new receipts default to an unwired AuthorizationDecision and an empty tria
       authorizationDecision: { ...authorized.authorizationDecision, evaluatedAtCut: "" },
     }).join("\n"),
     /AuthorizationDecision/u,
-  );
-  assert.match(
-    validateWriteReceipt({ ...authorized, delta: { ...authorized.delta, decision: undefined } }).join("\n"),
-    /closed fact, decision, and task/u,
   );
 });

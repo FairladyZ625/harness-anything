@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canReclaim, isIndependentFrom } from "../../src/domain/actor-domain-services.ts";
+import { isIndependentFrom } from "../../src/domain/actor-domain-services.ts";
 import { isSameExecution, isSamePerson, type ActorIdentity } from "../../src/index.ts";
 
 const person = (personId: string, executor: ActorIdentity["executor"]): ActorIdentity => ({
@@ -143,44 +143,4 @@ test("isIndependentFrom matches the previous selfReview behavior across the full
       `${label}: behavior must remain equivalent to the previous selfReview check`,
     );
   }
-});
-
-test("canReclaim accepts only an orphaned lease and a caller with the holder principal", () => {
-  const holder = person("person-a", declared("agent", "executor-departed"));
-  const lease = (phase: "reserving" | "active" | "orphaned" | "released") => ({
-    schema: "lease/v1" as const,
-    taskId: "task-a",
-    executionId: "execution-a",
-    actor: holder,
-    source: "local" as const,
-    phase,
-    expiresAt: "2026-08-17T10:00:00.000Z",
-    ttlMs: 60_000,
-    version: 1,
-  });
-  const samePrincipalNewExecutor = person("person-a", declared("agent", "executor-reclaimer"));
-  const differentPrincipal = person("person-b", declared("agent", "executor-reclaimer"));
-  const rows = [
-    [
-      "orphaned, same principal after expiry",
-      lease("orphaned"),
-      samePrincipalNewExecutor,
-      "2026-08-17T11:00:00.000Z",
-      true,
-    ],
-    [
-      "orphaned, same principal before expiry",
-      lease("orphaned"),
-      samePrincipalNewExecutor,
-      "2026-08-17T09:00:00.000Z",
-      true,
-    ],
-    ["orphaned, different principal", lease("orphaned"), differentPrincipal, "2026-08-17T11:00:00.000Z", false],
-    ["reserving, same principal", lease("reserving"), samePrincipalNewExecutor, "2026-08-17T11:00:00.000Z", false],
-    ["active, same principal", lease("active"), samePrincipalNewExecutor, "2026-08-17T11:00:00.000Z", false],
-    ["released, same principal", lease("released"), samePrincipalNewExecutor, "2026-08-17T11:00:00.000Z", false],
-  ] as const;
-
-  for (const [label, current, caller, now, expected] of rows)
-    assert.equal(canReclaim(current, caller, now), expected, label);
 });

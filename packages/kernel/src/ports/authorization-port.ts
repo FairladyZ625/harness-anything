@@ -7,7 +7,6 @@ import {
   validatePolicyDeclarationV1,
   type PolicyActionRule,
   type PolicyDeclarationV1,
-  type PolicyPredicateGate,
   type PolicyPredicateExpression,
 } from "../domain/policy.ts";
 import type { AuthorizationDecision, ReceiptJsonValue } from "../domain/receipt-frame.ts";
@@ -45,15 +44,10 @@ type PredicateResult = {
   readonly binding: Readonly<Record<string, ReceiptJsonValue>>;
 };
 
-type PolicyGateEvaluator = (gate: PolicyPredicateGate) => boolean;
-
-export function createAuthorizationPort(
-  defaultPolicy: PolicyDeclarationV1 = DEFAULT_POLICY,
-  environment: Readonly<Record<string, string | undefined>> = {},
-): AuthorizationPort {
+export function createAuthorizationPort(defaultPolicy: PolicyDeclarationV1 = DEFAULT_POLICY): AuthorizationPort {
   return Object.freeze({
     authorize: (action: ActionEnvelope, context: AuthorizationContext, policy = defaultPolicy) =>
-      evaluateAuthorization(policy, action, context, (gate) => environment[gate.env] === "1"),
+      evaluateAuthorization(policy, action, context),
   });
 }
 
@@ -62,7 +56,6 @@ export function evaluateAuthorization(
   policy: PolicyDeclarationV1,
   action: ActionEnvelope,
   context: AuthorizationContext,
-  gateEnabled: PolicyGateEvaluator = () => false,
 ): AuthorizationDecision {
   const policyRef = `${policy.id}@${policy.version}`,
     policyValid = validatePolicyDeclarationV1(policy).length === 0,
@@ -75,7 +68,7 @@ export function evaluateAuthorization(
             (candidate.scope === undefined ? context.ruleScope === undefined : candidate.scope === context.ruleScope),
         ),
     authorizationRefMatches = action.authorizationRef === policyRef,
-    evaluated = rules.map((rule) => evaluateRule(rule, action, context, gateEnabled)),
+    evaluated = rules.map((rule) => evaluateRule(rule, action, context)),
     allowed = policyValid && actionValid && authorizationRefMatches && evaluated.some((result) => result.allowed),
     bindingsUsed = evaluated.flatMap((result) => result.bindings),
     missing = rules.length === 0 ? "policy_rule_missing" : null,
@@ -110,12 +103,9 @@ function evaluateRule(
   rule: PolicyActionRule,
   action: ActionEnvelope,
   context: AuthorizationContext,
-  gateEnabled: PolicyGateEvaluator,
 ): { readonly allowed: boolean; readonly bindings: readonly Readonly<Record<string, ReceiptJsonValue>>[] } {
   const branches = rule.anyOf.map((clause) =>
-      clause.allOf
-        .filter((predicate) => predicate.gatedBy === undefined || gateEnabled(predicate.gatedBy))
-        .map((predicate) => evaluatePredicate(predicate, action, context)),
+      clause.allOf.map((predicate) => evaluatePredicate(predicate, action, context)),
     ),
     selected = branches.find((branch) => branch.every((result) => result.holds));
   return {
@@ -187,4 +177,4 @@ function evaluatePredicate(
   };
 }
 
-export const authorizationPort = createAuthorizationPort(DEFAULT_POLICY, process.env);
+export const authorizationPort = createAuthorizationPort(DEFAULT_POLICY);

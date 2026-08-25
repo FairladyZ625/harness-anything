@@ -197,19 +197,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         },
         { regex: credentialReferenceRegex },
       ),
-      cliInput(
-        "--github-credential-ref",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-          nextAction: [
-            "Use an opaque credential:v1 reference (legacy keychain: references ",
-            "resolve on macOS only); never pass the GitHub token.",
-          ].join(""),
-        },
-        { regex: credentialReferenceRegex },
-      ),
     ],
   }),
   defineCliCommand({

@@ -48,15 +48,7 @@ const defaultPolicyDeclaration = {
       action: "decision.accept",
       anyOf: [
         {
-          allOf: [
-            { predicate: "hasCommandClass", commandClass: "arbiter" },
-            { predicate: "isNotProposalAgent" },
-            {
-              predicate: "reviewIndependence",
-              level: "L1",
-              gatedBy: { env: "HARNESS_REVIEW_INDEPENDENCE" },
-            },
-          ],
+          allOf: [{ predicate: "hasCommandClass", commandClass: "arbiter" }, { predicate: "isNotProposalAgent" }],
         },
       ],
     },

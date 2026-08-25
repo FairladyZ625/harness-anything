@@ -12,7 +12,6 @@ export function parseRuntimeInstanceCreate(
 ): ThinParseResult {
   const authMode = flags.one.get("--auth"),
     credentialRef = flags.one.get("--credential-ref"),
-    githubCredentialRef = flags.one.get("--github-credential-ref"),
     kindId = flags.one.get("--kind"),
     header = runtimeHttpHeaderFlags(flags.many.get("--http-header") ?? []);
   if (authMode === "api-key" && !credentialRef)
@@ -44,7 +43,6 @@ export function parseRuntimeInstanceCreate(
       ...kindConfig,
       authMode,
       ...(credentialRef ? { credentialRef } : {}),
-      ...(githubCredentialRef ? { githubCredentialRef } : {}),
     },
     route.method,
   );

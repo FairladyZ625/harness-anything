@@ -18,18 +18,3 @@ export interface AuthorizationDecision {
   readonly nextActions: readonly string[];
   readonly evaluatedAtCut: string;
 }
-export interface TriadicDeltaEntry {
-  readonly ref: EntityRef;
-  readonly before: ReceiptJsonValue;
-  readonly after: ReceiptJsonValue;
-}
-export interface TriadicDelta {
-  readonly fact: readonly TriadicDeltaEntry[];
-  readonly decision: readonly TriadicDeltaEntry[];
-  readonly task: readonly TriadicDeltaEntry[];
-}
-export const EMPTY_TRIADIC_DELTA: TriadicDelta = Object.freeze({
-  fact: Object.freeze([]),
-  decision: Object.freeze([]),
-  task: Object.freeze([]),
-});
