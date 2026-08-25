@@ -160,7 +160,12 @@ html[data-theme="light"] ::selection {
   background: oklch(0.85 0.06 250);
 }
 
-/* 文档阅读区排版（react-markdown 输出） */
+/* 文档阅读区排版（react-markdown 输出）。
+   栏数三态:默认「自适应」(auto)——正文容器 .doc-flow 自己就是容器量尺,
+   容器 <50rem 时单栏 88ch 可读行宽;≥50rem 后按 26rem 理想栏宽自动分栏(2/3/4…
+   栏随可用宽度增长),正文填满可用宽度,不再留出大片空白列。
+   手动「单栏 / 双栏」覆盖自适应:对应属性值下容器查询不参与。 */
+.doc-flow { container-type: inline-size; }
 .prose-harness {
   width: 100%;
   max-width: none;
@@ -170,16 +175,30 @@ html[data-theme="light"] ::selection {
   color: var(--color-text);
   overflow-wrap: anywhere;
 }
-.prose-harness[data-layout="single"] > :where(h1, h2, h3, h4, p, ul, ol, blockquote) {
+.doc-flow .prose-harness[data-layout="single"] > :where(h1, h2, h3, h4, p, ul, ol, blockquote),
+.doc-flow .prose-harness[data-layout="auto"] > :where(h1, h2, h3, h4, p, ul, ol, blockquote) {
   max-width: 88ch;
 }
-.prose-harness[data-layout="double"] {
+.doc-flow .prose-harness[data-layout="double"] {
   columns: 2 24rem;
   column-gap: 2.5rem;
   column-rule: 1px solid var(--color-border);
 }
-.prose-harness[data-layout="double"] > * {
+.doc-flow .prose-harness[data-layout="double"] > * {
   break-inside: avoid;
+}
+@container (min-width: 50rem) {
+  .doc-flow .prose-harness[data-layout="auto"] {
+    columns: 26rem;
+    column-gap: 2.5rem;
+    column-rule: 1px solid var(--color-border);
+  }
+  .doc-flow .prose-harness[data-layout="auto"] > :where(h1, h2, h3, h4, p, ul, ol, blockquote) {
+    max-width: none;
+  }
+  .doc-flow .prose-harness[data-layout="auto"] > * {
+    break-inside: avoid;
+  }
 }
 .prose-harness h1 {
   font-size: var(--ui-font-heading);

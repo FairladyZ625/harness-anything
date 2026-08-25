@@ -14,17 +14,11 @@ interface TaskDocumentSidebarProps {
   readonly onOpenDoc: (path: string) => void;
 }
 
-export function TaskDocumentSidebar({
-  task,
-  activeDoc,
-  onActiveDocChange,
-  onOpenDoc,
-}: TaskDocumentSidebarProps) {
+export function TaskDocumentSidebar({ task, activeDoc, onActiveDocChange, onOpenDoc }: TaskDocumentSidebarProps) {
   const documentList = useTaskDocumentListQuery(task.projectId, task.taskId);
   const documents = useMemo(() => {
-    const projected = documentList.data?.status === "ready"
-      ? documentList.data.documents.map((document) => document.path)
-      : [];
+    const projected =
+      documentList.data?.status === "ready" ? documentList.data.documents.map((document) => document.path) : [];
     return projectedDocuments(projected);
   }, [documentList.data]);
   const tree = useMemo(() => buildDocTree(documents), [documents]);
@@ -41,7 +35,7 @@ export function TaskDocumentSidebar({
   return (
     <nav
       aria-label="任务包文件"
-      className="min-h-0 overflow-y-auto border-b border-border bg-surface p-3 md:border-r md:border-b-0"
+      className="min-h-0 overflow-y-auto border-b border-border bg-surface p-3 @max-[1100px]:max-h-72 @min-[1100px]:border-r @min-[1100px]:border-b-0"
       data-testid="task-document-tree"
     >
       <p className="mb-2 px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-text-faint">
@@ -88,15 +82,14 @@ function TaskFileBody({ repoId, taskId, path }: TaskFileBodyProps) {
   if (document.isError) return <p className="text-[12px] text-danger">文档读取失败：{document.error.message}</p>;
   if (document.data.status !== "ready") return <FileEmpty text="文档投影尚未追平。" />;
   if (document.data.blobSha256 === null) return <FileEmpty text="该文件尚未物化。" />;
-  const content = isHtmlDocument(path)
-    ? <HtmlArtifactPreview content={document.data.body} path={path} />
-    : <DocReader content={document.data.body} />;
+  const content = isHtmlDocument(path) ? (
+    <HtmlArtifactPreview content={document.data.body} path={path} />
+  ) : (
+    <DocReader content={document.data.body} />
+  );
   return (
     <>
-      <span
-        data-testid="task-document-status"
-        className="mb-3 block font-mono text-[10px] text-text-faint"
-      >
+      <span data-testid="task-document-status" className="mb-3 block font-mono text-[10px] text-text-faint">
         L2 · {document.data.status}
       </span>
       {content}
