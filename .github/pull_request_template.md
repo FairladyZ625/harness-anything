@@ -6,6 +6,12 @@
 ## Summary
 
 
+## Architectural Justification
+
+<!-- Required when Production-Delta churn is greater than 200 lines or production net is greater than +300 lines. Explain why the existing module cannot carry the capability, what obsolete code was removed, and why the scope cannot be narrowed. -->
+-
+
+
 ## What Changed
 
 -
@@ -124,6 +130,12 @@ Dependency-Change: none
 # 中文
 
 ## 概要
+
+
+## 架构辩护
+
+<!-- 当 Production-Delta churn 超过 200 行或生产净增超过 +300 行时必须填写。说明现有模块为何无法承载、删除了哪些废弃代码，以及为何不能收窄范围。 -->
+-
 
 
 ## 改动内容

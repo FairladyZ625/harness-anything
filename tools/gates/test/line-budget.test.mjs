@@ -3,22 +3,26 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import { evaluateLineBudget, headroomFor, mechanicalUpperBoundFor, parseBudgets } from "../line-budget.mjs";
+import { evaluateLineBudget, headroomFor, main, mechanicalUpperBoundFor, parseBudgets } from "../line-budget.mjs";
 import { MODULES } from "../module-policy.mjs";
 import { loadReceipts, signReceipt, verifyReceipt } from "../receipt-verify.mjs";
 import { makeRepo, writeRepoFile } from "./helpers.mjs";
 
 function budgetBody(kernel) {
-  return `${JSON.stringify({
-    version: 1,
-    ceilings: Object.fromEntries(MODULES.map((moduleName) => [moduleName, moduleName === "kernel" ? kernel : 0]))
-  }, null, 2)}\n`;
+  return `${JSON.stringify(
+    {
+      version: 1,
+      ceilings: Object.fromEntries(MODULES.map((moduleName) => [moduleName, moduleName === "kernel" ? kernel : 0])),
+    },
+    null,
+    2,
+  )}\n`;
 }
 
 function fixtureRepo() {
   return makeRepo({
     "packages/kernel/src/index.ts": "one\ntwo\n",
-    "tools/gates/line-budgets.json": budgetBody(2)
+    "tools/gates/line-budgets.json": budgetBody(2),
   });
 }
 
@@ -37,6 +41,25 @@ test("G32 rejects production lines above the ceiling", () => {
   assert.match(result.errors.join("\n"), /actual 3 exceeds ceiling 2/u);
 });
 
+test("G32 reports an over-limit module as advisory without a failing exit code", () => {
+  const { rootDir, base } = fixtureRepo();
+  writeRepoFile(rootDir, "packages/kernel/src/index.ts", "one\ntwo\nthree\n");
+  const stdout = [];
+  const stderr = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (...args) => stdout.push(args.join(" "));
+  console.error = (...args) => stderr.push(args.join(" "));
+  try {
+    assert.equal(main(["--base", base], rootDir), 0);
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+  assert.ok(stdout.includes("G32 line-budget-ratchet: advisory"));
+  assert.match(stderr.join("\n"), /advisory: kernel: actual 3 exceeds ceiling 2/u);
+});
+
 test("G32 rejects a ceiling above the measured mechanical upper bound", () => {
   const { rootDir, base } = fixtureRepo();
   const ceiling = mechanicalUpperBoundFor("kernel") + 1;
@@ -46,13 +69,20 @@ test("G32 rejects a ceiling above the measured mechanical upper bound", () => {
     scope: "module:kernel",
     kind: "line-budget",
     limit: ceiling,
-    expiry: "2099-12-31T23:59:59Z"
+    expiry: "2099-12-31T23:59:59Z",
   };
-  writeRepoFile(rootDir, "tools/gates/receipts/kernel.json", `${JSON.stringify({ ...unsigned, signature: signReceipt(unsigned) }, null, 2)}\n`);
+  writeRepoFile(
+    rootDir,
+    "tools/gates/receipts/kernel.json",
+    `${JSON.stringify({ ...unsigned, signature: signReceipt(unsigned) }, null, 2)}\n`,
+  );
 
   const result = evaluateLineBudget({ rootDir, base, receiptsDir: path.join(rootDir, "tools/gates/receipts") });
   assert.equal(result.ok, false);
-  assert.match(result.errors.join("\n"), /kernel: ceiling 35826 exceeds mechanical upper bound 35825 derived from 28825 measured lines/u);
+  assert.match(
+    result.errors.join("\n"),
+    /kernel: ceiling 35826 exceeds mechanical upper bound 35825 derived from 28825 measured lines/u,
+  );
 });
 
 // Deleting production code must not tighten the budget. The old rule forced the
@@ -64,7 +94,10 @@ test("G32 leaves the ceiling alone when production lines fall", () => {
   const { rootDir, base } = fixtureRepo();
   writeRepoFile(rootDir, "packages/kernel/src/index.ts", "one\n");
   const reduced = evaluateLineBudget({ rootDir, base });
-  assert.deepEqual({ ok: reduced.ok, actual: reduced.actual.kernel, ceiling: reduced.ceilings.kernel }, { ok: true, actual: 1, ceiling: 2 });
+  assert.deepEqual(
+    { ok: reduced.ok, actual: reduced.actual.kernel, ceiling: reduced.ceilings.kernel },
+    { ok: true, actual: 1, ceiling: 2 },
+  );
   // Lowering it deliberately stays available -- it is just no longer compulsory.
   writeRepoFile(rootDir, "tools/gates/line-budgets.json", budgetBody(1));
   assert.equal(evaluateLineBudget({ rootDir, base }).ok, true);
@@ -80,9 +113,13 @@ test("G32 accepts a ceiling increase only with a scoped decision receipt", () =>
     scope: "module:kernel",
     kind: "line-budget",
     limit: 3,
-    expiry: "2099-12-31T23:59:59Z"
+    expiry: "2099-12-31T23:59:59Z",
   };
-  writeRepoFile(rootDir, "tools/gates/receipts/kernel.json", `${JSON.stringify({ ...unsigned, signature: signReceipt(unsigned) }, null, 2)}\n`);
+  writeRepoFile(
+    rootDir,
+    "tools/gates/receipts/kernel.json",
+    `${JSON.stringify({ ...unsigned, signature: signReceipt(unsigned) }, null, 2)}\n`,
+  );
   const result = evaluateLineBudget({ rootDir, base, receiptsDir: path.join(rootDir, "tools/gates/receipts") });
   assert.equal(result.ok, true, result.errors.join("\n"));
 });
@@ -105,14 +142,16 @@ const RETIRED_LINE_BUDGET_RECEIPTS = Object.freeze({
     decisionId: "dec_58420E6F1D934B9841F06A95E9",
     scope: "module:decision-fact",
     kind: "line-budget",
-    limit: 563
-  })
+    limit: 563,
+  }),
 });
 
 test("every committed line-budget receipt verifies, active raised ceilings are covered, and retired receipts are explicit", () => {
   const gatesDir = path.join(import.meta.dirname, "..");
   const ceilings = parseBudgets(readFileSync(path.join(gatesDir, "line-budgets.json"), "utf8"));
-  const receipts = loadReceipts(path.join(gatesDir, "receipts")).filter(({ receipt }) => receipt?.kind === "line-budget");
+  const receipts = loadReceipts(path.join(gatesDir, "receipts")).filter(
+    ({ receipt }) => receipt?.kind === "line-budget",
+  );
   assert.ok(receipts.length > 0, "no line-budget receipts are committed");
   // verifyReceipt, not a hand-rolled schema+signature pair: expiry is the half a
   // hand-rolled check silently drops, and an expired receipt is exactly the case
@@ -125,11 +164,14 @@ test("every committed line-budget receipt verifies, active raised ceilings are c
     const moduleName = receipt.scope.replace(/^module:/u, "");
     if (MODULES.includes(moduleName)) continue;
     const fileName = path.basename(filePath);
-    assert.ok(RETIRED_LINE_BUDGET_RECEIPTS[fileName], `${filePath}: scope names an unknown module without an explicit retirement record`);
+    assert.ok(
+      RETIRED_LINE_BUDGET_RECEIPTS[fileName],
+      `${filePath}: scope names an unknown module without an explicit retirement record`,
+    );
     assert.deepEqual(
       { decisionId: receipt.decisionId, scope: receipt.scope, kind: receipt.kind, limit: receipt.limit },
       RETIRED_LINE_BUDGET_RECEIPTS[fileName],
-      `${filePath}: retired receipt semantics changed`
+      `${filePath}: retired receipt semantics changed`,
     );
     retiredReceiptFiles.push(fileName);
   }
@@ -142,17 +184,28 @@ test("every committed line-budget receipt verifies, active raised ceilings are c
   const activeReceipts = receipts.filter(({ receipt }) => MODULES.includes(receipt.scope.replace(/^module:/u, "")));
   const receiptModules = [...new Set(activeReceipts.map(({ receipt }) => receipt.scope.replace(/^module:/u, "")))];
   for (const moduleName of receiptModules) {
-    assert.ok(activeReceipts.some(({ receipt }) => verifyReceipt(receipt, {
-      scope: `module:${moduleName}`, kind: "line-budget", minimumLimit: ceilings[moduleName], now
-    }).ok), `${moduleName}: ceiling ${ceilings[moduleName]} has no receipt the gate would accept`);
+    assert.ok(
+      activeReceipts.some(
+        ({ receipt }) =>
+          verifyReceipt(receipt, {
+            scope: `module:${moduleName}`,
+            kind: "line-budget",
+            minimumLimit: ceilings[moduleName],
+            now,
+          }).ok,
+      ),
+      `${moduleName}: ceiling ${ceilings[moduleName]} has no receipt the gate would accept`,
+    );
   }
   // Superseded receipts are deleted, not stacked: the gate reads whichever one
   // verifies, so a module carrying several is carrying expiries nobody is
   // tracking -- and this test fails the day the oldest of them lapses.
   assert.deepEqual(
-    receiptModules.filter((moduleName) => activeReceipts.filter(({ receipt }) => receipt.scope === `module:${moduleName}`).length > 1),
+    receiptModules.filter(
+      (moduleName) => activeReceipts.filter(({ receipt }) => receipt.scope === `module:${moduleName}`).length > 1,
+    ),
     [],
-    "each module keeps exactly one line-budget receipt; supersede by replacing the file"
+    "each module keeps exactly one line-budget receipt; supersede by replacing the file",
   );
 });
 
@@ -173,13 +226,13 @@ const DECISION_INPUT_LINES = Object.freeze({
   "agent-runtime": 3719,
   decision: 768,
   fact: 1058,
-  "test-infra": 0
+  "test-infra": 0,
 });
 
 test("the headroom tiers match the decision's table at every boundary", () => {
   assert.deepEqual(
     [1, 499, 500, 1999, 2000, 9999, 10000, 25000].map((measured) => headroomFor(measured)),
-    [400, 400, 1000, 1000, 4000, 4000, 7000, 7000]
+    [400, 400, 1000, 1000, 4000, 4000, 7000, 7000],
   );
 });
 
@@ -191,7 +244,7 @@ test("every committed ceiling is the tier rule applied to the lines it was deriv
   assert.deepEqual(
     Object.keys(DECISION_INPUT_LINES).sort(),
     [...MODULES].sort(),
-    "a module without a recorded line count would skip the tier rule unnoticed"
+    "a module without a recorded line count would skip the tier rule unnoticed",
   );
 
   // Candidate ceilings are derived from the measured module lines and the shared
@@ -214,7 +267,15 @@ test("every committed ceiling is the tier rule applied to the lines it was deriv
       continue;
     }
     const tierCeiling = measured + headroomFor(measured);
-    assert.equal(accepts(moduleName, tierCeiling), true, `${moduleName}: candidate ceiling must remain mechanically admissible`);
-    assert.equal(committed[moduleName], tierCeiling, `${moduleName}: ${measured} lines earns ${tierCeiling}, not ${committed[moduleName]}`);
+    assert.equal(
+      accepts(moduleName, tierCeiling),
+      true,
+      `${moduleName}: candidate ceiling must remain mechanically admissible`,
+    );
+    assert.equal(
+      committed[moduleName],
+      tierCeiling,
+      `${moduleName}: ${measured} lines earns ${tierCeiling}, not ${committed[moduleName]}`,
+    );
   }
 });
