@@ -54,7 +54,12 @@ export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {
   const events = task.events ?? [];
 
   return (
-    <div className="grid min-h-full gap-8" data-testid="task-overview-tab">
+    // 时间线不独占整列:容器 <1600px 时间线作为正文下方分区随内容高度增长;
+    // ≥1600px 收窄为右侧 19rem inspector,正文占满剩余宽度(量尺是 TaskDetailView 的 main 容器)。
+    <div
+      className="grid min-h-full gap-8 @min-[1600px]:grid-cols-[minmax(0,1fr)_19rem]"
+      data-testid="task-overview-tab"
+    >
       <section className="min-w-0">
         <SectionHeading eyebrow="PLAN" title="任务计划" description="目标、验收与边界的完整原文" />
         <div className="mt-5">
@@ -75,7 +80,7 @@ export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {
         </div>
       </section>
 
-      <aside className="border-t border-border pt-6">
+      <aside className="border-t border-border pt-6 @min-[1600px]:border-t-0 @min-[1600px]:border-l @min-[1600px]:pl-6 @min-[1600px]:pt-0">
         <SectionHeading eyebrow="TIMELINE" title="进展时间线" description={`${events.length} 条生命周期记录`} />
         {events.length === 0 ? (
           <div className="mt-5">
@@ -676,9 +681,7 @@ export function TaskCloseoutTab({
                 key={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
                 id={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
                 state={
-                  witness.schema === "code-doc-witness/v1" || witness.paths.length > 0
-                    ? "reconciled"
-                    : "known-invalid"
+                  witness.schema === "code-doc-witness/v1" || witness.paths.length > 0 ? "reconciled" : "known-invalid"
                 }
                 summary={witness.paths.join(", ")}
                 at={witness.schema === "code-doc-witness/v1" ? witness.reconciledAt : witness.repointedAt}

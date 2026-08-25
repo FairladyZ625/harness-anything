@@ -217,11 +217,15 @@ export function TaskDetailView({
         })}
       </nav>
 
-      <main className="min-h-0 flex-1 overflow-hidden px-3 py-3 sm:px-4">
+      {/* 宽屏自适应:main 是容器量尺(内容盒宽 = 卡片宽),卡片铺满可用宽度。
+          断带:容器 <1100px 单栏叠放(文件树横排在上,量高 18rem 内滚,不挤死正文);
+          ≥1100px 文件树收窄为 14rem 侧栏。 */}
+      <main className="@container min-h-0 flex-1 overflow-hidden px-3 py-3 sm:px-4">
         <div
           className={[
-            "mx-auto h-full w-full max-w-[96rem] overflow-hidden rounded-lg border border-border bg-bg",
-            "md:grid md:grid-cols-[14rem_minmax(0,1fr)]",
+            "h-full w-full overflow-hidden rounded-lg border border-border bg-bg",
+            "grid grid-cols-1 grid-rows-[auto_minmax(0,1fr)]",
+            "@min-[1100px]:grid-cols-[14rem_minmax(0,1fr)] @min-[1100px]:grid-rows-1",
           ].join(" ")}
         >
           <TaskDocumentSidebar

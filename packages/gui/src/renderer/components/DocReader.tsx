@@ -28,8 +28,14 @@ const components: Components = {
   },
 };
 
-type ReaderLayout = "single" | "double";
+type ReaderLayout = "auto" | "single" | "double";
 type ReaderFont = "sans" | "serif" | "mono";
+
+const readerLayouts: ReadonlyArray<{ readonly value: ReaderLayout; readonly label: string }> = [
+  { value: "auto", label: "自适应" },
+  { value: "single", label: "单栏" },
+  { value: "double", label: "双栏" },
+];
 
 const readerFonts: Record<ReaderFont, string> = {
   sans: "var(--font-sans)",
@@ -39,7 +45,7 @@ const readerFonts: Record<ReaderFont, string> = {
 
 export function DocReader({ content }: { content: string }) {
   const [query, setQuery] = useState("");
-  const [layout, setLayout] = useState<ReaderLayout>("single");
+  const [layout, setLayout] = useState<ReaderLayout>("auto");
   const [font, setFont] = useState<ReaderFont>("sans");
   const [fontSize, setFontSize] = useState(15);
 
@@ -84,8 +90,10 @@ export function DocReader({ content }: { content: string }) {
           ].join(" ")}
           data-testid="reader-floating-toolbar"
         >
+          {/* 栏数默认「自适应」:由 .doc-flow 容器查询按可用宽度自动分栏,无需点击;
+              单栏/双栏是显式覆盖,手动选择后仍可切回自适应。 */}
           <div className="flex items-center rounded-md border border-border bg-surface p-0.5" aria-label="阅读栏数">
-            {(["single", "double"] as const).map((value) => (
+            {readerLayouts.map(({ value, label }) => (
               <button
                 key={value}
                 type="button"
@@ -95,7 +103,7 @@ export function DocReader({ content }: { content: string }) {
                   layout === value ? "bg-accent text-accent-fg" : "text-text-muted hover:text-text"
                 }`}
               >
-                {value === "single" ? "单栏" : "双栏"}
+                {label}
               </button>
             ))}
           </div>
@@ -138,7 +146,7 @@ export function DocReader({ content }: { content: string }) {
           </button>
         </div>
       </div>
-      <div className="px-5 pb-6 pt-16 sm:px-6">
+      <div className="doc-flow px-5 pb-6 pt-16 sm:px-6">
         <div className="prose-harness" data-layout={layout} data-font={font}>
           <Markdown remarkPlugins={[remarkGfm]} components={components}>
             {content}
