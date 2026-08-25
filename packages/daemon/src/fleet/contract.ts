@@ -1,6 +1,14 @@
 import { TextDecoder } from "node:util";
-import { sha256Text, stableStringify } from "../../../kernel/src/index.ts";
-import type { LedgerCutIdentity } from "../../../kernel/src/index.ts";
+import {
+  CONTRACT_VERSION_1_0,
+  isContractVersion,
+  sha256Text,
+  stableStringify,
+  type ContractVersion,
+  type LedgerCutIdentity,
+} from "../../../kernel/src/index.ts";
+
+export const currentFleetProtocolVersion = CONTRACT_VERSION_1_0;
 
 export const FLEET_FRAME_BYTES = 96 * 1024,
   FLEET_CHUNK_BYTES = 64 * 1024,
@@ -44,7 +52,7 @@ export interface FleetAssignmentBinding extends FleetAssignmentScope {
 }
 type Msg<S extends string, P extends object = object> = Readonly<{ schema: S; messageId: string }> & Readonly<P>;
 export type FleetFrameV1 =
-  | Msg<"fleet.session.hello/v1", { protocolVersion: 1; nodeId: string; credential: string }>
+  | Msg<"fleet.session.hello/v1", { protocolVersion: ContractVersion; nodeId: string; credential: string }>
   | Msg<"fleet.session.ready/v1", { inReplyTo: string; sessionId: string; maxFrameBytes: number; chunkBytes: number }>
   | Msg<"fleet.assignment.get/v1", { assignmentId: string }>
   | Msg<
@@ -385,7 +393,7 @@ const docChange = shape({ path: logicalPath, baseBlobSha256: nullable(sha64), po
 const common = { schema: text, messageId: id } as const,
   reply = { ...common, inReplyTo: id } as const;
 const schemas: Readonly<Record<string, Check>> = {
-  "fleet.session.hello/v1": shape({ ...common, protocolVersion: one(1), nodeId: id, credential: text }),
+  "fleet.session.hello/v1": shape({ ...common, protocolVersion: isContractVersion, nodeId: id, credential: text }),
   "fleet.session.ready/v1": shape({
     ...reply,
     sessionId: id,

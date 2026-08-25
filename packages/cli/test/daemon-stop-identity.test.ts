@@ -103,7 +103,7 @@ const server = net.createServer((socket) => {
       if (!line.startsWith("{")) continue;
       const request = JSON.parse(line);
       const answer = request.method === "protocol.hello"
-        ? { jsonrpc: "2.0", id: request.id, result: { ok: true, protocolVersion: 1, methods: ["protocol.hello", "daemon.status"] } }
+        ? { jsonrpc: "2.0", id: request.id, result: { ok: true, protocolVersion: { major: 1, minor: 0 }, methods: ["protocol.hello", "daemon.status"] } }
         : request.method === "daemon.status"
           ? { jsonrpc: "2.0", id: request.id, result: { ok: true, daemonId: "legacy", pid: process.pid, repos: [], summary: "daemon status: pid=" + process.pid + " repos=0" } }
           : { jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } };

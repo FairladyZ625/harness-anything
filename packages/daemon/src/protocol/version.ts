@@ -1,1 +1,1 @@
-export const currentDaemonProtocolVersion = 1 as const;
+export { currentDaemonProtocolVersion } from "./daemon-protocol.contract.ts";

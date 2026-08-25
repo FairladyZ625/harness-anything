@@ -29,6 +29,7 @@ import {
   type JsonRpcResponse,
 } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
+import { isContractVersionCompatible } from "../../../kernel/src/index.ts";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 export interface JsonRpcProtocolServer {
   readonly handle: (
@@ -92,7 +93,7 @@ export function createJsonRpcProtocolServer(options: {
     const params = parsed.params;
     observed = { ...observed, repoId: repoIdFromParams(params) };
     if (request.method === "protocol.hello") {
-      if (params.protocolVersion !== currentDaemonProtocolVersion)
+      if (!isContractVersionCompatible(params.protocolVersion, currentDaemonProtocolVersion))
         return reply(
           daemonProtocolError(
             "protocol.hello",

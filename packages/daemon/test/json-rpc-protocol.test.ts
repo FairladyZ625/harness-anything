@@ -791,7 +791,7 @@ test("JSON-RPC failure receipt carries formal operation identity and origin", as
   const host = { run: async () => { throw new Error("unused"); }, read: async () => { throw new Error("unused"); }, attach: async () => { throw new Error("unused"); }, issueRuntimeWitness: async () => { throw new Error("unused"); }, bindRuntimeWitness: () => { throw new Error("unused"); }, publishRuntimeWitness: () => { throw new Error("unused"); }, bootstrap: async () => ({}), admin: async () => ({}),
     status: () => ({ daemonId: "test", pid: process.pid, repos: [] }), close: async () => undefined };
   const server = createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: { transportKind: "unix-socket" }, emit: async () => undefined });
-  const response = await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: -1 } });
+  const response = await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: { major: 2, minor: 0 } } });
   assert.ok(response && !Array.isArray(response) && "result" in response); if (response && !Array.isArray(response) && "result" in response) {
     const receipt = response.result as Record<string, unknown>; assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.opId, "N/A"); assert.equal(receipt.origin, "daemon"); }
   await server.handle({ jsonrpc: "2.0", id: 2, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });

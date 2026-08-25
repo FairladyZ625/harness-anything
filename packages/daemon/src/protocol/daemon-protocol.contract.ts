@@ -1,4 +1,5 @@
 import { presetMethods } from "../../../preset/src/preset-command-contract.ts";
+import type { ContractVersion } from "../../../kernel/src/index.ts";
 import { effectiveDaemonOwnedProtocolCommands } from "./daemon-protocol-commands.ts";
 import { daemonGuiActionMethods, daemonGuiStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
@@ -31,6 +32,8 @@ export {
   taskStatusWords,
 };
 
+export const currentDaemonProtocolVersion = Object.freeze({ major: 1, minor: 0 }) satisfies ContractVersion;
+
 // Wire-validator mirrors of the kernel status vocabularies (register:
 // packages/kernel/src/domain/status-vocabulary.ts, blueprint 铁律四). This module sits
 // on the CLI's eager startup path, so it must not import the kernel barrel — the p50
@@ -43,7 +46,7 @@ export const daemonProtocolMethods = Object.freeze([
     phase: "W3",
     method: "protocol.hello",
     requiresRepo: false,
-    params: shape({ protocolVersion: "number", sessionEnvironment: "json?" }),
+    params: shape({ protocolVersion: shape({ major: "number", minor: "number" }), sessionEnvironment: "json?" }),
   },
   {
     id: "daemon.status",
@@ -349,6 +352,8 @@ export const jsonRpcMethodContracts = Object.freeze(
   allDaemonProtocolMethods.map(({ method, requiresRepo }) => ({
     method,
     requiresRepo,
+    sinceVersion: currentDaemonProtocolVersion,
+    deprecatedSince: null,
   })),
 );
 

@@ -104,11 +104,15 @@ export {
 } from "./fact-event.ts";
 export type { FactConfidence, FactEventDraftV1, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
 
+export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";
+export type { ContractVersion } from "./contract-version.ts";
+
 export {
   createEntityKindRegistry,
   explainEntityKind,
   getEntityKind,
   requireEntityKindContract,
+  requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
 export type {
   EntityKindDeclaration,

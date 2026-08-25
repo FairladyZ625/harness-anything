@@ -1,4 +1,5 @@
 import { isJsonObject, rejectSecretKeys, type JsonObject } from "./protocol/json-rpc-types.ts";
+import { isContractVersion } from "../../kernel/src/index.ts";
 
 export interface DaemonControlReceipt extends JsonObject {
   readonly schema: "daemon-control-receipt/v1";
@@ -126,7 +127,7 @@ export function validateSystemStatus(value: unknown): readonly string[] {
         {
           daemonId: "string",
           pid: "number",
-          protocolVersion: "number",
+          protocolVersion: "object",
           startedAt: "string",
           uptimeMs: "number",
           endpoint: "string",
@@ -136,6 +137,8 @@ export function validateSystemStatus(value: unknown): readonly string[] {
         "system status.daemon",
       ),
     );
+    if (!isContractVersion(value.daemon.protocolVersion))
+      errors.push("system status.daemon.protocolVersion is invalid");
     if (record(value.daemon.build))
       errors.push(
         ...closed(value.daemon.build, { version: "string", commitSha: "null-string" }, "system status.daemon.build"),

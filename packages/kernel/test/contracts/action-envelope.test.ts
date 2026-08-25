@@ -7,6 +7,7 @@ import { createWriteReceipt, explainEntityKind } from "../../src/index.ts";
 
 const actor = { principal: { personId: "person-action" }, executor: { kind: "agent" as const, id: "sol" } };
 const action = {
+  version: { major: 1, minor: 0 },
   actionId: "action-start-1",
   kind: "start",
   target: "execution/exe_action",

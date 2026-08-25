@@ -1,7 +1,11 @@
 import type { VerticalDefinition } from "../schemas/registry.ts";
+import taskFrontmatterJsonSchema from "../../schemas/json/task-frontmatter.schema.json" with { type: "json" };
+import decisionPackageJsonSchema from "../../schemas/json/decision-package.schema.json" with { type: "json" };
+import factEventJsonSchema from "../../schemas/json/fact-event.schema.json" with { type: "json" };
 import { AGENT_DECLARATION_V1_SCHEMA, agentStates, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
 import { agentRuntimeEventTypes, runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
-import { policyStates } from "./decision-event-types.ts";
+import { decisionEventTypes, decisionStates, policyStates } from "./decision-event-types.ts";
+import { CONTRACT_VERSION_1_0, type ContractVersion } from "./contract-version.ts";
 import { DEFAULT_POLICY } from "./default-policy.ts";
 import {
   ENTITY_ID_PATTERN,
@@ -12,9 +16,20 @@ import {
 } from "./entity-json-schema.ts";
 import type { RelationDirection } from "./entity-relation.ts";
 import { executionStates } from "./execution.ts";
+import { domainStatuses } from "./lifecycle-status.ts";
 import { policyPredicateNames, POLICY_DECLARATION_V1_SCHEMA, validatePolicyDeclarationV1 } from "./policy.ts";
 import type { PolicyActionRule, PolicyPredicateName } from "./policy.ts";
+import { canonicalRelationDirections } from "./relation-direction.ts";
 import { reviewVerdicts } from "./review.ts";
+import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
+import {
+  dispositionMatrix,
+  supported,
+  unsupported,
+  type EntityAnchorDeclaration,
+  type EntityDispositionMatrix,
+  type EntityStorageForm,
+} from "../entity/registry-contract.ts";
 
 export type EntityKindDeclaration = VerticalDefinition["entityKinds"][number];
 export type EntityPackageScaffold = VerticalDefinition["packageScaffolds"][number];
@@ -54,21 +69,50 @@ export interface EntityKindContract<T = unknown> {
     }[];
   };
   readonly statusVocabulary?: readonly { readonly field: string; readonly words: readonly string[] }[];
-  readonly transitionCatalog: {
+  readonly actionCatalog: {
     readonly ref: string;
-    readonly transitions: readonly string[];
+    readonly actions: readonly EntityActionContract[];
   } | null;
-  readonly document: {
-    readonly pathTemplate: string;
-    readonly mediaType: "application/json";
-    readonly policyId: typeof ENTITY_DOCUMENT_POLICY_ID;
+  readonly entityStore: {
+    readonly document: {
+      readonly pathTemplate: string;
+      readonly mediaType: "application/json";
+      readonly policyId: typeof ENTITY_DOCUMENT_POLICY_ID;
+    };
+    readonly validate?: (value: unknown) => readonly string[];
+  } | null;
+  readonly authoring: {
+    readonly kind: "generic-entity-store" | "task-lifecycle" | "fact-event" | "decision-event";
+    readonly contractRef: string;
   };
-  readonly validate?: (value: unknown) => readonly string[];
+  readonly sdkExposure: EntitySdkExposure;
+  readonly framework?: {
+    readonly schemaId: string;
+    readonly mutabilityContractRef: string;
+    readonly anchors: EntityAnchorDeclaration;
+    readonly dispositionMatrix: EntityDispositionMatrix;
+    readonly storageForm: EntityStorageForm;
+  };
   readonly policy?: {
     readonly predicates: readonly PolicyPredicateName[];
     readonly actions: readonly string[];
     readonly rules: readonly PolicyActionRule[];
   };
+}
+
+export interface EntitySdkExposure {
+  readonly sdk: { readonly target: string; readonly schemaId: string } | null;
+  readonly agentCapability: { readonly target: string; readonly schemaId: string } | null;
+}
+
+export interface EntityActionContract {
+  readonly id: string;
+  readonly version: ContractVersion;
+  readonly target: {
+    readonly kind: string;
+    readonly refTemplate: string;
+  };
+  readonly sdkExposure: EntitySdkExposure;
 }
 
 export interface EntityKindExplanation {
@@ -84,12 +128,16 @@ export interface EntityKindExplanation {
   readonly transitions: {
     readonly catalogRef: string | null;
     readonly available: readonly string[];
+    readonly actions: readonly EntityActionContract[];
   };
-  readonly policy?: {
+  readonly authoring: EntityKindContract["authoring"];
+  readonly sdkExposure: EntitySdkExposure;
+  readonly framework: EntityKindContract["framework"] | null;
+  readonly policy: {
     readonly predicates: readonly PolicyPredicateName[];
     readonly actions: readonly string[];
     readonly rules: readonly PolicyActionRule[];
-  };
+  } | null;
 }
 
 const declarationId = Object.freeze({
@@ -98,6 +146,38 @@ const declarationId = Object.freeze({
 });
 const declarationDocument = (pathTemplate: string) =>
   Object.freeze({ pathTemplate, mediaType: "application/json" as const, policyId: ENTITY_DOCUMENT_POLICY_ID });
+const noSdkExposure: EntitySdkExposure = Object.freeze({ sdk: null, agentCapability: null });
+const capabilityExposure = (target: string, schemaId: string): EntitySdkExposure =>
+  Object.freeze({
+    sdk: Object.freeze({ target: `${target[0]!.toUpperCase()}${target.slice(1)}Capability`, schemaId }),
+    agentCapability: Object.freeze({ target, schemaId }),
+  });
+const entityAction = (
+  kind: string,
+  refTemplate: string,
+  id: string,
+  sdkExposure: EntitySdkExposure = noSdkExposure,
+): EntityActionContract =>
+  Object.freeze({
+    id,
+    version: CONTRACT_VERSION_1_0,
+    target: Object.freeze({ kind, refTemplate }),
+    sdkExposure,
+  });
+const actionCatalog = (
+  ref: string,
+  kind: string,
+  refTemplate: string,
+  ids: readonly string[],
+  sdkExposure: EntitySdkExposure = noSdkExposure,
+) => Object.freeze({ ref, actions: Object.freeze(ids.map((id) => entityAction(kind, refTemplate, id, sdkExposure))) });
+const genericAuthoring = Object.freeze({ kind: "generic-entity-store" as const, contractRef: "entity-event/v1" });
+const genericEntityStore = (pathTemplate: string, validate?: (value: unknown) => readonly string[]) =>
+  Object.freeze({ document: declarationDocument(pathTemplate), ...(validate ? { validate } : {}) });
+
+const taskExposure = capabilityExposure("task", "task-frontmatter");
+const factExposure = capabilityExposure("fact", "fact-event");
+const decisionExposure = capabilityExposure("decision", "decision-package");
 
 const executionIdPattern = "^[a-z0-9][a-z0-9_-]{0,127}$";
 const reviewIdPattern = "^[a-z0-9][a-z0-9_-]{0,127}$";
@@ -114,6 +194,97 @@ const nullableOpaqueObject = (): EntityJsonSchemaNode => ({
   required: [],
   additionalProperties: true,
   "x-nullable": true,
+});
+
+function explainableSchema(
+  id: string,
+  source: Readonly<{ required?: readonly string[]; properties?: Readonly<Record<string, unknown>> }>,
+): EntityDocumentJsonSchema {
+  const properties = Object.fromEntries(
+    Object.entries(source.properties ?? {}).map(([name, node]) => [name, explainableNode(node)]),
+  );
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: id,
+    type: "object",
+    properties,
+    required: source.required ?? [],
+    additionalProperties: false,
+  };
+}
+
+function explainableNode(value: unknown): EntityJsonSchemaNode {
+  const node = typeof value === "object" && value !== null ? (value as Readonly<Record<string, unknown>>) : {};
+  const description = typeof node.description === "string" ? node.description : undefined;
+  const inferred =
+    typeof node.type === "string"
+      ? node.type
+      : typeof node.const === "string"
+        ? "string"
+        : typeof node.const === "number"
+          ? "number"
+          : typeof node.const === "boolean"
+            ? "boolean"
+            : "object";
+  if (inferred === "string") return { type: "string", ...(description ? { description } : {}) };
+  if (inferred === "number" || inferred === "integer" || inferred === "boolean" || inferred === "null")
+    return { type: inferred, ...(description ? { description } : {}) };
+  if (inferred === "array") return { type: "array", items: opaqueObject(), ...(description ? { description } : {}) };
+  return { ...opaqueObject(), ...(description ? { description } : {}) };
+}
+
+const taskSchema = explainableSchema("task-frontmatter", taskFrontmatterJsonSchema);
+const factSchema = explainableSchema("fact-event", factEventJsonSchema);
+const decisionSchema = explainableSchema("decision-package", decisionPackageJsonSchema);
+
+const decisionFramework = Object.freeze({
+  schemaId: "DecisionEventSchema",
+  mutabilityContractRef: "decisionFieldContracts",
+  anchors: {
+    entityRef: "decision/{decisionId}",
+    anchors: [
+      { field: "claims", idField: "claimId", ref: "decision/{decisionId}/{claimId}" },
+      { field: "chosen", idField: "id", ref: "decision/{decisionId}/{id}" },
+      { field: "rejected", idField: "id", ref: "decision/{decisionId}/{id}" },
+    ],
+  },
+  dispositionMatrix: dispositionMatrix([
+    supported("D1", "retire", ["decision_retired"], "decision semantic retirement preserves organizational memory"),
+    supported("D1", "supersede", ["decision_related"], "decision correction is expressed as a supersedes relation"),
+    unsupported("D1", "invalidate", "decision invalidation is modeled as retire or supersede"),
+    unsupported("D2", "archive", "decision archive/version-rollup is declared but not writable in M5 F5"),
+    unsupported("D3", "tombstone", "bad proposed decisions are rejected, not tombstoned"),
+    unsupported("D4", "hard-delete", "decision is why-memory and must never be physically deleted"),
+  ]),
+  storageForm: "lifecycle" as const,
+});
+const taskFramework = Object.freeze({
+  schemaId: "TaskFrontmatterSchema",
+  mutabilityContractRef: "taskFieldContracts",
+  anchors: { entityRef: "task/{task_id}", anchors: [] },
+  dispositionMatrix: dispositionMatrix([
+    unsupported("D1", "supersede", "replay/v1 does not expose authored task package disposition writes"),
+    unsupported("D1", "retire", "replay/v1 does not expose authored task package disposition writes"),
+    unsupported("D1", "invalidate", "task invalidation is not a task disposition action"),
+    unsupported("D2", "archive", "replay/v1 does not expose authored task package disposition writes"),
+    unsupported("D3", "tombstone", "replay/v1 does not expose authored task package disposition writes"),
+    unsupported("D4", "hard-delete", "replay/v1 does not expose authored task package disposition writes"),
+  ]),
+  storageForm: "lifecycle" as const,
+});
+const factFramework = Object.freeze({
+  schemaId: "FactEventSchema",
+  mutabilityContractRef: "factFieldContracts",
+  anchors: { entityRef: "fact/{task_id}/{fact_id}", anchors: [] },
+  dispositionMatrix: dispositionMatrix([
+    supported("D1", "invalidate", ["fact_recorded"], "fact invalidation is a superseding append-only Fact event"),
+    unsupported("D1", "retire", "fact semantic exit is invalidate, not retire"),
+    unsupported("D1", "supersede", "fact supersession remains an invalidation-class D1 action"),
+    unsupported("D2", "archive", "fact follows its owner task archive and is not archived singly"),
+    unsupported("D3", "tombstone", "fact is append-only and has no single-record tombstone semantics"),
+    unsupported("D4", "hard-delete", "fact must never be physically deleted as a standalone entity"),
+  ]),
+  storageForm: "lifecycle" as const,
 });
 const executionSchema: EntityDocumentJsonSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -184,26 +355,103 @@ const reviewSchema: EntityDocumentJsonSchema = {
   additionalProperties: false,
 };
 
+const relationsFor = (kind: string): EntityKindContract["relations"] => {
+  const edges = canonicalRelationDirections
+    .filter((entry) => entry.sourceKind === kind)
+    .map(({ type, sourceKind, targetKind }) => ({ type, sourceKind, targetKind }));
+  return Object.freeze({ directions: edges.length ? (["directed"] as const) : [], edges: Object.freeze(edges) });
+};
+
+const decisionActionByEvent = {
+  decision_proposed: "propose",
+  decision_accepted: "accept",
+  decision_rejected: "reject",
+  decision_deferred: "defer",
+  decision_superseded: "supersede",
+  decision_retired: "retire",
+  decision_amended: "amend",
+  decision_repinned: "repin",
+  decision_claim_declared: "declare-claim",
+  decision_claim_fulfillment_declared: "fulfill-claim",
+  decision_related: "relate",
+  decision_relation_retired: "retire-relation",
+  decision_relation_replaced: "replace-relation",
+} as const satisfies Record<(typeof decisionEventTypes)[number], string>;
+const decisionActionIds = decisionEventTypes.map((type) => decisionActionByEvent[type]);
+
 export const entityKindContracts = Object.freeze([
+  {
+    kind: "task",
+    schema: taskSchema,
+    id: { field: "task_id", pattern: lifecycleTaskIdPattern, refTemplate: "task/{id}" },
+    relations: relationsFor("task"),
+    statusVocabulary: [{ field: "lifecycle.status", words: domainStatuses }],
+    actionCatalog: actionCatalog(
+      "kernel/task-lifecycle/v1",
+      "task",
+      "task/{id}",
+      TASK_LIFECYCLE_TRANSITIONS.map(({ id }) => id),
+      taskExposure,
+    ),
+    entityStore: null,
+    authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
+    sdkExposure: taskExposure,
+    framework: taskFramework,
+  },
+  {
+    kind: "fact",
+    schema: factSchema,
+    id: { field: "factId", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$", refTemplate: "fact/{id}" },
+    relations: relationsFor("fact"),
+    statusVocabulary: [{ field: "state", words: ["standing", "superseded_fact"] }],
+    actionCatalog: actionCatalog("kernel/fact-event/v1", "fact", "fact/{id}", ["record"], factExposure),
+    entityStore: null,
+    authoring: { kind: "fact-event", contractRef: "fact-event/v1" },
+    sdkExposure: factExposure,
+    framework: factFramework,
+  },
+  {
+    kind: "decision",
+    schema: decisionSchema,
+    id: { field: "decisionId", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$", refTemplate: "decision/{id}" },
+    relations: relationsFor("decision"),
+    statusVocabulary: [{ field: "state", words: decisionStates }],
+    actionCatalog: actionCatalog(
+      "kernel/decision-event/v1",
+      "decision",
+      "decision/{id}",
+      decisionActionIds,
+      decisionExposure,
+    ),
+    entityStore: null,
+    authoring: { kind: "decision-event", contractRef: "decision-event/v1" },
+    sdkExposure: decisionExposure,
+    framework: decisionFramework,
+  },
   {
     kind: "agent",
     schema: AGENT_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "agent/{id}" },
     relations: { directions: [], edges: [] },
     statusVocabulary: [{ field: "state", words: agentStates }],
-    transitionCatalog: {
-      ref: "kernel/agent-declaration/v1",
-      transitions: ["configure", "activate", "retire"],
-    },
-    document: declarationDocument("agents/{id}.json"),
+    actionCatalog: actionCatalog("kernel/agent-declaration/v1", "agent", "agent/{id}", [
+      "configure",
+      "activate",
+      "retire",
+    ]),
+    entityStore: genericEntityStore("agents/{id}.json"),
+    authoring: genericAuthoring,
+    sdkExposure: noSdkExposure,
   },
   {
     kind: "squad",
     schema: SQUAD_DECLARATION_V1_SCHEMA,
     id: { ...declarationId, refTemplate: "squad/{id}" },
     relations: { directions: [], edges: [] },
-    transitionCatalog: null,
-    document: declarationDocument("squads/{id}.json"),
+    actionCatalog: null,
+    entityStore: genericEntityStore("squads/{id}.json"),
+    authoring: genericAuthoring,
+    sdkExposure: noSdkExposure,
   },
   {
     kind: "policy",
@@ -211,12 +459,10 @@ export const entityKindContracts = Object.freeze([
     id: { ...declarationId, refTemplate: "policy/{id}" },
     relations: { directions: [], edges: [] },
     statusVocabulary: [{ field: "state", words: policyStates }],
-    transitionCatalog: {
-      ref: "kernel/policy/v1",
-      transitions: ["draft", "activate", "retire"],
-    },
-    document: declarationDocument("policies/{id}.json"),
-    validate: validatePolicyDeclarationV1,
+    actionCatalog: actionCatalog("kernel/policy/v1", "policy", "policy/{id}", ["draft", "activate", "retire"]),
+    entityStore: genericEntityStore("policies/{id}.json", validatePolicyDeclarationV1),
+    authoring: genericAuthoring,
+    sdkExposure: noSdkExposure,
     policy: {
       predicates: policyPredicateNames,
       actions: DEFAULT_POLICY.actions,
@@ -232,11 +478,16 @@ export const entityKindContracts = Object.freeze([
       edges: [{ type: "executes", sourceKind: "execution", targetKind: "task" }],
     },
     statusVocabulary: [{ field: "state", words: executionStates }],
-    transitionCatalog: {
-      ref: "kernel/task-lifecycle/v1",
-      transitions: ["start", "renew", "submit", "complete", "release"],
-    },
-    document: declarationDocument("executions/{id}.json"),
+    actionCatalog: actionCatalog("kernel/task-lifecycle/v1", "execution", "execution/{id}", [
+      "start",
+      "renew",
+      "submit",
+      "complete",
+      "release",
+    ]),
+    entityStore: genericEntityStore("executions/{id}.json"),
+    authoring: genericAuthoring,
+    sdkExposure: noSdkExposure,
   },
   {
     kind: "review",
@@ -247,11 +498,10 @@ export const entityKindContracts = Object.freeze([
       edges: [{ type: "reviews", sourceKind: "review", targetKind: "execution" }],
     },
     statusVocabulary: [{ field: "verdict", words: reviewVerdicts }],
-    transitionCatalog: {
-      ref: "kernel/task-lifecycle/v1",
-      transitions: ["record"],
-    },
-    document: declarationDocument("reviews/{id}.json"),
+    actionCatalog: actionCatalog("kernel/task-lifecycle/v1", "review", "review/{id}", ["record"]),
+    entityStore: genericEntityStore("reviews/{id}.json"),
+    authoring: genericAuthoring,
+    sdkExposure: noSdkExposure,
   },
   {
     kind: "runtime-session",
@@ -269,11 +519,15 @@ export const entityKindContracts = Object.freeze([
         words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
       },
     ],
-    transitionCatalog: {
-      ref: "kernel/agent-runtime-event/v1",
-      transitions: agentRuntimeEventTypes.filter((type) => type.startsWith("runtime_session_")),
-    },
-    document: declarationDocument("runtime-sessions/{id}.json"),
+    actionCatalog: actionCatalog(
+      "kernel/agent-runtime-event/v1",
+      "runtime-session",
+      "runtime-session/{id}",
+      agentRuntimeEventTypes.filter((type) => type.startsWith("runtime_session_")),
+    ),
+    entityStore: genericEntityStore("runtime-sessions/{id}.json"),
+    authoring: genericAuthoring,
+    sdkExposure: noSdkExposure,
   },
 ] as const satisfies readonly EntityKindContract[]);
 
@@ -292,6 +546,19 @@ export function requireEntityKindContract(kind: string): EntityKindContract {
   return contract;
 }
 
+export type EntityStoreKindContract = EntityKindContract & {
+  readonly entityStore: NonNullable<EntityKindContract["entityStore"]>;
+};
+
+export function requireEntityStoreKindContract(kind: string): EntityStoreKindContract {
+  const contract = requireEntityKindContract(kind);
+  if (contract.entityStore === null)
+    throw Object.assign(new Error(`Entity kind ${kind} is authored through ${contract.authoring.contractRef}.`), {
+      code: "entity_kind_has_dedicated_authoring",
+    });
+  return contract as EntityStoreKindContract;
+}
+
 export function explainEntityKind(kind: string): EntityKindExplanation {
   const contract = requireEntityKindContract(kind);
   return {
@@ -302,17 +569,21 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
     relations: contract.relations,
     statusVocabulary: contract.statusVocabulary ?? [],
     transitions: {
-      catalogRef: contract.transitionCatalog?.ref ?? null,
-      available: contract.transitionCatalog?.transitions ?? [],
+      catalogRef: contract.actionCatalog?.ref ?? null,
+      available: contract.actionCatalog?.actions.map(({ id }) => id) ?? [],
+      actions: contract.actionCatalog?.actions ?? [],
     },
-    ...(contract.policy ? { policy: contract.policy } : {}),
+    authoring: contract.authoring,
+    sdkExposure: contract.sdkExposure,
+    framework: contract.framework ?? null,
+    policy: contract.policy ?? null,
   };
 }
 
-export function entityDocumentPath(contract: EntityKindContract, id: string): string {
+export function entityDocumentPath(contract: EntityStoreKindContract, id: string): string {
   if (!new RegExp(contract.id.pattern, "u").test(id))
     throw Object.assign(new Error(`${id} is not a valid ${contract.kind} id.`), { code: "invalid_entity_id" });
-  return contract.document.pathTemplate.replace("{id}", id);
+  return contract.entityStore.document.pathTemplate.replace("{id}", id);
 }
 
 export function createEntityKindRegistry(vertical: VerticalDefinition): EntityKindRegistry {

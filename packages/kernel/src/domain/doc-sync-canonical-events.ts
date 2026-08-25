@@ -14,7 +14,7 @@ import {
   validatePresetSnapshotUpgradeEvent,
 } from "./preset-snapshot-upgrade-event.ts";
 import { validateCurrentTaskBootstrapEvent, validateTaskBootstrapEvent } from "./task-bootstrap-event.ts";
-import { validateCurrentTaskEvent, validateTaskEvent, type TaskEventV1 } from "./task-lifecycle.contract.ts";
+import { validateCurrentTaskEvent, validateTaskEvent, type TaskEventV1 } from "./task-lifecycle-event.ts";
 import { validateCurrentTaskProgressEvent, validateTaskProgressEvent } from "./task-progress-event.ts";
 import { canonicalizeWriteValue, isRecord } from "./write-chain.contract.ts";
 
