@@ -1,5 +1,10 @@
 import path from "node:path";
-import { acquireDaemonAutostartFlight, daemonProcessAlive, daemonSocketProbe } from "../daemon-singleton.ts";
+import {
+  acquireDaemonAutostartFlight,
+  daemonProcessAlive,
+  daemonSocketProbe,
+  readDaemonSingletonLockPid,
+} from "../daemon-singleton.ts";
 import { daemonLifecycleLogPath, readDaemonLifecycleRecords } from "../lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../process-port.ts";
 export interface DaemonLaunchSpec {
@@ -66,6 +71,7 @@ export async function ensureLocalDaemonRunning(input: {
   if (await ready()) return { ok: true, hint: "daemon is reachable", attempts: 0 };
   let launched: DaemonLaunchSpec | null = null,
     flight: Awaited<ReturnType<typeof acquireDaemonAutostartFlight>> | null = null,
+    spawned = false,
     latestProgress: DaemonStartProgress | null = null,
     reported = "";
   try {
@@ -76,12 +82,19 @@ export async function ensureLocalDaemonRunning(input: {
     // The probe belongs inside the claim: another caller may have bound the
     // socket between this process's initial probe and atomic lock creation.
     if (flight.owner && (await ready())) return { ok: true, hint: "daemon is reachable", attempts: 0 };
-    if (flight.owner) await spawnDetached(launched);
+    // A peer may have claimed the daemon singleton after the initial socket
+    // probe but before this process claimed the autostart flight. That peer is
+    // already the writer for this target; spawning a deferred candidate adds
+    // noise and can make a GUI startup look like a writer-lock collision.
+    if (flight.owner && !liveDaemonSingleton(launched)) {
+      spawned = true;
+      await spawnDetached(launched);
+    }
     const startedAt = Date.now(),
       quietDeadline = startedAt + readyTimeoutMs,
       progressDeadline = startedAt + readyTimeoutMs * 6;
     for (;;) {
-      if (await ready()) return { ok: true, hint: "daemon is reachable", attempts: flight.owner ? 1 : 0 };
+      if (await ready()) return { ok: true, hint: "daemon is reachable", attempts: spawned ? 1 : 0 };
       const progress = readDaemonStartProgress(launched, Date.now() - startedAt);
       if (progress) {
         latestProgress = progress;
@@ -96,7 +109,7 @@ export async function ensureLocalDaemonRunning(input: {
       await delay(probeIntervalMs);
     }
   } catch (error) {
-    return { ok: false, attempts: flight?.owner ? 1 : 0, ...classifySpawnFailure(error, launched) };
+    return { ok: false, attempts: spawned ? 1 : 0, ...classifySpawnFailure(error, launched) };
   } finally {
     flight?.release();
   }
@@ -104,7 +117,7 @@ export async function ensureLocalDaemonRunning(input: {
     return {
       ok: false,
       code: "daemon_starting",
-      attempts: flight?.owner ? 1 : 0,
+      attempts: spawned ? 1 : 0,
       hint: `${latestProgress.message}; the daemon is still alive but has not bound ${
         input.socketPath
       }. Keep waiting or inspect ${launched ? daemonLaunchOutputPath(launched) : "the lifecycle log"}.`,
@@ -112,12 +125,10 @@ export async function ensureLocalDaemonRunning(input: {
   return {
     ok: false,
     code: "daemon_bind_timeout",
-    attempts: flight?.owner ? 1 : 0,
+    attempts: spawned ? 1 : 0,
     hint: `Daemon start failed: no socket appeared at ${
       input.socketPath
-    } and no live lifecycle progress was observed within ${
-      readyTimeoutMs
-    }ms after one shared start attempt. Inspect ${
+    } and no live lifecycle progress was observed within ${readyTimeoutMs}ms after one shared start attempt. Inspect ${
       launched ? daemonLaunchOutputPath(launched) : "the daemon lifecycle log"
     }.`,
   };
@@ -221,6 +232,12 @@ function daemonLaunchTarget(launch: DaemonLaunchSpec): { readonly userRoot: stri
   return daemon >= 0 && serve === daemon + 1 && rootAt >= 0 && idAt >= 0 && userRoot && daemonId
     ? { userRoot: path.resolve(userRoot), daemonId }
     : null;
+}
+function liveDaemonSingleton(launch: DaemonLaunchSpec): boolean {
+  const target = daemonLaunchTarget(launch);
+  if (!target) return false;
+  const pid = readDaemonSingletonLockPid(target.userRoot, target.daemonId);
+  return pid !== null && daemonProcessAlive(pid);
 }
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
