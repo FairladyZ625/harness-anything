@@ -179,10 +179,11 @@ function recoverableSubscriptionFailure(error: unknown): boolean {
         : null,
     message = error instanceof Error ? error.message : String(error);
   return (
-    ["daemon_response_timeout", "ECONNREFUSED", "ECONNRESET", "ENOENT", "EPIPE", "ETIMEDOUT"].includes(String(code)) ||
+    ["daemon_response_timeout", "daemon_closed", "ECONNREFUSED", "ECONNRESET", "ENOENT", "EPIPE", "ETIMEDOUT"].includes(
+      String(code),
+    ) ||
     message === "daemon_unavailable" ||
-    message === "daemon_stream_unavailable" ||
-    message.startsWith("daemon closed before JSON-RPC response")
+    message === "daemon_stream_unavailable"
   );
 }
 
@@ -226,7 +227,9 @@ function runtimeDaemonGone(
         }
       : null,
     commandName = spawned ? "runtime-run" : "runtime-status",
-    hint = `The daemon process and socket are gone. Last known dispatch status: ${status}. Restart the daemon, then inspect the dispatch before deciding whether to run it again.`;
+    hint =
+      `The daemon process and socket are gone. Last known dispatch status: ${status}. ` +
+      "Restart the daemon, then inspect the dispatch before deciding whether to run it again.";
   return {
     schema: "command-receipt/v2",
     ok: false,
@@ -248,7 +251,10 @@ function runtimeDaemonGone(
 
 function taskDispatchDaemonGone(taskId: string, current: JsonObject | undefined, cause: string): JsonObject {
   const dispatches = Array.isArray(current?.dispatches) ? current.dispatches : [],
-    hint = `The daemon process and socket are gone. ${dispatches.length} last-known task dispatch status row${dispatches.length === 1 ? " is" : "s are"} attached. Restart the daemon, then inspect the task dispatches before deciding whether to run them again.`;
+    hint =
+      `The daemon process and socket are gone. ${dispatches.length} last-known task dispatch status ` +
+      `row${dispatches.length === 1 ? " is" : "s are"} attached. ` +
+      "Restart the daemon, then inspect the task dispatches before deciding whether to run them again.";
   return {
     schema: "command-receipt/v2",
     ok: false,
@@ -261,7 +267,9 @@ function taskDispatchDaemonGone(taskId: string, current: JsonObject | undefined,
     lastKnownDispatches: dispatches,
     error: { code: "daemon_gone", hint, cause },
     nextAction: hint,
-    summary: `runtime-status task ${taskId}: daemon_gone; ${dispatches.length} last-known dispatch status row${dispatches.length === 1 ? "" : "s"}`,
+    summary:
+      `runtime-status task ${taskId}: daemon_gone; ` +
+      `${dispatches.length} last-known dispatch status row${dispatches.length === 1 ? "" : "s"}`,
     exitCode: 1,
   };
 }
