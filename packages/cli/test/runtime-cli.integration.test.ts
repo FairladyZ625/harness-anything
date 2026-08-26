@@ -1,7 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,20 +22,180 @@ import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub
 const cli = path.resolve("packages/cli/src/index.ts");
 
 test("real CLI runs, archives task-bound dispatches, resumes, waits through status, streams, and cancels idempotently", async (context) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), binRoot = path.join(parent, "bin"), promptFile = path.join(root, "prompt.txt"), tracker = path.join(root, ".batch-tracker"), nonzeroTrace = path.join(root, ".notify-nonzero.json"), notificationStarted = path.join(root, ".notify-hold-started"), notificationFinished = path.join(root, ".notify-hold-finished"), notificationOnce = path.join(root, ".notify-once"), version = "0.0.0-runtime-cli-fixture", { HARNESS_DAEMON_ENDPOINT: _endpoint, HARNESS_DAEMON_REPO_ID: _repoId, HARNESS_DAEMON_ID: _daemonId, ...baseEnv } = process.env;
-  mkdirSync(root, { recursive: true }); mkdirSync(binRoot, { recursive: true }); writeProgressProvider(path.join(binRoot, "codex"), version);
-  const nonzeroNotifier = writeProviderExecutable(path.join(parent, "notify-nonzero"), `const fs = require("node:fs"), payload = JSON.parse(fs.readFileSync(0, "utf8")); fs.writeFileSync(".notify-nonzero.json", JSON.stringify({ cwd: process.cwd(), environment: process.env, payload })); process.exit(23);\n`), holdNotifier = writeProviderExecutable(path.join(parent, "notify-hold"), `const fs = require("node:fs"); fs.readFileSync(0, "utf8"); fs.writeFileSync(".notify-hold-started", "started\\n"); setTimeout(() => { fs.writeFileSync(".notify-hold-finished", "finished\\n"); }, 4000);\n`), onceNotifier = writeProviderExecutable(path.join(parent, "notify-once"), `const fs = require("node:fs"); fs.readFileSync(0, "utf8"); fs.appendFileSync(".notify-once", "once\\n");\n`);
-  const env = { ...baseEnv, HOME: path.join(parent, "home"), PATH: [binRoot, ...(process.env.PATH ?? "").split(path.delimiter).filter((entry) => ["codex", "codex.cmd", "codex.exe"].every((name) => !existsSync(path.join(entry, name))))].join(path.delimiter), OPENAI_API_KEY: "sk-must-not-reach-notifier", HARNESS_NOTIFY_TEST_SECRET: "must-not-reach-notifier", HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_ID: "runtime-cli-test", HARNESS_ACTOR: "agent:runtime-cli-test" };
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    binRoot = path.join(parent, "bin"),
+    promptFile = path.join(root, "prompt.txt"),
+    tracker = path.join(root, ".batch-tracker"),
+    nonzeroTrace = path.join(root, ".notify-nonzero.json"),
+    notificationStarted = path.join(root, ".notify-hold-started"),
+    notificationFinished = path.join(root, ".notify-hold-finished"),
+    notificationOnce = path.join(root, ".notify-once"),
+    version = "0.0.0-runtime-cli-fixture",
+    {
+      HARNESS_DAEMON_ENDPOINT: _endpoint,
+      HARNESS_DAEMON_REPO_ID: _repoId,
+      HARNESS_DAEMON_ID: _daemonId,
+      ...baseEnv
+    } = process.env;
+  mkdirSync(root, { recursive: true });
+  mkdirSync(binRoot, { recursive: true });
+  writeProgressProvider(path.join(binRoot, "codex"), version);
+  const nonzeroNotifier = writeProviderExecutable(
+      path.join(parent, "notify-nonzero"),
+      `const fs = require("node:fs"), payload = JSON.parse(fs.readFileSync(0, "utf8")); fs.writeFileSync(".notify-nonzero.json", JSON.stringify({ cwd: process.cwd(), environment: process.env, payload })); process.exit(23);\n`,
+    ),
+    holdNotifier = writeProviderExecutable(
+      path.join(parent, "notify-hold"),
+      `const fs = require("node:fs"); fs.readFileSync(0, "utf8"); fs.writeFileSync(".notify-hold-started", "started\\n"); setTimeout(() => { fs.writeFileSync(".notify-hold-finished", "finished\\n"); }, 4000);\n`,
+    ),
+    onceNotifier = writeProviderExecutable(
+      path.join(parent, "notify-once"),
+      `const fs = require("node:fs"); fs.readFileSync(0, "utf8"); fs.appendFileSync(".notify-once", "once\\n");\n`,
+    );
+  const env = {
+    ...baseEnv,
+    HOME: path.join(parent, "home"),
+    PATH: [
+      binRoot,
+      ...(process.env.PATH ?? "")
+        .split(path.delimiter)
+        .filter((entry) => ["codex", "codex.cmd", "codex.exe"].every((name) => !existsSync(path.join(entry, name)))),
+    ].join(path.delimiter),
+    OPENAI_API_KEY: "sk-must-not-reach-notifier",
+    HARNESS_NOTIFY_TEST_SECRET: "must-not-reach-notifier",
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_ID: "runtime-cli-test",
+    HARNESS_ACTOR: "agent:runtime-cli-test",
+  };
   try {
-    assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true); run(root, env, ["init", "--repo-id", "runtime-cli", "--person-id", "owner", "--display-name", "Owner"]);
-    mkdirSync(path.join(root, "harness", "skills", "review"), { recursive: true }); writeFileSync(path.join(root, "harness", "skills", "review", "SKILL.md"), "---\nname: review\ndescription: Review\n---\nReview fixture.\n"); const identities = [{ id: "fable", name: "Fable", instructions: "Lead precisely.", runtime_type: "codex", role: "commander" }, { id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", role: "worker" }, { id: "outsider", name: "Outsider", instructions: "Work outside the squad.", runtime_type: "codex", role: "worker" }, { id: "opencode-worker", name: "OpenCode Worker", instructions: "Use OpenCode.", runtime_type: "opencode", role: "worker" }, { id: "any-worker", name: "Any Worker", instructions: "Use any compatible runtime.", runtime_type: "any", role: "worker" }], squadSource = path.join(parent, "core-squad");
-    for (const identity of identities) { const agentSource = path.join(parent, identity.id); writeIdentity(agentSource, { id: identity.id, title: identity.name, kind: "agent", agent: { ...identity, skills: [{ id: "review", path: "skills/review" }], prompts: ["prompt://review"], preset: "standard-task" } }); run(root, env, ["agent", "install", "--source", agentSource]); }
-    writeIdentity(squadSource, { id: "core-squad", title: "Core Squad", kind: "squad", squad: { id: "core-squad", name: "Core Squad", leader: "fable", workers: ["terra", "opencode-worker"], roster: "# Core Squad\n\nFable delegates to Terra and OpenCode Worker." } }); run(root, env, ["squad", "install", "--source", squadSource]); const agents = JSON.parse(String(run(root, env, ["agent", "list"]).evidence)) as { agents: Array<{ id: string }> }, squads = JSON.parse(String(run(root, env, ["squad", "list"]).evidence)) as { squads: Array<{ id: string }> }; assert.deepEqual(agents.agents.map(({ id }) => id), ["any-worker", "fable", "opencode-worker", "outsider", "terra"]); assert.deepEqual(squads.squads.map(({ id }) => id), ["core-squad"]);
-    writeIdentity(squadSource, { id: "core-squad", title: "Core Squad", kind: "squad", squad: { id: "core-squad", name: "Core Squad", leader: "fable", workers: ["terra", "opencode-worker"], roster: "# Core Squad\n\nFable delegates; humans edited this roster." } }); run(root, env, ["squad", "install", "--source", squadSource]); const squad = JSON.parse(String(run(root, env, ["squad", "inspect", "core-squad"]).evidence)) as { squad: { roster: string } }; assert.match(squad.squad.roster, /humans edited/u);
-    const taskId = "task-runtime-archive", executionId = "exec-runtime-archive", created = run(root, env, ["task", "create", "--id", taskId, "--admin", "--title", "Runtime archive"]), packagePath = String(created.packagePath), artifactRoot = path.join(root, "harness", packagePath, "artifacts");
-    const inventory = run(root, env, ["runtime", "instance", "list"]), installation = (inventory.installations as Array<Record<string, unknown>>).find((row) => row.kindId === "codex" && row.version === `codex ${version}`); assert.ok(installation, JSON.stringify(inventory));
-    run(root, env, ["runtime", "instance", "create", "--id", "cli-worker", "--name", "CLI Worker", "--kind", "codex", "--provider", "openai", "--model", "runtime-test-model", "--auth", "subscription"]);
-    const missingInstance = runMaybe(root, env, ["runtime", "run", "missing-instance", "--prompt", "must reject", "--detach"]); assert.equal(missingInstance.status, 1); assert.equal(missingInstance.receipt.code, "runtime_instance_not_found"); assert.equal(missingInstance.receipt.dispatchId, undefined);
+    assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
+    run(root, env, ["init", "--repo-id", "runtime-cli", "--person-id", "owner", "--display-name", "Owner"]);
+    mkdirSync(path.join(root, "harness", "skills", "review"), { recursive: true });
+    writeFileSync(
+      path.join(root, "harness", "skills", "review", "SKILL.md"),
+      "---\nname: review\ndescription: Review\n---\nReview fixture.\n",
+    );
+    const identities = [
+        { id: "fable", name: "Fable", instructions: "Lead precisely.", runtime_type: "codex", role: "commander" },
+        { id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", role: "worker" },
+        {
+          id: "outsider",
+          name: "Outsider",
+          instructions: "Work outside the squad.",
+          runtime_type: "codex",
+          role: "worker",
+        },
+        {
+          id: "opencode-worker",
+          name: "OpenCode Worker",
+          instructions: "Use OpenCode.",
+          runtime_type: "opencode",
+          role: "worker",
+        },
+        {
+          id: "any-worker",
+          name: "Any Worker",
+          instructions: "Use any compatible runtime.",
+          runtime_type: "any",
+          role: "worker",
+        },
+      ],
+      squadSource = path.join(parent, "core-squad");
+    for (const identity of identities) {
+      const agentSource = path.join(parent, identity.id);
+      writeIdentity(agentSource, {
+        id: identity.id,
+        title: identity.name,
+        kind: "agent",
+        agent: {
+          ...identity,
+          skills: [{ id: "review", path: "skills/review" }],
+          prompts: ["prompt://review"],
+          preset: "standard-task",
+        },
+      });
+      run(root, env, ["agent", "install", "--source", agentSource]);
+    }
+    writeIdentity(squadSource, {
+      id: "core-squad",
+      title: "Core Squad",
+      kind: "squad",
+      squad: {
+        id: "core-squad",
+        name: "Core Squad",
+        leader: "fable",
+        workers: ["terra", "opencode-worker"],
+        roster: "# Core Squad\n\nFable delegates to Terra and OpenCode Worker.",
+      },
+    });
+    run(root, env, ["squad", "install", "--source", squadSource]);
+    const agents = JSON.parse(String(run(root, env, ["agent", "list"]).evidence)) as { agents: Array<{ id: string }> },
+      squads = JSON.parse(String(run(root, env, ["squad", "list"]).evidence)) as { squads: Array<{ id: string }> };
+    assert.deepEqual(
+      agents.agents.map(({ id }) => id),
+      ["any-worker", "fable", "opencode-worker", "outsider", "terra"],
+    );
+    assert.deepEqual(
+      squads.squads.map(({ id }) => id),
+      ["core-squad"],
+    );
+    writeIdentity(squadSource, {
+      id: "core-squad",
+      title: "Core Squad",
+      kind: "squad",
+      squad: {
+        id: "core-squad",
+        name: "Core Squad",
+        leader: "fable",
+        workers: ["terra", "opencode-worker"],
+        roster: "# Core Squad\n\nFable delegates; humans edited this roster.",
+      },
+    });
+    run(root, env, ["squad", "install", "--source", squadSource]);
+    const squad = JSON.parse(String(run(root, env, ["squad", "inspect", "core-squad"]).evidence)) as {
+      squad: { roster: string };
+    };
+    assert.match(squad.squad.roster, /humans edited/u);
+    const taskId = "task-runtime-archive",
+      executionId = "exec-runtime-archive",
+      created = run(root, env, ["task", "create", "--id", taskId, "--admin", "--title", "Runtime archive"]),
+      packagePath = String(created.packagePath),
+      artifactRoot = path.join(root, "harness", packagePath, "artifacts");
+    const inventory = run(root, env, ["runtime", "instance", "list"]),
+      installation = (inventory.installations as Array<Record<string, unknown>>).find(
+        (row) => row.kindId === "codex" && row.version === `codex ${version}`,
+      );
+    assert.ok(installation, JSON.stringify(inventory));
+    run(root, env, [
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      "cli-worker",
+      "--name",
+      "CLI Worker",
+      "--kind",
+      "codex",
+      "--provider",
+      "openai",
+      "--model",
+      "runtime-test-model",
+      "--auth",
+      "subscription",
+    ]);
+    const missingInstance = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "missing-instance",
+      "--prompt",
+      "must reject",
+      "--detach",
+    ]);
+    assert.equal(missingInstance.status, 1);
+    assert.equal(missingInstance.receipt.code, "runtime_instance_not_found");
+    assert.equal(missingInstance.receipt.dispatchId, undefined);
     const missingLease = runMaybe(root, env, [
       "runtime",
       "run",
@@ -40,47 +209,723 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(missingLease.status, 1);
     assert.equal(missingLease.receipt.code, "runtime_task_lease_required");
     assert.equal(missingLease.receipt.dispatchId, undefined);
-    writeFileSync(promptFile, "file prompt"); const fromFile = run(root, env, ["runtime", "run", "cli-worker", "--prompt-file", "prompt.txt", "--no-stream"]); assert.equal((fromFile.result as Record<string, unknown>).text, "final:file prompt");
-    for (const directory of ["missions", "dispatches", "reports"]) assert.equal(existsSync(path.join(artifactRoot, directory)), false, `${directory} must not exist without --task`);
-    const resumed = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "second turn", "--resume", "provider-cli-session", "--no-stream"]); assert.equal((resumed.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn"); assert.equal((resumed.session as Record<string, unknown>).providerSessionId, "provider-cli-session");
-    const streamed = spawnSync(process.execPath, [cli, "--root", root, "runtime", "run", "cli-worker", "--prompt", "stream prompt"], { encoding: "utf8", env }); assert.equal(streamed.status, 0, streamed.stderr); assert.equal(streamed.stdout.trim(), "final:stream prompt"); const wildcard = run(root, env, ["runtime", "run", "cli-worker", "--agent", "any-worker", "--prompt", "wildcard prompt", "--no-stream"]); const wildcardText = String((wildcard.result as Record<string, unknown>).text); assert.ok(wildcardText.startsWith("final:# Agent Identity: Any Worker (any-worker)\n\nUse any compatible runtime.\n\n# Harness Execution Discipline"), wildcardText); assert.match(wildcardText, /# Worker Role/u); assert.ok(wildcardText.endsWith("\n\n# Mission\n\nwildcard prompt"), wildcardText); assert.ok(wildcardText.indexOf("# Worker Role") < wildcardText.indexOf("prompt://review") && wildcardText.indexOf("prompt://review") < wildcardText.indexOf("# Standard Task") && wildcardText.indexOf("# Standard Task") < wildcardText.indexOf("# Mission"), "the role prompt, declared prompts, and preset must reach the real CLI dispatch in declaration order");
+    writeFileSync(promptFile, "file prompt");
+    const fromFile = run(root, env, ["runtime", "run", "cli-worker", "--prompt-file", "prompt.txt", "--no-stream"]);
+    assert.equal((fromFile.result as Record<string, unknown>).text, "final:file prompt");
+    for (const directory of ["missions", "dispatches", "reports"])
+      assert.equal(existsSync(path.join(artifactRoot, directory)), false, `${directory} must not exist without --task`);
+    const resumed = run(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "second turn",
+      "--resume",
+      "provider-cli-session",
+      "--no-stream",
+    ]);
+    assert.equal((resumed.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn");
+    assert.equal((resumed.session as Record<string, unknown>).providerSessionId, "provider-cli-session");
+    const streamed = spawnSync(
+      process.execPath,
+      [cli, "--root", root, "runtime", "run", "cli-worker", "--prompt", "stream prompt"],
+      { encoding: "utf8", env },
+    );
+    assert.equal(streamed.status, 0, streamed.stderr);
+    assert.equal(streamed.stdout.trim(), "final:stream prompt");
+    const wildcard = run(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--agent",
+      "any-worker",
+      "--prompt",
+      "wildcard prompt",
+      "--no-stream",
+    ]);
+    const wildcardText = String((wildcard.result as Record<string, unknown>).text);
+    assert.ok(
+      wildcardText.startsWith(
+        "final:# Agent Identity: Any Worker (any-worker)\n\nUse any compatible runtime.\n\n# Harness Execution Discipline",
+      ),
+      wildcardText,
+    );
+    assert.match(wildcardText, /# Worker Role/u);
+    assert.ok(wildcardText.endsWith("\n\n# Mission\n\nwildcard prompt"), wildcardText);
+    assert.ok(
+      wildcardText.indexOf("# Worker Role") < wildcardText.indexOf("prompt://review") &&
+        wildcardText.indexOf("prompt://review") < wildcardText.indexOf("# Standard Task") &&
+        wildcardText.indexOf("# Standard Task") < wildcardText.indexOf("# Mission"),
+      "the role prompt, declared prompts, and preset must reach the real CLI dispatch in declaration order",
+    );
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-    const progressRun = run(root, env, ["runtime", "run", "cli-worker", "--prompt", `progress-middle:${taskId}`, "--task", taskId, "--no-stream"]), progressDispatchId = String((progressRun.spawn as Record<string, unknown>).dispatchId), shownProgress = JSON.parse(String(run(root, env, ["task", "show", taskId]).evidence)) as { progress: Array<{ actor: { executor: unknown }; payload: { text: string; evidence: unknown[]; runtimeSessionId?: string } }> }, runtimeExecutor = { kind: "agent", id: `runtime-session:${progressRun.runtimeSessionId}` };
-    assert.deepEqual(shownProgress.progress.map((event) => event.payload.text), ["Provider checkpoint one.", "Provider checkpoint two."]); assert.equal(shownProgress.progress.every((event) => event.payload.evidence.length === 1), true); assert.deepEqual(shownProgress.progress.map((event) => event.actor.executor), [runtimeExecutor, runtimeExecutor]); assert.deepEqual(shownProgress.progress.map((event) => event.payload.runtimeSessionId), [progressRun.runtimeSessionId, progressRun.runtimeSessionId]);
-    const unrelatedProgress = runMaybe(root, { ...env, HARNESS_ACTOR: "agent:unrelated-runtime" }, ["task", "progress", "append", taskId, "--text", "Unrelated checkpoint.", "--evidence", "test:reports/runtime-progress.txt:unrelated"]); assert.equal(unrelatedProgress.status, 1); assert.equal(unrelatedProgress.receipt.code, "progress_lease_mismatch");
-    const assembledPromptPrefix = "# Agent Identity: Terra (terra)\n\nReview precisely.\n\n# Harness Execution Discipline", bound = run(root, env, ["runtime", "run", "cli-worker", "--agent", "fable", "--to", "terra", "--prompt", "bound prompt", "--task", taskId, "--no-stream"]), boundSpawn = bound.spawn as Record<string, unknown>, boundDispatchId = String(boundSpawn.dispatchId), boundDispatch = JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${boundDispatchId}.json`), "utf8")) as Record<string, unknown>;
-    const assembledPrompt = readFileSync(path.join(artifactRoot, "missions", `${boundDispatchId}.md`), "utf8"); assert.ok(assembledPrompt.startsWith(assembledPromptPrefix), assembledPrompt); assert.match(assembledPrompt, /# Worker Role/u); assertTaskMissionPrompt(assembledPrompt, { repoId: "runtime-cli", canonicalRoot: realpathSync(root), workerRoot: realpathSync(root), taskPackageRoot: path.join(realpathSync(root), "harness", packagePath), daemonUserRoot: userRoot, daemonId: "runtime-cli-test", runtimeSessionId: String(bound.runtimeSessionId), mission: "bound prompt" }); assert.ok(assembledPrompt.indexOf("# Worker Role") < assembledPrompt.indexOf("prompt://review") && assembledPrompt.indexOf("prompt://review") < assembledPrompt.indexOf("# Standard Task") && assembledPrompt.indexOf("# Standard Task") < assembledPrompt.indexOf("# Mission"), "a squad-delegated worker must keep its role, prompts, and preset through the real CLI"); assert.equal(readFileSync(path.join(artifactRoot, "reports", `${boundDispatchId}.md`), "utf8"), `final:${assembledPrompt}`); assert.deepEqual(boundDispatch, { schema: "runtime-dispatch/v1", dispatchId: boundDispatchId, taskId, executionId, agentId: "terra", agentName: "Terra", delegatedByAgentId: "fable", delegatedByAgentName: "Fable", squadId: "core-squad", instanceId: "cli-worker", model: "runtime-test-model", reasoningEffort: null, cwd: realpathSync(root), missionRef: `${packagePath}/artifacts/missions/${boundDispatchId}.md`, runtimeSessionId: bound.runtimeSessionId, providerSessionId: "provider-cli-session", startedAt: boundDispatch.startedAt, endedAt: boundDispatch.endedAt, outcome: "succeeded", exitCode: 0, resultRef: (bound.result as Record<string, unknown>).ref, eventStreamRef: `file:.harness/runtime/dispatches/${boundDispatchId}.jsonl` }); assert.match(String(boundDispatch.startedAt), /^\d{4}-\d{2}-\d{2}T/u); assert.match(String(boundDispatch.endedAt), /^\d{4}-\d{2}-\d{2}T/u); assert.doesNotMatch(JSON.stringify(boundDispatch), /(?:api.?key|credential|environment|token)/iu); assert.equal(existsSync(path.join(root, ".harness", "runtime", "dispatches", `${boundDispatchId}.jsonl`)), true);
-    const dispatchRow = (run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === boundDispatchId); assert.deepEqual(dispatchRow && { agentId: dispatchRow.agentId, delegatedByAgentId: dispatchRow.delegatedByAgentId, squadId: dispatchRow.squadId }, { agentId: "terra", delegatedByAgentId: "fable", squadId: "core-squad" });
-    const outsider = runMaybe(root, env, ["runtime", "run", "cli-worker", "--agent", "fable", "--to", "outsider", "--prompt", "reject outsider", "--task", taskId, "--no-stream"]); assert.equal(outsider.status, 1); assert.equal(outsider.receipt.code, "squad_member_not_found");
-    const mismatch = runMaybe(root, env, ["runtime", "run", "cli-worker", "--agent", "fable", "--to", "opencode-worker", "--prompt", "reject mismatch", "--task", taskId, "--no-stream"]); assert.equal(mismatch.status, 1); assert.equal(mismatch.receipt.code, "agent_runtime_type_mismatch");
-    const existingSource = path.join(root, "existing-mission.txt"); writeFileSync(existingSource, "existing mission"); run(root, env, ["task", "artifact", "add", taskId, "--source", "existing-mission.txt", "--destination", "existing-mission.md"]); const existingPrompt = path.join("harness", packagePath, "artifacts", "existing-mission.md"), reused = run(root, env, ["runtime", "run", "cli-worker", "--prompt-file", existingPrompt, "--task", taskId, "--no-stream"]), reusedDispatchId = String((reused.spawn as Record<string, unknown>).dispatchId), reusedDispatch = JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${reusedDispatchId}.json`), "utf8")) as Record<string, unknown>;
-    const reusedMission = readFileSync(path.join(artifactRoot, "missions", `${reusedDispatchId}.md`), "utf8"), reusedReport = readFileSync(path.join(artifactRoot, "reports", `${reusedDispatchId}.md`), "utf8"); assert.equal(reusedDispatch.missionRef, `${packagePath}/artifacts/missions/${reusedDispatchId}.md`); assert.deepEqual(readdirSync(path.join(artifactRoot, "missions")).sort(), [`${progressDispatchId}.md`, `${boundDispatchId}.md`, `${reusedDispatchId}.md`].sort()); assert.equal(reusedReport, `final:${reusedMission}`); assertTaskMissionPrompt(reusedMission, { repoId: "runtime-cli", canonicalRoot: realpathSync(root), workerRoot: realpathSync(root), taskPackageRoot: path.join(realpathSync(root), "harness", packagePath), daemonUserRoot: userRoot, daemonId: "runtime-cli-test", runtimeSessionId: String(reused.runtimeSessionId), mission: "existing mission" });
-    const taskPackage = path.join(realpathSync(root), "harness", packagePath), derivedMission = `Your task package is ${taskPackage}.\nRead task_plan.md in that package and complete the task.`, derived = run(root, env, ["runtime", "run", "cli-worker", "--agent", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]), derivedText = String((derived.result as Record<string, unknown>).text); assert.match(derivedText, /^final:# Agent Identity: Terra \(terra\).*# Harness Execution Discipline.*# Worker Role/su); assertTaskMissionPrompt(derivedText.slice("final:".length), { repoId: "runtime-cli", canonicalRoot: realpathSync(root), workerRoot: realpathSync(root), taskPackageRoot: taskPackage, daemonUserRoot: userRoot, daemonId: "runtime-cli-test", runtimeSessionId: String(derived.runtimeSessionId), mission: derivedMission }); assert.equal(derivedText.includes("Review precisely."), true);
-    const listed = run(root, env, ["runtime", "status"]), sessions = listed.sessions as Array<Record<string, unknown>>; assert.equal(sessions.length, 8); assert.match(streamed.stderr, /\[message\] live:stream prompt/u, JSON.stringify(sessions)); const detail = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId)]); assert.equal((detail.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn"); const waited = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId), "--wait", "--no-stream"]); assert.equal(waited.command, "runtime-status"); assert.equal(waited.summary, "resumed:provider-cli-session:second turn");
-    const detachedProcess = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "stream prompt", "--detach"]), detachedReceipt = detachedProcess.receipt, detachedRuntimeSessionId = String(detachedReceipt.runtimeSessionId); assert.equal(detachedProcess.status, 0, detachedProcess.stderr); assert.equal(detachedReceipt.nextAction, `ha runtime status ${detachedRuntimeSessionId} --wait`); assert.match(String(detachedReceipt.summary), new RegExp(`next: ha runtime status ${detachedRuntimeSessionId} --wait$`, "u"));
-    const retrievalProcess = runMaybe(root, env, ["runtime", "status", detachedRuntimeSessionId, "--wait", "--no-stream"]), retrievedText = String((retrievalProcess.receipt.result as Record<string, unknown>).text); assert.equal(retrievalProcess.status, 0, retrievalProcess.stderr); assert.equal(retrievalProcess.receipt.outcome, "succeeded"); assert.equal(retrievedText, "final:stream prompt"); assert.equal(Number.isInteger(detachedProcess.pid) && Number.isInteger(retrievalProcess.pid), true); assert.notEqual(detachedProcess.pid, retrievalProcess.pid, "detach and status --wait must execute in different CLI processes"); const readerReuse = await eventuallyRuntimeReaderReuse(userRoot); context.diagnostic(`detach cross-process retrieval: ${JSON.stringify({ launcherPid: detachedProcess.pid, retrievalPid: retrievalProcess.pid, runtimeSessionId: detachedRuntimeSessionId, outcome: retrievalProcess.receipt.outcome, resultText: retrievedText, readerReuse })}`);
-    const invalidOnExit = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "invalid callback", "--on-exit", nonzeroNotifier]); assert.equal(invalidOnExit.status, 2); assert.match(rejectionHint(invalidOnExit.receipt), /only with --detach/u);
-    const controlNotification = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "notification control", "--task", taskId, "--detach"]), controlNotificationWait = run(root, env, ["runtime", "status", String(controlNotification.runtimeSessionId), "--wait", "--no-stream"]), controlInvariant = runtimeInvariantEvidence(root, artifactRoot, controlNotification, controlNotificationWait);
-    const missingNotifier = path.join(parent, "missing-notifier"), missingNotification = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "notification missing", "--task", taskId, "--detach", "--on-exit", missingNotifier]), missingNotificationWait = run(root, env, ["runtime", "status", String(missingNotification.runtimeSessionId), "--wait", "--no-stream"]), missingTrace = await eventuallyNotification(root, String(missingNotification.dispatchId)), missingInvariant = runtimeInvariantEvidence(root, artifactRoot, missingNotification, missingNotificationWait);
-    const nonzeroNotification = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "notification nonzero", "--task", taskId, "--detach", "--on-exit", nonzeroNotifier]), nonzeroNotificationWait = run(root, env, ["runtime", "status", String(nonzeroNotification.runtimeSessionId), "--wait", "--no-stream"]), nonzeroNotificationTrace = await eventuallyNotification(root, String(nonzeroNotification.dispatchId)), nonzeroInvariant = runtimeInvariantEvidence(root, artifactRoot, nonzeroNotification, nonzeroNotificationWait), callbackObservation = JSON.parse(readFileSync(nonzeroTrace, "utf8")) as Record<string, unknown>, callbackEnvironment = callbackObservation.environment as Record<string, unknown>, callbackPayload = callbackObservation.payload as Record<string, unknown>;
-    assert.deepEqual(missingInvariant, controlInvariant); assert.deepEqual(nonzeroInvariant, controlInvariant); assert.deepEqual(missingTrace.finished && { started: missingTrace.finished.started, exitCode: missingTrace.finished.exitCode, timedOut: missingTrace.finished.timedOut, errorCode: missingTrace.finished.errorCode }, { started: false, exitCode: null, timedOut: false, errorCode: "ENOENT" }); assert.deepEqual(nonzeroNotificationTrace.finished && { started: nonzeroNotificationTrace.finished.started, exitCode: nonzeroNotificationTrace.finished.exitCode, timedOut: nonzeroNotificationTrace.finished.timedOut }, { started: true, exitCode: 23, timedOut: false }); assert.equal(callbackObservation.cwd, realpathSync(root)); assert.equal(callbackEnvironment.OPENAI_API_KEY, undefined); assert.equal(callbackEnvironment.HARNESS_NOTIFY_TEST_SECRET, undefined); assert.deepEqual(callbackPayload, { schema: "runtime-session-exited/v1", runtimeSessionId: nonzeroNotification.runtimeSessionId, outcome: "succeeded", exitCode: 0, nextAction: `ha runtime status ${String(nonzeroNotification.runtimeSessionId)} --wait` }); assert.doesNotMatch(JSON.stringify(callbackPayload), /notification nonzero|final:|credential|token|api.?key/iu);
-    const missingArchive = JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${String(missingNotification.dispatchId)}.json`), "utf8")) as Record<string, unknown>, nonzeroArchive = JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${String(nonzeroNotification.dispatchId)}.json`), "utf8")) as Record<string, unknown>; assert.equal(missingArchive.onExitCommand, missingNotifier); assert.equal(nonzeroArchive.onExitCommand, nonzeroNotifier); context.diagnostic(`failed notification trace: ${JSON.stringify({ missing: missingTrace.finished, nonzero: nonzeroNotificationTrace.finished, invariant: nonzeroInvariant })}`);
-    const queueNotification = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "notification queue hold", "--task", taskId, "--detach", "--on-exit", holdNotifier]); run(root, env, ["runtime", "status", String(queueNotification.runtimeSessionId), "--wait", "--no-stream"]); await eventuallyFile(notificationStarted); const revisionBefore = makeTaskEventStore({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0, writeStartedAt = performance.now(), queueWrite = run(root, env, ["task", "progress", "append", taskId, "--text", "Notification queue remained writable.", "--evidence", "test:reports/notification-queue.txt:write progressed while callback was active"]), writeLatencyMs = performance.now() - writeStartedAt, revisionAfter = makeTaskEventStore({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0; assert.ok(revisionAfter > revisionBefore, `${revisionBefore} -> ${revisionAfter}`); assert.ok(writeLatencyMs < 3000, `repo write waited ${writeLatencyMs.toFixed(3)}ms behind a 4000ms notifier`); assert.equal(existsSync(notificationFinished), false, "the notification must still be executing when the repo write commits"); const queueNotificationTrace = await eventuallyNotification(root, String(queueNotification.dispatchId)); assert.equal(queueNotificationTrace.finished?.timedOut, false); assert.equal(existsSync(notificationFinished), true); context.diagnostic(`notification queue concurrency: ${JSON.stringify({ revisionBefore, revisionAfter, writeReceiptRevision: queueWrite.revision, writeLatencyMs: Number(writeLatencyMs.toFixed(3)), notifierStillRunningAtCommit: true })}`);
-    const readOnly = runMaybe(root, env, ["runtime", "run", "cli-worker", "--permission-mode", "read-only", "--prompt", "read-only", "--no-stream"]); assert.equal(readOnly.status, 0, `${readOnly.stderr}\n${JSON.stringify(readOnly.receipt)}`); assert.equal(readOnly.receipt.outcome, "succeeded");
-    const noAction = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "no-action", "--no-stream"]); assert.equal(noAction.status, 1, `${noAction.stderr}\n${JSON.stringify(noAction.receipt)}`); assert.equal(noAction.receipt.outcome, "unknown");
-    writeFileSync(path.join(root, "batch-unknown-declaration.json"), JSON.stringify({ schema: "runtime-batch/v1", maxConcurrency: 1, dispatches: [{ instance: "cli-worker", prompt: "unused" }], permissionMode: "read-only" })); const unknownDeclaration = runMaybe(root, env, ["runtime", "batch", "batch-unknown-declaration.json"]); assert.equal(unknownDeclaration.status, 1); assert.equal(rejectionHint(unknownDeclaration.receipt), 'Batch declaration contains an unknown field "permissionMode"; allowed fields: "schema", "maxConcurrency", "dispatches".');
-    writeFileSync(path.join(root, "batch-unknown-dispatch.json"), JSON.stringify({ schema: "runtime-batch/v1", maxConcurrency: 1, dispatches: [{ instance: "cli-worker", prompt: "unused", permissionMode: "read-only" }] })); const unknownDispatch = runMaybe(root, env, ["runtime", "batch", "batch-unknown-dispatch.json"]); assert.equal(unknownDispatch.status, 1); assert.equal(rejectionHint(unknownDispatch.receipt), 'Batch dispatch 0 contains an unknown field "permissionMode"; allowed fields: "instance", "agent", "to", "model", "effort", "permission-mode", "prompt", "prompt-file", "cwd", "task".');
-    const unknownSpawn = await runCommandThroughDaemon({ rootDir: safePath(root), repoId: "runtime-cli", json: true, method: "repo.agentRuntime.spawn", action: { kind: "runtime-run", runtimeInstanceId: "cli-worker", cwd: { scope: "repo-root" }, prompt: "unused", taskId: null, idempotencyKey: "unknown-wire-field", permission_mode: "read-only" } as never }, undefined, { env }); assert.equal(unknownSpawn.code, "invalid_request"); assert.match(rejectionHint(unknownSpawn), /unknown field "permission_mode"/u); for (const field of ["runtimeInstanceId", "permissionMode", "idempotencyKey", "executor"]) assert.match(rejectionHint(unknownSpawn), new RegExp(`"${field}"`, "u"));
-    const unknownCancel = await runCommandThroughDaemon({ rootDir: safePath(root), repoId: "runtime-cli", json: true, method: "repo.agentRuntime.cancel", action: { kind: "runtime-cancel", runtimeSessionId: "missing", force: true } as never }, undefined, { env }); assert.equal(unknownCancel.code, "invalid_request"); assert.equal(rejectionHint(unknownCancel), 'params.payload contains an unknown field "force"; allowed fields: "runtimeSessionId".');
-    const unknownFact = await runCommandThroughDaemon({ rootDir: safePath(root), repoId: "runtime-cli", json: true, method: "repo.task.run", action: { kind: "fact-search", taskId, permissionMode: "read-only" } as never }, undefined, { env: { ...env, HARNESS_ACTOR: "" } }); assert.equal(unknownFact.code, "invalid_command"); assert.equal(rejectionHint(unknownFact), 'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".');
-    writeFileSync(path.join(root, "batch-prompt.txt"), "batch hold from file"); writeFileSync(path.join(root, "batch.json"), JSON.stringify({ schema: "runtime-batch/v1", maxConcurrency: 2, dispatches: [{ instance: "cli-worker", agent: "fable", to: "missing-agent", prompt: "must reject", task: taskId }, { instance: "cli-worker", agent: "fable", to: "terra", model: "runtime-test-model", effort: "high", prompt: "batch hold one", task: taskId }, { instance: "cli-worker", agent: "fable", to: "terra", prompt: "batch hold two", cwd: ".", task: taskId }, { instance: "cli-worker", agent: "fable", to: "terra", "prompt-file": "batch-prompt.txt", task: taskId }] }, null, 2));
-    const batch = runMaybe(root, env, ["runtime", "batch", "batch.json"]); assert.equal(batch.status, 1, `${batch.stderr}\n${JSON.stringify(batch.receipt)}`); assert.equal(batch.receipt.command, "runtime-batch"); assert.equal(batch.receipt.outcome, "partial_failure"); const batchRows = batch.receipt.dispatches as Array<Record<string, unknown>>; assert.equal(batchRows.length, 4); assert.deepEqual(batchRows.map((row) => row.status), ["rejected", "succeeded", "succeeded", "succeeded"], JSON.stringify(batch.receipt)); assert.equal(batchRows[0]?.code, "squad_member_not_found"); assert.match(String(batchRows[0]?.reason), /missing-agent/u); assert.equal(batchRows.slice(1).every((row) => typeof row.dispatchId === "string" && typeof row.runtimeSessionId === "string"), true);
-    const batchDispatchIds = new Set(batchRows.slice(1).map((row) => String(row.dispatchId))), batchDispatches = (run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).filter((row) => batchDispatchIds.has(String(row.dispatchId))); assert.equal(batchDispatches.length, 3); assert.equal(batchDispatches.every((row) => row.agentId === "terra" && row.delegatedByAgentId === "fable" && row.squadId === "core-squad"), true, JSON.stringify(batchDispatches)); assert.equal((JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${String(batchRows[1]?.dispatchId)}.json`), "utf8")) as Record<string, unknown>).reasoningEffort, "high");
-    const emptyFailure = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "failure:empty", "--no-stream"]); assert.equal(emptyFailure.status, 1); assert.equal(emptyFailure.receipt.code, "provider_exit"); assert.equal(emptyFailure.receipt.reason, "Provider exited with code 1 and produced no output."); assert.equal(emptyFailure.receipt.summary, emptyFailure.receipt.reason);
-    const secret = "sk-runtime-secret-1234567890", secretFailure = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "failure:secret", "--no-stream"]); assert.equal(secretFailure.status, 1); assert.match(String(secretFailure.receipt.reason), /Provider exited with code 1.*OPENAI_API_KEY=\[REDACTED\]/u); assert.doesNotMatch(JSON.stringify(secretFailure.receipt), new RegExp(secret, "u")); assert.doesNotMatch(readFileSync(path.join(root, ".harness", "requests", "requests.jsonl"), "utf8"), new RegExp(secret, "u"));
-    const structuredFailure = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "failure:structured", "--no-stream"]); assert.equal(structuredFailure.status, 1); assert.match(String(structuredFailure.receipt.reason), /structured provider failure/u); assert.doesNotMatch(JSON.stringify(structuredFailure.receipt), new RegExp(secret, "u"));
-    writeFileSync(path.join(root, "failure-batch.json"), JSON.stringify({ schema: "runtime-batch/v1", maxConcurrency: 1, dispatches: [{ instance: "cli-worker", prompt: "failure:empty" }] })); const failureBatch = runMaybe(root, env, ["runtime", "batch", "failure-batch.json"]); assert.equal(failureBatch.status, 1); const failureRow = (failureBatch.receipt.dispatches as Array<Record<string, unknown>>)[0]!; assert.equal(failureRow.code, "provider_exit"); assert.equal(failureRow.reason, "Provider exited with code 1 and produced no output.");
-    const taskWait = runMaybe(root, env, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]); assert.equal(taskWait.status, 0, `${taskWait.stderr}\n${JSON.stringify(taskWait.receipt)}`); assert.equal(taskWait.receipt.outcome, "succeeded"); const waitedRow = (taskWait.receipt.dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === progressDispatchId); assert.equal(waitedRow?.exitCode, 0); assert.equal(waitedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${progressDispatchId}.json`); assert.equal(waitedRow?.reportPath, `${packagePath}/artifacts/reports/${progressDispatchId}.md`);
+    const progressRun = run(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--prompt",
+        `progress-middle:${taskId}`,
+        "--task",
+        taskId,
+        "--no-stream",
+      ]),
+      progressDispatchId = String((progressRun.spawn as Record<string, unknown>).dispatchId),
+      shownProgress = JSON.parse(String(run(root, env, ["task", "show", taskId]).evidence)) as {
+        progress: Array<{
+          actor: { executor: unknown };
+          payload: { text: string; evidence: unknown[]; runtimeSessionId?: string };
+        }>;
+      },
+      runtimeExecutor = { kind: "agent", id: `runtime-session:${progressRun.runtimeSessionId}` };
+    assert.deepEqual(
+      shownProgress.progress.map((event) => event.payload.text),
+      ["Provider checkpoint one.", "Provider checkpoint two."],
+    );
+    assert.equal(
+      shownProgress.progress.every((event) => event.payload.evidence.length === 1),
+      true,
+    );
+    assert.deepEqual(
+      shownProgress.progress.map((event) => event.actor.executor),
+      [runtimeExecutor, runtimeExecutor],
+    );
+    assert.deepEqual(
+      shownProgress.progress.map((event) => event.payload.runtimeSessionId),
+      [progressRun.runtimeSessionId, progressRun.runtimeSessionId],
+    );
+    const unrelatedProgress = runMaybe(root, { ...env, HARNESS_ACTOR: "agent:unrelated-runtime" }, [
+      "task",
+      "progress",
+      "append",
+      taskId,
+      "--text",
+      "Unrelated checkpoint.",
+      "--evidence",
+      "test:reports/runtime-progress.txt:unrelated",
+    ]);
+    assert.equal(unrelatedProgress.status, 1);
+    assert.equal(unrelatedProgress.receipt.code, "progress_lease_mismatch");
+    const assembledPromptPrefix =
+        "# Agent Identity: Terra (terra)\n\nReview precisely.\n\n# Harness Execution Discipline",
+      bound = run(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--agent",
+        "fable",
+        "--to",
+        "terra",
+        "--prompt",
+        "bound prompt",
+        "--task",
+        taskId,
+        "--no-stream",
+      ]),
+      boundSpawn = bound.spawn as Record<string, unknown>,
+      boundDispatchId = String(boundSpawn.dispatchId),
+      boundDispatch = JSON.parse(
+        readFileSync(path.join(artifactRoot, "dispatches", `${boundDispatchId}.json`), "utf8"),
+      ) as Record<string, unknown>;
+    const assembledPrompt = readFileSync(path.join(artifactRoot, "missions", `${boundDispatchId}.md`), "utf8");
+    assert.ok(assembledPrompt.startsWith(assembledPromptPrefix), assembledPrompt);
+    assert.match(assembledPrompt, /# Worker Role/u);
+    assertTaskMissionPrompt(assembledPrompt, {
+      repoId: "runtime-cli",
+      canonicalRoot: realpathSync(root),
+      workerRoot: realpathSync(root),
+      taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
+      daemonUserRoot: userRoot,
+      daemonId: "runtime-cli-test",
+      runtimeSessionId: String(bound.runtimeSessionId),
+      mission: "bound prompt",
+    });
+    assert.ok(
+      assembledPrompt.indexOf("# Worker Role") < assembledPrompt.indexOf("prompt://review") &&
+        assembledPrompt.indexOf("prompt://review") < assembledPrompt.indexOf("# Standard Task") &&
+        assembledPrompt.indexOf("# Standard Task") < assembledPrompt.indexOf("# Mission"),
+      "a squad-delegated worker must keep its role, prompts, and preset through the real CLI",
+    );
+    assert.equal(
+      readFileSync(path.join(artifactRoot, "reports", `${boundDispatchId}.md`), "utf8"),
+      `final:${assembledPrompt}`,
+    );
+    assert.deepEqual(boundDispatch, {
+      schema: "runtime-dispatch/v1",
+      dispatchId: boundDispatchId,
+      taskId,
+      executionId,
+      agentId: "terra",
+      agentName: "Terra",
+      delegatedByAgentId: "fable",
+      delegatedByAgentName: "Fable",
+      squadId: "core-squad",
+      instanceId: "cli-worker",
+      model: "runtime-test-model",
+      reasoningEffort: null,
+      cwd: realpathSync(root),
+      missionRef: `${packagePath}/artifacts/missions/${boundDispatchId}.md`,
+      runtimeSessionId: bound.runtimeSessionId,
+      providerSessionId: "provider-cli-session",
+      startedAt: boundDispatch.startedAt,
+      endedAt: boundDispatch.endedAt,
+      outcome: "succeeded",
+      exitCode: 0,
+      resultRef: (bound.result as Record<string, unknown>).ref,
+      eventStreamRef: `file:.harness/runtime/dispatches/${boundDispatchId}.jsonl`,
+      attemptGroupId: boundDispatchId,
+      attemptIndex: 0,
+      provider: { instance: "cli-worker", model: "runtime-test-model" },
+      classification: "worker_stop",
+      reason: "Worker reached a normal attempt boundary.",
+    });
+    assert.match(String(boundDispatch.startedAt), /^\d{4}-\d{2}-\d{2}T/u);
+    assert.match(String(boundDispatch.endedAt), /^\d{4}-\d{2}-\d{2}T/u);
+    assert.doesNotMatch(JSON.stringify(boundDispatch), /(?:api.?key|credential|environment|token)/iu);
+    assert.equal(existsSync(path.join(root, ".harness", "runtime", "dispatches", `${boundDispatchId}.jsonl`)), true);
+    const dispatchRow = (
+      run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>
+    ).find((row) => row.dispatchId === boundDispatchId);
+    assert.deepEqual(
+      dispatchRow && {
+        agentId: dispatchRow.agentId,
+        delegatedByAgentId: dispatchRow.delegatedByAgentId,
+        squadId: dispatchRow.squadId,
+      },
+      { agentId: "terra", delegatedByAgentId: "fable", squadId: "core-squad" },
+    );
+    const outsider = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--agent",
+      "fable",
+      "--to",
+      "outsider",
+      "--prompt",
+      "reject outsider",
+      "--task",
+      taskId,
+      "--no-stream",
+    ]);
+    assert.equal(outsider.status, 1);
+    assert.equal(outsider.receipt.code, "squad_member_not_found");
+    const mismatch = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--agent",
+      "fable",
+      "--to",
+      "opencode-worker",
+      "--prompt",
+      "reject mismatch",
+      "--task",
+      taskId,
+      "--no-stream",
+    ]);
+    assert.equal(mismatch.status, 1);
+    assert.equal(mismatch.receipt.code, "agent_runtime_type_mismatch");
+    const existingSource = path.join(root, "existing-mission.txt");
+    writeFileSync(existingSource, "existing mission");
+    run(root, env, [
+      "task",
+      "artifact",
+      "add",
+      taskId,
+      "--source",
+      "existing-mission.txt",
+      "--destination",
+      "existing-mission.md",
+    ]);
+    const existingPrompt = path.join("harness", packagePath, "artifacts", "existing-mission.md"),
+      reused = run(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--prompt-file",
+        existingPrompt,
+        "--task",
+        taskId,
+        "--no-stream",
+      ]),
+      reusedDispatchId = String((reused.spawn as Record<string, unknown>).dispatchId),
+      reusedDispatch = JSON.parse(
+        readFileSync(path.join(artifactRoot, "dispatches", `${reusedDispatchId}.json`), "utf8"),
+      ) as Record<string, unknown>;
+    const reusedMission = readFileSync(path.join(artifactRoot, "missions", `${reusedDispatchId}.md`), "utf8"),
+      reusedReport = readFileSync(path.join(artifactRoot, "reports", `${reusedDispatchId}.md`), "utf8");
+    assert.equal(reusedDispatch.missionRef, `${packagePath}/artifacts/missions/${reusedDispatchId}.md`);
+    assert.deepEqual(
+      readdirSync(path.join(artifactRoot, "missions")).sort(),
+      [`${progressDispatchId}.md`, `${boundDispatchId}.md`, `${reusedDispatchId}.md`].sort(),
+    );
+    assert.equal(reusedReport, `final:${reusedMission}`);
+    assertTaskMissionPrompt(reusedMission, {
+      repoId: "runtime-cli",
+      canonicalRoot: realpathSync(root),
+      workerRoot: realpathSync(root),
+      taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
+      daemonUserRoot: userRoot,
+      daemonId: "runtime-cli-test",
+      runtimeSessionId: String(reused.runtimeSessionId),
+      mission: "existing mission",
+    });
+    const taskPackage = path.join(realpathSync(root), "harness", packagePath),
+      derivedMission = `Your task package is ${taskPackage}.\nRead task_plan.md in that package and complete the task.`,
+      derived = run(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--agent",
+        "terra",
+        "--task",
+        taskId,
+        "--cwd",
+        ".",
+        "--no-stream",
+      ]),
+      derivedText = String((derived.result as Record<string, unknown>).text);
+    assert.match(
+      derivedText,
+      /^final:# Agent Identity: Terra \(terra\).*# Harness Execution Discipline.*# Worker Role/su,
+    );
+    assertTaskMissionPrompt(derivedText.slice("final:".length), {
+      repoId: "runtime-cli",
+      canonicalRoot: realpathSync(root),
+      workerRoot: realpathSync(root),
+      taskPackageRoot: taskPackage,
+      daemonUserRoot: userRoot,
+      daemonId: "runtime-cli-test",
+      runtimeSessionId: String(derived.runtimeSessionId),
+      mission: derivedMission,
+    });
+    assert.equal(derivedText.includes("Review precisely."), true);
+    const listed = run(root, env, ["runtime", "status"]),
+      sessions = listed.sessions as Array<Record<string, unknown>>;
+    assert.equal(sessions.length, 8);
+    assert.match(streamed.stderr, /\[message\] live:stream prompt/u, JSON.stringify(sessions));
+    const detail = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId)]);
+    assert.equal((detail.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn");
+    const waited = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId), "--wait", "--no-stream"]);
+    assert.equal(waited.command, "runtime-status");
+    assert.equal(waited.summary, "resumed:provider-cli-session:second turn");
+    const detachedProcess = runMaybe(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--prompt",
+        "stream prompt",
+        "--detach",
+      ]),
+      detachedReceipt = detachedProcess.receipt,
+      detachedRuntimeSessionId = String(detachedReceipt.runtimeSessionId);
+    assert.equal(detachedProcess.status, 0, detachedProcess.stderr);
+    assert.equal(detachedReceipt.nextAction, `ha runtime status ${detachedRuntimeSessionId} --wait`);
+    assert.match(
+      String(detachedReceipt.summary),
+      new RegExp(`next: ha runtime status ${detachedRuntimeSessionId} --wait$`, "u"),
+    );
+    const retrievalProcess = runMaybe(root, env, [
+        "runtime",
+        "status",
+        detachedRuntimeSessionId,
+        "--wait",
+        "--no-stream",
+      ]),
+      retrievedText = String((retrievalProcess.receipt.result as Record<string, unknown>).text);
+    assert.equal(retrievalProcess.status, 0, retrievalProcess.stderr);
+    assert.equal(retrievalProcess.receipt.outcome, "succeeded");
+    assert.equal(retrievedText, "final:stream prompt");
+    assert.equal(Number.isInteger(detachedProcess.pid) && Number.isInteger(retrievalProcess.pid), true);
+    assert.notEqual(
+      detachedProcess.pid,
+      retrievalProcess.pid,
+      "detach and status --wait must execute in different CLI processes",
+    );
+    const readerReuse = await eventuallyRuntimeReaderReuse(userRoot);
+    context.diagnostic(
+      `detach cross-process retrieval: ${JSON.stringify({ launcherPid: detachedProcess.pid, retrievalPid: retrievalProcess.pid, runtimeSessionId: detachedRuntimeSessionId, outcome: retrievalProcess.receipt.outcome, resultText: retrievedText, readerReuse })}`,
+    );
+    const invalidOnExit = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "invalid callback",
+      "--on-exit",
+      nonzeroNotifier,
+    ]);
+    assert.equal(invalidOnExit.status, 2);
+    assert.match(rejectionHint(invalidOnExit.receipt), /only with --detach/u);
+    const controlNotification = run(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--prompt",
+        "notification control",
+        "--task",
+        taskId,
+        "--detach",
+      ]),
+      controlNotificationWait = run(root, env, [
+        "runtime",
+        "status",
+        String(controlNotification.runtimeSessionId),
+        "--wait",
+        "--no-stream",
+      ]),
+      controlInvariant = runtimeInvariantEvidence(root, artifactRoot, controlNotification, controlNotificationWait);
+    const missingNotifier = path.join(parent, "missing-notifier"),
+      missingNotification = run(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--prompt",
+        "notification missing",
+        "--task",
+        taskId,
+        "--detach",
+        "--on-exit",
+        missingNotifier,
+      ]),
+      missingNotificationWait = run(root, env, [
+        "runtime",
+        "status",
+        String(missingNotification.runtimeSessionId),
+        "--wait",
+        "--no-stream",
+      ]),
+      missingTrace = await eventuallyNotification(root, String(missingNotification.dispatchId)),
+      missingInvariant = runtimeInvariantEvidence(root, artifactRoot, missingNotification, missingNotificationWait);
+    const nonzeroNotification = run(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--prompt",
+        "notification nonzero",
+        "--task",
+        taskId,
+        "--detach",
+        "--on-exit",
+        nonzeroNotifier,
+      ]),
+      nonzeroNotificationWait = run(root, env, [
+        "runtime",
+        "status",
+        String(nonzeroNotification.runtimeSessionId),
+        "--wait",
+        "--no-stream",
+      ]),
+      nonzeroNotificationTrace = await eventuallyNotification(root, String(nonzeroNotification.dispatchId)),
+      nonzeroInvariant = runtimeInvariantEvidence(root, artifactRoot, nonzeroNotification, nonzeroNotificationWait),
+      callbackObservation = JSON.parse(readFileSync(nonzeroTrace, "utf8")) as Record<string, unknown>,
+      callbackEnvironment = callbackObservation.environment as Record<string, unknown>,
+      callbackPayload = callbackObservation.payload as Record<string, unknown>;
+    assert.deepEqual(missingInvariant, controlInvariant);
+    assert.deepEqual(nonzeroInvariant, controlInvariant);
+    assert.deepEqual(
+      missingTrace.finished && {
+        started: missingTrace.finished.started,
+        exitCode: missingTrace.finished.exitCode,
+        timedOut: missingTrace.finished.timedOut,
+        errorCode: missingTrace.finished.errorCode,
+      },
+      { started: false, exitCode: null, timedOut: false, errorCode: "ENOENT" },
+    );
+    assert.deepEqual(
+      nonzeroNotificationTrace.finished && {
+        started: nonzeroNotificationTrace.finished.started,
+        exitCode: nonzeroNotificationTrace.finished.exitCode,
+        timedOut: nonzeroNotificationTrace.finished.timedOut,
+      },
+      { started: true, exitCode: 23, timedOut: false },
+    );
+    assert.equal(callbackObservation.cwd, realpathSync(root));
+    assert.equal(callbackEnvironment.OPENAI_API_KEY, undefined);
+    assert.equal(callbackEnvironment.HARNESS_NOTIFY_TEST_SECRET, undefined);
+    assert.deepEqual(callbackPayload, {
+      schema: "runtime-session-exited/v1",
+      runtimeSessionId: nonzeroNotification.runtimeSessionId,
+      outcome: "succeeded",
+      exitCode: 0,
+      nextAction: `ha runtime status ${String(nonzeroNotification.runtimeSessionId)} --wait`,
+    });
+    assert.doesNotMatch(JSON.stringify(callbackPayload), /notification nonzero|final:|credential|token|api.?key/iu);
+    const missingArchive = JSON.parse(
+        readFileSync(path.join(artifactRoot, "dispatches", `${String(missingNotification.dispatchId)}.json`), "utf8"),
+      ) as Record<string, unknown>,
+      nonzeroArchive = JSON.parse(
+        readFileSync(path.join(artifactRoot, "dispatches", `${String(nonzeroNotification.dispatchId)}.json`), "utf8"),
+      ) as Record<string, unknown>;
+    assert.equal(missingArchive.onExitCommand, missingNotifier);
+    assert.equal(nonzeroArchive.onExitCommand, nonzeroNotifier);
+    context.diagnostic(
+      `failed notification trace: ${JSON.stringify({ missing: missingTrace.finished, nonzero: nonzeroNotificationTrace.finished, invariant: nonzeroInvariant })}`,
+    );
+    const queueNotification = run(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "notification queue hold",
+      "--task",
+      taskId,
+      "--detach",
+      "--on-exit",
+      holdNotifier,
+    ]);
+    run(root, env, ["runtime", "status", String(queueNotification.runtimeSessionId), "--wait", "--no-stream"]);
+    await eventuallyFile(notificationStarted);
+    const revisionBefore = makeTaskEventStore({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0,
+      writeStartedAt = performance.now(),
+      queueWrite = run(root, env, [
+        "task",
+        "progress",
+        "append",
+        taskId,
+        "--text",
+        "Notification queue remained writable.",
+        "--evidence",
+        "test:reports/notification-queue.txt:write progressed while callback was active",
+      ]),
+      writeLatencyMs = performance.now() - writeStartedAt,
+      revisionAfter = makeTaskEventStore({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0;
+    assert.ok(revisionAfter > revisionBefore, `${revisionBefore} -> ${revisionAfter}`);
+    assert.ok(writeLatencyMs < 3000, `repo write waited ${writeLatencyMs.toFixed(3)}ms behind a 4000ms notifier`);
+    assert.equal(
+      existsSync(notificationFinished),
+      false,
+      "the notification must still be executing when the repo write commits",
+    );
+    const queueNotificationTrace = await eventuallyNotification(root, String(queueNotification.dispatchId));
+    assert.equal(queueNotificationTrace.finished?.timedOut, false);
+    assert.equal(existsSync(notificationFinished), true);
+    context.diagnostic(
+      `notification queue concurrency: ${JSON.stringify({ revisionBefore, revisionAfter, writeReceiptRevision: queueWrite.revision, writeLatencyMs: Number(writeLatencyMs.toFixed(3)), notifierStillRunningAtCommit: true })}`,
+    );
+    const readOnly = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--permission-mode",
+      "read-only",
+      "--prompt",
+      "read-only",
+      "--no-stream",
+    ]);
+    assert.equal(readOnly.status, 0, `${readOnly.stderr}\n${JSON.stringify(readOnly.receipt)}`);
+    assert.equal(readOnly.receipt.outcome, "succeeded");
+    const noAction = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "no-action", "--no-stream"]);
+    assert.equal(noAction.status, 1, `${noAction.stderr}\n${JSON.stringify(noAction.receipt)}`);
+    assert.equal(noAction.receipt.outcome, "unknown");
+    writeFileSync(
+      path.join(root, "batch-unknown-declaration.json"),
+      JSON.stringify({
+        schema: "runtime-batch/v1",
+        maxConcurrency: 1,
+        dispatches: [{ instance: "cli-worker", prompt: "unused" }],
+        permissionMode: "read-only",
+      }),
+    );
+    const unknownDeclaration = runMaybe(root, env, ["runtime", "batch", "batch-unknown-declaration.json"]);
+    assert.equal(unknownDeclaration.status, 1);
+    assert.equal(
+      rejectionHint(unknownDeclaration.receipt),
+      'Batch declaration contains an unknown field "permissionMode"; allowed fields: "schema", "maxConcurrency", "dispatches".',
+    );
+    writeFileSync(
+      path.join(root, "batch-unknown-dispatch.json"),
+      JSON.stringify({
+        schema: "runtime-batch/v1",
+        maxConcurrency: 1,
+        dispatches: [{ instance: "cli-worker", prompt: "unused", permissionMode: "read-only" }],
+      }),
+    );
+    const unknownDispatch = runMaybe(root, env, ["runtime", "batch", "batch-unknown-dispatch.json"]);
+    assert.equal(unknownDispatch.status, 1);
+    assert.equal(
+      rejectionHint(unknownDispatch.receipt),
+      'Batch dispatch 0 contains an unknown field "permissionMode"; allowed fields: "instance", "agent", "to", "model", "effort", "permission-mode", "prompt", "prompt-file", "cwd", "task".',
+    );
+    const unknownSpawn = await runCommandThroughDaemon(
+      {
+        rootDir: safePath(root),
+        repoId: "runtime-cli",
+        json: true,
+        method: "repo.agentRuntime.spawn",
+        action: {
+          kind: "runtime-run",
+          runtimeInstanceId: "cli-worker",
+          cwd: { scope: "repo-root" },
+          prompt: "unused",
+          taskId: null,
+          idempotencyKey: "unknown-wire-field",
+          permission_mode: "read-only",
+        } as never,
+      },
+      undefined,
+      { env },
+    );
+    assert.equal(unknownSpawn.code, "invalid_request");
+    assert.match(rejectionHint(unknownSpawn), /unknown field "permission_mode"/u);
+    for (const field of ["runtimeInstanceId", "permissionMode", "idempotencyKey", "executor"])
+      assert.match(rejectionHint(unknownSpawn), new RegExp(`"${field}"`, "u"));
+    const unknownCancel = await runCommandThroughDaemon(
+      {
+        rootDir: safePath(root),
+        repoId: "runtime-cli",
+        json: true,
+        method: "repo.agentRuntime.cancel",
+        action: { kind: "runtime-cancel", runtimeSessionId: "missing", force: true } as never,
+      },
+      undefined,
+      { env },
+    );
+    assert.equal(unknownCancel.code, "invalid_request");
+    assert.equal(
+      rejectionHint(unknownCancel),
+      'params.payload contains an unknown field "force"; allowed fields: "runtimeSessionId".',
+    );
+    const unknownFact = await runCommandThroughDaemon(
+      {
+        rootDir: safePath(root),
+        repoId: "runtime-cli",
+        json: true,
+        method: "repo.task.run",
+        action: { kind: "fact-search", taskId, permissionMode: "read-only" } as never,
+      },
+      undefined,
+      { env: { ...env, HARNESS_ACTOR: "" } },
+    );
+    assert.equal(unknownFact.code, "invalid_command");
+    assert.equal(
+      rejectionHint(unknownFact),
+      'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".',
+    );
+    writeFileSync(path.join(root, "batch-prompt.txt"), "batch hold from file");
+    writeFileSync(
+      path.join(root, "batch.json"),
+      JSON.stringify(
+        {
+          schema: "runtime-batch/v1",
+          maxConcurrency: 2,
+          dispatches: [
+            { instance: "cli-worker", agent: "fable", to: "missing-agent", prompt: "must reject", task: taskId },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              model: "runtime-test-model",
+              effort: "high",
+              prompt: "batch hold one",
+              task: taskId,
+            },
+            { instance: "cli-worker", agent: "fable", to: "terra", prompt: "batch hold two", cwd: ".", task: taskId },
+            { instance: "cli-worker", agent: "fable", to: "terra", "prompt-file": "batch-prompt.txt", task: taskId },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+    const batch = runMaybe(root, env, ["runtime", "batch", "batch.json"]);
+    assert.equal(batch.status, 1, `${batch.stderr}\n${JSON.stringify(batch.receipt)}`);
+    assert.equal(batch.receipt.command, "runtime-batch");
+    assert.equal(batch.receipt.outcome, "partial_failure");
+    const batchRows = batch.receipt.dispatches as Array<Record<string, unknown>>;
+    assert.equal(batchRows.length, 4);
+    assert.deepEqual(
+      batchRows.map((row) => row.status),
+      ["rejected", "succeeded", "succeeded", "succeeded"],
+      JSON.stringify(batch.receipt),
+    );
+    assert.equal(batchRows[0]?.code, "squad_member_not_found");
+    assert.match(String(batchRows[0]?.reason), /missing-agent/u);
+    assert.equal(
+      batchRows.slice(1).every((row) => typeof row.dispatchId === "string" && typeof row.runtimeSessionId === "string"),
+      true,
+    );
+    const batchDispatchIds = new Set(batchRows.slice(1).map((row) => String(row.dispatchId))),
+      batchDispatches = (
+        run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>
+      ).filter((row) => batchDispatchIds.has(String(row.dispatchId)));
+    assert.equal(batchDispatches.length, 3);
+    assert.equal(
+      batchDispatches.every(
+        (row) => row.agentId === "terra" && row.delegatedByAgentId === "fable" && row.squadId === "core-squad",
+      ),
+      true,
+      JSON.stringify(batchDispatches),
+    );
+    assert.equal(
+      (
+        JSON.parse(
+          readFileSync(path.join(artifactRoot, "dispatches", `${String(batchRows[1]?.dispatchId)}.json`), "utf8"),
+        ) as Record<string, unknown>
+      ).reasoningEffort,
+      "high",
+    );
+    const emptyFailure = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "failure:empty",
+      "--no-stream",
+    ]);
+    assert.equal(emptyFailure.status, 1);
+    assert.equal(emptyFailure.receipt.code, "provider_exit");
+    assert.equal(emptyFailure.receipt.reason, "Provider exited with code 1 and produced no output.");
+    assert.equal(emptyFailure.receipt.summary, emptyFailure.receipt.reason);
+    const secret = "sk-runtime-secret-1234567890",
+      secretFailure = runMaybe(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--prompt",
+        "failure:secret",
+        "--no-stream",
+      ]);
+    assert.equal(secretFailure.status, 1);
+    assert.match(String(secretFailure.receipt.reason), /Provider exited with code 1.*OPENAI_API_KEY=\[REDACTED\]/u);
+    assert.doesNotMatch(JSON.stringify(secretFailure.receipt), new RegExp(secret, "u"));
+    assert.doesNotMatch(
+      readFileSync(path.join(root, ".harness", "requests", "requests.jsonl"), "utf8"),
+      new RegExp(secret, "u"),
+    );
+    const structuredFailure = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "failure:structured",
+      "--no-stream",
+    ]);
+    assert.equal(structuredFailure.status, 1);
+    assert.match(String(structuredFailure.receipt.reason), /structured provider failure/u);
+    assert.doesNotMatch(JSON.stringify(structuredFailure.receipt), new RegExp(secret, "u"));
+    writeFileSync(
+      path.join(root, "failure-batch.json"),
+      JSON.stringify({
+        schema: "runtime-batch/v1",
+        maxConcurrency: 1,
+        dispatches: [{ instance: "cli-worker", prompt: "failure:empty" }],
+      }),
+    );
+    const failureBatch = runMaybe(root, env, ["runtime", "batch", "failure-batch.json"]);
+    assert.equal(failureBatch.status, 1);
+    const failureRow = (failureBatch.receipt.dispatches as Array<Record<string, unknown>>)[0]!;
+    assert.equal(failureRow.code, "provider_exit");
+    assert.equal(failureRow.reason, "Provider exited with code 1 and produced no output.");
+    const taskWait = runMaybe(root, env, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
+    assert.equal(taskWait.status, 0, `${taskWait.stderr}\n${JSON.stringify(taskWait.receipt)}`);
+    assert.equal(taskWait.receipt.outcome, "succeeded");
+    const waitedRow = (taskWait.receipt.dispatches as Array<Record<string, unknown>>).find(
+      (row) => row.dispatchId === progressDispatchId,
+    );
+    assert.equal(waitedRow?.exitCode, 0);
+    assert.equal(waitedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${progressDispatchId}.json`);
+    assert.equal(waitedRow?.reportPath, `${packagePath}/artifacts/reports/${progressDispatchId}.md`);
     const detachedFailure = run(root, env, [
       "runtime",
       "run",
@@ -91,14 +936,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       taskId,
       "--detach",
     ]);
-    const failureWait = runMaybe(root, env, [
-      "runtime",
-      "status",
-      "--task",
-      taskId,
-      "--wait",
-      "--no-stream",
-    ]);
+    const failureWait = runMaybe(root, env, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
     assert.equal(detachedFailure.outcome, "running");
     assert.equal(failureWait.status, 1, `${failureWait.stderr}\n${JSON.stringify(failureWait.receipt)}`);
     assert.equal(failureWait.receipt.outcome, "failed");
@@ -116,39 +954,356 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         dispatch: failedRow,
       })}`,
     );
-    const events = readFileSync(tracker, "utf8").trim().split("\n"); let active = 0, peak = 0; for (const event of events) { active += event === "start" ? 1 : -1; peak = Math.max(peak, active); } assert.equal(events.filter((event) => event === "start").length, 3); assert.equal(events.filter((event) => event === "end").length, 3); assert.ok(peak <= 2, `batch exceeded declared concurrency: ${events.join(",")}`);
-    const detached = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "hold", "--task", taskId, "--detach", "--on-exit", onceNotifier]), detachedDispatchId = String(detached.dispatchId), detachedSessionId = String(detached.runtimeSessionId), running = run(root, env, ["task", "dispatches", taskId]); assert.equal(detached.outcome, "running"); assert.equal((running.dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === detachedDispatchId)?.status, "running");
-    assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "cancelled"); assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "already-exited"); const cancelled = await eventually(() => run(root, env, ["task", "dispatches", taskId])), cancelledRow = (cancelled.dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === detachedDispatchId)!; assert.equal(cancelledRow.status, "cancelled"); assert.equal((JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${detachedDispatchId}.json`), "utf8")) as Record<string, unknown>).outcome, "cancelled"); const cancelledReport = readFileSync(path.join(artifactRoot, "reports", `${detachedDispatchId}.md`), "utf8"); assertTaskMissionPrompt(cancelledReport.slice("live:".length), { repoId: "runtime-cli", canonicalRoot: realpathSync(root), workerRoot: realpathSync(root), taskPackageRoot: path.join(realpathSync(root), "harness", packagePath), daemonUserRoot: userRoot, daemonId: "runtime-cli-test", runtimeSessionId: detachedSessionId, mission: "hold" }); const cancelledWait = runMaybe(root, env, ["runtime", "status", detachedSessionId, "--wait", "--no-stream"]); assert.equal(cancelledWait.status, 1); assert.equal(cancelledWait.receipt.outcome, "cancelled"); const cancelledNotificationTrace = await eventuallyNotification(root, detachedDispatchId); await eventuallyFile(notificationOnce); await new Promise((resolve) => setTimeout(resolve, 200)); const onceLines = readFileSync(notificationOnce, "utf8").trim().split(/\r?\n/u), cancelledRecords = readDispatchRecords(root, detachedDispatchId).filter((record) => record.kind === "exit_notification"); assert.equal(onceLines.length, 1, JSON.stringify(onceLines)); assert.equal(cancelledRecords.filter((record) => record.phase === "started").length, 1); assert.equal(cancelledRecords.filter((record) => record.phase === "finished").length, 1); assert.equal(cancelledNotificationTrace.finished?.exitCode, 0); context.diagnostic(`notification at-most-once: ${JSON.stringify({ executions: onceLines.length, records: cancelledRecords })}`);
-    const streamRoot = path.join(root, ".harness", "runtime", "dispatches"), streamsBeforeRejectedResume = readdirSync(streamRoot).sort(), sessionsBeforeRejectedResume = (run(root, env, ["runtime", "status"]).sessions as Array<Record<string, unknown>>).length, rejectedResume = runMaybe(root, env, ["runtime", "run", "--resume-dispatch", detachedDispatchId, "--prompt", "failure:empty", "--detach"]); assert.equal(rejectedResume.status, 1); assert.equal(rejectedResume.receipt.code, "runtime_resume_failed"); assert.deepEqual(readdirSync(streamRoot).sort(), streamsBeforeRejectedResume); assert.equal((run(root, env, ["runtime", "status"]).sessions as Array<Record<string, unknown>>).length, sessionsBeforeRejectedResume);
-    const resumedDispatch = run(root, env, ["runtime", "run", "--resume-dispatch", detachedDispatchId, "--prompt", "follow up", "--no-stream"]), resumedDispatchId = String((resumedDispatch.spawn as Record<string, unknown>).dispatchId), resumedText = String((resumedDispatch.result as Record<string, unknown>).text); assert.ok(resumedText.startsWith("resumed:provider-cli-session:"), resumedText); assertTaskMissionPrompt(resumedText.slice("resumed:provider-cli-session:".length), { repoId: "runtime-cli", canonicalRoot: realpathSync(root), workerRoot: realpathSync(root), taskPackageRoot: path.join(realpathSync(root), "harness", packagePath), daemonUserRoot: userRoot, daemonId: "runtime-cli-test", runtimeSessionId: String(resumedDispatch.runtimeSessionId), mission: "follow up" }); const resumedRow = (run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === resumedDispatchId); assert.equal(resumedRow?.status, "succeeded"); assert.equal((JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${resumedDispatchId}.json`), "utf8")) as Record<string, unknown>).providerSessionId, "provider-cli-session");
+    const events = readFileSync(tracker, "utf8").trim().split("\n");
+    let active = 0,
+      peak = 0;
+    for (const event of events) {
+      active += event === "start" ? 1 : -1;
+      peak = Math.max(peak, active);
+    }
+    assert.equal(events.filter((event) => event === "start").length, 3);
+    assert.equal(events.filter((event) => event === "end").length, 3);
+    assert.ok(peak <= 2, `batch exceeded declared concurrency: ${events.join(",")}`);
+    const detached = run(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--prompt",
+        "hold",
+        "--task",
+        taskId,
+        "--detach",
+        "--on-exit",
+        onceNotifier,
+      ]),
+      detachedDispatchId = String(detached.dispatchId),
+      detachedSessionId = String(detached.runtimeSessionId),
+      running = run(root, env, ["task", "dispatches", taskId]);
+    assert.equal(detached.outcome, "running");
+    assert.equal(
+      (running.dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === detachedDispatchId)
+        ?.status,
+      "running",
+    );
+    assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "cancelled");
+    assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "already-exited");
+    const cancelled = await eventually(() => run(root, env, ["task", "dispatches", taskId])),
+      cancelledRow = (cancelled.dispatches as Array<Record<string, unknown>>).find(
+        (row) => row.dispatchId === detachedDispatchId,
+      )!;
+    assert.equal(cancelledRow.status, "cancelled");
+    assert.equal(
+      (
+        JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${detachedDispatchId}.json`), "utf8")) as Record<
+          string,
+          unknown
+        >
+      ).outcome,
+      "cancelled",
+    );
+    const cancelledReport = readFileSync(path.join(artifactRoot, "reports", `${detachedDispatchId}.md`), "utf8");
+    assertTaskMissionPrompt(cancelledReport.slice("live:".length), {
+      repoId: "runtime-cli",
+      canonicalRoot: realpathSync(root),
+      workerRoot: realpathSync(root),
+      taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
+      daemonUserRoot: userRoot,
+      daemonId: "runtime-cli-test",
+      runtimeSessionId: detachedSessionId,
+      mission: "hold",
+    });
+    const cancelledWait = runMaybe(root, env, ["runtime", "status", detachedSessionId, "--wait", "--no-stream"]);
+    assert.equal(cancelledWait.status, 1);
+    assert.equal(cancelledWait.receipt.outcome, "cancelled");
+    const cancelledNotificationTrace = await eventuallyNotification(root, detachedDispatchId);
+    await eventuallyFile(notificationOnce);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const onceLines = readFileSync(notificationOnce, "utf8").trim().split(/\r?\n/u),
+      cancelledRecords = readDispatchRecords(root, detachedDispatchId).filter(
+        (record) => record.kind === "exit_notification",
+      );
+    assert.equal(onceLines.length, 1, JSON.stringify(onceLines));
+    assert.equal(cancelledRecords.filter((record) => record.phase === "started").length, 1);
+    assert.equal(cancelledRecords.filter((record) => record.phase === "finished").length, 1);
+    assert.equal(cancelledNotificationTrace.finished?.exitCode, 0);
+    context.diagnostic(
+      `notification at-most-once: ${JSON.stringify({ executions: onceLines.length, records: cancelledRecords })}`,
+    );
+    const streamRoot = path.join(root, ".harness", "runtime", "dispatches"),
+      streamsBeforeRejectedResume = readdirSync(streamRoot).sort(),
+      sessionsBeforeRejectedResume = (run(root, env, ["runtime", "status"]).sessions as Array<Record<string, unknown>>)
+        .length,
+      rejectedResume = runMaybe(root, env, [
+        "runtime",
+        "run",
+        "--resume-dispatch",
+        detachedDispatchId,
+        "--prompt",
+        "failure:empty",
+        "--detach",
+      ]);
+    assert.equal(rejectedResume.status, 1);
+    assert.equal(rejectedResume.receipt.code, "runtime_resume_failed");
+    assert.deepEqual(readdirSync(streamRoot).sort(), streamsBeforeRejectedResume);
+    assert.equal(
+      (run(root, env, ["runtime", "status"]).sessions as Array<Record<string, unknown>>).length,
+      sessionsBeforeRejectedResume,
+    );
+    const resumedDispatch = run(root, env, [
+        "runtime",
+        "run",
+        "--resume-dispatch",
+        detachedDispatchId,
+        "--prompt",
+        "follow up",
+        "--no-stream",
+      ]),
+      resumedDispatchId = String((resumedDispatch.spawn as Record<string, unknown>).dispatchId),
+      resumedText = String((resumedDispatch.result as Record<string, unknown>).text);
+    assert.ok(resumedText.startsWith("resumed:provider-cli-session:"), resumedText);
+    assertTaskMissionPrompt(resumedText.slice("resumed:provider-cli-session:".length), {
+      repoId: "runtime-cli",
+      canonicalRoot: realpathSync(root),
+      workerRoot: realpathSync(root),
+      taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
+      daemonUserRoot: userRoot,
+      daemonId: "runtime-cli-test",
+      runtimeSessionId: String(resumedDispatch.runtimeSessionId),
+      mission: "follow up",
+    });
+    const resumedRow = (
+      run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>
+    ).find((row) => row.dispatchId === resumedDispatchId);
+    assert.equal(resumedRow?.status, "succeeded");
+    assert.equal(
+      (
+        JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${resumedDispatchId}.json`), "utf8")) as Record<
+          string,
+          unknown
+        >
+      ).providerSessionId,
+      "provider-cli-session",
+    );
     // #1572: with HARNESS_ACTOR declared, the daemon request log is the server-side proof that executor
     // attribution still arrives — inside the action for repo.task.run writes (task start) and at payload
     // level for preset methods (task create) — while nothing is ever rejected for an undeclared executor.
-    const requests = readFileSync(path.join(root, ".harness", "requests", "requests.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
-    assert.deepEqual(requests.find((entry) => entry.method === "repo.task.run" && entry.command === "task-start")?.executor, { kind: "agent", id: "runtime-cli-test" });
-    assert.deepEqual(requests.find((entry) => entry.method === "repo.task.create")?.executor, { kind: "agent", id: "runtime-cli-test" });
-    assert.equal(requests.some((entry) => entry.code === "invalid_request"), false, JSON.stringify(requests.filter((entry) => entry.code === "invalid_request")));
+    const requests = readFileSync(path.join(root, ".harness", "requests", "requests.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.deepEqual(
+      requests.find((entry) => entry.method === "repo.task.run" && entry.command === "task-start")?.executor,
+      { kind: "agent", id: "runtime-cli-test" },
+    );
+    assert.deepEqual(requests.find((entry) => entry.method === "repo.task.create")?.executor, {
+      kind: "agent",
+      id: "runtime-cli-test",
+    });
+    assert.equal(
+      requests.some((entry) => entry.code === "invalid_request"),
+      false,
+      JSON.stringify(requests.filter((entry) => entry.code === "invalid_request")),
+    );
     // A contracted read method with no CLI argv (repo.tasks.documents.list declares a closed payload
     // without executor) stands in for "the next new command": with an explicit HARNESS_ACTOR, injection
     // must follow the daemon-declared surface, so the real daemon accepts the request instead of
     // rejecting an undeclared executor.
-    const probe = await runCommandThroughDaemon({ rootDir: safePath(root), repoId: "runtime-cli", json: true, method: "repo.tasks.documents.list", action: { kind: "task-documents-list", taskId } }, undefined, { env: { ...env, HARNESS_ACTOR: "agent:injection-probe" } });
+    const probe = await runCommandThroughDaemon(
+      {
+        rootDir: safePath(root),
+        repoId: "runtime-cli",
+        json: true,
+        method: "repo.tasks.documents.list",
+        action: { kind: "task-documents-list", taskId },
+      },
+      undefined,
+      { env: { ...env, HARNESS_ACTOR: "agent:injection-probe" } },
+    );
     assert.equal(probe.ok, true, JSON.stringify(probe));
-  } finally { runMaybe(root, env, ["daemon", "stop"]); rmSync(parent, { recursive: true, force: true }); }
+  } finally {
+    runMaybe(root, env, ["daemon", "stop"]);
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
 
-function runtimeInvariantEvidence(root: string, artifactRoot: string, spawned: Record<string, unknown>, settled: Record<string, unknown>): Record<string, unknown> { const dispatchId = String(spawned.dispatchId), runtimeSessionId = String(spawned.runtimeSessionId), archivePath = path.join(artifactRoot, "dispatches", `${dispatchId}.json`), reportPath = path.join(artifactRoot, "reports", `${dispatchId}.md`), archive = JSON.parse(readFileSync(archivePath, "utf8")) as Record<string, unknown>, events = makeTaskEventStore({ repoId: "runtime-cli", rootDir: root }).read().events.filter((event) => "runtimeSessionId" in event.payload && event.payload.runtimeSessionId === runtimeSessionId), observed = events.filter((event) => event.type === "runtime_session_outcome_observed"); return { outcome: settled.outcome, exitCode: ((settled.session as Record<string, unknown>).activity as Record<string, unknown>).exitCode, archiveExists: existsSync(archivePath), archiveOutcome: archive.outcome, archiveExitCode: archive.exitCode, reportExists: existsSync(reportPath), exitedEvents: events.filter((event) => event.type === "runtime_session_exited").length, observedEvents: observed.length, observedOutcome: observed[0]?.type === "runtime_session_outcome_observed" ? observed[0].payload.outcome : null, observedExitCode: observed[0]?.type === "runtime_session_outcome_observed" ? observed[0].payload.exitCode : null }; }
-function readDispatchRecords(root: string, dispatchId: string): Record<string, unknown>[] { return readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`), "utf8").trim().split(/\r?\n/u).filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>); }
-async function eventuallyNotification(root: string, dispatchId: string): Promise<{ readonly started: Record<string, unknown> | undefined; readonly finished: Record<string, unknown> }> { let records: Record<string, unknown>[] = []; for (let attempt = 0; attempt < 500; attempt += 1) { records = readDispatchRecords(root, dispatchId).filter((record) => record.kind === "exit_notification"); const finished = records.find((record) => record.phase === "finished"); if (finished) return { started: records.find((record) => record.phase === "started"), finished }; await new Promise((resolve) => setTimeout(resolve, 20)); } throw new Error(`notification did not settle: ${JSON.stringify(records)}`); }
-async function eventuallyFile(target: string): Promise<void> { for (let attempt = 0; attempt < 500; attempt += 1) { if (existsSync(target)) return; await new Promise((resolve) => setTimeout(resolve, 20)); } throw new Error(`file did not appear: ${target}`); }
-async function eventually<T>(read: () => T): Promise<T> { let last: T | undefined; for (let attempt = 0; attempt < 100; attempt += 1) { last = read(); const rows = (last as Record<string, unknown>).dispatches; if (Array.isArray(rows) && rows.some((row) => (row as Record<string, unknown>).status === "cancelled")) return last; await new Promise((resolve) => setTimeout(resolve, 20)); } throw new Error(`dispatch did not settle: ${JSON.stringify(last)}`); }
-function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Record<string, unknown> { const result = runMaybe(root, env, args); assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`); return result.receipt; }
-function runMaybe(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): { readonly status: number | null; readonly pid: number | undefined; readonly receipt: Record<string, unknown>; readonly stderr: string } { const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], { encoding: "utf8", env }); return { status: result.status, pid: result.pid, receipt: result.stdout.trim() ? JSON.parse(result.stdout) as Record<string, unknown> : {}, stderr: result.stderr }; }
-async function eventuallyRuntimeReaderReuse(userRoot: string): Promise<{ readonly conn: string; readonly helloCount: number; readonly statusReads: number }> { let observed: Record<string, string[]> = {}; for (let attempt = 0; attempt < 100; attempt += 1) { observed = {}; const logRoot = path.join(userRoot, "logs"), names = existsSync(logRoot) ? readdirSync(logRoot).filter((name) => /^daemon-runtime-cli-test-conn-.*\.jsonl$/u.test(name)) : []; for (const name of names) for (const line of readFileSync(path.join(logRoot, name), "utf8").trim().split("\n").filter(Boolean)) { const record = JSON.parse(line) as Record<string, unknown>; if (record.event !== "request" || typeof record.conn !== "string" || typeof record.method !== "string") continue; const key = `${String(record.pid)}:${record.conn}`; (observed[key] ??= []).push(record.method); } const reused = Object.entries(observed).find(([, methods]) => methods.filter((method) => method === "repo.agentRuntime.sessions.read").length >= 2 && methods.filter((method) => method === "protocol.hello").length === 1); if (reused) return { conn: reused[0], helloCount: 1, statusReads: reused[1].filter((method) => method === "repo.agentRuntime.sessions.read").length }; await new Promise((resolve) => setTimeout(resolve, 20)); } throw new Error(`runtime status wait did not reuse one daemon connection: ${JSON.stringify(observed)}`); }
-function rejectionHint(receipt: Record<string, unknown>): string { const error = receipt.error; return error && typeof error === "object" && !Array.isArray(error) && typeof (error as Record<string, unknown>).hint === "string" ? String((error as Record<string, unknown>).hint) : String(receipt.nextAction ?? receipt.reason ?? ""); }
-function assertTaskMissionPrompt(prompt: string, expected: { readonly repoId: string; readonly canonicalRoot: string; readonly workerRoot: string; readonly taskPackageRoot: string; readonly daemonUserRoot: string; readonly daemonId: string; readonly runtimeSessionId: string; readonly mission: string }): void { assert.ok(prompt.includes(`# Dispatch Preconditions\nRepository id: ${expected.repoId}\nRepository registration: enabled\nCanonical repository root: ${expected.canonicalRoot}\nWorker repository root: ${expected.workerRoot}\nTask package root: ${expected.taskPackageRoot}\nDaemon user root: ${expected.daemonUserRoot}\nDaemon id: ${expected.daemonId}\nDaemon endpoint: `), prompt); assert.ok(prompt.includes(`\nRuntime actor: agent:runtime-session:${expected.runtimeSessionId}\n`), prompt); assert.ok(prompt.endsWith(`# Assigned Mission\n${expected.mission}`), prompt); }
-function writeIdentity(target: string, identity: Record<string, unknown>): void { const kind = String(identity.kind) as "agent" | "squad", declaration = kind === "agent" ? identity.agent : identity.squad; mkdirSync(target, { recursive: true }); writeFileSync(path.join(target, kind === "agent" ? "agent.json" : "squad.json"), `${JSON.stringify({ schema: `${kind}-declaration/v1`, ...declaration }, null, 2)}\n`); }
-function writeProvider(target: string, version: string): void { writeProviderExecutable(target, `const fs = require("node:fs");\nconst args = process.argv.slice(2);\nif (args[0] === "--version") { console.log("codex ${version}"); process.exit(0); }\nif (args[0] === "login" && args[1] === "status") process.exit(0);\nconst prompt = fs.readFileSync(0, "utf8"), mission = prompt.split("\\n# Assigned Mission\\n").at(-1), secret = "sk-runtime-secret-1234567890";\nif (mission === "failure:empty") process.exit(1);\nif (mission === "failure:secret") process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (mission === "failure:structured") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse { const resumed = args[0] === "exec" && args[1] === "resume", readOnly = mission === "read-only", noAction = mission === "no-action";\nif (readOnly && !args.includes("read-only")) process.exit(9);\nconst session = resumed ? args.at(-2) : "provider-cli-session";\nconst batch = mission.includes("batch hold"), mark = (event) => { if (batch) fs.appendFileSync(".batch-tracker", event + "\\n"); };\nconst emit = () => { mark("start"); console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (readOnly) console.log(JSON.stringify({ type: "item.completed", item: { id: "inspect", type: "command_execution", command: "ls packages", aggregated_output: "cli daemon kernel", exit_code: 0, status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "live", type: "agent_message", text: "live:" + prompt } })); if (mission === "hold") setInterval(() => {}, 1000); else { if (!readOnly && !noAction) console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: resumed ? "resumed:" + session + ":" + prompt : "final:" + prompt } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); mark("end"); } };\nif (mission === "stream prompt") setTimeout(emit, 3000); else if (batch) setTimeout(emit, 250); else emit(); }\n`); }
+function runtimeInvariantEvidence(
+  root: string,
+  artifactRoot: string,
+  spawned: Record<string, unknown>,
+  settled: Record<string, unknown>,
+): Record<string, unknown> {
+  const dispatchId = String(spawned.dispatchId),
+    runtimeSessionId = String(spawned.runtimeSessionId),
+    archivePath = path.join(artifactRoot, "dispatches", `${dispatchId}.json`),
+    reportPath = path.join(artifactRoot, "reports", `${dispatchId}.md`),
+    archive = JSON.parse(readFileSync(archivePath, "utf8")) as Record<string, unknown>,
+    events = makeTaskEventStore({ repoId: "runtime-cli", rootDir: root })
+      .read()
+      .events.filter(
+        (event) => "runtimeSessionId" in event.payload && event.payload.runtimeSessionId === runtimeSessionId,
+      ),
+    observed = events.filter((event) => event.type === "runtime_session_outcome_observed");
+  return {
+    outcome: settled.outcome,
+    exitCode: ((settled.session as Record<string, unknown>).activity as Record<string, unknown>).exitCode,
+    archiveExists: existsSync(archivePath),
+    archiveOutcome: archive.outcome,
+    archiveExitCode: archive.exitCode,
+    reportExists: existsSync(reportPath),
+    exitedEvents: events.filter((event) => event.type === "runtime_session_exited").length,
+    observedEvents: observed.length,
+    observedOutcome: observed[0]?.type === "runtime_session_outcome_observed" ? observed[0].payload.outcome : null,
+    observedExitCode: observed[0]?.type === "runtime_session_outcome_observed" ? observed[0].payload.exitCode : null,
+  };
+}
+function readDispatchRecords(root: string, dispatchId: string): Record<string, unknown>[] {
+  return readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`), "utf8")
+    .trim()
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+async function eventuallyNotification(
+  root: string,
+  dispatchId: string,
+): Promise<{ readonly started: Record<string, unknown> | undefined; readonly finished: Record<string, unknown> }> {
+  let records: Record<string, unknown>[] = [];
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    records = readDispatchRecords(root, dispatchId).filter((record) => record.kind === "exit_notification");
+    const finished = records.find((record) => record.phase === "finished");
+    if (finished) return { started: records.find((record) => record.phase === "started"), finished };
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`notification did not settle: ${JSON.stringify(records)}`);
+}
+async function eventuallyFile(target: string): Promise<void> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (existsSync(target)) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`file did not appear: ${target}`);
+}
+async function eventually<T>(read: () => T): Promise<T> {
+  let last: T | undefined;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    last = read();
+    const rows = (last as Record<string, unknown>).dispatches;
+    if (Array.isArray(rows) && rows.some((row) => (row as Record<string, unknown>).status === "cancelled")) return last;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`dispatch did not settle: ${JSON.stringify(last)}`);
+}
+function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Record<string, unknown> {
+  const result = runMaybe(root, env, args);
+  assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
+  return result.receipt;
+}
+function runMaybe(
+  root: string,
+  env: NodeJS.ProcessEnv,
+  args: readonly string[],
+): {
+  readonly status: number | null;
+  readonly pid: number | undefined;
+  readonly receipt: Record<string, unknown>;
+  readonly stderr: string;
+} {
+  const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], { encoding: "utf8", env });
+  return {
+    status: result.status,
+    pid: result.pid,
+    receipt: result.stdout.trim() ? (JSON.parse(result.stdout) as Record<string, unknown>) : {},
+    stderr: result.stderr,
+  };
+}
+async function eventuallyRuntimeReaderReuse(
+  userRoot: string,
+): Promise<{ readonly conn: string; readonly helloCount: number; readonly statusReads: number }> {
+  let observed: Record<string, string[]> = {};
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    observed = {};
+    const logRoot = path.join(userRoot, "logs"),
+      names = existsSync(logRoot)
+        ? readdirSync(logRoot).filter((name) => /^daemon-runtime-cli-test-conn-.*\.jsonl$/u.test(name))
+        : [];
+    for (const name of names)
+      for (const line of readFileSync(path.join(logRoot, name), "utf8").trim().split("\n").filter(Boolean)) {
+        const record = JSON.parse(line) as Record<string, unknown>;
+        if (record.event !== "request" || typeof record.conn !== "string" || typeof record.method !== "string")
+          continue;
+        const key = `${String(record.pid)}:${record.conn}`;
+        (observed[key] ??= []).push(record.method);
+      }
+    const reused = Object.entries(observed).find(
+      ([, methods]) =>
+        methods.filter((method) => method === "repo.agentRuntime.sessions.read").length >= 2 &&
+        methods.filter((method) => method === "protocol.hello").length === 1,
+    );
+    if (reused)
+      return {
+        conn: reused[0],
+        helloCount: 1,
+        statusReads: reused[1].filter((method) => method === "repo.agentRuntime.sessions.read").length,
+      };
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`runtime status wait did not reuse one daemon connection: ${JSON.stringify(observed)}`);
+}
+function rejectionHint(receipt: Record<string, unknown>): string {
+  const error = receipt.error;
+  return error &&
+    typeof error === "object" &&
+    !Array.isArray(error) &&
+    typeof (error as Record<string, unknown>).hint === "string"
+    ? String((error as Record<string, unknown>).hint)
+    : String(receipt.nextAction ?? receipt.reason ?? "");
+}
+function assertTaskMissionPrompt(
+  prompt: string,
+  expected: {
+    readonly repoId: string;
+    readonly canonicalRoot: string;
+    readonly workerRoot: string;
+    readonly taskPackageRoot: string;
+    readonly daemonUserRoot: string;
+    readonly daemonId: string;
+    readonly runtimeSessionId: string;
+    readonly mission: string;
+  },
+): void {
+  assert.ok(
+    prompt.includes(
+      `# Dispatch Preconditions\nRepository id: ${expected.repoId}\nRepository registration: enabled\nCanonical repository root: ${expected.canonicalRoot}\nWorker repository root: ${expected.workerRoot}\nTask package root: ${expected.taskPackageRoot}\nDaemon user root: ${expected.daemonUserRoot}\nDaemon id: ${expected.daemonId}\nDaemon endpoint: `,
+    ),
+    prompt,
+  );
+  assert.ok(prompt.includes(`\nRuntime actor: agent:runtime-session:${expected.runtimeSessionId}\n`), prompt);
+  assert.ok(prompt.endsWith(`# Assigned Mission\n${expected.mission}`), prompt);
+}
+function writeIdentity(target: string, identity: Record<string, unknown>): void {
+  const kind = String(identity.kind) as "agent" | "squad",
+    declaration = kind === "agent" ? identity.agent : identity.squad;
+  mkdirSync(target, { recursive: true });
+  writeFileSync(
+    path.join(target, kind === "agent" ? "agent.json" : "squad.json"),
+    `${JSON.stringify({ schema: `${kind}-declaration/v1`, ...declaration }, null, 2)}\n`,
+  );
+}
+function writeProvider(target: string, version: string): void {
+  writeProviderExecutable(
+    target,
+    `const fs = require("node:fs");\nconst args = process.argv.slice(2);\nif (args[0] === "--version") { console.log("codex ${version}"); process.exit(0); }\nif (args[0] === "login" && args[1] === "status") process.exit(0);\nconst prompt = fs.readFileSync(0, "utf8"), mission = prompt.split("\\n# Assigned Mission\\n").at(-1), secret = "sk-runtime-secret-1234567890";\nif (mission === "failure:empty") process.exit(1);\nif (mission === "failure:secret") process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (mission === "failure:structured") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse { const resumed = args[0] === "exec" && args[1] === "resume", readOnly = mission === "read-only", noAction = mission === "no-action";\nif (readOnly && !args.includes("read-only")) process.exit(9);\nconst session = resumed ? args.at(-2) : "provider-cli-session";\nconst batch = mission.includes("batch hold"), mark = (event) => { if (batch) fs.appendFileSync(".batch-tracker", event + "\\n"); };\nconst emit = () => { mark("start"); console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (readOnly) console.log(JSON.stringify({ type: "item.completed", item: { id: "inspect", type: "command_execution", command: "ls packages", aggregated_output: "cli daemon kernel", exit_code: 0, status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "live", type: "agent_message", text: "live:" + prompt } })); if (mission === "hold") setInterval(() => {}, 1000); else { if (!readOnly && !noAction) console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: resumed ? "resumed:" + session + ":" + prompt : "final:" + prompt } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); mark("end"); } };\nif (mission === "stream prompt") setTimeout(emit, 3000); else if (batch) setTimeout(emit, 250); else emit(); }\n`,
+  );
+}
 function writeProgressProvider(target: string, version: string): void {
-  writeProvider(target, version); const source = readFileSync(target, "utf8"), batchMarker = 'const batch = mission.includes("batch hold"), mark = (event) => { if (batch) fs.appendFileSync(".batch-tracker", event + "\\n"); };\n', threadMarker = 'console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (readOnly)', progressSetup = `${batchMarker}const progressTask = mission.startsWith("progress-middle:") ? mission.slice("progress-middle:".length) : null;\n`, progressWrite = `console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (progressTask) { for (const text of ["Provider checkpoint one.", "Provider checkpoint two."]) { let result; for (let attempt = 0; attempt < 20; attempt += 1) { result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "progress", "append", progressTask, "--text", text, "--evidence", "test:reports/runtime-progress.txt:provider checkpoint"], { encoding: "utf8", env: process.env }); if (result.status === 0) break; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } if (result.status !== 0) { process.stderr.write("progress append failed: " + result.stdout + result.stderr); process.exit(8); } } } if (readOnly)`, next = source.replace(batchMarker, progressSetup).replace(threadMarker, progressWrite); if (next === source) throw new Error("runtime progress provider marker changed"); writeFileSync(target, next);
+  writeProvider(target, version);
+  const source = readFileSync(target, "utf8"),
+    batchMarker =
+      'const batch = mission.includes("batch hold"), mark = (event) => { if (batch) fs.appendFileSync(".batch-tracker", event + "\\n"); };\n',
+    threadMarker = 'console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (readOnly)',
+    progressSetup = `${batchMarker}const progressTask = mission.startsWith("progress-middle:") ? mission.slice("progress-middle:".length) : null;\n`,
+    progressWrite = `console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (progressTask) { for (const text of ["Provider checkpoint one.", "Provider checkpoint two."]) { let result; for (let attempt = 0; attempt < 20; attempt += 1) { result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "progress", "append", progressTask, "--text", text, "--evidence", "test:reports/runtime-progress.txt:provider checkpoint"], { encoding: "utf8", env: process.env }); if (result.status === 0) break; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } if (result.status !== 0) { process.stderr.write("progress append failed: " + result.stdout + result.stderr); process.exit(8); } } } if (readOnly)`,
+    next = source.replace(batchMarker, progressSetup).replace(threadMarker, progressWrite);
+  if (next === source) throw new Error("runtime progress provider marker changed");
+  writeFileSync(target, next);
 }
