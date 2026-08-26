@@ -745,7 +745,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(unknownDispatch.status, 1);
     assert.equal(
       rejectionHint(unknownDispatch.receipt),
-      'Batch dispatch 0 contains an unknown field "permissionMode"; allowed fields: "instance", "agent", "to", "model", "effort", "permission-mode", "prompt", "prompt-file", "cwd", "task".',
+      'Batch dispatch 0 contains an unknown field "permissionMode"; allowed fields: "instance", "agent", "to", "squad", "model", "effort", "permission-mode", "prompt", "prompt-file", "cwd", "task".',
     );
     const unknownSpawn = await runCommandThroughDaemon(
       {

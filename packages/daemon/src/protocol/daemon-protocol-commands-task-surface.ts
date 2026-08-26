@@ -16,6 +16,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-release",
+    actionAliases: ["task-fallback-exhausted"],
     phase: "W3",
     path: ["task", "release", "<task-id>"],
     summary: "Release the authenticated holder lease and preserve the Execution audit trail.",
@@ -26,16 +27,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         nextAction: "Use one non-empty --reason, or omit it for the standard release audit.",
       }),
     ],
-  }),
-  defineCenterForwardWriteCommand({
-    id: "task-fallback-exhausted",
-    actionKind: "task-fallback-exhausted",
-    internal: true,
-    phase: "Runtime-B",
-    path: ["task", "_fallback-exhausted", "<task-id>"],
-    summary: "Atomically release a fallback attempt lease and move its Task to blocked.",
-    method: "repo.task.run",
-    inputs: [],
   }),
   defineLedgerWriteCommand({
     id: "task-declare-executor",

@@ -213,7 +213,7 @@ export function resolveThinCliCommand(args: readonly string[]): (typeof daemonPr
 
 export function commandDescriptorForAction(kind: string) {
   const descriptor =
-    daemonProtocolCommands.find((entry) => ("actionKind" in entry ? entry.actionKind : entry.id) === kind) ??
+    daemonProtocolCommands.find((entry) => commandAcceptsAction(entry, kind)) ??
     presetMethods.find((entry) => entry.actionKind === kind);
   if (!descriptor)
     throw new DaemonProtocolContractError("unsupported_command", `No command descriptor exists for ${kind}.`);
@@ -227,9 +227,7 @@ export function commandClassForAction(kind: string): "repo-read" | "repo-write" 
 export function actionForDaemonMethod(method: string, payload: JsonObject): JsonObject & { readonly kind: string } {
   if (method === "repo.task.run") {
     const action = payload.action as JsonObject & { readonly kind: string },
-      descriptor = daemonProtocolCommands.find(
-        (entry) => ("actionKind" in entry ? entry.actionKind : entry.id) === action.kind,
-      );
+      descriptor = daemonProtocolCommands.find((entry) => commandAcceptsAction(entry, action.kind));
     if (descriptor?.method !== method)
       throw new DaemonProtocolContractError(
         "unsupported_command",
@@ -243,4 +241,11 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
   const command = presetCommands.find((entry) => entry.method === method),
     defaults = command && "actionDefaults" in command ? command.actionDefaults : {};
   return { ...defaults, kind: descriptor.actionKind, ...payload };
+}
+
+function commandAcceptsAction(entry: (typeof daemonProtocolCommands)[number], kind: string): boolean {
+  return (
+    ("actionKind" in entry ? entry.actionKind : entry.id) === kind ||
+    ("actionAliases" in entry && entry.actionAliases.some((alias) => alias === kind))
+  );
 }
