@@ -23,7 +23,6 @@ const DOC_MD = {
   body: "# 计划骨架\n\n## Brief 一句话说明任务目标与范围。\n",
   mediaType: "text/markdown",
   owner: "doc-sync",
-  requiredAnchors: ["## Brief"],
   templateRef: "template://planning/task-plan@1",
 };
 const DOC_TXT = {
@@ -32,7 +31,6 @@ const DOC_TXT = {
   body: "F-001 keep-file plain text body\n",
   mediaType: "text/plain",
   owner: "doc-sync",
-  requiredAnchors: [],
   templateRef: "template://planning/task-facts@1",
 };
 const mounted: { root: Root; container: HTMLElement }[] = [];
@@ -87,15 +85,12 @@ function seedQueries(client: QueryClient): void {
     repoId: REPO_ID,
     preset: {
       id: PRESET_ID,
-      title: "G7 Preset",
       verticalId: "g7",
       version: "3.0.0",
       extends: null,
       capabilityImports: [{ id: "standard-task-check", kind: "checker", version: "1", required: false }],
-      profiles: [{ id: "baseline" }],
     },
     resolved: {
-      identity: { id: PRESET_ID, version: "3.0.0", verticalId: "g7", layer: "bundled" },
       profile: { id: "baseline", completionGateIds: ["ci", "code-doc-reconciliation"] },
       templates: [
         { slot: "task.plan", path: "task_plan.md", locale: "zh-CN", owner: "doc-sync", requiredAnchors: ["## Brief"] },
