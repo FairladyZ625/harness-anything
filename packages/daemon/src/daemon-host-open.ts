@@ -48,6 +48,7 @@ import {
 } from "./daemon-host-registry.ts";
 import { createDaemonHostRepositoryApi } from "./daemon-host-repository-api.ts";
 import { createDaemonHostRuntimeApi } from "./daemon-host-runtime-api.ts";
+import { makeE2EProbeScheduler } from "./e2e-probe-scheduler.ts";
 import {
   invalidRegistryStatus,
   invalidRegistrySystemRow,
@@ -117,6 +118,12 @@ export async function openDaemonHost(input: {
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
+  const e2eProbeScheduler = makeE2EProbeScheduler({
+    cells,
+    daemonRoute: runtimeDaemonRoute,
+    binding: localRepairBinding,
+    now,
+  });
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;
   let initialAttachments: Promise<void> | null = null,
@@ -190,6 +197,7 @@ export async function openDaemonHost(input: {
     openCell,
     runtimePorts,
     runtimeDaemonRoute,
+    e2eProbeScheduler,
     invalidRepoId,
     closeCell,
     unavailableProbes,
@@ -360,6 +368,7 @@ export async function openDaemonHost(input: {
     },
     fleetEdgeRuntimes,
     runtimeDaemonRoute,
+    e2eProbeScheduler,
     instances,
     requiredText,
     point,
@@ -446,7 +455,7 @@ export async function openDaemonHost(input: {
     return waitForWarmingImpl(extracted, repoId);
   }
   function startInitialAttachments(): Promise<void> {
-    return startInitialAttachmentsImpl(extracted);
+    return startInitialAttachmentsImpl(extracted).then(() => e2eProbeScheduler.start());
   }
   async function attachInitial(): Promise<void> {
     return attachInitialImpl(extracted);

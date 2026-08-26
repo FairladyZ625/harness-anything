@@ -7,6 +7,7 @@ import type {
   AgentRuntimeWitnessToken,
 } from "./agent-runtime-stream.ts";
 import { type DaemonBuildStatus } from "./build-identity.ts";
+import type { E2EProbeSchedulerStatus } from "./e2e-probe-scheduler.ts";
 import type { DaemonControlReceipt, TerminalAttachSubscription } from "./gui-s3-control.ts";
 import { type DaemonGuiReadResultMap, type DaemonGuiRpcReadMethod } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -111,6 +112,7 @@ export interface DaemonHost {
     readonly pid: number;
     readonly startedAt: string;
     readonly build: DaemonBuildStatus & { readonly version: string };
+    readonly e2eProbe: E2EProbeSchedulerStatus;
     readonly repos: readonly RepoCellStatus[];
     readonly summary: string;
   };

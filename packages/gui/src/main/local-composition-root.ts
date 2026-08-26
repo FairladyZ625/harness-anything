@@ -11,6 +11,11 @@ import {
   parseDaemonGuiReadResult,
 } from "../../../daemon/src/protocol/gui-result-validation.ts";
 import { ensureLocalDaemonRunning, isDaemonUnreachable } from "../../../daemon/src/client/daemon-autostart.ts";
+import {
+  daemonIdFromEnv,
+  daemonUserRoot,
+  resolveLocalDaemonEndpoint,
+} from "../../../daemon/src/client/local-daemon-target.ts";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { daemonServeLaunch, type PackagedRuntime } from "./daemon-serve-launch.ts";
@@ -25,9 +30,6 @@ interface DaemonClient {
     readonly userRoot: string;
     readonly daemonId: string;
   };
-  readonly daemonUserRoot: () => string;
-  readonly daemonIdFromEnv: () => string;
-  readonly localUserDaemonEndpoint: (userRoot?: string, daemonId?: string) => string;
   readonly requestLocalDaemonJsonRpcForTarget: (
     target: { readonly socketPath: string },
     method: string,
@@ -82,7 +84,7 @@ async function request(
       scoped = route.requiresRepo ? repoPayload(payload) : null;
     const target = scoped
       ? daemon.resolveLocalDaemonTarget({ rootDir, repoIdOverride: scoped.repoId })
-      : globalTarget(daemon);
+      : globalTarget();
     const daemonPayload = scoped?.payload ?? ((payload ?? {}) as JsonObject);
     const body: JsonObject = route.inputSchemaId === "gui.empty/v1" ? {} : { payload: daemonPayload },
       params: JsonObject = route.requiresRepo ? { repo: { repoId: scoped!.repoId }, ...body } : body;
@@ -146,14 +148,10 @@ function repoPayload(value: unknown): { readonly repoId: string; readonly payloa
     throw new Error("Repository GUI request has an invalid repoId.");
   return { repoId, payload };
 }
-function globalTarget(daemon: DaemonClient): {
-  readonly socketPath: string;
-  readonly userRoot: string;
-  readonly daemonId: string;
-} {
-  const userRoot = daemon.daemonUserRoot(),
-    daemonId = daemon.daemonIdFromEnv();
-  return { socketPath: daemon.localUserDaemonEndpoint(userRoot, daemonId), userRoot, daemonId };
+function globalTarget() {
+  const userRoot = daemonUserRoot(),
+    daemonId = daemonIdFromEnv();
+  return { socketPath: resolveLocalDaemonEndpoint({ userRoot, daemonId }), userRoot, daemonId };
 }
 async function loadClient(): Promise<DaemonClient> {
   client ??= import("../../../daemon/src/client/local-json-rpc-client.ts") as Promise<DaemonClient>;
