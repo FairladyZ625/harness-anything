@@ -102,6 +102,15 @@ export interface TaskProjection {
     afterRevision: number,
     limit: number,
   ) => readonly AgentRuntimeEventV1[];
+  readonly readCanonicalEvents: (
+    afterRevision: number,
+    limit: number,
+  ) => {
+    readonly status: "ready" | "pending";
+    readonly events: readonly CanonicalEventV1[];
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  };
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
   readonly admitFact: (event: FactEventV1) => void;

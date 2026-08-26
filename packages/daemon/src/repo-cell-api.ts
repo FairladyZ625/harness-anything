@@ -10,6 +10,7 @@ import { discoverAgentSkills } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import { listProjectedTaskDocuments, readProjectedDocument } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
+import { readObserveTail } from "./observe-tail.ts";
 import {
   commandClassForAction,
   commandDescriptorForAction,
@@ -494,6 +495,19 @@ export function createRepoCellApi(context: any): RepoCell {
     terminal: context.terminal,
     read,
     workspaceSummary: () => workspaceSummaryFromProjection(context.projection),
+    observeTail: (payload, daemon) => {
+      if (context.state !== "attached") context.attemptRecovery();
+      if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
+      return readObserveTail({
+        repoId: context.input.repoId,
+        rootDir: context.rootDir,
+        mode: context.mode,
+        projection: context.projection,
+        userRoot: daemon.userRoot,
+        daemonId: daemon.daemonId,
+        payload,
+      });
+    },
     get replica() {
       return context.replica;
     },

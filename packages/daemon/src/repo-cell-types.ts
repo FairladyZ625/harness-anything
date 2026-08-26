@@ -13,7 +13,11 @@ import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
 import { type ReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
-import { type DaemonGuiReadMethod, type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts";
+import {
+  type DaemonGuiReadMethod,
+  type DaemonGuiReadResultMap,
+  type ObserveTailResult,
+} from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type TerminalHost, type TrustedTerminalLaunch } from "./terminal-host.ts";
@@ -118,6 +122,10 @@ export interface RepoCell {
     payload?: Readonly<Record<string, unknown>>,
   ) => Promise<DaemonGuiReadResultMap[M]>;
   readonly workspaceSummary: () => DaemonGuiReadResultMap["repo.workspace.summary.read"];
+  readonly observeTail: (
+    payload: unknown,
+    daemon: { readonly userRoot: string; readonly daemonId: string },
+  ) => Promise<ObserveTailResult>;
   readonly replica: ReplicaCutSource;
   readonly verifyReadiness: () => Promise<{
     readonly cellState: "attached";

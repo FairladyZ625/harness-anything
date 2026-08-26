@@ -44,6 +44,12 @@ export type {
 } from "./identity/types.ts";
 export { createJsonRpcProtocolServer, type JsonRpcProtocolServer } from "./protocol/json-rpc-server.ts";
 export { jsonRpcMethodContracts } from "./protocol/daemon-protocol.contract.ts";
+export type {
+  ObserveTailCursor,
+  ObserveTailKind,
+  ObserveTailPayload,
+  ObserveTailResult,
+} from "./protocol/daemon-protocol.contract.ts";
 export { currentDaemonProtocolVersion } from "./protocol/version.ts";
 export type { JsonObject, JsonRpcRequest, JsonRpcResponse, JsonValue } from "./protocol/json-rpc-types.ts";
 export {

@@ -1,11 +1,12 @@
 import { daemonGuiActionMethods, daemonGuiStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
-import type {
-  DaemonGuiActionMethod,
-  DaemonGuiRpcReadMethod,
-  DaemonGuiStreamMethod,
-  RpcEnumRule,
-  RpcShape,
+import {
+  validateObserveTailPayload,
+  type DaemonGuiActionMethod,
+  type DaemonGuiRpcReadMethod,
+  type DaemonGuiStreamMethod,
+  type RpcEnumRule,
+  type RpcShape,
 } from "./daemon-protocol-gui-types.ts";
 import {
   digest,
@@ -71,6 +72,8 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateRuntimeSessionGroupsPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.squad.runs.list")
     errors.push(...validateSquadRunListPayload((value.params as JsonObject).payload));
+  if (!errors.length && value.method === "observe.tail")
+    errors.push(...validateObserveTailPayload((value.params as JsonObject).payload));
   if (!errors.length && isDaemonGuiActionMethod(value.method))
     errors.push(...validateGuiActionPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.terminal.attach") {

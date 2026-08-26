@@ -50,6 +50,10 @@ const RUNTIME_SESSION_EVENTS_SQL = [
   "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
   "ORDER BY workspace_revision LIMIT ?",
 ].join(" ");
+const CANONICAL_EVENTS_SQL = [
+  "SELECT event_json FROM event_index WHERE workspace_revision > ?",
+  "ORDER BY workspace_revision LIMIT ?",
+].join(" ");
 const REPLICA_EVENTS_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE workspace_revision > ? AND workspace_revision <= ?",
@@ -86,6 +90,7 @@ export function taskQueryApi(
   | "readRuntimeDispatch"
   | "readRuntimeDispatches"
   | "readRuntimeSessionEvents"
+  | "readCanonicalEvents"
   | "readDocument"
   | "readReplicaBasis"
   | "taskIdForDocumentPath"
@@ -179,8 +184,8 @@ export function taskQueryApi(
         const row =
           /* @gate-identity check-bypass-write-boundary/bypass-write-037 */
           db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as
-          | { readonly event_json: string }
-          | undefined;
+            | { readonly event_json: string }
+            | undefined;
         return row === undefined ? null : { event: parseEventJson(row.event_json), watermark: watermark(db) };
       }),
     readRelationTruth: () =>
@@ -202,8 +207,8 @@ export function taskQueryApi(
         const row =
           /* @gate-identity check-bypass-write-boundary/bypass-write-038 */
           db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as
-          | { readonly event_json: string }
-          | undefined;
+            | { readonly event_json: string }
+            | undefined;
         if (!row) return null;
         const event = parseEventJson(row.event_json);
         return isTaskEvent(event) ? { event, watermark: watermark(db) } : null;
@@ -240,6 +245,27 @@ export function taskQueryApi(
           .map((row) => parseEventJson(String(row.event_json)))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event));
       }),
+    readCanonicalEvents: (afterRevision, pageLimit) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        if (
+          !Number.isSafeInteger(afterRevision) ||
+          afterRevision < 0 ||
+          !Number.isSafeInteger(pageLimit) ||
+          pageLimit < 1 ||
+          pageLimit > 500
+        )
+          throw new Error("canonical event page requires a non-negative revision and a limit from 1 to 500");
+        const round = catchUpRound(db, eventStore, limit),
+          current = watermark(db);
+        return {
+          status: current === round.sourceRevision ? "ready" : "pending",
+          events: queryRows(db, CANONICAL_EVENTS_SQL, afterRevision, pageLimit).map((row) =>
+            parseEventJson(String(row.event_json)),
+          ),
+          watermark: current,
+          sourceRevision: round.sourceRevision,
+        };
+      }),
     readDocument: (documentPath) => readDocument(projectionPath, readHead, eventStore, documentPath, limit),
     readReplicaBasis: (afterRevision) => {
       if (afterRevision !== null && (!Number.isSafeInteger(afterRevision) || afterRevision < 0))
@@ -274,8 +300,8 @@ export function taskQueryApi(
         projectionPath,
         readHead,
         (db) =>
+          /* @gate-identity check-bypass-write-boundary/bypass-write-039 */
           (
-            /* @gate-identity check-bypass-write-boundary/bypass-write-039 */
             db.prepare(TASK_FOR_DOCUMENT_SQL).get(documentPath, documentPath) as
               | { readonly task_id: string }
               | undefined

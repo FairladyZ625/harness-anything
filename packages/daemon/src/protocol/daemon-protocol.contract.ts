@@ -386,6 +386,7 @@ export default Object.freeze({
     "Runtime-Instances-S3",
     "Fleet-Wiring",
     "B2-S1",
+    "G6-A",
   ]),
   commands: effectiveDaemonOwnedProtocolCommands,
   methods: Object.freeze([
@@ -422,6 +423,7 @@ export {
 } from "./daemon-protocol-commands.ts";
 export { daemonGuiActionMethods, daemonGuiStreamFacets } from "./daemon-protocol-gui-actions.ts";
 export { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
+export { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 export type {
   AgendaAwaitingRow,
   AgendaTaskRow,
@@ -447,6 +449,10 @@ export type {
   DaemonWorkspaceSummaryResult,
   ExecutionEvidenceProjection,
   GuiSubmissionV1,
+  ObserveTailCursor,
+  ObserveTailKind,
+  ObserveTailPayload,
+  ObserveTailResult,
   TaskDispatchRow,
   TaskDocumentListEntryRow,
   TaskPlacementSupplement,
@@ -484,6 +490,7 @@ export {
   DAEMON_CONTROL_RECEIPT_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
   DAEMON_DOCUMENT_READ_SCHEMA,
+  DAEMON_OBSERVE_TAIL_SCHEMA,
   DAEMON_GUI_COMMAND_RECEIPT_SCHEMA,
   DAEMON_PROTOCOL_ERROR_SCHEMA,
   DAEMON_RELATION_GRAPH_SCHEMA,
@@ -522,6 +529,7 @@ export {
   serializeDaemonTaskDocumentList,
   serializeDaemonTaskSnapshotList,
   serializeDaemonWorkspaceSummary,
+  serializeObserveTailResult,
   validateDaemonDocumentRead,
   validateDaemonGuiCommandReceipt,
   validateDaemonProtocolError,
