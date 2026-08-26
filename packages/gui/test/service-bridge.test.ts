@@ -138,6 +138,18 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(observability.schema, "daemon.observe-tail/v1");
     assert.equal(observability.repoId, fixture.repoId);
     assert.equal(observability.kind, "events");
+    // G7 路线 A:catalog preset 读面携带 resolver 文档正文,GUI 详情页是它的消费者。
+    // 上面的循环已用 validateCatalogPreset 校过闭形状,这里断言正文真实过桥。
+    const presetDetail = results.get("repo.gui.catalog.preset.read") as {
+      readonly resolved: {
+        readonly documents: ReadonlyArray<{ readonly body: string; readonly mediaType: string }>;
+      };
+    };
+    assert.ok(presetDetail.resolved.documents.length > 0, JSON.stringify(presetDetail));
+    assert.ok(presetDetail.resolved.documents.every((document) => document.body.length > 0));
+    assert.ok(
+      presetDetail.resolved.documents.every((document) => ["text/markdown", "text/plain"].includes(document.mediaType)),
+    );
     const agentCatalog = parseDaemonGuiReadResult("repo.agent.entities.list", results.get("repo.agent.entities.list"));
     assert.equal(agentCatalog.ok, true);
     assert.deepEqual(

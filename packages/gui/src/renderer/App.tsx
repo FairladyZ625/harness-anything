@@ -550,7 +550,18 @@ function AppShell() {
                 onNavigateEntity={navigateToEntity}
               />
             ) : view === "presets" ? (
-              <PresetsView repoId={projectId} />
+              <PresetsView
+                repoId={projectId}
+                // G7:preset/<id> 深链接落目录页内详情(与 task 详情同构,推栈回撤原路返回)。
+                focusedPresetId={
+                  focusedEntityRef?.startsWith("preset/") ? focusedEntityRef.slice("preset/".length) : null
+                }
+                onOpenPreset={(presetId) =>
+                  navigate({ focusedEntityRef: `preset/${presetId}`, selectedId: null, previewId: null })
+                }
+                onExitDetail={() => updateLocation({ focusedEntityRef: null })}
+                projectName={project.name}
+              />
             ) : view === "adapters" ? (
               <AdaptersView repoId={projectId} tasks={projectTasks} />
             ) : view === "sessions" ? (

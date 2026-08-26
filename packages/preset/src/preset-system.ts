@@ -109,6 +109,7 @@ export async function runPresetAction(input: { readonly rootDir: string; readonl
     manifest: inspected.manifest,
     snapshot: inspected.snapshot,
     entrypoints: Object.keys(inspected.snapshot.entrypoints).sort(),
+    documents: inspected.documents,
   };
 }
 export function compileRepoTaskBootstrap(input: {

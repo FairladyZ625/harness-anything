@@ -133,7 +133,13 @@ const FILL_TESTIDS = ["presets-content", "adapters-content", "system-content", "
 async function mountedContainerClasses(testId: (typeof FILL_TESTIDS)[number]): Promise<string> {
   const container = await mountView(
     testId === "presets-content"
-      ? createElement(PresetsView, { repoId: REPO_ID })
+      ? createElement(PresetsView, {
+          repoId: REPO_ID,
+          focusedPresetId: null,
+          onOpenPreset: () => undefined,
+          onExitDetail: () => undefined,
+          projectName: "G5 Probe",
+        })
       : testId === "adapters-content"
         ? createElement(AdaptersView, { repoId: REPO_ID, tasks: [] })
         : testId === "system-content"
@@ -159,7 +165,7 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
   });
 
   it("侧栏固定轨道保留(列宽有意,外层仍铺满)", async () => {
-    expect(await mountedContainerClasses("presets-content")).toContain("lg:grid-cols-[minmax(0,1fr)_20rem]");
+    // G7 起预设列表页改为紧凑信息行(已解析内容移入详情页),不再有 20rem 侧栏轨道。
     expect(await mountedContainerClasses("system-content")).toContain("lg:grid-cols-[22rem_minmax(0,1fr)]");
     expect(await mountedContainerClasses("settings-content")).toContain("lg:grid-cols-[12rem_minmax(0,1fr)]");
   });

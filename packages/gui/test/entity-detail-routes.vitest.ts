@@ -76,6 +76,14 @@ describe("entity detail target routing (W4)", () => {
     expect(entityDetailTargetOf("agents")).toBeNull();
     expect(entityDetailTargetOf("tasksessions/")).toBeNull();
   });
+
+  it("routes preset refs to the catalog in-page detail (G7)", () => {
+    expect(entityDetailTargetOf("preset/standard-task")).toEqual({
+      view: "presets",
+      focusedEntityRef: "preset/standard-task",
+    });
+    expect(entityDetailTargetOf("preset/")).toBeNull();
+  });
 });
 
 describe("detail views in the view history stack (W4)", () => {
