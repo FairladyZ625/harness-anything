@@ -376,7 +376,7 @@
   "schedules.definition": "Definition",
   "schedules.execution": "Execution",
   "schedules.actions": "Actions",
-  "schedules.triggerTip": "cadence computed by the daemon (cron keeps its timezone)",
+  "schedules.triggerTip": "cadence computed by the daemon",
   "schedules.residencyTip": "definition residency: ledger = center source of truth, visible on edge mirrors",
   "schedules.nextRun": "next",
   "schedules.claimNode": "owner",

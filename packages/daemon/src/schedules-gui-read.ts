@@ -52,19 +52,10 @@ function triggerDtoOf(schedule: ScheduleV1): ScheduleGuiTriggerDto {
       timezone: null,
       summary: `every ${formatEveryMs(everyMs)}`,
     };
-  // Forward-compatible cron branch: when S2 lands the cron trigger kind the DTO
-  // carries expression + timezone verbatim, so the renderer never gains cadence logic.
-  const expression =
-      typeof trigger.expression === "string" && trigger.expression
-        ? trigger.expression
-        : String(trigger.kind ?? "cron"),
-    timezone = typeof trigger.timezone === "string" && trigger.timezone ? trigger.timezone : null;
-  return {
-    kind: "cron",
-    expression,
-    timezone,
-    summary: timezone === null ? expression : `${expression} · ${timezone}`,
-  };
+  // Kernel ScheduleTriggerV1 only defines interval triggers, so anything else means
+  // the ledger entity escaped its write-side schema; refuse to recast it as a
+  // fabricated cadence (nextScheduleOccurrence below throws the same way).
+  throw new Error(`schedule ${schedule.scheduleId} has a trigger the interval contract does not define`);
 }
 
 function formatEveryMs(everyMs: number): string {

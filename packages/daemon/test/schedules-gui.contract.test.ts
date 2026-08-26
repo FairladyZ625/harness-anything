@@ -151,6 +151,99 @@ test("the schedules list validator locks the joined wire shape", () => {
     );
 });
 
+test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass the wire contract", () => {
+  const claimed = {
+    ...armedSchedule,
+    status: {
+      ...armedSchedule.status,
+      activeRun: {
+        occurrenceId: "occurrence_active",
+        kind: "scheduled" as const,
+        scheduledFor: now,
+        claimedAt: now,
+        nodeId: "edge-one",
+        assignmentId: null,
+        claimFence: "claim_fence",
+        attemptIndex: 0,
+      },
+      lastRun: {
+        occurrenceId: "occurrence_last",
+        scheduledFor: "2026-08-27T07:00:00.000Z",
+        endedAt: "2026-08-27T07:01:00.000Z",
+        outcome: "succeeded" as const,
+        nodeId: "local",
+        assignmentId: null,
+        claimFence: "claim_fence",
+        attemptIndex: 0,
+      },
+    },
+  };
+  const result = readSchedulesGui(
+    guiContext({
+      projection: {
+        listEntities: () => [{ value: claimed, workspaceRevision: 2 }],
+        readTaskStatuses: guiContext().projection.readTaskStatuses,
+      },
+    }),
+  );
+  // The join always emits the three link fields as null until a run is dispatched,
+  // linked, or settles with a detail — that shape must validate, or every real GUI
+  // read (which parses through this contract) would fail once a schedule has run.
+  assert.deepEqual(validateSchedulesList(result), []);
+  assert.equal(parseDaemonGuiReadResult("repo.schedules.list", result), result);
+  assert.equal(result.schedules[0]!.activeRun!.dispatchId, null);
+  assert.equal(result.schedules[0]!.activeRun!.runtimeSessionId, null);
+  assert.equal(result.schedules[0]!.lastRun!.detail, null);
+  const activeRun = result.schedules[0]!.activeRun as unknown as ScheduleGuiRowDto["activeRun"];
+  assert.notDeepEqual(
+    validateSchedulesList({
+      ...result,
+      schedules: [{ ...result.schedules[0]!, activeRun: { ...activeRun!, dispatchId: "" } }],
+    }),
+    [],
+    "a blank dispatchId must stay invalid",
+  );
+});
+
+test("a trigger outside the kernel interval contract is refused, never recast", () => {
+  // Kernel ScheduleTriggerV1 defines only interval triggers with everyMs >= 60_000;
+  // a ledger entity that escaped that shape must fail the read instead of gaining a
+  // fabricated cadence DTO (the deleted forward-compat branch used to mint cron rows).
+  const malformed = {
+    ...armedSchedule,
+    spec: {
+      ...armedSchedule.spec,
+      trigger: { kind: "interval", everyMs: 30_000, anchorAt: "2026-08-27T07:00:00.000Z" },
+    },
+  };
+  assert.throws(
+    () =>
+      readSchedulesGui(
+        guiContext({
+          projection: {
+            listEntities: () => [{ value: malformed, workspaceRevision: 1 }],
+            readTaskStatuses: guiContext().projection.readTaskStatuses,
+          },
+        }),
+      ),
+    /interval contract does not define/u,
+  );
+  const result = readSchedulesGui(guiContext());
+  assert.notDeepEqual(
+    validateSchedulesList({
+      ...result,
+      schedules: [
+        {
+          ...result.schedules[0]!,
+          trigger: { kind: "cron", expression: "* * * * *", timezone: null, summary: "* * * * *" },
+        },
+      ],
+    }),
+    [],
+    "a cron trigger DTO must stay invalid on the wire",
+  );
+});
+
 test("availability distinguishes the four execution states from roster truth", () => {
   const base = { repoId: "schedule-gui", scheduleId: "heartbeat-probe", now };
   assert.equal(

@@ -35,11 +35,15 @@ import {
 // file only formats — no cadence/nextRun/DST/mode recomputation and no local
 // node/provider picking. Action enablement comes from the daemon facets; a disabled
 // button shows the daemon's exact blocker instead of a renderer-side mode branch.
-const STATE_META: Record<string, { readonly key: MessageKey; readonly tone: "active" | "in-review" }> = {
+type StateMeta = { readonly key: MessageKey; readonly tone: "active" | "in-review" };
+// Keyed by the DTO's closed unions: the daemon contract already classified every
+// word before the renderer sees it, so lookups are total and there is no fallback
+// branch that could silently repaint an unknown word as a known state.
+const STATE_META: Record<ScheduleGuiRowDto["state"], StateMeta> = {
   armed: { key: "schedules.state.armed", tone: "active" },
   paused: { key: "schedules.state.paused", tone: "in-review" },
 };
-const AVAILABILITY_META: Record<string, MessageKey> = {
+const AVAILABILITY_META: Record<ScheduleGuiRowDto["executionAvailability"], MessageKey> = {
   local: "schedules.availability.local",
   "claimed-elsewhere": "schedules.availability.claimedElsewhere",
   unassigned: "schedules.availability.unassigned",
@@ -64,6 +68,11 @@ const OUTCOME_TONE: Record<string, string> = {
 };
 
 const time = (iso: string | null): string => (iso === null ? "—" : (formatTime(iso, { style: "date-time" }) ?? iso));
+
+const READ_ERROR_ROW_CLASS = [
+  "shrink-0 border-b border-border bg-status-blocked/10",
+  "px-3.5 py-1.5 font-mono text-[11px] text-status-blocked",
+].join(" ");
 
 export function SchedulesView({
   repoId,
@@ -103,11 +112,7 @@ export function SchedulesView({
         )}
       </header>
       {query.isError && (
-        <p
-          role="alert"
-          data-testid="schedules-read-error"
-          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono text-[11px] text-status-blocked"
-        >
+        <p role="alert" data-testid="schedules-read-error" className={READ_ERROR_ROW_CLASS}>
           {t("schedules.readFailed", {
             error: query.error instanceof Error ? query.error.message : String(query.error),
           })}
@@ -180,10 +185,7 @@ export function ScheduleWorkspace({
           <Empty>{t("schedules.empty")}</Empty>
         ) : (
           rows.map((row) => {
-            const stateMeta = STATE_META[row.state] ?? {
-              key: "schedules.state.paused" as MessageKey,
-              tone: "in-review" as const,
-            };
+            const stateMeta = STATE_META[row.state];
             return (
               <Card key={row.scheduleId} testId={`schedule-row-${row.scheduleId}`}>
                 <CardHead>
@@ -207,10 +209,8 @@ export function ScheduleWorkspace({
                       <Clock weight="bold" />
                       {row.trigger.summary}
                     </Chip>
-                    <Chip
-                      tip={t(AVAILABILITY_META[row.executionAvailability] ?? "schedules.availability.notOnThisNode")}
-                    >
-                      {t(AVAILABILITY_META[row.executionAvailability] ?? "schedules.availability.notOnThisNode")}
+                    <Chip tip={t(AVAILABILITY_META[row.executionAvailability])}>
+                      {t(AVAILABILITY_META[row.executionAvailability])}
                     </Chip>
                     <span className="font-mono text-[10.5px] text-text-faint">
                       {t("schedules.nextRun")}: {time(row.nextRunAt)}
@@ -227,8 +227,7 @@ export function ScheduleWorkspace({
                     )}
                     {row.lastRun !== null && (
                       <span className="font-mono text-[10.5px] text-text-faint">
-                        {t("schedules.lastOutcome")}:{" "}
-                        {t(OUTCOME_META[row.lastRun.outcome] ?? "schedules.outcome.unknown")}
+                        {t("schedules.lastOutcome")}: {t(OUTCOME_META[row.lastRun.outcome])}
                       </span>
                     )}
                   </div>
@@ -276,11 +275,8 @@ function ScheduleInspector({
   readonly onAction: (kind: "enable" | "disable" | "runNow") => void;
   readonly onSelectEntity: (ref: string) => void;
 }) {
-  const stateMeta = STATE_META[row.state] ?? {
-      key: "schedules.state.paused" as MessageKey,
-      tone: "in-review" as const,
-    },
-    availabilityKey = AVAILABILITY_META[row.executionAvailability] ?? "schedules.availability.notOnThisNode";
+  const stateMeta = STATE_META[row.state],
+    availabilityKey = AVAILABILITY_META[row.executionAvailability];
   return (
     <div className="pb-6">
       <Sect title={t("schedules.definition")} desc={row.scheduleId}>
@@ -364,9 +360,7 @@ function ScheduleInspector({
         ) : (
           <>
             <div className="mb-1.5 flex items-center gap-2">
-              <Badge status={OUTCOME_TONE[row.lastRun.outcome]}>
-                {t(OUTCOME_META[row.lastRun.outcome] ?? "schedules.outcome.unknown")}
-              </Badge>
+              <Badge status={OUTCOME_TONE[row.lastRun.outcome]}>{t(OUTCOME_META[row.lastRun.outcome])}</Badge>
               <Hint>{time(row.lastRun.endedAt)}</Hint>
             </div>
             <KV>
@@ -398,9 +392,7 @@ function ScheduleInspector({
           <KVRow name={t("schedules.fields.missedCount")}>{String(row.missed.count)}</KVRow>
           <KVRow name={t("schedules.fields.lastMissedAt")}>{time(row.missed.lastMissedAt)}</KVRow>
           <KVRow name={t("schedules.fields.missedReason")}>
-            {row.missed.lastMissedReason === null
-              ? "—"
-              : t(MISSED_REASON_META[row.missed.lastMissedReason] ?? "schedules.missedReason.schedulerUnavailable")}
+            {row.missed.lastMissedReason === null ? "—" : t(MISSED_REASON_META[row.missed.lastMissedReason])}
           </KVRow>
         </KV>
       </Sect>

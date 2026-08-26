@@ -10,7 +10,8 @@ import { registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/s
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
-import type { ScheduleGuiRowDto } from "../src/protocol/schedules-gui-contract.ts";
+import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/protocol/schedules-gui-contract.ts";
 
 const actor = { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const };
 const definition: AgentDefinitionSnapshot = {
@@ -175,7 +176,13 @@ test(
           ).outcome,
           "applied",
         );
-        const initial = await cell.read("repo.schedules.list");
+        // The GUI parses every read result through the daemon contract, so the
+        // integration asserts that path: an invalid row shape must throw here, not
+        // merely disagree with field expectations (a claimed-but-unlinked activeRun or a
+        // lastRun without detail previously failed this parse).
+        const list = async (): Promise<SchedulesListResult> =>
+          parseDaemonGuiReadResult("repo.schedules.list", await cell.read("repo.schedules.list"));
+        const initial = await list();
         assert.equal(initial.ok, true);
         assert.equal(initial.repoMode, "local");
         assert.equal(initial.viewerNodeId, "local");
@@ -202,7 +209,7 @@ test(
         assert.equal(runNow.outcome, "applied");
         assert.equal(runNow.scheduleId, "heartbeat-probe");
 
-        const active = await cell.read("repo.schedules.list");
+        const active = await list();
         const running = active.schedules[0] as ScheduleGuiRowDto;
         assert.notEqual(running.activeRun, null);
         assert.equal(running.activeRun!.nodeId, "local");
@@ -225,7 +232,7 @@ test(
         await new Promise((resolve) => setTimeout(resolve, 100));
         exit?.(0);
         const settled = await eventually(async () => {
-          const read = await cell.read("repo.schedules.list");
+          const read = await list();
           const row = read.schedules[0] as ScheduleGuiRowDto;
           if (row.activeRun !== null || row.lastRun === null) return false;
           if (row.lastRun.outcome !== "succeeded")
@@ -233,7 +240,7 @@ test(
           return true;
         });
         assert.equal(settled, true);
-        const afterRun = (await cell.read("repo.schedules.list")).schedules[0] as ScheduleGuiRowDto;
+        const afterRun = (await list()).schedules[0] as ScheduleGuiRowDto;
         assert.notEqual(afterRun.lastRun!.runtimeSessionId, null);
         assert.equal(afterRun.lastRun!.nodeId, "local");
         assert.equal(afterRun.missed.count, 0);
@@ -248,7 +255,7 @@ test(
           ).outcome,
           "applied",
         );
-        const paused = (await cell.read("repo.schedules.list")).schedules[0] as ScheduleGuiRowDto;
+        const paused = (await list()).schedules[0] as ScheduleGuiRowDto;
         assert.equal(paused.state, "paused");
         assert.equal(paused.nextRunAt, null);
         assert.equal(paused.actions.runNow.available, false);
@@ -322,12 +329,20 @@ test(
           source: "unix-socket-filesystem-owner-boundary" as const,
         },
       };
-      const read = await host.read("schedules-gui-center", "repo.schedules.list", {}, localAuth);
-      assert.equal(read.ok, true);
-      assert.equal(read.repoMode, "remote-center");
-      assert.equal(read.viewerNodeId, null);
-      assert.equal(read.schedules.length, 1);
-      const row = read.schedules[0] as ScheduleGuiRowDto;
+      const list = async (): Promise<SchedulesListResult> =>
+        parseDaemonGuiReadResult(
+          "repo.schedules.list",
+          await host.read("schedules-gui-center", "repo.schedules.list", {}, localAuth),
+        );
+      // Before any fleet center is admitted the roster is unresolvable, so the read
+      // degrades instead of guessing an owner.
+      const unresolved = await list();
+      assert.equal(unresolved.ok, true);
+      assert.equal(unresolved.repoMode, "remote-center");
+      assert.equal(unresolved.viewerNodeId, null);
+      assert.equal(unresolved.assignmentResolution, "unavailable");
+      assert.equal(unresolved.schedules.length, 1);
+      const row = unresolved.schedules[0] as ScheduleGuiRowDto;
       assert.equal(row.state, "armed");
       assert.equal(row.executionAvailability, "not-on-this-node");
       assert.equal(row.actions.runNow.available, false);
@@ -335,6 +350,69 @@ test(
       assert.equal(row.actions.enable.available, false);
       // The center never fabricates a local executor: no node/provider/liveness claims.
       assert.equal(row.claim.nodeId, null);
+      // Admitting the fleet center snapshots the roster onto the host; the repo cell
+      // (already attached at daemon boot) must resolve that snapshot at read time.
+      const keyFile = path.join(root, "center.key"),
+        certFile = path.join(root, "center.crt"),
+        rosterFile = path.join(root, "roster.json");
+      execFileSync(
+        "openssl",
+        [
+          "req",
+          "-x509",
+          "-newkey",
+          "rsa:2048",
+          "-nodes",
+          "-keyout",
+          keyFile,
+          "-out",
+          certFile,
+          "-subj",
+          "/CN=localhost",
+          "-days",
+          "1",
+          "-addext",
+          "subjectAltName=DNS:localhost",
+        ],
+        { stdio: "ignore" },
+      );
+      writeFileSync(
+        rosterFile,
+        JSON.stringify({
+          schema: "fleet-roster/v2",
+          nodes: [{ nodeId: "edge-one", credential: "credential-edge-one" }],
+          assignments: [
+            {
+              assignmentId: "assignment-edge-one",
+              nodeId: "edge-one",
+              repoId: "schedules-gui-center",
+              viewId: "view-edge-one",
+              personId: "operator",
+              expiresAt: "2099-01-01T00:00:00.000Z",
+              scope: { kind: "schedule", scheduleId: "heartbeat-probe", paths: ["schedules"] },
+            },
+          ],
+        }),
+      );
+      const admission = (await host.fleet.startCenter(
+        {
+          port: 0,
+          keyPath: keyFile,
+          certPath: certFile,
+          rosterPath: rosterFile,
+          quotaBytes: 64 * 1024 * 1024,
+        },
+        localAuth,
+      )) as unknown as { readonly ok: boolean; readonly nodes: number; readonly assignments: number };
+      assert.equal(admission.ok, true);
+      assert.equal(admission.nodes, 1);
+      assert.equal(admission.assignments, 1);
+      const rosterJoined = await list();
+      assert.equal(rosterJoined.assignmentResolution, "roster");
+      const joined = rosterJoined.schedules[0] as ScheduleGuiRowDto;
+      assert.deepEqual(joined.claim, { nodeId: "edge-one", assignmentId: "assignment-edge-one" });
+      // The viewer is the center, never the executing node: ownership stays remote.
+      assert.equal(joined.executionAvailability, "not-on-this-node");
       const rejected = (await host.run(
         "schedules-gui-center",
         { kind: "schedule-run-now", scheduleId: "heartbeat-probe", idempotencyKey: "center-gui-1" },

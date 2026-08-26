@@ -7,14 +7,15 @@ import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
  * packages/daemon/src/schedules-gui-read.ts,protocol 目录不引 kernel barrel。 */
 export type ScheduleExecutionAvailability = "local" | "claimed-elsewhere" | "unassigned" | "not-on-this-node";
 
-export type ScheduleGuiTriggerDto =
-  | { readonly kind: "interval"; readonly everyMs: number; readonly timezone: null; readonly summary: string }
-  | {
-      readonly kind: "cron";
-      readonly expression: string;
-      readonly timezone: string | null;
-      readonly summary: string;
-    };
+/** Kernel `ScheduleTriggerV1` only defines the interval trigger, so the wire carries
+ * exactly that variant — a schedule entity with any other trigger shape is rejected
+ * by the read-side join instead of being recast here. */
+export type ScheduleGuiTriggerDto = {
+  readonly kind: "interval";
+  readonly everyMs: number;
+  readonly timezone: null;
+  readonly summary: string;
+};
 
 export interface ScheduleGuiActionFacet {
   readonly available: boolean;
@@ -83,6 +84,11 @@ export interface SchedulesListResult {
   readonly repoId: string;
   readonly repoMode: "local" | "remote-center" | "remote-edge";
   readonly viewerNodeId: string | null;
+  /** How execution ownership was resolved: "roster" = the assignment authority
+   * (fleet roster, or daemon-local ownership in local mode — local never consults a
+   * roster, so the value is vacuously "roster" there) resolved; "unavailable" = the
+   * roster could not be resolved, so claim/assignment fields degrade to null and
+   * availability falls back to not-on-this-node. */
   readonly assignmentResolution: "roster" | "unavailable";
   readonly schedules: readonly ScheduleGuiRowDto[];
   readonly watermark: number;
@@ -154,19 +160,13 @@ function nullableNonEmpty(value: unknown): boolean {
 }
 
 function validTriggerDto(value: unknown): boolean {
-  if (!isJsonObject(value) || !["interval", "cron"].includes(String(value.kind))) return false;
-  if (value.kind === "interval")
-    return (
-      Object.keys(value).length === 4 &&
-      Number.isSafeInteger(value.everyMs) &&
-      Number(value.everyMs) >= 60_000 &&
-      value.timezone === null &&
-      scheduleNonEmptyText(value.summary)
-    );
   return (
+    isJsonObject(value) &&
+    value.kind === "interval" &&
     Object.keys(value).length === 4 &&
-    scheduleNonEmptyText(value.expression) &&
-    nullableNonEmpty(value.timezone) &&
+    Number.isSafeInteger(value.everyMs) &&
+    Number(value.everyMs) >= 60_000 &&
+    value.timezone === null &&
     scheduleNonEmptyText(value.summary)
   );
 }
@@ -195,8 +195,11 @@ function validAttemptSummary(value: unknown, fields: readonly string[]): boolean
     utcTimestamp(value.scheduledFor) &&
     (value.claimedAt === undefined || utcTimestamp(value.claimedAt)) &&
     (value.endedAt === undefined || utcTimestamp(value.endedAt)) &&
+    // The join always emits these three link fields; before a run links its dispatch
+    // or session they are null, so the wire shape is nullable non-empty — never absent
+    // and never blank.
     ["dispatchId", "runtimeSessionId", "detail"].every(
-      (field) => !Object.hasOwn(value, field) || scheduleNonEmptyText(value[field]),
+      (field) => !Object.hasOwn(value, field) || nullableNonEmpty(value[field]),
     ) &&
     nullableNonEmpty(value.assignmentId) &&
     Number.isSafeInteger(value.attemptIndex) &&

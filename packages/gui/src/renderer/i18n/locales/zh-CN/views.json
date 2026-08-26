@@ -376,7 +376,7 @@
   "schedules.definition": "定义",
   "schedules.execution": "执行",
   "schedules.actions": "操作",
-  "schedules.triggerTip": "触发节奏(daemon 计算,含 cron 时区)",
+  "schedules.triggerTip": "触发节奏(daemon 计算)",
   "schedules.residencyTip": "定义 residency:ledger=center 真源,edge 镜像可见",
   "schedules.nextRun": "下次",
   "schedules.claimNode": "占用节点",
