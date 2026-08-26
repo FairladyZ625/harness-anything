@@ -36,11 +36,17 @@ test("session group facet is contracted and validates bounded daemon-side filter
       params: { repo: { repoId: "runtime-groups" }, payload },
     });
   assert.deepEqual(call({}), []);
-  assert.deepEqual(call({ groupBy: "squad", since: "2026-08-25T00:00:00.000Z", query: "terra", limit: 20 }), []);
+  assert.deepEqual(
+    call({ groupBy: "squad", since: "2026-08-25T00:00:00.000Z", query: "terra", agentId: "sol", limit: 20 }),
+    [],
+  );
+  assert.deepEqual(call({ groupBy: "agent", squadId: "core-squad" }), []);
   assert.notDeepEqual(call({ groupBy: "worker" }), []);
   assert.notDeepEqual(call({ since: "yesterday" }), []);
   assert.notDeepEqual(call({ limit: 1_001 }), []);
   assert.notDeepEqual(call({ cursor: "not-in-v1" }), []);
+  assert.notDeepEqual(call({ agentId: "" }), []);
+  assert.notDeepEqual(call({ squadId: 7 }), []);
 });
 
 test("session groups default to active plus 24h and group/filter/limit before returning exact totals", () => {
@@ -86,6 +92,49 @@ test("session groups default to active plus 24h and group/filter/limit before re
     ["task-a", "task-c"],
     ["task-a", "task-b", "task-c"],
   ]);
+});
+
+test("session groups filter members by exact agent/squad attribution, not substring", () => {
+  const reads = makeAgentRuntimeReadModel({
+    projection: projectionFixture(),
+    store: {} as never,
+    stream: {} as never,
+    now: () => "2026-08-26T12:00:00.000Z",
+    readDispatches: ({ sessions: selected }) => {
+      const taskIds = new Set(selected.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)));
+      return dispatches.filter(({ taskId }) => taskIds.has(taskId));
+    },
+  });
+  // agentId=sol:只有 dispatch-a(sol)归属的 task-a/runtime-a;terra/luna/direct 会话
+  // 与任务组全部排除——即使别的实例名/文本里包含 "sol" 子串也不命中。
+  const solTasks = reads.sessionGroups({ groupBy: "task", agentId: "sol" });
+  assert.deepEqual(
+    solTasks.groups.map(({ key, sessionCount, roundCount }) => ({ key, sessionCount, roundCount })),
+    [{ key: "task-a", sessionCount: 1, roundCount: 1 }],
+  );
+  assert.deepEqual(solTasks.totals, { groups: 1, sessions: 1 });
+  // 未命中任何派工的 agent:空结果,不是子串兜底。
+  const unknownAgent = reads.sessionGroups({ groupBy: "task", agentId: "instance-sol-runner" });
+  assert.deepEqual(unknownAgent.groups, []);
+  assert.deepEqual(unknownAgent.totals, { groups: 0, sessions: 0 });
+  // squadId=core-squad:只有 dispatch-a 带 squadId;groupBy=agent 时 sol 是唯一归属。
+  const coreSquad = reads.sessionGroups({ groupBy: "agent", squadId: "core-squad" });
+  assert.deepEqual(
+    coreSquad.groups.map(({ key, sessionCount }) => ({ key, sessionCount })),
+    [{ key: "sol", sessionCount: 1 }],
+  );
+  // 组合 groupBy=squad + squadId:单组 core-squad,unattributed 桶消失。
+  const squadGroups = reads.sessionGroups({ groupBy: "squad", squadId: "core-squad" });
+  assert.deepEqual(
+    squadGroups.groups.map(({ key }) => key),
+    ["core-squad"],
+  );
+  // 无派工行的 direct 会话在任何精确过滤下都不归属(no dispatch = no attribution)。
+  const directAgent = reads.sessionGroups({ groupBy: "task", agentId: "luna" });
+  assert.deepEqual(
+    directAgent.groups.map(({ key }) => key),
+    ["task-c"],
+  );
 });
 
 test("session group results reject secret-bearing or identity-incoherent output", () => {

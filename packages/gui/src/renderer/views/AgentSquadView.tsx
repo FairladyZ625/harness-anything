@@ -46,8 +46,8 @@ export function AgentSquadView({
   readonly onSelectEntity: (ref: string) => void;
 }) {
   const refSelection = runtimeSelectionFromRef(focusedEntityRef);
-  // inspector 相关会话的检索面:深链选中谁就查谁(agent/squad id 进 daemon 侧 query,
-  // 每个任务组带该执行者的最新一轮预览)。
+  // inspector 相关会话的检索面:深链选中谁就查谁(agent/squad id 进 daemon 精确
+  // 过滤,再读取命中任务组的全部派工轮次)。
   const workspace = useAgentSquadWorkspace(
       repoId,
       refSelection !== null && (refSelection.type === "agent" || refSelection.type === "squad")

@@ -125,16 +125,19 @@ export function PresetDetailView({
               <IdentityItem label="DEFAULT PROFILE" value={row?.defaultProfile ?? "—"} />
               <IdentityItem label="ENTRYPOINTS" value={row?.entrypoints.join(", ") || "—"} wide />
               <div className="min-w-0 border-r border-b border-border/70 px-3 py-2 sm:col-span-2 lg:col-span-3">
-                <dt className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-text-faint">
-                  DIGEST
-                </dt>
-                <dd className="mt-1">
-                  {detail.data ? (
-                    <PresetShaField name="resolved.digest" value={detail.data.resolved.digest} />
-                  ) : (
-                    <span className="font-mono text-[11px] text-text-faint">—</span>
-                  )}
-                </dd>
+                {/* DIGEST 格:值是 PresetShaField 自带的 <dt>/<dd> 结构,外层不再包
+                    <dd>(<dd> 嵌套 <dt>/<dd> 是 G12 §5 的三条 console error 根因);
+                    未解析时才由本格直接给 <dt>/<dd>。 */}
+                {detail.data ? (
+                  <PresetShaField name="resolved.digest" value={detail.data.resolved.digest} />
+                ) : (
+                  <>
+                    <dt className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-text-faint">
+                      DIGEST
+                    </dt>
+                    <dd className="mt-1 font-mono text-[11px] text-text-faint">—</dd>
+                  </>
+                )}
               </div>
             </dl>
           </details>

@@ -18,7 +18,7 @@ import {
 } from "../agent-runtime-stream.ts";
 import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
-import { validateSquadRunsList } from "../squad-run-contract.ts";
+import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
 import {
   validateCatalogPreset,
   validateCatalogRereadReceipt,
@@ -76,6 +76,7 @@ const resultValidators = {
   "repo.squad.entities.list": validateSquadEntityCatalog,
   "repo.squad.entity.read": validateSquadEntityDetail,
   "repo.squad.runs.list": validateSquadRunsList,
+  "repo.squad.run.read": validateSquadRunRead,
   "repo.gui.catalog.snapshot": validateCatalogSnapshot,
   "repo.gui.catalog.preset.read": validateCatalogPreset,
   "repo.terminal.sessions.list": validateTerminalSessionList,

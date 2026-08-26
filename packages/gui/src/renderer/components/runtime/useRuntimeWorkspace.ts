@@ -17,17 +17,14 @@ import {
 import type { RuntimeAuthProbeState } from "../../runtime-auth-presentation.ts";
 import { createGuiExecutionId } from "../../task-actions.ts";
 import { squadRunsClient } from "../../squad-run-client.ts";
-import { type SessionGroupBy } from "../../sessions-model.ts";
+import { sessionDelegation, type SessionGroupBy } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 
 export type RuntimeSelection = { readonly type: "runtime" | "agent" | "squad" | "session"; readonly id: string };
 const message = (value: unknown): string => (value instanceof Error ? value.message : String(value));
 
-/**
- * Agent 页 inspector 的相关会话行视图类型。数据源是 daemon 的 sessionGroups
- * (query=agentId/squadId,每个任务组带最新一轮预览),这里只做展示投影——
- * agent/squad 归属在 daemon 侧判定,前端不再 join 派工台账。
- */
+/** Agent 页 inspector 的相关会话行。归属由 daemon 精确筛选,任务组对应的
+ * task.dispatches 批量读再保留真实 agentId/squadId,不把选中者 id 盖到行上。 */
 export type RuntimeDockRow = {
   readonly runtimeSessionId: string;
   readonly agentId: string | null;
@@ -141,13 +138,16 @@ function useRuntimeChannel(repoId: string, refresh: () => Promise<unknown>) {
 
 // 会话入口:daemon 聚合读面(sessionGroups + squad.runs.list),一次往返一组数据。
 // 组展开(单任务轮次 / 孤儿会话 / squad run 详情)由视图按展开键补读;唯一的写是 cancel。
+// 两段读窗独立(G12 §2a):sessions 段用 since,squads 段用 squadSince。
 const SESSION_GROUPS_PAGE_LIMIT = 1000;
 const SQUAD_RUNS_LIMIT = 1000;
+const RELATED_TASK_BATCH_LIMIT = 500;
 export function useSessionsWorkspace(
   repoId: string,
   list: {
     readonly groupBy: SessionGroupBy;
     readonly since: string;
+    readonly squadSince: string;
     readonly query: string;
     readonly taskId?: string;
   },
@@ -165,10 +165,10 @@ export function useSessionsWorkspace(
     staleTime: 4_000,
   });
   const squadRuns = useQuery({
-    queryKey: ["squad-runs", repoId, list.since, list.query],
+    queryKey: ["squad-runs", repoId, list.squadSince, list.query],
     queryFn: () =>
       squadRunsClient.list(repoId, {
-        since: list.since,
+        since: list.squadSince,
         ...(list.query === "" ? {} : { query: list.query }),
         limit: SQUAD_RUNS_LIMIT,
       }),
@@ -178,6 +178,7 @@ export function useSessionsWorkspace(
     await Promise.all([
       client.invalidateQueries({ queryKey: ["session-groups", repoId] }),
       client.invalidateQueries({ queryKey: ["squad-runs", repoId] }),
+      client.invalidateQueries({ queryKey: ["squad-run-detail", repoId] }),
       client.invalidateQueries({ queryKey: ["sessions-page", repoId] }),
     ]);
   });
@@ -194,8 +195,8 @@ export function useSessionsWorkspace(
 }
 
 /** Agent 入口(含 Squad 面):身份层读写 + 派工。兼容 Runtime 实例列表来自 machine
- * 目录;dispatch 的实例校验来自 overview;inspector 的相关会话来自 sessionGroups 的
- * agent/squad 检索(每个任务组带最新一轮预览),不再前端 join 派工台账。 */
+ * 目录;dispatch 的实例校验来自 overview;inspector 先由 sessionGroups 精确筛出
+ * agent/squad 的任务组,再批量读取这些组的全部派工轮次。 */
 export function useAgentSquadWorkspace(
   repoId: string,
   related: { readonly kind: "agent" | "squad"; readonly id: string } | null,
@@ -227,38 +228,63 @@ export function useAgentSquadWorkspace(
       agentRuntimeClient.sessionGroups(repoId, {
         groupBy: "task",
         since: "1970-01-01T00:00:00.000Z",
-        query: related!.id,
+        ...(related?.kind === "agent" ? { agentId: related.id } : {}),
+        ...(related?.kind === "squad" ? { squadId: related.id } : {}),
+        limit: SESSION_GROUPS_PAGE_LIMIT,
       }),
     enabled: related !== null,
     staleTime: 4_000,
   });
-  const dockRows: readonly RuntimeDockRow[] = (relatedGroups.data?.groups ?? []).flatMap((group) =>
-    group.latestRound === null
-      ? []
-      : [
-          {
-            runtimeSessionId: group.latestRound.runtimeSessionId,
-            agentId: related?.kind === "agent" ? related.id : null,
-            agentName: group.latestRound.agentName,
-            squadId: related?.kind === "squad" ? related.id : null,
-            squadName: null,
-            instanceId: group.latestRound.instanceId,
-            taskId: group.taskId ?? null,
-            taskTitle: group.kind === "task" ? group.label : null,
-            startedAt: group.latestRound.startedAt,
-            status: group.latestRound.status,
-            liveness: null,
-            dispatchId: group.latestRound.dispatchId,
-            delegation: null,
-          },
-        ],
-  );
+  // 该执行者的全部轮次行(G12 §4a):精确过滤后的任务组分批读 task.dispatches,
+  // 行内 agentId/squadId 用台账真实值(不再盖戳);没有派工行的会话无执行者归属,
+  // 天然不在其列。sessionGroups 最多 1000 组,每批遵守 task.dispatches 的 500 上限。
+  const relatedTaskIds = [...new Set((relatedGroups.data?.groups ?? []).map((group) => group.taskId ?? ""))].filter(
+      (taskId): taskId is string => taskId !== "",
+    ),
+    relatedLabels = new Map(
+      (relatedGroups.data?.groups ?? []).flatMap((group) =>
+        group.taskId ? [[group.taskId, group.label] as const] : [],
+      ),
+    ),
+    relatedTaskBatches = Array.from(
+      { length: Math.ceil(relatedTaskIds.length / RELATED_TASK_BATCH_LIMIT) },
+      (_, index) => relatedTaskIds.slice(index * RELATED_TASK_BATCH_LIMIT, (index + 1) * RELATED_TASK_BATCH_LIMIT),
+    ),
+    relatedDispatches = useQueries({
+      queries: relatedTaskBatches.map((taskIds) => ({
+        queryKey: ["related-dispatches", repoId, related?.kind ?? "", related?.id ?? "", taskIds],
+        queryFn: () => harnessClient.getTaskDispatches({ repoId, taskIds, limit: RELATED_TASK_BATCH_LIMIT }),
+        staleTime: 4_000,
+      })),
+    });
+  const matchesRelated = (row: { readonly agentId?: string; readonly squadId?: string }): boolean =>
+    related === null ? false : related.kind === "agent" ? row.agentId === related.id : row.squadId === related.id;
+  const dockRows: readonly RuntimeDockRow[] = relatedDispatches
+    .flatMap((query) => query.data?.dispatches ?? [])
+    .filter(matchesRelated)
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+    .map((row) => ({
+      runtimeSessionId: row.runtimeSessionId,
+      agentId: row.agentId ?? null,
+      agentName: row.agentName ?? row.agentId ?? null,
+      squadId: row.squadId ?? null,
+      squadName: null,
+      instanceId: row.instanceId,
+      taskId: row.taskId,
+      taskTitle: relatedLabels.get(row.taskId) ?? null,
+      startedAt: row.startedAt,
+      status: row.status,
+      liveness: null,
+      dispatchId: row.dispatchId,
+      delegation: sessionDelegation(row),
+    }));
   const channel = useRuntimeChannel(repoId, async () => {
     await Promise.all([
       client.invalidateQueries({
         queryKey: ["runtime-control", repoId],
       }),
       client.invalidateQueries({ queryKey: ["session-groups", repoId] }),
+      client.invalidateQueries({ queryKey: ["related-dispatches", repoId] }),
     ]);
   });
   return {
