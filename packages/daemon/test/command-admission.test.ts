@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
+import { observeTailReadMethod } from "../src/protocol/daemon-protocol-gui-reads.ts";
 import { daemonRepoModeWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
 import { admitRepoMode } from "../src/repo-mode.ts";
 
@@ -35,4 +36,20 @@ test("all 117 daemon commands close every repo-mode admission cell", () => {
     }
   }
   assert.equal(cells, 117 * 3);
+});
+
+test("observe.tail declares direct admission and named source residency for every tail kind", () => {
+  const command = observeTailReadMethod;
+  assert.deepEqual(command.admission, {
+    local: "direct",
+    "remote-center": "direct",
+    "remote-edge": "direct",
+  });
+  assert.deepEqual(command.residency, {
+    events: "projection",
+    "repo-log": "runtime-local",
+    "daemon-log": "runtime-local",
+  });
+  for (const mode of daemonRepoModeWords)
+    assert.equal(admitRepoMode(mode, command, localSource).ok, true, `observe.tail ${mode} direct fixture`);
 });
