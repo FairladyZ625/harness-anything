@@ -54,3 +54,35 @@ test("GUI catalog preset read carries resolver document bodies (route A: single 
   badResolved.documents[0]!.body = 42;
   assert.ok(validateCatalogPreset(withBadBody).some((error) => error.includes("catalog preset document")));
 });
+
+test("GUI catalog preset read carries only detail-page consumed fields (review#4 §10.1 narrowing)", async () => {
+  const catalog = openGuiCatalog({ repoId: "catalog-test", rootDir: process.cwd() });
+  const snapshot = await catalog.snapshot();
+  const detail = (await catalog.preset({ presetId: snapshot.presets[0]!.id })) as {
+    readonly preset: Record<string, unknown>;
+    readonly resolved: {
+      readonly documents: ReadonlyArray<Record<string, unknown>>;
+    } & Record<string, unknown>;
+  };
+  // 读面收窄:详情页无消费者的字段不出现在 daemon response(GUI 消费者集合见
+  // PresetDetailView.tsx / components/presetDetail/)。
+  assert.equal("title" in detail.preset, false);
+  assert.equal("profiles" in detail.preset, false);
+  assert.equal("identity" in detail.resolved, false);
+  for (const document of detail.resolved.documents) assert.equal("requiredAnchors" in document, false);
+  // 闭形状 fail-closed:把删掉的字段塞回去必须被拒(每个字段一行否定对照)。
+  const readded = JSON.parse(JSON.stringify(detail)) as {
+    preset: Record<string, unknown>;
+    resolved: { documents: ReadonlyArray<Record<string, unknown>> } & Record<string, unknown>;
+  };
+  readded.preset.title = "narrowed";
+  readded.preset.profiles = [];
+  readded.resolved.identity = {};
+  readded.resolved.documents[0]!.requiredAnchors = [];
+  const errors = validateCatalogPreset(readded);
+  for (const field of ["manifest.title", "manifest.profiles", "resolved.identity", "document.requiredAnchors"])
+    assert.ok(
+      errors.some((error) => error.includes(field)),
+      `${field} must be rejected by the closed shape: ${JSON.stringify(errors)}`,
+    );
+});
