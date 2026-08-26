@@ -12,7 +12,7 @@ import { PinnedStream } from "../src/renderer/components/overview/PinnedStream.t
 import { RuntimeHealthCard } from "../src/renderer/components/overview/RuntimeHealthCard.tsx";
 import { DecisionPreviewDrawer } from "../src/renderer/components/DecisionPreviewDrawer.tsx";
 import { streamTime } from "../src/renderer/components/overview/streamParts.tsx";
-import { localDateTime, localTime } from "../src/renderer/model/local-time.ts";
+import { formatTime } from "../src/renderer/model/time.ts";
 import type { WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
 import { DEFAULT_TASK_FILTERS, matchesTask } from "../src/renderer/model/taskFilters.ts";
 import { summarizeWorkspace } from "../../kernel/src/index.ts";
@@ -385,14 +385,18 @@ describe("overview task stream", () => {
     expect(markup).toContain("xl:max-h-none");
   });
 
-  it("converts UTC stream timestamps with the process local timezone", () => {
+  it("converts UTC stream timestamps with an explicit display timezone", () => {
     const previous = process.env.TZ;
     try {
       process.env.TZ = "Asia/Taipei";
       expect(streamTime("2026-08-21T16:04:35.025Z")).toBe("08-22 00:04");
-      expect(localDateTime("2026-08-21T16:04:35.025Z")).toBe("2026-08-22 00:04");
-      expect(localDateTime("2026-08-21T16:04:35.025Z", true)).toBe("2026-08-22 00:04:35");
-      expect(localTime("2026-08-21T16:04:35.025Z", true)).toBe("00:04:35");
+      expect(formatTime("2026-08-21T16:04:35.025Z", { tz: "Asia/Taipei", style: "date-time" })).toBe(
+        "2026-08-22 00:04",
+      );
+      expect(formatTime("2026-08-21T16:04:35.025Z", { tz: "Asia/Taipei", style: "date-time-seconds" })).toBe(
+        "2026-08-22 00:04:35",
+      );
+      expect(formatTime("2026-08-21T16:04:35.025Z", { tz: "Asia/Taipei", style: "time-seconds" })).toBe("00:04:35");
     } finally {
       if (previous === undefined) delete process.env.TZ;
       else process.env.TZ = previous;

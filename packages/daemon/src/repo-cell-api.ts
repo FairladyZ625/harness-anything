@@ -1,6 +1,7 @@
 import {
   assertCurrentWriter,
   projectDecisionReadiness,
+  timestamp,
   type TaskProjectionListQuery,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -371,7 +372,7 @@ export function createRepoCellApi(context: any): RepoCell {
     if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
       throw context.cellCodedError("invalid_command", "Query limit must be an integer between 1 and 500.");
     if (
-      [updatedAfter, updatedBefore].some((value) => value !== undefined && !Number.isFinite(Date.parse(value))) ||
+      [updatedAfter, updatedBefore].some((value) => value !== undefined && !timestamp(value)) ||
       (updatedAfter && updatedBefore && updatedAfter > updatedBefore)
     )
       throw context.cellCodedError("invalid_command", "Query time window must use ordered ISO-8601 timestamps.");

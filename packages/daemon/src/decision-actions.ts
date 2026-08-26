@@ -5,6 +5,7 @@ import {
   decisionWritePlan,
   deriveRelationId,
   sessionProvenance,
+  timestamp,
   type ActorIdentity,
   type AuthorizationDecision,
   type CanonicalEventCut,
@@ -169,8 +170,8 @@ export function makeDecisionActions(input: {
       existing = dryRun ? null : input.store.readEvent(opId),
       requestedTime = typeof normalized.decidedAt === "string" ? normalized.decidedAt : undefined,
       occurredAt = existing?.occurredAt ?? requestedTime ?? input.now();
-    if (!Number.isFinite(Date.parse(occurredAt)))
-      throw factActionError("invalid_command", "decidedAt must be an ISO-8601 timestamp.");
+    if (!timestamp(occurredAt))
+      throw factActionError("invalid_command", "decidedAt must be an ISO-8601 UTC timestamp ending in Z.");
     const bundle =
       existing?.schema === "decision-event/v1"
         ? replayDecisionBundle(input, existing)

@@ -2,6 +2,7 @@ import { stablePayloadHash, stableStringify } from "../integrity/stable-hash.ts"
 import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
 import { validateWriteReceipt, type WriteReceipt } from "./receipt-domain-registry.ts";
+import { timestamp } from "./timestamp.ts";
 export { validateActorIdentity } from "./actor-identity.ts";
 export type { ActorIdentity } from "./actor-identity.ts";
 export { isNonEmptyString } from "./contract-validation.ts";
@@ -314,7 +315,7 @@ export function validateEventEnvelopeIdentity(value: unknown, allowUnknownFields
     isNonEmptyString(value.eventId) &&
     isNonEmptyString(value.opId) &&
     isNonEmptyString(value.type) &&
-    isNonEmptyString(value.occurredAt) &&
+    timestamp(value.occurredAt) &&
     Number.isInteger(value.workspaceRevision) &&
     (value.workspaceRevision as number) >= 1 &&
     validateActorIdentity(value.actor, allowUnknownFields).length === 0 &&

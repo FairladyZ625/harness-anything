@@ -7,6 +7,7 @@ import {
   type ContractVersion,
   type LedgerCutIdentity,
 } from "../../../kernel/src/index.ts";
+import { isUtcTimestamp } from "../protocol/json-rpc-types.ts";
 
 export const currentFleetProtocolVersion = CONTRACT_VERSION_1_0;
 
@@ -369,7 +370,7 @@ const taskLease = shape({
   taskId: id,
   executionId: nullable(id),
   assignmentId: id,
-  expiresAt: (value) => typeof value === "string" && !Number.isNaN(Date.parse(value)),
+  expiresAt: isUtcTimestamp,
 });
 // Liveness is deliberately absent: the edge daemon derives exit/outcome from
 // its local process, and no parallel heartbeat or client-reported liveness is
@@ -409,7 +410,7 @@ const schemas: Readonly<Record<string, Check>> = {
     executionId: id,
     paths: array(logicalPath),
     baseLedgerSha: ledgerCut,
-    expiresAt: (value) => typeof value === "string" && !Number.isNaN(Date.parse(value)),
+    expiresAt: isUtcTimestamp,
     writerEpoch: uint,
   }),
   "fleet.receipt.get/v1": shape({ ...common, assignmentId: id, opId: id }),

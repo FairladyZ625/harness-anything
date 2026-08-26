@@ -1,4 +1,5 @@
 import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { isUtcTimestamp } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
 export const HARNESS_PRELOAD_API = "harness";
 export type PreloadApiMethod =
@@ -301,9 +302,7 @@ function validQueryPayload(method: string, value: Record<string, unknown>): bool
           changedAfterRevision === undefined ||
           (Number.isSafeInteger(changedAfterRevision) && Number(changedAfterRevision) >= 0)) &&
         (value.status === undefined || (typeof value.status === "string" && states.includes(value.status))) &&
-        [after, before].every(
-          (item) => item === undefined || (typeof item === "string" && Number.isFinite(Date.parse(item))),
-        ) &&
+        [after, before].every((item) => item === undefined || isUtcTimestamp(item)) &&
         !(typeof after === "string" && typeof before === "string" && after > before);
 }
 function validTaskDispatchesPayload(value: Record<string, unknown>): boolean {

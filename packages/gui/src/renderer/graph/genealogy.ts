@@ -1,4 +1,5 @@
 import type { DecisionRow, RelationEdge, RelationKind } from "../model/types";
+import { formatTime } from "../model/time.ts";
 
 /**
  * 决策谱系「演化史」纯逻辑层(REQ-GUI-05)。
@@ -83,7 +84,7 @@ export function timeMsOf(decision: DecisionRow): number | null {
 export function dayKeyOf(decision: DecisionRow): string {
   const raw = decision.decidedAt ?? decision.proposedAt;
   if (!raw) return "NO_TIME";
-  return raw.slice(0, 10);
+  return formatTime(raw, { style: "date" }) ?? "NO_TIME";
 }
 
 /**

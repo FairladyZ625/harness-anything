@@ -8,6 +8,7 @@ import {
   type EventEnvelope,
 } from "./write-chain.contract.ts";
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import { timestamp } from "./timestamp.ts";
 
 export const runtimeProtocolFamilies = ["claude-compatible", "codex", "agy"] as const;
 export const runtimeCapabilities = ["structured_witness", "resume", "attach", "session_identity"] as const;
@@ -536,7 +537,7 @@ export function validateSessionProvenance(value: unknown): value is SessionProve
       sessionId: value.sessionId,
       transcriptReachability: value.transcriptReachability,
     }) &&
-    isNonEmptyString(value.boundAt)
+    timestamp(value.boundAt)
   );
 }
 function validCapabilities(value: unknown): boolean {

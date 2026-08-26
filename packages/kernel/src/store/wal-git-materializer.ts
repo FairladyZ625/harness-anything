@@ -1,4 +1,4 @@
-import { serializeCanonicalEvent } from "../domain/doc-sync.contract.ts";
+import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
 import { serializeEventHead } from "../domain/write-chain.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
@@ -219,5 +219,5 @@ function cleanFlushRefs(repoRoot: string): void {
 }
 
 function canonicalBytes(event: WalEventRecord["event"]): string {
-  return serializeCanonicalEvent(event);
+  return serializePersistedCanonicalEvent(event);
 }

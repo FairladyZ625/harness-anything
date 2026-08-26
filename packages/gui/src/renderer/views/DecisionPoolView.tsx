@@ -14,7 +14,7 @@ import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../components/b
 import { triadicQueryKeys } from "../triadic-data.ts";
 import { groupDecisions, type PoolGroupBy } from "../model/decision-pool-grouping.ts";
 import { t } from "../i18n/index.tsx";
-import { localMonthDayTime } from "../model/local-time.ts";
+import { formatTime } from "../model/time.ts";
 
 type PoolTab = WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
 type TimeRange = "all" | "14d" | "30d";
@@ -115,7 +115,9 @@ function ChainView({
       )}
       {amended && (
         <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted">
-          {t("views.decisionPoolView.amendedAtValue", { value: localMonthDayTime(decision.lastChangedAt!) ?? "—" })}
+          {t("views.decisionPoolView.amendedAtValue", {
+            value: formatTime(decision.lastChangedAt!, { style: "month-day-time" }) ?? "—",
+          })}
         </span>
       )}
     </div>

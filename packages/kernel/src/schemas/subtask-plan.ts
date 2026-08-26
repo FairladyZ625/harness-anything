@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { UtcTimestampSchema } from "./utc-timestamp.ts";
 
 const SubtaskPlanChildSchema = Schema.Struct({
   role: Schema.String,
@@ -9,27 +10,27 @@ const SubtaskPlanChildSchema = Schema.Struct({
   brief: Schema.Struct({
     objective: Schema.String,
     scope: Schema.String,
-    acceptance: Schema.Array(Schema.String).pipe(Schema.minItems(1))
+    acceptance: Schema.Array(Schema.String).pipe(Schema.minItems(1)),
   }),
-  createCommand: Schema.String
+  createCommand: Schema.String,
 });
 
 const SubtaskPlanDependencySchema = Schema.Struct({
   sourceRole: Schema.String,
   type: Schema.Literal("depends-on"),
   targetRole: Schema.String,
-  rationale: Schema.String
+  rationale: Schema.String,
 });
 
 export const SubtaskPlanSchema = Schema.Struct({
   schema: Schema.Literal("subtask-plan/v1"),
   parentTaskId: Schema.String,
-  generatedAt: Schema.String,
+  generatedAt: UtcTimestampSchema,
   children: Schema.Array(SubtaskPlanChildSchema).pipe(Schema.minItems(1)),
   dependencies: Schema.Array(SubtaskPlanDependencySchema),
   applyContract: Schema.Struct({
     order: Schema.Tuple(Schema.Literal("create-all-children"), Schema.Literal("then-relate-by-role-map")),
     idempotencyKey: Schema.Literal("title-role-prefix-under-parent"),
-    relateCommandTemplate: Schema.String
-  })
+    relateCommandTemplate: Schema.String,
+  }),
 });

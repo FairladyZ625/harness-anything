@@ -4,6 +4,7 @@ import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { t, useI18n } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
 import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
+import { readTimeZoneOverride, supportedTimeZones, systemTimeZone, writeTimeZoneOverride } from "../model/time.ts";
 
 const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: "dark", label: "暗色" },
@@ -41,6 +42,7 @@ export function SettingsView() {
   const { locale, setLocale } = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
   const [notifyOnReady, setNotifyOnReady] = useState(true);
+  const [timeZoneOverride, setTimeZoneOverride] = useState(() => readTimeZoneOverride() ?? "");
 
   const renderActivePanel = () => {
     switch (activeTab) {
@@ -52,6 +54,25 @@ export function SettingsView() {
             </Row>
             <Row label="界面缩放" desc="按比例调整正文、标题、泳道和控件密度">
               <Segmented value={uiScale} options={SCALE_OPTIONS} onChange={setUiScale} />
+            </Row>
+            <Row label="时区" desc={`默认跟随系统（${systemTimeZone()}），仅影响本机展示`}>
+              <select
+                aria-label="时区"
+                className="rounded border border-border bg-surface-raised px-2 py-1 font-mono text-[12px] text-text"
+                value={timeZoneOverride}
+                onChange={(event) => {
+                  const next = event.currentTarget.value;
+                  writeTimeZoneOverride(next || null);
+                  setTimeZoneOverride(next);
+                }}
+              >
+                <option value="">跟随系统</option>
+                {supportedTimeZones().map((timeZone) => (
+                  <option key={timeZone} value={timeZone}>
+                    {timeZone}
+                  </option>
+                ))}
+              </select>
             </Row>
             <Row label="状态色" desc="随主题切换实时变色">
               <div className="flex flex-wrap items-center justify-end gap-3">

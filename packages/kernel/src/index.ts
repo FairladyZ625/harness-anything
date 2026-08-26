@@ -121,7 +121,11 @@ export {
   resolveDocRoute,
 } from "./domain/doc-sync.contract.ts";
 export { classifyTextualArtifactPath, type OpaqueTextualMediaType } from "./domain/artifact-text-classification.ts";
-export { parseCanonicalEvent, serializeCanonicalEvent } from "./domain/doc-sync.contract.ts";
+export {
+  parseCanonicalEvent,
+  serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
+} from "./domain/doc-sync.contract.ts";
 export type {
   CanonicalEventV1,
   DocClaimRef,

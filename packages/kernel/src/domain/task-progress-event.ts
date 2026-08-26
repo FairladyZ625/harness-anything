@@ -1,5 +1,6 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
+import { timestamp } from "./timestamp.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import {
   freezeDeclaredWritePlan,
@@ -118,7 +119,7 @@ export function compileTaskProgress(input: {
     !validText(input.text) ||
     !Array.isArray(input.evidence) ||
     !input.evidence.every((entry) => validEvidence(entry)) ||
-    !validTimestamp(input.occurredAt)
+    !timestamp(input.occurredAt)
   )
     throw new TaskProgressError("invalid_progress", "progress text, timestamp, or evidence is invalid");
   const progressPath = `${input.packagePath}/progress.md`;
@@ -275,7 +276,7 @@ function validateTaskProgressEventFields(value: unknown, allowUnknownFields: boo
     ]) ||
     value.schema !== "task-progress-event/v1" ||
     value.type !== "task_progress_appended" ||
-    !validTimestamp(value.occurredAt) ||
+    !timestamp(value.occurredAt) ||
     !isRecord(value.payload)
   )
     return ["task progress event envelope or payload is invalid"];
@@ -372,9 +373,6 @@ function validText(value: unknown): value is string {
   } catch {
     return false;
   }
-}
-function validTimestamp(value: unknown): value is string {
-  return typeof value === "string" && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 }
 function isProgressClaimHash(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);

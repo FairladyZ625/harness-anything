@@ -12,6 +12,7 @@ import type {
   TaskMutationEvent,
 } from "./task-lifecycle-event.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
+import { timestamp } from "./timestamp.ts";
 import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
 import type {
@@ -138,7 +139,7 @@ export const start: Transition = {
       !reservation ||
       reservation.taskId !== command.taskId ||
       reservation.executionId !== command.executionId ||
-      !isNonEmptyString(reservation.expiresAt) ||
+      !timestamp(reservation.expiresAt) ||
       !Number.isInteger(reservation.ttlMs) ||
       reservation.ttlMs < 1 ||
       !Number.isInteger(reservation.version) ||

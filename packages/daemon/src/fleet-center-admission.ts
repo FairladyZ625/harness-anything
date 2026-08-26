@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { timestamp } from "../../kernel/src/index.ts";
 import type { DaemonHost } from "./daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "./fleet/center.ts";
 import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/edge.ts";
@@ -20,7 +21,7 @@ const id = /^[A-Za-z0-9_-]{1,96}$/u,
   row = (value: unknown): Record<string, unknown> | null =>
     value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null,
   shapeText =
-    '{ "schema": "fleet-roster/v1", "nodes": [{ "nodeId": string, "credential": string }], "assignments": [{ "assignmentId": string, "nodeId": string, "repoId": string, "taskId": string, "executionId": string, "viewId": string, "personId": string, "executorId"?: string, "expiresAt": ISO-8601 timestamp, "paths": non-empty string array }] }';
+    '{ "schema": "fleet-roster/v1", "nodes": [{ "nodeId": string, "credential": string }], "assignments": [{ "assignmentId": string, "nodeId": string, "repoId": string, "taskId": string, "executionId": string, "viewId": string, "personId": string, "executorId"?: string, "expiresAt": ISO-8601-Z, "paths": non-empty string array }] }';
 export function readFleetRosterFile(file: string): FleetRoster {
   try {
     return parseFleetRoster(JSON.parse(readFileSync(file, "utf8")));
@@ -62,8 +63,7 @@ export function parseFleetRoster(input: unknown): FleetRoster {
       entry.paths.length > 0 &&
       entry.paths.length <= 128 &&
       entry.paths.every((item) => typeof item === "string" && item.length > 0) &&
-      typeof entry.expiresAt === "string" &&
-      !Number.isNaN(Date.parse(entry.expiresAt))
+      timestamp(entry.expiresAt)
       ? {
           assignmentId: entry.assignmentId as string,
           nodeId: entry.nodeId as string,

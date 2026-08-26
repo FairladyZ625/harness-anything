@@ -1,7 +1,7 @@
 import path from "node:path";
 import {
   parseCanonicalEvent,
-  serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
   type CanonicalEventV1,
   type LedgerCommitSha,
 } from "../domain/doc-sync.contract.ts";
@@ -34,7 +34,7 @@ export function canonicalEventCut(repoId: string, event: CanonicalEventV1): Cano
   const head: EventHead = {
     revision: event.workspaceRevision,
     opId: event.opId,
-    eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}`,
+    eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
   };
   return {
     repoId,
@@ -116,11 +116,14 @@ export function readBatch(
   };
 }
 
-const revisionEntryCache = new WeakMap<LedgerGitLayout, {
-  readonly commit: string;
-  readonly entries: readonly EventEntry[];
-  readonly events: readonly CanonicalEventV1[];
-}>();
+const revisionEntryCache = new WeakMap<
+  LedgerGitLayout,
+  {
+    readonly commit: string;
+    readonly entries: readonly EventEntry[];
+    readonly events: readonly CanonicalEventV1[];
+  }
+>();
 function revisionOrderedEventBatch(
   ledger: LedgerGitLayout,
   commit: string,
@@ -129,9 +132,9 @@ function revisionOrderedEventBatch(
   if (cached?.commit === commit) return cached;
   const entries = cachedBatchEventEntries(ledger, commit),
     events = readEventsAt(ledger, commit, entries),
-    ordered = events.map((event, index) => ({ event, entry: entries[index]! })).sort(
-      (left, right) => left.event.workspaceRevision - right.event.workspaceRevision,
-    ),
+    ordered = events
+      .map((event, index) => ({ event, entry: entries[index]! }))
+      .sort((left, right) => left.event.workspaceRevision - right.event.workspaceRevision),
     result = { commit, entries: ordered.map(({ entry }) => entry), events: ordered.map(({ event }) => event) };
   revisionEntryCache.set(ledger, result);
   return result;

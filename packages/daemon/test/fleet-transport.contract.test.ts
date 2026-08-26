@@ -243,6 +243,8 @@ test("Fleet transport union round-trips every closed wire variant", () => {
 
 test("Fleet codec rejects unknown provenance, nested fields, malformed values, and limits", () => {
   const taskCommand = frames.find((frame) => frame.schema === "fleet.task.command/v1")!,
+    assignment = frames.find((frame) => frame.schema === "fleet.assignment.result/v1")!,
+    taskResult = frames.find((frame) => frame.schema === "fleet.task.result/v1")!,
     snapshotPage = frames.find((frame) => frame.schema === "fleet.snapshot.page/v1")!,
     snapshotChunk = frames.find((frame) => frame.schema === "fleet.snapshot.chunk/v1")!,
     snapshotCurrent = frames.find((frame) => frame.schema === "fleet.replica.current/v1")!;
@@ -281,6 +283,8 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
       },
     },
     { ...taskCommand, action: { kind: "task-submit", taskId: "task_abc", submission: "not-an-object" } },
+    { ...assignment, expiresAt: "2099-01-01T08:00:00+08:00" },
+    { ...taskResult, lease: { ...taskResult.lease, expiresAt: "2099-01-01T08:00:00+08:00" } },
     ...spoofFields.map((field) => ({
       ...taskCommand,
       action: {

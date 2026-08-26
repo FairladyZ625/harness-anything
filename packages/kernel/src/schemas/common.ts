@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { UtcTimestampSchema } from "./utc-timestamp.ts";
 
 export const ActorKindSchema = Schema.Literal("agent", "human", "system");
 export const LinkKindSchema = Schema.Literal("artifact", "commit", "review");
@@ -7,11 +8,11 @@ export const CurrentSessionRuntimeSchema = Schema.Literal("human", "claude-code"
 
 export const ActorRefSchema = Schema.Struct({
   kind: ActorKindSchema,
-  id: Schema.String
+  id: Schema.String,
 });
 
 export const ProvenanceEntrySchema = Schema.Struct({
   runtime: CurrentSessionRuntimeSchema,
   sessionId: NonBlankStringSchema,
-  boundAt: NonBlankStringSchema
+  boundAt: UtcTimestampSchema,
 });
