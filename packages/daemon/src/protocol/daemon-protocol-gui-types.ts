@@ -7,6 +7,7 @@ import type {
   ProjectionWarning,
   RelationCoverageRow,
   TaskProjection,
+  SettingsV1,
 } from "../../../kernel/src/index.ts";
 import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts";
 import type {
@@ -272,6 +273,11 @@ export type DaemonGuiReadResultMap = {
   readonly "daemon.gui.control.receipt": JsonObject;
   readonly "observe.tail": ObserveTailResult;
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
+  readonly "repo.settings.read": {
+    readonly schema: "daemon.settings-read/v1";
+    readonly ok: true;
+    readonly settings: SettingsV1;
+  };
   readonly "repo.workspace.summary.read": DaemonWorkspaceSummaryResult;
   readonly "repo.agenda.read": DaemonAgendaResult;
   readonly "repo.triadic.relationGraph": { readonly ok: true } & Omit<
@@ -329,6 +335,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "daemon.gui.control.receipt": { readonly operationId: string };
   readonly "observe.tail": ObserveTailPayload;
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
+  readonly "repo.settings.read": Readonly<Record<string, never>>;
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;
   readonly "repo.agenda.read": DaemonAgendaPayload;
   readonly "repo.triadic.relationGraph": DaemonRelationQueryPayload;

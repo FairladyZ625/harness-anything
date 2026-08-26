@@ -192,6 +192,11 @@ export function createRepoCellApi(context: any): RepoCell {
         : reject("unsupported_command", "Use repo.preset.run.start or repo.preset.run.status.");
   };
   const readHandlers = {
+    "repo.settings.read": () => ({
+      schema: "daemon.settings-read/v1" as const,
+      ok: true as const,
+      settings: context.settingsActions.read(),
+    }),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead.guiTasks(taskListQueryFromPayload(payload)),
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>) =>

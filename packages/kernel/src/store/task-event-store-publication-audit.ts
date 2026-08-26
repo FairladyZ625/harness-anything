@@ -7,6 +7,8 @@ import {
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
 import { isLedgerLayoutMigrationEvent } from "../domain/ledger-layout-migration-event.ts";
+import { isSettingsEvent } from "../domain/settings-event.ts";
+import { writeSettingsFacet } from "../domain/settings.ts";
 import { serializeEventHead, type EventHead } from "../domain/write-chain.contract.ts";
 import { ledgerGitPath, type LedgerGitLayout } from "./ledger-git-layout.ts";
 import {
@@ -157,7 +159,25 @@ export function assertAuthorizedReplacement(
   parent: string,
   event: CanonicalEventV1,
   acceptPublished = false,
+  candidateBody?: string,
 ): void {
+  if (isSettingsEvent(event)) {
+    const target = ledgerGitPath(ledger, event.payload.harnessDocumentClaim.path),
+      committed = showText(ledger.rootDir, parent, target);
+    if (committed === null || createHash("sha256").update(committed).digest("hex") !== event.payload.baseDocumentSha256)
+      throw new TaskEventStoreError("revision_conflict", "harness.yaml changed before the Settings write committed");
+    if (candidateBody === undefined)
+      throw new TaskEventStoreError(
+        "invalid_write_plan",
+        "Settings replacement authorization requires candidate bytes",
+      );
+    if (candidateBody !== writeSettingsFacet(committed, event.payload.settings))
+      throw new TaskEventStoreError(
+        "invalid_write_plan",
+        "Settings may change only their owned harness.yaml facet fields",
+      );
+    return;
+  }
   if (isDocEvent(event)) {
     for (const retirement of canonicalDocumentRetirements(event)) {
       const committed = committedNode(ledger.rootDir, parent, ledgerGitPath(ledger, retirement.path));

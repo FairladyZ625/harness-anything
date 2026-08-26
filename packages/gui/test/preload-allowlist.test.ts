@@ -1,13 +1,42 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { daemonGuiActionMethods, daemonGuiInvokeFacets, daemonGuiStreamFacets } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { HARNESS_PRELOAD_API, assertPreloadPayload, getPreloadApiCapability, isAllowedPreloadApiMethod,
-  preloadAllowlist, shippedPreloadMethods } from "../src/index.ts";
+import {
+  daemonGuiActionMethods,
+  daemonGuiInvokeFacets,
+  daemonGuiStreamFacets,
+  validateDaemonRpcCall,
+} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import {
+  HARNESS_PRELOAD_API,
+  assertPreloadPayload,
+  getPreloadApiCapability,
+  isAllowedPreloadApiMethod,
+  preloadAllowlist,
+  shippedPreloadMethods,
+} from "../src/index.ts";
 import { deriveEmptyRepoMethods, deriveRepoScopedMethods } from "../src/preload/allowlist.ts";
-import { buildRuntimeInstanceCreatePayload, type CreateInstanceFormState } from "../src/renderer/runtime-instance-form.ts";
+import {
+  buildRuntimeInstanceCreatePayload,
+  type CreateInstanceFormState,
+} from "../src/renderer/runtime-instance-form.ts";
 
-const runtimeCreateForm: CreateInstanceFormState = { instanceId: "claude-one", name: "Claude one", kindId: "claude", installationId: "claude-install", providerId: "anthropic", model: "claude-opus", reasoningEffort: "", baseUrl: "", authMode: "subscription", apiKey: "", wireApi: "", requiresOpenAiAuth: false, permissionMode: "bypass", isolation: "operator-environment" };
+const runtimeCreateForm: CreateInstanceFormState = {
+  instanceId: "claude-one",
+  name: "Claude one",
+  kindId: "claude",
+  installationId: "claude-install",
+  providerId: "anthropic",
+  model: "claude-opus",
+  reasoningEffort: "",
+  baseUrl: "",
+  authMode: "subscription",
+  apiKey: "",
+  wireApi: "",
+  requiresOpenAiAuth: false,
+  permissionMode: "bypass",
+  isolation: "operator-environment",
+};
 
 test("preload exposes only the approved API methods", () => {
   const approved = [...daemonGuiInvokeFacets, ...daemonGuiStreamFacets].map(({ guiBridgeMethod }) => guiBridgeMethod);
@@ -22,35 +51,131 @@ test("preload exposes only the approved API methods", () => {
   assert.throws(() => assertPreloadPayload("getTasks", {}), /repoId/u);
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "" }), /repoId/u);
   assert.equal(assertPreloadPayload("getTasks", { repoId: "repo-a" }), true);
-  assert.equal(assertPreloadPayload("getTasks", { repoId: "repo-a", status: "active", changedAfterRevision: 42, limit: 50 }), true);
-  assert.equal(assertPreloadPayload("getRelationGraph", { repoId: "repo-a", updatedAfter: "2026-08-01T00:00:00.000Z", cursor: "eAo" }), true);
+  assert.equal(assertPreloadPayload("getSettings", { repoId: "repo-a" }), true);
+  assert.equal(
+    assertPreloadPayload("updateSettings", {
+      repoId: "repo-a",
+      defaultPreset: "strict-task",
+      locale: "zh-CN",
+      idempotencyKey: "settings-1",
+    }),
+    true,
+  );
+  assert.equal(assertPreloadPayload("updateSettings", { repoId: "repo-a", idempotencyKey: "settings-1" }), true);
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.settings.update",
+      params: {
+        repo: { repoId: "repo-a" },
+        payload: { idempotencyKey: "settings-1" },
+      },
+    }),
+    ["settings update is invalid"],
+  );
+  assert.equal(
+    assertPreloadPayload("getTasks", { repoId: "repo-a", status: "active", changedAfterRevision: 42, limit: 50 }),
+    true,
+  );
+  assert.equal(
+    assertPreloadPayload("getRelationGraph", {
+      repoId: "repo-a",
+      updatedAfter: "2026-08-01T00:00:00.000Z",
+      cursor: "eAo",
+    }),
+    true,
+  );
   assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskId: "task-a" }), true);
-  assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskIds: ["task-a", "task-b"], limit: 2 }), true);
-  assert.throws(() => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskId: "task-a", taskIds: ["task-b"] }), /invalid/u);
-  assert.throws(() => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskIds: ["task-a", "task-a"] }), /invalid/u);
+  assert.equal(
+    assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskIds: ["task-a", "task-b"], limit: 2 }),
+    true,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskId: "task-a", taskIds: ["task-b"] }),
+    /invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskIds: ["task-a", "task-a"] }),
+    /invalid/u,
+  );
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", limit: 0 }), /query facets are invalid/u);
-  assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", changedAfterRevision: -1 }), /query facets are invalid/u);
-  assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", changedAfterRevision: 1.5 }), /query facets are invalid/u);
-  assert.throws(() => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", changedAfterRevision: 42 }), /not allowed/u);
-  assert.throws(() => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", updatedBefore: "not-a-date" }), /query facets are invalid/u);
-  assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", status: "edge_retired" }), /query facets are invalid/u);
-  assert.throws(() => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", status: "blocked" }), /query facets are invalid/u);
+  assert.throws(
+    () => assertPreloadPayload("getTasks", { repoId: "repo-a", changedAfterRevision: -1 }),
+    /query facets are invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getTasks", { repoId: "repo-a", changedAfterRevision: 1.5 }),
+    /query facets are invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", changedAfterRevision: 42 }),
+    /not allowed/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", updatedBefore: "not-a-date" }),
+    /query facets are invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getTasks", { repoId: "repo-a", status: "edge_retired" }),
+    /query facets are invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", status: "blocked" }),
+    /query facets are invalid/u,
+  );
   assert.equal(assertPreloadPayload("listRuntimeInstances", { all: true }), true);
   assert.equal(assertPreloadPayload("showRuntimeInstance", { instanceId: "codex-review", probe: true }), true);
   assert.throws(() => assertPreloadPayload("listRuntimeInstances", null), /invalid/u);
   assert.equal(isAllowedPreloadApiMethod("reauthRuntimeInstance"), false);
   assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-review", enabled: false }), true);
-  assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-review", permissionMode: "read-only" }), true);
-  assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", isolationState: "enforced" }), true);
-  assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-review", enabled: false, authMode: "api-key" }), /invalid/u);
+  assert.equal(
+    assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-review", permissionMode: "read-only" }),
+    true,
+  );
+  assert.equal(
+    assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", isolationState: "enforced" }),
+    true,
+  );
+  assert.throws(
+    () =>
+      assertPreloadPayload("updateRuntimeInstance", {
+        instanceId: "codex-review",
+        enabled: false,
+        authMode: "api-key",
+      }),
+    /invalid/u,
+  );
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
   assert.equal(getPreloadApiCapability("getTasks").status, "shipped");
-  assert.equal(daemonGuiActionMethods.length, 21); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"), false); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.agentRuntime.cancel"), true); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.agent.entity.write"), true); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.squad.entity.write"), true); assert.equal(preloadAllowlist.includes("daemon.agentRuntime.credentials.bind" as never), false); assert.equal(preloadAllowlist.includes("startTask"), true); assert.equal(preloadAllowlist.includes("showReceipt"), true);
+  assert.equal(daemonGuiActionMethods.length, 22);
+  assert.equal(
+    daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"),
+    false,
+  );
+  assert.equal(
+    daemonGuiActionMethods.some(({ method }) => method === "repo.agentRuntime.cancel"),
+    true,
+  );
+  assert.equal(
+    daemonGuiActionMethods.some(({ method }) => method === "repo.agent.entity.write"),
+    true,
+  );
+  assert.equal(
+    daemonGuiActionMethods.some(({ method }) => method === "repo.squad.entity.write"),
+    true,
+  );
+  assert.equal(preloadAllowlist.includes("daemon.agentRuntime.credentials.bind" as never), false);
+  assert.equal(preloadAllowlist.includes("startTask"), true);
+  assert.equal(preloadAllowlist.includes("showReceipt"), true);
+  assert.equal(preloadAllowlist.includes("getSettings"), true);
+  assert.equal(preloadAllowlist.includes("updateSettings"), true);
 });
 
 test("repo and empty scopes are derived when a GUI contract grows", () => {
-  const facets = [{ guiBridgeMethod: "futureRepoRead", requiresRepo: true, inputSchemaId: "gui.empty/v1" }, { guiBridgeMethod: "futureRepoReadWithInput", requiresRepo: true, inputSchemaId: "gui.future/v1" }];
+  const facets = [
+    { guiBridgeMethod: "futureRepoRead", requiresRepo: true, inputSchemaId: "gui.empty/v1" },
+    { guiBridgeMethod: "futureRepoReadWithInput", requiresRepo: true, inputSchemaId: "gui.future/v1" },
+  ];
   assert.equal(deriveRepoScopedMethods(facets).has("futureRepoRead"), true);
   assert.equal(deriveRepoScopedMethods(facets).has("futureRepoReadWithInput"), true);
   assert.equal(deriveEmptyRepoMethods(facets).has("futureRepoRead"), true);
@@ -70,68 +195,195 @@ test("Agent and Squad detail payload paths stay open on the real contract", () =
 });
 
 test("Agent and Squad writes stay on the daemon allowlist and reject secret-shaped declaration keys", () => {
-  const agent = { repoId: "repo-a", declaration: { schema: "agent-declaration/v1", id: "fable", name: "Fable", instructions: "Review.", runtime_type: "any" } };
-  const squad = { repoId: "repo-a", declaration: { schema: "squad-declaration/v1", id: "blue-squad", name: "Blue", leader: "fable", workers: [], roster: "# Blue\n" } };
-  assert.equal(assertPreloadPayload("saveAgent", agent), true); assert.equal(assertPreloadPayload("saveSquad", squad), true);
-  assert.throws(() => assertPreloadPayload("saveAgent", { ...agent, declaration: { ...agent.declaration, apiKey: "no" } }), /secret-like key/u);
+  const agent = {
+    repoId: "repo-a",
+    declaration: {
+      schema: "agent-declaration/v1",
+      id: "fable",
+      name: "Fable",
+      instructions: "Review.",
+      runtime_type: "any",
+    },
+  };
+  const squad = {
+    repoId: "repo-a",
+    declaration: {
+      schema: "squad-declaration/v1",
+      id: "blue-squad",
+      name: "Blue",
+      leader: "fable",
+      workers: [],
+      roster: "# Blue\n",
+    },
+  };
+  assert.equal(assertPreloadPayload("saveAgent", agent), true);
+  assert.equal(assertPreloadPayload("saveSquad", squad), true);
+  assert.throws(
+    () => assertPreloadPayload("saveAgent", { ...agent, declaration: { ...agent.declaration, apiKey: "no" } }),
+    /secret-like key/u,
+  );
 });
 
 // The only tolerated secret payload is the user-typed create-form key, and only
 // on createRuntimeInstance in api-key mode: nowhere else, never nested, never on
 // a subscription create.
 test("the create-form API key carve-out is a single method and a single field", () => {
-  const create = (overrides: Record<string, unknown>): Record<string, unknown> => ({ instanceId: "codex-sidecar", name: "Codex sidecar", kindId: "codex", installationId: "codex-install", providerId: "codex_local_access", models: ["gpt-5.6-terra"], codex: { baseUrl: "http://localhost:50818/v1", wireApi: "responses", requiresOpenAiAuth: true }, authMode: "api-key", apiKey: "sk-typed-by-user", ...overrides });
+  const create = (overrides: Record<string, unknown>): Record<string, unknown> => ({
+    instanceId: "codex-sidecar",
+    name: "Codex sidecar",
+    kindId: "codex",
+    installationId: "codex-install",
+    providerId: "codex_local_access",
+    models: ["gpt-5.6-terra"],
+    codex: { baseUrl: "http://localhost:50818/v1", wireApi: "responses", requiresOpenAiAuth: true },
+    authMode: "api-key",
+    apiKey: "sk-typed-by-user",
+    ...overrides,
+  });
   assert.equal(assertPreloadPayload("createRuntimeInstance", create()), true);
   assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ authMode: "subscription" })), /invalid/u);
   assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ apiKey: "  " })), /invalid/u);
-  assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ codex: { apiKey: "nested-forbidden" } })), /secret-like key/u);
-  assert.throws(() => assertPreloadPayload("showRuntimeInstance", { instanceId: "codex-sidecar", apiKey: "wrong-method" }), /secret-like key/u);
-  assert.throws(() => assertPreloadPayload("spawnAgentRuntime", { repoId: "repo-a", nested: { apiKey: "wrong-path" } }), /secret-like key/u);
+  assert.throws(
+    () => assertPreloadPayload("createRuntimeInstance", create({ codex: { apiKey: "nested-forbidden" } })),
+    /secret-like key/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("showRuntimeInstance", { instanceId: "codex-sidecar", apiKey: "wrong-method" }),
+    /secret-like key/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("spawnAgentRuntime", { repoId: "repo-a", nested: { apiKey: "wrong-path" } }),
+    /secret-like key/u,
+  );
 });
 
 test("preload accepts the renderer's codex create payload", () => {
-  const payload = buildRuntimeInstanceCreatePayload({ ...runtimeCreateForm, instanceId: "codex-sidecar", name: "Codex sidecar", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", permissionMode: "workspace-write", isolation: "enforced" }, "codex-install");
-  assert.deepEqual(Object.keys(payload).sort(), ["authMode", "codex", "installationId", "instanceId", "isolationState", "kindId", "models", "name", "permissionMode", "providerId"]);
+  const payload = buildRuntimeInstanceCreatePayload(
+    {
+      ...runtimeCreateForm,
+      instanceId: "codex-sidecar",
+      name: "Codex sidecar",
+      kindId: "codex",
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      permissionMode: "workspace-write",
+      isolation: "enforced",
+    },
+    "codex-install",
+  );
+  assert.deepEqual(Object.keys(payload).sort(), [
+    "authMode",
+    "codex",
+    "installationId",
+    "instanceId",
+    "isolationState",
+    "kindId",
+    "models",
+    "name",
+    "permissionMode",
+    "providerId",
+  ]);
   assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
 });
 
 test("preload accepts the renderer's detected model default", () => {
-  const payload = buildRuntimeInstanceCreatePayload({ ...runtimeCreateForm, instanceId: "codex-detected", name: "Codex detected", kindId: "codex", providerId: "openai", model: "", permissionMode: "workspace-write", isolation: "enforced" }, "codex-install", { models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-sol" });
+  const payload = buildRuntimeInstanceCreatePayload(
+    {
+      ...runtimeCreateForm,
+      instanceId: "codex-detected",
+      name: "Codex detected",
+      kindId: "codex",
+      providerId: "openai",
+      model: "",
+      permissionMode: "workspace-write",
+      isolation: "enforced",
+    },
+    "codex-install",
+    { models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-sol" },
+  );
   assert.equal(payload.defaultModel, "gpt-5.6-sol");
   assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
-  assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, defaultModel: "typed-by-hand" }), /defaultModel.*listed models/u);
+  assert.throws(
+    () => assertPreloadPayload("createRuntimeInstance", { ...payload, defaultModel: "typed-by-hand" }),
+    /defaultModel.*listed models/u,
+  );
 });
 
 test("preload accepts the renderer's claude create payload", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
-  assert.deepEqual(Object.keys(payload).sort(), ["authMode", "claude", "installationId", "instanceId", "isolationState", "kindId", "models", "name", "permissionMode", "providerId"]);
+  assert.deepEqual(Object.keys(payload).sort(), [
+    "authMode",
+    "claude",
+    "installationId",
+    "instanceId",
+    "isolationState",
+    "kindId",
+    "models",
+    "name",
+    "permissionMode",
+    "providerId",
+  ]);
   assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
 });
 
 test("preload accepts the renderer's agy create payload", () => {
-  const payload = buildRuntimeInstanceCreatePayload({ ...runtimeCreateForm, instanceId: "agy-one", name: "agy one", kindId: "agy", providerId: "google", model: "gemini-3.1-pro-low", reasoningEffort: "medium", permissionMode: undefined }, "agy-install");
-  assert.deepEqual(Object.keys(payload).sort(), ["agy", "authMode", "installationId", "instanceId", "kindId", "models", "name", "providerId"]);
+  const payload = buildRuntimeInstanceCreatePayload(
+    {
+      ...runtimeCreateForm,
+      instanceId: "agy-one",
+      name: "agy one",
+      kindId: "agy",
+      providerId: "google",
+      model: "gemini-3.1-pro-low",
+      reasoningEffort: "medium",
+      permissionMode: undefined,
+    },
+    "agy-install",
+  );
+  assert.deepEqual(Object.keys(payload).sort(), [
+    "agy",
+    "authMode",
+    "installationId",
+    "instanceId",
+    "kindId",
+    "models",
+    "name",
+    "providerId",
+  ]);
   assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
 });
 
 test("runtime create rejection names an unknown field and the allowed expectation", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
-  assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, unexpectedField: true }), /unexpectedField.*expected only/u);
+  assert.throws(
+    () => assertPreloadPayload("createRuntimeInstance", { ...payload, unexpectedField: true }),
+    /unexpectedField.*expected only/u,
+  );
 });
 
 test("runtime create rejection names invalid models and the expected shape", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
-  assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, models: [] }), /models.*non-empty array.*non-blank strings/u);
+  assert.throws(
+    () => assertPreloadPayload("createRuntimeInstance", { ...payload, models: [] }),
+    /models.*non-empty array.*non-blank strings/u,
+  );
 });
 
 test("runtime create rejection names invalid permission mode and its enum", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
-  assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, permissionMode: "admin" }), /permissionMode.*bypass, workspace-write, or read-only/u);
+  assert.throws(
+    () => assertPreloadPayload("createRuntimeInstance", { ...payload, permissionMode: "admin" }),
+    /permissionMode.*bypass, workspace-write, or read-only/u,
+  );
 });
 
 test("runtime create rejection names invalid isolation state and its enum", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
-  assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, isolationState: "disabled" }), /isolationState.*enforced or operator-environment/u);
+  assert.throws(
+    () => assertPreloadPayload("createRuntimeInstance", { ...payload, isolationState: "disabled" }),
+    /isolationState.*enforced or operator-environment/u,
+  );
 });
 
 // The update payload's field set is derived from the registry entry rather than hand-written.
@@ -139,19 +391,55 @@ test("runtime create rejection names invalid isolation state and its enum", () =
 // declared eight, so name/installationId/models/defaultModel were unreachable from the GUI
 // even though the daemon accepted them.
 test("runtime update accepts exactly the fields the registry declares", () => {
-  const entry = daemonGuiInvokeFacets.find((facet) => facet.guiBridgeMethod === "updateRuntimeInstance") as { readonly params: { readonly fields: { readonly payload: { readonly fields: Readonly<Record<string, unknown>> } } } };
+  const entry = daemonGuiInvokeFacets.find((facet) => facet.guiBridgeMethod === "updateRuntimeInstance") as {
+    readonly params: { readonly fields: { readonly payload: { readonly fields: Readonly<Record<string, unknown>> } } };
+  };
   const declared = Object.keys(entry.params.fields.payload.fields);
-  assert.deepEqual([...declared].sort(), ["defaultModel", "enabled", "installationId", "instanceId", "isolationState", "models", "name", "permissionMode"]);
+  assert.deepEqual([...declared].sort(), [
+    "defaultModel",
+    "enabled",
+    "installationId",
+    "instanceId",
+    "isolationState",
+    "models",
+    "name",
+    "permissionMode",
+  ]);
   for (const field of declared.filter((name) => name !== "instanceId")) {
-    const sample: Record<string, unknown> = field === "models" ? { models: ["model-a"] } : field === "enabled" ? { enabled: true } : field === "permissionMode" ? { permissionMode: "bypass" } : field === "isolationState" ? { isolationState: "enforced" } : { [field]: "value" };
-    assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", ...sample }), true, `registry declares ${field} but preload rejected it`);
+    const sample: Record<string, unknown> =
+      field === "models"
+        ? { models: ["model-a"] }
+        : field === "enabled"
+          ? { enabled: true }
+          : field === "permissionMode"
+            ? { permissionMode: "bypass" }
+            : field === "isolationState"
+              ? { isolationState: "enforced" }
+              : { [field]: "value" };
+    assert.equal(
+      assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", ...sample }),
+      true,
+      `registry declares ${field} but preload rejected it`,
+    );
   }
 });
 
 test("runtime update still rejects empty values, empty model lists, and secret-like keys", () => {
-  assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", name: "" }), /invalid/u);
-  assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", models: [] }), /invalid/u);
-  assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", models: [1] }), /invalid/u);
+  assert.throws(
+    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", name: "" }),
+    /invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", models: [] }),
+    /invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", models: [1] }),
+    /invalid/u,
+  );
   assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a" }), /invalid/u);
-  assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", apiKey: "secret" }), /secret-like/u);
+  assert.throws(
+    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", apiKey: "secret" }),
+    /secret-like/u,
+  );
 });

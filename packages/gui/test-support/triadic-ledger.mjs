@@ -13,17 +13,6 @@ export function writeTriadicLedger(rootDir) {
   const taskDir = path.join(rootDir, "harness/tasks/task-gui-smoke");
   mkdirSync(taskDir, { recursive: true });
   writeFileSync(
-    path.join(rootDir, "harness/harness.yaml"),
-    [
-      "schema: harness-anything/v1",
-      "name: gui-triadic-smoke",
-      "layout:",
-      "  authoredRoot: harness",
-      "  localRoot: .harness",
-      "",
-    ].join("\n"),
-  );
-  writeFileSync(
     path.join(taskDir, "INDEX.md"),
     [
       "---",

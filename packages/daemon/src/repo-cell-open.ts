@@ -5,6 +5,7 @@ import {
   type CanonicalEventAppendReceipt,
   type DaemonRepoMode,
   type EventPublicationKillpoint,
+  type SettingsV1,
   type WriterGeneration,
 } from "../../kernel/src/index.ts";
 import { createPresetProcessService, presetUserRoot } from "../../preset/src/index.ts";
@@ -31,6 +32,7 @@ import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { makeRepoCellScheduleActions } from "./repo-cell-schedule-actions.ts";
+import { makeRepoCellSettingsActions } from "./repo-cell-settings-actions.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   PublicPublication,
@@ -96,6 +98,9 @@ export async function openRepoCell(input: {
     runtimeAdmission = makeDaemonRuntimeAdmissionGuard({
       nowMs: () => Date.parse(now()),
     });
+  let readSettings = (): SettingsV1 => {
+    throw cellCodedError("projection_pending", "Settings projection is unavailable while the RepoCell is opening.");
+  };
   assertRuntimeAdmission(true);
   const lock = await acquireWorkspaceLock(rootDir),
     generation = Date.now() * 1_000 + (process.pid % 1_000);
@@ -120,6 +125,7 @@ export async function openRepoCell(input: {
   const presetProcess = createPresetProcessService({
     rootDir,
     userRoot: presetUserRoot(rootDir),
+    readSettings: () => readSettings(),
   });
   const runtimeStream = makeAgentRuntimeStreamHub({
     readSession: (runtimeSessionId) => {
@@ -286,6 +292,7 @@ export async function openRepoCell(input: {
     ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}),
     store: () => store,
     projection: () => projection,
+    readSettings: () => readSettings(),
     stream: runtimeStream,
     now,
     schedule,
@@ -327,7 +334,7 @@ export async function openRepoCell(input: {
   function assertRuntimeAdmission(force = false): void {
     runtimeAdmission.assert(rootDir, force);
   }
-  const catalog = openGuiCatalog({ repoId: input.repoId, rootDir, now }),
+  const catalog = openGuiCatalog({ repoId: input.repoId, rootDir, readSettings: () => readSettings(), now }),
     terminalHost = openTerminalHost({
       repoId: input.repoId,
       rootDir,
@@ -389,7 +396,9 @@ export async function openRepoCell(input: {
     getSquadCoordinator: () => squadCoordinator,
   });
   const scheduleActions = makeRepoCellScheduleActions(extracted);
-  Object.assign(extracted, { mode, runtimeSpawner, scheduleActions });
+  const settingsActions = makeRepoCellSettingsActions(extracted);
+  Object.assign(extracted, { mode, runtimeSpawner, scheduleActions, settingsActions });
+  readSettings = settingsActions.read;
   settleScheduledOutcome = async (terminal) => {
     const scheduled = terminal.schedule,
       detail = terminal.resultRef ?? terminal.reason;
@@ -512,6 +521,7 @@ export async function openRepoCell(input: {
     },
     runtimeSpawner,
     scheduleActions,
+    settingsActions,
     appendRuntimeIngress: extracted.appendRuntimeIngress,
     get bootstrapReceipt() {
       return bootstrapReceipt;

@@ -1,11 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import {
   resolveHarnessLayout,
-  setting,
-  settingBlockValue,
   taskClasses,
   type ActorIdentity,
+  type SettingsV1,
   type TaskClass,
   type WriteSource,
 } from "../../kernel/src/index.ts";
@@ -38,18 +37,17 @@ interface Defaults {
   readonly taskOverlay: string;
   readonly repositoryOverlay: string;
 }
-export async function runPresetAction(input: { readonly rootDir: string; readonly action: Action }): Promise<unknown> {
-  const defaults = presetRuntimeDefaults(input.rootDir),
-    runtime = createRuntime(presetResolverOptions(input.rootDir, defaults)),
-    resolver = runtime.resolver,
-    action = input.action,
+export async function runPresetAction(input: {
+  readonly rootDir: string;
+  readonly action: Action;
+  readonly settings?: SettingsV1;
+}): Promise<unknown> {
+  const action = input.action,
     dryRun = action.dryRun === true;
   if (action.kind === "vertical-validate")
     return validateBuiltinVertical({ source: optionalActionText(action.verticalSource) });
   if (["template-list", "template-render", "script-list", "script-inspect"].includes(action.kind))
     return runBuiltinDiscoveryAction(action);
-  if (action.kind === "preset-list")
-    return resolver.list({ verticalId: optionalActionText(action.verticalId) ?? defaults.verticalId });
   if (action.kind === "preset-validate")
     return validatePresetPackage({
       source: path.resolve(input.rootDir, required(action.packageSource, "packageSource")),
@@ -61,6 +59,16 @@ export async function runPresetAction(input: { readonly rootDir: string; readonl
       dryRun,
     });
   if (action.kind === "preset-seed") return seedPresetPackages({ userRoot: presetUserRoot(input.rootDir), dryRun });
+  if (action.kind === "preset-uninstall") {
+    const presetId = required(action.presetId, "presetId"),
+      active = uninstallPresetPackage({ presetId, userRoot: presetUserRoot(input.rootDir), dryRun });
+    return { presetId, mode: dryRun ? "dry-run" : "apply", active, removed: active && !dryRun };
+  }
+  const defaults = presetRuntimeDefaults(requiredSettings(input.settings)),
+    runtime = createRuntime(presetResolverOptions(input.rootDir, defaults)),
+    resolver = runtime.resolver;
+  if (action.kind === "preset-list")
+    return resolver.list({ verticalId: optionalActionText(action.verticalId) ?? defaults.verticalId });
   if (action.kind === "preset-audit") {
     const entries = await resolver.list({ verticalId: optionalActionText(action.verticalId) ?? defaults.verticalId }),
       count = (validity: string) => entries.filter((entry) => entry.validity === validity).length;
@@ -74,11 +82,6 @@ export async function runPresetAction(input: { readonly rootDir: string; readonl
         entry.issues.map((issue) => ({ presetId: entry.id, source: entry.source, ...issue })),
       ),
     };
-  }
-  if (action.kind === "preset-uninstall") {
-    const presetId = required(action.presetId, "presetId"),
-      active = uninstallPresetPackage({ presetId, userRoot: presetUserRoot(input.rootDir), dryRun });
-    return { presetId, mode: dryRun ? "dry-run" : "apply", active, removed: active && !dryRun };
   }
   if (action.kind !== "preset-inspect" && action.kind !== "preset-check")
     throw presetActionError("unsupported_command", `No preset lifecycle contract exists for ${action.kind}.`);
@@ -122,8 +125,9 @@ export function compileRepoTaskBootstrap(input: {
   readonly eventId: string;
   readonly opId: string;
   readonly occurredAt: string;
+  readonly settings: SettingsV1;
 }): CompiledTaskBootstrap {
-  const defaults = presetRuntimeDefaults(input.rootDir),
+  const defaults = presetRuntimeDefaults(input.settings),
     taskClass = optionalTaskClass(input.action.taskClass),
     profileId = optionalActionText(input.action.profileId) ?? defaults.profileId;
   return compileTaskBootstrap({
@@ -148,8 +152,9 @@ export function compileRepoTaskPackage(input: {
   readonly rootDir: string;
   readonly action: Action;
   readonly taskId: string;
+  readonly settings: SettingsV1;
 }): CompiledTaskPackage {
-  const defaults = presetRuntimeDefaults(input.rootDir),
+  const defaults = presetRuntimeDefaults(input.settings),
     taskClass = optionalTaskClass(input.action.taskClass),
     profileId = optionalActionText(input.action.profileId) ?? defaults.profileId;
   return compileTaskPackage({
@@ -167,13 +172,14 @@ export function compileRepoTaskPackage(input: {
 export function compileRepoPresetSnapshotUpgrade(
   input: Omit<Parameters<typeof compilePresetSnapshotUpgrade>[0], keyof ReturnType<typeof presetResolverOptions>> & {
     readonly rootDir: string;
+    readonly settings: SettingsV1;
   },
 ): CompiledPresetSnapshotUpgrade {
-  const defaults = presetRuntimeDefaults(input.rootDir);
+  const defaults = presetRuntimeDefaults(input.settings);
   return compilePresetSnapshotUpgrade({ ...input, ...presetResolverOptions(input.rootDir, defaults) });
 }
-export function compileRepoRepositoryScaffold(rootDir: string): RepositoryScaffoldPlan {
-  const defaults = presetRuntimeDefaults(rootDir),
+export function compileRepoRepositoryScaffold(rootDir: string, settings: SettingsV1): RepositoryScaffoldPlan {
+  const defaults = presetRuntimeDefaults(settings),
     projectRoot = resolveHarnessLayout(rootDir).authoredRoot,
     target = path.resolve(projectRoot, defaults.repositoryOverlay),
     relative = path.relative(projectRoot, target);
@@ -192,17 +198,14 @@ export function compileRepoRepositoryScaffold(rootDir: string): RepositoryScaffo
 export function presetUserRoot(rootDir: string): string {
   return path.join(path.resolve(rootDir), ".harness/presets");
 }
-export function presetRuntimeDefaults(rootDir: string): Defaults {
-  const target = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml"),
-    body = existsSync(target) ? readFileSync(target, "utf8") : "",
-    profileId = setting(body, "defaultProfile");
+export function presetRuntimeDefaults(settings: SettingsV1): Defaults {
   return {
-    verticalId: setting(body, "defaultVertical") ?? "software/coding",
-    presetId: setting(body, "defaultPreset") ?? "standard-task",
-    ...(profileId ? { profileId } : {}),
-    locale: setting(body, "locale") ?? "en-US",
-    taskOverlay: settingBlockValue(body, "scaffolds", "task") ?? "governance/task-scaffold.json",
-    repositoryOverlay: settingBlockValue(body, "scaffolds", "repository") ?? "governance/repository-scaffold.json",
+    verticalId: settings.defaultVertical,
+    presetId: settings.defaultPreset,
+    profileId: settings.defaultProfile,
+    locale: settings.locale,
+    taskOverlay: settings.scaffolds.task,
+    repositoryOverlay: settings.scaffolds.repository,
   };
 }
 function presetResolverOptions(rootDir: string, defaults: Defaults) {
@@ -219,6 +222,14 @@ function presetResolverOptions(rootDir: string, defaults: Defaults) {
 }
 function optionalActionText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+function requiredSettings(settings: SettingsV1 | undefined): SettingsV1 {
+  if (settings === undefined)
+    throw presetActionError(
+      "settings_projection_unavailable",
+      "Repository Settings projection is required for preset defaults.",
+    );
+  return settings;
 }
 function required(value: unknown, field: string): string {
   const result = optionalActionText(value);

@@ -22,6 +22,7 @@ import type { PolicyActionRule, PolicyPredicateName } from "./policy.ts";
 import { canonicalRelationDirections } from "./relation-direction.ts";
 import { reviewVerdicts } from "./review.ts";
 import { SCHEDULE_V1_SCHEMA, scheduleEventTypes, scheduleRunOutcomes, scheduleStates } from "./schedule.ts";
+import { SETTINGS_V1_SCHEMA } from "./settings.ts";
 import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
 import {
   dispositionMatrix,
@@ -97,7 +98,8 @@ export interface EntityKindContract<T = unknown> {
       | "fact-event"
       | "decision-event"
       | "agent-runtime-event"
-      | "schedule-event";
+      | "schedule-event"
+      | "settings-event";
     readonly contractRef: string;
   } | null;
   readonly sdkExposure: EntitySdkExposure;
@@ -209,6 +211,7 @@ const executionIdentity = deriveEntityKindIdentity("execution");
 const reviewIdentity = deriveEntityKindIdentity("review");
 const runtimeSessionIdentity = deriveEntityKindIdentity("runtime-session");
 const scheduleIdentity = deriveEntityKindIdentity("schedule");
+const settingsIdentity = deriveEntityKindIdentity("settings");
 const executionIdPattern = executionIdentity.pattern;
 const reviewIdPattern = reviewIdentity.pattern;
 const lifecycleTaskIdPattern = taskIdentity.pattern;
@@ -667,6 +670,21 @@ export const entityKindContracts = Object.freeze([
     authoring: { kind: "schedule-event", contractRef: "schedule-event/v1" },
     sdkExposure: noSdkExposure,
   },
+  {
+    kind: "settings",
+    residency: Object.freeze({ authored: "ledger" as const, current: "projection" as const }),
+    schema: SETTINGS_V1_SCHEMA,
+    id: settingsIdentity,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: {
+      embeddedEvents: [{ schema: "settings-event/v1", types: ["settings_changed"], payloadField: "settings" }],
+      row: { idField: "settingsId", ownerField: null },
+    },
+    actionCatalog: actionCatalog("kernel/settings-event/v1", "settings", settingsIdentity, ["read", "update"]),
+    entityStore: null,
+    authoring: { kind: "settings-event", contractRef: "settings-event/v1" },
+    sdkExposure: noSdkExposure,
+  },
 ] as const satisfies readonly EntityKindContract[]);
 
 const entityKindContractByKind = new Map<string, EntityKindContract>(
@@ -730,16 +748,14 @@ export function entityDocumentPath(contract: EntityStoreKindContract, id: string
 export function createEntityKindRegistry(vertical: VerticalDefinition): EntityKindRegistry {
   const packageScaffolds = new Map(vertical.packageScaffolds.map((scaffold) => [scaffold.entityKind, scaffold]));
   const repositoryRoots = new Map(vertical.repositoryScaffold.entityRoots.map((root) => [root.entityKind, root]));
-  const entries = vertical.entityKinds.map(
-    (entity): EntityKindRegistration => ({
-      id: entity.id,
-      entityType: entity.entityType,
-      contractEntity: entity.contractEntity,
-      ...(entity.entityType === "lifecycle" ? { packageKind: entity.packageKind } : { schemaRef: entity.schemaRef }),
-      ...(packageScaffolds.get(entity.id) ? { packageScaffold: packageScaffolds.get(entity.id) } : {}),
-      ...(repositoryRoots.get(entity.id) ? { repositoryRoot: repositoryRoots.get(entity.id) } : {}),
-    }),
-  );
+  const entries = vertical.entityKinds.map((entity): EntityKindRegistration => ({
+    id: entity.id,
+    entityType: entity.entityType,
+    contractEntity: entity.contractEntity,
+    ...(entity.entityType === "lifecycle" ? { packageKind: entity.packageKind } : { schemaRef: entity.schemaRef }),
+    ...(packageScaffolds.get(entity.id) ? { packageScaffold: packageScaffolds.get(entity.id) } : {}),
+    ...(repositoryRoots.get(entity.id) ? { repositoryRoot: repositoryRoots.get(entity.id) } : {}),
+  }));
   return {
     ids: entries.map((entry) => entry.id),
     entries,

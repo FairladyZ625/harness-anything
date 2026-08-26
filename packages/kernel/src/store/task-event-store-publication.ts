@@ -10,6 +10,7 @@ import {
   type LedgerLayoutMigrationEventV1,
 } from "../domain/ledger-layout-migration-event.ts";
 import { serializeEventHead } from "../domain/write-chain.contract.ts";
+import { isSettingsEvent } from "../domain/settings-event.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { type LedgerObjectLayout } from "../layout/ledger-object-layout.ts";
 import { ledgerGitPath } from "./ledger-git-layout.ts";
@@ -103,7 +104,10 @@ export function createPublicationApi(runtime: StoreRuntime) {
         "revision_conflict",
         `workspace revision ${event.workspaceRevision} must follow ${previousHead?.revision ?? 0}`,
       );
-    assertAuthorizedReplacement(runtime.ledger, parent.sha, event);
+    const settingsCandidate = isSettingsEvent(event)
+      ? blobs.find((blob) => blob.sha256 === event.payload.harnessDocumentClaim.sha256)?.body
+      : undefined;
+    assertAuthorizedReplacement(runtime.ledger, parent.sha, event, false, settingsCandidate);
     if (
       isDocEvent(event) &&
       stableStringify(event.payload.baseLedgerSha) !== stableStringify(canonicalLedgerCut(runtime.repoId, previousHead))
@@ -173,7 +177,7 @@ export function createPublicationApi(runtime: StoreRuntime) {
       nodeSyncs = settleFiles(runtime.repoRoot, preparedSha, files, runtime.options.killpoint, () => {
         const finalize = () => {
           runtime.options.beforeAppend?.();
-          assertAuthorizedReplacement(runtime.ledger, parent.sha, event);
+          assertAuthorizedReplacement(runtime.ledger, parent.sha, event, false, settingsCandidate);
           try {
             finalizeRefs(runtime.repoRoot, runtime.authoredRef, preparedSha, parent.sha);
           } catch (error) {
@@ -379,7 +383,19 @@ export function createPublicationApi(runtime: StoreRuntime) {
       const changed = changedPublication(runtime.ledger, sha);
       validatePrepared(runtime.ledger, sha, changed.files, changed.head);
       if (runtime.canonicalCommit === sha && runtime.authoredCommit === sha) {
-        assertAuthorizedReplacement(runtime.ledger, changed.parent, changed.event, true);
+        assertAuthorizedReplacement(
+          runtime.ledger,
+          changed.parent,
+          changed.event,
+          true,
+          isSettingsEvent(changed.event)
+            ? (showText(
+                runtime.repoRoot,
+                sha,
+                ledgerGitPath(runtime.ledger, changed.event.payload.harnessDocumentClaim.path),
+              ) ?? undefined)
+            : undefined,
+        );
         runtime.canonicalHead = changed.head;
         runtime.rememberEvents([changed.event]);
         settleFiles(runtime.repoRoot, sha, changed.files);
@@ -391,7 +407,19 @@ export function createPublicationApi(runtime: StoreRuntime) {
         };
       }
       if (runtime.canonicalCommit === changed.parent && runtime.authoredCommit === changed.parent) {
-        assertAuthorizedReplacement(runtime.ledger, changed.parent, changed.event);
+        assertAuthorizedReplacement(
+          runtime.ledger,
+          changed.parent,
+          changed.event,
+          false,
+          isSettingsEvent(changed.event)
+            ? (showText(
+                runtime.repoRoot,
+                sha,
+                ledgerGitPath(runtime.ledger, changed.event.payload.harnessDocumentClaim.path),
+              ) ?? undefined)
+            : undefined,
+        );
         settleFiles(runtime.repoRoot, sha, changed.files);
         finalizeRefs(runtime.repoRoot, runtime.authoredRef, sha, changed.parent, [ref, sha]);
         runtime.canonicalCommit = sha;

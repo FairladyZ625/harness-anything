@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
-import { resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { INITIAL_SETTINGS_V1, resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { createPresetProcessService } from "../../preset/src/index.ts";
 import { localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../src/client/local-daemon-target.ts";
 import { daemonRequestLogPath } from "../src/request-log.ts";
@@ -110,7 +110,9 @@ test("local daemon target rejects a path outside every registered workspace", ()
 
 test("local daemon target routes a repository worktree to the canonical workspace local layer", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
-  const workspaceRoot = path.join(fixtureRoot, "workspace"), worktreeRoot = path.join(workspaceRoot, ".worktrees", "feature"), userRoot = path.join(fixtureRoot, "user");
+  const workspaceRoot = path.join(fixtureRoot, "workspace"),
+    worktreeRoot = path.join(workspaceRoot, ".worktrees", "feature"),
+    userRoot = path.join(fixtureRoot, "user");
   try {
     mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true }); mkdirSync(path.join(worktreeRoot, "harness"), { recursive: true }); mkdirSync(userRoot);
     writeFileSync(path.join(workspaceRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n");
@@ -120,7 +122,11 @@ test("local daemon target routes a repository worktree to the canonical workspac
 
     const target = resolveLocalDaemonTarget({ rootDir: worktreeRoot, userRoot, env: {} });
     const layout = resolveHarnessLayout(target.canonicalRoot);
-    const presetProcess = createPresetProcessService({ rootDir: target.canonicalRoot, userRoot: path.join(layout.localRoot, "presets") });
+    const presetProcess = createPresetProcessService({
+      rootDir: target.canonicalRoot,
+      userRoot: path.join(layout.localRoot, "presets"),
+      readSettings: () => INITIAL_SETTINGS_V1,
+    });
     await presetProcess.close();
 
     assert.equal(target.canonicalRoot, canonicalWorkspaceRoot);

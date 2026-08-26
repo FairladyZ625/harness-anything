@@ -9,6 +9,7 @@ import type { LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-eve
 import type { MigrationDocumentClaim, MigrationImportEventV1 } from "./migration-import-event.ts";
 import type { PresetSnapshotUpgradeEventV1 } from "./preset-snapshot-upgrade-event.ts";
 import type { ScheduleEventV1 } from "./schedule-event.ts";
+import type { SettingsEventV1 } from "./settings-event.ts";
 import type {
   DocSyncReceiptDetail,
   LedgerCommitIdentity,
@@ -169,6 +170,7 @@ export type CanonicalEventV1 =
   | DocEventV1
   | AgentRuntimeEventV1
   | ScheduleEventV1
+  | SettingsEventV1
   | EntityEventV1
   | TaskBootstrapEventV1
   | TaskProgressEventV1

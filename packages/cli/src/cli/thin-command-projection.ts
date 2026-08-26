@@ -56,14 +56,21 @@ export function parseProjected(
   inputs: ThinCliInputDirectory,
   base: Readonly<Record<string, unknown>> = {},
   defaults: Readonly<Record<string, unknown>> = {},
+  method = "repo.task.run",
 ): ThinParseResult {
   const f = readFlags(commandId, tokens, inputs);
   return f.ok
-    ? accepted(rootDir, repoId, json, {
-        kind: commandId,
-        ...defaults,
-        ...base,
-        ...projectFlags(commandId, f),
-      })
+    ? accepted(
+        rootDir,
+        repoId,
+        json,
+        {
+          kind: commandId,
+          ...defaults,
+          ...base,
+          ...projectFlags(commandId, f),
+        },
+        method,
+      )
     : rejected(f.code, f.nextAction, json);
 }

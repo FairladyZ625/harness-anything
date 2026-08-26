@@ -541,7 +541,7 @@ const VIEW_RENDERERS = {
       onBack: noop,
       onNavigateEntity: noop,
     }),
-  settings: () => createElement(SettingsView, {}),
+  settings: () => createElement(SettingsView, { repoId: REPO_ID }),
 } satisfies Record<ViewId, () => ReturnType<typeof createElement>>;
 
 const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readonly { id: ViewId }[] }) =>

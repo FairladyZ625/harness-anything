@@ -31,6 +31,7 @@ export {
 export { validateCurrentDocEvent, validateDocEvent } from "./doc-sync-validation.ts";
 export { isEntityEvent } from "./entity-event.ts";
 export { isScheduleEvent } from "./schedule-event.ts";
+export { isSettingsEvent } from "./settings-event.ts";
 export { isDecisionEvent } from "./decision-event.ts";
 export { isFactEvent } from "./fact-event.ts";
 export { isLedgerLayoutMigrationEvent } from "./ledger-layout-migration-event.ts";

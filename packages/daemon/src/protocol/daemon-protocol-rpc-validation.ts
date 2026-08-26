@@ -54,6 +54,13 @@ export function daemonMethodAcceptsPayloadExecutor(method: string): boolean {
   );
 }
 
+export function daemonMethodAcceptsPayload(method: string): boolean {
+  return Object.hasOwn(
+    allDaemonProtocolMethods.find((entry) => entry.method === method)?.params.fields ?? {},
+    "payload",
+  );
+}
+
 export function validateDaemonRpcCall(value: unknown): readonly string[] {
   if (!isJsonObject(value) || typeof value.method !== "string") return ["RPC method is required"];
   const method = allDaemonProtocolMethods.find((entry) => entry.method === value.method);
@@ -268,6 +275,24 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       required.every((field) => nonEmpty(item[field])) &&
       Object.keys(item).every((field) => required.includes(field) || optional.includes(field));
   if (method === "repo.task.submit") errors.push(...validateGuiSubmission(value.submission));
+  if (method === "repo.settings.update") {
+    const settingFields = [
+        "defaultVertical",
+        "defaultPreset",
+        "defaultProfile",
+        "locale",
+        "taskScaffold",
+        "repositoryScaffold",
+      ],
+      changed = settingFields.filter((field) => value[field] !== undefined),
+      identifier = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
+    if (
+      changed.length === 0 ||
+      changed.some((field) => typeof value[field] !== "string" || !identifier.test(String(value[field]))) ||
+      (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale)))
+    )
+      errors.push("settings update is invalid");
+  }
   if (
     method === "repo.task.progress.append" &&
     value.evidence !== undefined &&

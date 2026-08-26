@@ -11,10 +11,15 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
 import {
-  createPresetProcessService,
+  createPresetProcessService as createProjectedPresetProcessService,
   installPresetPackage,
+  type PresetProcessServiceOptions,
 } from "../src/index.ts";
+
+const createPresetProcessService = (options: Omit<PresetProcessServiceOptions, "readSettings">) =>
+  createProjectedPresetProcessService({ ...options, readSettings: () => INITIAL_SETTINGS_V1 });
 
 test("start durably returns admitted before spawn and status exposes every daemon-owned phase", async () => {
   const fixture = scriptedPackage(
