@@ -45,50 +45,74 @@ export function providerFaultFromStderr(kindId: RuntimeInstanceKind, stderr: str
   return null;
 }
 
-export function classifyRuntimeExit(active: ActiveRuntime, exitCode: number | null): RuntimeAttemptOutcome {
-  const provider = { instance: active.instanceId, model: active.model, kind: active.kindId },
+export function classifyRuntimeExit(
+  active: ActiveRuntime,
+  exitCode: number | null,
+): RuntimeAttemptOutcome & { readonly outcome: RuntimeExitOutcome } {
+  const outcome = runtimeExitOutcome(active, exitCode),
+    provider = { instance: active.instanceId, model: active.model, kind: active.kindId },
     attemptGroupId = active.fallbackAttempt?.attemptGroupId ?? active.dispatchId,
     attemptIndex = active.fallbackAttempt?.attemptIndex ?? 0,
     attemptFailed = exitCode === null || exitCode !== 0 || active.providerOutcome === "failed",
     providerFault =
-      active.providerFault ?? providerFaultFromStderr(active.kindId, active.errorOverflowed ? "" : active.errorBuffer);
-  if (!active.cancelRequested && attemptFailed && providerFault)
-    return { classification: "provider_fault", reason: providerFault.reason, provider, attemptGroupId, attemptIndex };
-  if (!active.cancelRequested && exitCode === null)
-    return {
-      classification: "provider_fault",
-      reason: "Provider process disconnected before completing the attempt.",
-      provider,
-      attemptGroupId,
-      attemptIndex,
-    };
-  if (!active.cancelRequested && attemptFailed && !active.toolCallObserved) {
-    const reason = active.errorOverflowed
-      ? "Provider exited before any tool call; stderr exceeded the diagnostic limit."
-      : active.errorBuffer.trim() || "Provider exited before any tool call.";
-    return {
-      classification: "provider_fault",
+      active.providerFault ?? providerFaultFromStderr(active.kindId, active.errorOverflowed ? "" : active.errorBuffer),
+    classified = (classification: RuntimeAttemptOutcome["classification"], reason: string) => ({
+      outcome,
+      classification,
       reason,
       provider,
       attemptGroupId,
       attemptIndex,
-    };
+    });
+  if (active.cancelRequested || active.lossReason)
+    return classified(
+      "worker_stop",
+      active.cancelRequested
+        ? "Worker stop was requested."
+        : `Worker process stopped before settlement: ${active.lossReason}`,
+    );
+  if (attemptFailed && providerFault) return classified("provider_fault", providerFault.reason);
+  if (exitCode === null)
+    return classified("provider_fault", "Provider process disconnected before completing the attempt.");
+  if (attemptFailed && !active.toolCallObserved) {
+    const reason = active.errorOverflowed
+      ? `Provider exited with code ${String(exitCode)} before any tool call; stderr exceeded the diagnostic limit.`
+      : active.errorBuffer.trim() || `Provider exited with code ${String(exitCode)} before any tool call.`;
+    return classified("provider_fault", reason);
   }
-  if (!active.cancelRequested && attemptFailed)
-    return {
-      classification: "gate_red",
-      reason: active.failureText ?? `Worker stopped after tool activity with provider exit ${String(exitCode)}.`,
-      provider,
-      attemptGroupId,
-      attemptIndex,
-    };
-  return {
-    classification: "worker_stop",
-    reason: active.cancelRequested ? "Worker stop was requested." : "Worker reached a normal attempt boundary.",
-    provider,
-    attemptGroupId,
-    attemptIndex,
-  };
+  if (attemptFailed)
+    return classified(
+      "gate_red",
+      active.failureText ??
+        (exitCode === 0
+          ? "Worker reported failure after tool activity."
+          : `Worker stopped after tool activity with provider exit ${String(exitCode)}.`),
+    );
+  return classified("worker_stop", workerStopReason(active, outcome));
+}
+
+export type RuntimeExitOutcome = "succeeded" | "failed" | "unknown" | "cancelled";
+
+function runtimeExitOutcome(active: ActiveRuntime, exitCode: number | null): RuntimeExitOutcome {
+  if (active.cancelRequested) return "cancelled";
+  if (exitCode === null || active.protocolError) return "unknown";
+  if (exitCode !== 0) return "failed";
+  const writeEvidenceRequired = active.kindId !== "agy" && active.permissionMode !== "read-only";
+  if (
+    active.providerOutcome === "succeeded" &&
+    (active.planIncomplete || (writeEvidenceRequired && !active.writeItemObserved && !active.planObserved))
+  )
+    return "unknown";
+  return active.providerOutcome ?? "unknown";
+}
+
+function workerStopReason(active: ActiveRuntime, outcome: RuntimeExitOutcome): string {
+  if (outcome === "succeeded") return "Worker completed the attempt successfully.";
+  if (active.protocolError) return "Worker exited with incomplete provider protocol evidence; outcome is unknown.";
+  if (active.planIncomplete) return "Worker exited before completing its declared plan; outcome is unknown.";
+  if (active.providerOutcome === "succeeded" && !active.writeItemObserved && !active.planObserved)
+    return "Worker exited without required write or plan evidence; outcome is unknown.";
+  return "Worker exited without a structured provider outcome; outcome is unknown.";
 }
 
 export function observeProviderFault(active: ActiveRuntime, frame: ProviderFrame): void {
@@ -106,14 +130,19 @@ function providerFaultFromDiagnostic(
 ): RuntimeProviderFault | null {
   const joined = [code, diagnostic].filter((value): value is string => value !== null).join(" ");
   if (responseCode === 429 || /rate[_ -]?limit|too many requests/iu.test(joined))
-    return fault("rate_limited", joined || "429");
+    return fault("rate_limited", providerDiagnostic("Provider rate limited the attempt", responseCode ?? 429, joined));
   if (responseCode !== null && responseCode >= 500 && responseCode <= 599)
-    return fault("server_error", joined || String(responseCode));
-  if (quota.test(joined)) return fault("quota_exhausted", joined);
-  if (model.test(joined)) return fault("unrecognized_model", joined);
+    return fault("server_error", providerDiagnostic("Provider server error", responseCode, joined));
+  if (quota.test(joined)) return fault("quota_exhausted", `Provider quota exhausted: ${joined}`);
+  if (model.test(joined)) return fault("unrecognized_model", `Provider rejected the model: ${joined}`);
   if (responseCode === 401 || responseCode === 403 || auth.test(joined))
-    return fault("auth_failed", joined || String(responseCode));
+    return fault("auth_failed", providerDiagnostic("Provider authentication failed", responseCode, joined));
   return null;
+}
+
+function providerDiagnostic(label: string, responseCode: number | null, diagnostic: string): string {
+  const status = responseCode === null ? "" : ` (HTTP ${String(responseCode)})`;
+  return `${label}${status}${diagnostic ? `: ${diagnostic}` : "."}`;
 }
 
 function fault(code: RuntimeProviderFault["code"], reason: string): RuntimeProviderFault {

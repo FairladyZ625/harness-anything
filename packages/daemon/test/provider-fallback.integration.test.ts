@@ -38,7 +38,7 @@ const behaviors = new Map<string, Behavior>([
   ["provider-empty-success", "empty_success"],
 ]);
 
-test("provider fallback switches attempts, exhausts to blocked, and never switches on worker_stop", async () => {
+test("provider fallback switches attempts, exhausts without blocking the task, and never switches on worker_stop", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-provider-fallback-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -104,6 +104,8 @@ test("provider fallback switches attempts, exhausts to blocked, and never switch
       succeeded.map(({ classification }) => classification),
       ["provider_fault", "worker_stop"],
     );
+    assert.match(succeeded[0]?.reason ?? "", /HTTP 429/u);
+    assert.match(succeeded[1]?.reason ?? "", /successfully/u);
     assert.doesNotMatch(JSON.stringify(succeeded), /sk-provider-fallback-secret/u);
     assert.match(prompts.get("provider-success-second")?.[0] ?? "", /# Provider fallback continuation/u);
     assert.match(
@@ -147,9 +149,11 @@ test("provider fallback switches attempts, exhausts to blocked, and never switch
             taskId: "task_provider_fallback_exhausted",
           })
         ).dispatches;
-      return task?.snapshot.task?.status === "blocked" && rows.length === 2 ? { task, rows } : null;
+      return task?.snapshot.task?.status === "active" && task.snapshot.lease === null && rows.length === 2
+        ? { task, rows }
+        : null;
     });
-    assert.equal(exhausted.task.snapshot.task?.status, "blocked", JSON.stringify(exhausted.task.snapshot));
+    assert.equal(exhausted.task.snapshot.task?.status, "active", JSON.stringify(exhausted.task.snapshot));
     assert.equal(exhausted.task.snapshot.lease, null);
     assert.equal(exhausted.rows.filter(({ status }) => status === "running").length, 0);
     assert.deepEqual(
@@ -163,8 +167,17 @@ test("provider fallback switches attempts, exhausts to blocked, and never switch
     assert.equal(exhaustionEvents.filter((event) => event.type === "lease_released").length, 1);
     assert.equal(exhaustionEvents.filter((event) => event.type === "task_transitioned").length, 0);
     const exhaustion = exhaustionEvents.find((event) => event.type === "lease_released");
-    assert.deepEqual(exhaustion?.payload.mutation.fields, ["lease", "status"]);
-    assert.equal(exhaustion?.payload.task.status, "blocked");
+    assert.deepEqual(exhaustion?.payload.mutation.fields, ["lease"]);
+    assert.equal(exhaustion?.payload.task.status, "active");
+    const restartedTask = await cell.run(
+      {
+        kind: "task-start",
+        taskId: "task_provider_fallback_exhausted",
+        executionId: "execution-provider-fallback-exhausted",
+      },
+      binding,
+    );
+    assert.equal(restartedTask.outcome, "applied", JSON.stringify(restartedTask));
 
     await installAgent(cell, "fallback-worker-stop", [
       { instance: "provider-stop-first" },
@@ -211,6 +224,7 @@ test("provider fallback switches attempts, exhausts to blocked, and never switch
     });
     assert.equal(emptyUnknown.outcome, "unknown");
     assert.equal(emptyUnknown.exitCode, 0);
+    assert.match(emptyUnknown.reason ?? "", /protocol evidence/u);
 
     await installAgent(
       cell,

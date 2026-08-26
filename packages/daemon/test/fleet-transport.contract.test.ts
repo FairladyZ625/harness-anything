@@ -269,7 +269,7 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       executionId: "exe_abc",
       reason: "provider fallback exhausted",
     },
-    { kind: "task-transition", taskId: "task_abc", status: "blocked", reason: "provider fallback exhausted" },
+    { kind: "task-transition", taskId: "task_abc", status: "blocked", reason: "manual review required" },
   ])
     assert.deepEqual(parseFleetFrame({ ...taskCommand, taskId: "task_abc", action }).action, action);
 });
