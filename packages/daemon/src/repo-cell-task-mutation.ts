@@ -58,8 +58,8 @@ export function taskMutation(
   if (action.kind === "task-release" || action.kind === "task-fallback-exhausted") {
     if (!activeLease)
       throw cell.cellCodedError("lease_not_found", `Start task ${task.taskId} before releasing its lease.`);
-    const terminalExecutionId = optionalText(action.terminalExecutionId),
-      terminalRuntimeSessionId = optionalText(action.terminalRuntimeSessionId);
+    const terminalExecutionId = optionalReleaseText(action.terminalExecutionId),
+      terminalRuntimeSessionId = optionalReleaseText(action.terminalRuntimeSessionId);
     if ((terminalExecutionId === null) !== (terminalRuntimeSessionId === null))
       throw cell.cellCodedError(
         "invalid_command",
@@ -366,7 +366,7 @@ export function taskMutation(
   throw cell.cellCodedError("unsupported_command", `No task mutation contract exists for ${action.kind}.`);
 }
 
-function optionalText(value: unknown): string | null {
+function optionalReleaseText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 

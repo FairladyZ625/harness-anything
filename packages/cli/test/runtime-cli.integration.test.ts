@@ -304,7 +304,8 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       "test:reports/runtime-progress.txt:unrelated",
     ]);
     assert.equal(unrelatedProgress.status, 1);
-    assert.equal(unrelatedProgress.receipt.code, "progress_lease_mismatch");
+    assert.equal(unrelatedProgress.receipt.code, "progress_lease_required");
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const assembledPromptPrefix =
         "# Agent Identity: Terra (terra)\n\nReview precisely.\n\n# Harness Execution Discipline",
       bound = run(root, env, [
@@ -382,6 +383,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.match(String(boundDispatch.endedAt), /^\d{4}-\d{2}-\d{2}T/u);
     assert.doesNotMatch(JSON.stringify(boundDispatch), /(?:api.?key|credential|environment|token)/iu);
     assert.equal(existsSync(path.join(root, ".harness", "runtime", "dispatches", `${boundDispatchId}.jsonl`)), true);
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const dispatchRow = (
       run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>
     ).find((row) => row.dispatchId === boundDispatchId);
@@ -470,6 +472,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       runtimeSessionId: String(reused.runtimeSessionId),
       mission: "existing mission",
     });
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const taskPackage = path.join(realpathSync(root), "harness", packagePath),
       derivedMission = `Your task package is ${taskPackage}.\nRead task_plan.md in that package and complete the task.`,
       derived = run(root, env, [
@@ -557,6 +560,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     ]);
     assert.equal(invalidOnExit.status, 2);
     assert.match(rejectionHint(invalidOnExit.receipt), /only with --detach/u);
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const controlNotification = run(root, env, [
         "runtime",
         "run",
@@ -575,6 +579,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         "--no-stream",
       ]),
       controlInvariant = runtimeInvariantEvidence(root, artifactRoot, controlNotification, controlNotificationWait);
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const missingNotifier = path.join(parent, "missing-notifier"),
       missingNotification = run(root, env, [
         "runtime",
@@ -597,6 +602,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       ]),
       missingTrace = await eventuallyNotification(root, String(missingNotification.dispatchId)),
       missingInvariant = runtimeInvariantEvidence(root, artifactRoot, missingNotification, missingNotificationWait);
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const nonzeroNotification = run(root, env, [
         "runtime",
         "run",
@@ -662,6 +668,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     context.diagnostic(
       `failed notification trace: ${JSON.stringify({ missing: missingTrace.finished, nonzero: nonzeroNotificationTrace.finished, invariant: nonzeroInvariant })}`,
     );
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const queueNotification = run(root, env, [
       "runtime",
       "run",
@@ -676,6 +683,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     ]);
     run(root, env, ["runtime", "status", String(queueNotification.runtimeSessionId), "--wait", "--no-stream"]);
     await eventuallyFile(notificationStarted);
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const revisionBefore = makeTaskEventStore({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0,
       writeStartedAt = performance.now(),
       queueWrite = run(root, env, [
@@ -822,6 +830,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
             },
             { instance: "cli-worker", agent: "fable", to: "terra", prompt: "batch hold two", cwd: ".", task: taskId },
             { instance: "cli-worker", agent: "fable", to: "terra", "prompt-file": "batch-prompt.txt", task: taskId },
+            { instance: "cli-worker", agent: "fable", to: "terra", prompt: "batch hold three", task: taskId },
           ],
         },
         null,
@@ -833,10 +842,10 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(batch.receipt.command, "runtime-batch");
     assert.equal(batch.receipt.outcome, "partial_failure");
     const batchRows = batch.receipt.dispatches as Array<Record<string, unknown>>;
-    assert.equal(batchRows.length, 4);
+    assert.equal(batchRows.length, 5);
     assert.deepEqual(
       batchRows.map((row) => row.status),
-      ["rejected", "succeeded", "succeeded", "succeeded"],
+      ["rejected", "succeeded", "succeeded", "succeeded", "succeeded"],
       JSON.stringify(batch.receipt),
     );
     assert.equal(batchRows[0]?.code, "squad_member_not_found");
@@ -849,7 +858,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       batchDispatches = (
         run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>
       ).filter((row) => batchDispatchIds.has(String(row.dispatchId)));
-    assert.equal(batchDispatches.length, 3);
+    assert.equal(batchDispatches.length, 4);
     assert.equal(
       batchDispatches.every(
         (row) => row.agentId === "terra" && row.delegatedByAgentId === "fable" && row.squadId === "core-squad",
@@ -926,6 +935,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(waitedRow?.exitCode, 0);
     assert.equal(waitedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${progressDispatchId}.json`);
     assert.equal(waitedRow?.reportPath, `${packagePath}/artifacts/reports/${progressDispatchId}.md`);
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const detachedFailure = run(root, env, [
       "runtime",
       "run",
@@ -961,9 +971,10 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       active += event === "start" ? 1 : -1;
       peak = Math.max(peak, active);
     }
-    assert.equal(events.filter((event) => event === "start").length, 3);
-    assert.equal(events.filter((event) => event === "end").length, 3);
+    assert.equal(events.filter((event) => event === "start").length, 4);
+    assert.equal(events.filter((event) => event === "end").length, 4);
     assert.ok(peak <= 2, `batch exceeded declared concurrency: ${events.join(",")}`);
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const detached = run(root, env, [
         "runtime",
         "run",
@@ -1029,6 +1040,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     context.diagnostic(
       `notification at-most-once: ${JSON.stringify({ executions: onceLines.length, records: cancelledRecords })}`,
     );
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const streamRoot = path.join(root, ".harness", "runtime", "dispatches"),
       streamsBeforeRejectedResume = readdirSync(streamRoot).sort(),
       sessionsBeforeRejectedResume = (run(root, env, ["runtime", "status"]).sessions as Array<Record<string, unknown>>)

@@ -14,7 +14,7 @@ import { readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts"
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
-import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
+import { commandClassForAction, type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { createRepoCellActionContext } from "./repo-cell-action-context.ts";
@@ -40,6 +40,7 @@ import type {
   RepoCellBinding,
   RepoCellStatus,
   RepoCellTerminal,
+  Snapshot,
 } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { makeDaemonRuntimeAdmissionGuard } from "./runtime-admission.ts";
@@ -335,6 +336,27 @@ export async function openRepoCell(input: {
     rootDir,
     projection: () => projection,
     store: () => store,
+    reacquireTaskLease: async (taskId, binding) => {
+      const snapshot = projection.read(taskId).snapshot as Snapshot;
+      if (snapshot.lease) return;
+      const execution = snapshot.executions.find(
+        (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.state === "active",
+      );
+      if (!execution)
+        throw cellCodedError(
+          "runtime_task_lease_required",
+          `Task ${taskId} has no active execution for the squad continuation to reacquire.`,
+        );
+      const started = await extracted.lifecycleAction(
+        { kind: "task-start", taskId, executionId: execution.executionId },
+        { ...binding, commandClasses: [commandClassForAction("task-start")] },
+      );
+      if (started.outcome !== "applied")
+        throw cellCodedError(
+          "runtime_task_lease_required",
+          `Squad continuation could not reacquire execution ${execution.executionId} for task ${taskId}.`,
+        );
+    },
     runtimeSpawner: () => runtimeSpawner,
   });
   function assertRuntimeAdmission(force = false): void {

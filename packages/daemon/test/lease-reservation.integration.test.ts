@@ -28,7 +28,7 @@ const definition: AgentDefinitionSnapshot = {
   baseUrl: "https://api.example.test/",
   authMode: "subscription",
 };
-test("task-bound spawn exit keeps its published execution releasable after a v7 cache restart", async () => {
+test("task-bound spawn exit keeps its released execution visible after a v7 cache restart", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-lease-reservation-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -139,7 +139,8 @@ test("task-bound spawn exit keeps its published execution releasable after a v7 
   host = await open("lease-reservation-after");
   try {
     const released = await host.run(repoId, { kind: "task-release", taskId }, auth);
-    assert.equal(released.outcome, "applied", JSON.stringify(released));
+    assert.equal(released.outcome, "op_rejected", JSON.stringify(released));
+    assert.equal(released.code, "lease_not_found", JSON.stringify(released));
     const events = makeTaskEventStore({ repoId, rootDir: root }).read().events,
       sequence = events.map((event) => event.type),
       started = sequence.indexOf("execution_started"),

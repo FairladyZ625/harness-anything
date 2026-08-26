@@ -2,13 +2,9 @@ import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
 import { runtimeRejected } from "./cli-runtime-auth.ts";
 import { readRuntimeBatch } from "./cli-runtime-batch-input.ts";
 import { runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
-import type {
-  RuntimeBatchDeclaration,
-  RuntimeBatchEntry,
-  RuntimeBatchResult,
-} from "./cli-types.ts";
+import type { RuntimeBatchDeclaration, RuntimeBatchEntry, RuntimeBatchResult } from "./cli-types.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
-import { consumeKnownError } from "./daemon/client.ts";
+import { consumeKnownError, runCommandThroughDaemon } from "./daemon/client.ts";
 
 export async function runRuntimeBatch(
   command: ThinCommand,
@@ -34,52 +30,58 @@ export async function runRuntimeBatchDeclaration(
   writeActivity: (text: string) => void,
 ): Promise<JsonObject> {
   const results: RuntimeBatchResult[] = [];
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (true) {
-      const index = next++;
-      if (index >= declaration.dispatches.length) return;
-      const entry = declaration.dispatches[index]!;
-      let receipt: JsonObject;
-      try {
-        receipt = await runRuntimeFacadeCommand(
-          {
-            ...command,
-            method: "repo.agentRuntime.spawn",
-            action: runtimeBatchSpawnAction(entry),
-          },
-          writeActivity,
-        );
-      } catch (error) {
-        consumeKnownError(error);
-        receipt = runtimeRejected(
-          "runtime-run",
-          "batch_dispatch_failed",
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-      results[index] = runtimeBatchResult(index, entry, receipt);
+  const releasedTaskIds = new Set<string>();
+  for (let offset = 0; offset < declaration.dispatches.length; offset += declaration.maxConcurrency) {
+    const wave = declaration.dispatches.slice(offset, offset + declaration.maxConcurrency),
+      reacquireFailures = new Map<string, JsonObject>(),
+      reacquireTaskIds = wave
+        .flatMap((entry) => (entry.task && releasedTaskIds.has(entry.task) ? [entry.task] : []))
+        .filter((taskId, index, taskIds) => taskIds.indexOf(taskId) === index);
+    for (const taskId of reacquireTaskIds) {
+      const receipt = await runCommandThroughDaemon({
+        ...command,
+        method: "repo.task.run",
+        action: { kind: "task-start", taskId },
+      });
+      if (receipt.ok === true && receipt.outcome === "applied") releasedTaskIds.delete(taskId);
+      else reacquireFailures.set(taskId, receipt);
     }
-  };
-  await Promise.all(
-    Array.from(
-      {
-        length: Math.min(
-          declaration.maxConcurrency,
-          declaration.dispatches.length,
-        ),
-      },
-      () => worker(),
-    ),
-  );
+    const settled = await Promise.all(
+      wave.map(async (entry, waveIndex) => {
+        const index = offset + waveIndex;
+        let receipt: JsonObject;
+        try {
+          receipt =
+            entry.task && reacquireFailures.has(entry.task)
+              ? reacquireFailures.get(entry.task)!
+              : await runRuntimeFacadeCommand(
+                  {
+                    ...command,
+                    method: "repo.agentRuntime.spawn",
+                    action: runtimeBatchSpawnAction(entry),
+                  },
+                  writeActivity,
+                );
+        } catch (error) {
+          consumeKnownError(error);
+          receipt = runtimeRejected(
+            "runtime-run",
+            "batch_dispatch_failed",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        return runtimeBatchResult(index, entry, receipt);
+      }),
+    );
+    for (const result of settled) results[result.index] = result;
+    for (const result of settled) {
+      const taskId = declaration.dispatches[result.index]?.task;
+      if (taskId && result.runtimeSessionId) releasedTaskIds.add(taskId);
+    }
+  }
   const failed = results.filter((result) => result.status !== "succeeded"),
     unknown = results.some((result) => result.status === "unknown"),
-    outcome =
-      failed.length === 0
-        ? "succeeded"
-        : unknown
-          ? "unknown"
-          : "partial_failure";
+    outcome = failed.length === 0 ? "succeeded" : unknown ? "unknown" : "partial_failure";
   return {
     schema: "command-receipt/v2",
     ok: true,
@@ -92,9 +94,7 @@ export async function runRuntimeBatchDeclaration(
   };
 }
 
-export function runtimeBatchSpawnAction(
-  entry: RuntimeBatchEntry,
-): ThinCommand["action"] {
+export function runtimeBatchSpawnAction(entry: RuntimeBatchEntry): ThinCommand["action"] {
   return {
     kind: "runtime-run",
     runtimeInstanceId: entry.instance,
@@ -103,9 +103,7 @@ export function runtimeBatchSpawnAction(
     ...(entry.model ? { model: entry.model } : {}),
     ...(entry.effort ? { effort: entry.effort } : {}),
     ...(entry.permissionMode ? { permissionMode: entry.permissionMode } : {}),
-    ...(entry.prompt
-      ? { prompt: entry.prompt }
-      : { promptFile: entry.promptFile }),
+    ...(entry.prompt ? { prompt: entry.prompt } : { promptFile: entry.promptFile }),
     cwd:
       typeof entry.cwd === "object"
         ? entry.cwd
@@ -117,23 +115,12 @@ export function runtimeBatchSpawnAction(
   };
 }
 
-export function runtimeBatchResult(
-  index: number,
-  entry: RuntimeBatchEntry,
-  receipt: JsonObject,
-): RuntimeBatchResult {
+export function runtimeBatchResult(index: number, entry: RuntimeBatchEntry, receipt: JsonObject): RuntimeBatchResult {
   const spawn =
-      receipt.spawn && typeof receipt.spawn === "object"
-        ? (receipt.spawn as Record<string, unknown>)
-        : receipt,
-    error =
-      receipt.error && typeof receipt.error === "object"
-        ? (receipt.error as Record<string, unknown>)
-        : undefined,
+      receipt.spawn && typeof receipt.spawn === "object" ? (receipt.spawn as Record<string, unknown>) : receipt,
+    error = receipt.error && typeof receipt.error === "object" ? (receipt.error as Record<string, unknown>) : undefined,
     result =
-      receipt.result && typeof receipt.result === "object"
-        ? (receipt.result as Record<string, unknown>)
-        : undefined,
+      receipt.result && typeof receipt.result === "object" ? (receipt.result as Record<string, unknown>) : undefined,
     outcome = typeof receipt.outcome === "string" ? receipt.outcome : null,
     status =
       receipt.ok !== true
