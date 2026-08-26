@@ -217,7 +217,6 @@ export interface CatalogPresetDocument {
   readonly body: string;
   readonly mediaType: string;
   readonly owner: string;
-  readonly requiredAnchors: ReadonlyArray<string>;
   readonly templateRef: string;
 }
 export interface CatalogPresetSuccess {
@@ -226,15 +225,12 @@ export interface CatalogPresetSuccess {
   readonly repoId: string;
   readonly preset: {
     readonly id: string;
-    readonly title: string;
     readonly verticalId: string;
     readonly version: string | null;
     readonly extends: string | null;
     readonly capabilityImports: ReadonlyArray<unknown>;
-    readonly profiles: ReadonlyArray<unknown>;
   };
   readonly resolved: {
-    readonly identity: Readonly<Record<string, unknown>>;
     readonly profile: Readonly<Record<string, unknown>>;
     readonly templates: ReadonlyArray<unknown>;
     readonly documents: ReadonlyArray<CatalogPresetDocument>;

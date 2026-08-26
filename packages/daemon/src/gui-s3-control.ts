@@ -358,12 +358,10 @@ export function validateCatalogPreset(value: unknown): readonly string[] {
         value.preset,
         {
           id: "string",
-          title: "string",
           verticalId: "string",
           version: "null-string",
           extends: "null-string",
           capabilityImports: "array",
-          profiles: "array",
         },
         "catalog preset manifest",
       ),
@@ -373,7 +371,6 @@ export function validateCatalogPreset(value: unknown): readonly string[] {
       ...closed(
         value.resolved,
         {
-          identity: "object",
           profile: "object",
           templates: "array",
           documents: "array",
@@ -395,7 +392,6 @@ export function validateCatalogPreset(value: unknown): readonly string[] {
             body: "string",
             mediaType: "string",
             owner: "string",
-            requiredAnchors: "array",
             templateRef: "string",
           },
           "catalog preset document",

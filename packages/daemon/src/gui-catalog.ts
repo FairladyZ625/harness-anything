@@ -128,20 +128,25 @@ export function openGuiCatalog(input: {
       repoId: input.repoId,
       preset: {
         id: manifest.id,
-        title: manifest.title,
         verticalId: manifest.vertical,
         version: typeof manifest.version === "string" ? manifest.version : null,
         extends: typeof manifest.extends === "string" ? manifest.extends : null,
         capabilityImports: "capabilityImports" in manifest ? (manifest.capabilityImports as readonly unknown[]) : [],
-        profiles: "profiles" in manifest ? (manifest.profiles as readonly unknown[]) : [],
       },
       resolved: {
-        identity: resolved.identity,
         profile: resolved.profile,
         templates: resolved.templates,
         // CEO 2026-08-26 裁决路线 A:resolver 已算出的包内文档正文并入本读面,
         // 单一权威(resolver 唯一),bundled 与 user 包同路,不加第二读路径。
-        documents: inspected.documents,
+        // 读面收窄(审查#4 §10.1):requiredAnchors 留在 CLI preset inspect 路径,不进 GUI 读面。
+        documents: inspected.documents.map(({ slot, path, body, mediaType, owner, templateRef }) => ({
+          slot,
+          path,
+          body,
+          mediaType,
+          owner,
+          templateRef,
+        })),
         entrypoints: inspected.entrypoints,
         provenance: resolved.provenance,
         digest: resolved.digest,
