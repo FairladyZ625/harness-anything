@@ -258,26 +258,31 @@ export function openFleetEdgeRuntime(input: {
         entityStore: getEntityStore(),
       }),
     onAttemptTerminal: async (terminal) => {
-      if (terminal.fallbackExhausted && terminal.task) {
+      if (terminal.task) {
         const waitMs = runtimeReadTimeoutMs ?? 30_000,
           { taskId, executionId } = terminal.task,
           settled = await runFleetTaskCommandClient({
             ...peer,
             repoId: request.repoId,
             taskId,
-            opId: `provider-fallback-exhausted-${executionId}`,
+            opId: `runtime-terminal-${terminal.runtimeSessionId}`,
             waitMs,
             action: {
-              kind: "task-fallback-exhausted",
+              kind: "task-release",
               taskId,
-              executionId,
-              reason: terminal.reason ?? "Provider fallback exhausted.",
+              terminalExecutionId: executionId,
+              terminalRuntimeSessionId: terminal.runtimeSessionId,
+              reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
             },
           });
-        if (settled.outcome !== "applied")
+        if (
+          settled.outcome !== "applied" &&
+          settled.code !== "lease_not_found" &&
+          settled.code !== "runtime_terminal_superseded"
+        )
           throw edgeRuntimeError(
-            "fallback_exhaustion_failed",
-            `Center rejected provider fallback exhaustion settlement: ${String(settled.code ?? settled.outcome)}.`,
+            "runtime_lease_release_failed",
+            `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
           );
       }
       const scheduled = terminal.schedule,

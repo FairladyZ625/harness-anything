@@ -390,7 +390,16 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
     ["kind"],
   ),
   "task-submit": optionalShape({ kind: one("task-submit"), taskId: id, executionId: id, submission: record }, ["kind"]),
-  "task-release": optionalShape({ kind: one("task-release"), taskId: id, reason: text }, ["kind"]),
+  "task-release": optionalShape(
+    {
+      kind: one("task-release"),
+      taskId: id,
+      reason: text,
+      terminalExecutionId: id,
+      terminalRuntimeSessionId: id,
+    },
+    ["kind"],
+  ),
   "task-fallback-exhausted": optionalShape(
     { kind: one("task-fallback-exhausted"), taskId: id, executionId: id, reason: text },
     ["kind", "taskId", "executionId", "reason"],

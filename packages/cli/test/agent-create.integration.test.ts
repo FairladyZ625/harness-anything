@@ -196,6 +196,7 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
       unknown
     >;
     assert.deepEqual((inspected.agent as Record<string, unknown>).instructions, generated.instructions);
+    run(root, env, ["task", "start", "agent-create-task", "--execution-id", "agent-create-execution"]);
     const duplicate = runMaybe(root, env, [
       "agent",
       "create",
@@ -210,6 +211,7 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
     assert.equal(duplicate.status, 1);
     assert.equal(duplicate.receipt.code, "agent_id_conflict");
     assert.match(String(duplicate.receipt.nextAction), /ha agent inspect mechanic-agent.*ha agent create/u);
+    run(root, env, ["task", "start", "agent-create-task", "--execution-id", "agent-create-execution"]);
     const unavailable = runMaybe(root, env, [
       "agent",
       "create",
@@ -224,6 +226,7 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
     assert.equal(unavailable.status, 1);
     assert.equal(unavailable.receipt.code, "agent_runtime_type_unavailable");
     assert.match(String(unavailable.receipt.nextAction), /ha runtime instance list.*retry ha agent create/u);
+    run(root, env, ["task", "start", "agent-create-task", "--execution-id", "agent-create-execution"]);
     const child = run(root, env, [
       "runtime",
       "run",

@@ -95,6 +95,7 @@ export function makeSquadCoordinator(input: {
   readonly rootDir: string;
   readonly projection: () => TaskProjection;
   readonly store: () => CanonicalEventStore;
+  readonly reacquireTaskLease: (taskId: string, binding: RuntimeBinding) => Promise<void>;
   readonly runtimeSpawner: () => {
     readonly spawn: (payload: JsonObject, binding: RuntimeBinding) => Promise<JsonObject>;
   };
@@ -352,6 +353,7 @@ export function makeSquadCoordinator(input: {
   async function spawnWorker(state: SquadState, plan: WorkerPlan, leaderTurnId: string): Promise<SquadState> {
     const attemptId = `worker-${state.workerAttempts.length + 1}`;
     try {
+      await input.reacquireTaskLease(state.taskId, state.binding);
       const receipt = await input.runtimeSpawner().spawn(
           {
             runtimeInstanceId: state.runtimeInstanceId,
@@ -419,6 +421,7 @@ export function makeSquadCoordinator(input: {
   }
 
   async function spawnLeader(state: SquadState, trigger: LeaderTrigger): Promise<SquadState> {
+    if (trigger.kind !== "initial") await input.reacquireTaskLease(state.taskId, state.binding);
     const turnId = `leader-${state.leaderTurns.length + 1}`,
       prompt =
         trigger.kind === "initial"

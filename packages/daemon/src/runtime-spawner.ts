@@ -736,7 +736,7 @@ export function makeRuntimeSpawner(input: {
       const reason = `Provider fallback exhausted after ${String(nextAttemptIndex)} attempt(s): ${outcome.reason}`;
       active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
       try {
-        await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", fallbackExhausted: true, reason });
+        await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
       } catch (error) {
         const settlementReason = [
           "Provider fallback exhaustion could not settle terminal state: ",
@@ -847,7 +847,6 @@ export function makeRuntimeSpawner(input: {
               header.taskId && header.executionId ? { taskId: header.taskId, executionId: header.executionId } : null,
             schedule: header.schedule ?? null,
             outcome: "failed",
-            fallbackExhausted: true,
             reason,
             endedAt: input.now(),
             resultRef: null,

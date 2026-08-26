@@ -61,7 +61,6 @@ export interface RuntimeAttemptTerminal {
   readonly task: { readonly taskId: string; readonly executionId: string } | null;
   readonly schedule: TrustedScheduleRuntime | null;
   readonly outcome: "succeeded" | "failed";
-  readonly fallbackExhausted: boolean;
   readonly reason: string | null;
   readonly endedAt: string;
   readonly resultRef: string | null;

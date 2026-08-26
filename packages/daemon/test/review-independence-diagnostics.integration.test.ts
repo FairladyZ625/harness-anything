@@ -30,42 +30,79 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
-    cell = await openRepoCell({ repoId: workspaceId("review-independence"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
+    cell = await openRepoCell({
+      repoId: workspaceId("review-independence"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "daemon-test",
+    });
     // One shared principal, exactly as a single Windows host mints it: every local identity is uid 0.
     const collapsed = { personId: "0" } as const;
     const agentActor = { principal: collapsed, executor: { kind: "agent" as const, id: "windows-tester" } };
     const humanActor = { principal: collapsed, executor: null };
     const agent = { actor: agentActor, source: "local" as const, roles: ["$arbiter"] };
     const human = { actor: humanActor, source: "local" as const, roles: ["$arbiter"] };
-    const taskId = "task-review-axis", executionId = "exec-1";
+    const taskId = "task-review-axis",
+      executionId = "exec-1";
     assert.equal((await cell.run({ kind: "task-create", taskId, title: "Review axis" }, agent)).outcome, "applied");
     // The packet parses before authorization runs, so the file must exist for the refusal to be the one under test.
-    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }));
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
+    );
 
-    const beforeSubmission = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "r0", fromFile: "review.json" }, human);
+    const beforeSubmission = await cell.run(
+      { kind: "task-review-execution", taskId, executionId, reviewId: "r0", fromFile: "review.json" },
+      human,
+    );
     assert.equal(beforeSubmission.outcome, "op_rejected");
     assert.match(String(beforeSubmission.nextAction), /requires a submitted execution/u);
 
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, agent)).outcome, "applied");
     const commitSha = git(rootDir, "rev-parse", "HEAD");
-    writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Ready.", deliverables: ["d"], outputs: ["o"], verificationNotes: ["v"], knownGaps: [], residualRisks: [], commitSha }));
-    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, agent)).outcome, "applied");
-    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }));
+    writeFileSync(
+      path.join(rootDir, "submission.json"),
+      JSON.stringify({
+        completionClaim: "Ready.",
+        deliverables: ["d"],
+        outputs: ["o"],
+        verificationNotes: ["v"],
+        knownGaps: [],
+        residualRisks: [],
+        commitSha,
+      }),
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, agent)).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
+    );
 
     // Missing the arbiter command class is a role problem, not an independence problem.
-    const withoutRole = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "r1", fromFile: "review.json" }, { ...human, roles: [] });
+    const withoutRole = await cell.run(
+      { kind: "task-review-execution", taskId, executionId, reviewId: "r1", fromFile: "review.json" },
+      { ...human, roles: [] },
+    );
     assert.equal(withoutRole.code, "actor_unauthorized");
     assert.match(String(withoutRole.nextAction), /arbiter command class/u);
 
     // The submitting executor reviewing itself is the one genuinely dependent case.
-    const selfReview = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "r2", fromFile: "review.json" }, agent);
+    const selfReview = await cell.run(
+      { kind: "task-review-execution", taskId, executionId, reviewId: "r2", fromFile: "review.json" },
+      agent,
+    );
     assert.equal(selfReview.code, "actor_unauthorized");
     assert.match(String(selfReview.nextAction), /independent of the submitting executor/u);
     assert.doesNotMatch(String(selfReview.nextAction), /declared no executor/u);
 
     // The repair the issue could not find: a bare human invocation reviews an agent-declared submission
     // on the very same principal. This is the assertion that falsifies "unreachable on Windows".
-    const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "r3", fromFile: "review.json" }, human);
+    const reviewed = await cell.run(
+      { kind: "task-review-execution", taskId, executionId, reviewId: "r3", fromFile: "review.json" },
+      human,
+    );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
   } finally {
     await cell?.close();
@@ -80,31 +117,82 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
-    cell = await openRepoCell({ repoId: workspaceId("review-bare"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
-    const bare = { actor: { principal: { personId: "0" }, executor: null }, source: "local" as const, roles: ["$arbiter"] };
-    const taskId = "task-bare-axis", executionId = "exec-bare";
+    cell = await openRepoCell({
+      repoId: workspaceId("review-bare"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "daemon-test",
+    });
+    const bare = {
+      actor: { principal: { personId: "0" }, executor: null },
+      source: "local" as const,
+      roles: ["$arbiter"],
+    };
+    const taskId = "task-bare-axis",
+      executionId = "exec-bare";
     assert.equal((await cell.run({ kind: "task-create", taskId, title: "Bare axis" }, bare)).outcome, "applied");
-    const started = await cell.run({ kind: "task-start", taskId, executionId }, bare) as Record<string, unknown>;
+    const started = (await cell.run({ kind: "task-start", taskId, executionId }, bare)) as Record<string, unknown>;
     assert.equal(started.outcome, "applied");
     assert.match(String(started.summary), /declared no executor/u);
     const commitSha = git(rootDir, "rev-parse", "HEAD");
-    assert.equal((await cell.run({ kind: "task-release", taskId, reason: "Rejoin as the agent that completed the work." }, bare)).outcome, "applied");
-    const agent = { actor: { principal: { personId: "0" }, executor: { kind: "agent" as const, id: "recovering-agent" } }, source: "local" as const, roles: ["$arbiter"] };
+    assert.equal(
+      (await cell.run({ kind: "task-release", taskId, reason: "Rejoin as the agent that completed the work." }, bare))
+        .outcome,
+      "applied",
+    );
+    const agent = {
+      actor: { principal: { personId: "0" }, executor: { kind: "agent" as const, id: "recovering-agent" } },
+      source: "local" as const,
+      roles: ["$arbiter"],
+    };
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, agent)).outcome, "applied");
-    writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Ready.", deliverables: ["d"], outputs: ["o"], verificationNotes: ["v"], knownGaps: [], residualRisks: [], commitSha }));
-    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, agent)).outcome, "applied");
-    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }));
+    writeFileSync(
+      path.join(rootDir, "submission.json"),
+      JSON.stringify({
+        completionClaim: "Ready.",
+        deliverables: ["d"],
+        outputs: ["o"],
+        verificationNotes: ["v"],
+        knownGaps: [],
+        residualRisks: [],
+        commitSha,
+      }),
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, agent)).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),
+    );
 
-    const refused = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "r1", fromFile: "review.json" }, bare);
+    const refused = await cell.run(
+      { kind: "task-review-execution", taskId, executionId, reviewId: "r1", fromFile: "review.json" },
+      bare,
+    );
     assert.equal(refused.code, "actor_unauthorized");
     assert.match(String(refused.nextAction), /declared no executor/u);
     assert.match(String(refused.nextAction), /original start/u);
 
-    const wrongPrincipal = { actor: { principal: { personId: "1" }, executor: { kind: "agent" as const, id: "recovering-agent" } }, source: "local" as const, roles: ["$arbiter"] };
-    const denied = await cell.run({ kind: "task-declare-executor", taskId, executionId, reason: "Claim from another principal." }, wrongPrincipal);
+    const wrongPrincipal = {
+      actor: { principal: { personId: "1" }, executor: { kind: "agent" as const, id: "recovering-agent" } },
+      source: "local" as const,
+      roles: ["$arbiter"],
+    };
+    const denied = await cell.run(
+      { kind: "task-declare-executor", taskId, executionId, reason: "Claim from another principal." },
+      wrongPrincipal,
+    );
     assert.equal(denied.code, "invalid_proof");
 
-    const declared = await cell.run({ kind: "task-declare-executor", taskId, reason: "Recovered the executor omitted by the original start invocation." }, agent) as Record<string, unknown>;
+    const declared = (await cell.run(
+      {
+        kind: "task-declare-executor",
+        taskId,
+        reason: "Recovered the executor omitted by the original start invocation.",
+      },
+      agent,
+    )) as Record<string, unknown>;
     assert.equal(declared.outcome, "applied", JSON.stringify(declared));
     const event = makeTaskEventStore({ repoId: "review-bare", rootDir }).readEvent(String(declared.opId));
     assert.equal(event?.type, "execution_executor_declared");
@@ -114,14 +202,26 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
       assert.equal(event.payload.reason, "Recovered the executor omitted by the original start invocation.");
     }
 
-    const selfReview = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "r2", fromFile: "review.json" }, agent);
+    const selfReview = await cell.run(
+      { kind: "task-review-execution", taskId, executionId, reviewId: "r2", fromFile: "review.json" },
+      agent,
+    );
     assert.equal(selfReview.code, "actor_unauthorized");
     assert.match(String(selfReview.nextAction), /independent of the submitting executor/u);
 
-    const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "r3", fromFile: "review.json" }, bare);
+    const reviewed = await cell.run(
+      { kind: "task-review-execution", taskId, executionId, reviewId: "r3", fromFile: "review.json" },
+      bare,
+    );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-    const wrongOwner = { actor: { principal: { personId: "person-outsider" }, executor: { kind: "agent" as const, id: "outsider" } }, source: "local" as const };
-    const consent = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "r3", consentId: "consent-wrong-owner" }, wrongOwner);
+    const wrongOwner = {
+      actor: { principal: { personId: "person-outsider" }, executor: { kind: "agent" as const, id: "outsider" } },
+      source: "local" as const,
+    };
+    const consent = await cell.run(
+      { kind: "task-review-consent", taskId, executionId, reviewId: "r3", consentId: "consent-wrong-owner" },
+      wrongOwner,
+    );
     assert.equal(consent.code, "actor_unauthorized");
     assert.match(String(consent.nextAction), /personId=0/u);
     assert.match(String(consent.nextAction), /executor=none/u);
@@ -189,7 +289,11 @@ test("a reviewed bare-invocation execution can declare its executor and complete
     );
     writeFileSync(
       path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["daemon integration"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Independent review passed.",
+        evidenceChecked: ["daemon integration"],
+      }),
     );
     const reviewer = {
       actor: {
@@ -230,13 +334,16 @@ test("a reviewed bare-invocation execution can declare its executor and complete
     const negativeControl = {
       complete: await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, agent),
       consent: await cell.run(
-        { kind: "task-review-consent", taskId, executionId, reviewId: "review-approved", consentId: "consent-approved" },
+        {
+          kind: "task-review-consent",
+          taskId,
+          executionId,
+          reviewId: "review-approved",
+          consentId: "consent-approved",
+        },
         bare,
       ),
-      closeout: await cell.run(
-        { kind: "task-closeout", taskId, executionId, fromFile: "judgment.json" },
-        agent,
-      ),
+      closeout: await cell.run({ kind: "task-closeout", taskId, executionId, fromFile: "judgment.json" }, agent),
       start: await cell.run({ kind: "task-start", taskId, executionId }, agent),
       declareWrongPrincipal: await cell.run(
         { kind: "task-declare-executor", taskId, executionId, reason: "An outsider must not claim this execution." },
@@ -256,10 +363,7 @@ test("a reviewed bare-invocation execution can declare its executor and complete
     const unblocked = await cell.run({ kind: "task-transition", taskId, status: "active" }, bare);
     assert.equal(unblocked.outcome, "applied", JSON.stringify(unblocked));
     const completeRepair = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, agent),
-      closeoutRepair = await cell.run(
-        { kind: "task-closeout", taskId, executionId, fromFile: "judgment.json" },
-        agent,
-      );
+      closeoutRepair = await cell.run({ kind: "task-closeout", taskId, executionId, fromFile: "judgment.json" }, agent);
     assert.equal(completeRepair.code, "executor_missing", JSON.stringify(completeRepair));
     assert.match(String(completeRepair.nextAction), /ha task declare-executor task-bare-reviewed/u);
     assert.equal(closeoutRepair.code, "executor_missing", JSON.stringify(closeoutRepair));
@@ -270,7 +374,7 @@ test("a reviewed bare-invocation execution can declare its executor and complete
     );
     assert.equal(denied.code, "invalid_proof", JSON.stringify(denied));
 
-    const declared = await cell.run(
+    const declared = (await cell.run(
       {
         kind: "task-declare-executor",
         taskId,
@@ -278,7 +382,7 @@ test("a reviewed bare-invocation execution can declare its executor and complete
         reason: "The original principal names the agent that completed the already approved execution.",
       },
       agent,
-    ) as Record<string, unknown>;
+    )) as Record<string, unknown>;
     assert.equal(declared.outcome, "applied", JSON.stringify(declared));
     const declaration = makeTaskEventStore({ repoId, rootDir }).readEvent(String(declared.opId));
     assert.equal(declaration?.type, "execution_executor_declared");
@@ -308,10 +412,10 @@ test("a reviewed bare-invocation execution can declare its executor and complete
       bare,
     );
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
-    const completed = await cell.run(
+    const completed = (await cell.run(
       { kind: "task-complete", taskId, executionId, ci: "passed", paths: ["README.md"] },
       bare,
-    ) as Record<string, unknown>;
+    )) as Record<string, unknown>;
     console.log(
       `executor-null-positive-control=${JSON.stringify({ completeRepair, closeoutRepair, denied, declared, consented, completed })}`,
     );
@@ -319,9 +423,11 @@ test("a reviewed bare-invocation execution can declare its executor and complete
     const shown = await cell.run({ kind: "task-show", taskId }, bare);
     assert.match(String(shown.evidence), /"status":"done"/u);
     assert.equal(
-      makeTaskEventStore({ repoId, rootDir }).read().events.some(
-        (event) => event.type === "review_recorded" && event.payload.review.verdict === "changes_requested",
-      ),
+      makeTaskEventStore({ repoId, rootDir })
+        .read()
+        .events.some(
+          (event) => event.type === "review_recorded" && event.payload.review.verdict === "changes_requested",
+        ),
       false,
     );
   } finally {
@@ -338,56 +444,231 @@ test("task-bound runtime sessions cannot review their own execution across exit 
     const processes: { exit: ((code: number | null) => void) | null }[] = [];
     let providerSequence = 0;
     cell = await openRepoCell({
-      repoId: workspaceId("review-runtime-bound"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test",
+      repoId: workspaceId("review-runtime-bound"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "daemon-test",
       runtimeDaemonRoute: { userRoot: rootDir, daemonId: "daemon-test", endpoint: path.join(rootDir, "daemon.sock") },
       prepareRuntimeLaunch: (_instanceId, request) => {
         const providerSessionId = request.providerSessionId ?? `provider-${++providerSequence}`;
-        return { definition: { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "review-runtime", installationId: "review-runtime-installation", kindId: "codex", providerId: "openai", model: "review-model", reasoningEffort: "medium", baseUrl: null, authMode: "subscription" }, installation: { installationId: "review-runtime-installation", kindId: "codex", executablePath: "/test/review-runtime", version: "1.0.0", observedAt: "2026-08-22T00:00:00.000Z" }, executablePath: "/test/review-runtime", args: [providerSessionId], env: {}, cwd: request.cwd, prompt: request.prompt };
+        return {
+          definition: {
+            schema: "agent-definition-snapshot/v1",
+            configVersion: 1,
+            instanceId: "review-runtime",
+            installationId: "review-runtime-installation",
+            kindId: "codex",
+            providerId: "openai",
+            model: "review-model",
+            reasoningEffort: "medium",
+            baseUrl: null,
+            authMode: "subscription",
+          },
+          installation: {
+            installationId: "review-runtime-installation",
+            kindId: "codex",
+            executablePath: "/test/review-runtime",
+            version: "1.0.0",
+            observedAt: "2026-08-22T00:00:00.000Z",
+          },
+          executablePath: "/test/review-runtime",
+          args: [providerSessionId],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
       },
       runtimeLaunch: (prepared) => {
-        const process = { exit: null as ((code: number | null) => void) | null }, providerSessionId = prepared.args[0]!;
+        const process = { exit: null as ((code: number | null) => void) | null },
+          providerSessionId = prepared.args[0]!;
         processes.push(process);
-        return { pid: 1_001 + processes.length, onOutput: (listener) => { queueMicrotask(() => listener(`${JSON.stringify({ type: "thread.started", thread_id: providerSessionId })}\n`)); }, onErrorOutput: () => undefined, onExit: (listener) => { process.exit = listener; }, terminate: () => process.exit?.(0) };
-      }
+        return {
+          pid: 1_001 + processes.length,
+          onOutput: (listener) => {
+            queueMicrotask(() =>
+              listener(`${JSON.stringify({ type: "thread.started", thread_id: providerSessionId })}\n`),
+            );
+          },
+          onErrorOutput: () => undefined,
+          onExit: (listener) => {
+            process.exit = listener;
+          },
+          terminate: () => process.exit?.(0),
+        };
+      },
     });
-    const principal = { personId: "person-worker" } as const, implementer = { actor: { principal, executor: { kind: "agent" as const, id: "implementer" } }, source: "local" as const }, arbiter = (id: string) => ({ actor: { principal, executor: { kind: "agent" as const, id } }, source: "local" as const, roles: ["$arbiter"] });
-    const taskId = "task-runtime-bound", executionId = "execution-runtime-bound";
-    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Runtime-bound review" }, implementer)).outcome, "applied");
+    const principal = { personId: "person-worker" } as const,
+      implementer = {
+        actor: { principal, executor: { kind: "agent" as const, id: "implementer" } },
+        source: "local" as const,
+      },
+      arbiter = (id: string) => ({
+        actor: { principal, executor: { kind: "agent" as const, id } },
+        source: "local" as const,
+        roles: ["$arbiter"],
+      });
+    const taskId = "task-runtime-bound",
+      executionId = "execution-runtime-bound";
+    assert.equal(
+      (await cell.run({ kind: "task-create", taskId, title: "Runtime-bound review" }, implementer)).outcome,
+      "applied",
+    );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, implementer)).outcome, "applied");
 
-    const original = await cell.spawnRuntime({ runtimeInstanceId: "review-runtime", cwd: { scope: "repo-root" }, prompt: "Implement the task.", taskId, idempotencyKey: "original-runtime" }, implementer);
-    await runtimeEvent(rootDir, "review-runtime-bound", (event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === original.runtimeSessionId);
+    const original = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "review-runtime",
+        cwd: { scope: "repo-root" },
+        prompt: "Implement the task.",
+        taskId,
+        idempotencyKey: "original-runtime",
+      },
+      implementer,
+    );
+    await runtimeEvent(
+      rootDir,
+      "review-runtime-bound",
+      (event) =>
+        event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === original.runtimeSessionId,
+    );
     processes[0]!.exit?.(0);
-    await runtimeEvent(rootDir, "review-runtime-bound", (event) => event.type === "runtime_session_exited" && event.payload.runtimeSessionId === original.runtimeSessionId);
+    await runtimeEvent(
+      rootDir,
+      "review-runtime-bound",
+      (event) =>
+        event.type === "runtime_session_exited" && event.payload.runtimeSessionId === original.runtimeSessionId,
+    );
 
-    const resumed = await cell.spawnRuntime({ runtimeInstanceId: "review-runtime", cwd: { scope: "repo-root" }, prompt: "Resume the task.", taskId, providerSessionId: "provider-1", idempotencyKey: "resumed-runtime" }, implementer);
-    await runtimeEvent(rootDir, "review-runtime-bound", (event) => event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === resumed.runtimeSessionId);
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, implementer)).outcome, "applied");
+    const resumed = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "review-runtime",
+        cwd: { scope: "repo-root" },
+        prompt: "Resume the task.",
+        taskId,
+        providerSessionId: "provider-1",
+        idempotencyKey: "resumed-runtime",
+      },
+      implementer,
+    );
+    await runtimeEvent(
+      rootDir,
+      "review-runtime-bound",
+      (event) =>
+        event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === resumed.runtimeSessionId,
+    );
 
     const commitSha = git(rootDir, "rev-parse", "HEAD");
-    writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Ready.", deliverables: ["d"], outputs: ["o"], verificationNotes: ["v"], knownGaps: [], residualRisks: [], commitSha }));
-    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, implementer)).outcome, "applied");
-    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }));
+    writeFileSync(
+      path.join(rootDir, "submission.json"),
+      JSON.stringify({
+        completionClaim: "Ready.",
+        deliverables: ["d"],
+        outputs: ["o"],
+        verificationNotes: ["v"],
+        knownGaps: [],
+        residualRisks: [],
+        commitSha,
+      }),
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, implementer)).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),
+    );
 
     // A dedicated reviewer runtime has no binding to this task/execution, so it can execute the
     // refusal's named command without changing either identity or review packet.
-    const unbound = await cell.spawnRuntime({ runtimeInstanceId: "review-runtime", cwd: { scope: "repo-root" }, prompt: "Review only.", taskId: null, idempotencyKey: "unbound-reviewer" }, implementer);
-    await runtimeEvent(rootDir, "review-runtime-bound", (event) => event.type === "runtime_session_provider_bound" && event.payload.runtimeSessionId === unbound.runtimeSessionId);
-    for (const [reviewId, runtimeSessionId] of [["review-exited", original.runtimeSessionId], ["review-resumed", resumed.runtimeSessionId]] as const) {
-      const denied = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, arbiter(`runtime-session:${runtimeSessionId}`));
+    const unbound = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "review-runtime",
+        cwd: { scope: "repo-root" },
+        prompt: "Review only.",
+        taskId: null,
+        idempotencyKey: "unbound-reviewer",
+      },
+      implementer,
+    );
+    await runtimeEvent(
+      rootDir,
+      "review-runtime-bound",
+      (event) =>
+        event.type === "runtime_session_provider_bound" && event.payload.runtimeSessionId === unbound.runtimeSessionId,
+    );
+    for (const [reviewId, runtimeSessionId] of [
+      ["review-exited", original.runtimeSessionId],
+      ["review-resumed", resumed.runtimeSessionId],
+    ] as const) {
+      const denied = await cell.run(
+        { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" },
+        arbiter(`runtime-session:${runtimeSessionId}`),
+      );
       assert.equal(denied.code, "runtime_task_self_review_forbidden");
-      assert.equal(denied.nextAction, `This runtime is bound to task ${taskId} and execution ${executionId} and cannot review its own work; have an independent human or a runtime with no binding to this task and execution run ha task review-execution ${taskId} --execution-id ${executionId} --review-id ${reviewId} --from-file <review.json>.`);
-      assert.equal((await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, arbiter(`runtime-session:${unbound.runtimeSessionId}`))).outcome, "applied");
+      assert.equal(
+        denied.nextAction,
+        `This runtime is bound to task ${taskId} and execution ${executionId} and cannot review its own work; have an independent human or a runtime with no binding to this task and execution run ha task review-execution ${taskId} --execution-id ${executionId} --review-id ${reviewId} --from-file <review.json>.`,
+      );
+      assert.equal(
+        (
+          await cell.run(
+            { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" },
+            arbiter(`runtime-session:${unbound.runtimeSessionId}`),
+          )
+        ).outcome,
+        "applied",
+      );
     }
 
-    const directTaskId = "task-direct-review", directExecutionId = "execution-direct-review";
-    assert.equal((await cell.run({ kind: "task-create", taskId: directTaskId, title: "Direct review" }, implementer)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-start", taskId: directTaskId, executionId: directExecutionId }, implementer)).outcome, "applied");
+    const directTaskId = "task-direct-review",
+      directExecutionId = "execution-direct-review";
+    assert.equal(
+      (await cell.run({ kind: "task-create", taskId: directTaskId, title: "Direct review" }, implementer)).outcome,
+      "applied",
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId: directTaskId, executionId: directExecutionId }, implementer))
+        .outcome,
+      "applied",
+    );
     const directCommitSha = git(rootDir, "rev-parse", "HEAD");
-    writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Ready.", deliverables: ["d"], outputs: ["o"], verificationNotes: ["v"], knownGaps: [], residualRisks: [], commitSha: directCommitSha }));
-    assert.equal((await cell.run({ kind: "task-submit", taskId: directTaskId, executionId: directExecutionId, fromFile: "submission.json" }, implementer)).outcome, "applied");
-    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Reviewed by another agent.", evidenceChecked: ["tests"] }));
+    writeFileSync(
+      path.join(rootDir, "submission.json"),
+      JSON.stringify({
+        completionClaim: "Ready.",
+        deliverables: ["d"],
+        outputs: ["o"],
+        verificationNotes: ["v"],
+        knownGaps: [],
+        residualRisks: [],
+        commitSha: directCommitSha,
+      }),
+    );
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-submit", taskId: directTaskId, executionId: directExecutionId, fromFile: "submission.json" },
+          implementer,
+        )
+      ).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Reviewed by another agent.", evidenceChecked: ["tests"] }),
+    );
     // A child/non-runtime agent has no runtime-session identity; existing executor independence decides it.
-    const reviewedByAgent = await cell.run({ kind: "task-review-execution", taskId: directTaskId, executionId: directExecutionId, reviewId: "review-child-agent", fromFile: "review.json" }, arbiter("child-reviewer"));
+    const reviewedByAgent = await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId: directTaskId,
+        executionId: directExecutionId,
+        reviewId: "review-child-agent",
+        fromFile: "review.json",
+      },
+      arbiter("child-reviewer"),
+    );
     assert.equal(reviewedByAgent.outcome, "applied", JSON.stringify(reviewedByAgent));
   } finally {
     await cell?.close();
@@ -395,7 +676,11 @@ test("task-bound runtime sessions cannot review their own execution across exit 
   }
 });
 
-async function runtimeEvent(rootDir: string, repoId: string, matches: (event: ReturnType<ReturnType<typeof makeTaskEventStore>["read"]>["events"][number]) => boolean): Promise<void> {
+async function runtimeEvent(
+  rootDir: string,
+  repoId: string,
+  matches: (event: ReturnType<ReturnType<typeof makeTaskEventStore>["read"]>["events"][number]) => boolean,
+): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (makeTaskEventStore({ repoId, rootDir }).read().events.some(matches)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));

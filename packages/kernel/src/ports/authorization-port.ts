@@ -17,6 +17,7 @@ export interface AuthorizationTargetSnapshot {
   readonly owner?: ActorIdentity | null;
   readonly lease?: LeaseV1 | null;
   readonly canonicalExecutionExists?: boolean;
+  readonly terminalRuntimeBinding?: TaskBoundRuntimeBinding | null;
   readonly executionActor?: ActorIdentity | null;
   readonly proposalActor?: ActorIdentity | null;
   readonly runtimeBinding?: TaskBoundRuntimeBinding | null;
@@ -127,6 +128,7 @@ function evaluatePredicate(
       (action.target === `task/${lease.taskId}` || action.target === `execution/${lease.executionId}`),
     runtimeSessionId = runtimeSessionIdFromActor(actor),
     runtimeBinding = target.runtimeBinding ?? null,
+    terminalRuntimeBinding = target.terminalRuntimeBinding ?? null,
     runtimeDelegation =
       leaseTargetsSubject &&
       lease?.phase === "held" &&
@@ -135,6 +137,11 @@ function evaluatePredicate(
       runtimeBinding.taskId === lease.taskId &&
       runtimeBinding.executionId === lease.executionId &&
       isSamePerson(lease.actor, actor);
+  const terminalRuntimeOwnsLease =
+    leaseTargetsSubject &&
+    lease !== null &&
+    terminalRuntimeBinding?.taskId === lease.taskId &&
+    terminalRuntimeBinding.executionId === lease.executionId;
   let holds = false;
   if (expression.predicate === "isOwner")
     holds = target.owner !== null && target.owner !== undefined && isSamePerson(target.owner, actor);
@@ -146,8 +153,12 @@ function evaluatePredicate(
     holds =
       leaseTargetsSubject &&
       lease !== null &&
-      (lease.phase === "orphaned" || target.canonicalExecutionExists === false) &&
-      isSamePerson(lease.actor, actor);
+      ((isSamePerson(lease.actor, actor) &&
+        (lease.phase === "orphaned" || target.canonicalExecutionExists === false || terminalRuntimeOwnsLease)) ||
+        ((lease.phase === "orphaned" || terminalRuntimeOwnsLease) &&
+          target.owner !== null &&
+          target.owner !== undefined &&
+          isSamePerson(target.owner, actor)));
   else if (expression.predicate === "dispatchesExecution")
     holds =
       leaseTargetsSubject &&

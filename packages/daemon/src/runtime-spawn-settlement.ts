@@ -175,7 +175,6 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
       task: active.task,
       schedule: active.schedule,
       outcome: outcome === "succeeded" ? "succeeded" : "failed",
-      fallbackExhausted: false,
       reason: outcome === "succeeded" ? null : attemptOutcome.reason,
       endedAt,
       resultRef,
