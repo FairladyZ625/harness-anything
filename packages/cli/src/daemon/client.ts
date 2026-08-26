@@ -32,12 +32,26 @@ export {
 export type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 
 const autostartFailureCodes = [
+  "daemon_start_runtime_forbidden",
   "daemon_spawn_not_found",
   "daemon_spawn_permission",
   "daemon_start_failed",
   "daemon_bind_timeout",
   "daemon_starting",
 ] as const;
+export function runtimeDaemonStartRefusal(
+  env: NodeJS.ProcessEnv = process.env,
+): { readonly code: "daemon_start_runtime_forbidden"; readonly hint: string } | null {
+  const runtimeActor = env.HARNESS_ACTOR?.startsWith("agent:runtime-session:") === true;
+  if (env.HARNESS_TASK_BOUND !== "1" && !runtimeActor) return null;
+  return {
+    code: "daemon_start_runtime_forbidden",
+    hint: [
+      "A task-bound runtime cannot start the shared daemon because its HOME and PATH belong to the runtime instance.",
+      "Start the daemon from an operator shell with `ha daemon start --service`, then retry the worker command.",
+    ].join(" "),
+  };
+}
 // These values belong to the invoking runtime worker or its provider launch,
 // not to the resident daemon that owns the shared socket.
 const daemonRuntimeScopedEnvironmentKeys = [
@@ -115,6 +129,7 @@ async function withAutostart(
   launch: () => DaemonLaunchSpec,
   socketPath: string,
   autostart: boolean,
+  env: NodeJS.ProcessEnv,
 ): Promise<JsonObject> {
   try {
     return await request();
@@ -123,6 +138,9 @@ async function withAutostart(
     const { DaemonAutostartError, ensureLocalDaemonRunning, isDaemonUnreachable } = await import(
       "../../../daemon/src/client/daemon-autostart.ts"
     );
+    const refusal = runtimeDaemonStartRefusal(env);
+    if (refusal && (isDaemonBuildStale(error) || isDaemonUnreachable(error)))
+      throw new DaemonAutostartError({ ok: false, ...refusal, attempts: 0 });
     if (isDaemonBuildStale(error)) {
       await waitForDaemonRestart(socketPath);
       const restarted = await ensureLocalDaemonRunning({
@@ -189,6 +207,7 @@ export async function runCommandThroughDaemon(
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
       autostart,
+      env,
     );
   }
   if (command.method.startsWith("daemon.runtimeInstance.")) {
@@ -213,6 +232,7 @@ export async function runCommandThroughDaemon(
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
       autostart,
+      env,
     );
   }
   const fleetSchedule = await fleetScheduleRoute(command, env);
@@ -249,6 +269,7 @@ export async function runCommandThroughDaemon(
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
       autostart,
+      env,
     );
   }
   const fleetTask = await fleetTaskRoute(command, env);
@@ -267,6 +288,7 @@ export async function runCommandThroughDaemon(
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
       autostart,
+      env,
     );
   }
   const fleetDoc = await fleetDocRoute(command, env);
@@ -285,6 +307,7 @@ export async function runCommandThroughDaemon(
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
       autostart,
+      env,
     );
   }
   const target = {
@@ -323,6 +346,7 @@ export async function runCommandThroughDaemon(
     () => cliDaemonServeLaunch(target.userRoot, target.daemonId),
     target.socketPath,
     autostart,
+    env,
   );
   result = await settleRepoWarming(result, request, target.userRoot, target.daemonId);
   if (command.action.kind !== "preset-run-start") return result;

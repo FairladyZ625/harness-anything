@@ -13,6 +13,7 @@ export interface DaemonLaunchSpec {
   readonly env: NodeJS.ProcessEnv;
 }
 export type DaemonAutostartFailureCode =
+  | "daemon_start_runtime_forbidden"
   | "daemon_spawn_not_found"
   | "daemon_spawn_permission"
   | "daemon_start_failed"

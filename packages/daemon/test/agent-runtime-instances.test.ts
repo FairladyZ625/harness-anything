@@ -7,6 +7,7 @@ import test from "node:test";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { credentialPort, runCredentialCommand } from "../src/agent-runtime-credential-port.ts";
 import { discoverRuntimeInstallations, openRuntimeInstanceStore, type RuntimeAuthReadiness, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { ensureSharedAuthFile } from "../src/agent-runtime-instance-storage.ts";
 import { daemonProtocolCommands, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
@@ -485,6 +486,27 @@ test("enforced instances link the operator's shared provider auth while generate
     assert.equal(lstatSync(claudeCredentials).isSymbolicLink(), true); assert.equal(readlinkSync(claudeCredentials), path.join(operatorHome, ".claude", ".credentials.json"));
     for (const receipt of [launch, login]) assert.doesNotMatch(JSON.stringify(receipt), /operator-login/u);
   } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("auth sharing rejects a source that is also its destination without replacing the credential", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-self-reference-")),
+    authFile = path.join(parent, "home", ".codex", "auth.json"),
+    contents = `{"tokens":"operator-login"}`;
+  try {
+    mkdirSync(path.dirname(authFile), { recursive: true });
+    writeFileSync(authFile, contents, { mode: 0o600 });
+    assert.throws(
+      () => ensureSharedAuthFile(authFile, path.join(parent, "home", ".codex", ".", "auth.json")),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { readonly code?: string }).code === "runtime_auth_share_self_reference" &&
+        /same path/u.test(error.message),
+    );
+    assert.equal(lstatSync(authFile).isSymbolicLink(), false, "the credential must remain a regular file");
+    assert.equal(readFileSync(authFile, "utf8"), contents, "the rejected link must not mutate the credential");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
 
 test("api-key instances never receive the operator's shared provider credentials", async () => {

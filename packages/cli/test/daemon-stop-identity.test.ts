@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { daemonPidPath, readDaemonPid } from "../../daemon/src/runtime.ts";
 
@@ -68,7 +69,84 @@ test("force refuses to signal a pid the daemon slot no longer claims", async () 
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
+test(
+  "force stopping the daemon leaves its detached runtime worker alive",
+  { skip: process.platform === "win32" ? "requires POSIX detached process-group semantics" : false },
+  async () => {
+    const fixture = await spawnRuntimeOwningDaemon();
+    try {
+      assert.equal(await alive(fixture.workerPid), true, "the runtime worker must be live before daemon stop");
+      const forced = run(fixture, ["daemon", "stop", "--force", "--json"]);
+      assert.equal(forced.ok, true, JSON.stringify(forced));
+      await waitForExit(fixture.daemonPid);
+      assert.equal(await alive(fixture.workerPid), true, "daemon stop must not signal the runtime worker process group");
+    } finally {
+      try {
+        process.kill(-fixture.workerPid, "SIGTERM");
+      } catch {
+        // The worker may have exited between the assertion and cleanup.
+      }
+      await cleanup(fixture);
+    }
+  },
+);
+
 interface Fixture { readonly parent: string; readonly userRoot: string; readonly daemonId: string; readonly daemonPid: number }
+interface RuntimeFixture extends Fixture { readonly workerPid: number }
+
+async function spawnRuntimeOwningDaemon(): Promise<RuntimeFixture> {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-stop-runtime-worker-")),
+    userRoot = path.join(parent, "user"),
+    daemonId = "runtime-worker",
+    rootDir = path.join(parent, "repo"),
+    workerPidPath = path.join(parent, "worker.pid"),
+    script = path.join(parent, "runtime-daemon.mjs"),
+    launcher = path.join(parent, "launcher.mjs"),
+    socketPath = localUserDaemonEndpoint(userRoot, daemonId),
+    pidPath = daemonPidPath(userRoot, daemonId),
+    runtimeModule = pathToFileURL(path.resolve("packages/daemon/src/runtime-spawn-process.ts")).href;
+  mkdirSync(userRoot, { recursive: true });
+  mkdirSync(path.dirname(socketPath), { recursive: true });
+  writeFileSync(
+    script,
+    `import net from "node:net";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { launchNative } from ${JSON.stringify(runtimeModule)};
+const [socketPath, pidPath, rootDir, workerPidPath] = process.argv.slice(2);
+const dispatchId = "dispatch_111111111111111111111111";
+const streamRoot = path.join(rootDir, ".harness", "runtime", "dispatches");
+mkdirSync(streamRoot, { recursive: true });
+writeFileSync(path.join(streamRoot, dispatchId + ".jsonl"), "{}\\n");
+const runtime = launchNative({ executablePath: process.execPath, args: ["-e", "setInterval(() => undefined, 60000)"], env: process.env, cwd: rootDir, prompt: "hold" }, { rootDir, dispatchId });
+writeFileSync(workerPidPath, String(runtime.pid));
+writeFileSync(pidPath, process.pid + "\\n");
+const server = net.createServer(() => undefined);
+server.listen(socketPath);
+process.on("SIGTERM", () => { server.close(); try { unlinkSync(socketPath); } catch {} try { unlinkSync(pidPath); } catch {} process.exit(0); });
+`,
+    "utf8",
+  );
+  writeFileSync(
+    launcher,
+    `import { spawn } from "node:child_process";
+const child = spawn(process.execPath, [${JSON.stringify(script)}, ...process.argv.slice(2)], { stdio: "ignore", detached: true, env: process.env });
+child.unref();
+`,
+    "utf8",
+  );
+  const nodeOptions = [process.env.NODE_OPTIONS, "--experimental-strip-types"].filter(Boolean).join(" "),
+    launched = spawnSync(process.execPath, [launcher, socketPath, pidPath, rootDir, workerPidPath], {
+      encoding: "utf8",
+      env: { ...process.env, NODE_OPTIONS: nodeOptions },
+      timeout: 10_000,
+    });
+  assert.equal(launched.status, 0, launched.stderr);
+  const daemonPid = await waitForPidFile(pidPath, socketPath),
+    workerPid = await waitForPidFile(workerPidPath);
+  return { parent, userRoot, daemonId, daemonPid, workerPid };
+}
+
 async function spawnLegacyDaemon(daemonId: string): Promise<Fixture> {
   const parent = mkdtempSync(path.join(tmpdir(), `ha-stop-${daemonId}-`)), userRoot = path.join(parent, "user");
   mkdirSync(userRoot, { recursive: true });
@@ -80,6 +158,7 @@ async function spawnLegacyDaemon(daemonId: string): Promise<Fixture> {
   // while it is blocked inside a synchronous CLI call.
   writeFileSync(launcher, `import { spawn } from "node:child_process";\nconst child = spawn(process.execPath, [${JSON.stringify(script)}, ...process.argv.slice(2)], { stdio: "ignore", detached: true });\nchild.unref();\n`, "utf8");
   const socketPath = localUserDaemonEndpoint(userRoot, daemonId);
+  mkdirSync(path.dirname(socketPath), { recursive: true });
   const launched = spawnSync(process.execPath, [launcher, daemonId === "wedge" ? "wedge" : "legacy", socketPath, daemonPidPath(userRoot, daemonId)], { encoding: "utf8", timeout: 10_000 });
   assert.equal(launched.status, 0, launched.stderr);
   const daemonPid = await new Promise<number>((resolve, reject) => {
@@ -129,6 +208,15 @@ function run(target: Target, args: readonly string[]): Record<string, unknown> {
 function socketAccepting(socketPath: string): Promise<boolean> { return new Promise((resolve) => { const socket = connect(socketPath); const settle = (ready: boolean) => { socket.removeAllListeners(); socket.destroy(); resolve(ready); }; socket.once("connect", () => settle(true)); socket.once("error", () => settle(false)); }); }
 async function alive(pid: number): Promise<boolean> { return new Promise((resolve) => { try { process.kill(pid, 0); resolve(true); } catch { resolve(false); } }); }
 async function waitForExit(pid: number): Promise<void> { for (let attempt = 0; attempt < 600; attempt += 1) { if (!(await alive(pid))) return; await new Promise((resolve) => setTimeout(resolve, 20)); } throw new Error(`process ${pid} did not exit`); }
+async function waitForPidFile(target: string, socketPath?: string): Promise<number> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const pid = existsSync(target) ? Number(readFileSync(target, "utf8")) : 0;
+    if (Number.isInteger(pid) && pid > 0 && (!socketPath || (await socketAccepting(socketPath)))) return pid;
+    if (Date.now() >= deadline) throw new Error(`process pid never appeared in ${target}`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
 async function cleanup(fixture: Fixture): Promise<void> {
   try { process.kill(fixture.daemonPid, "SIGKILL"); } catch { /* already gone */ }
   rmSync(daemonPidPath(fixture.userRoot, fixture.daemonId), { force: true });
