@@ -1,12 +1,12 @@
 // harness-test-tier: fast
 
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { DispatchCommandError, dispatchSentinelCommand, parseDispatchArgs, runDispatch, turnCompletedCountCommand } from "./dispatch-task.mjs";
+import { DispatchCommandError, parseDispatchArgs, runDispatch } from "./dispatch-task.mjs";
 
 const taskId = "task_receipt_truth", executionId = "exe_receipt_truth";
 const packagePath = "tasks/server-returned-path-no-guessed-slug";
@@ -22,12 +22,12 @@ function successfulRunner(workspaceRoot, overrides = {}) {
       return { command: ["ha", ...args], receipt: { ok: true, taskId, packagePath } };
     }
     if (step === "task-start") return { command: ["ha", ...args], receipt: { ok: true, taskId, executionId } };
-    return { command: ["ha", ...args], receipt: { ok: true, dispatchId, runtimeSessionId } };
+    return { command: ["ha", ...args], receipt: { ok: true, dispatchId, runtimeSessionId, nextAction: `ha runtime status ${runtimeSessionId} --wait` } };
   };
   return { calls, run };
 }
 
-test("dispatch driver walks create, returned package path, start, detach, and sentinel", () => {
+test("dispatch driver walks create, returned package path, start, detach, and foreground wait handoff", () => {
   const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-dry-"));
   const planFile = path.join(workspaceRoot, "caller-plan.md");
   writeFileSync(planFile, "# Caller-authored plan\n\nDo the bounded work.\n", "utf8");
@@ -43,11 +43,11 @@ test("dispatch driver walks create, returned package path, start, detach, and se
       { step: "task-start", args: ["task", "start", taskId] },
       { step: "runtime-run", args: ["runtime", "run", "codex-worker", "--task", taskId, "--detach"] },
     ]);
-    assert.deepEqual(receipt.steps.map((step) => step.step), ["task-create", "plan-write", "task-start", "runtime-run", "sentinel"]);
+    assert.deepEqual(receipt.steps.map((step) => step.step), ["task-create", "plan-write", "task-start", "runtime-run"]);
+    assert.equal(receipt.schema, "dispatch-task-receipt/v2");
     assert.equal(receipt.dispatchJsonlPath, path.join(workspaceRoot, ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`));
-    assert.equal(receipt.sentinelCommand, dispatchSentinelCommand(receipt.dispatchJsonlPath));
-    assert.match(receipt.sentinelCommand, /turn\.completed/u);
-    assert.match(receipt.sentinelCommand, /\) &$/u);
+    assert.equal(receipt.nextAction, `ha runtime status ${runtimeSessionId} --wait`);
+    assert.equal("sentinelCommand" in receipt, false);
   } finally {
     rmSync(workspaceRoot, { recursive: true, force: true });
   }
@@ -102,18 +102,38 @@ test("lifecycle rejection is rethrown unchanged and runtime is not dispatched", 
   }
 });
 
-test("turn.completed count is one clean integer for zero matches and a missing file", { skip: process.platform === "win32" ? "requires POSIX shell command semantics emitted by the sentinel" : false }, () => {
-  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-sentinel-"));
-  const emptyPath = path.join(directory, "empty.jsonl"), missingPath = path.join(directory, "missing.jsonl");
-  writeFileSync(emptyPath, `${JSON.stringify({ type: "thread.started" })}\n`, "utf8");
+test("runtime receipt without nextAction stops instead of recreating a shell monitor", () => {
+  const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-no-next-"));
+  const planFile = path.join(workspaceRoot, "plan.md");
+  writeFileSync(planFile, "# Plan\n", "utf8");
+  const fixture = successfulRunner(workspaceRoot, {
+    "runtime-run": ({ args }) => ({ command: ["ha", ...args], receipt: { ok: true, dispatchId, runtimeSessionId } }),
+  });
   try {
-    for (const target of [emptyPath, missingPath]) {
-      const result = spawnSync("sh", ["-c", turnCompletedCountCommand(target)], { encoding: "utf8" });
-      assert.equal(result.status, 0, result.stderr);
-      assert.equal(result.stdout, "0\n");
-    }
-    writeFileSync(emptyPath, `${JSON.stringify({ event: { type: "turn.completed" } })}\n`, "utf8");
-    assert.equal(spawnSync("sh", ["-c", turnCompletedCountCommand(emptyPath)], { encoding: "utf8" }).stdout, "1\n");
+    assert.throws(
+      () => runDispatch({ planFile, preset: "standard-task", title: "Missing next action", instance: "codex-worker" }, { workspaceRoot, run: fixture.run }),
+      /runtime run receipt has no nextAction/u,
+    );
+    assert.equal(fixture.calls.at(-1).step, "runtime-run");
+  } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("returned completion action cannot orphan a background shell", { skip: process.platform === "win32" ? "requires POSIX process-table and shell semantics" : false }, () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-wait-"));
+  const planFile = path.join(directory, "plan.md"), bin = path.join(directory, "bin"), ha = path.join(bin, "ha");
+  writeFileSync(planFile, "# Plan\n", "utf8");
+  mkdirSync(bin);
+  writeFileSync(ha, "#!/usr/bin/env node\nprocess.exit(0);\n", "utf8");
+  chmodSync(ha, 0o755);
+  const fixture = successfulRunner(directory);
+  try {
+    const receipt = runDispatch({ planFile, preset: "standard-task", title: "Wait handoff", instance: "codex-worker" }, { workspaceRoot: directory, run: fixture.run });
+    assert.deepEqual(processRowsContaining(runtimeSessionId), []);
+    const result = spawnSync("sh", ["-c", receipt.nextAction], { encoding: "utf8", env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` } });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(processRowsContaining(runtimeSessionId), []);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -127,3 +147,9 @@ test("CLI arguments and help expose exactly the supported judgment inputs", () =
   assert.throws(() => parseDispatchArgs(["--plan-file", "plan.md", "--preset", "standard-task", "--title", "Dispatch"]), /Usage:/u);
   assert.throws(() => parseDispatchArgs(["--plan-file", "plan.md", "--preset", "standard-task", "--title", "Dispatch", "--instance", "one", "--instance", "two"]), /may be supplied once/u);
 });
+
+function processRowsContaining(marker) {
+  return spawnSync("ps", ["-axo", "pid=,ppid=,comm=,command="], { encoding: "utf8" }).stdout
+    .split(/\r?\n/u)
+    .filter((line) => line.includes(marker));
+}

@@ -72,20 +72,6 @@ function receiptText(receipt, field, step) {
   return value;
 }
 
-function shellQuote(value) {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
-
-export function turnCompletedCountCommand(jsonlPath) {
-  const target = shellQuote(jsonlPath);
-  return `if [ -f ${target} ]; then grep -c '"type":"turn.completed"' ${target} || true; else printf '0\\n'; fi`;
-}
-
-export function dispatchSentinelCommand(jsonlPath) {
-  const target = shellQuote(jsonlPath), count = turnCompletedCountCommand(jsonlPath);
-  return `(while :; do completed=$(${count}); if [ "$completed" -gt 0 ]; then printf '%s\\n' ${target}; break; fi; sleep 5; done) &`;
-}
-
 export function runDispatch(input, dependencies = {}) {
   const callerCwd = dependencies.cwd ?? process.cwd();
   const workspaceRoot = dependencies.workspaceRoot ?? findWorkspaceRoot();
@@ -117,11 +103,10 @@ export function runDispatch(input, dependencies = {}) {
   const dispatched = invoke("runtime-run", runtimeArgs);
   const dispatchId = receiptText(dispatched, "dispatchId", "runtime run");
   const runtimeSessionId = receiptText(dispatched, "runtimeSessionId", "runtime run");
+  const nextAction = receiptText(dispatched, "nextAction", "runtime run");
   const dispatchJsonlPath = path.join(workspaceRoot, ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`);
-  const sentinelCommand = dispatchSentinelCommand(dispatchJsonlPath);
-  steps.push({ step: "sentinel", path: dispatchJsonlPath, command: sentinelCommand });
 
-  return { schema: "dispatch-task-receipt/v1", ok: true, taskId, executionId, packagePath, planPath, dispatchId, runtimeSessionId, dispatchJsonlPath, sentinelCommand, steps };
+  return { schema: "dispatch-task-receipt/v2", ok: true, taskId, executionId, packagePath, planPath, dispatchId, runtimeSessionId, dispatchJsonlPath, nextAction, steps };
 }
 
 function main() {
