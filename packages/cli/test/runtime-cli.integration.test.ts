@@ -376,7 +376,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       attemptIndex: 0,
       provider: { instance: "cli-worker", model: "runtime-test-model" },
       classification: "worker_stop",
-      reason: "Worker reached a normal attempt boundary.",
+      reason: "Worker completed the attempt successfully.",
     });
     assert.match(String(boundDispatch.startedAt), /^\d{4}-\d{2}-\d{2}T/u);
     assert.match(String(boundDispatch.endedAt), /^\d{4}-\d{2}-\d{2}T/u);
