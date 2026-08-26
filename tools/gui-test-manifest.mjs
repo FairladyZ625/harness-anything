@@ -44,5 +44,6 @@ export const guiVitestManifest = [
   "packages/gui/test/recent-refs.vitest.ts",
   "packages/gui/test/task-detail-expression.vitest.ts",
   "packages/gui/test/gui-w6-ledger-read-shape.vitest.ts",
-  "packages/gui/test/gui-w6-truncation-visibility.vitest.ts"
+  "packages/gui/test/gui-w6-truncation-visibility.vitest.ts",
+  "packages/gui/test/system-group-widescreen.vitest.ts",
 ];
