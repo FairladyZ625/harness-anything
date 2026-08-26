@@ -68,12 +68,14 @@ export function taskMutation(
     if (terminalExecutionId !== null && terminalExecutionId !== activeLease.executionId)
       throw cell.cellCodedError(
         "runtime_terminal_superseded",
-        `Runtime terminal settlement belongs to ${terminalExecutionId}; ${activeLease.executionId} now holds the lease.`,
+        `Runtime terminal settlement belongs to ${terminalExecutionId}; ` +
+          `${activeLease.executionId} now holds the lease.`,
       );
     if (action.kind === "task-fallback-exhausted" && action.executionId !== activeLease.executionId)
       throw cell.cellCodedError(
         "lease_conflict",
-        `Fallback exhaustion belongs to ${String(action.executionId)}, but ${activeLease.executionId} holds the lease.`,
+        `Fallback exhaustion belongs to ${String(action.executionId)}, ` +
+          `but ${activeLease.executionId} holds the lease.`,
       );
     const execution = snapshot.executions.find((value) => value.executionId === activeLease.executionId),
       terminalRuntimeBinding =
@@ -390,9 +392,8 @@ function terminalExecutionRuntimeBinding(
             .map((stream) => stream.header.runtimeSessionId),
         )
       : null;
-  const sessions = [...(cell.projection.readRuntimeSessionsForTask(lease.taskId) as readonly RuntimeSession[])].sort(
-    (left, right) => right.lastObservedAt.localeCompare(left.lastObservedAt),
-  );
+  const taskSessions = cell.projection.readRuntimeSessionsForTask(lease.taskId) as readonly RuntimeSession[];
+  const sessions = [...taskSessions].sort((left, right) => right.lastObservedAt.localeCompare(left.lastObservedAt));
   for (const session of sessions) {
     if (runtimeSessionId !== null && session.runtimeSessionId !== runtimeSessionId) continue;
     if (inferredTerminalSessionIds !== null && !inferredTerminalSessionIds.has(session.runtimeSessionId)) continue;
