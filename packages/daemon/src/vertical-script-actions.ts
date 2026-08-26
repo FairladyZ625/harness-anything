@@ -48,6 +48,9 @@ export async function executeVerticalScriptAction(input: ExecutionInput): Promis
   const testPermissions = blocker ? [`--allow-fs-read=${blocker}`, `--allow-fs-write=${blocker}.started`] : [],
     childEnvironment = {
       PATH: process.env.PATH,
+      // When the daemon itself runs inside Electron (GUI-launched), process.execPath is the Electron
+      // binary; without this flag Electron opens the script as an app instead of running it as node.
+      ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
       ...(blocker ? { HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker } : {}),
     };
   const stdout = await runProcessTextAsync(
