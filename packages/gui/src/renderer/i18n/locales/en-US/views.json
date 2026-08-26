@@ -382,7 +382,6 @@
   "schedules.claimNode": "owner",
   "schedules.lastOutcome": "last",
   "schedules.missedCount": "missed {count}",
-  "schedules.openAgent": "Open Agent →",
   "schedules.action.enable": "Arm",
   "schedules.action.disable": "Pause",
   "schedules.action.runNow": "Run now",

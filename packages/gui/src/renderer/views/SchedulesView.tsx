@@ -296,19 +296,27 @@ function ScheduleInspector({
           <Field label={t("schedules.fields.timezone")} value={row.trigger.timezone ?? "—"} />
           <Field label={t("schedules.fields.definitionRevision")} value={String(row.definitionRevision)} />
           <Field label={t("schedules.fields.updatedAt")} value={time(row.updatedAt)} />
-          <Field label={t("schedules.fields.agent")} value={row.target.agentId} />
-          <Field label={t("schedules.fields.instance")} value={row.target.runtimeInstanceId} />
           <Field label={t("schedules.fields.model")} value={row.target.model ?? "—"} />
           <Field label={t("schedules.fields.cwd")} value={row.target.cwd ?? "—"} />
         </FieldGrid>
-        <div className="mt-2">
+        {/* G10: every displayed entity id is the path to that entity — the agent and
+            runtime-instance ids render as activatable links, never dead text. */}
+        <div className="mt-2 flex flex-wrap gap-3">
           <button
             type="button"
             data-testid={`schedule-agent-link-${row.target.agentId}`}
             onClick={() => onSelectEntity(`agent/${row.target.agentId}`)}
             className="font-mono text-[11px] text-accent hover:underline"
           >
-            {t("schedules.openAgent")}
+            {t("schedules.fields.agent")}: {row.target.agentId}
+          </button>
+          <button
+            type="button"
+            data-testid={`schedule-instance-link-${row.target.runtimeInstanceId}`}
+            onClick={() => onSelectEntity(`provider/${row.target.runtimeInstanceId}`)}
+            className="font-mono text-[11px] text-accent hover:underline"
+          >
+            {t("schedules.fields.instance")}: {row.target.runtimeInstanceId}
           </button>
         </div>
         <p className="mt-2 whitespace-pre-wrap text-[11.5px] leading-relaxed text-text-muted">{row.mission}</p>

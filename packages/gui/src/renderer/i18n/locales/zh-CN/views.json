@@ -382,7 +382,6 @@
   "schedules.claimNode": "占用节点",
   "schedules.lastOutcome": "上次",
   "schedules.missedCount": "错过 {count}",
-  "schedules.openAgent": "打开 Agent →",
   "schedules.action.enable": "布防",
   "schedules.action.disable": "暂停",
   "schedules.action.runNow": "立即运行",
