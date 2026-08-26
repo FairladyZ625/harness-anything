@@ -65,7 +65,10 @@ export function SquadRunDetail({
             entityRef={`task/${run.taskId}`}
             onNavigate={(ref) => onOpenTask(ref.slice("task/".length))}
             title={run.taskId}
-            className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10.5px] text-text-muted hover:border-accent hover:text-accent"
+            className={[
+              "shrink-0 rounded border border-border px-1.5 py-0.5 text-[10.5px] text-text-muted",
+              "hover:border-accent hover:text-accent",
+            ].join(" ")}
           >
             {t("agentRuntime.sessionsTaskDetail")} ↗
           </EntityRefLink>
