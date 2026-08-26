@@ -1,14 +1,14 @@
 /** @daemon-transport-authority Transport-bound repository-mode admission. */
 import { readDaemonRegistry, type WriteSource } from "../../kernel/src/index.ts";
+import type { CommandTopology } from "../../preset/src/preset-command-contract.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
-import type { DaemonCommandClass } from "./identity/types.ts";
 import { admitRepoMode, type RepoModeAdmission } from "./repo-mode.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 
 export function admitHostMode(
   context: any,
   repoId: string,
-  commandClass: DaemonCommandClass,
+  command: CommandTopology,
   auth: DaemonAuthenticationContext,
 ): RepoModeAdmission {
   const persisted = readDaemonRegistry({
@@ -28,7 +28,7 @@ export function admitHostMode(
         assignmentId: auth.assignmentBinding.assignmentId,
       }
     : "local";
-  return admitRepoMode(persisted?.mode ?? fallback!.mode!, commandClass, source);
+  return admitRepoMode(persisted?.mode ?? fallback!.mode!, command, source);
 }
 
 export function localCenterProjectionRepair(
@@ -49,10 +49,10 @@ export function localCenterProjectionRepair(
 export function requireHostMode(
   context: any,
   repoId: string,
-  commandClass: DaemonCommandClass,
+  command: CommandTopology,
   auth: DaemonAuthenticationContext,
 ): void {
-  const admission = context.admitHostMode(repoId, commandClass, auth);
+  const admission = context.admitHostMode(repoId, command, auth);
   if (!admission.ok) throw context.hostCodedError(admission.code, admission.nextAction);
 }
 

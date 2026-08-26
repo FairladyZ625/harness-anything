@@ -54,31 +54,7 @@ export const effectiveDaemonOwnedProtocolCommands = Object.freeze(
             }),
           ],
         })
-      : command.id === "task-start"
-        ? defineCliCommand({
-            ...command,
-            inputs: [
-              cliInput("--execution-id", "single", false, {
-                code: "invalid_field",
-                nextAction: "Use one execution id, or omit it for deterministic allocation.",
-              }),
-              cliInput(
-                "--ttl-ms",
-                "single",
-                false,
-                {
-                  code: "invalid_field",
-                  nextAction: "Use a positive lease duration in milliseconds.",
-                },
-                { regex: "^[1-9][0-9]*$" },
-              ),
-              cliInput("--dry-run", "boolean", false, {
-                code: "invalid_field",
-                nextAction: "Use --dry-run once to preview lease admission.",
-              }),
-            ],
-          })
-        : command,
+      : command,
   ),
 );
 
@@ -230,13 +206,17 @@ export function resolveThinCliCommand(args: readonly string[]): (typeof daemonPr
   );
 }
 
-export function commandClassForAction(kind: string): "repo-read" | "repo-write" | "arbiter" | "admin" {
+export function commandDescriptorForAction(kind: string) {
   const descriptor =
     daemonProtocolCommands.find((entry) => ("actionKind" in entry ? entry.actionKind : entry.id) === kind) ??
     presetMethods.find((entry) => entry.actionKind === kind);
   if (!descriptor)
     throw new DaemonProtocolContractError("unsupported_command", `No command descriptor exists for ${kind}.`);
-  return descriptor.commandClass;
+  return descriptor;
+}
+
+export function commandClassForAction(kind: string): "repo-read" | "repo-write" | "arbiter" | "admin" {
+  return commandDescriptorForAction(kind).commandClass;
 }
 
 export function actionForDaemonMethod(method: string, payload: JsonObject): JsonObject & { readonly kind: string } {

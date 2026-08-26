@@ -1,13 +1,16 @@
-import { cliInput, defineCliCommand } from "../../../preset/src/preset-command-contract.ts";
+import {
+  cliInput,
+  defineLedgerWriteCommand,
+  defineRepoReadCommand,
+} from "../../../preset/src/preset-command-contract.ts";
 
 export const decisionRelationProtocolCommands = Object.freeze([
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "decision-claim-add",
     phase: "DecisionFact-B",
     path: ["decision", "claim", "add", "<id>"],
     summary: "Append a Decision claim.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput(
         "--id",
@@ -29,13 +32,12 @@ export const decisionRelationProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "decision-claim-fulfill",
     phase: "DecisionFact-B",
     path: ["decision", "claim", "fulfill", "<id>"],
     summary: "Declare a claim fulfillment mode.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput(
         "--id",
@@ -59,13 +61,12 @@ export const decisionRelationProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "decision-relate",
     phase: "DecisionFact-B",
     path: ["decision", "relate", "<id>"],
     summary: "Append a Decision-owned relation.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--anchor", "single", true, {
         code: "invalid_field",
@@ -91,13 +92,12 @@ export const decisionRelationProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "decision-relation-retire",
     phase: "DecisionFact-B",
     path: ["decision", "relation", "retire", "<id>"],
     summary: "Retire a Decision-owned relation while preserving the old edge.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput(
         "--relation",
@@ -121,13 +121,12 @@ export const decisionRelationProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "decision-relation-replace",
     phase: "DecisionFact-B",
     path: ["decision", "relation", "replace", "<id>"],
     summary: "Atomically retire one hosted relation and append its deterministic replacement.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput(
         "--relation",
@@ -171,13 +170,12 @@ export const decisionRelationProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "decision-reckon",
     phase: "DecisionFact-B",
     path: ["decision", "reckon", "<id>"],
     summary: "Record coverage at the exact projected basis revision.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--task", "single", true, {
         code: "missing_field",
@@ -185,13 +183,12 @@ export const decisionRelationProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "decision-list",
     phase: "DecisionFact-B",
     path: ["decision", "list"],
     summary: "List the canonical Decision projection without authored prose.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput("--search", "single", false, {
         code: "invalid_field",
@@ -236,13 +233,12 @@ export const decisionRelationProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "decision-show",
     phase: "DecisionFact-B",
     path: ["decision", "show", "<id>"],
     summary: "Show one canonical Decision by id or E-number.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput("--include-body", "boolean", false, {
         code: "invalid_field",
@@ -250,13 +246,12 @@ export const decisionRelationProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "distill-candidate",
     phase: "DecisionFact-B",
     path: ["distill", "candidate"],
     summary: "Create a generated, non-canonical candidate artifact from a task evidence file; no Fact is written.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--task", "single", true, {
         code: "missing_field",
@@ -268,13 +263,12 @@ export const decisionRelationProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "distill-promote",
     phase: "DecisionFact-B",
     path: ["distill", "promote"],
     summary: "Promote one validated candidate claim through the canonical immutable Fact write path.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--task", "single", true, {
         code: "missing_field",

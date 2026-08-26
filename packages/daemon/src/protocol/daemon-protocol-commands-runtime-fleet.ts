@@ -1,7 +1,12 @@
-import { cliInput, defineCliCommand } from "../../../preset/src/preset-command-contract.ts";
+import {
+  cliInput,
+  defineHostAdminCommand,
+  defineRepoReadCommand,
+  defineRuntimeLocalWriteCommand,
+} from "../../../preset/src/preset-command-contract.ts";
 
 export const runtimeFleetProtocolCommands = Object.freeze([
-  defineCliCommand({
+  defineRuntimeLocalWriteCommand({
     id: "runtime-run",
     phase: "Runtime-B",
     path: ["runtime", "run", "<instance-id>"],
@@ -13,7 +18,6 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       "ha runtime status --task <task-id> --wait.",
     ].join(""),
     method: "repo.agentRuntime.spawn",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--agent", "single", false, {
         code: "invalid_field",
@@ -100,7 +104,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineRuntimeLocalWriteCommand({
     id: "runtime-batch",
     phase: "Runtime-B",
     path: ["runtime", "batch", "<batch-file>"],
@@ -109,16 +113,14 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       "dispatches and wait for every entry to settle.",
     ].join(""),
     method: "repo.agentRuntime.spawn",
-    commandClass: "repo-write",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "runtime-status",
     phase: "Runtime-B",
     path: ["runtime", "status", "[<runtime-session-id>]"],
     summary: "List runtime sessions, show one session, or use --wait to stream and wait for its final result.",
     method: "repo.agentRuntime.overview",
-    commandClass: "repo-read",
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
@@ -134,22 +136,20 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineRuntimeLocalWriteCommand({
     id: "runtime-cancel",
     phase: "Runtime-B",
     path: ["runtime", "cancel", "<runtime-session-id>"],
     summary: "Idempotently cancel a runtime session.",
     method: "repo.agentRuntime.cancel",
-    commandClass: "repo-write",
     inputs: [],
   }),
-  defineCliCommand({
+  defineHostAdminCommand({
     id: "daemon-stop",
     phase: "W3",
     path: ["daemon", "stop"],
     summary: "Stop the resident daemon.",
     method: "protocol.hello",
-    commandClass: "admin",
     inputs: [
       cliInput("--force", "boolean", false, {
         code: "invalid_field",
@@ -160,13 +160,12 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineHostAdminCommand({
     id: "daemon-fleet-center-start",
     phase: "Fleet-Wiring",
     path: ["daemon", "fleet", "center", "start"],
     summary: "Start the daemon-owned fleet TLS center serving the authoritative ledger to admitted edge nodes.",
     method: "daemon.fleet.center.start",
-    commandClass: "admin",
     inputs: [
       cliInput(
         "--port",
@@ -214,13 +213,12 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineHostAdminCommand({
     id: "daemon-fleet-edge-sync",
     phase: "Fleet-Wiring",
     path: ["daemon", "fleet", "edge", "sync"],
     summary: "Mirror the fleet center ledger into the registered workspace harness over verified TLS.",
     method: "daemon.fleet.edge.sync",
-    commandClass: "admin",
     inputs: [
       cliInput("--host", "single", true, {
         code: "missing_field",
@@ -276,8 +274,9 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       ),
       cliInput("--view-root", "single", true, {
         code: "missing_field",
-        nextAction: "Edge sync requires --view-root for transport state;"
-          + " ledger files materialize in the registered workspace harness.",
+        nextAction:
+          "Edge sync requires --view-root for transport state;" +
+          " ledger files materialize in the registered workspace harness.",
       }),
       cliInput(
         "--quota-bytes",

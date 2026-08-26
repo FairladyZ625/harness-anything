@@ -1,4 +1,5 @@
 import { readDaemonRegistry } from "../../kernel/src/index.ts";
+import { ledgerWriteCommandTopology, repoReadCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import type { DaemonHost } from "./daemon-host.ts";
 import {
   startFleetCenterAdmission,
@@ -7,7 +8,7 @@ import {
   type FleetEdgeSyncRequest,
 } from "./fleet-center-admission.ts";
 import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
-import { canonicalRoot } from "./protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
 export function createDaemonHostRuntimeApi(
@@ -27,14 +28,14 @@ export function createDaemonHostRuntimeApi(
 > {
   return {
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => {
-      context.requireHostMode(repoId, "repo-read", auth);
+      context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       await context.binding(cell.status().rootDir, auth, "repo-read");
       return cell.attach(runtimeSessionId, afterCursor);
     },
     spawnRuntime: async (repoId, payload, auth) => {
-      context.requireHostMode(repoId, "repo-write", auth);
+      context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
         { executor: declared, ...intent } = payload,
@@ -45,7 +46,7 @@ export function createDaemonHostRuntimeApi(
       );
     },
     cancelRuntime: async (repoId, payload, auth) => {
-      context.requireHostMode(repoId, "repo-write", auth);
+      context.requireHostMode(repoId, commandDescriptorForAction("runtime-cancel"), auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
         { executor: declared, ...intent } = payload,
@@ -56,13 +57,13 @@ export function createDaemonHostRuntimeApi(
       );
     },
     runtimeIngress: async (repoId, action, auth) => {
-      context.requireHostMode(repoId, "repo-write", auth);
+      context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       return cell.runtimeIngress(action, await context.binding(cell.status().rootDir, auth, "repo-write"));
     },
     terminalAttach: async (repoId, sessionId, afterSeq, auth) => {
-      context.requireHostMode(repoId, "repo-read", auth);
+      context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       await context.binding(cell.status().rootDir, auth, "repo-read");
@@ -70,8 +71,9 @@ export function createDaemonHostRuntimeApi(
     },
     terminalAction: async (repoId, method, payload, auth) => {
       const commandClass =
-        method === "repo.gui.catalog.reread" || method === "repo.terminal.detach" ? "repo-read" : "repo-write";
-      context.requireHostMode(repoId, commandClass, auth);
+          method === "repo.gui.catalog.reread" || method === "repo.terminal.detach" ? "repo-read" : "repo-write",
+        commandTopology = commandClass === "repo-read" ? repoReadCommandTopology : ledgerWriteCommandTopology;
+      context.requireHostMode(repoId, commandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
         serverBinding = await context.binding(cell.status().rootDir, auth, commandClass);
@@ -181,7 +183,7 @@ export function createDaemonHostRuntimeApi(
       })) as JsonObject;
     },
     runtimeInstanceAuth: async (repoId, method, payload, auth) => {
-      context.requireHostMode(repoId, "repo-write", auth);
+      context.requireHostMode(repoId, ledgerWriteCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
         serverBinding = await context.binding(cell.status().rootDir, auth, "repo-write");

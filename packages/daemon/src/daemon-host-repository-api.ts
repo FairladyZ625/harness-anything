@@ -11,8 +11,13 @@ import {
   presetUserRoot,
   recoverPresetRunStatus,
 } from "../../preset/src/index.ts";
+import { repoReadCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import type { DaemonHost } from "./daemon-host.ts";
-import { commandClassForAction, type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts";
+import {
+  commandClassForAction,
+  commandDescriptorForAction,
+  type DaemonGuiReadResultMap,
+} from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { openRepoCell, type RepoCell, type RepoTaskAction } from "./repo-cell.ts";
@@ -197,11 +202,10 @@ export function createDaemonHostRepositoryApi(
       };
     },
     run: async (repoId, action, auth) => {
-      const commandClass = commandClassForAction(action.kind),
+      const command = commandDescriptorForAction(action.kind),
+        commandClass = command.commandClass,
         projectionRepair = context.localCenterProjectionRepair(repoId, action.kind, auth),
-        modeAdmission = projectionRepair
-          ? { ok: true, code: "repo_mode_admitted", nextAction: "Continue." }
-          : context.admitHostMode(repoId, commandClass, auth);
+        modeAdmission = context.admitHostMode(repoId, command, auth);
       if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
@@ -251,11 +255,8 @@ export function createDaemonHostRepositoryApi(
     },
     replica: (repoId) => context.requiredCell(context.cells, context.warming, context.unavailable, repoId).replica,
     presetRun: async (repoId, action, auth) => {
-      const hostAdmission = context.admitHostMode(
-        repoId,
-        action.kind === "preset-run-status" ? "repo-read" : "repo-write",
-        auth,
-      );
+      const command = commandDescriptorForAction(action.kind),
+        hostAdmission = context.admitHostMode(repoId, command, auth);
       if (!hostAdmission.ok)
         return context.rejectPresetRun(
           typeof action.runId === "string" ? action.runId : "run_invalid",
@@ -310,7 +311,7 @@ export function createDaemonHostRepositoryApi(
       }
     },
     read: async (repoId, method, payload, auth) => {
-      context.requireHostMode(repoId, "repo-read", auth);
+      context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
       if (!cell)

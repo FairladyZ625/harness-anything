@@ -1,22 +1,25 @@
-import { cliInput, defineCliCommand } from "../../../preset/src/preset-command-contract.ts";
+import {
+  defineCenterForwardWriteCommand,
+  cliInput,
+  defineLedgerWriteCommand,
+  defineRepoReadCommand,
+} from "../../../preset/src/preset-command-contract.ts";
 
 export const taskSurfaceProtocolCommands = Object.freeze([
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "task-dispatches",
     phase: "Runtime-B",
     path: ["task", "dispatches", "<task-id>"],
     summary: "List current and historical runtime dispatches associated with a Task.",
     method: "repo.task.dispatches",
-    commandClass: "repo-read",
     inputs: [],
   }),
-  defineCliCommand({
+  defineCenterForwardWriteCommand({
     id: "task-release",
     phase: "W3",
     path: ["task", "release", "<task-id>"],
     summary: "Release the authenticated holder lease and preserve the Execution audit trail.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--reason", "single", false, {
         code: "invalid_field",
@@ -24,13 +27,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-declare-executor",
     phase: "W3",
     path: ["task", "declare-executor", "<task-id>"],
     summary: "Auditably declare the agent executor omitted from a submitted Execution at the review node.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--execution-id", "single", false, {
         code: "invalid_field",
@@ -42,13 +44,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-transition",
     phase: "W3",
     path: ["task", "transition", "<task-id>", "<planned|active|blocked|in_review|done|cancelled>"],
     summary: "Move lifecycle status; done and in_review remain reserved for complete and submit.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--force", "boolean", false, {
         code: "invalid_field",
@@ -61,13 +62,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-amend",
     phase: "W3",
     path: ["task", "amend", "<task-id>"],
     summary: "Amend declared task prose or metadata without changing lifecycle authority.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput(
         "--set",
@@ -81,31 +81,28 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-pin",
     phase: "W3",
     path: ["task", "pin", "<task-id>"],
     summary: "Pin a task to the front of its agenda group.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-unpin",
     phase: "W3",
     path: ["task", "unpin", "<task-id>"],
     summary: "Remove a task pin so its agenda group uses the standard order.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-contract-migrate",
     phase: "W3",
     path: ["task", "contract", "migrate"],
     summary: "Plan or apply deterministic Task contract backfills; ambiguous Tasks remain manual.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
@@ -121,13 +118,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-archive",
     phase: "W3",
     path: ["task", "archive", "[<task-id>]"],
     summary: "Archive selected Task packages while retaining their evidence and lifecycle history.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--ids", "single", false, {
         code: "invalid_field",
@@ -160,13 +156,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-supersede",
     phase: "W3",
     path: ["task", "supersede", "<old-task-id>"],
     summary: "Archive old work and preserve an explicit replacement lineage.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--title", "single", false, {
         code: "invalid_field",
@@ -204,13 +199,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-delete",
     phase: "W3",
     path: ["task", "delete"],
     summary: "Soft-delete through production authority; hard delete remains rejected with a repair path.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--soft", "single", false, {
         code: "invalid_field",
@@ -234,13 +228,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-reopen",
     phase: "W3",
     path: ["task", "reopen", "<task-id>"],
     summary: "Reopen a nonterminal archived or tombstoned Task package.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--reason", "single", true, {
         code: "missing_field",
@@ -248,13 +241,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "task-review",
     phase: "W3",
     path: ["task", "review", "<task-id>"],
     summary: "Lint the legacy review contract without approving completion.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput("--reviewer", "single", false, {
         code: "invalid_field",
@@ -262,13 +254,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "task-list",
     phase: "W3",
     path: ["task", "list"],
     summary: "List Task projection rows with canonical lifecycle and metadata filters.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput(
         "--status",
@@ -320,13 +311,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "relation-list",
     phase: "W3",
     path: ["relation", "list"],
     summary: "Query Task, Decision, and Fact relation edges from the converged projection.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput("--entity", "single", false, {
         code: "invalid_field",
@@ -356,13 +346,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-relate",
     phase: "W3",
     path: ["task", "relate", "<source-task-id>", "depends-on", "<target-task-id>"],
     summary: "Declare a cycle-checked depends-on edge owned by the source Task.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--rationale", "single", true, {
         code: "missing_field",

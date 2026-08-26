@@ -415,6 +415,7 @@ export default Object.freeze({
 export {
   actionForDaemonMethod,
   commandClassForAction,
+  commandDescriptorForAction,
   daemonProtocolCommands,
   resolveThinCliCommand,
   thinCliCommands,

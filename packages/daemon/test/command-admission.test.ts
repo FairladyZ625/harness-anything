@@ -1,0 +1,38 @@
+// harness-test-tier: contract
+import assert from "node:assert/strict";
+import test from "node:test";
+import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
+import { daemonRepoModeWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
+import { admitRepoMode } from "../src/repo-mode.ts";
+
+const localSource = "local" as const;
+const assignmentSource = { kind: "assignment", nodeId: "edge-one", assignmentId: "assignment-one" } as const;
+const admissionRoutes = new Set(["direct", "via-assignment", "via-center-forward", "rejected"]);
+
+test("all 117 daemon commands close every repo-mode admission cell", () => {
+  assert.equal(daemonProtocolCommands.length, 117);
+  let cells = 0;
+  for (const command of daemonProtocolCommands) {
+    assert.deepEqual(Object.keys(command.admission).sort(), [...daemonRepoModeWords].sort(), command.id);
+    for (const mode of daemonRepoModeWords) {
+      cells += 1;
+      const route = command.admission[mode];
+      assert.equal(admissionRoutes.has(route), true, `${command.id} ${mode} ${route}`);
+      const direct = admitRepoMode(mode, command, localSource),
+        assigned = admitRepoMode(mode, command, assignmentSource);
+      if (route === "direct") {
+        assert.equal(direct.ok, true, `${command.id} ${mode} direct fixture`);
+      } else if (route === "via-assignment") {
+        assert.equal(direct.ok, false, `${command.id} ${mode} requires assignment`);
+        assert.equal(assigned.ok, true, `${command.id} ${mode} assignment fixture`);
+      } else if (route === "via-center-forward") {
+        assert.equal(direct.ok, false, `${command.id} ${mode} forwards instead of executing locally`);
+        assert.match(direct.nextAction, /forward/iu, command.id);
+      } else {
+        assert.equal(direct.ok, false, `${command.id} ${mode} explicitly rejected`);
+        assert.equal(assigned.ok, false, `${command.id} ${mode} explicitly rejected for assignments`);
+      }
+    }
+  }
+  assert.equal(cells, 117 * 3);
+});

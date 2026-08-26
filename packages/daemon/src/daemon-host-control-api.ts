@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readDaemonRegistry } from "../../kernel/src/index.ts";
+import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 
@@ -117,7 +118,7 @@ export function createDaemonHostControlApi(
       };
     },
     issueRuntimeWitness: async (repoId, runtimeSessionId, auth) => {
-      context.requireHostMode(repoId, "repo-write", auth);
+      context.requireHostMode(repoId, ledgerWriteCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
         serverBinding = await context.binding(cell.status().rootDir, auth, "repo-write");
