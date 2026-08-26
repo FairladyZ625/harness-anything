@@ -11,6 +11,11 @@ import {
   parseDaemonGuiReadResult,
 } from "../../../daemon/src/protocol/gui-result-validation.ts";
 import { ensureLocalDaemonRunning, isDaemonUnreachable } from "../../../daemon/src/client/daemon-autostart.ts";
+import {
+  daemonIdFromEnv,
+  daemonUserRoot,
+  resolveLocalDaemonEndpoint,
+} from "../../../daemon/src/client/local-daemon-target.ts";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { daemonServeLaunch, type PackagedRuntime } from "./daemon-serve-launch.ts";
@@ -79,7 +84,7 @@ async function request(
       scoped = route.requiresRepo ? repoPayload(payload) : null;
     const target = scoped
       ? daemon.resolveLocalDaemonTarget({ rootDir, repoIdOverride: scoped.repoId })
-      : daemon.resolveLocalDaemonTarget({ rootDir });
+      : globalTarget();
     const daemonPayload = scoped?.payload ?? ((payload ?? {}) as JsonObject);
     const body: JsonObject = route.inputSchemaId === "gui.empty/v1" ? {} : { payload: daemonPayload },
       params: JsonObject = route.requiresRepo ? { repo: { repoId: scoped!.repoId }, ...body } : body;
@@ -142,6 +147,11 @@ function repoPayload(value: unknown): { readonly repoId: string; readonly payloa
   if (typeof repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId))
     throw new Error("Repository GUI request has an invalid repoId.");
   return { repoId, payload };
+}
+function globalTarget() {
+  const userRoot = daemonUserRoot(),
+    daemonId = daemonIdFromEnv();
+  return { socketPath: resolveLocalDaemonEndpoint({ userRoot, daemonId }), userRoot, daemonId };
 }
 async function loadClient(): Promise<DaemonClient> {
   client ??= import("../../../daemon/src/client/local-json-rpc-client.ts") as Promise<DaemonClient>;

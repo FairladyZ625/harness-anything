@@ -332,7 +332,11 @@ export function makeE2EProbeScheduler(input: {
     ]
       .map(([key, value]) => `${key}=${shellQuote(value)}`)
       .join(" ");
-    const command = `${environment} ${shellQuote(input.nodeExecutable ?? process.execPath)} tools/e2e-probe.mjs --agent-run`;
+    const command = [
+      environment,
+      shellQuote(input.nodeExecutable ?? process.execPath),
+      "tools/e2e-probe.mjs --agent-run",
+    ].join(" ");
     return [
       "Run the canonical E2E health probe exactly once.",
       `Scheduled at: ${scheduledAt}`,
