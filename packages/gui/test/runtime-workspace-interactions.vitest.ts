@@ -11,6 +11,11 @@ import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
+import { runtimeInstanceClient } from "../src/renderer/runtime-instance-client.ts";
+import {
+  prewarmRuntimeInstanceCatalog,
+  runtimeInstanceCatalogQueryKey,
+} from "../src/renderer/runtime-instance-data.ts";
 import { squadRunsClient } from "../src/renderer/squad-run-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
@@ -256,6 +261,17 @@ describe("runtime entry split (W6 IA)", () => {
     expect(byTestId("runtime-read-error").textContent).toContain("squad read failed");
   });
 
+  it("reuses a range cache when returning to it instead of keying reads by mount time", async () => {
+    await mountSessions("session/runtime-bound");
+    expect(agentRuntimeClient.sessionGroups).toHaveBeenCalledTimes(1);
+
+    await clickButtonWithText("7d");
+    expect(agentRuntimeClient.sessionGroups).toHaveBeenCalledTimes(2);
+    await clickButtonWithText("24h");
+
+    expect(agentRuntimeClient.sessionGroups).toHaveBeenCalledTimes(2);
+  });
+
   it("opens the bound task detail from the selected session (W5:派工链归 Task 详情)", async () => {
     const onOpenTask = vi.fn(),
       onSelectEntity = vi.fn();
@@ -331,6 +347,95 @@ describe("runtime entry split (W6 IA)", () => {
     await flushEffects();
 
     expect(onSelectEntity).toHaveBeenCalledWith("agent/terra");
+  });
+
+  it("acknowledges provider enablement before the daemon receipt and does not reread page data", async () => {
+    let settleUpdate: (value: Record<string, unknown>) => void = () => undefined;
+    const update = vi.spyOn(runtimeInstanceClient, "setEnabled").mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            settleUpdate = resolve;
+          }),
+      ),
+      list = vi.spyOn(runtimeInstanceClient, "list").mockResolvedValue({
+        instances: [providerInstance],
+        installations: providerInstallations,
+      });
+    await mountProviders("provider/provider-edit");
+    const toggle = byTestId("runtime-card-provider").querySelector('[role="switch"]');
+    expect(toggle).toBeInstanceOf(HTMLButtonElement);
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
+
+    const startedAt = performance.now();
+    await act(async () => {
+      (toggle as HTMLButtonElement).click();
+    });
+    await flushEffects();
+
+    expect(toggle?.getAttribute("aria-checked")).toBe("false");
+    expect(performance.now() - startedAt).toBeLessThan(300);
+    expect(update).toHaveBeenCalledWith("provider-edit", false);
+    expect(list).not.toHaveBeenCalled();
+    expect(agentRuntimeClient.overview).not.toHaveBeenCalled();
+
+    settleUpdate({ ok: true });
+    await flushEffects();
+    expect(toggle?.getAttribute("aria-checked")).toBe("false");
+    expect(list).not.toHaveBeenCalled();
+    expect(agentRuntimeClient.overview).not.toHaveBeenCalled();
+  });
+
+  it("prewarms and retains one shared machine catalog read", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+      list = vi.spyOn(runtimeInstanceClient, "list").mockResolvedValue({
+        instances: [providerInstance],
+        installations: providerInstallations,
+      });
+
+    await Promise.all([prewarmRuntimeInstanceCatalog(client), prewarmRuntimeInstanceCatalog(client)]);
+
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(client.getQueryData(runtimeInstanceCatalogQueryKey)).toEqual({
+      instances: [providerInstance],
+      installations: providerInstallations,
+    });
+    client.clear();
+  });
+
+  it("auto-probes only the selected provider on cold entry", async () => {
+    const unchecked = [
+      {
+        ...providerInstance,
+        instanceId: "provider-first",
+        name: "Provider First",
+        authState: "unknown" as const,
+        authReadiness: { status: "not-ready" as const, code: "runtime_auth_not_checked", hint: "not checked" },
+      },
+      {
+        ...providerInstance,
+        instanceId: "provider-selected",
+        name: "Provider Selected",
+        authState: "unknown" as const,
+        authReadiness: { status: "not-ready" as const, code: "runtime_auth_not_checked", hint: "not checked" },
+      },
+    ];
+    const probe = vi.spyOn(runtimeInstanceClient, "probe").mockImplementation(async (instanceId) => ({
+      ...unchecked.find((instance) => instance.instanceId === instanceId)!,
+      authState: "authenticated",
+      authReadiness: { status: "ready", code: null, hint: null },
+    }));
+    await mountProviders("provider/provider-selected");
+    const client = mounted.at(-1)!.client;
+    await act(async () => {
+      client.setQueryData(runtimeInstanceCatalogQueryKey, {
+        instances: unchecked,
+        installations: providerInstallations,
+      });
+    });
+    await flushEffects();
+
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(probe).toHaveBeenCalledWith("provider-selected");
   });
 
   it("edits a provider with one cancelable draft and always keeps its default model selected", async () => {
@@ -547,6 +652,15 @@ async function mountProviderCard(onUpdate: ReturnType<typeof vi.fn>) {
 async function click(testId: string) {
   await act(async () => {
     byTestId(testId).click();
+  });
+  await flushEffects();
+}
+
+async function clickButtonWithText(text: string) {
+  const button = [...document.querySelectorAll("button")].find((candidate) => candidate.textContent === text);
+  expect(button).toBeInstanceOf(HTMLButtonElement);
+  await act(async () => {
+    (button as HTMLButtonElement).click();
   });
   await flushEffects();
 }

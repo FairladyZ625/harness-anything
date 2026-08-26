@@ -112,8 +112,11 @@ export function openRuntimeInstanceStore(input: {
       ].join(""),
     );
   }
-  function readOne(instanceId: string): RuntimeInstanceConfig | null {
-    return read().find((config) => config.instanceId === runtimeInstanceId(instanceId)) ?? null;
+  function readOne(
+    instanceId: string,
+    witnessed?: readonly RuntimeInstallationWitness[],
+  ): RuntimeInstanceConfig | null {
+    return read(witnessed).find((config) => config.instanceId === runtimeInstanceId(instanceId)) ?? null;
   }
   function remove(instanceId: string): RuntimeInstanceConfig {
     const id = runtimeInstanceId(instanceId),
@@ -125,14 +128,20 @@ export function openRuntimeInstanceStore(input: {
     rmSync(path.join(instancesRoot, id), { recursive: true, force: true });
     return config;
   }
-  async function authStatus(instanceId: string): Promise<RuntimeAuthReadiness> {
-    const config = readOne(instanceId);
+  async function authStatus(
+    instanceId: string,
+    snapshot?: {
+      readonly witnessed: readonly RuntimeInstallationWitness[];
+      readonly config: RuntimeInstanceConfig;
+    },
+  ): Promise<RuntimeAuthReadiness> {
+    const witnessed = snapshot?.witnessed ?? input.discover(),
+      config = snapshot?.config ?? readOne(instanceId, witnessed);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-    const witnessed = input.discover(),
-      installation = witnessed.find(
-        (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
-      );
+    const installation = witnessed.find(
+      (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
+    );
     if (!installation)
       return rememberAuthReadiness(
         config.instanceId,
@@ -382,12 +391,13 @@ export function openRuntimeInstanceStore(input: {
     }
     if (kind === "runtime-instance-list") {
       const all = action.all === true,
-        instances = read()
+        witnessed = input.discover(),
+        instances = read(witnessed)
           .filter((config) => all || config.enabled)
           .map((config) => publicConfig(config, readiness.get(config.instanceId))),
-        installations = input
-          .discover()
-          .map(({ executableEntryPath: _entry, executablePath: _path, ...installation }) => installation),
+        installations = witnessed.map(
+          ({ executableEntryPath: _entry, executablePath: _path, ...installation }) => installation,
+        ),
         summary = [
           "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS",
           ...instances.map((instance) =>
@@ -498,11 +508,12 @@ export function openRuntimeInstanceStore(input: {
       };
     }
     if (kind === "runtime-instance-show") {
-      const config = readOne(instanceId);
+      const witnessed = action.probe === true ? input.discover() : undefined,
+        config = readOne(instanceId, witnessed);
       if (!config)
         throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
       if (action.probe === true)
-        return authStatus(instanceId).then((status) => {
+        return authStatus(instanceId, { witnessed: witnessed!, config }).then((status) => {
           const instance = publicConfig(config, status);
           return {
             ...base,
@@ -545,7 +556,7 @@ export function openRuntimeInstanceStore(input: {
     prepareWorkerGitEnvironment,
     command,
   };
-  function read(): RuntimeInstanceConfig[] {
+  function read(witnessed?: readonly RuntimeInstallationWitness[]): RuntimeInstanceConfig[] {
     if (!existsSync(target)) return [];
     chmodSync(target, 0o600);
     const value: unknown = JSON.parse(readFileSync(target, "utf8"));
@@ -557,7 +568,10 @@ export function openRuntimeInstanceStore(input: {
     )
       throw runtimeInstanceError("invalid_runtime_instance_store", "Runtime instance metadata is invalid.");
     const normalized = value.instances.map((entry) => runtimeInstanceConfig(entry)),
-      migrated = migrateLegacyInstallationIdentities(normalized, input.discover()),
+      requiresInstallationMigration = normalized.some((config) => config.installationIdentity !== "path-entry/v1"),
+      migrated = requiresInstallationMigration
+        ? migrateLegacyInstallationIdentities(normalized, witnessed ?? input.discover())
+        : normalized,
       installationMigrated = migrated.some((entry, index) => entry !== normalized[index]),
       instances = migrated.sort((a, b) => a.instanceId.localeCompare(b.instanceId));
     if (value.instances.some(needsRuntimeInstanceNormalization) || installationMigrated) persist(instances);

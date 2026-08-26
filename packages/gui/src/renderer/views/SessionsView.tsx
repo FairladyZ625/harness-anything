@@ -99,6 +99,7 @@ export function SessionsView({
     taskRouteId ?? (sessionTaskScope?.runtimeSessionId === focusedSessionId ? sessionTaskScope.taskId : undefined);
   const workspace = useSessionsWorkspace(repoId, {
     groupBy,
+    range,
     since,
     query: debouncedSearch,
     ...(scopedTaskId === undefined ? {} : { taskId: scopedTaskId }),
@@ -203,6 +204,9 @@ export function SessionsView({
       taskIds.forEach((taskId) => next.add(taskId));
       return next.size === current.size ? current : next;
     });
+    // A range-key change has no data until its read settles. Treating that pending state as an
+    // absent deep-link target forced `all` and issued a second sessionGroups read for one click.
+    if (workspace.groups.data === undefined) return;
     if (groups.some((group) => group.taskId !== undefined && taskIds.includes(group.taskId))) return;
     setRange("all");
     setSessionTaskScope((current) =>
@@ -210,7 +214,7 @@ export function SessionsView({
         ? current
         : { runtimeSessionId: focusedSessionId, taskId: taskIds[0]! },
     );
-  }, [focusedSessionId, groups, selectedSession.data]);
+  }, [focusedSessionId, groups, selectedSession.data, workspace.groups.data]);
   const selectedRow =
     selectedSessionId === null ? null : (allRows.find((row) => row.runtimeSessionId === selectedSessionId) ?? null);
   const selectedTaskId = selectedRow?.taskId ?? selectedSession.data?.session.associations[0]?.taskId ?? null;
