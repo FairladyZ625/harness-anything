@@ -1,13 +1,18 @@
-import { cliInput, defineCliCommand } from "../../../preset/src/preset-command-contract.ts";
+import {
+  cliInput,
+  defineHostAdminCommand,
+  defineLedgerWriteCommand,
+  defineRepoReadCommand,
+  defineRuntimeLocalWriteCommand,
+} from "../../../preset/src/preset-command-contract.ts";
 
 export const agentProtocolCommands = Object.freeze([
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "agenda",
     phase: "W3",
     path: ["agenda"],
     summary: "Project the current supervisory agenda from tasks, decisions, executions, and relations.",
     method: "repo.agenda.read",
-    commandClass: "repo-read",
     inputs: [
       cliInput(
         "--limit",
@@ -25,7 +30,7 @@ export const agentProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "migrate-import",
     phase: "Migration-A",
     path: ["migrate", "import"],
@@ -34,7 +39,6 @@ export const agentProtocolCommands = Object.freeze([
       "id collisions are deterministically remapped and recorded.",
     ].join(""),
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput(
         "--source",
@@ -65,7 +69,7 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRuntimeLocalWriteCommand({
     id: "agent-create",
     phase: "Runtime-B",
     path: ["agent", "create", "<instance-id>"],
@@ -74,7 +78,6 @@ export const agentProtocolCommands = Object.freeze([
       "validate it, and install it without overwriting an existing Agent.",
     ].join(""),
     method: "repo.agentRuntime.spawn",
-    commandClass: "repo-write",
     positional: "runtimeInstanceId",
     inputs: [
       cliInput(
@@ -142,42 +145,38 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "squad-status",
     phase: "Runtime-B",
     path: ["squad", "status", "<squad-run-id>"],
     summary: "Read a durable Squad run and its leader and worker dispatches.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     positional: "squadRunId",
     inputs: [],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "ledger-migrate",
     phase: "Migration-A",
     path: ["migrate", "ledger"],
     summary: "Migrate the canonical ledger from flat/v1 to sharded-sha256-2/v1.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "entity-explain",
     phase: "Runtime-B",
     path: ["entity", "explain", "<kind>"],
     summary: "Explain one registered Entity kind contract.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     positional: "entityKind",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "entity-get",
     phase: "Runtime-B",
     path: ["entity", "get", "<kind>"],
     summary: "Read one canonical Entity declaration.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     positional: "entityKind",
     inputs: [
       cliInput("--id", "single", true, {
@@ -186,42 +185,38 @@ export const agentProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "entity-list",
     phase: "Runtime-B",
     path: ["entity", "list", "<kind>"],
     summary: "List canonical declarations for one registered Entity kind.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     positional: "entityKind",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "agent-list",
     phase: "Runtime-B",
     path: ["agent", "list"],
     summary: "List installed Agent identity declarations.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "agent-inspect",
     phase: "Runtime-B",
     path: ["agent", "inspect", "<id>"],
     summary: "Inspect one Agent identity including its instructions and runtime type.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     positional: "agentId",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "agent-validate",
     phase: "Runtime-B",
     path: ["agent", "validate"],
     summary: "Validate one Agent declaration package before installing it.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput(
         "--source",
@@ -232,13 +227,12 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "agent-install",
     phase: "Runtime-B",
     path: ["agent", "install"],
     summary: "Install an Agent declaration into the repository entity store.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput(
         "--source",
@@ -256,32 +250,29 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "squad-list",
     phase: "Runtime-B",
     path: ["squad", "list"],
     summary: "List installed Squad identity declarations.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "squad-inspect",
     phase: "Runtime-B",
     path: ["squad", "inspect", "<id>"],
     summary: "Inspect one Squad and its human-editable roster text.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     positional: "squadId",
     inputs: [],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "squad-run",
     phase: "Runtime-B",
     path: ["squad", "run", "<id>"],
     summary: "Start a durable Squad run supervised by callback-driven leader turns.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     positional: "squadId",
     inputs: [
       cliInput("--instance", "single", true, {
@@ -316,13 +307,12 @@ export const agentProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "squad-validate",
     phase: "Runtime-B",
     path: ["squad", "validate"],
     summary: "Validate one Squad declaration package before installing it.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput(
         "--source",
@@ -333,13 +323,12 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "squad-install",
     phase: "Runtime-B",
     path: ["squad", "install"],
     summary: "Install a Squad declaration into the repository entity store.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput(
         "--source",
@@ -357,7 +346,7 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineHostAdminCommand({
     id: "repo-bootstrap",
     phase: "W3",
     path: ["init"],
@@ -367,7 +356,6 @@ export const agentProtocolCommands = Object.freeze([
       "already-initialized workspace without writing documents.",
     ].join(""),
     method: "daemon.repo.bootstrap",
-    commandClass: "admin",
     inputs: [
       cliInput("--repo-id", "single", true, {
         code: "missing_field",

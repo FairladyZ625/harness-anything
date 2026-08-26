@@ -12,6 +12,7 @@ import { listProjectedTaskDocuments, readProjectedDocument } from "./doc-sync-ac
 import { makeGitReadinessSource } from "./process-port.ts";
 import {
   commandClassForAction,
+  commandDescriptorForAction,
   type DaemonGuiReadResultMap,
   type DaemonTaskDispatchesPayload,
 } from "./protocol/daemon-protocol.contract.ts";
@@ -26,15 +27,9 @@ import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 
 export function createRepoCellApi(context: any): RepoCell {
   const run = (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
-    const commandClass = commandClassForAction(action.kind),
-      admitsLocalCenterRepair =
-        action.kind === "projection-rebuild" &&
-        context.mode === "remote-center" &&
-        binding.source === "local" &&
-        binding.roles?.includes("$admin"),
-      modeAdmission = admitsLocalCenterRepair
-        ? { ok: true, code: "repo_mode_admitted", nextAction: "Continue." }
-        : admitRepoMode(context.mode, commandClass, binding.source);
+    const command = commandDescriptorForAction(action.kind),
+      commandClass = command.commandClass,
+      modeAdmission = admitRepoMode(context.mode, command, binding.source);
     if (!modeAdmission.ok)
       return Promise.resolve(
         context.rejected(
@@ -73,9 +68,7 @@ export function createRepoCellApi(context: any): RepoCell {
       context.queueDepth += 1;
       const pending = chainRepoCellWrite(context.tail, async () => {
         context.queueDepth -= 1;
-        const queuedAdmission = admitsLocalCenterRepair
-          ? { ok: true, code: "repo_mode_admitted", nextAction: "Continue." }
-          : admitRepoMode(context.mode, commandClass, binding.source);
+        const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
         if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
         if (context.state === "closed" || (context.state !== "attached" && !recoveryCommandAllowed))
           throw context.cellCodedError(
@@ -147,7 +140,8 @@ export function createRepoCellApi(context: any): RepoCell {
     return enqueuePublication(() => context.executeAction(action, { ...binding, commandClasses: [commandClass] }));
   };
   const presetRun: RepoCell["presetRun"] = async (action, binding) => {
-    const commandClass = action.kind === "preset-run-status" ? "repo-read" : "repo-write",
+    const command = commandDescriptorForAction(action.kind),
+      commandClass = command.commandClass,
       reject = (code: string, nextAction: string): PresetRunReceiptV1 => ({
         schema: "preset-run-receipt/v1",
         runId: typeof action.runId === "string" ? action.runId : "run_invalid",
@@ -157,7 +151,7 @@ export function createRepoCellApi(context: any): RepoCell {
         code,
         nextAction,
       }),
-      admission = admitRepoMode(context.mode, commandClass, binding.source);
+      admission = admitRepoMode(context.mode, command, binding.source);
     if (!admission.ok) return reject(admission.code, admission.nextAction);
     if (context.state !== "attached") context.attemptRecovery();
     if (context.state !== "attached") return reject("repo_unavailable", context.latched());
@@ -167,7 +161,7 @@ export function createRepoCellApi(context: any): RepoCell {
       } catch (error) {
         return reject(context.cellErrorCode(error), context.cellErrorMessage(error));
       }
-    const queuedAdmission = admitRepoMode(context.mode, commandClass, binding.source);
+    const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
     if (!queuedAdmission.ok) return reject(queuedAdmission.code, queuedAdmission.nextAction);
     return action.kind === "preset-run-status"
       ? context.presetProcess.status(context.requiredCellText(action.runId, "runId"))
@@ -414,13 +408,14 @@ export function createRepoCellApi(context: any): RepoCell {
   });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
   const spawnRuntime: RepoCell["spawnRuntime"] = (payload, binding) => {
-    const admission = admitRepoMode(context.mode, "repo-write", binding.source);
+    const command = commandDescriptorForAction("runtime-run"),
+      admission = admitRepoMode(context.mode, command, binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
     context.queueDepth += 1;
     const pending = chainRepoCellWrite(context.tail, () => {
       context.queueDepth -= 1;
       if (context.state !== "attached") context.attemptRecovery();
-      const queuedAdmission = admitRepoMode(context.mode, "repo-write", binding.source);
+      const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
       if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       context.recheckRuntime();
@@ -438,13 +433,14 @@ export function createRepoCellApi(context: any): RepoCell {
     return pending;
   };
   const cancelRuntime: RepoCell["cancelRuntime"] = (payload, binding) => {
-    const admission = admitRepoMode(context.mode, "repo-write", binding.source);
+    const command = commandDescriptorForAction("runtime-cancel"),
+      admission = admitRepoMode(context.mode, command, binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
     context.queueDepth += 1;
     const pending = chainRepoCellWrite(context.tail, () => {
       context.queueDepth -= 1;
       if (context.state !== "attached") context.attemptRecovery();
-      const queuedAdmission = admitRepoMode(context.mode, "repo-write", binding.source);
+      const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
       if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       context.recheckRuntime();
@@ -462,7 +458,8 @@ export function createRepoCellApi(context: any): RepoCell {
     return pending;
   };
   const runtimeIngress: RepoCell["runtimeIngress"] = (action, binding) => {
-    const admission = admitRepoMode(context.mode, "repo-write", binding.source);
+    const command = commandDescriptorForAction("runtime-run"),
+      admission = admitRepoMode(context.mode, command, binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
     context.queueDepth += 1;
     const pending = chainRepoCellWrite(context.tail, () => {

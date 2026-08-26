@@ -54,8 +54,12 @@ export interface EntityKindRegistry {
   readonly byId: ReadonlyMap<string, EntityKindRegistration>;
 }
 
+export type EntityResidency = "ledger" | "runtime-local" | "projection";
+export type EntityResidencyFacets = Readonly<Record<string, EntityResidency>>;
+
 export interface EntityKindContract<T = unknown> {
   readonly kind: string;
+  readonly residency: EntityResidencyFacets;
   readonly schema: EntityDocumentJsonSchema<T>;
   readonly id: {
     readonly field: string;
@@ -122,6 +126,7 @@ export interface EntityActionContract {
 export interface EntityKindExplanation {
   readonly schema: "entity-kind-explanation/v1";
   readonly kind: string;
+  readonly residency: EntityResidencyFacets;
   readonly documentSchema: {
     readonly id: string;
     readonly fields: ReturnType<typeof explainEntityJsonSchema>;
@@ -173,6 +178,8 @@ const actionCatalog = (
   sdkExposure: EntitySdkExposure = noSdkExposure,
 ) => Object.freeze({ ref, actions: Object.freeze(ids.map((id) => entityAction(kind, identity, id, sdkExposure))) });
 const genericAuthoring = Object.freeze({ kind: "generic-entity-store" as const, contractRef: "entity-event/v1" });
+const authoredResidency = Object.freeze({ authored: "ledger" as const });
+const authoredLiveResidency = Object.freeze({ authored: "ledger" as const, live: "runtime-local" as const });
 const genericEntityStore = (pathTemplate: string, validate?: (value: unknown) => readonly string[]) =>
   Object.freeze({ document: declarationDocument(pathTemplate), ...(validate ? { validate } : {}) });
 
@@ -392,6 +399,7 @@ const decisionActionIds = decisionEventTypes.map((type) => decisionActionByEvent
 export const entityKindContracts = Object.freeze([
   {
     kind: "task",
+    residency: authoredResidency,
     schema: taskSchema,
     id: taskIdentity,
     relations: relationsFor("task"),
@@ -411,6 +419,7 @@ export const entityKindContracts = Object.freeze([
   },
   {
     kind: "fact",
+    residency: authoredResidency,
     schema: factSchema,
     id: factIdentity,
     relations: relationsFor("fact"),
@@ -424,6 +433,7 @@ export const entityKindContracts = Object.freeze([
   },
   {
     kind: "decision",
+    residency: authoredResidency,
     schema: decisionSchema,
     id: decisionIdentity,
     relations: relationsFor("decision"),
@@ -443,6 +453,7 @@ export const entityKindContracts = Object.freeze([
   },
   {
     kind: "agent",
+    residency: authoredResidency,
     schema: AGENT_DECLARATION_V1_SCHEMA,
     id: agentIdentity,
     relations: { directions: [], edges: [] },
@@ -459,6 +470,7 @@ export const entityKindContracts = Object.freeze([
   },
   {
     kind: "squad",
+    residency: authoredResidency,
     schema: SQUAD_DECLARATION_V1_SCHEMA,
     id: squadIdentity,
     relations: { directions: [], edges: [] },
@@ -470,6 +482,7 @@ export const entityKindContracts = Object.freeze([
   },
   {
     kind: "policy",
+    residency: authoredResidency,
     schema: POLICY_DECLARATION_V1_SCHEMA,
     id: policyIdentity,
     relations: { directions: [], edges: [] },
@@ -487,6 +500,7 @@ export const entityKindContracts = Object.freeze([
   },
   {
     kind: "execution",
+    residency: authoredLiveResidency,
     schema: executionSchema,
     id: executionIdentity,
     relations: {
@@ -543,6 +557,7 @@ export const entityKindContracts = Object.freeze([
   },
   {
     kind: "review",
+    residency: authoredResidency,
     schema: reviewSchema,
     id: reviewIdentity,
     relations: {
@@ -581,6 +596,7 @@ export const entityKindContracts = Object.freeze([
   },
   {
     kind: "runtime-session",
+    residency: authoredLiveResidency,
     schema: runtimeSessionEntityV1Schema,
     id: runtimeSessionIdentity,
     relations: {
@@ -642,6 +658,7 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
   return {
     schema: "entity-kind-explanation/v1",
     kind: contract.kind,
+    residency: contract.residency,
     documentSchema: { id: contract.schema.$id, fields: explainEntityJsonSchema(contract.schema) },
     id: contract.id,
     relations: contract.relations,

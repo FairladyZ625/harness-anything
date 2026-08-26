@@ -1,33 +1,49 @@
 import {
+  defineCenterForwardReadCommand,
+  defineCenterForwardWriteCommand,
   cliInput,
   consentJsonFields,
-  defineCliCommand,
+  defineLedgerWriteCommand,
+  defineLocalArbiterCommand,
+  defineRepoReadCommand,
   reviewJsonFields,
   taskSubmissionJsonFields,
 } from "../../../preset/src/preset-command-contract.ts";
 
 export const taskExecutionProtocolCommands = Object.freeze([
-  defineCliCommand({
+  defineCenterForwardWriteCommand({
     id: "task-start",
     phase: "W3",
     path: ["task", "start", "<task-id>"],
     summary: "Acquire the task execution lease.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
-      cliInput("--execution-id", "single", true, {
-        code: "missing_field",
-        nextAction: "Add --execution-id <execution-id>.",
+      cliInput("--execution-id", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one execution id, or omit it for deterministic allocation.",
+      }),
+      cliInput(
+        "--ttl-ms",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use a positive lease duration in milliseconds.",
+        },
+        { regex: "^[1-9][0-9]*$" },
+      ),
+      cliInput("--dry-run", "boolean", false, {
+        code: "invalid_field",
+        nextAction: "Use --dry-run once to preview lease admission.",
       }),
     ],
   }),
-  defineCliCommand({
+  defineCenterForwardWriteCommand({
     id: "task-progress-append",
     phase: "W3",
     path: ["task", "progress", "append", "<task-id>"],
     summary: "Append typed progress through the active task lease.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--text", "single", true, {
         code: "missing_field",
@@ -48,13 +64,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-artifact-add",
     phase: "W3",
     path: ["task", "artifact", "add", "<task-id>"],
     summary: "Publish an untracked UTF-8 artifact through canonical doc sync.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--source", "single", true, {
         code: "missing_field",
@@ -66,13 +81,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineCenterForwardWriteCommand({
     id: "task-submit",
     phase: "W3",
     path: ["task", "submit", "<task-id>"],
     summary: "Atomically finalize an Execution and enter review.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--execution-id", "single", false, {
         code: "invalid_field",
@@ -90,7 +104,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-closeout",
     phase: "W3",
     path: ["task", "closeout", "<task-id>"],
@@ -99,7 +113,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
       "canonical order, resuming from the current closeout stage.",
     ].join(""),
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--execution-id", "single", false, {
         code: "invalid_field",
@@ -117,13 +130,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLocalArbiterCommand({
     id: "task-review-execution",
     phase: "W3",
     path: ["task", "review-execution", "<task-id>"],
     summary: "Append a canonical Execution Review.",
     method: "repo.task.run",
-    commandClass: "arbiter",
     inputs: [
       cliInput("--execution-id", "single", false, {
         code: "invalid_field",
@@ -145,13 +157,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-review-consent",
     phase: "W3",
     path: ["task", "review-consent", "<task-id>"],
     summary: "Select a recorded Review with content-pinned owner consent.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--execution-id", "single", false, {
         code: "invalid_field",
@@ -180,13 +191,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-code-doc-reconcile",
     phase: "W3",
     path: ["task", "code-doc", "reconcile", "<task-id>"],
     summary: "Publish a typed code-doc witness.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--execution-id", "single", true, {
         code: "invalid_field",
@@ -215,13 +225,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-code-doc-repoint",
     phase: "W3",
     path: ["task", "code-doc", "repoint", "<task-id>"],
     summary: "Append an audited code-doc witness correction for a completed task.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--record", "single", true, {
         code: "missing_field",
@@ -247,13 +256,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "task-complete",
     phase: "W3",
     path: ["task", "complete", "<task-id>"],
     summary: "Complete a reviewed and consented task after canonical gate checks.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--execution-id", "single", false, {
         code: "invalid_field",
@@ -276,22 +284,20 @@ export const taskExecutionProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineCenterForwardReadCommand({
     id: "task-show",
     phase: "W3",
     path: ["task", "show", "<task-id>"],
     summary: "Read the task projection.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "receipt-show",
     phase: "W3",
     path: ["receipt", "show", "<op-id>"],
     summary: "Read a write receipt.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [],
   }),
 ] as const);

@@ -2,6 +2,29 @@ export interface CliInputError {
   readonly code: string;
   readonly nextAction: string;
 }
+export type CommandAdmissionRoute = "direct" | "via-assignment" | "via-center-forward" | "rejected";
+export type CommandAdmission = Readonly<Record<"local" | "remote-center" | "remote-edge", CommandAdmissionRoute>>;
+export interface CommandTopology {
+  readonly commandClass: "admin" | "repo-write" | "repo-read" | "arbiter";
+  readonly admission: CommandAdmission;
+}
+const commandTopology = (
+  commandClass: CommandTopology["commandClass"],
+  center: CommandAdmissionRoute,
+  edge: CommandAdmissionRoute,
+): CommandTopology =>
+  Object.freeze({
+    commandClass,
+    admission: Object.freeze({ local: "direct", "remote-center": center, "remote-edge": edge }),
+  });
+export const repoReadCommandTopology = commandTopology("repo-read", "direct", "direct"),
+  ledgerWriteCommandTopology = commandTopology("repo-write", "via-assignment", "rejected"),
+  centerForwardReadCommandTopology = commandTopology("repo-read", "direct", "via-center-forward"),
+  centerForwardWriteCommandTopology = commandTopology("repo-write", "via-assignment", "via-center-forward"),
+  runtimeLocalWriteCommandTopology = commandTopology("repo-write", "via-assignment", "direct"),
+  centerRepairWriteCommandTopology = commandTopology("repo-write", "direct", "rejected"),
+  localArbiterCommandTopology = commandTopology("arbiter", "rejected", "rejected"),
+  hostAdminCommandTopology = commandTopology("admin", "direct", "direct");
 export interface CliInputFacet {
   readonly name: string;
   readonly kind: "single" | "repeated" | "boolean";
@@ -134,6 +157,8 @@ export function defineCliCommand<
     readonly path: readonly string[];
     readonly syntaxPath?: readonly string[];
     readonly inputs: readonly CliInputFacet[];
+    readonly commandClass: CommandTopology["commandClass"];
+    readonly admission: CommandAdmission;
   },
 >(declaration: Command) {
   const rawPath = declaration.syntaxPath ?? declaration.path,
@@ -156,14 +181,30 @@ export function defineCliCommand<
   // is the source of truth, so a positional like <task-id> survives every rebuild automatically.
   return Object.freeze({ ...declaration, path, syntaxPath, inputs, flags: inputs, usage, help });
 }
+type CliCommandDeclaration = {
+  readonly path: readonly string[];
+  readonly syntaxPath?: readonly string[];
+  readonly inputs: readonly CliInputFacet[];
+};
+const defineTopologyCommand =
+  (topology: CommandTopology) =>
+  <const Command extends CliCommandDeclaration>(declaration: Command) =>
+    defineCliCommand({ ...declaration, ...topology });
+export const defineRepoReadCommand = defineTopologyCommand(repoReadCommandTopology),
+  defineLedgerWriteCommand = defineTopologyCommand(ledgerWriteCommandTopology),
+  defineCenterForwardReadCommand = defineTopologyCommand(centerForwardReadCommandTopology),
+  defineCenterForwardWriteCommand = defineTopologyCommand(centerForwardWriteCommandTopology),
+  defineRuntimeLocalWriteCommand = defineTopologyCommand(runtimeLocalWriteCommandTopology),
+  defineCenterRepairWriteCommand = defineTopologyCommand(centerRepairWriteCommandTopology),
+  defineLocalArbiterCommand = defineTopologyCommand(localArbiterCommandTopology),
+  defineHostAdminCommand = defineTopologyCommand(hostAdminCommandTopology);
 export const presetCommands = Object.freeze([
-  defineCliCommand({
+  defineCenterForwardWriteCommand({
     id: "task-create",
     phase: "Preset-A",
     path: ["task", "create"],
     summary: "Create a task package with its complete metadata and initial relations.",
     method: "repo.task.create",
-    commandClass: "repo-write",
     inputs: [
       cliInput(
         "--title",
@@ -387,13 +428,12 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "preset-list",
     phase: "Preset-A",
     path: ["preset", "list"],
     summary: "List effective preset packages and blocked shadows.",
     method: "repo.preset.list",
-    commandClass: "repo-read",
     inputs: [
       cliInput(
         "--vertical",
@@ -404,13 +444,12 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "preset-inspect",
     phase: "Preset-A",
     path: ["preset", "inspect", "<id>"],
     summary: "Inspect one resolved preset snapshot.",
     method: "repo.preset.inspect",
-    commandClass: "repo-read",
     positional: "presetId",
     inputs: [
       cliInput(
@@ -436,13 +475,12 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "preset-check",
     phase: "Preset-A",
     path: ["preset", "check", "<id>"],
     summary: "Preflight one effective preset package or compare a frozen snapshot.",
     method: "repo.preset.check",
-    commandClass: "repo-read",
     positional: "presetId",
     inputs: [
       cliInput(
@@ -461,13 +499,12 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "preset-validate",
     phase: "Preset-A",
     path: ["preset", "validate"],
     summary: "Validate one self-contained preset package.",
     method: "repo.preset.validate",
-    commandClass: "repo-read",
     inputs: [
       cliInput(
         "--source",
@@ -478,13 +515,12 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "preset-install",
     phase: "Preset-A",
     path: ["preset", "install"],
     summary: "Install a whole package behind an atomic active pointer.",
     method: "repo.preset.install",
-    commandClass: "repo-write",
     inputs: [
       cliInput(
         "--source",
@@ -502,13 +538,12 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "preset-seed",
     phase: "Preset-A",
     path: ["preset", "seed"],
     summary: "Seed bundled packages into user active pointers.",
     method: "repo.preset.seed",
-    commandClass: "repo-write",
     inputs: [
       cliInput(
         "--dry-run",
@@ -519,13 +554,12 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "preset-audit",
     phase: "Preset-A",
     path: ["preset", "audit"],
     summary: "Audit the effective preset inventory and its issues.",
     method: "repo.preset.audit",
-    commandClass: "repo-read",
     inputs: [
       cliInput(
         "--vertical",
@@ -536,13 +570,12 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "preset-uninstall",
     phase: "Preset-A",
     path: ["preset", "uninstall", "<id>"],
     summary: "Remove only the user active pointer.",
     method: "repo.preset.uninstall",
-    commandClass: "repo-write",
     positional: "presetId",
     inputs: [
       cliInput(
@@ -554,23 +587,21 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "preset-upgrade",
     phase: "Preset-A",
     path: ["preset", "upgrade", "<task-id>"],
     summary: "Canonically upgrade one task to the current complete preset snapshot.",
     method: "repo.preset.upgrade",
-    commandClass: "repo-write",
     positional: "taskId",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "vertical-validate",
     phase: "Preset-A",
     path: ["vertical", "validate"],
     summary: "Validate the builtin software/coding declaration and its catalog closure.",
     method: "repo.vertical.validate",
-    commandClass: "repo-read",
     inputs: [
       cliInput(
         "--source",
@@ -581,22 +612,20 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "template-list",
     phase: "Preset-A",
     path: ["template", "list"],
     summary: "List builtin software/coding template declarations.",
     method: "repo.template.list",
-    commandClass: "repo-read",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "template-render",
     phase: "Preset-A",
     path: ["template", "render", "<ref>"],
     summary: "Render one builtin template without writing it.",
     method: "repo.template.render",
-    commandClass: "repo-read",
     positional: "templateRef",
     inputs: [
       cliInput(
@@ -608,32 +637,29 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "script-list",
     phase: "Preset-A",
     path: ["script", "list"],
     summary: "List executable builtin vertical script declarations.",
     method: "repo.script.list",
-    commandClass: "repo-read",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "script-inspect",
     phase: "Preset-A",
     path: ["script", "inspect", "<id>"],
     summary: "Inspect one builtin vertical script declaration and execution availability.",
     method: "repo.script.inspect",
-    commandClass: "repo-read",
     positional: "scriptId",
     inputs: [],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "script-run",
     phase: "Preset-A",
     path: ["script", "run", "<id>"],
     summary: "Run one declared builtin vertical script through its typed RepoCell host.",
     method: "repo.script.run",
-    commandClass: "repo-write",
     positional: "scriptId",
     positionalRegex: "^vertical:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
     actionDefaults: { schema: "vertical-script-action/v1", taskId: null, inputs: {}, dryRun: false },
@@ -661,13 +687,12 @@ export const presetCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "preset-run-start",
     phase: "Preset-B",
     path: ["script", "run", "preset:<id>/<entrypoint>"],
     summary: "Run one declared user preset entrypoint through the resident daemon.",
     method: "repo.preset.run.start",
-    commandClass: "repo-write",
     positional: "presetTarget",
     positionalFields: ["presetId", "entrypoint"],
     inputs: [
@@ -746,6 +771,7 @@ export const presetMethods = Object.freeze([
       requiresRepo: true,
       actionKind: command.id,
       commandClass: command.commandClass,
+      admission: command.admission,
       params: shape({ repo, payload: shape(fields) }),
     };
   }),
@@ -755,7 +781,7 @@ export const presetMethods = Object.freeze([
     method: "repo.preset.run.status",
     requiresRepo: true,
     actionKind: "preset-run-status",
-    commandClass: "repo-read",
+    ...repoReadCommandTopology,
     params: shape({ repo, payload: shape({ runId: "string", executor: "json?" }) }),
   },
 ] as const);

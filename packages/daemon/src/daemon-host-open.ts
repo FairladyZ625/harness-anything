@@ -5,6 +5,7 @@ import {
   registerDaemonRepo,
   type DaemonRepoMode,
 } from "../../kernel/src/index.ts";
+import type { CommandTopology } from "../../preset/src/preset-command-contract.ts";
 import {
   discoverRuntimeInstallations,
   openRuntimeInstanceStore,
@@ -62,7 +63,6 @@ import type { DaemonHost } from "./daemon-host-types.ts";
 import { openFleetEdgeRuntime } from "./fleet-edge-runtime.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
-import type { DaemonCommandClass } from "./identity/types.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -462,16 +462,16 @@ export async function openDaemonHost(input: {
   }
   function admitHostMode(
     repoId: string,
-    commandClass: DaemonCommandClass,
+    command: CommandTopology,
     auth: DaemonAuthenticationContext,
   ): RepoModeAdmission {
-    return admitHostModeImpl(extracted, repoId, commandClass, auth);
+    return admitHostModeImpl(extracted, repoId, command, auth);
   }
   function localCenterProjectionRepair(repoId: string, actionKind: string, auth: DaemonAuthenticationContext): boolean {
     return localCenterProjectionRepairImpl(extracted, repoId, actionKind, auth);
   }
-  function requireHostMode(repoId: string, commandClass: DaemonCommandClass, auth: DaemonAuthenticationContext): void {
-    return requireHostModeImpl(extracted, repoId, commandClass, auth);
+  function requireHostMode(repoId: string, command: CommandTopology, auth: DaemonAuthenticationContext): void {
+    return requireHostModeImpl(extracted, repoId, command, auth);
   }
   function settleControl(pending: DaemonControlReceipt, ok: boolean, error?: unknown): void {
     return settleControlImpl(extracted, pending, ok, error);

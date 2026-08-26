@@ -1,13 +1,18 @@
-import { cliInput, defineCliCommand } from "../../../preset/src/preset-command-contract.ts";
+import {
+  defineCenterForwardReadCommand,
+  defineCenterForwardWriteCommand,
+  cliInput,
+  defineLedgerWriteCommand,
+  defineRepoReadCommand,
+} from "../../../preset/src/preset-command-contract.ts";
 
 export const docFactProtocolCommands = Object.freeze([
-  defineCliCommand({
+  defineCenterForwardReadCommand({
     id: "doc-status",
     phase: "DocSync-B",
     path: ["doc", "status"],
     summary: "Scan the authored root for document candidates.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
@@ -19,14 +24,13 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineCenterForwardReadCommand({
     id: "doc-sync-dry-run",
     actionKind: "doc-dry-run",
     phase: "DocSync-B",
     path: ["doc", "sync", "--dry-run"],
     summary: "Preview the scanner selection without writing.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
@@ -38,14 +42,13 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineCenterForwardWriteCommand({
     id: "doc-sync-submit",
     actionKind: "doc-submit",
     phase: "DocSync-B",
     path: ["doc", "sync", "--submit"],
     summary: "Submit eligible scanner candidates through the resident daemon.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
@@ -57,22 +60,20 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "doc-materialize",
     phase: "DocSync-B",
     path: ["doc", "materialize"],
     summary: "Restore the current canonical document cut to the worktree.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "doc-show",
     phase: "DocSync-B",
     path: ["doc", "show"],
     summary: "Show a canonical projected document.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput("--path", "single", true, {
         code: "missing_field",
@@ -80,13 +81,12 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "doc-retire",
     phase: "DocSync-B",
     path: ["doc", "retire"],
     summary: "Retire one canonical document with an audited reason.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--path", "single", true, {
         code: "missing_field",
@@ -98,26 +98,24 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCliCommand({
+  defineCenterForwardWriteCommand({
     id: "doc-conflict-resolve",
     phase: "Fleet-Wiring",
     path: ["doc", "conflict", "resolve", "<conflict-id>"],
     summary:
       "Close a staged sync conflict by hand after merging base/local/center; the next sync submits on the fresh base.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [],
   }),
-  defineCliCommand({
+  defineCenterForwardWriteCommand({
     id: "doc-conflict-discard-local",
     phase: "Fleet-Wiring",
     path: ["doc", "conflict", "discard-local", "<conflict-id>"],
     summary: "Resolve a staged sync conflict by discarding the local changes and restoring the recorded center bytes.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [],
   }),
-  defineCliCommand({
+  defineCenterForwardWriteCommand({
     id: "doc-conflict-overwrite-center",
     phase: "Fleet-Wiring",
     path: ["doc", "conflict", "overwrite-center", "<conflict-id>"],
@@ -126,16 +124,14 @@ export const docFactProtocolCommands = Object.freeze([
       "the recorded center digest as the expected base.",
     ].join(""),
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [],
   }),
-  defineCliCommand({
+  defineLedgerWriteCommand({
     id: "fact-record",
     phase: "DecisionFact-A",
     path: ["fact", "record"],
     summary: "Record an immutable Fact event.",
     method: "repo.task.run",
-    commandClass: "repo-write",
     inputs: [
       cliInput("--task", "single", true, {
         code: "missing_field",
@@ -201,13 +197,12 @@ export const docFactProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "fact-search",
     phase: "DecisionFact-A",
     path: ["fact", "search", "[query]"],
     summary: "Search the Fact FTS projection.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
@@ -235,13 +230,12 @@ export const docFactProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "fact-show",
     phase: "DecisionFact-A",
     path: ["fact", "show"],
     summary: "Show one projected Fact.",
     method: "repo.task.run",
-    commandClass: "repo-read",
     inputs: [
       cliInput("--task", "single", true, {
         code: "missing_field",

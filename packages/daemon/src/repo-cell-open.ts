@@ -8,6 +8,7 @@ import {
   type WriterGeneration,
 } from "../../kernel/src/index.ts";
 import { createPresetProcessService, presetUserRoot } from "../../preset/src/index.ts";
+import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import { readAgentDeclaration, resolveSquadDispatchTarget } from "./agent-entities.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
@@ -302,7 +303,7 @@ export async function openRepoCell(input: {
       now,
     });
   const admitTerminalWrite = (binding: RepoCellBinding): void => {
-    const admission = admitRepoMode(mode, "repo-write", binding.source);
+    const admission = admitRepoMode(mode, ledgerWriteCommandTopology, binding.source);
     if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction);
     if (state !== "attached") attemptRecovery();
     if (state !== "attached") throw cellCodedError("repo_unavailable", latched());
