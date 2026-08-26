@@ -259,13 +259,9 @@ function mergeRecords(
   fresh: readonly Readonly<Record<string, unknown>>[],
   prepend: boolean,
 ): readonly Readonly<Record<string, unknown>>[] {
-  const seen = new Set(current.map(recordKey)),
-    unique = fresh.filter((record) => !seen.has(recordKey(record)));
-  return prepend ? [...unique, ...current] : [...current, ...unique];
-}
-
-function recordKey(record: Readonly<Record<string, unknown>>): string {
-  return JSON.stringify(record);
+  // History pages and follow reads are cursor-disjoint by contract; identical adjacent
+  // records (repeated item.updated, same-text provider frames) are real and must be kept.
+  return prepend ? [...fresh, ...current] : [...current, ...fresh];
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
