@@ -163,6 +163,22 @@ test("agent model is optional but must be non-empty when declared", () => {
     assert.match(validateAgentDeclarationV1({ ...agent, model }).join("\n"), /model.*non-empty string/u);
 });
 
+test("daemon Agent fallback validation mirrors the kernel authority", () => {
+  const fallback = {
+    enabled: true,
+    chain: [{ instance: "provider-a" }, { instance: "provider-b", model: "model-b" }],
+    backoff: { baseMs: 25, maxMs: 100, maxAttempts: 2 },
+  };
+  assert.deepEqual(validateAgentDeclarationV1({ ...agent, fallback }), []);
+  assert.match(
+    validateAgentDeclarationV1({
+      ...agent,
+      fallback: { ...fallback, backoff: { ...fallback.backoff, maxMs: 20 } },
+    }).join("\n"),
+    /maxMs.*greater than or equal to baseMs/u,
+  );
+});
+
 test("Agent role is optional, closed to worker or commander, and defaults to worker in GUI projections", () => {
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, role: "worker" }), []);
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, role: "commander" }), []);
@@ -496,6 +512,7 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       skills: [{ id: "review", path: "skills/review" }],
       prompts: ["prompt://review"],
       preset: "standard-task",
+      fallback: null,
     });
     assert.deepEqual(squadDetail.squad, {
       id: "core-squad",

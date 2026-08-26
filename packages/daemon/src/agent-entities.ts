@@ -52,6 +52,7 @@ export interface AgentEntityGuiDetail {
   readonly skills: readonly { readonly id: string; readonly path: string }[];
   readonly prompts: readonly string[];
   readonly preset: string | null;
+  readonly fallback?: AgentDeclarationV1["fallback"] | null;
 }
 export interface AgentSkillGuiRead {
   readonly schema: "agent-skill-catalog/v1";
@@ -185,6 +186,7 @@ export function readAgentEntityGuiProjection<
         skills: entitySkills(agent.skills),
         prompts: agent.prompts ?? [],
         preset: agent.preset ?? null,
+        fallback: agent.fallback ?? null,
       },
     } as never;
   }

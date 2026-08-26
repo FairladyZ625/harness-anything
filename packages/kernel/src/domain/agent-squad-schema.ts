@@ -11,6 +11,11 @@ export interface AgentSkillDeclarationV1 {
   readonly id: string;
   readonly path: string;
 }
+export interface AgentFallbackDeclarationV1 {
+  readonly enabled: boolean;
+  readonly chain: readonly { readonly instance: string; readonly model?: string }[];
+  readonly backoff: { readonly baseMs: number; readonly maxMs: number; readonly maxAttempts: number };
+}
 export type AgentRole = "worker" | "commander";
 export const agentStates = ["configured", "active", "retired"] as const;
 export type AgentState = (typeof agentStates)[number];
@@ -24,6 +29,7 @@ export interface AgentDeclarationV1 {
   readonly skills?: readonly AgentSkillDeclarationV1[];
   readonly prompts?: readonly string[];
   readonly preset?: string;
+  readonly fallback?: AgentFallbackDeclarationV1;
 }
 export interface SquadDeclarationV1 {
   readonly id: string;
@@ -73,6 +79,54 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
     },
     prompts: { type: "array", items: nonEmptyString("Prompt reference."), description: "Prompt references." },
     preset: nonEmptyString("Preset identity."),
+    fallback: {
+      type: "object",
+      additionalProperties: false,
+      required: ["enabled", "chain", "backoff"],
+      description: "Attempt-bound provider fallback policy.",
+      properties: {
+        enabled: { type: "boolean", description: "Whether provider-fault exits advance the chain." },
+        chain: {
+          type: "array",
+          minItems: 1,
+          description: "Ordered runtime instance and optional model candidates.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["instance"],
+            properties: {
+              instance: nonEmptyString("Runtime instance identity."),
+              model: nonEmptyString("Optional model override for this candidate."),
+            },
+          },
+        },
+        backoff: {
+          type: "object",
+          additionalProperties: false,
+          required: ["baseMs", "maxMs", "maxAttempts"],
+          properties: {
+            baseMs: {
+              type: "integer",
+              minimum: 0,
+              maximum: Number.MAX_SAFE_INTEGER,
+              description: "Initial attempt backoff in milliseconds.",
+            },
+            maxMs: {
+              type: "integer",
+              minimum: 0,
+              maximum: Number.MAX_SAFE_INTEGER,
+              description: "Maximum attempt backoff in milliseconds.",
+            },
+            maxAttempts: {
+              type: "integer",
+              minimum: 1,
+              maximum: Number.MAX_SAFE_INTEGER,
+              description: "Maximum attempts including the first.",
+            },
+          },
+        },
+      },
+    },
   }),
 }) as EntityDocumentJsonSchema<AgentDeclarationV1>;
 
@@ -106,7 +160,18 @@ export class AgentEntityContractError extends EntitySchemaContractError {
 }
 
 export function validateAgentDeclarationV1(value: unknown): readonly string[] {
-  return validateEntityJsonSchema(AGENT_DECLARATION_V1_SCHEMA, value, "agent declaration");
+  const issues = [...validateEntityJsonSchema(AGENT_DECLARATION_V1_SCHEMA, value, "agent declaration")];
+  if (entityRecord(value) && entityRecord(value.fallback) && entityRecord(value.fallback.backoff)) {
+    const chain = value.fallback.chain,
+      baseMs = value.fallback.backoff.baseMs,
+      maxMs = value.fallback.backoff.maxMs,
+      maxAttempts = value.fallback.backoff.maxAttempts;
+    if (Number.isInteger(baseMs) && Number.isInteger(maxMs) && Number(maxMs) < Number(baseMs))
+      issues.push('agent declaration field "fallback.backoff.maxMs" must be greater than or equal to baseMs.');
+    if (Array.isArray(chain) && Number.isInteger(maxAttempts) && Number(maxAttempts) > chain.length)
+      issues.push('agent declaration field "fallback.backoff.maxAttempts" cannot exceed fallback.chain length.');
+  }
+  return issues;
 }
 export function validateSquadDeclarationV1(value: unknown): readonly string[] {
   return validateEntityJsonSchema(SQUAD_DECLARATION_V1_SCHEMA, value, "squad declaration");
@@ -131,6 +196,10 @@ export function entitySlug(value: unknown): value is string {
 }
 export function entityNonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function entityRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function parse<T>(schema: EntityDocumentJsonSchema<T>, value: unknown, label: string): T {

@@ -4,6 +4,7 @@ import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import type { ProviderFrame } from "./runtime-spawn-types.ts";
+import { providerFaultFromFrame } from "./runtime-provider-fault.ts";
 
 export function parseProviderFrame(kindId: RuntimeInstanceKind, value: unknown): ProviderFrame {
   if (!isPlainRecord(value) || (typeof value.event !== "string" && typeof value.type !== "string"))
@@ -18,7 +19,9 @@ export function parseProviderFrame(kindId: RuntimeInstanceKind, value: unknown):
         : kindId === "codex"
           ? parseCodexFrame(value, identity.sessionId)
           : parseAgyFrame(value, identity.sessionId);
-  return identity.sessionId === null ? semantic : { ...semantic, sessionIdentity: identity };
+  const providerFault = providerFaultFromFrame(kindId, value),
+    observed = providerFault ? { ...semantic, providerFault } : semantic;
+  return identity.sessionId === null ? observed : { ...observed, sessionIdentity: identity };
 }
 
 export function isStructuredSuccessResult(value: string): boolean {
@@ -47,6 +50,9 @@ export function parseClaudeFrame(value: Record<string, unknown>, providerSession
     const plan = content.filter(isPlainRecord).find((item) => item.type === "tool_use" && item.name === "TodoWrite");
     return {
       signals: content.flatMap(claudeContent),
+      toolCallObserved: content.some(
+        (item) => isPlainRecord(item) && ["tool_use", "server_tool_use"].includes(String(item.type)),
+      ),
       planObserved: plan !== undefined,
       ...(plan ? { planIncomplete: planHasIncompleteItems(plan) } : {}),
     };
@@ -115,6 +121,7 @@ export function parseCodexFrame(value: Record<string, unknown>, providerSessionI
     if (["command_execution", "file_change", "mcp_tool_call", "web_search"].includes(itemType))
       return {
         signals: [{ type: "activity", activity: "tool", content: JSON.stringify(item) }],
+        toolCallObserved: true,
         writeItemObserved: itemType === "file_change" && item.status === "completed",
       };
     if (["plan", "todo", "todo_list"].includes(itemType))

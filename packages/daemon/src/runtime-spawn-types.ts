@@ -5,7 +5,7 @@ import type {
   SessionIdentity,
   WriteSource,
 } from "../../kernel/src/index.ts";
-import type { AgentSkillDeclarationV1 } from "./agent-entities.contract.ts";
+import type { AgentFallbackDeclarationV1, AgentSkillDeclarationV1 } from "./agent-entities.contract.ts";
 import { type AgentRole } from "./agent-entities.contract.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
@@ -13,6 +13,7 @@ import { type DispatchStreamWriter } from "./dispatch-stream.ts";
 import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RuntimePermissionMode } from "./runtime-permissions.ts";
+import type { RuntimeFallbackAttempt, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
 
 export interface RuntimeProcess {
   readonly pid: number;
@@ -50,6 +51,7 @@ export type RuntimeAgent = {
   readonly skills?: readonly AgentSkillDeclarationV1[];
   readonly prompts?: readonly string[];
   readonly preset?: string;
+  readonly fallback?: AgentFallbackDeclarationV1;
 };
 
 export type ActiveRuntime = {
@@ -76,6 +78,7 @@ export type ActiveRuntime = {
   readonly reasoningEffort: string | null;
   readonly startedAt: string;
   readonly stream: DispatchStreamWriter;
+  readonly fallbackAttempt: RuntimeFallbackAttempt | null;
   buffer: string;
   durableOutputCount: number;
   stdoutObserved: boolean;
@@ -96,6 +99,8 @@ export type ActiveRuntime = {
   lossReason: string | null;
   lossSignal: string | null;
   lossExitCode: number | null;
+  toolCallObserved: boolean;
+  providerFault: RuntimeProviderFault | null;
 };
 
 export type ProviderFrame = {
@@ -107,6 +112,8 @@ export type ProviderFrame = {
   readonly writeItemObserved?: boolean;
   readonly planObserved?: boolean;
   readonly planIncomplete?: boolean;
+  readonly toolCallObserved?: boolean;
+  readonly providerFault?: RuntimeProviderFault;
 };
 
 export type ResumeProcessEvent =

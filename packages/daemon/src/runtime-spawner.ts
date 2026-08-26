@@ -82,6 +82,7 @@ import type {
 } from "./runtime-spawn-types.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { authorizeAction } from "./authorization.ts";
+import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
@@ -118,10 +119,17 @@ export function makeRuntimeSpawner(input: {
   readonly onRuntimeOutcome?: (
     event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
   ) => void;
+  readonly onFallbackExhausted?: (input: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly reason: string;
+    readonly binding: RuntimeBinding;
+  }) => void | Promise<void>;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
+    fallbackTimers = new Set<ReturnType<typeof setTimeout>>(),
     launch = input.launch ?? launchNative,
     prepareWorkerGitEnvironment = async (instanceId: string): Promise<NodeJS.ProcessEnv | undefined> => {
       const credentialEnvironment = await input.prepareWorkerGitEnvironment?.(instanceId);
@@ -155,435 +163,458 @@ export function makeRuntimeSpawner(input: {
     controlReceipt,
     captureErrorOutput,
     prepareWorkerGitEnvironment,
+    settleFallback,
   };
 
-  return {
-    spawn: async (payload: JsonObject, binding: RuntimeBinding) => {
-      const allowed = [
-          "runtimeInstanceId",
-          "dispatchId",
-          "agentId",
-          "targetAgentId",
-          "model",
-          "effort",
-          "permissionMode",
-          "cwd",
-          "prompt",
-          "promptSource",
-          "onExitCommand",
-          "taskId",
-          "idempotencyKey",
-          "providerSessionId",
-        ],
-        unknownField = unknownFieldViolation(payload, allowed);
-      if (unknownField)
-        throw runtimeSpawnError("invalid_runtime_spawn", `Runtime spawn payload contains an ${unknownField}`);
-      const requestedDispatchId =
-          payload.dispatchId === undefined ? undefined : requiredRuntimeSpawnText(payload.dispatchId, "dispatchId"),
-        resumed = requestedDispatchId ? readDispatchStream(input.rootDir, requestedDispatchId) : null;
-      if (requestedDispatchId && !resumed?.providerSessionId)
-        throw runtimeSpawnError(
-          "runtime_dispatch_not_resumable",
-          `Dispatch ${requestedDispatchId} has no provider session to resume.`,
-        );
-      const requestedRuntimeInstanceId =
-          payload.runtimeInstanceId === undefined
-            ? resumed?.header.instanceId
-            : requiredRuntimeSpawnText(payload.runtimeInstanceId, "runtimeInstanceId"),
-        explicitMission = payload.prompt === undefined ? undefined : requiredRuntimeSpawnText(payload.prompt, "prompt"),
-        agentId = payload.agentId === undefined ? undefined : requiredRuntimeSpawnText(payload.agentId, "agentId"),
-        targetAgentId =
-          payload.targetAgentId === undefined
-            ? undefined
-            : requiredRuntimeSpawnText(payload.targetAgentId, "targetAgentId"),
-        model = payload.model === undefined ? undefined : requiredRuntimeSpawnText(payload.model, "model"),
-        effort = payload.effort === undefined ? undefined : requiredRuntimeSpawnText(payload.effort, "effort"),
-        permissionMode =
-          payload.permissionMode === undefined
-            ? undefined
-            : requiredRuntimeSpawnText(payload.permissionMode, "permissionMode"),
-        promptSource =
-          payload.promptSource === undefined
-            ? undefined
-            : requiredRuntimeSpawnText(payload.promptSource, "promptSource"),
-        onExitCommand =
-          payload.onExitCommand === undefined
-            ? undefined
-            : requiredRuntimeSpawnText(payload.onExitCommand, "onExitCommand"),
-        idempotencyKey = requiredRuntimeSpawnText(payload.idempotencyKey, "idempotencyKey"),
-        taskId =
-          payload.taskId === null || payload.taskId === undefined
-            ? (resumed?.header.taskId ?? null)
-            : requiredRuntimeSpawnText(payload.taskId, "taskId"),
-        providerSessionId =
-          typeof payload.providerSessionId === "string"
-            ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
-            : resumed?.providerSessionId;
-      if (targetAgentId !== undefined && agentId === undefined)
-        throw runtimeSpawnError("squad_leader_required", "Targeted squad dispatch requires --agent <leader-id>.");
-      const cwd = resolveRuntimeCwd(input.rootDir, payload.cwd),
-        store = input.remote ? null : requiredRuntimeStore(input),
-        projection = input.remote ? null : requiredRuntimeProjection(input),
-        remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId) : null,
-        lease = taskId && !input.remote ? projection!.currentLease(taskId) : null,
-        hash = createHash("sha256").update(`${input.repoId}\0${idempotencyKey}`).digest("hex"),
-        newDispatchId = `dispatch_${hash.slice(0, 24)}`,
-        runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
-        dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`;
-      let authorizationDecision: AuthorizationDecision | null = null;
-      if (taskId && !input.remote) {
-        const callerRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
-          runtimeBinding =
-            callerRuntimeSessionId === null || lease === null
-              ? null
-              : resolveTaskBoundRuntimeBinding(
-                  projection!.readRuntimeSession(callerRuntimeSessionId),
-                  taskId,
-                  lease.executionId,
-                );
-        authorizationDecision = authorizeAction("runtime.dispatch", `task/${taskId}`, binding.actor, dispatchOpId, {
-          target: { lease, runtimeBinding },
-          evaluatedAtCut: `canonical:${store!.readHead()?.revision ?? 0}`,
-        });
-      }
-      if (authorizationDecision?.outcome === "denied")
-        throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId!, lease));
-      const daemonRoute = taskId ? input.runtimeDaemonRoute : undefined;
-      if (taskId && !daemonRoute)
-        throw runtimeSpawnError(
-          "runtime_preconditions_unavailable",
-          "Task-bound runtime spawn requires a sealed daemon route before dispatch.",
-        );
-      const taskMission = taskId ? (remoteTask ?? deriveTaskMission(input.rootDir, projection!, taskId)) : null,
-        mission = explicitMission ?? taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt");
-      if (taskMission) validateMissionCommands(taskMission.plan, cwd, taskMission.planPath);
-      if (explicitMission) validateMissionCommands(explicitMission, cwd, "explicit runtime mission");
-      const remoteExisting = input.remote ? await input.remote.existing(dispatchOpId) : null,
-        existing = input.remote ? null : store!.readEvent(dispatchOpId);
-      if (remoteExisting)
-        return {
-          ...remoteExisting,
-          runtimeSessionId,
-          dispatchId: newDispatchId,
-          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-        };
-      if (existing) {
-        if (!isRuntimeEvent(existing) || existing.type !== "runtime_dispatch_requested")
-          throw runtimeSpawnError(
-            "runtime_dispatch_conflict",
-            `Dispatch opId ${dispatchOpId} belongs to another canonical event.`,
-          );
-        return {
-          ...applied(existing, store!.publication(existing), runtimeSessionId, newDispatchId),
-          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-        };
-      }
-      const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-        selfContainedMission =
-          taskMission && daemonRoute
-            ? assembleTaskMission({
-                mission,
-                repoId: input.repoId,
-                canonicalRoot: input.rootDir,
-                workerRoot: cwd,
-                taskPackageRoot: taskMission.packageRoot,
-                daemonRoute,
-                runtimeActor,
-              })
-            : mission,
-        target = targetAgentId
-          ? (input.resolveSquadDispatchTarget?.(agentId!, targetAgentId) ??
-            (() => {
-              throw runtimeSpawnError(
-                "squad_member_not_found",
-                `Agent ${targetAgentId} is not available in a squad led by ${agentId}.`,
+  const spawnAttempt = async (
+    payload: JsonObject,
+    binding: RuntimeBinding,
+    inheritedFallback?: RuntimeFallbackAttempt,
+  ): Promise<JsonObject> => {
+    const allowed = [
+        "runtimeInstanceId",
+        "dispatchId",
+        "agentId",
+        "targetAgentId",
+        "model",
+        "effort",
+        "permissionMode",
+        "cwd",
+        "prompt",
+        "promptSource",
+        "onExitCommand",
+        "taskId",
+        "idempotencyKey",
+        "providerSessionId",
+      ],
+      unknownField = unknownFieldViolation(payload, allowed);
+    if (unknownField)
+      throw runtimeSpawnError("invalid_runtime_spawn", `Runtime spawn payload contains an ${unknownField}`);
+    const requestedDispatchId =
+        payload.dispatchId === undefined ? undefined : requiredRuntimeSpawnText(payload.dispatchId, "dispatchId"),
+      resumed = requestedDispatchId ? readDispatchStream(input.rootDir, requestedDispatchId) : null;
+    if (requestedDispatchId && !resumed?.providerSessionId)
+      throw runtimeSpawnError(
+        "runtime_dispatch_not_resumable",
+        `Dispatch ${requestedDispatchId} has no provider session to resume.`,
+      );
+    const explicitRuntimeInstanceId =
+        payload.runtimeInstanceId === undefined
+          ? resumed?.header.instanceId
+          : requiredRuntimeSpawnText(payload.runtimeInstanceId, "runtimeInstanceId"),
+      explicitMission = payload.prompt === undefined ? undefined : requiredRuntimeSpawnText(payload.prompt, "prompt"),
+      agentId = payload.agentId === undefined ? undefined : requiredRuntimeSpawnText(payload.agentId, "agentId"),
+      targetAgentId =
+        payload.targetAgentId === undefined
+          ? undefined
+          : requiredRuntimeSpawnText(payload.targetAgentId, "targetAgentId"),
+      model = payload.model === undefined ? undefined : requiredRuntimeSpawnText(payload.model, "model"),
+      effort = payload.effort === undefined ? undefined : requiredRuntimeSpawnText(payload.effort, "effort"),
+      permissionMode =
+        payload.permissionMode === undefined
+          ? undefined
+          : requiredRuntimeSpawnText(payload.permissionMode, "permissionMode"),
+      promptSource =
+        payload.promptSource === undefined ? undefined : requiredRuntimeSpawnText(payload.promptSource, "promptSource"),
+      onExitCommand =
+        payload.onExitCommand === undefined
+          ? undefined
+          : requiredRuntimeSpawnText(payload.onExitCommand, "onExitCommand"),
+      idempotencyKey = requiredRuntimeSpawnText(payload.idempotencyKey, "idempotencyKey"),
+      taskId =
+        payload.taskId === null || payload.taskId === undefined
+          ? (resumed?.header.taskId ?? null)
+          : requiredRuntimeSpawnText(payload.taskId, "taskId"),
+      providerSessionId =
+        typeof payload.providerSessionId === "string"
+          ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
+          : resumed?.providerSessionId;
+    if (targetAgentId !== undefined && agentId === undefined)
+      throw runtimeSpawnError("squad_leader_required", "Targeted squad dispatch requires --agent <leader-id>.");
+    const cwd = resolveRuntimeCwd(input.rootDir, payload.cwd),
+      store = input.remote ? null : requiredRuntimeStore(input),
+      projection = input.remote ? null : requiredRuntimeProjection(input),
+      remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId) : null,
+      lease = taskId && !input.remote ? projection!.currentLease(taskId) : null,
+      hash = createHash("sha256").update(`${input.repoId}\0${idempotencyKey}`).digest("hex"),
+      newDispatchId = `dispatch_${hash.slice(0, 24)}`,
+      runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
+      dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`;
+    let authorizationDecision: AuthorizationDecision | null = null;
+    if (taskId && !input.remote) {
+      const callerRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
+        runtimeBinding =
+          callerRuntimeSessionId === null || lease === null
+            ? null
+            : resolveTaskBoundRuntimeBinding(
+                projection!.readRuntimeSession(callerRuntimeSessionId),
+                taskId,
+                lease.executionId,
               );
-            })())
-          : null,
-        delegatedBy = target?.leader ?? null,
-        agent =
-          target?.worker ??
-          (agentId
-            ? (input.resolveAgent?.(agentId) ??
-              (() => {
-                throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
-              })())
-            : null),
-        resolvedSkills = agent ? resolveAgentSkills({ rootDir: input.rootDir, skills: agent.skills }) : [],
-        preset = agent?.preset
-          ? (() => {
-              const defaults = presetRuntimeDefaults(input.rootDir);
-              return createRuntime({
-                userRoot: presetUserRoot(input.rootDir),
-              }).resolveInternal({
-                presetId: agent.preset!,
-                verticalId: defaults.verticalId,
-                profileId: defaults.profileId,
-                locale: defaults.locale,
-                purpose: "inspect",
-              }).document.body;
-            })()
-          : undefined,
-        prompt = agent
-          ? assembleAgentPrompt(agent, selfContainedMission ?? mission, preset, resolvedSkills)
-          : (selfContainedMission ?? mission),
-        selectedModel = model ?? agent?.model ?? undefined,
-        runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
-        runtimeInstanceId = await resolveRuntimeInstanceId({
-          requested: requestedRuntimeInstanceId,
-          providerSessionId: providerSessionId ?? undefined,
-          agent,
-          model: selectedModel,
-          instances: input.runtimeInstances?.() ?? [],
-          sessions: runtimeSessions,
-        }),
-        configuredPermissionMode =
-          input.runtimeInstances?.().find((instance) => instance.instanceId === runtimeInstanceId)?.permissionMode ??
-          undefined,
-        effectivePermissionMode = permissionMode ?? configuredPermissionMode,
-        prepared = await input.prepareLaunch(runtimeInstanceId, {
-          cwd,
-          prompt,
-          ...(selectedModel ? { model: selectedModel } : {}),
-          ...(effort ? { effort } : {}),
-          ...(permissionMode ? { permissionMode } : {}),
-          ...(providerSessionId ? { providerSessionId } : {}),
-        }),
-        definition = prepared.definition,
-        installation = prepared.installation,
-        launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, definition.kindId);
-      if (agent && !runtimeTypeMatchesKind(agent.runtime_type, definition.kindId))
-        throw runtimeSpawnError(
-          "agent_runtime_type_mismatch",
-          [
-            "Agent ",
-            `${agent.id}`,
-            " requires ",
-            `${agent.runtime_type}`,
-            ", but instance ",
-            `${runtimeInstanceId}`,
-            " is ",
-            `${definition.kindId}`,
-            ".",
-          ].join(""),
-        );
-      if (
-        definition.instanceId !== runtimeInstanceId ||
-        definition.installationId !== installation.installationId ||
-        definition.kindId !== installation.kindId ||
-        prepared.executablePath !== installation.executablePath ||
-        prepared.cwd !== cwd ||
-        prepared.prompt !== prompt
-      )
-        throw runtimeSpawnError(
-          "invalid_runtime_launch",
-          "Prepared runtime launch does not match the closed spawn request.",
-        );
-      const definitionSnapshotRef = [
-          "artifact:runtime-definition/",
-          `${createHash("sha256").update(JSON.stringify(definition)).digest("hex")}`,
-          "",
-        ].join(""),
-        runtimeKind = runtimeKindForId(definition.kindId),
-        protocolFamily = runtimeKind.protocolFamily,
-        workerGitEnvironment = taskId ? await prepareWorkerGitEnvironment(runtimeInstanceId) : undefined;
-      // Enforced runtimes replace HOME and TMPDIR, so a task worker needs the daemon's sealed callback
-      // route as well as its own executor identity.
-      const workerLaunch =
-        taskId && daemonRoute
-          ? {
-              ...prepared,
-              env: {
-                ...prepared.env,
-                ...workerGitEnvironment,
-                HARNESS_CANONICAL_ROOT: input.rootDir,
-                PATH: [
-                  path.join(input.rootDir, "tools", "git-hooks"),
-                  prepared.env.PATH ?? globalThis.process?.env.PATH ?? "",
-                ]
-                  .filter(Boolean)
-                  .join(path.delimiter),
-                HARNESS_DAEMON_USER_ROOT: daemonRoute.userRoot,
-                HARNESS_DAEMON_ID: daemonRoute.daemonId,
-                HARNESS_DAEMON_ENDPOINT: daemonRoute.endpoint,
-                HARNESS_DAEMON_REPO_ID: input.repoId,
-                HARNESS_ACTOR: runtimeActor,
-                HARNESS_TASK_BOUND: "1",
-              },
-            }
-          : prepared;
-      const taskBinding = taskId ? { taskId, executionId: remoteTask?.executionId ?? lease!.executionId } : null,
-        streamStartedAt = input.now();
-      let process: RuntimeProcess | undefined;
-      let resumeObservation: ResumeProcessObservation | undefined;
-      let stream: DispatchStreamWriter | undefined;
-      const openStream = (): DispatchStreamWriter =>
-        (stream ??= openDispatchStream(input.rootDir, {
-          dispatchId: newDispatchId,
-          taskId: taskBinding?.taskId ?? null,
-          executionId: taskBinding?.executionId ?? null,
-          runtimeSessionId,
-          instanceId: definition.instanceId,
-          startedAt: streamStartedAt,
-          dispatchOpId,
-          kindId: definition.kindId,
-          permissionMode: launchedPermissionMode ?? null,
-          binding,
-          cwd,
-          prompt: scrubProviderValue(prompt) as string,
-          ...(promptSource ? { promptSource } : {}),
-          model: definition.model,
-          reasoningEffort: definition.reasoningEffort,
-          resumeProviderSessionId: providerSessionId ?? null,
-          ...(onExitCommand ? { onExitCommand } : {}),
-          ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
-          ...(delegatedBy
-            ? {
-                delegatedByAgentId: delegatedBy.id,
-                delegatedByAgentName: delegatedBy.name,
-                squadId: target!.squadId,
-              }
-            : {}),
-        }));
-      if (providerSessionId)
-        try {
-          openStream();
-          process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
-          resumeObservation = observeResumeProcess(process, definition.kindId, providerSessionId);
-          await resumeObservation.ready;
-        } catch (error) {
-          process?.terminate();
-          process?.release?.();
-          removeDispatchStream(input.rootDir, newDispatchId);
-          if (runtimeErrorCode(error) === "runtime_resume_failed") throw error;
-          consumeKnownError(error);
-          throw runtimeSpawnError(
-            "runtime_resume_failed",
-            `${definition.kindId} session ${providerSessionId} could not be resumed: ${runtimeErrorMessage(error)}`,
-          );
-        }
-      let requested!: Awaited<ReturnType<typeof publishRuntimeEvent>>;
-      try {
-        await publishRuntimeEvent(
-          "runtime_installation_observed",
-          {
-            installationId: installation.installationId,
-            kindId: protocolFamily,
-            protocolFamily,
-            hostRef: "host:local",
-            version: installation.version,
-            discoverySource: "wrapper",
-            capabilities: runtimeKind.declaredCapabilities,
-          },
-          `${dispatchOpId}-installation`,
-          binding,
-        );
-        requested = await publishRuntimeEvent(
-          "runtime_dispatch_requested",
-          {
-            dispatchId: newDispatchId,
-            runtimeSessionId,
-            instanceId: definition.instanceId,
-            installationId: definition.installationId,
-            kindId: definition.kindId,
-            idempotencyKey,
-            definitionSnapshotRef,
-            definitionSnapshot: definition,
-          },
-          dispatchOpId,
-          binding,
-        );
-      } catch (error) {
-        process?.terminate();
-        process?.release?.();
-        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-        throw error;
-      }
-      // Publish the canonical session before starting the provider. A provider can
-      // immediately call back through the sealed daemon route; its task+dispatch
-      // target must see a session projection before that first callback arrives.
-      try {
-        await publishRuntimeEvent(
-          "runtime_session_started",
-          {
-            runtimeSessionId,
-            instanceId: definition.instanceId,
-            installationId: definition.installationId,
-            kindId: definition.kindId,
-            definitionSnapshotRef,
-            launchGeneration: input.daemonGeneration,
-            attachable: true,
-          },
-          `${dispatchOpId}-started`,
-          binding,
-        );
-      } catch (error) {
-        process?.terminate();
-        process?.release?.();
-        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-        throw error;
-      }
-      if (!process)
-        try {
-          openStream();
-          process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
-        } catch (error) {
-          removeDispatchStream(input.rootDir, newDispatchId);
-          await publishRuntimeEvent(
-            "runtime_dispatch_outcome_unknown",
-            { dispatchId: newDispatchId, runtimeSessionId },
-            `${dispatchOpId}-outcome-unknown`,
-            binding,
-          );
-          throw error;
-        }
-      const runtimeProcess = process;
-      const active = createActiveRuntime({
-        process: runtimeProcess,
-        dispatchId: newDispatchId,
+      authorizationDecision = authorizeAction("runtime.dispatch", `task/${taskId}`, binding.actor, dispatchOpId, {
+        target: { lease, runtimeBinding },
+        evaluatedAtCut: `canonical:${store!.readHead()?.revision ?? 0}`,
+      });
+    }
+    if (authorizationDecision?.outcome === "denied")
+      throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId!, lease));
+    const daemonRoute = taskId ? input.runtimeDaemonRoute : undefined;
+    if (taskId && !daemonRoute)
+      throw runtimeSpawnError(
+        "runtime_preconditions_unavailable",
+        "Task-bound runtime spawn requires a sealed daemon route before dispatch.",
+      );
+    const taskMission = taskId ? (remoteTask ?? deriveTaskMission(input.rootDir, projection!, taskId)) : null,
+      mission = explicitMission ?? taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt");
+    if (taskMission) validateMissionCommands(taskMission.plan, cwd, taskMission.planPath);
+    if (explicitMission) validateMissionCommands(explicitMission, cwd, "explicit runtime mission");
+    const remoteExisting = input.remote ? await input.remote.existing(dispatchOpId) : null,
+      existing = input.remote ? null : store!.readEvent(dispatchOpId);
+    if (remoteExisting)
+      return {
+        ...remoteExisting,
         runtimeSessionId,
-        dispatchOpId,
-        instanceId: definition.instanceId,
-        kindId: definition.kindId,
-        permissionMode: launchedPermissionMode ?? null,
+        dispatchId: newDispatchId,
+        authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+      };
+    if (existing) {
+      if (!isRuntimeEvent(existing) || existing.type !== "runtime_dispatch_requested")
+        throw runtimeSpawnError(
+          "runtime_dispatch_conflict",
+          `Dispatch opId ${dispatchOpId} belongs to another canonical event.`,
+        );
+      return {
+        ...applied(existing, store!.publication(existing), runtimeSessionId, newDispatchId),
+        authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+      };
+    }
+    const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
+      selfContainedMission =
+        taskMission && daemonRoute
+          ? assembleTaskMission({
+              mission,
+              repoId: input.repoId,
+              canonicalRoot: input.rootDir,
+              workerRoot: cwd,
+              taskPackageRoot: taskMission.packageRoot,
+              daemonRoute,
+              runtimeActor,
+            })
+          : mission,
+      target = targetAgentId
+        ? (input.resolveSquadDispatchTarget?.(agentId!, targetAgentId) ??
+          (() => {
+            throw runtimeSpawnError(
+              "squad_member_not_found",
+              `Agent ${targetAgentId} is not available in a squad led by ${agentId}.`,
+            );
+          })())
+        : null,
+      delegatedBy = target?.leader ?? null,
+      agent =
+        target?.worker ??
+        (agentId
+          ? (input.resolveAgent?.(agentId) ??
+            (() => {
+              throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
+            })())
+          : null),
+      resolvedSkills = agent ? resolveAgentSkills({ rootDir: input.rootDir, skills: agent.skills }) : [],
+      preset = agent?.preset
+        ? (() => {
+            const defaults = presetRuntimeDefaults(input.rootDir);
+            return createRuntime({
+              userRoot: presetUserRoot(input.rootDir),
+            }).resolveInternal({
+              presetId: agent.preset!,
+              verticalId: defaults.verticalId,
+              profileId: defaults.profileId,
+              locale: defaults.locale,
+              purpose: "inspect",
+            }).document.body;
+          })()
+        : undefined,
+      fallbackAttempt =
+        inheritedFallback ??
+        initialFallbackAttempt(
+          agent,
+          explicitRuntimeInstanceId,
+          model,
+          providerSessionId,
+          taskId,
+          idempotencyKey,
+          mission,
+        ),
+      fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
+      prompt = agent
+        ? assembleAgentPrompt(agent, selfContainedMission ?? mission, preset, resolvedSkills)
+        : (selfContainedMission ?? mission),
+      selectedModel = fallbackCandidate?.model ?? model ?? agent?.model ?? undefined,
+      runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
+      runtimeInstanceId = await resolveRuntimeInstanceId({
+        requested: fallbackCandidate?.instance ?? explicitRuntimeInstanceId,
+        providerSessionId: providerSessionId ?? undefined,
         agent,
-        delegatedBy,
-        squadId: target?.squadId ?? null,
-        binding,
-        task: taskBinding,
+        model: selectedModel,
+        instances: input.runtimeInstances?.() ?? [],
+        sessions: runtimeSessions,
+      }),
+      configuredPermissionMode =
+        input.runtimeInstances?.().find((instance) => instance.instanceId === runtimeInstanceId)?.permissionMode ??
+        undefined,
+      effectivePermissionMode = permissionMode ?? configuredPermissionMode,
+      prepared = await input.prepareLaunch(runtimeInstanceId, {
         cwd,
         prompt,
+        ...(selectedModel ? { model: selectedModel } : {}),
+        ...(effort ? { effort } : {}),
+        ...(permissionMode ? { permissionMode } : {}),
+        ...(providerSessionId ? { providerSessionId } : {}),
+      }),
+      definition = prepared.definition,
+      installation = prepared.installation,
+      launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, definition.kindId);
+    if (agent && !runtimeTypeMatchesKind(agent.runtime_type, definition.kindId))
+      throw runtimeSpawnError(
+        "agent_runtime_type_mismatch",
+        [
+          "Agent ",
+          `${agent.id}`,
+          " requires ",
+          `${agent.runtime_type}`,
+          ", but instance ",
+          `${runtimeInstanceId}`,
+          " is ",
+          `${definition.kindId}`,
+          ".",
+        ].join(""),
+      );
+    if (
+      definition.instanceId !== runtimeInstanceId ||
+      definition.installationId !== installation.installationId ||
+      definition.kindId !== installation.kindId ||
+      prepared.executablePath !== installation.executablePath ||
+      prepared.cwd !== cwd ||
+      prepared.prompt !== prompt
+    )
+      throw runtimeSpawnError(
+        "invalid_runtime_launch",
+        "Prepared runtime launch does not match the closed spawn request.",
+      );
+    const definitionSnapshotRef = [
+        "artifact:runtime-definition/",
+        `${createHash("sha256").update(JSON.stringify(definition)).digest("hex")}`,
+        "",
+      ].join(""),
+      runtimeKind = runtimeKindForId(definition.kindId),
+      protocolFamily = runtimeKind.protocolFamily,
+      workerGitEnvironment = taskId ? await prepareWorkerGitEnvironment(runtimeInstanceId) : undefined;
+    // Enforced runtimes replace HOME and TMPDIR, so a task worker needs the daemon's sealed callback
+    // route as well as its own executor identity.
+    const workerLaunch =
+      taskId && daemonRoute
+        ? {
+            ...prepared,
+            env: {
+              ...prepared.env,
+              ...workerGitEnvironment,
+              HARNESS_CANONICAL_ROOT: input.rootDir,
+              PATH: [
+                path.join(input.rootDir, "tools", "git-hooks"),
+                prepared.env.PATH ?? globalThis.process?.env.PATH ?? "",
+              ]
+                .filter(Boolean)
+                .join(path.delimiter),
+              HARNESS_DAEMON_USER_ROOT: daemonRoute.userRoot,
+              HARNESS_DAEMON_ID: daemonRoute.daemonId,
+              HARNESS_DAEMON_ENDPOINT: daemonRoute.endpoint,
+              HARNESS_DAEMON_REPO_ID: input.repoId,
+              HARNESS_ACTOR: runtimeActor,
+              HARNESS_TASK_BOUND: "1",
+            },
+          }
+        : prepared;
+    const taskBinding = taskId ? { taskId, executionId: remoteTask?.executionId ?? lease!.executionId } : null,
+      streamStartedAt = input.now();
+    let process: RuntimeProcess | undefined;
+    let resumeObservation: ResumeProcessObservation | undefined;
+    let stream: DispatchStreamWriter | undefined;
+    const openStream = (): DispatchStreamWriter =>
+      (stream ??= openDispatchStream(input.rootDir, {
+        dispatchId: newDispatchId,
+        taskId: taskBinding?.taskId ?? null,
+        executionId: taskBinding?.executionId ?? null,
+        runtimeSessionId,
+        instanceId: definition.instanceId,
+        startedAt: streamStartedAt,
+        dispatchOpId,
+        kindId: definition.kindId,
+        permissionMode: launchedPermissionMode ?? null,
+        binding,
+        cwd,
+        prompt: scrubProviderValue(prompt) as string,
+        mission: scrubProviderValue(mission) as string,
+        ...(fallbackAttempt ? { fallbackAttempt } : {}),
         ...(promptSource ? { promptSource } : {}),
-        onExitCommand: onExitCommand ?? null,
         model: definition.model,
         reasoningEffort: definition.reasoningEffort,
-        startedAt: streamStartedAt,
-        stream: openStream(),
         resumeProviderSessionId: providerSessionId ?? null,
-      });
-      processes.set(runtimeSessionId, active);
-      input.recordLifecycle?.({
-        event: "runtime_spawn",
-        runtimeSessionId,
-        dispatchId: newDispatchId,
-        pid: runtimeProcess.pid,
-      });
-      attachActiveRuntime(extracted, active, resumeObservation);
-      return requested.receipt
-        ? {
-            ...requested.receipt,
-            runtimeSessionId,
-            dispatchId: newDispatchId,
-            authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-          }
-        : {
-            ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
-            authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-          };
-    },
+        ...(onExitCommand ? { onExitCommand } : {}),
+        ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
+        ...(delegatedBy
+          ? {
+              delegatedByAgentId: delegatedBy.id,
+              delegatedByAgentName: delegatedBy.name,
+              squadId: target!.squadId,
+            }
+          : {}),
+      }));
+    if (providerSessionId)
+      try {
+        openStream();
+        process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
+        resumeObservation = observeResumeProcess(process, definition.kindId, providerSessionId);
+        await resumeObservation.ready;
+      } catch (error) {
+        process?.terminate();
+        process?.release?.();
+        removeDispatchStream(input.rootDir, newDispatchId);
+        if (runtimeErrorCode(error) === "runtime_resume_failed") throw error;
+        consumeKnownError(error);
+        throw runtimeSpawnError(
+          "runtime_resume_failed",
+          `${definition.kindId} session ${providerSessionId} could not be resumed: ${runtimeErrorMessage(error)}`,
+        );
+      }
+    let requested!: Awaited<ReturnType<typeof publishRuntimeEvent>>;
+    try {
+      await publishRuntimeEvent(
+        "runtime_installation_observed",
+        {
+          installationId: installation.installationId,
+          kindId: protocolFamily,
+          protocolFamily,
+          hostRef: "host:local",
+          version: installation.version,
+          discoverySource: "wrapper",
+          capabilities: runtimeKind.declaredCapabilities,
+        },
+        `${dispatchOpId}-installation`,
+        binding,
+      );
+      requested = await publishRuntimeEvent(
+        "runtime_dispatch_requested",
+        {
+          dispatchId: newDispatchId,
+          runtimeSessionId,
+          instanceId: definition.instanceId,
+          installationId: definition.installationId,
+          kindId: definition.kindId,
+          idempotencyKey,
+          definitionSnapshotRef,
+          definitionSnapshot: definition,
+        },
+        dispatchOpId,
+        binding,
+      );
+    } catch (error) {
+      process?.terminate();
+      process?.release?.();
+      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+      throw error;
+    }
+    // Publish the canonical session before starting the provider. A provider can
+    // immediately call back through the sealed daemon route; its task+dispatch
+    // target must see a session projection before that first callback arrives.
+    try {
+      await publishRuntimeEvent(
+        "runtime_session_started",
+        {
+          runtimeSessionId,
+          instanceId: definition.instanceId,
+          installationId: definition.installationId,
+          kindId: definition.kindId,
+          definitionSnapshotRef,
+          launchGeneration: input.daemonGeneration,
+          attachable: true,
+        },
+        `${dispatchOpId}-started`,
+        binding,
+      );
+    } catch (error) {
+      process?.terminate();
+      process?.release?.();
+      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+      throw error;
+    }
+    if (!process)
+      try {
+        openStream();
+        process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
+      } catch (error) {
+        removeDispatchStream(input.rootDir, newDispatchId);
+        await publishRuntimeEvent(
+          "runtime_dispatch_outcome_unknown",
+          { dispatchId: newDispatchId, runtimeSessionId },
+          `${dispatchOpId}-outcome-unknown`,
+          binding,
+        );
+        throw error;
+      }
+    const runtimeProcess = process;
+    const active = createActiveRuntime({
+      process: runtimeProcess,
+      dispatchId: newDispatchId,
+      runtimeSessionId,
+      dispatchOpId,
+      instanceId: definition.instanceId,
+      kindId: definition.kindId,
+      permissionMode: launchedPermissionMode ?? null,
+      agent,
+      delegatedBy,
+      squadId: target?.squadId ?? null,
+      binding,
+      task: taskBinding,
+      cwd,
+      prompt,
+      ...(promptSource ? { promptSource } : {}),
+      onExitCommand: onExitCommand ?? null,
+      model: definition.model,
+      reasoningEffort: definition.reasoningEffort,
+      startedAt: streamStartedAt,
+      stream: openStream(),
+      fallbackAttempt: fallbackAttempt ?? null,
+      resumeProviderSessionId: providerSessionId ?? null,
+    });
+    processes.set(runtimeSessionId, active);
+    input.recordLifecycle?.({
+      event: "runtime_spawn",
+      runtimeSessionId,
+      dispatchId: newDispatchId,
+      pid: runtimeProcess.pid,
+    });
+    attachActiveRuntime(extracted, active, resumeObservation);
+    return requested.receipt
+      ? {
+          ...requested.receipt,
+          runtimeSessionId,
+          dispatchId: newDispatchId,
+          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+        }
+      : {
+          ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
+          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+        };
+  };
+  return {
+    spawn: (payload: JsonObject, binding: RuntimeBinding) => spawnAttempt(payload, binding),
     adopt: () => adoptRuntimes(extracted),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
-    close: () => closeRuntimes(extracted),
+    close: () => {
+      for (const timer of fallbackTimers) clearTimeout(timer);
+      fallbackTimers.clear();
+      closeRuntimes(extracted);
+    },
   };
   async function publishRuntimeEvent<T extends AgentRuntimeEventV1["type"]>(
     type: T,
@@ -639,4 +670,123 @@ export function makeRuntimeSpawner(input: {
   function controlReceipt(opId: string, runtimeSessionId: string, detail?: string) {
     return controlReceiptImpl(extracted, opId, runtimeSessionId, detail);
   }
+  async function settleFallback(active: ActiveRuntime, outcome: RuntimeAttemptOutcome): Promise<void> {
+    const fallback = active.fallbackAttempt;
+    if (outcome.classification !== "provider_fault" || !fallback || !active.task) return;
+    const nextAttemptIndex = fallback.attemptIndex + 1,
+      exhausted = nextAttemptIndex >= fallback.backoff.maxAttempts || nextAttemptIndex >= fallback.candidates.length;
+    if (exhausted) {
+      const reason = `Provider fallback exhausted after ${String(nextAttemptIndex)} attempt(s): ${outcome.reason}`;
+      active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
+      try {
+        await input.onFallbackExhausted?.({
+          ...active.task,
+          reason,
+          binding: active.binding,
+        });
+      } catch (error) {
+        const settlementReason = `Provider fallback exhaustion could not block the Task: ${runtimeErrorMessage(error)}`;
+        active.stream.appendFallbackState({ state: "exhausted", reason: settlementReason }, input.now());
+        console.warn(`[runtime-fallback] ${settlementReason}`);
+        throw error;
+      }
+      return;
+    }
+    const next = fallback.candidates[nextAttemptIndex]!,
+      delayMs = Math.min(fallback.backoff.maxMs, fallback.backoff.baseMs * 2 ** fallback.attemptIndex),
+      nextFallback = { ...fallback, attemptIndex: nextAttemptIndex },
+      continuation = continuationMission(outcome, fallback.originalMission);
+    active.stream.appendFallbackState({ state: "scheduled", delayMs, nextProvider: next }, input.now());
+    const timer = setTimeout(() => {
+      fallbackTimers.delete(timer);
+      input.schedule(async () => {
+        try {
+          const receipt = await spawnAttempt(
+            {
+              runtimeInstanceId: next.instance,
+              ...(active.delegatedBy
+                ? { agentId: active.delegatedBy.id, targetAgentId: active.agent!.id }
+                : active.agent
+                  ? { agentId: active.agent.id }
+                  : {}),
+              ...(next.model ? { model: next.model } : {}),
+              ...(active.reasoningEffort ? { effort: active.reasoningEffort } : {}),
+              ...(active.permissionMode ? { permissionMode: active.permissionMode } : {}),
+              cwd:
+                active.cwd === input.rootDir
+                  ? { scope: "repo-root" }
+                  : { scope: "repo-relative", path: path.relative(input.rootDir, active.cwd) },
+              prompt: continuation,
+              ...(active.promptSource ? { promptSource: active.promptSource } : {}),
+              ...(active.onExitCommand ? { onExitCommand: active.onExitCommand } : {}),
+              taskId: active.task!.taskId,
+              idempotencyKey: `${fallback.rootIdempotencyKey}:fallback:${String(nextAttemptIndex)}`,
+            },
+            active.binding,
+            nextFallback,
+          );
+          active.stream.appendFallbackState(
+            {
+              state: "dispatched",
+              nextDispatchId: String(receipt.dispatchId),
+              nextRuntimeSessionId: String(receipt.runtimeSessionId),
+            },
+            input.now(),
+          );
+        } catch (error) {
+          consumeKnownError(error);
+          const reason = `Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`;
+          active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
+          await input.onFallbackExhausted?.({ ...active.task!, reason, binding: active.binding });
+        }
+      });
+    }, delayMs);
+    timer.unref();
+    fallbackTimers.add(timer);
+  }
+}
+
+function initialFallbackAttempt(
+  agent: RuntimeAgent | null,
+  requestedInstance: string | undefined,
+  requestedModel: string | undefined,
+  providerSessionId: string | null | undefined,
+  taskId: string | null,
+  idempotencyKey: string,
+  mission: string,
+): RuntimeFallbackAttempt | undefined {
+  const declared = agent?.fallback;
+  if (!declared?.enabled || providerSessionId || !taskId) return undefined;
+  const requestedIndex =
+    requestedInstance === undefined
+      ? 0
+      : declared.chain.findIndex(
+          (candidate) =>
+            candidate.instance === requestedInstance &&
+            (requestedModel === undefined || candidate.model === undefined || candidate.model === requestedModel),
+        );
+  if (requestedIndex < 0) return undefined;
+  const candidates = declared.chain.slice(requestedIndex),
+    maxAttempts = Math.min(declared.backoff.maxAttempts, candidates.length),
+    digest = createHash("sha256").update(`${agent!.id}\0${idempotencyKey}`).digest("hex");
+  return {
+    attemptGroupId: `attempt_${digest.slice(0, 24)}`,
+    attemptIndex: 0,
+    rootIdempotencyKey: idempotencyKey,
+    originalMission: mission,
+    candidates,
+    backoff: { ...declared.backoff, maxAttempts },
+  };
+}
+
+function continuationMission(outcome: RuntimeAttemptOutcome, originalMission: string): string {
+  return [
+    "# Provider fallback continuation",
+    [
+      `上次 attempt 用 ${outcome.provider.instance}/${outcome.provider.model} 因 ${outcome.reason} 中断；`,
+      "worktree 现状保留在原 cwd；继续同一任务，不使用 provider resume。",
+    ].join(""),
+    "",
+    originalMission,
+  ].join("\n");
 }

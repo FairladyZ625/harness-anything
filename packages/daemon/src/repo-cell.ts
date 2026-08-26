@@ -2,7 +2,7 @@ import path from "node:path";
 import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
 import { blockingOf, closeoutReadiness, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
-import { readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
+import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
 import { localRepairBinding } from "./daemon-host-binding.ts";
 import { makeDecisionActions } from "./decision-actions.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
@@ -92,6 +92,7 @@ export function initializeRepoCell(context: any): any {
       killpoint: context.input.killpoint,
     });
   const runtimeReads = makeAgentRuntimeReadModel({
+      readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(context.rootDir, runtimeSessionId),
       readDispatch: (taskId, dispatchId) =>
         readTaskDispatches({ rootDir: context.rootDir, projection, taskId }).dispatches.find(
           (row) => row.dispatchId === dispatchId,

@@ -261,6 +261,14 @@ export async function openRepoCell(input: {
       () => replica.kick(),
     );
   };
+  let settleFallbackExhaustion: (value: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly reason: string;
+    readonly binding: RepoCellBinding;
+  }) => Promise<void> = async () => {
+    throw cellCodedError("runtime_preconditions_unavailable", "RepoCell fallback settlement is not ready.");
+  };
   const runtimeSpawner = makeRuntimeSpawner({
     repoId: input.repoId,
     rootDir,
@@ -281,6 +289,7 @@ export async function openRepoCell(input: {
       schedule(() => squadCoordinator.observeOutcome(event));
       input.onRuntimeOutcome?.(event);
     },
+    onFallbackExhausted: (value) => settleFallbackExhaustion(value as Parameters<typeof settleFallbackExhaustion>[0]),
     ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });
@@ -290,8 +299,6 @@ export async function openRepoCell(input: {
     store: () => store,
     runtimeSpawner: () => runtimeSpawner,
   });
-  await runtimeSpawner.adopt();
-  schedule(() => squadCoordinator.reconcile());
   function assertRuntimeAdmission(force = false): void {
     runtimeAdmission.assert(rootDir, force);
   }
@@ -356,6 +363,33 @@ export async function openRepoCell(input: {
     },
     getSquadCoordinator: () => squadCoordinator,
   });
+  settleFallbackExhaustion = async ({ taskId, executionId, reason, binding }) => {
+    const before = await service.read(taskId);
+    if (before.snapshot.lease) {
+      if (before.snapshot.lease.executionId !== executionId)
+        throw cellCodedError(
+          "lease_conflict",
+          [
+            `Fallback exhaustion belongs to ${executionId}, but `,
+            `${before.snapshot.lease.executionId} holds the task lease.`,
+          ].join(""),
+        );
+      const released = await extracted.taskSurfaceWrite(
+        { kind: "task-release", taskId, reason: `Release after provider fallback exhaustion: ${reason}` },
+        binding,
+      );
+      if (released.outcome !== "applied")
+        throw cellCodedError("fallback_block_failed", `Fallback lease release was ${released.outcome}.`);
+    }
+    const blocked = await extracted.lifecycleAction(
+      { kind: "task-transition", taskId, status: "blocked", reason },
+      binding,
+    );
+    if (blocked.outcome !== "applied")
+      throw cellCodedError("fallback_block_failed", `Fallback task transition was ${blocked.outcome}.`);
+  };
+  await runtimeSpawner.adopt();
+  schedule(() => squadCoordinator.reconcile());
 
   const apiContext = {
     extracted,

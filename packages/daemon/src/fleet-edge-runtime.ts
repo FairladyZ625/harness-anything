@@ -14,6 +14,7 @@ import {
   runFleetRuntimeArchiveClient,
   runFleetRuntimeEventClient,
   runFleetRuntimeReadClient,
+  runFleetTaskCommandClient,
   type FleetPeerOptions,
 } from "./fleet/edge.ts";
 import { fleetEdgeCredential } from "./fleet-edge-task.ts";
@@ -247,6 +248,35 @@ export function openFleetEdgeRuntime(input: {
         workerId,
         entityStore: getEntityStore(),
       }),
+    onFallbackExhausted: async ({ taskId, executionId, reason }) => {
+      const waitMs = runtimeReadTimeoutMs ?? 30_000,
+        release = await runFleetTaskCommandClient({
+          ...peer,
+          repoId: request.repoId,
+          taskId,
+          opId: `provider-fallback-release-${executionId}`,
+          waitMs,
+          action: { kind: "task-release", taskId, reason: `Provider fallback exhausted: ${reason}` },
+        });
+      if (release.outcome !== "applied")
+        throw edgeRuntimeError(
+          "fallback_block_failed",
+          `Center rejected provider fallback lease release: ${String(release.code ?? release.outcome)}.`,
+        );
+      const blocked = await runFleetTaskCommandClient({
+        ...peer,
+        repoId: request.repoId,
+        taskId,
+        opId: `provider-fallback-block-${executionId}`,
+        waitMs,
+        action: { kind: "task-transition", taskId, status: "blocked", reason },
+      });
+      if (blocked.outcome !== "applied")
+        throw edgeRuntimeError(
+          "fallback_block_failed",
+          `Center rejected provider fallback blocked transition: ${String(blocked.code ?? blocked.outcome)}.`,
+        );
+    },
     ...(input.launch ? { launch: input.launch } : {}),
     schedule,
   });

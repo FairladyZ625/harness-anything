@@ -56,6 +56,19 @@ export interface AgentRuntimeAssociationDto {
   readonly holder: { readonly personId: string; readonly executorId: string | null } | null;
   readonly lease: { readonly phase: "reserving" | "held" | "released" | "orphaned"; readonly expiresAt: string } | null;
 }
+export interface AgentRuntimeAttemptChainDto {
+  readonly attemptGroupId: string;
+  readonly attempts: readonly {
+    readonly dispatchId: string;
+    readonly runtimeSessionId: string;
+    readonly attemptIndex: number;
+    readonly provider: { readonly instance: string; readonly model: string | null };
+    readonly classification: "provider_fault" | "worker_stop" | "gate_red" | null;
+    readonly reason: string | null;
+    readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
+    readonly nextDispatchId: string | null;
+  }[];
+}
 export const runtimeTypeMatchesKind = (runtimeType: string, kindId: AgentRuntimeInstanceDto["kindId"]): boolean =>
   runtimeType === "any" || runtimeType === kindId;
 export interface AgentRuntimeSessionDto {
@@ -71,6 +84,7 @@ export interface AgentRuntimeSessionDto {
   readonly attachCapability: "supported" | "unsupported";
   readonly streamCursor: string;
   readonly associations: readonly AgentRuntimeAssociationDto[];
+  readonly attemptChain?: AgentRuntimeAttemptChainDto;
   readonly activity: {
     readonly lastObservedAt: string;
     readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
@@ -386,7 +400,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         "associations",
         "activity",
       ],
-      ["semanticState"],
+      ["semanticState", "attemptChain"],
     ) &&
     typeof value.runtimeSessionId === "string" &&
     (value.providerSessionId === null || typeof value.providerSessionId === "string") &&
@@ -403,6 +417,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     /^stream:\d+$/u.test(String(value.streamCursor)) &&
     Array.isArray(value.associations) &&
     value.associations.every(validAssociation) &&
+    (value.attemptChain === undefined || validAttemptChain(value.attemptChain)) &&
     isAgentRuntimeContractRecord(value.activity) &&
     hasExactAgentRuntimeContractFields(value.activity, ["lastObservedAt", "outcome", "exitCode", "resultRef"]) &&
     typeof value.activity.lastObservedAt === "string" &&
@@ -411,6 +426,44 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     (value.activity.exitCode === null ||
       (Number.isInteger(value.activity.exitCode) && (value.activity.exitCode as number) >= 0)) &&
     (value.activity.resultRef === null || typeof value.activity.resultRef === "string")
+  );
+}
+function validAttemptChain(value: unknown): value is AgentRuntimeAttemptChainDto {
+  return (
+    isAgentRuntimeContractRecord(value) &&
+    hasExactAgentRuntimeContractFields(value, ["attemptGroupId", "attempts"]) &&
+    typeof value.attemptGroupId === "string" &&
+    value.attemptGroupId.length > 0 &&
+    Array.isArray(value.attempts) &&
+    value.attempts.length > 0 &&
+    value.attempts.every(
+      (attempt) =>
+        isAgentRuntimeContractRecord(attempt) &&
+        hasExactAgentRuntimeContractFields(attempt, [
+          "dispatchId",
+          "runtimeSessionId",
+          "attemptIndex",
+          "provider",
+          "classification",
+          "reason",
+          "fallbackState",
+          "nextDispatchId",
+        ]) &&
+        typeof attempt.dispatchId === "string" &&
+        typeof attempt.runtimeSessionId === "string" &&
+        Number.isInteger(attempt.attemptIndex) &&
+        (attempt.attemptIndex as number) >= 0 &&
+        isAgentRuntimeContractRecord(attempt.provider) &&
+        hasExactAgentRuntimeContractFields(attempt.provider, ["instance", "model"]) &&
+        typeof attempt.provider.instance === "string" &&
+        (attempt.provider.model === null || typeof attempt.provider.model === "string") &&
+        (attempt.classification === null ||
+          ["provider_fault", "worker_stop", "gate_red"].includes(String(attempt.classification))) &&
+        (attempt.reason === null || typeof attempt.reason === "string") &&
+        (attempt.fallbackState === null ||
+          ["scheduled", "dispatched", "exhausted"].includes(String(attempt.fallbackState))) &&
+        (attempt.nextDispatchId === null || typeof attempt.nextDispatchId === "string"),
+    )
   );
 }
 function validPage(value: unknown): boolean {

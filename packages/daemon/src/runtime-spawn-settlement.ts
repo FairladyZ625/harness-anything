@@ -6,6 +6,7 @@ import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 import { pushWorkerBranch } from "./runtime-worker-push.ts";
+import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 
 export async function publishExit(context: any, active: ActiveRuntime, code: number | null): Promise<void> {
   if (
@@ -41,6 +42,12 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
               ? ("unknown" as const)
               : (active.providerOutcome ?? ("unknown" as const));
     let outcome = letOutcome;
+    const classifiedAttempt = classifyRuntimeExit(active, code),
+      attemptOutcome = {
+        ...classifiedAttempt,
+        reason: String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
+      };
+    active.stream.appendAttemptOutcome(attemptOutcome, context.input.now());
     let body = context.runtimeResultText(active, code, outcome);
     if (active.task && outcome === "succeeded") {
       try {
@@ -89,6 +96,11 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
             resultRef,
             resultText: body,
             eventStreamRef: active.stream.ref,
+            attemptGroupId: attemptOutcome.attemptGroupId,
+            attemptIndex: attemptOutcome.attemptIndex,
+            provider: { instance: attemptOutcome.provider.instance, model: attemptOutcome.provider.model },
+            classification: attemptOutcome.classification,
+            reason: attemptOutcome.reason,
           }
         : null;
     if (archive)
@@ -168,6 +180,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
           };
     context.processes.delete(active.runtimeSessionId);
     active.process.release?.();
+    await context.settleFallback(active, attemptOutcome);
     if (notification) setImmediate(() => context.launchExitNotification({ ...notification, now: context.input.now }));
   } finally {
     context.exiting.delete(active.runtimeSessionId);
