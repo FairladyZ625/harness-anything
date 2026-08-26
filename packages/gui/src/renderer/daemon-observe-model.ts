@@ -3,7 +3,8 @@ import type { ObserveTailPayload, ObserveTailRead } from "../api/renderer-dto.ts
 /**
  * G6-B daemon 观察页的纯数据面:`observe.tail` 分页 → 可渲染行流。
  *
- * 契约(v3,权威):items 上限 64/页;history/live cursor 由客户端分别持有并原样回传;
+ * 契约(v3,权威):items 上限 64/页;累计行流双侧封顶 OBSERVE_ROW_LIMIT(方向见其注释);
+ * history/live cursor 由客户端分别持有并原样回传;
  * `unavailable` 携带机器原因(edge 镜像无事件 / center request-log 未接线),
  * `gap` 携带保留缺口原因(cursor 文件不在保留集 / 偏移越界),两者都不冒充空列表。
  * 本模块不做 IO、不碰 React,形状推导全部来自已到货的 page,供视图与 vitest 共用。
@@ -52,6 +53,13 @@ export interface ObserveTailSnapshot {
 
 const DETAIL_LIMIT = 2_000;
 
+/**
+ * 内存上限(#1855 前为 500,当时只丢最旧端——与触顶回翻头部插入冲突而被删)。
+ * 现行按增长方向的反侧丢弃:history 增长丢最新端、follow 增长丢最旧端,
+ * 两个方向翻页都保持在界内,长开的 pane 也不随 live 行无限累积。
+ */
+export const OBSERVE_ROW_LIMIT = 500;
+
 export function initialObserveTail(): ObserveTailSnapshot {
   return {
     rows: [],
@@ -86,7 +94,7 @@ export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTa
       historyGap = page.direction === "history";
     return {
       ...state,
-      rows: historyGap ? [marker, ...state.rows] : [marker],
+      rows: historyGap ? capRows([marker, ...state.rows], "history") : [marker],
       status: "gap",
       gap: page.gap,
       unavailable: null,
@@ -111,12 +119,15 @@ export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTa
     prepend = page.direction === "history",
     initializing = prepend && state.liveCursor === null,
     appendAfterGap = initializing && state.status === "gap",
-    rows =
+    headGrowth = prepend && !appendAfterGap,
+    rows = capRows(
       page.kind === "events"
-        ? mergeEventRows(state.rows, fresh, prepend && !appendAfterGap)
-        : prepend && !appendAfterGap
+        ? mergeEventRows(state.rows, fresh, headGrowth)
+        : headGrowth
           ? [...fresh, ...state.rows]
-          : [...state.rows, ...fresh];
+          : [...state.rows, ...fresh],
+      headGrowth ? "history" : "follow",
+    );
   return {
     ...state,
     rows,
@@ -195,8 +206,21 @@ function mergeEventRows(
   return prepend ? [...unique, ...existing] : [...existing, ...unique];
 }
 
+/**
+ * 结构比较,不依赖对象键序:cursor 只有 events(revision)与文件游标(fileId+offset)
+ * 两种形状,逐判别字段比较即可,避免 `JSON.stringify` 把键序差异误判为游标不同。
+ */
 function sameCursor(left: ObserveTailCursor, right: ObserveTailCursor): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  if (left === null || right === null) return left === right;
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "events") return right.kind === "events" && left.revision === right.revision;
+  return right.kind !== "events" && left.fileId === right.fileId && left.offset === right.offset;
+}
+
+/** 行数到达上限后按增长方向的反侧丢弃;不足上限时原数组原样返回(见 OBSERVE_ROW_LIMIT)。 */
+function capRows(rows: readonly ObserveRow[], growth: "history" | "follow"): readonly ObserveRow[] {
+  if (rows.length <= OBSERVE_ROW_LIMIT) return rows;
+  return growth === "history" ? rows.slice(0, OBSERVE_ROW_LIMIT) : rows.slice(rows.length - OBSERVE_ROW_LIMIT);
 }
 
 function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: string }, seq: number): ObserveRow {
