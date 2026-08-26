@@ -3,14 +3,17 @@ import type { ObserveTailPayload, ObserveTailRead } from "../api/renderer-dto.ts
 /**
  * G6-B daemon 观察页的纯数据面:`observe.tail` 分页 → 可渲染行流。
  *
- * 契约(v2,权威):items 上限 64/页;history/live cursor 由客户端分别持有并原样回传;
+ * 契约(v3,权威):items 上限 64/页;history/live cursor 由客户端分别持有并原样回传;
  * `unavailable` 携带机器原因(edge 镜像无事件 / center request-log 未接线),
  * `gap` 携带保留缺口原因(cursor 文件不在保留集 / 偏移越界),两者都不冒充空列表。
  * 本模块不做 IO、不碰 React,形状推导全部来自已到货的 page,供视图与 vitest 共用。
  */
 
-export type ObserveTailKind = ObserveTailRead["kind"];
-export type ObserveTailCursor = ObserveTailRead["historyCursor"];
+export type ObserveTailKind = Exclude<ObserveTailRead["kind"], "dispatch">;
+export type ObserveTailCursor = Exclude<
+  ObserveTailRead["historyCursor"],
+  { readonly kind: "dispatch" }
+>;
 export type ObserveTailMode = ObserveTailRead["mode"];
 
 export interface ObserveRefChip {
@@ -105,7 +108,10 @@ export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTa
       : page.items.map((item, index) =>
           observeLogRow(item as Readonly<Record<string, unknown>>, state.received + index),
         );
-  const prepend = page.direction === "history",
+  const pageHistoryCursor = observePaneCursor(page.historyCursor),
+    pageLiveCursor = observePaneCursor(page.liveCursor),
+    pageSourceCursor = observePaneCursor(page.sourceCursor),
+    prepend = page.direction === "history",
     initializing = prepend && state.liveCursor === null,
     appendAfterGap = initializing && state.status === "gap",
     rows =
@@ -117,8 +123,8 @@ export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTa
   return {
     ...state,
     rows,
-    historyCursor: prepend ? page.historyCursor : state.historyCursor,
-    liveCursor: prepend ? (initializing ? page.liveCursor : state.liveCursor) : page.liveCursor,
+    historyCursor: prepend ? pageHistoryCursor : state.historyCursor,
+    liveCursor: prepend ? (initializing ? pageLiveCursor : state.liveCursor) : pageLiveCursor,
     status: "live",
     unavailable: null,
     gap: null,
@@ -126,11 +132,15 @@ export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTa
     caughtUp:
       page.direction === "follow"
         ? page.done
-        : initializing && page.status === "ready" && sameCursor(page.liveCursor, page.sourceCursor),
+        : initializing && page.status === "ready" && sameCursor(pageLiveCursor, pageSourceCursor),
     historyDone: prepend ? page.done : state.historyDone,
     mode: page.mode,
     received: state.received + fresh.length,
   };
+}
+
+export function observePaneCursor(value: ObserveTailRead["historyCursor"]): ObserveTailCursor {
+  return value?.kind === "dispatch" ? null : value;
 }
 
 export function applyObserveTailError(state: ObserveTailSnapshot, message: string): ObserveTailSnapshot {

@@ -6,7 +6,7 @@ export const DAEMON_TASK_SNAPSHOT_LIST_SCHEMA = Object.freeze({
 });
 
 export const DAEMON_OBSERVE_TAIL_SCHEMA = Object.freeze({
-  id: "daemon.observe-tail/v2",
+  id: "daemon.observe-tail/v3",
 });
 
 export const DAEMON_WORKSPACE_SUMMARY_SCHEMA = Object.freeze({

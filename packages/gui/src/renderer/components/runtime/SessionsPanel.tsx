@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type {
   AgentRuntimeSessionDto,
   AgentRuntimeSessionResult,
 } from "../../../../../daemon/src/agent-runtime-contract.ts";
-import type { AgentRuntimeAttachEvent } from "../../../../../daemon/src/agent-runtime-stream.ts";
-import { agentRuntimeClient, openAgentRuntimePane } from "../../agent-runtime-client.ts";
+import { consumeKnownError } from "../../../api/error-consumption.ts";
+import { agentRuntimeClient } from "../../agent-runtime-client.ts";
 import { type SessionRow, shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
+import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
 import {
   Avatar,
   Badge,
@@ -26,22 +27,15 @@ import {
   Right,
 } from "./parts.tsx";
 
-const LIVENESS_TONE: Record<string, string> = {
-  live: "text-status-done",
-  stale: "text-stale",
-  unknown: "text-status-unknown",
-  exited: "text-text-faint",
-};
 // Liveness vocabulary maps, not point comparisons: the daemon's liveness word decides the
-// badge tone, the cancel affordance, and the stream footer through table lookups alone.
+// badge tone and the cancel affordance through table lookups alone.
 const LIVENESS_BADGE: Record<string, string> = { live: "active", exited: "done" };
 const LIVENESS_LIVE: Record<string, boolean> = { live: true };
-const OUTCOME_DOT: Record<string, "failed" | "idle"> = { failed: "failed" };
 
 // The first-class Sessions view: the main area behind the group list's selected session, at
 // the same rank as the runtime / agent / squad cards. Every fact comes from the daemon
-// projection — the session read, the attach stream, the group row the page already holds —
-// nothing is inferred or re-derived here.
+// projection — the session read, the durable dispatch stream, and the group row the page
+// already holds — nothing is inferred or re-derived here.
 export function SessionsPanel({
   repoId,
   runtimeSessionId,
@@ -69,49 +63,22 @@ export function SessionsPanel({
 }) {
   const [session, setSession] = useState<AgentRuntimeSessionDto | null>(null),
     [result, setResult] = useState<string | null>(null),
-    [frames, setFrames] = useState<readonly AgentRuntimeAttachEvent[]>([]),
-    [attach, setAttach] = useState("detached"),
     [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    let active = true,
-      detach: (() => void) | undefined;
     setSession(snapshot?.session ?? null);
     setResult(snapshot?.result?.text ?? null);
-    setFrames([]);
-    setAttach("detached");
     setError(snapshotError);
-    if (snapshot === null) return () => void (active = false);
-    const reread = async () => {
+  }, [runtimeSessionId, snapshot, snapshotError]);
+  const reread = useCallback(async () => {
+    try {
       const current = await agentRuntimeClient.session(repoId, runtimeSessionId);
-      if (active) {
-        setSession(current.session);
-        setResult(current.result?.text ?? null);
-      }
-    };
-    setAttach(snapshot.session.attachCapability === "supported" ? "attaching" : "unsupported");
-    if (snapshot.session.attachCapability === "supported")
-      detach = openAgentRuntimePane(repoId, runtimeSessionId, snapshot.session.streamCursor, (value) => {
-        if (!active) return;
-        if ("ok" in value) {
-          setAttach(value.ok ? value.status : value.code);
-          if (value.ok) {
-            const caught = value.events.filter((event) => event.type !== "gap");
-            if (caught.length) setFrames((current) => [...current, ...caught]);
-            if (value.status === "gap" || value.events.some((event) => event.type === "exit")) void reread();
-          }
-          return;
-        }
-        if (value.type === "gap") void reread();
-        else {
-          setFrames((current) => [...current, value]);
-          if (value.type === "exit") void reread();
-        }
-      }).close;
-    return () => {
-      active = false;
-      detach?.();
-    };
-  }, [repoId, runtimeSessionId, snapshot, snapshotError]);
+      setSession(current.session);
+      setResult(current.result?.text ?? null);
+    } catch (cause) {
+      consumeKnownError(cause);
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [repoId, runtimeSessionId]);
   return (
     <>
       <Crumbs>
@@ -155,8 +122,14 @@ export function SessionsPanel({
           squadNames={squadNames}
           decisionRefs={decisionRefs}
           result={result}
-          frames={frames}
-          attach={attach}
+          transcript={
+            <SessionTranscript
+              repoId={repoId}
+              dispatchId={row?.kind === "round" ? row.dispatchId : null}
+              live={session.liveness === "live"}
+              onSettled={reread}
+            />
+          }
           busy={busy}
           onCancel={onCancel}
           onOpenTask={onOpenTask}
@@ -168,15 +141,14 @@ export function SessionsPanel({
 }
 
 // Pure projection of one runtime session: whose it is, which task it is bound to, and what
-// is happening right now. The container above owns the session read and the attach stream.
+// is happening right now. The container above owns the session read and durable replay timeline.
 export function SessionDetailView({
   session,
   row,
   squadNames,
   decisionRefs,
   result,
-  frames,
-  attach,
+  transcript,
   busy,
   onCancel,
   onOpenTask,
@@ -187,8 +159,7 @@ export function SessionDetailView({
   readonly squadNames: ReadonlyMap<string, string>;
   readonly decisionRefs: readonly string[];
   readonly result: string | null;
-  readonly frames: readonly AgentRuntimeAttachEvent[];
-  readonly attach: string;
+  readonly transcript: ReactNode;
   readonly busy: boolean;
   readonly onCancel: (runtimeSessionId: string) => void;
   readonly onOpenTask: (taskId: string) => void;
@@ -224,9 +195,6 @@ export function SessionDetailView({
             )}
           </CardTitle>
           <Badge status={LIVENESS_BADGE[session.liveness] ?? "unknown"}>{session.liveness}</Badge>
-          <span className={`font-mono text-[10px] ${LIVENESS_TONE[session.liveness]}`}>
-            {t("agentRuntime.attachStatus", { status: attach })}
-          </span>
           <Right>
             {LIVENESS_LIVE[session.liveness] && (
               <Btn
@@ -347,41 +315,9 @@ export function SessionDetailView({
       </Card>
       <Card>
         <CardHead>
-          <CardTitle>{t("agentRuntime.liveStream")}</CardTitle>
+          <CardTitle>{t("agentRuntime.transcript")}</CardTitle>
         </CardHead>
-        <CardBody>
-          <div data-testid="session-event-stream" className="max-h-64 overflow-y-auto rounded border border-border">
-            {frames.length === 0 ? (
-              <p className="px-2.5 py-2 text-[10.5px] text-text-faint">{t("agentRuntime.noFrames")}</p>
-            ) : (
-              frames.map((frame) => (
-                <div
-                  key={frame.cursor}
-                  data-testid="session-event-frame"
-                  className="grid grid-cols-[64px_minmax(0,1fr)] gap-2 border-b border-border px-2.5 py-1.5 last:border-b-0 text-[11px]"
-                >
-                  <span className="font-mono text-[9px] text-text-faint">{frame.cursor}</span>
-                  <span className="min-w-0 [overflow-wrap:anywhere]">
-                    {frame.type === "activity" ? frame.activity : frame.type}
-                  </span>
-                </div>
-              ))
-            )}
-            <div className="flex items-center gap-1.5 border-t border-border px-2.5 py-1.5 font-mono text-[10px] text-text-faint">
-              {LIVENESS_LIVE[session.liveness] ? (
-                <>
-                  <span className="rt-pulse" />
-                  {t("agentRuntime.waitingNextEvent")}
-                </>
-              ) : (
-                <>
-                  <LiveDot state={OUTCOME_DOT[session.activity.outcome ?? ""] ?? "idle"} />
-                  {t("agentRuntime.exitCode", { code: session.activity.exitCode ?? "—" })}
-                </>
-              )}
-            </div>
-          </div>
-        </CardBody>
+        <CardBody>{transcript}</CardBody>
       </Card>
       <Card>
         <CardHead>

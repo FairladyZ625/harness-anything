@@ -416,24 +416,6 @@ describe("runtime entry split (W6 IA)", () => {
     expect(onSelectEntity).toHaveBeenCalledWith("session/runtime-sibling");
   });
 
-  it("keeps more than 32 streamed frames in the inline session scroller (W6:不回截断)", async () => {
-    await mountSessions("session/runtime-bound", {}, (onValue) => {
-      for (let index = 0; index < 40; index += 1)
-        onValue({
-          schema: "agent-runtime-attach-event/v1",
-          runtimeSessionId: "runtime-bound",
-          cursor: `stream:${index + 5}`,
-          occurredAt: `2026-08-23T00:00:${String(index).padStart(2, "0")}.000Z`,
-          type: "heartbeat",
-        });
-      return () => undefined;
-    });
-
-    expect(document.querySelectorAll('[data-testid="session-event-frame"]')).toHaveLength(40);
-    expect(byTestId("session-event-stream").className).toContain("max-h-64");
-    expect(byTestId("session-event-stream").className).toContain("overflow-y-auto");
-  });
-
   it("selects agents and squads inside the identity workspace and routes cross-entry jumps", async () => {
     const onSelectEntity = vi.fn();
     await mountAgentSquad("agent/terra", { onSelectEntity });
@@ -655,7 +637,22 @@ function seedQueries(client: QueryClient) {
 
 async function mountView(
   element: React.ReactElement,
-  attachImpl: (onValue: (value: unknown) => void) => () => void = () => () => undefined,
+  tailImpl: (
+    payload: Parameters<typeof harnessClient.tailObservability>[0],
+  ) => Promise<Awaited<ReturnType<typeof harnessClient.tailObservability>>> = async (payload) => ({
+    schema: "daemon.observe-tail/v3",
+    ok: true,
+    repoId: payload.repoId,
+    mode: "local",
+    kind: "dispatch",
+    direction: payload.direction,
+    status: "ready",
+    items: [],
+    historyCursor: null,
+    liveCursor: null,
+    sourceCursor: null,
+    done: true,
+  }),
   sessionGroupsResult = sessionGroups,
   listSquadRuns: () => Promise<Awaited<ReturnType<typeof squadRunsClient.list>>> = async () => emptySquadRuns,
   readSquadRun: (
@@ -673,9 +670,7 @@ async function mountView(
     watermark: 1,
     sourceRevision: 1,
   }));
-  vi.spyOn(agentRuntimeClient, "attach").mockImplementation((_repoId, _runtimeSessionId, _cursor, onValue) =>
-    attachImpl(onValue as (value: unknown) => void),
-  );
+  vi.spyOn(harnessClient, "tailObservability").mockImplementation(tailImpl);
   vi.spyOn(agentRuntimeClient, "sessionGroups").mockImplementation(async (_repoId, query = {}) =>
     query.query === "terra" || query.groupBy === "task" ? sessionGroupsResult : { ...sessionGroupsResult, groups: [] },
   );
@@ -735,7 +730,9 @@ async function mountView(
 async function mountSessions(
   focusedEntityRef: string,
   handlers: { readonly onOpenTask?: (taskId: string) => void; readonly onSelectEntity?: (ref: string) => void } = {},
-  attachImpl?: (onValue: (value: unknown) => void) => () => void,
+  tailImpl?: (
+    payload: Parameters<typeof harnessClient.tailObservability>[0],
+  ) => Promise<Awaited<ReturnType<typeof harnessClient.tailObservability>>>,
   sessionGroupsResult = sessionGroups,
   listSquadRuns?: () => Promise<Awaited<ReturnType<typeof squadRunsClient.list>>>,
 ) {
@@ -753,7 +750,7 @@ async function mountSessions(
     onSelectEntity: handlers.onSelectEntity ?? (() => undefined),
     onOpenTask: handlers.onOpenTask ?? (() => undefined),
   });
-  return mountView(element, attachImpl, sessionGroupsResult, listSquadRuns);
+  return mountView(element, tailImpl, sessionGroupsResult, listSquadRuns);
 }
 async function mountAgentSquad(
   focusedEntityRef: string,

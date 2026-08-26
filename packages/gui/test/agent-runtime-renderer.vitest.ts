@@ -16,7 +16,6 @@ import { assertPreloadPayload } from "../src/preload/allowlist.ts";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import { squadRunsClient } from "../src/renderer/squad-run-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import { openAgentRuntimePane } from "../src/renderer/agent-runtime-client.ts";
 import { submitRuntimeSpawn } from "../src/renderer/runtime-control.ts";
 import { runtimeSelfTestSpawnInput } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 import { runtimeAuthPresentation } from "../src/renderer/runtime-auth-presentation.ts";
@@ -184,8 +183,7 @@ const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> 
       squadNames: new Map(),
       decisionRefs: [],
       result: null,
-      frames: [],
-      attach: "attached",
+      transcript: createElement("p", null, "No dispatch record."),
       busy: false,
       onCancel: noop,
       onOpenTask: noop,
@@ -314,27 +312,6 @@ describe("agent runtime renderer", () => {
     expect(detailView({ session: { ...session, liveness: "exited" } })).not.toContain(
       'data-testid="agent-runtime-cancel"',
     );
-  });
-  it("closing an attach pane invokes detach only", () => {
-    const detach = vi.fn(),
-      attachAgentRuntime = vi.fn(() => detach);
-    vi.stubGlobal("window", {
-      harness: {
-        getAgentRuntimeOverview: vi.fn(),
-        getAgentRuntimeSessionGroups: vi.fn(),
-        getAgentRuntimeSession: vi.fn(),
-        getAgentRuntimeEvents: vi.fn(),
-        attachAgentRuntime,
-      },
-    });
-    const pane = openAgentRuntimePane("repo-a", "runtime-session", "stream:4", () => undefined);
-    pane.close();
-    expect(attachAgentRuntime).toHaveBeenCalledWith(
-      { repoId: "repo-a", runtimeSessionId: "runtime-session", afterCursor: "stream:4" },
-      expect.any(Function),
-    );
-    expect(detach).toHaveBeenCalledOnce();
-    expect(Object.keys(window.harness ?? {})).not.toContain("killAgentRuntime");
   });
   it("contains no renderer repo read, private WebSocket, or polling path", async () => {
     const { readFile } = await import("node:fs/promises"),

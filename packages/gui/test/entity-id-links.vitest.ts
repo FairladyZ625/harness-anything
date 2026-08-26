@@ -269,7 +269,7 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
       logCursor = { kind, fileId: "log-file-g10", offset: 12 },
       eventsCursor = { kind: "events" as const, revision: 7 };
     return {
-      schema: "daemon.observe-tail/v2",
+      schema: "daemon.observe-tail/v3",
       ok: true,
       repoId: REPO_ID,
       mode: "local",

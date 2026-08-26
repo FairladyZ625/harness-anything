@@ -60,7 +60,7 @@ export const optionalEnum = (values: readonly string[]): RpcEnumRule => ({
   optional: true,
 });
 
-export const observeTailKinds = ["events", "repo-log", "daemon-log"] as const;
+export const observeTailKinds = ["events", "repo-log", "daemon-log", "dispatch"] as const;
 export type ObserveTailKind = (typeof observeTailKinds)[number];
 export const observeTailDirections = ["history", "follow"] as const;
 export type ObserveTailDirection = (typeof observeTailDirections)[number];
@@ -68,7 +68,8 @@ export type ObserveTailDirection = (typeof observeTailDirections)[number];
 export type ObserveTailCursor =
   | { readonly kind: "events"; readonly revision: number }
   | { readonly kind: "repo-log"; readonly fileId: string; readonly offset: number }
-  | { readonly kind: "daemon-log"; readonly fileId: string; readonly offset: number };
+  | { readonly kind: "daemon-log"; readonly fileId: string; readonly offset: number }
+  | { readonly kind: "dispatch"; readonly fileId: string; readonly offset: number };
 
 type ObserveTailRequestFor<K extends ObserveTailKind> =
   | {
@@ -83,10 +84,13 @@ type ObserveTailRequestFor<K extends ObserveTailKind> =
     };
 
 export type ObserveTailPayload =
-  ObserveTailRequestFor<"events"> | ObserveTailRequestFor<"repo-log"> | ObserveTailRequestFor<"daemon-log">;
+  | ObserveTailRequestFor<"events">
+  | ObserveTailRequestFor<"repo-log">
+  | ObserveTailRequestFor<"daemon-log">
+  | (ObserveTailRequestFor<"dispatch"> & { readonly dispatchId: string });
 
 type ObserveTailBase = {
-  readonly schema: "daemon.observe-tail/v2";
+  readonly schema: "daemon.observe-tail/v3";
   readonly ok: true;
   readonly repoId: string;
   readonly mode: DaemonRepoMode;
@@ -122,11 +126,19 @@ export type ObserveTailResult =
 
 export function validateObserveTailPayload(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return ["observe tail payload must be an object"];
-  if (Object.keys(value).some((key) => key !== "kind" && key !== "direction" && key !== "cursor"))
+  if (
+    Object.keys(value).some(
+      (key) => key !== "kind" && key !== "direction" && key !== "cursor" && key !== "dispatchId",
+    )
+  )
     return ["observe tail payload contains an unknown field"];
   if (!observeTailKinds.includes(value.kind as ObserveTailKind)) return ["observe tail kind is invalid"];
   if (!observeTailDirections.includes(value.direction as ObserveTailDirection))
     return ["observe tail direction is invalid"];
+  if (value.kind === "dispatch") {
+    if (typeof value.dispatchId !== "string" || !/^dispatch_[a-f0-9]{24}$/u.test(value.dispatchId))
+      return ["observe tail dispatch id is invalid"];
+  } else if (value.dispatchId !== undefined) return ["observe tail dispatch id is only valid for dispatch tails"];
   if (value.cursor === undefined)
     return value.direction === "history" ? [] : ["observe tail follow request requires a cursor"];
   return validateObserveTailCursor(value.cursor, value.kind as ObserveTailKind)
@@ -137,7 +149,7 @@ export function validateObserveTailPayload(value: unknown): readonly string[] {
 export function validateObserveTailResult(value: unknown): readonly string[] {
   if (
     !isJsonObject(value) ||
-    value.schema !== "daemon.observe-tail/v2" ||
+    value.schema !== "daemon.observe-tail/v3" ||
     value.ok !== true ||
     typeof value.repoId !== "string" ||
     !value.repoId ||

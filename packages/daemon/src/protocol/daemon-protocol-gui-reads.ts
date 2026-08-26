@@ -42,15 +42,16 @@ export const observeTailReadMethod = Object.freeze({
   params: shape({
     repo: shape({ repoId: "string" }),
     payload: shape({
-      kind: { values: ["events", "repo-log", "daemon-log"], optional: false },
+      kind: { values: ["events", "repo-log", "daemon-log", "dispatch"], optional: false },
       direction: { values: ["history", "follow"], optional: false },
       cursor: "json?",
+      dispatchId: "string?",
     }),
   }),
   guiBridgeMethod: "tailObservability",
   httpMethod: "POST",
   path: "/api/observe/tail",
-  inputSchemaId: "gui.observe-tail/v2",
+  inputSchemaId: "gui.observe-tail/v3",
   outputSchemaId: DAEMON_OBSERVE_TAIL_SCHEMA.id,
   errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
   serviceMethod: "tailObservability",
@@ -60,6 +61,7 @@ export const observeTailReadMethod = Object.freeze({
     events: "projection",
     "repo-log": "runtime-local",
     "daemon-log": "runtime-local",
+    dispatch: "runtime-local",
   } satisfies EntityResidencyFacets),
 } as const);
 

@@ -1,0 +1,8 @@
+{"schema":"runtime-dispatch-stream/v1","kind":"dispatch","dispatchId":"dispatch_96e06fd9ca6917fc922e6d58"}
+{"kind":"provider_event","event":{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"Plan"}]}}}
+{"kind":"provider_event","event":{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read"}]}}}
+{"kind":"provider_event","event":{"type":"user","message":{"content":[{"type":"tool_result","content":"Plan read."}]}}}
+{"kind":"provider_event","event":{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"Done"}]}}}
+{"kind":"provider_event","event":{"type":"assistant","message":{"content":[{"type":"text","text":"Tests passed."}]}}}
+{"kind":"provider_event","event":{"type":"result","is_error":false,"result":"Tests passed."}}
+{"kind":"process_exit","exitCode":0}
