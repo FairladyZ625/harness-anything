@@ -451,6 +451,7 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
         scheduleId: id,
         idempotencyKey: text,
         observedDefinitionRevision: uint,
+        scheduledFor: isUtcTimestamp,
       },
       ["kind", "scheduleId"],
     ),
@@ -479,6 +480,20 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
           idempotencyKey: text,
         },
         ["kind", "scheduleId", "phase", "claimFence", "outcome", "endedAt"],
+      )(value) ||
+      optionalShape(
+        {
+          kind: one("schedule-settle"),
+          scheduleId: id,
+          phase: one("missed"),
+          from: isUtcTimestamp,
+          to: isUtcTimestamp,
+          count: positiveInt,
+          reason: one("scheduler_unavailable", "single_flight"),
+          observedDefinitionRevision: uint,
+          idempotencyKey: text,
+        },
+        ["kind", "scheduleId", "phase", "from", "to", "count", "reason", "observedDefinitionRevision"],
       )(value),
   },
   scheduleAction: Check = (value) =>

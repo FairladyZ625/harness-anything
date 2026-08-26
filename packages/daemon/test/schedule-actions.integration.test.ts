@@ -208,6 +208,129 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       });
       assert.equal(settled, true);
       assert.equal(launchCount, 2);
+
+      const beforeMissed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
+          readonly schedules: readonly {
+            readonly scheduleId: string;
+            readonly definitionRevision: number;
+          }[];
+        },
+        observedRevision = beforeMissed.schedules.find(
+          ({ scheduleId }) => scheduleId === "e2e-probe",
+        )!.definitionRevision,
+        missedAt = "2026-08-27T00:05:00.000Z";
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "schedule-settle",
+              phase: "missed",
+              scheduleId: "e2e-probe",
+              from: missedAt,
+              to: missedAt,
+              count: 1,
+              reason: "scheduler_unavailable",
+              observedDefinitionRevision: observedRevision,
+              idempotencyKey: "e2e-probe-missed-1",
+            },
+            actor,
+          )
+        ).outcome,
+        "applied",
+      );
+      const afterMissed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
+        readonly schedules: readonly {
+          readonly scheduleId: string;
+          readonly status: { readonly automaticEvaluatedThrough: string; readonly missedCount: number };
+        }[];
+      };
+      const missedStatus = afterMissed.schedules.find(({ scheduleId }) => scheduleId === "e2e-probe")?.status;
+      assert.deepEqual(
+        { automaticEvaluatedThrough: missedStatus?.automaticEvaluatedThrough, missedCount: missedStatus?.missedCount },
+        { automaticEvaluatedThrough: missedAt, missedCount: 1 },
+      );
+
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "schedule-create",
+              scheduleId: "restart-heartbeat",
+              name: "Restart heartbeat",
+              everyMs: 300_000,
+              agentId: "probe-agent",
+              runtimeInstanceId: definition.instanceId,
+              mission: "Resume the claimed heartbeat.",
+              idempotencyKey: "seed-restart-heartbeat",
+            },
+            actor,
+          )
+        ).outcome,
+        "applied",
+      );
+      const scheduledFor = "2026-08-27T00:05:00.000Z",
+        claimedBeforeDispatch = await cell.schedule.claimOccurrence(
+          {
+            scheduleId: "restart-heartbeat",
+            kind: "scheduled",
+            scheduledFor,
+            nodeId: "local",
+            assignmentId: null,
+            idempotencyKey: "restart-heartbeat-fire",
+          },
+          actor,
+        );
+      assert.equal(claimedBeforeDispatch.outcome, "applied");
+      assert.equal(launchCount, 2);
+      const resumedClaim = await cell.run(
+        {
+          kind: "schedule-run-now",
+          scheduleId: "restart-heartbeat",
+          scheduledFor,
+          idempotencyKey: "restart-heartbeat-fire",
+        },
+        actor,
+      );
+      assert.equal(resumedClaim.outcome, "applied");
+      assert.equal(launchCount, 3);
+      const resumedList = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
+        readonly schedules: readonly {
+          readonly scheduleId: string;
+          readonly status: {
+            readonly automaticEvaluatedThrough: string;
+            readonly activeRun: { readonly kind: string; readonly scheduledFor: string } | null;
+          };
+        }[];
+      };
+      const restarted = resumedList.schedules.find(({ scheduleId }) => scheduleId === "restart-heartbeat");
+      assert.deepEqual(
+        {
+          automaticEvaluatedThrough: restarted?.status.automaticEvaluatedThrough,
+          kind: restarted?.status.activeRun?.kind,
+          scheduledFor: restarted?.status.activeRun?.scheduledFor,
+        },
+        { automaticEvaluatedThrough: scheduledFor, kind: "scheduled", scheduledFor },
+      );
+      output?.(
+        `${JSON.stringify({ type: "thread.started", thread_id: "provider-schedule-restart" })}\n` +
+          `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } })}\n` +
+          `${JSON.stringify({ type: "turn.completed" })}\n`,
+      );
+      exit?.(0);
+      assert.equal(
+        await eventually(async () => {
+          const listed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
+            readonly schedules: readonly {
+              readonly scheduleId: string;
+              readonly status: { readonly activeRun: unknown };
+            }[];
+          };
+          return (
+            listed.schedules.find(({ scheduleId }) => scheduleId === "restart-heartbeat")?.status.activeRun === null
+          );
+        }),
+        true,
+      );
     } finally {
       await cell.close();
     }

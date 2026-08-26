@@ -69,6 +69,7 @@ export function createDaemonHostRepositoryApi(
         });
         context.cells.set(prepared.repoId, cell);
         context.unavailable.delete(prepared.repoId);
+        await context.scheduleScheduler.refresh();
       } catch (error) {
         await cell.close();
         throw error;
@@ -250,7 +251,9 @@ export function createDaemonHostRepositoryApi(
             auth.sessionEnvironment === undefined
               ? baseBinding
               : { ...baseBinding, sessionEnvironment: auth.sessionEnvironment };
-        return await cell.run(intent as RepoTaskAction, serverBinding, auth.connectionSignal);
+        const receipt = await cell.run(intent as RepoTaskAction, serverBinding, auth.connectionSignal);
+        if (action.kind.startsWith("schedule-")) await context.scheduleScheduler.refresh();
+        return receipt;
       } catch (error) {
         return context.rejectHostAction(action, context.code(error), context.daemonErrorMessage(error));
       }
