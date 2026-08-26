@@ -356,7 +356,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
   }
 });
 
-test("attached task runtime settlement consumes its durable tail and releases its execution lease", async () => {
+test("attached task runtime settlement releases its execution lease before publishing the terminal outcome", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-attached-tail-"));
   let exit: ((code: number | null) => void) | null = null;
   try {
@@ -486,7 +486,19 @@ test("attached task runtime settlement consumes its durable tail and releases it
           )
         );
       });
-      const projection = makeTaskProjection({
+      const events = makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
+        outcomeIndex = events.findIndex(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === receipt.runtimeSessionId,
+        ),
+        releaseIndex = events.findIndex(
+          (event) =>
+            event.type === "lease_released" &&
+            event.taskId === taskId &&
+            event.payload.execution.executionId === executionId,
+        ),
+        projection = makeTaskProjection({
           rootDir: root,
           eventStore: makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }),
         }),
@@ -501,6 +513,7 @@ test("attached task runtime settlement consumes its durable tail and releases it
         },
         { liveness: "exited", outcome: "succeeded", exitCode: 0 },
       );
+      assert.ok(releaseIndex < outcomeIndex, "terminal outcome must not become visible before lease release");
       assert.equal(taskSnapshot.lease, null, "terminal RuntimeSession settlement must release the execution lease");
     } finally {
       await cell.close();
