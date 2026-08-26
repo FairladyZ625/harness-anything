@@ -3,6 +3,7 @@ import {
   consumeKnownError,
   readDaemonRegistry,
   unregisterDaemonRepo,
+  type AgentRuntimeEventV1,
   type DaemonRepoMode,
 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.ts";
@@ -139,6 +140,8 @@ export async function performOpenRegistered(
       authoredBranch: repo.authoredBranch,
       ...(context.input.shutdownRequested ? { shouldStop: context.input.shutdownRequested } : {}),
       ...(context.input.recordLifecycle ? { recordLifecycle: context.input.recordLifecycle } : {}),
+      onRuntimeOutcome: (event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>) =>
+        void context.e2eProbeScheduler.onRuntimeOutcome(repo.repoId, event),
       ...context.runtimePorts,
       ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
     });

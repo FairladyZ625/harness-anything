@@ -25,9 +25,6 @@ interface DaemonClient {
     readonly userRoot: string;
     readonly daemonId: string;
   };
-  readonly daemonUserRoot: () => string;
-  readonly daemonIdFromEnv: () => string;
-  readonly localUserDaemonEndpoint: (userRoot?: string, daemonId?: string) => string;
   readonly requestLocalDaemonJsonRpcForTarget: (
     target: { readonly socketPath: string },
     method: string,
@@ -82,7 +79,7 @@ async function request(
       scoped = route.requiresRepo ? repoPayload(payload) : null;
     const target = scoped
       ? daemon.resolveLocalDaemonTarget({ rootDir, repoIdOverride: scoped.repoId })
-      : globalTarget(daemon);
+      : daemon.resolveLocalDaemonTarget({ rootDir });
     const daemonPayload = scoped?.payload ?? ((payload ?? {}) as JsonObject);
     const body: JsonObject = route.inputSchemaId === "gui.empty/v1" ? {} : { payload: daemonPayload },
       params: JsonObject = route.requiresRepo ? { repo: { repoId: scoped!.repoId }, ...body } : body;
@@ -145,15 +142,6 @@ function repoPayload(value: unknown): { readonly repoId: string; readonly payloa
   if (typeof repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId))
     throw new Error("Repository GUI request has an invalid repoId.");
   return { repoId, payload };
-}
-function globalTarget(daemon: DaemonClient): {
-  readonly socketPath: string;
-  readonly userRoot: string;
-  readonly daemonId: string;
-} {
-  const userRoot = daemon.daemonUserRoot(),
-    daemonId = daemon.daemonIdFromEnv();
-  return { socketPath: daemon.localUserDaemonEndpoint(userRoot, daemonId), userRoot, daemonId };
 }
 async function loadClient(): Promise<DaemonClient> {
   client ??= import("../../../daemon/src/client/local-json-rpc-client.ts") as Promise<DaemonClient>;

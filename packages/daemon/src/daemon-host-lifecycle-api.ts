@@ -34,6 +34,7 @@ export function createDaemonHostLifecycleApi(
         pid: process.pid,
         startedAt: context.startedAt,
         build,
+        e2eProbe: context.e2eProbeScheduler.status(),
         repos: [
           ...[...context.cells.values()].map((cell) => cell.status()),
           ...context.warming.values(),
@@ -48,6 +49,7 @@ export function createDaemonHostLifecycleApi(
     attachmentsSettled: context.startInitialAttachments,
     close: async () => {
       context.closing = true;
+      context.e2eProbeScheduler.close();
       if (context.initialAttachments) await context.initialAttachments;
       for (const repoId of [...context.warming.keys()]) context.settleWarming(repoId);
       if (context.fleetCenter) await context.fleetCenter.close();

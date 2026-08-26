@@ -71,6 +71,12 @@ export async function openRepoCell(input: {
   readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
   readonly bootstrap?: RepoBootstrapInput;
   readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;
+  readonly onRuntimeOutcome?: (
+    event: Extract<
+      import("../../kernel/src/index.ts").AgentRuntimeEventV1,
+      { readonly type: "runtime_session_outcome_observed" }
+    >,
+  ) => void;
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
@@ -272,6 +278,7 @@ export async function openRepoCell(input: {
       resolveSquadDispatchTarget({ rootDir, leaderId, workerId, entityStore: createEntityStore(store) }),
     onRuntimeOutcome: (event) => {
       schedule(() => squadCoordinator.observeOutcome(event));
+      input.onRuntimeOutcome?.(event);
     },
     ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
