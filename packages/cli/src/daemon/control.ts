@@ -13,12 +13,7 @@ import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rp
 import type { DaemonShutdownExchange } from "../../../daemon/src/client/local-json-rpc-shutdown.ts";
 import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import {
-  ensureLocalDaemonRunning,
-  isDaemonUnreachable,
-  runtimeDaemonStartRefusal,
-  runtimeDaemonStartRefusalForUnavailable,
-} from "../../../daemon/src/client/daemon-autostart.ts";
+import { ensureLocalDaemonRunning, runtimeDaemonStartRefusal } from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 import {
   daemonProcessAlive,
@@ -97,7 +92,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       return finish(result, result.ok === true ? 0 : 1);
     }
     if (command === "serve") {
-      const refusal = await runtimeDaemonStartRefusal(localUserDaemonEndpoint(userRoot, daemonId));
+      const refusal = runtimeDaemonStartRefusal();
       if (refusal) return finish(daemonFailure("daemon-serve", "daemon_start_runtime_forbidden", refusal.hint), 1);
       return serve(userRoot, daemonId, finish);
     }
@@ -111,18 +106,14 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
           ),
           2,
         );
-      let running: Record<string, unknown> | null = null,
-        unavailable = false;
+      let running: Record<string, unknown> | null = null;
       try {
         running = await status(userRoot, daemonId);
       } catch (error) {
-        unavailable = isDaemonUnreachable(error);
         consumeKnownError(error);
       }
       if (running?.ok === true) return finish(running, 0);
-      const refusal = unavailable
-        ? runtimeDaemonStartRefusalForUnavailable()
-        : await runtimeDaemonStartRefusal(localUserDaemonEndpoint(userRoot, daemonId));
+      const refusal = runtimeDaemonStartRefusal();
       if (refusal) return finish(daemonFailure("daemon-start", "daemon_start_runtime_forbidden", refusal.hint), 1);
       const started = await ensureLocalDaemonRunning({
         socketPath: localUserDaemonEndpoint(userRoot, daemonId),
