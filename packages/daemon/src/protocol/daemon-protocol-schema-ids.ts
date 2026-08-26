@@ -5,6 +5,10 @@ export const DAEMON_TASK_SNAPSHOT_LIST_SCHEMA = Object.freeze({
   required: Object.freeze(["ok", "status", "rows", "watermark", "sourceRevision", "warnings"]),
 });
 
+export const DAEMON_OBSERVE_TAIL_SCHEMA = Object.freeze({
+  id: "daemon.observe-tail/v1",
+});
+
 export const DAEMON_WORKSPACE_SUMMARY_SCHEMA = Object.freeze({
   id: "daemon.workspace-summary/v1",
   required: Object.freeze(["schema", "ok", "status", "tasks", "decisions", "watermark", "sourceRevision", "warnings"]),

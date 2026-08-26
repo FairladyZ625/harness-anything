@@ -99,25 +99,27 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
           ? null
           : contract.id === "gui.control.receipt"
             ? { operationId: control.operationId }
-            : contract.id === "tasks.document.read"
-              ? { ...scope, taskId: "task-gui-smoke", path: "notes.md" }
-              : contract.id === "tasks.documents.list" || contract.id === "task.dispatches"
-                ? { ...scope, taskId: "task-gui-smoke" }
-                : contract.id === "agentRuntime.sessions.read"
-                  ? { ...scope, runtimeSessionId: "runtime-gui" }
-                  : contract.id === "agentRuntime.events.read"
-                    ? {
-                        ...scope,
-                        runtimeSessionId: "runtime-gui",
-                        afterCursor: "lifecycle:0",
-                      }
-                    : contract.id === "agent.entity.read"
-                      ? { ...scope, agentId: "terra" }
-                      : contract.id === "squad.entity.read"
-                        ? { ...scope, squadId: "core-squad" }
-                        : contract.id === "gui.catalog.preset.read"
-                          ? { ...scope, presetId: catalog.defaults.presetId }
-                          : scope;
+            : contract.id === "observe.tail"
+              ? { ...scope, kind: "events" }
+              : contract.id === "tasks.document.read"
+                ? { ...scope, taskId: "task-gui-smoke", path: "notes.md" }
+                : contract.id === "tasks.documents.list" || contract.id === "task.dispatches"
+                  ? { ...scope, taskId: "task-gui-smoke" }
+                  : contract.id === "agentRuntime.sessions.read"
+                    ? { ...scope, runtimeSessionId: "runtime-gui" }
+                    : contract.id === "agentRuntime.events.read"
+                      ? {
+                          ...scope,
+                          runtimeSessionId: "runtime-gui",
+                          afterCursor: "lifecycle:0",
+                        }
+                      : contract.id === "agent.entity.read"
+                        ? { ...scope, agentId: "terra" }
+                        : contract.id === "squad.entity.read"
+                          ? { ...scope, squadId: "core-squad" }
+                          : contract.id === "gui.catalog.preset.read"
+                            ? { ...scope, presetId: catalog.defaults.presetId }
+                            : scope;
       const result = await bridge.invoke(contract.guiBridgeMethod, payload);
       const parsed =
         contract.id === "gui.control.receipt"
@@ -132,6 +134,10 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       [...results.keys()],
       daemonGuiReadMethods.map(({ method }) => method),
     );
+    const observability = parseDaemonGuiReadResult("observe.tail", results.get("observe.tail"));
+    assert.equal(observability.schema, "daemon.observe-tail/v1");
+    assert.equal(observability.repoId, fixture.repoId);
+    assert.equal(observability.kind, "events");
     const agentCatalog = parseDaemonGuiReadResult("repo.agent.entities.list", results.get("repo.agent.entities.list"));
     assert.equal(agentCatalog.ok, true);
     assert.deepEqual(

@@ -13,6 +13,7 @@ import {
   DAEMON_CONTROL_RECEIPT_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
   DAEMON_DOCUMENT_READ_SCHEMA,
+  DAEMON_OBSERVE_TAIL_SCHEMA,
   DAEMON_GUI_COMMAND_RECEIPT_SCHEMA,
   DAEMON_PROTOCOL_ERROR_SCHEMA,
   DAEMON_RELATION_GRAPH_SCHEMA,
@@ -50,6 +51,14 @@ export const daemonGuiReadSchemas = Object.freeze([
     writer: "packages/daemon/src/gui-s3-control.ts#writeDaemonControlReceipt",
     error: "packages/daemon/src/gui-s3-control.ts#GuiS3ContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-control-receipt-invalid.json"]),
+  },
+  {
+    id: DAEMON_OBSERVE_TAIL_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_OBSERVE_TAIL_SCHEMA",
+    parser: "packages/daemon/src/protocol/daemon-protocol.contract.ts#validateObserveTailResult",
+    writer: "packages/daemon/src/protocol/daemon-protocol.contract.ts#serializeObserveTailResult",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-observe-tail-invalid.json"]),
   },
   {
     id: GUI_CATALOG_SNAPSHOT_SCHEMA.id,

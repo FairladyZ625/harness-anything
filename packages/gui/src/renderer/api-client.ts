@@ -6,6 +6,8 @@ import type {
   GuiActionResult,
   GuiSubmissionV1,
   GuiBridgeMethod,
+  ObserveTailPayload,
+  ObserveTailRead,
   ProjectionWarning,
   RelationCoverageRow,
   RelationGraphEdgeRow,
@@ -95,6 +97,7 @@ export interface DecisionShowSuccess {
 export interface RepoScope {
   readonly repoId: string;
 }
+export type ObserveTailRequest = RepoScope & ObserveTailPayload;
 export interface SystemRepoRow {
   readonly repoId: string;
   readonly displayName: string;
@@ -280,6 +283,9 @@ export const harnessClient = {
   },
   async getDaemonControlReceipt(payload: { readonly operationId: string }): Promise<DaemonControlReceipt> {
     return readDaemonControlReceipt(await invokeBridge("getDaemonControlReceipt", payload));
+  },
+  async tailObservability(payload: ObserveTailRequest): Promise<ObserveTailRead> {
+    return readObserveTailResult(await invokeBridge("tailObservability", payload));
   },
   async getTasks(payload: RepoScope & TaskQueryFacets): Promise<TaskListSuccess> {
     return readTaskListResult(await invokeBridge("getTasks", payload));
@@ -517,6 +523,25 @@ function readWorkspaceSummaryResult(value: unknown): WorkspaceSummarySuccess {
     throw new Error(localErrorHint(value, "Workspace summary bridge returned an invalid result."));
   }
   return result as WorkspaceSummarySuccess;
+}
+
+function readObserveTailResult(value: unknown): ObserveTailRead {
+  const result = value as Partial<ObserveTailRead>;
+  if (
+    !result ||
+    result.schema !== "daemon.observe-tail/v1" ||
+    result.ok !== true ||
+    typeof result.repoId !== "string" ||
+    !["local", "remote-center", "remote-edge"].includes(String(result.mode)) ||
+    !["events", "repo-log", "daemon-log"].includes(String(result.kind)) ||
+    !["ready", "pending", "unavailable", "gap"].includes(String(result.status)) ||
+    !Array.isArray(result.items) ||
+    !(result.cursor === null || isRendererRecord(result.cursor)) ||
+    !(result.sourceCursor === null || isRendererRecord(result.sourceCursor)) ||
+    typeof result.done !== "boolean"
+  )
+    throw new Error(localErrorHint(value, "Observability tail bridge returned an invalid result."));
+  return result as ObserveTailRead;
 }
 
 function readRelationGraphResult(value: unknown): RelationGraphSuccess {

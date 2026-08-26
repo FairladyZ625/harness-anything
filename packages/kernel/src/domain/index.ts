@@ -122,6 +122,7 @@ export type {
   EntityKindRegistration,
   EntityKindRegistry,
   EntityPackageScaffold,
+  EntityResidencyFacets,
   EntityRepositoryRootScaffold,
 } from "./entity-kind-registry.ts";
 

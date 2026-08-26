@@ -1,5 +1,5 @@
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
-import type { DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
+import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
 import {
   DAEMON_DOCUMENT_READ_SCHEMA,
@@ -292,6 +292,7 @@ export function serializeSchema(value: unknown, validate: ResultValidator): stri
 
 export const serializeDaemonTaskSnapshotList = (value: unknown): string =>
     serializeSchema(value, validateDaemonTaskSnapshotList),
+  serializeObserveTailResult = (value: unknown): string => serializeSchema(value, validateObserveTailResult),
   serializeDaemonWorkspaceSummary = (value: unknown): string => serializeSchema(value, validateDaemonWorkspaceSummary),
   serializeDaemonAgenda = (value: unknown): string => serializeSchema(value, validateDaemonAgenda),
   serializeDaemonRelationGraph = (value: unknown): string => serializeSchema(value, validateDaemonRelationGraph),

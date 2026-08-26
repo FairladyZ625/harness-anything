@@ -1,3 +1,5 @@
+import type { EntityResidencyFacets } from "../../../kernel/src/index.ts";
+import { repoReadCommandTopology } from "../../../preset/src/preset-command-contract.ts";
 import type { DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
 import { optionalEnum, shape } from "./daemon-protocol-gui-types.ts";
 import {
@@ -12,6 +14,7 @@ import {
   DAEMON_CONTROL_RECEIPT_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
   DAEMON_DOCUMENT_READ_SCHEMA,
+  DAEMON_OBSERVE_TAIL_SCHEMA,
   DAEMON_PROTOCOL_ERROR_SCHEMA,
   DAEMON_RELATION_GRAPH_SCHEMA,
   DAEMON_SQUAD_ENTITY_CATALOG_SCHEMA,
@@ -29,6 +32,34 @@ import {
   GUI_SYSTEM_STATUS_SCHEMA,
   TERMINAL_SESSION_LIST_SCHEMA,
 } from "./daemon-protocol-schema-ids.ts";
+
+export const observeTailReadMethod = Object.freeze({
+  id: "observe.tail",
+  phase: "G6-A",
+  method: "observe.tail",
+  requiresRepo: true,
+  params: shape({
+    repo: shape({ repoId: "string" }),
+    payload: shape({
+      kind: { values: ["events", "repo-log", "daemon-log"], optional: false },
+      cursor: "json?",
+    }),
+  }),
+  guiBridgeMethod: "tailObservability",
+  httpMethod: "POST",
+  path: "/api/observe/tail",
+  inputSchemaId: "gui.observe-tail/v1",
+  outputSchemaId: DAEMON_OBSERVE_TAIL_SCHEMA.id,
+  errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+  serviceMethod: "tailObservability",
+  auth: "local-session-token",
+  ...repoReadCommandTopology,
+  residency: Object.freeze({
+    events: "projection",
+    "repo-log": "runtime-local",
+    "daemon-log": "runtime-local",
+  } satisfies EntityResidencyFacets),
+} as const);
 
 export const daemonGuiReadMethods = Object.freeze([
   {
@@ -63,6 +94,7 @@ export const daemonGuiReadMethods = Object.freeze([
     auth: "local-session-token",
     commandClass: "repo-read",
   },
+  observeTailReadMethod,
   {
     id: "tasks.list",
     phase: "W2-GUI",

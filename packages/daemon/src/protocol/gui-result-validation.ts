@@ -16,6 +16,7 @@ import {
   validateAgentRuntimeAttachEvent,
   type AgentRuntimeAttachEvent,
 } from "../agent-runtime-stream.ts";
+import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validateSquadRunsList } from "../squad-run-contract.ts";
 import {
@@ -56,6 +57,7 @@ type ResultValidator = (value: unknown) => readonly string[];
 const resultValidators = {
   "daemon.gui.system.read": validateSystemStatus,
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
+  "observe.tail": validateObserveTailResult,
   "repo.tasks.list": validateDaemonTaskSnapshotList,
   "repo.workspace.summary.read": validateDaemonWorkspaceSummary,
   "repo.agenda.read": validateDaemonAgenda,

@@ -326,6 +326,11 @@ export function createDaemonHostRepositoryApi(
             : (context.unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`),
         );
       await context.binding(cell.status().rootDir, auth, "repo-read");
+      if (method === "observe.tail")
+        return cell.observeTail(payload, {
+          userRoot: context.input.userRoot,
+          daemonId: context.input.daemonId,
+        }) as DaemonGuiReadResultMap[typeof method];
       if (method === "repo.workspace.summary.read")
         return cell.workspaceSummary() as DaemonGuiReadResultMap[typeof method];
       if (method === "repo.gui.catalog.snapshot")

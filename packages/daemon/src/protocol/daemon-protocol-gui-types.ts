@@ -1,4 +1,6 @@
 import type {
+  CanonicalEventV1,
+  DaemonRepoMode,
   DecisionProjectionRow,
   FreshnessReason,
   ProjectionPage,
@@ -17,7 +19,7 @@ import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import type { SquadRunsListResult } from "../squad-run-contract.ts";
 import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { taskStatusWords } from "./daemon-protocol-vocabulary.ts";
-import { type JsonObject } from "./json-rpc-types.ts";
+import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 
 type TaskProjectionListRow = ReturnType<TaskProjection["list"]>["rows"][number];
 type TaskProjectionWarning = ReturnType<TaskProjection["list"]>["warnings"][number];
@@ -58,9 +60,187 @@ export const optionalEnum = (values: readonly string[]): RpcEnumRule => ({
   optional: true,
 });
 
+export const observeTailKinds = ["events", "repo-log", "daemon-log"] as const;
+export type ObserveTailKind = (typeof observeTailKinds)[number];
+
+export type ObserveTailCursor =
+  | { readonly kind: "events"; readonly revision: number }
+  | { readonly kind: "repo-log"; readonly fileId: string; readonly offset: number }
+  | { readonly kind: "daemon-log"; readonly fileId: string; readonly offset: number };
+
+export type ObserveTailPayload =
+  | {
+      readonly kind: "events";
+      readonly cursor?: Extract<ObserveTailCursor, { readonly kind: "events" }>;
+    }
+  | {
+      readonly kind: "repo-log";
+      readonly cursor?: Extract<ObserveTailCursor, { readonly kind: "repo-log" }>;
+    }
+  | {
+      readonly kind: "daemon-log";
+      readonly cursor?: Extract<ObserveTailCursor, { readonly kind: "daemon-log" }>;
+    };
+
+type ObserveTailBase = {
+  readonly schema: "daemon.observe-tail/v1";
+  readonly ok: true;
+  readonly repoId: string;
+  readonly mode: DaemonRepoMode;
+  readonly kind: ObserveTailKind;
+  readonly items: readonly (CanonicalEventV1 | Readonly<Record<string, unknown>>)[];
+  readonly cursor: ObserveTailCursor | null;
+  readonly sourceCursor: ObserveTailCursor | null;
+  readonly done: boolean;
+};
+
+export type ObserveTailResult =
+  | (ObserveTailBase & { readonly status: "ready" | "pending" })
+  | (ObserveTailBase & {
+      readonly status: "unavailable";
+      readonly unavailable: {
+        readonly reason: "edge-mirror-has-no-events" | "center-request-log-not-wired";
+        readonly centerRevision: number | null;
+      };
+    })
+  | (ObserveTailBase & {
+      readonly status: "gap";
+      readonly gap: {
+        readonly reason: "cursor-file-not-retained" | "cursor-offset-out-of-range";
+        readonly requestedFileId: string;
+      };
+    });
+
+export function validateObserveTailPayload(value: unknown): readonly string[] {
+  if (!isJsonObject(value)) return ["observe tail payload must be an object"];
+  if (Object.keys(value).some((key) => key !== "kind" && key !== "cursor"))
+    return ["observe tail payload contains an unknown field"];
+  if (!observeTailKinds.includes(value.kind as ObserveTailKind)) return ["observe tail kind is invalid"];
+  if (value.cursor === undefined) return [];
+  return validateObserveTailCursor(value.cursor, value.kind as ObserveTailKind)
+    ? []
+    : ["observe tail cursor is invalid for the requested kind"];
+}
+
+export function validateObserveTailResult(value: unknown): readonly string[] {
+  if (
+    !isJsonObject(value) ||
+    value.schema !== "daemon.observe-tail/v1" ||
+    value.ok !== true ||
+    typeof value.repoId !== "string" ||
+    !value.repoId ||
+    !["local", "remote-center", "remote-edge"].includes(String(value.mode)) ||
+    !observeTailKinds.includes(value.kind as ObserveTailKind) ||
+    !["ready", "pending", "unavailable", "gap"].includes(String(value.status)) ||
+    !Array.isArray(value.items) ||
+    value.items.length > 64 ||
+    value.items.some((item) => !isJsonObject(item)) ||
+    typeof value.done !== "boolean" ||
+    !nullableObserveCursor(value.cursor, value.kind as ObserveTailKind) ||
+    !nullableObserveCursor(value.sourceCursor, value.kind as ObserveTailKind)
+  )
+    return ["daemon observe tail result is invalid"];
+  return observeTailStatusValidators[String(value.status)]?.(value) === true
+    ? []
+    : ["daemon observe tail status result is invalid"];
+}
+
+export function validateObserveTailCursor(value: unknown, kind: ObserveTailKind): value is ObserveTailCursor {
+  if (!isJsonObject(value) || value.kind !== kind) return false;
+  if (kind === "events") return Object.keys(value).length === 2 && nonNegativeInteger(value.revision);
+  return (
+    Object.keys(value).length === 3 &&
+    typeof value.fileId === "string" &&
+    value.fileId.length > 0 &&
+    nonNegativeInteger(value.offset)
+  );
+}
+
+function nullableObserveCursor(value: unknown, kind: ObserveTailKind): boolean {
+  return value === null || validateObserveTailCursor(value, kind);
+}
+
+const observeTailBaseFields = [
+  "schema",
+  "ok",
+  "repoId",
+  "mode",
+  "kind",
+  "status",
+  "items",
+  "cursor",
+  "sourceCursor",
+  "done",
+] as const;
+
+function exactObserveResultFields(value: Readonly<Record<string, unknown>>, extra: readonly string[] = []): boolean {
+  const allowed = new Set<string>([...observeTailBaseFields, ...extra]);
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
+function availableObserveTailResult(value: JsonObject): boolean {
+  return (
+    exactObserveResultFields(value) &&
+    (value.kind !== "events" || (value.cursor !== null && value.sourceCursor !== null))
+  );
+}
+
+const observeTailStatusValidators: Readonly<Record<string, (value: JsonObject) => boolean>> = {
+  ready: availableObserveTailResult,
+  pending: (value) => availableObserveTailResult(value) && value.kind === "events" && value.done === false,
+  unavailable: (value) => {
+    const unavailable = value.unavailable,
+      edgeUnavailable =
+        value.mode === "remote-edge" &&
+        value.kind === "events" &&
+        isJsonObject(unavailable) &&
+        unavailable.reason === "edge-mirror-has-no-events" &&
+        (unavailable.centerRevision === null || nonNegativeInteger(unavailable.centerRevision)),
+      centerUnavailable =
+        value.mode === "remote-center" &&
+        value.kind === "repo-log" &&
+        isJsonObject(unavailable) &&
+        unavailable.reason === "center-request-log-not-wired" &&
+        unavailable.centerRevision === null;
+    return (
+      (edgeUnavailable || centerUnavailable) &&
+      isJsonObject(unavailable) &&
+      Object.keys(unavailable).every((key) => key === "reason" || key === "centerRevision") &&
+      exactObserveResultFields(value, ["unavailable"]) &&
+      Array.isArray(value.items) &&
+      value.items.length === 0 &&
+      value.cursor === null &&
+      value.sourceCursor === null &&
+      value.done === false
+    );
+  },
+  gap: (value) => {
+    const gap = value.gap;
+    return (
+      value.kind !== "events" &&
+      isJsonObject(gap) &&
+      Object.keys(gap).every((key) => key === "reason" || key === "requestedFileId") &&
+      ["cursor-file-not-retained", "cursor-offset-out-of-range"].includes(String(gap.reason)) &&
+      typeof gap.requestedFileId === "string" &&
+      gap.requestedFileId.length > 0 &&
+      exactObserveResultFields(value, ["gap"]) &&
+      Array.isArray(value.items) &&
+      value.items.length === 0 &&
+      value.cursor === null &&
+      value.sourceCursor === null &&
+      value.done === false
+    );
+  },
+};
+
+function nonNegativeInteger(value: unknown): boolean {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
 export type DaemonGuiReadResultMap = {
   readonly "daemon.gui.system.read": JsonObject;
   readonly "daemon.gui.control.receipt": JsonObject;
+  readonly "observe.tail": ObserveTailResult;
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
   readonly "repo.workspace.summary.read": DaemonWorkspaceSummaryResult;
   readonly "repo.agenda.read": DaemonAgendaResult;
@@ -106,7 +286,7 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.terminal.sessions.list": JsonObject;
 };
 
-export type DaemonHostOnlyGuiReadMethod = "repo.workspace.summary.read";
+export type DaemonHostOnlyGuiReadMethod = "repo.workspace.summary.read" | "observe.tail";
 
 /** Historical cell-routable read union. Host-owned aggregate reads use the full RPC union below. */
 export type DaemonGuiReadMethod = Exclude<keyof DaemonGuiReadResultMap, DaemonHostOnlyGuiReadMethod>;
@@ -116,6 +296,7 @@ export type DaemonGuiRpcReadMethod = keyof DaemonGuiReadResultMap;
 export type DaemonGuiReadPayloadMap = {
   readonly "daemon.gui.system.read": Readonly<Record<string, never>>;
   readonly "daemon.gui.control.receipt": { readonly operationId: string };
+  readonly "observe.tail": ObserveTailPayload;
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;
   readonly "repo.agenda.read": DaemonAgendaPayload;
