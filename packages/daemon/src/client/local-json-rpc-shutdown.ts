@@ -72,7 +72,12 @@ export async function requestDaemonShutdownAt(
         }
       }
     });
-    socket.end(payload);
+    // Keep the writable side open until the reply exchange settles. Ending it here lets a named
+    // pipe deliver EOF before a loaded daemon gets its next turn to write the acknowledgements;
+    // the server then closes this connection as part of shutdown and the caller misclassifies an
+    // accepted stop as a silent one. finish() owns the one close path after a reply, error, close,
+    // or the existing response deadline.
+    socket.write(payload);
   });
 }
 
