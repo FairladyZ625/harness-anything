@@ -19,7 +19,6 @@ const SHARED_CHECKLIST_HEADING = /^## PR Gate Checklist \/ PR 门禁清单\s*$/m
 const ENGLISH_JUSTIFICATION_HEADING = /^## Architectural Justification\s*$/mu;
 const CHINESE_JUSTIFICATION_HEADING = /^## 架构辩护\s*$/mu;
 const MERGIFY_QUEUE_BRANCH = /^mergify\/merge-queue\//u;
-const MERGIFY_QUEUE_PAYLOAD = /"merge-queue-pr"\s*:\s*true/u;
 const MERGIFY_AUTHORS = new Set(["mergify[bot]", "app/mergify"]);
 const DELETED_PRODUCTION_PATHS = /^Deleted-Production-Paths:[ \t]*(.*?)\s*$/gmu;
 const DELETED_GATES_FIXTURES = /^Deleted-Gates-Fixtures:[ \t]*(.*?)\s*$/gmu;
@@ -222,8 +221,8 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds) {
   };
 }
 
-export function shouldSkipPrBodyBilingualCheck({ body = "", headRefName = "", authorLogin = "" } = {}) {
-  return MERGIFY_AUTHORS.has(authorLogin) && MERGIFY_QUEUE_BRANCH.test(headRefName) && MERGIFY_QUEUE_PAYLOAD.test(body);
+export function shouldSkipPrBodyBilingualCheck({ headRefName = "", authorLogin = "" } = {}) {
+  return MERGIFY_AUTHORS.has(authorLogin) && MERGIFY_QUEUE_BRANCH.test(headRefName);
 }
 
 function readBodyFromArgs(argv) {
