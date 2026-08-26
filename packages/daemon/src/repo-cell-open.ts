@@ -417,7 +417,7 @@ export async function openRepoCell(input: {
       binding,
     );
     if (settled.outcome !== "applied")
-      throw cellCodedError("fallback_block_failed", `Fallback exhaustion settlement was ${settled.outcome}.`);
+      throw cellCodedError("fallback_exhaustion_failed", `Fallback exhaustion settlement was ${settled.outcome}.`);
   };
   await runtimeSpawner.adopt();
   schedule(() => squadCoordinator.reconcile());

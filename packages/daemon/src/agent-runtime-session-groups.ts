@@ -234,6 +234,8 @@ function finishGroup(group: GroupAccumulator): AgentRuntimeSessionGroupDto {
             agentName: latest.agentName,
             instanceId: latest.session.instanceId,
             status: latest.status,
+            classification: latest.dispatch?.classification ?? null,
+            reason: latest.dispatch?.reason ?? null,
             startedAt: latest.startedAt,
           },
   };

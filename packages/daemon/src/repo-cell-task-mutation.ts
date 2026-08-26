@@ -1,6 +1,5 @@
 import {
   deriveRelationId,
-  explainStatusTransition,
   isTerminalStatus,
   taskClasses,
   validateRelationRecordsForHost,
@@ -57,11 +56,6 @@ export function taskMutation(
         "lease_conflict",
         `Fallback exhaustion belongs to ${String(action.executionId)}, but ${activeLease.executionId} holds the lease.`,
       );
-    if (action.kind === "task-fallback-exhausted" && !explainStatusTransition(task.status, "blocked").allowed)
-      throw cell.cellCodedError(
-        "invalid_transition",
-        `Task ${task.taskId} cannot move from ${task.status} to blocked.`,
-      );
     const execution = snapshot.executions.find((value) => value.executionId === activeLease.executionId),
       actionId = `task-release:${task.taskId}:${activeLease.executionId}:${snapshot.revision}`,
       authorizationDecision = authorizeAction(
@@ -86,14 +80,14 @@ export function taskMutation(
       );
     return {
       type: "lease_released",
-      task: action.kind === "task-fallback-exhausted" ? { ...task, status: "blocked" } : task,
+      task,
       ...(execution === undefined ? {} : { execution }),
       releasedLease: activeLease,
       authorizationDecision,
       audit: {
         command: "release",
         reason,
-        fields: action.kind === "task-fallback-exhausted" ? ["lease", "status"] : ["lease"],
+        fields: ["lease"],
       },
     };
   }

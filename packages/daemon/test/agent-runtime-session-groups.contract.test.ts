@@ -75,6 +75,13 @@ test("session groups default to active plus 24h and group/filter/limit before re
   );
   assert.equal(defaultResult.groups.find(({ key }) => key === "task-a")?.label, "Task Alpha");
   assert.equal(defaultResult.groups.find(({ key }) => key === "task-a")?.roundCount, 1);
+  assert.deepEqual(
+    defaultResult.groups.find(({ key }) => key === "task-a")?.latestRound && {
+      classification: defaultResult.groups.find(({ key }) => key === "task-a")?.latestRound?.classification,
+      reason: defaultResult.groups.find(({ key }) => key === "task-a")?.latestRound?.reason,
+    },
+    { classification: "worker_stop", reason: "Worker completed the attempt successfully." },
+  );
 
   const searched = reads.sessionGroups({ groupBy: "agent", query: "dispatch-a sol succeeded" });
   assert.deepEqual(
@@ -173,14 +180,20 @@ const dispatches: readonly TaskDispatchRow[] = [
     agentName: "Sol",
     squadId: "core-squad",
     delegatedByAgentId: "fable",
+    classification: "worker_stop",
+    reason: "Worker completed the attempt successfully.",
   }),
   dispatch("dispatch-b", "runtime-b", "task-b", "instance-b", "2026-08-20T10:30:00.000Z", "failed", {
     agentId: "terra",
     agentName: "Terra",
+    classification: "provider_fault",
+    reason: "Provider rate limited the attempt (HTTP 429).",
   }),
   dispatch("dispatch-c", "runtime-c", "task-c", "instance-c", "2026-08-20T09:30:00.000Z", "running", {
     agentId: "luna",
     agentName: "Luna",
+    classification: null,
+    reason: null,
   }),
 ];
 
