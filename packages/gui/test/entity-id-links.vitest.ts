@@ -219,7 +219,6 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
     watermark: 1,
     sourceRevision: 1,
   } as never);
-  vi.spyOn(agentRuntimeClient, "attach").mockImplementation((() => () => undefined) as never);
   vi.spyOn(agentRuntimeClient, "events").mockResolvedValue({
     ok: true,
     runtimeSessionId: SESSION_ID,
@@ -269,7 +268,7 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
       logCursor = { kind, fileId: "log-file-g10", offset: 12 },
       eventsCursor = { kind: "events" as const, revision: 7 };
     return {
-      schema: "daemon.observe-tail/v2",
+      schema: "daemon.observe-tail/v3",
       ok: true,
       repoId: REPO_ID,
       mode: "local",

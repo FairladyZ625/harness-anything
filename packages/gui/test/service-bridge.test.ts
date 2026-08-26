@@ -145,7 +145,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       daemonGuiReadMethods.map(({ method }) => method),
     );
     const observability = parseDaemonGuiReadResult("observe.tail", results.get("observe.tail"));
-    assert.equal(observability.schema, "daemon.observe-tail/v2");
+    assert.equal(observability.schema, "daemon.observe-tail/v3");
     assert.equal(observability.repoId, fixture.repoId);
     assert.equal(observability.kind, "events");
     // G7 路线 A:catalog preset 读面携带 resolver 文档正文,GUI 详情页是它的消费者。
