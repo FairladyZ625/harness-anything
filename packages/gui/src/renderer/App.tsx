@@ -16,6 +16,7 @@ import { PresetsView } from "./views/PresetsView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
 import { SettingsView } from "./views/SettingsView.tsx";
 import { SystemView } from "./views/SystemView.tsx";
+import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { ThemeToggle, NavButton, ProjectSummary, TaskCensusSummary } from "./components/shell-chrome.tsx";
@@ -579,7 +580,28 @@ function AppShell() {
                 onSelectEntity={selectRuntimeEntity}
               />
             ) : view === "system" ? (
-              <SystemView activeRepoId={activeRepoId} />
+              <SystemView
+                activeRepoId={activeRepoId}
+                onOpenObserve={(repoId) =>
+                  navigate({
+                    view: "daemonObserve",
+                    focusedEntityRef: `daemonRepo/${repoId}`,
+                    selectedId: null,
+                    previewId: null,
+                  })
+                }
+              />
+            ) : view === "daemonObserve" ? (
+              <DaemonObserveView
+                repoId={
+                  focusedEntityRef?.startsWith("daemonRepo/")
+                    ? focusedEntityRef.slice("daemonRepo/".length)
+                    : activeRepoId
+                }
+                repos={systemQuery.data?.repos ?? []}
+                onBack={back}
+                onNavigateEntity={navigateToEntity}
+              />
             ) : (
               <SettingsView />
             )}

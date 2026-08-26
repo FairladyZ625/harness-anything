@@ -62,14 +62,37 @@ export function totalQueueDepth(repos: ReadonlyArray<Pick<SystemRepoRow, "queueD
   return known.length === 0 ? null : known.reduce((sum, repo) => sum + (repo.queueDepth ?? 0), 0);
 }
 
-function RepoRow({ repo, isCurrent }: { readonly repo: SystemRepoRow; readonly isCurrent: boolean }) {
+function RepoRow({
+  repo,
+  isCurrent,
+  onOpenObserve,
+}: {
+  readonly repo: SystemRepoRow;
+  readonly isCurrent: boolean;
+  readonly onOpenObserve: (repoId: string) => void;
+}) {
   const label = repo.displayName?.trim() || repo.repoId,
-    error = repo.lastError ?? repo.unavailableReason;
+    error = repo.lastError ?? repo.unavailableReason,
+    // 只有 attached 仓有可观察的数据面;其余状态不提供死入口。
+    openObserve = repo.cellState === "attached" ? onOpenObserve : undefined;
   return (
     <tr className={`border-b border-border last:border-b-0 ${isCurrent ? "bg-surface-raised/40" : ""}`}>
       <td className="px-3 py-2 align-top">
         <span className="flex flex-col gap-0.5">
-          <span className="font-mono text-[12px] text-text">{label}</span>
+          {openObserve ? (
+            <button
+              type="button"
+              data-testid="system-repo-observe"
+              data-repo={repo.repoId}
+              title={t("views.systemView.openObserve")}
+              onClick={() => openObserve(repo.repoId)}
+              className="text-left font-mono text-[12px] text-text hover:text-accent hover:underline"
+            >
+              {label} ↗
+            </button>
+          ) : (
+            <span className="font-mono text-[12px] text-text">{label}</span>
+          )}
           {repo.displayName ? <span className="font-mono text-[10px] text-text-faint">{repo.repoId}</span> : null}
           {isCurrent ? (
             <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">
@@ -122,7 +145,14 @@ function RepoRow({ repo, isCurrent }: { readonly repo: SystemRepoRow; readonly i
   );
 }
 
-export function SystemView({ activeRepoId }: { readonly activeRepoId: string | null }) {
+export function SystemView({
+  activeRepoId,
+  onOpenObserve,
+}: {
+  readonly activeRepoId: string | null;
+  /** 打开某仓的 daemon 观察详情页(事件流 + 日志流);attached 仓才有入口。 */
+  readonly onOpenObserve: (repoId: string) => void;
+}) {
   const status = useSystemStatusQuery(),
     control = useDaemonControl(activeRepoId),
     receipt = control.receipt;
@@ -272,7 +302,12 @@ export function SystemView({ activeRepoId }: { readonly activeRepoId: string | n
               </thead>
               <tbody>
                 {status.data.repos.map((repo) => (
-                  <RepoRow key={repo.repoId} repo={repo} isCurrent={repo.repoId === activeRepoId} />
+                  <RepoRow
+                    key={repo.repoId}
+                    repo={repo}
+                    isCurrent={repo.repoId === activeRepoId}
+                    onOpenObserve={onOpenObserve}
+                  />
                 ))}
               </tbody>
             </table>
