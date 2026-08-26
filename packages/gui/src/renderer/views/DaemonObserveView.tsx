@@ -407,7 +407,7 @@ function useObserveTail(repoId: string, kind: ObserveTailKind, paused: boolean):
               ? TAIL_UNAVAILABLE_MS
               : page.done
                 ? TAIL_FOLLOW_MS
-                : page.status === "pending"
+                : page.status === "pending" || page.status === "gap"
                   ? TAIL_PENDING_MS
                   : TAIL_CATCHUP_MS;
         } catch (error) {
