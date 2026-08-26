@@ -56,7 +56,6 @@ export function renderEvidenceRows(rows: readonly unknown[], named = false): str
 export function taskSurfaceWriteKind(kind: string): boolean {
   return [
     "task-release",
-    "task-fallback-exhausted",
     "task-amend",
     "task-archive",
     "task-supersede",

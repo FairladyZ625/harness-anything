@@ -16,7 +16,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-release",
-    actionAliases: ["task-fallback-exhausted"],
     phase: "W3",
     path: ["task", "release", "<task-id>"],
     summary: "Release the authenticated holder lease and preserve the Execution audit trail.",

@@ -2,8 +2,6 @@ import type { RpcShape } from "./daemon-protocol-gui-types.ts";
 import { shape } from "./daemon-protocol-gui-types.ts";
 import {
   CATALOG_REREAD_RECEIPT_SCHEMA,
-  DAEMON_AGENT_RUNTIME_ATTACH_EVENT_SCHEMA,
-  DAEMON_AGENT_RUNTIME_ATTACH_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
   DAEMON_GUI_COMMAND_RECEIPT_SCHEMA,
   DAEMON_PROTOCOL_ERROR_SCHEMA,
@@ -368,27 +366,6 @@ export const daemonGuiActionMethods = Object.freeze([
 ] as const);
 
 export const daemonGuiStreamFacets = Object.freeze([
-  {
-    id: "agentRuntime.attach",
-    phase: "Runtime-B",
-    method: "repo.agentRuntime.attach",
-    eventMethod: "repo.agentRuntime.attach.frame",
-    requiresRepo: true,
-    params: shape({
-      repo: shape({ repoId: "string" }),
-      payload: shape({ runtimeSessionId: "string", afterCursor: "string" }),
-    }),
-    guiBridgeMethod: "attachAgentRuntime",
-    httpMethod: "STREAM",
-    path: "/api/agent-runtime/sessions/:id/attach",
-    inputSchemaId: "gui.agent-runtime-attach/v1",
-    outputSchemaId: DAEMON_AGENT_RUNTIME_ATTACH_SCHEMA.id,
-    eventSchemaId: DAEMON_AGENT_RUNTIME_ATTACH_EVENT_SCHEMA.id,
-    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
-    serviceMethod: "attachAgentRuntime",
-    auth: "local-session-token",
-    commandClass: "repo-read",
-  },
   {
     id: "terminal.attach",
     phase: "W5-GUI-S3",

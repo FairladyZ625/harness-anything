@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection, registerDaemonRepo } from "../../kernel/src/index.ts";
+import { registerDaemonRepo } from "../../kernel/src/index.ts";
 import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
@@ -210,45 +210,6 @@ test(
       text: "the woken head now holds the lease",
     });
     assert.equal(takenOver.outcome, "applied");
-  },
-);
-
-test(
-  "fleet fallback settlement atomically releases its assignment while keeping the Task active",
-  { timeout: 30_000 },
-  async (t) => {
-    const fixture = await leaseFixture();
-    t.after(() => fixture.close());
-    const created = await fixture.command("node-one", { kind: "task-create", title: "Fallback exhausted" }),
-      taskId = String((created.receipt as Record<string, unknown>).taskId);
-    const started = await fixture.command("node-one", { kind: "task-start", taskId });
-    assert.equal(started.outcome, "applied");
-    const executionId = String(started.lease?.executionId);
-    assert.equal(
-      (
-        await fixture.command("node-one", {
-          kind: "task-fallback-exhausted",
-          taskId,
-          executionId,
-          reason: "provider chain exhausted",
-        })
-      ).outcome,
-      "applied",
-    );
-    const projection = makeTaskProjection({
-      rootDir: fixture.repo,
-      eventStore: makeTaskEventStore({ repoId: "lease-repo", rootDir: fixture.repo }),
-    });
-    try {
-      const snapshot = projection.read(taskId).snapshot;
-      assert.equal(snapshot.task?.status, "active");
-      assert.equal(snapshot.lease, null);
-    } finally {
-      projection.close();
-    }
-    const restarted = await fixture.command("node-two", { kind: "task-start", taskId });
-    assert.equal(restarted.outcome, "applied");
-    assert.equal(restarted.lease?.assignmentId, "assignment-node-two");
   },
 );
 

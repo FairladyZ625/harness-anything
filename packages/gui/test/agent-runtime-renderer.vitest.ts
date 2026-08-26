@@ -688,7 +688,6 @@ describe("agent runtime renderer", () => {
         getAgentRuntimeSessionGroups,
         getAgentRuntimeSession: vi.fn(),
         getAgentRuntimeEvents: vi.fn(),
-        attachAgentRuntime: vi.fn(),
       };
     vi.stubGlobal("window", { harness: stub });
     await expect(agentRuntimeClient.sessionGroups("repo-a", { groupBy: "task" })).rejects.toThrow(/invalid result/u);
@@ -709,7 +708,6 @@ describe("agent runtime renderer", () => {
         getAgentRuntimeSessionGroups,
         getAgentRuntimeSession: vi.fn(),
         getAgentRuntimeEvents: vi.fn(),
-        attachAgentRuntime: vi.fn(),
       };
     vi.stubGlobal("window", { harness: stub });
     const result = await agentRuntimeClient.sessionGroups("repo-a", {

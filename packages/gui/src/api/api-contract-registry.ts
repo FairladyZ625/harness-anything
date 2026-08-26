@@ -80,7 +80,6 @@ export const apiSchemaContracts = [
   { id: "gui.agent-runtime-overview/v1", owner: "gui", typeName: "AgentRuntimeOverviewPayload" },
   { id: "gui.agent-runtime-session/v1", owner: "gui", typeName: "AgentRuntimeSessionPayload" },
   { id: "gui.agent-runtime-events/v1", owner: "gui", typeName: "AgentRuntimeEventsPayload" },
-  { id: "gui.agent-runtime-attach/v1", owner: "gui", typeName: "AgentRuntimeAttachPayload" },
   ...daemonGuiActionMethods.map(({ inputSchemaId }) => ({
     id: inputSchemaId,
     owner: "gui" as const,

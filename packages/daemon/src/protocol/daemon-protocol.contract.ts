@@ -338,11 +338,26 @@ export const fleetProtocolMethods = Object.freeze([
   },
 ] as const);
 
+export const daemonAgentRuntimeStreamMethods = Object.freeze([
+  {
+    id: "agentRuntime.attach",
+    phase: "Runtime-B",
+    method: "repo.agentRuntime.attach",
+    eventMethod: "repo.agentRuntime.attach.frame",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ runtimeSessionId: "string", afterCursor: "string" }),
+    }),
+  },
+] as const);
+
 export const allDaemonProtocolMethods = Object.freeze([
   ...daemonProtocolMethods,
   ...runtimeInstanceMethods,
   ...runtimeInstanceAuthMethods,
   ...fleetProtocolMethods,
+  ...daemonAgentRuntimeStreamMethods,
   ...presetMethods,
   ...daemonGuiReadMethods,
   ...daemonGuiActionMethods,
@@ -397,6 +412,7 @@ export default Object.freeze({
     ...runtimeInstanceMethods,
     ...runtimeInstanceAuthMethods,
     ...fleetProtocolMethods,
+    ...daemonAgentRuntimeStreamMethods,
     ...daemonGuiReadMethods,
     ...daemonGuiActionMethods,
     ...daemonGuiStreamFacets,

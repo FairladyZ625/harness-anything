@@ -10,7 +10,7 @@ import test from "node:test";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { parseDaemonGuiReadResult } from "../../daemon/src/protocol/gui-result-validation.ts";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
-import { streamAgentRuntimeAt } from "../src/main/agent-runtime-stream-client.ts";
+import { streamAgentRuntimeAt } from "../../daemon/src/client/local-json-rpc-stream.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import {
   seedTriadicEvents,
@@ -158,11 +158,11 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
   }
 });
 
-test("GUI attach reconnects after transport loss from the last delivered cursor and accepts restart gap", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-runtime-reconnect-")),
+test("daemon runtime stream reconnects after transport loss from the last delivered cursor and accepts restart gap", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-runtime-reconnect-")),
     socketPath =
       process.platform === "win32"
-        ? `\\\\.\\pipe\\ha-gui-runtime-reconnect-${randomUUID()}`
+        ? `\\\\.\\pipe\\ha-daemon-runtime-reconnect-${randomUUID()}`
         : path.join(parent, "daemon.sock"),
     attempts: string[] = [],
     values: unknown[] = [];
