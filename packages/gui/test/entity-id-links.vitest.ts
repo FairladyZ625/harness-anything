@@ -490,7 +490,14 @@ const VIEW_RENDERERS = {
       onNavigateTask: noop,
       onFocusGraph: noop,
     }),
-  presets: () => createElement(PresetsView, { repoId: REPO_ID }),
+  presets: () =>
+    createElement(PresetsView, {
+      repoId: REPO_ID,
+      focusedPresetId: null,
+      onOpenPreset: noop,
+      onExitDetail: noop,
+      projectName: FIXTURE_PROJECT.name,
+    }),
   adapters: () => createElement(AdaptersView, { repoId: REPO_ID, tasks: FIXTURE_TASKS }),
   sessions: () =>
     createElement(SessionsView, {

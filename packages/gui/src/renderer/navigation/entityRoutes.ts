@@ -38,6 +38,13 @@ export function entityDetailTargetOf(ref: string): EntityDetailTarget | null {
   if (ref.startsWith("session/")) {
     return { view: "sessions", focusedEntityRef: ref };
   }
+  // preset/<id> → 目录页内详情(G7):与 task 详情同构的可寻址落点——
+  // 落 presets 视图并以 focusedEntityRef 区分列表/详情,推栈回撤原路返回。
+  if (ref.startsWith("preset/")) {
+    const presetId = ref.split("/")[1];
+    if (!presetId) return null;
+    return { view: "presets", focusedEntityRef: `preset/${presetId}` };
+  }
   // 会话页的 Task 详情反向入口只落单会话段并展开该任务组;小队编排当前没有跨页
   // producer,因此不预埋对应的 consumer 路由。
   if (ref.startsWith("tasksessions/")) {

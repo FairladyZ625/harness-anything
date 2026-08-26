@@ -211,6 +211,15 @@ export interface CatalogSnapshotSuccess {
   readonly templates: ReadonlyArray<CatalogTemplateRow>;
   readonly adapters: ReadonlyArray<CatalogAdapterRow>;
 }
+export interface CatalogPresetDocument {
+  readonly slot: string;
+  readonly path: string;
+  readonly body: string;
+  readonly mediaType: string;
+  readonly owner: string;
+  readonly requiredAnchors: ReadonlyArray<string>;
+  readonly templateRef: string;
+}
 export interface CatalogPresetSuccess {
   readonly schema: "gui-catalog-preset/v1";
   readonly ok: true;
@@ -228,6 +237,7 @@ export interface CatalogPresetSuccess {
     readonly identity: Readonly<Record<string, unknown>>;
     readonly profile: Readonly<Record<string, unknown>>;
     readonly templates: ReadonlyArray<unknown>;
+    readonly documents: ReadonlyArray<CatalogPresetDocument>;
     readonly entrypoints: ReadonlyArray<unknown>;
     readonly provenance: Readonly<Record<string, unknown>>;
     readonly digest: string;
@@ -711,7 +721,16 @@ function readCatalogPreset(value: unknown): CatalogPresetSuccess {
     value.ok !== true ||
     typeof value.repoId !== "string" ||
     !isRendererRecord(value.preset) ||
-    !isRendererRecord(value.resolved)
+    !isRendererRecord(value.resolved) ||
+    !Array.isArray(value.resolved.documents) ||
+    !value.resolved.documents.every(
+      (row) =>
+        isRendererRecord(row) &&
+        typeof row.slot === "string" &&
+        typeof row.path === "string" &&
+        typeof row.body === "string" &&
+        typeof row.mediaType === "string",
+    )
   )
     throw new Error(localErrorHint(value, "Catalog preset bridge returned an invalid result."));
   return value as unknown as CatalogPresetSuccess;

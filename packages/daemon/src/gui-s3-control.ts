@@ -368,7 +368,7 @@ export function validateCatalogPreset(value: unknown): readonly string[] {
         "catalog preset manifest",
       ),
     );
-  if (record(value.resolved))
+  if (record(value.resolved)) {
     errors.push(
       ...closed(
         value.resolved,
@@ -376,6 +376,7 @@ export function validateCatalogPreset(value: unknown): readonly string[] {
           identity: "object",
           profile: "object",
           templates: "array",
+          documents: "array",
           entrypoints: "array",
           provenance: "object",
           digest: "string",
@@ -383,6 +384,24 @@ export function validateCatalogPreset(value: unknown): readonly string[] {
         "catalog preset resolved",
       ),
     );
+    // 包内文档正文(路线 A):逐行闭形状,body 是 GUI 详情页渲染的唯一正文来源。
+    for (const row of Array.isArray(value.resolved.documents) ? value.resolved.documents : [])
+      errors.push(
+        ...closed(
+          row,
+          {
+            slot: "string",
+            path: "string",
+            body: "string",
+            mediaType: "string",
+            owner: "string",
+            requiredAnchors: "array",
+            templateRef: "string",
+          },
+          "catalog preset document",
+        ),
+      );
+  }
   return errors;
 }
 export function validateCatalogRereadReceipt(value: unknown): readonly string[] {

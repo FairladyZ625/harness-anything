@@ -114,7 +114,12 @@ export function openGuiCatalog(input: {
           ...(text(payload.profileId) ? { profileId: payload.profileId } : {}),
           ...(text(payload.locale) ? { locale: payload.locale } : {}),
         },
-      })) as { readonly manifest: JsonObject; readonly snapshot: JsonObject; readonly entrypoints: readonly string[] },
+      })) as {
+        readonly manifest: JsonObject;
+        readonly snapshot: JsonObject;
+        readonly entrypoints: readonly string[];
+        readonly documents: readonly JsonObject[];
+      },
       manifest = inspected.manifest,
       resolved = inspected.snapshot;
     return writeCatalogPreset({
@@ -134,6 +139,9 @@ export function openGuiCatalog(input: {
         identity: resolved.identity,
         profile: resolved.profile,
         templates: resolved.templates,
+        // CEO 2026-08-26 裁决路线 A:resolver 已算出的包内文档正文并入本读面,
+        // 单一权威(resolver 唯一),bundled 与 user 包同路,不加第二读路径。
+        documents: inspected.documents,
         entrypoints: inspected.entrypoints,
         provenance: resolved.provenance,
         digest: resolved.digest,
