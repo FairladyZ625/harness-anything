@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { installE2EProbeElectronForTest, runE2EProbeJourney } from "../../../tools/e2e-probe.mjs";
+import { resolveE2EProbeElectronForTest, runE2EProbeJourney } from "../../../tools/e2e-probe.mjs";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "../../..");
@@ -12,7 +12,11 @@ test(
   "canonical E2E probe traverses the live GUI without mutating daemon task state",
   { timeout: 180_000 },
   async (t) => {
-    const testRuntime = installE2EProbeElectronForTest(workspaceRoot);
+    const testRuntime = resolveE2EProbeElectronForTest(workspaceRoot);
+    if (!testRuntime.available) {
+      t.skip(testRuntime.reason);
+      return;
+    }
     t.after(testRuntime.close);
     const fixture = await startGuiResidentDaemonFixture({
       prefix: "ha-e2e-probe-read-only-",
