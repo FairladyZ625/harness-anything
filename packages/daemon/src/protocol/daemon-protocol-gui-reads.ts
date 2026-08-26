@@ -35,20 +35,21 @@ import {
 
 export const observeTailReadMethod = Object.freeze({
   id: "observe.tail",
-  phase: "G6-A",
+  phase: "G8",
   method: "observe.tail",
   requiresRepo: true,
   params: shape({
     repo: shape({ repoId: "string" }),
     payload: shape({
       kind: { values: ["events", "repo-log", "daemon-log"], optional: false },
+      direction: { values: ["history", "follow"], optional: false },
       cursor: "json?",
     }),
   }),
   guiBridgeMethod: "tailObservability",
   httpMethod: "POST",
   path: "/api/observe/tail",
-  inputSchemaId: "gui.observe-tail/v1",
+  inputSchemaId: "gui.observe-tail/v2",
   outputSchemaId: DAEMON_OBSERVE_TAIL_SCHEMA.id,
   errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
   serviceMethod: "tailObservability",

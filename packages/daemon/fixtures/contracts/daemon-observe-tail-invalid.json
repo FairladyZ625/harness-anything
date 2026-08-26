@@ -1,12 +1,14 @@
 {
-  "schema": "daemon.observe-tail/v1",
+  "schema": "daemon.observe-tail/v2",
   "ok": true,
   "repoId": "fixture",
   "mode": "local",
   "kind": "events",
+  "direction": "follow",
   "status": "ready",
   "items": [],
-  "cursor": {
+  "historyCursor": null,
+  "liveCursor": {
     "kind": "events",
     "revision": -1
   },

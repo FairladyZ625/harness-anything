@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLineDown, CaretLeft, Pause, Play } from "@phosphor-icons/react";
 import { harnessClient, type SystemRepoRow } from "../api-client.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
@@ -12,7 +12,6 @@ import {
   filterObserveRows,
   initialObserveTail,
   observeTailRequest,
-  OBSERVE_ROW_LIMIT,
   type ObserveRow,
   type ObserveTailCursor,
   type ObserveTailKind,
@@ -156,11 +155,12 @@ function DaemonTailPane({
     [following, setFollowing] = useState(true),
     bodyRef = useRef<HTMLDivElement>(null),
     selfScroll = useRef(false),
-    snapshot = useObserveTail(repoId, kind, paused),
+    tail = useObserveTail(repoId, kind, paused),
+    snapshot = tail.snapshot,
     rows = filterObserveRows(snapshot.rows, query),
     isLogPane = kind !== "events",
-    // 尾随的触发键是「最后一行」而不是行数:行流触顶 OBSERVE_ROW_LIMIT 后行数恒定,
-    // 新行仍在到达(最老行被挤掉),此时尾随必须继续贴底。
+    // 尾随的触发键是「最后一行」而不是行数:加载历史只改第一行,不应把视口拉到底;
+    // 只有 live follow 改变最后一行时才触发贴底。
     lastKey = rows.length > 0 ? rows[rows.length - 1]!.key : null;
   useEffect(() => {
     const body = bodyRef.current;
@@ -239,12 +239,9 @@ function DaemonTailPane({
             ? t("views.daemonObserve.loading")
             : snapshot.caughtUp
               ? t("views.daemonObserve.caughtUp")
-              : t("views.daemonObserve.replaying")}
+              : t("views.daemonObserve.following")}
         </span>
-        <span
-          title={t("views.daemonObserve.retainedNote", { max: String(OBSERVE_ROW_LIMIT) })}
-          data-testid={`observe-count-${kind}`}
-        >
+        <span data-testid={`observe-count-${kind}`}>
           {t("views.daemonObserve.rowCount", { shown: String(rows.length), total: String(snapshot.rows.length) })}
         </span>
       </div>
@@ -279,10 +276,22 @@ function DaemonTailPane({
           if (selfScroll.current) return;
           const el = event.currentTarget;
           setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight <= 48);
+          if (el.scrollTop <= 48 && !snapshot.historyDone) {
+            const previousHeight = el.scrollHeight,
+              previousTop = el.scrollTop;
+            void tail.loadHistory().then((loaded) => {
+              if (!loaded || bodyRef.current !== el) return;
+              requestAnimationFrame(() => {
+                selfScroll.current = true;
+                el.scrollTop = el.scrollHeight - previousHeight + previousTop;
+                requestAnimationFrame(() => {
+                  selfScroll.current = false;
+                });
+              });
+            });
+          }
         }}
-        // 行流触顶后每次到达都会挤掉最老一行;浏览器的 scroll anchoring 会为被删内容
-        // 反向补偿 scrollTop,与尾随贴底互相拉扯(把 following 打成 false 后停随)。
-        // 尾随视图要的是「删头不扰动视口」,因此关掉本容器的锚定。
+        // 历史页在顶部插入后由上面的高度差显式恢复视口;关闭浏览器锚定以免双重补偿。
         className="min-h-0 flex-1 overflow-y-auto py-1 font-mono text-[11px] leading-relaxed [overflow-anchor:none]"
       >
         {rows.length === 0 ? (
@@ -384,10 +393,84 @@ function gapText(snapshot: ObserveTailSnapshot): string {
   return `${reason} fileId=${detail.requestedFileId} · ${t("views.daemonObserve.gapResync")}`;
 }
 
-/** 轮询循环:cursor 客户端持有,暂停即停发;gap 后从保留集头重同步。 */
-function useObserveTail(repoId: string, kind: ObserveTailKind, paused: boolean): ObserveTailSnapshot {
+/** 初始反向读最新页;live cursor 向前轮询,history cursor 只在触顶时向后翻页。 */
+function useObserveTail(
+  repoId: string,
+  kind: ObserveTailKind,
+  paused: boolean,
+): { readonly snapshot: ObserveTailSnapshot; readonly loadHistory: () => Promise<boolean> } {
   const [snapshot, setSnapshot] = useState<ObserveTailSnapshot>(initialObserveTail),
-    cursorRef = useRef<ObserveTailCursor>(null);
+    snapshotRef = useRef<ObserveTailSnapshot>(snapshot),
+    historyCursorRef = useRef<ObserveTailCursor>(null),
+    liveCursorRef = useRef<ObserveTailCursor>(null),
+    initializedRef = useRef(false),
+    historyLoadingRef = useRef(false),
+    requestEpochRef = useRef(0);
+
+  useEffect(() => {
+    const initial = initialObserveTail();
+    requestEpochRef.current += 1;
+    snapshotRef.current = initial;
+    historyCursorRef.current = null;
+    liveCursorRef.current = null;
+    initializedRef.current = false;
+    historyLoadingRef.current = false;
+    setSnapshot(initial);
+  }, [repoId, kind]);
+
+  const applyPage = useCallback((page: ObserveTailRead) => {
+    if (page.status === "unavailable") {
+      historyCursorRef.current = null;
+      liveCursorRef.current = null;
+      initializedRef.current = false;
+    } else if (page.status === "gap") {
+      if (page.direction === "history") historyCursorRef.current = null;
+      else {
+        liveCursorRef.current = null;
+        initializedRef.current = false;
+      }
+    } else if (page.direction === "history") {
+      historyCursorRef.current = page.historyCursor;
+      if (!initializedRef.current) {
+        liveCursorRef.current = page.liveCursor;
+        initializedRef.current = page.liveCursor !== null;
+      }
+    } else {
+      liveCursorRef.current = page.liveCursor;
+    }
+    setSnapshot((previous) => {
+      const next = applyObserveTailPage(previous, page);
+      snapshotRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const loadHistory = useCallback(async (): Promise<boolean> => {
+    const cursor = historyCursorRef.current;
+    if (!initializedRef.current || snapshotRef.current.historyDone || cursor === null || historyLoadingRef.current)
+      return false;
+    const epoch = requestEpochRef.current;
+    historyLoadingRef.current = true;
+    try {
+      const page = await harnessClient.tailObservability(observeTailRequest(repoId, kind, "history", cursor));
+      if (epoch !== requestEpochRef.current) return false;
+      applyPage(page);
+      return page.items.length > 0 || page.status === "gap";
+    } catch (error) {
+      consumeKnownError(error);
+      if (epoch !== requestEpochRef.current) return false;
+      const message = error instanceof Error ? error.message : String(error);
+      setSnapshot((previous) => {
+        const next = applyObserveTailError(previous, message);
+        snapshotRef.current = next;
+        return next;
+      });
+      return false;
+    } finally {
+      if (epoch === requestEpochRef.current) historyLoadingRef.current = false;
+    }
+  }, [applyPage, kind, repoId]);
+
   useEffect(() => {
     if (paused) return;
     let cancelled = false,
@@ -396,20 +479,26 @@ function useObserveTail(repoId: string, kind: ObserveTailKind, paused: boolean):
       while (!cancelled) {
         let delay = TAIL_FOLLOW_MS;
         try {
-          const page: ObserveTailRead = await harnessClient.tailObservability(
-            observeTailRequest(repoId, kind, cursorRef.current),
-          );
+          const bootstrapping = !initializedRef.current,
+            page: ObserveTailRead = await harnessClient.tailObservability(
+              bootstrapping
+                ? observeTailRequest(repoId, kind, "history", null)
+                : observeTailRequest(repoId, kind, "follow", liveCursorRef.current),
+            );
           if (cancelled) return;
-          cursorRef.current = page.cursor;
-          setSnapshot((previous) => applyObserveTailPage(previous, page));
+          applyPage(page);
           delay =
             page.status === "unavailable"
               ? TAIL_UNAVAILABLE_MS
-              : page.done
-                ? TAIL_FOLLOW_MS
-                : page.status === "pending" || page.status === "gap"
+              : page.direction === "history"
+                ? page.status === "pending"
                   ? TAIL_PENDING_MS
-                  : TAIL_CATCHUP_MS;
+                  : TAIL_FOLLOW_MS
+                : page.done
+                  ? TAIL_FOLLOW_MS
+                  : page.status === "pending" || page.status === "gap"
+                    ? TAIL_PENDING_MS
+                    : TAIL_CATCHUP_MS;
         } catch (error) {
           // 失败被投影为可读横幅(applyObserveTailError),不是吞掉;显式标记以满足门。
           consumeKnownError(error);
@@ -428,6 +517,6 @@ function useObserveTail(repoId: string, kind: ObserveTailKind, paused: boolean):
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [repoId, kind, paused]);
-  return snapshot;
+  }, [applyPage, repoId, kind, paused]);
+  return { snapshot, loadHistory };
 }
