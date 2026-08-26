@@ -20,6 +20,7 @@ import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
 import { SystemView } from "../src/renderer/views/SystemView.tsx";
+import { DaemonObserveView } from "../src/renderer/views/DaemonObserveView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
@@ -249,6 +250,97 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
         sourceRevision: 1,
       }) as never,
   );
+  // G6-B 观察页:observe.tail 按请求 kind 回一页含 fixture 实体引用的行,
+  // 让死 ID 扫描覆盖到流内 chip 的渲染面(done=true → 挂载期只发生一次读)。
+  vi.spyOn(harnessClient, "tailObservability").mockImplementation(async (payload) => {
+    const kind = (payload as { readonly kind: "events" | "repo-log" | "daemon-log" }).kind,
+      logCursor = { kind, fileId: "log-file-g10", offset: 12 },
+      eventsCursor = { kind: "events" as const, revision: 7 };
+    return {
+      schema: "daemon.observe-tail/v1",
+      ok: true,
+      repoId: REPO_ID,
+      mode: "local",
+      kind,
+      status: "ready",
+      items:
+        kind === "events"
+          ? [
+              {
+                schema: "task-event/v1",
+                eventId: "ev-g10-task",
+                workspaceRevision: 4,
+                opId: "op-g10",
+                type: "task_created",
+                actor: { kind: "agent", id: AGENT_ID },
+                source: { channel: "cli" },
+                occurredAt: AT,
+                taskId: TASK_A_ID,
+                payload: { task: { title: "G10 探针任务甲" } },
+              },
+              {
+                schema: "decision-event/v1",
+                eventId: "ev-g10-decision",
+                workspaceRevision: 5,
+                opId: "op-g10",
+                type: "decision_proposed",
+                actor: { kind: "agent", id: AGENT_ID },
+                source: { channel: "cli" },
+                occurredAt: AT,
+                decisionId: DECISION_ID,
+                payload: { title: "G10 探针决策" },
+              },
+              {
+                schema: "fact-event/v1",
+                eventId: "ev-g10-fact",
+                workspaceRevision: 6,
+                opId: "op-g10",
+                type: "fact_recorded",
+                actor: { kind: "agent", id: AGENT_ID },
+                source: { channel: "cli" },
+                occurredAt: AT,
+                taskId: TASK_A_ID,
+                factId: "F-g10a",
+                payload: { statement: "fixture 事实行" },
+              },
+              {
+                schema: "agent-runtime-event/v1",
+                eventId: "ev-g10-runtime",
+                workspaceRevision: 7,
+                opId: "op-g10",
+                type: "runtime_session_started",
+                actor: { kind: "agent", id: AGENT_ID },
+                source: { channel: "cli" },
+                occurredAt: AT,
+                payload: { runtimeSessionId: SESSION_ID, instanceId: PROVIDER_ID },
+              },
+              {
+                schema: "entity-event/v1",
+                eventId: "ev-g10-entity",
+                workspaceRevision: 8,
+                opId: "op-g10",
+                type: "entity_upserted",
+                actor: { kind: "agent", id: AGENT_ID },
+                source: { channel: "cli" },
+                occurredAt: AT,
+                payload: { entityKind: "agent", entityId: AGENT_ID },
+              },
+            ]
+          : [
+              {
+                schema: kind === "repo-log" ? "daemon-request-log/v1" : "daemon-conn-log/v1",
+                at: AT,
+                method: "repo.tasks.list",
+                event: "request",
+                ok: true,
+                durationMs: 3,
+              },
+            ],
+      cursor: kind === "events" ? eventsCursor : logCursor,
+      sourceCursor: kind === "events" ? eventsCursor : logCursor,
+      done: true,
+    } as never;
+  });
   vi.spyOn(squadRunsClient, "list").mockResolvedValue({
     ok: true,
     status: "ready",
@@ -421,7 +513,14 @@ const VIEW_RENDERERS = {
       focusedEntityRef: `provider/${PROVIDER_ID}`,
       onSelectEntity: noop,
     }),
-  system: () => createElement(SystemView, { activeRepoId: REPO_ID }),
+  system: () => createElement(SystemView, { activeRepoId: REPO_ID, onOpenObserve: noop }),
+  daemonObserve: () =>
+    createElement(DaemonObserveView, {
+      repoId: REPO_ID,
+      repos: [fixtureRepoRow()],
+      onBack: noop,
+      onNavigateEntity: noop,
+    }),
   settings: () => createElement(SettingsView, {}),
 } satisfies Record<ViewId, () => ReturnType<typeof createElement>>;
 
@@ -457,7 +556,9 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
     // 渲染面直接取 VIEW_RENDERERS 的键全集:映射里有的每个视图都必须真的被渲染,
     // 「在映射里但没渲染」的键在这里被导航面一致性断言拦下。
     const declared = new Set(Object.keys(VIEW_RENDERERS));
-    expect([...declared].sort()).toEqual([...navViewIds, "home", "decisionDetail", "factDetail"].sort());
+    expect([...declared].sort()).toEqual(
+      [...navViewIds, "home", "decisionDetail", "factDetail", "daemonObserve"].sort(),
+    );
     for (const id of navViewIds) expect(declared.has(id), `导航面 view ${id} 缺渲染入口`).toBe(true);
   });
 
