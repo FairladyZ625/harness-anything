@@ -48,7 +48,7 @@ export function isDaemonUnreachable(error: unknown): boolean {
   }
   return error instanceof Error && error.message === "daemon_unavailable";
 }
-export function runtimeDaemonStartRefusalForUnavailable(
+export function runtimeDaemonStartRefusal(
   env: NodeJS.ProcessEnv = process.env,
 ): { readonly code: "daemon_start_runtime_forbidden"; readonly hint: string } | null {
   if (env.HARNESS_ACTOR?.startsWith("agent:runtime-session:") !== true) return null;
@@ -59,14 +59,6 @@ export function runtimeDaemonStartRefusalForUnavailable(
       "Start the daemon from an operator shell with `ha daemon start --service`, then retry the worker command.",
     ].join(" "),
   };
-}
-export async function runtimeDaemonStartRefusal(
-  socketPath: string,
-  env: NodeJS.ProcessEnv = process.env,
-  probe: (socketPath: string) => Promise<boolean> = daemonSocketProbe,
-): Promise<{ readonly code: "daemon_start_runtime_forbidden"; readonly hint: string } | null> {
-  const refusal = runtimeDaemonStartRefusalForUnavailable(env);
-  return refusal === null || (await probe(socketPath)) ? null : refusal;
 }
 export async function ensureLocalDaemonRunning(input: {
   readonly socketPath: string;
