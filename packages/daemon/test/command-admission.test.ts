@@ -10,8 +10,8 @@ const localSource = "local" as const;
 const assignmentSource = { kind: "assignment", nodeId: "edge-one", assignmentId: "assignment-one" } as const;
 const admissionRoutes = new Set(["direct", "via-assignment", "via-center-forward", "rejected"]);
 
-test("all 123 daemon commands close every repo-mode admission cell", () => {
-  assert.equal(daemonProtocolCommands.length, 123);
+test("all 125 daemon commands close every repo-mode admission cell", () => {
+  assert.equal(daemonProtocolCommands.length, 125);
   let cells = 0;
   for (const command of daemonProtocolCommands) {
     assert.deepEqual(Object.keys(command.admission).sort(), [...daemonRepoModeWords].sort(), command.id);
@@ -35,7 +35,7 @@ test("all 123 daemon commands close every repo-mode admission cell", () => {
       }
     }
   }
-  assert.equal(cells, 123 * 3);
+  assert.equal(cells, 125 * 3);
 });
 
 test("observe.tail declares direct admission and named source residency for every tail kind", () => {
@@ -75,4 +75,16 @@ test("Schedule descriptors derive all three mode routes without a CLI mode branc
   });
   assert.equal(admitRepoMode("remote-center", byId.get("schedule-run-now")!, localSource).ok, false);
   assert.equal(admitRepoMode("remote-center", byId.get("schedule-run-now")!, assignmentSource).ok, true);
+});
+
+test("Settings read and update use direct center authority with edge forwarding", () => {
+  const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
+  for (const id of ["settings-read", "settings-update"])
+    assert.deepEqual(byId.get(id)?.admission, {
+      local: "direct",
+      "remote-center": "direct",
+      "remote-edge": "via-center-forward",
+    });
+  assert.equal(byId.get("settings-read")?.commandClass, "repo-read");
+  assert.equal(byId.get("settings-update")?.commandClass, "repo-write");
 });

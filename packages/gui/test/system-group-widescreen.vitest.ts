@@ -3,7 +3,7 @@
 // G5 系统组四页宽屏不变量:presets/adapters/system/settings 内容容器铺满可用宽度
 // (与 overview/board/任务详情同一容器规则),不保留 mx-auto + max-w-*xl 居中收口;
 // 有意的列宽(repo 表截断列、侧栏固定轨道)保留,不受外层铺满影响。
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -13,6 +13,7 @@ import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { settingsQueryKeys } from "../src/renderer/settings-data.ts";
 
 const REPO_ID = "g5-probe";
 const AT = "2026-08-26T00:00:00.000Z";
@@ -31,9 +32,23 @@ afterEach(() => {
     });
     container.remove();
   }
+  Reflect.deleteProperty(window, "harness");
 });
 
 function seedQueries(client: QueryClient): void {
+  client.setQueryData(settingsQueryKeys.read(REPO_ID), {
+    schema: "daemon.settings-read/v1",
+    ok: true,
+    settings: {
+      schema: "settings/v1",
+      settingsId: "repository",
+      defaultVertical: "software/coding",
+      defaultPreset: "standard-task",
+      defaultProfile: "baseline",
+      locale: "zh-CN",
+      scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
+    },
+  });
   client.setQueryData(catalogQueryKeys.snapshot(REPO_ID), {
     schema: "gui-catalog-snapshot/v1",
     ok: true,
@@ -144,7 +159,7 @@ async function mountedContainerClasses(testId: (typeof FILL_TESTIDS)[number]): P
         ? createElement(AdaptersView, { repoId: REPO_ID, tasks: [] })
         : testId === "system-content"
           ? createElement(SystemView, { activeRepoId: REPO_ID, onOpenObserve: () => undefined })
-          : createElement(SettingsView, {}),
+          : createElement(SettingsView, { repoId: REPO_ID }),
   );
   const el = container.querySelector(`[data-testid="${testId}"]`);
   expect(el, `${testId} 未渲染`).toBeTruthy();
@@ -194,5 +209,62 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
       button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(opened).toEqual([REPO_ID]);
+  });
+});
+
+describe("Settings kind renderer consumes and updates the daemon-owned facet", () => {
+  it("renders every read field and sends defaultPreset plus locale changes through the bridge", async () => {
+    const settings = {
+        schema: "settings/v1" as const,
+        settingsId: "repository" as const,
+        defaultVertical: "software/coding",
+        defaultPreset: "standard-task",
+        defaultProfile: "baseline",
+        locale: "zh-CN" as const,
+        scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
+      },
+      updateSettings = vi.fn(async (payload: Record<string, unknown>) => ({
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "settings-update",
+        outcome: "applied",
+        opId: String(payload.idempotencyKey),
+      })),
+      getSettings = vi.fn(async () => ({ schema: "daemon.settings-read/v1", ok: true, settings }));
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: { updateSettings, getSettings },
+    });
+    const container = await mountView(createElement(SettingsView, { repoId: REPO_ID }));
+    for (const value of [
+      "software/coding",
+      "standard-task",
+      "baseline",
+      "governance/task-scaffold.json",
+      "governance/repository-scaffold.json",
+    ])
+      expect((container.querySelector(`input[value="${value}"]`) as HTMLInputElement | null)?.value).toBe(value);
+    expect(container.textContent).toContain("settings/repository · settings/v1");
+
+    const preset = container.querySelector('input[aria-label="默认预设"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(preset, "strict-task");
+      preset.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const save = [...container.querySelectorAll("button")].find((button) => button.textContent === "提交到仓库")!;
+    await act(async () => save.click());
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
+      repoId: REPO_ID,
+      defaultPreset: "strict-task",
+      locale: "zh-CN",
+    });
+
+    const languageTab = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("语言"),
+    )!;
+    await act(async () => languageTab.click());
+    const english = [...container.querySelectorAll("button")].find((button) => button.textContent === "English")!;
+    await act(async () => english.click());
+    expect(updateSettings.mock.calls.at(-1)?.[0]).toMatchObject({ repoId: REPO_ID, locale: "en-US" });
   });
 });

@@ -161,6 +161,14 @@ export {
 export type { ScheduleMissedReason, ScheduleRunOutcome, ScheduleV1 } from "./schedule.ts";
 export { compileScheduleDefinitionEvent, compileScheduleRunEvent, isScheduleEvent } from "./schedule-event.ts";
 
+export {
+  readSettingsFacet,
+  validateSettingsV1,
+  writeSettingsFacet,
+} from "./settings.ts";
+export type { SettingsV1 } from "./settings.ts";
+export { compileSettingsChangedEvent } from "./settings-event.ts";
+
 export { isEntityEvent } from "./entity-event.ts";
 
 export {

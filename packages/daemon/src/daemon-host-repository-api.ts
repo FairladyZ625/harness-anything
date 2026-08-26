@@ -16,6 +16,7 @@ import type { DaemonHost } from "./daemon-host.ts";
 import {
   commandClassForAction,
   commandDescriptorForAction,
+  daemonGuiReadMethods,
   type DaemonGuiReadResultMap,
 } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -311,7 +312,12 @@ export function createDaemonHostRepositoryApi(
       }
     },
     read: async (repoId, method, payload, auth) => {
-      context.requireHostMode(repoId, repoReadCommandTopology, auth);
+      const readDescriptor = daemonGuiReadMethods.find((candidate) => candidate.method === method);
+      context.requireHostMode(
+        repoId,
+        readDescriptor && "admission" in readDescriptor ? readDescriptor : repoReadCommandTopology,
+        auth,
+      );
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
       if (!cell)

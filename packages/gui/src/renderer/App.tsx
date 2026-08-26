@@ -622,7 +622,7 @@ function AppShell() {
                 onNavigateEntity={navigateToEntity}
               />
             ) : (
-              <SettingsView />
+              <SettingsView repoId={projectId} />
             )}
           </div>
         </div>

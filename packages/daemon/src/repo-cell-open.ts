@@ -31,6 +31,7 @@ import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { makeRepoCellScheduleActions } from "./repo-cell-schedule-actions.ts";
+import { makeRepoCellSettingsActions } from "./repo-cell-settings-actions.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   PublicPublication,
@@ -389,7 +390,8 @@ export async function openRepoCell(input: {
     getSquadCoordinator: () => squadCoordinator,
   });
   const scheduleActions = makeRepoCellScheduleActions(extracted);
-  Object.assign(extracted, { mode, runtimeSpawner, scheduleActions });
+  const settingsActions = makeRepoCellSettingsActions(extracted);
+  Object.assign(extracted, { mode, runtimeSpawner, scheduleActions, settingsActions });
   settleScheduledOutcome = async (terminal) => {
     const scheduled = terminal.schedule,
       detail = terminal.resultRef ?? terminal.reason;
@@ -512,6 +514,7 @@ export async function openRepoCell(input: {
     },
     runtimeSpawner,
     scheduleActions,
+    settingsActions,
     appendRuntimeIngress: extracted.appendRuntimeIngress,
     get bootstrapReceipt() {
       return bootstrapReceipt;

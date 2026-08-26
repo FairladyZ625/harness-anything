@@ -54,6 +54,7 @@ export const entityKindRefAuthorities = Object.freeze([
     refTemplate: "runtime-session/{id}",
   },
   { kind: "schedule", field: "scheduleId", pattern: ENTITY_ID_PATTERN, refTemplate: "schedule/{id}" },
+  { kind: "settings", field: "settingsId", pattern: "^repository$", refTemplate: "settings/{id}" },
 ] as const satisfies readonly EntityKindRefAuthority[]);
 
 export type EntityRefKind = (typeof entityKindRefAuthorities)[number]["kind"] | "relation";

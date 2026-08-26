@@ -26,6 +26,16 @@ export async function executeAction(
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
   if (action.kind.startsWith("schedule-")) return cell.scheduleActions.run(action, binding);
+  if (action.kind === "settings-read") {
+    const revision = cell.store.readHead()?.revision ?? 0;
+    return cell.readResult(
+      cell.operationId(action, binding, cell.input.repoId, revision),
+      { schema: "settings-read/v1", settings: cell.settingsActions.read() },
+      revision,
+      true,
+    );
+  }
+  if (action.kind === "settings-update") return cell.settingsActions.update(action, binding);
   if (action.kind === "migrate-import")
     return runMigrationImport({
       action,

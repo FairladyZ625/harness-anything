@@ -17,6 +17,7 @@ import type {
   TaskDispatchesRead,
   TaskSnapshotProjectionRow,
   WorkspaceSummaryRead,
+  SettingsRead,
 } from "../api/renderer-dto.ts";
 import { isRendererRecord } from "./result-validation.ts";
 
@@ -80,6 +81,16 @@ export interface DecisionListSuccess {
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
 export type WorkspaceSummarySuccess = WorkspaceSummaryRead;
+export type SettingsSuccess = SettingsRead;
+export type SettingsUpdateInput = RepoScope &
+  Partial<{
+    defaultVertical: string;
+    defaultPreset: string;
+    defaultProfile: string;
+    locale: "en-US" | "zh-CN";
+    taskScaffold: string;
+    repositoryScaffold: string;
+  }> & { readonly idempotencyKey: string };
 
 export interface DecisionControlListSuccess {
   readonly status: "ready" | "pending";
@@ -296,6 +307,12 @@ export const harnessClient = {
   async getTasks(payload: RepoScope & TaskQueryFacets): Promise<TaskListSuccess> {
     return readTaskListResult(await invokeBridge("getTasks", payload));
   },
+  async getSettings(payload: RepoScope): Promise<SettingsSuccess> {
+    return readSettingsResult(await invokeBridge("getSettings", payload));
+  },
+  async updateSettings(payload: SettingsUpdateInput): Promise<GuiActionResult> {
+    return readGuiActionResult(await invokeBridge("updateSettings", payload));
+  },
   async getWorkspaceSummary(payload: RepoScope): Promise<WorkspaceSummarySuccess> {
     return readWorkspaceSummaryResult(await invokeBridge("getWorkspaceSummary", payload));
   },
@@ -428,6 +445,27 @@ function readTaskDocumentListResult(value: unknown): TaskDocumentListProjectionR
   )
     throw new Error(localErrorHint(value, "Task document list bridge returned an invalid result."));
   return result as TaskDocumentListProjectionRead;
+}
+
+function readSettingsResult(value: unknown): SettingsSuccess {
+  if (
+    !isRendererRecord(value) ||
+    value.schema !== "daemon.settings-read/v1" ||
+    value.ok !== true ||
+    !isRendererRecord(value.settings) ||
+    value.settings.schema !== "settings/v1" ||
+    value.settings.settingsId !== "repository" ||
+    ![value.settings.defaultVertical, value.settings.defaultPreset, value.settings.defaultProfile].every(
+      (field) => typeof field === "string" && field.length > 0,
+    ) ||
+    !["en-US", "zh-CN"].includes(String(value.settings.locale)) ||
+    !isRendererRecord(value.settings.scaffolds) ||
+    ![value.settings.scaffolds.task, value.settings.scaffolds.repository].every(
+      (field) => typeof field === "string" && field.length > 0,
+    )
+  )
+    throw new Error(localErrorHint(value, "Settings bridge returned an invalid result."));
+  return value as unknown as SettingsSuccess;
 }
 
 function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {

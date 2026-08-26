@@ -12,6 +12,7 @@ import { runtimeConfigProtocolCommands } from "./daemon-protocol-commands-runtim
 import { runtimeFleetProtocolCommands, scheduleProtocolCommands } from "./daemon-protocol-commands-runtime-fleet.ts";
 import { taskSurfaceProtocolCommands } from "./daemon-protocol-commands-task-surface.ts";
 import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.ts";
+import { settingsProtocolCommands } from "./daemon-protocol-commands-settings.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
 
@@ -25,6 +26,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...runtimeConfigProtocolCommands,
   ...runtimeFleetProtocolCommands,
   ...scheduleProtocolCommands,
+  ...settingsProtocolCommands,
 ] as const);
 
 export const runtimePromptInputs = daemonOwnedProtocolCommands

@@ -26,6 +26,20 @@ import {
 } from "./daemon-protocol-validate-task.ts";
 import { receiptOutcomeWords } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
+import { validateSettingsV1 } from "../../../kernel/src/index.ts";
+
+export function validateDaemonSettingsRead(value: unknown): readonly string[] {
+  if (
+    !isJsonObject(value) ||
+    value.schema !== "daemon.settings-read/v1" ||
+    value.ok !== true ||
+    !isJsonObject(value.settings) ||
+    validateSettingsV1(value.settings).length > 0 ||
+    Object.keys(value).some((field) => !["schema", "ok", "settings"].includes(field))
+  )
+    return ["daemon settings read is invalid"];
+  return [];
+}
 
 export function validateDaemonDocumentRead(value: unknown): readonly string[] {
   if (

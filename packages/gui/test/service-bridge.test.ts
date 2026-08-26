@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -144,6 +145,56 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       [...results.keys()],
       daemonGuiReadMethods.map(({ method }) => method),
     );
+    const settingsBefore = parseDaemonGuiReadResult("repo.settings.read", results.get("repo.settings.read"));
+    assert.deepEqual(settingsBefore.settings, {
+      schema: "settings/v1",
+      settingsId: "repository",
+      defaultVertical: "software/coding",
+      defaultPreset: "standard-task",
+      defaultProfile: "baseline",
+      locale: "en-US",
+      scaffolds: {
+        task: "governance/task-scaffold.json",
+        repository: "governance/repository-scaffold.json",
+      },
+    });
+    const settingsUpdated = parseDaemonGuiActionResponse(
+      "repo.settings.update",
+      await bridge.invoke("updateSettings", {
+        ...scope,
+        defaultPreset: "strict-task",
+        locale: "zh-CN",
+        idempotencyKey: "gui-settings-update-1",
+      }),
+    );
+    assert.equal(settingsUpdated.ok, true, JSON.stringify(settingsUpdated));
+    assert.equal(settingsUpdated.outcome, "applied");
+    let settingsCommit = "";
+    for (let attempt = 0; attempt < 50 && !settingsCommit; attempt += 1) {
+      settingsCommit = execFileSync(
+        "git",
+        [
+          "-C",
+          path.join(fixture.rootDir, "harness"),
+          "log",
+          "--all",
+          "-SdefaultPreset: strict-task",
+          "--format=%H",
+          "--",
+          "harness.yaml",
+        ],
+        { encoding: "utf8" },
+      ).trim();
+      if (!settingsCommit) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.match(settingsCommit, /^[0-9a-f]{40}$/u, "Settings update must become reachable in a daemon commit");
+    const settingsAfter = parseDaemonGuiReadResult("repo.settings.read", await bridge.invoke("getSettings", scope));
+    assert.equal(settingsAfter.settings.defaultPreset, "strict-task");
+    assert.equal(settingsAfter.settings.locale, "zh-CN");
+    const harnessYaml = readFileSync(path.join(fixture.rootDir, "harness/harness.yaml"), "utf8");
+    assert.match(harnessYaml, /defaultPreset: strict-task/u);
+    assert.match(harnessYaml, /locale: zh-CN/u);
+    assert.match(harnessYaml, /wipLimit: 60/u);
     const observability = parseDaemonGuiReadResult("observe.tail", results.get("observe.tail"));
     assert.equal(observability.schema, "daemon.observe-tail/v3");
     assert.equal(observability.repoId, fixture.repoId);

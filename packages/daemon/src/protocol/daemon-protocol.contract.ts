@@ -389,6 +389,7 @@ export default Object.freeze({
     "G6-A",
     "G8",
     "Schedule-S3",
+    "Settings-Kind",
   ]),
   commands: effectiveDaemonOwnedProtocolCommands,
   methods: Object.freeze([
@@ -535,6 +536,7 @@ export {
   serializeDaemonWorkspaceSummary,
   serializeObserveTailResult,
   validateDaemonDocumentRead,
+  validateDaemonSettingsRead,
   validateDaemonGuiCommandReceipt,
   validateDaemonProtocolError,
   validateDaemonTaskDispatches,

@@ -3,8 +3,7 @@ import { isUtcTimestamp } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
 export const HARNESS_PRELOAD_API = "harness";
 export type PreloadApiMethod =
-  | (typeof daemonGuiInvokeFacets)[number]["guiBridgeMethod"]
-  | (typeof daemonGuiStreamFacets)[number]["guiBridgeMethod"];
+  (typeof daemonGuiInvokeFacets)[number]["guiBridgeMethod"] | (typeof daemonGuiStreamFacets)[number]["guiBridgeMethod"];
 const daemonGuiFacets: ReadonlyArray<{
   readonly guiBridgeMethod: PreloadApiMethod;
   readonly requiresRepo?: boolean;
@@ -12,8 +11,7 @@ const daemonGuiFacets: ReadonlyArray<{
 }> = [...daemonGuiInvokeFacets, ...daemonGuiStreamFacets];
 function payloadFieldNames(guiBridgeMethod: string): readonly string[] {
   const entry = daemonGuiInvokeFacets.find((facet) => facet.guiBridgeMethod === guiBridgeMethod) as
-    | { readonly params?: { readonly fields?: Readonly<Record<string, unknown>> } }
-    | undefined;
+    { readonly params?: { readonly fields?: Readonly<Record<string, unknown>> } } | undefined;
   const payload = entry?.params?.fields?.payload as { readonly fields?: Readonly<Record<string, unknown>> } | undefined;
   return payload?.fields ? Object.keys(payload.fields) : [];
 }
@@ -117,6 +115,8 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
     }
     if (method === "getTaskDispatches" && !validTaskDispatchesPayload(payload))
       throw new Error("Preload getTaskDispatches request is invalid.");
+    if (method === "updateSettings" && !validSettingsUpdate(payload))
+      throw new Error("Preload updateSettings request is invalid.");
   } else if (isPreloadPayloadRecord(payload) && Object.hasOwn(payload, "repoId")) {
     throw new Error(`Preload ${method} payload: repoId is not allowed.`);
   }
@@ -269,6 +269,28 @@ function validRuntimeInstanceShow(value: unknown): boolean {
     typeof value.instanceId === "string" &&
     value.instanceId.length > 0 &&
     (value.probe === undefined || typeof value.probe === "boolean")
+  );
+}
+function validSettingsUpdate(value: Record<string, unknown>): boolean {
+  const fields = [
+      "repoId",
+      "defaultVertical",
+      "defaultPreset",
+      "defaultProfile",
+      "locale",
+      "taskScaffold",
+      "repositoryScaffold",
+      "idempotencyKey",
+    ],
+    changed = fields.filter((field) => !["repoId", "idempotencyKey"].includes(field) && value[field] !== undefined),
+    identifier = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
+  return (
+    closed(value, fields) &&
+    changed.length > 0 &&
+    typeof value.idempotencyKey === "string" &&
+    value.idempotencyKey.length > 0 &&
+    changed.every((field) => typeof value[field] === "string" && identifier.test(String(value[field]))) &&
+    (value.locale === undefined || ["en-US", "zh-CN"].includes(String(value.locale)))
   );
 }
 function exactStrings(value: unknown, fields: readonly string[]): boolean {

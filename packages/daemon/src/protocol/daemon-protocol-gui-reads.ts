@@ -24,6 +24,7 @@ import {
   DAEMON_TASK_DOCUMENT_LIST_SCHEMA,
   DAEMON_TASK_SNAPSHOT_LIST_SCHEMA,
   DAEMON_WORKSPACE_SUMMARY_SCHEMA,
+  DAEMON_SETTINGS_READ_SCHEMA,
   daemonAgendaPayloadShape,
   daemonRelationQueryPayloadShape,
   daemonTaskQueryPayloadShape,
@@ -32,6 +33,7 @@ import {
   GUI_SYSTEM_STATUS_SCHEMA,
   TERMINAL_SESSION_LIST_SCHEMA,
 } from "./daemon-protocol-schema-ids.ts";
+import { settingsReadCommand } from "./daemon-protocol-commands-settings.ts";
 
 export const observeTailReadMethod = Object.freeze({
   id: "observe.tail",
@@ -98,6 +100,23 @@ export const daemonGuiReadMethods = Object.freeze([
     commandClass: "repo-read",
   },
   observeTailReadMethod,
+  {
+    id: "settings.read",
+    phase: "Settings-Kind",
+    method: "repo.settings.read",
+    requiresRepo: true,
+    params: shape({ repo: shape({ repoId: "string" }) }),
+    guiBridgeMethod: "getSettings",
+    httpMethod: "GET",
+    path: "/api/settings",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: DAEMON_SETTINGS_READ_SCHEMA.id,
+    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+    serviceMethod: "getSettings",
+    auth: "local-session-token",
+    commandClass: settingsReadCommand.commandClass,
+    admission: settingsReadCommand.admission,
+  },
   {
     id: "tasks.list",
     phase: "W2-GUI",
