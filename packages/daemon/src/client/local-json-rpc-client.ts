@@ -140,7 +140,7 @@ export class JsonRpcLineClient {
   }
   private readResponse(id: number): Promise<JsonRpcResponse> {
     return new Promise((resolve, reject) => {
-      if (this.closed) reject(new Error(`daemon closed before JSON-RPC response ${id}`));
+      if (this.closed) reject(daemonClosedError(id));
       else this.waiters.push({ id, resolve, reject });
     });
   }
@@ -165,7 +165,7 @@ export class JsonRpcLineClient {
   private onClosed(): void {
     this.closed = true;
     for (const waiter of this.waiters.splice(0))
-      waiter.reject(new Error(`daemon closed before JSON-RPC response ${waiter.id}`));
+      waiter.reject(daemonClosedError(waiter.id));
   }
 }
 
@@ -254,4 +254,8 @@ export function connectSocket(socketPath: string, timeoutMs: number): Promise<ne
 }
 export function jsonRpcRecord(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function daemonClosedError(id: number): Error & { readonly code: string } {
+  return Object.assign(new Error(`daemon closed before JSON-RPC response ${id}`), { code: "daemon_closed" });
 }
