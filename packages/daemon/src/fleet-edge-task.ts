@@ -86,7 +86,8 @@ export function fleetEdgeCredential(
 export function fleetEdgeScopePaths(assignmentId: string, rosterPath: string | undefined): readonly string[] | null {
   if (!rosterPath) return null;
   return (
-    readFleetRosterFile(rosterPath).assignments.find((entry) => entry.assignmentId === assignmentId)?.paths ?? null
+    readFleetRosterFile(rosterPath).assignments.find((entry) => entry.assignmentId === assignmentId)?.scope.paths ??
+    null
   );
 }
 // Conservative task-path predicate for the unresolved-conflict gate. It

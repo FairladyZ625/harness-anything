@@ -22,6 +22,18 @@ export async function binding(
   if (auth.assignmentBinding) {
     if (required === "admin" || required === "arbiter")
       throw hostCodedError("rbac_forbidden", `Assignment ingress cannot perform ${required}.`);
+    const legacy = auth.assignmentBinding as typeof auth.assignmentBinding & {
+        readonly taskId?: string;
+        readonly executionId?: string;
+        readonly paths?: readonly string[];
+      },
+      scope =
+        auth.assignmentBinding.scope ??
+        (legacy.taskId && legacy.executionId && legacy.paths
+          ? { kind: "task" as const, taskId: legacy.taskId, executionId: legacy.executionId, paths: legacy.paths }
+          : undefined);
+    if (!scope)
+      throw hostCodedError("assignment_scope_mismatch", "Assignment ingress requires a valid task or Schedule scope.");
     return {
       actor: auth.assignmentBinding.actor,
       source: {
@@ -32,9 +44,7 @@ export async function binding(
       docWriteAllowed: true,
       assignmentScope: {
         repoId: auth.assignmentBinding.repoId,
-        taskId: auth.assignmentBinding.taskId,
-        executionId: auth.assignmentBinding.executionId,
-        paths: auth.assignmentBinding.paths,
+        scope,
       },
       ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
       ...(auth.assertWriterEpoch ? { assertWriterEpoch: auth.assertWriterEpoch } : {}),

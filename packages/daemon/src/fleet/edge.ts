@@ -357,7 +357,12 @@ export async function runFleetWriteClient(options: FleetWriteClientOptions): Pro
     // collaborator route keeps its explicit execution (or null repository
     // channel). The center still proves holder actor/source/task; no client-
     // reported exemption crosses the wire.
-    const executionId = options.channel === "replica" ? assigned.executionId : (options.executionId ?? null);
+    const executionId =
+      options.channel === "replica"
+        ? assigned.scope.kind === "task"
+          ? assigned.scope.executionId
+          : null
+        : (options.executionId ?? null);
     const center = await session.request({
       schema: "fleet.doc.submit/v1",
       messageId: session.messageId(),
@@ -638,6 +643,66 @@ export async function runFleetTaskCommandClient(
     }
     if (result.schema !== "fleet.task.result/v1") throw new Error("task result expected");
     return result;
+  } finally {
+    session.close();
+  }
+}
+export async function runFleetScheduleCommandClient(
+  options: FleetPeerOptions & {
+    readonly opId: string;
+    readonly repoId: string;
+    readonly scheduleId: string;
+    readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
+    readonly writerEpoch?: number;
+  },
+): Promise<Extract<FleetFrameV1, { schema: "fleet.schedule.result/v1" }>> {
+  const session = await openPeer(options);
+  try {
+    const assigned =
+      options.writerEpoch === undefined
+        ? await session.request({
+            schema: "fleet.assignment.get/v1",
+            messageId: session.messageId(),
+            assignmentId: options.assignmentId,
+          })
+        : null;
+    if (assigned !== null && assigned.schema !== "fleet.assignment.result/v1")
+      throw new Error("assignment result expected");
+    const writerEpoch =
+      options.writerEpoch ?? (assigned as Extract<FleetFrameV1, { schema: "fleet.assignment.result/v1" }>).writerEpoch;
+    try {
+      const result = await session.request({
+        schema: "fleet.schedule.command/v1",
+        messageId: session.messageId(),
+        assignmentId: options.assignmentId,
+        writerEpoch,
+        opId: options.opId,
+        repoId: options.repoId,
+        scheduleId: options.scheduleId,
+        action: options.action,
+      });
+      if (result.schema !== "fleet.schedule.result/v1") throw new Error("schedule result expected");
+      return result;
+    } catch (error) {
+      if (!(error instanceof FleetRemoteError) || error.code !== "writer_epoch_stale") throw error;
+      const queried = await session.request({
+        schema: "fleet.receipt.get/v1",
+        messageId: session.messageId(),
+        assignmentId: options.assignmentId,
+        opId: options.opId,
+      });
+      if (queried.schema !== "fleet.receipt.result/v1") throw new Error("receipt result expected");
+      return {
+        schema: "fleet.schedule.result/v1",
+        messageId: session.messageId(),
+        inReplyTo: "writer-epoch",
+        opId: options.opId,
+        outcome: "op_rejected",
+        revision: null,
+        code: error.code,
+        receipt: queried.receipt,
+      };
+    }
   } finally {
     session.close();
   }

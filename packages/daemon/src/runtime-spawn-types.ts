@@ -41,6 +41,20 @@ export type RuntimeBinding = {
   readonly source: WriteSource;
 };
 
+export interface TrustedScheduleRuntime {
+  readonly scheduleId: string;
+  readonly claimFence: string;
+}
+
+export interface TrustedScheduleSpawn extends TrustedScheduleRuntime {
+  readonly mission: string;
+  readonly runtimeInstanceId: string;
+  readonly agentId: string;
+  readonly model?: string;
+  readonly effort?: string;
+  readonly cwd?: string;
+}
+
 export type RuntimeAgent = {
   readonly id: string;
   readonly name: string;
@@ -70,6 +84,7 @@ export type ActiveRuntime = {
     readonly taskId: string;
     readonly executionId: string;
   } | null;
+  readonly schedule: TrustedScheduleRuntime | null;
   readonly cwd: string;
   readonly prompt: string;
   readonly promptSource?: string;

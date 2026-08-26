@@ -53,6 +53,7 @@ export async function adoptRuntimes(context: any): Promise<void> {
         stream.header.taskId && stream.header.executionId
           ? { taskId: stream.header.taskId, executionId: stream.header.executionId }
           : null,
+      schedule: stream.header.schedule ?? null,
       cwd: metadata.cwd,
       prompt: metadata.prompt,
       ...(stream.header.promptSource ? { promptSource: stream.header.promptSource } : {}),

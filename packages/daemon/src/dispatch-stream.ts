@@ -38,6 +38,7 @@ export interface DispatchStreamHeader {
   readonly dispatchId: string;
   readonly taskId: string | null;
   readonly executionId: string | null;
+  readonly schedule?: { readonly scheduleId: string; readonly claimFence: string };
   readonly runtimeSessionId: string;
   readonly instanceId: string;
   readonly startedAt: string;
@@ -453,6 +454,12 @@ function isHeader(value: Record<string, unknown> | null): value is Record<string
     value.kind === "dispatch" &&
     typeof value.dispatchId === "string" &&
     (value.taskId === null || typeof value.taskId === "string") &&
+    (value.schedule === undefined ||
+      (value.schedule !== null &&
+        typeof value.schedule === "object" &&
+        !Array.isArray(value.schedule) &&
+        typeof (value.schedule as Record<string, unknown>).scheduleId === "string" &&
+        typeof (value.schedule as Record<string, unknown>).claimFence === "string")) &&
     (value.executionId === null || typeof value.executionId === "string") &&
     typeof value.runtimeSessionId === "string" &&
     typeof value.instanceId === "string" &&

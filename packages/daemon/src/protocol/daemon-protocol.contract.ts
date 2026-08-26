@@ -388,6 +388,7 @@ export default Object.freeze({
     "B2-S1",
     "G6-A",
     "G8",
+    "Schedule-S3",
   ]),
   commands: effectiveDaemonOwnedProtocolCommands,
   methods: Object.freeze([
