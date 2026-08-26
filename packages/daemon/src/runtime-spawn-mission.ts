@@ -183,6 +183,34 @@ export function assembleTaskMission(input: {
   ].join("\n");
 }
 
+export function assembleScheduledMission(input: {
+  readonly mission: string;
+  readonly repoId: string;
+  readonly canonicalRoot: string;
+  readonly workerRoot: string;
+  readonly scheduleId: string;
+  readonly claimFence: string;
+  readonly daemonRoute: RuntimeDaemonRoute;
+  readonly runtimeActor: string;
+}): string {
+  return [
+    "# Dispatch Preconditions",
+    `Repository id: ${input.repoId}`,
+    "Repository registration: enabled",
+    `Canonical repository root: ${input.canonicalRoot}`,
+    `Worker repository root: ${input.workerRoot}`,
+    `Schedule id: ${input.scheduleId}`,
+    `Schedule claim fence: ${input.claimFence}`,
+    `Daemon user root: ${input.daemonRoute.userRoot}`,
+    `Daemon id: ${input.daemonRoute.daemonId}`,
+    `Daemon endpoint: ${input.daemonRoute.endpoint}`,
+    `Runtime actor: ${input.runtimeActor}`,
+    "The daemon route, repository selection, runtime actor, and Schedule claim are sealed into this launch.",
+    "# Assigned Mission",
+    input.mission,
+  ].join("\n");
+}
+
 export function validateMissionCommands(mission: string, workerRoot: string, source: string): void {
   for (const block of mission.matchAll(/```(?:sh|bash|zsh|shell)[^\n]*\n([\s\S]*?)```/giu))
     for (const line of (block[1] ?? "").split(/\r?\n/u))

@@ -38,11 +38,21 @@ export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kin
 // declared for its kind. The daemon re-binds principal authority server-side,
 // so identity/origin fields are simply absent from every allowlist (the same
 // posture as the mode enum in the daemon protocol contract).
-export interface FleetAssignmentScope {
-  readonly repoId: string;
+export interface FleetTaskAssignmentScope {
+  readonly kind: "task";
   readonly taskId: string;
   readonly executionId: string;
   readonly paths: readonly string[];
+}
+export interface FleetScheduleAssignmentScope {
+  readonly kind: "schedule";
+  readonly scheduleId: string;
+  readonly paths: readonly string[];
+}
+export type FleetAssignmentKindScope = FleetTaskAssignmentScope | FleetScheduleAssignmentScope;
+export interface FleetAssignmentScope {
+  readonly repoId: string;
+  readonly scope: FleetAssignmentKindScope;
 }
 export interface FleetAssignmentBinding extends FleetAssignmentScope {
   readonly nodeId: string;
@@ -63,9 +73,7 @@ export type FleetFrameV1 =
         inReplyTo: string;
         assignmentId: string;
         repoId: string;
-        taskId: string;
-        executionId: string;
-        paths: readonly string[];
+        scope: FleetAssignmentKindScope;
         baseLedgerSha: LedgerCutIdentity;
         expiresAt: string;
         writerEpoch: number;
@@ -134,6 +142,28 @@ export type FleetFrameV1 =
           readonly expiresAt: string;
         } | null;
         queuePosition: number | null;
+      }
+    >
+  | Msg<
+      "fleet.schedule.command/v1",
+      {
+        assignmentId: string;
+        writerEpoch: number;
+        opId: string;
+        repoId: string;
+        scheduleId: string;
+        action: Readonly<Record<string, unknown>> & { readonly kind: string };
+      }
+    >
+  | Msg<
+      "fleet.schedule.result/v1",
+      {
+        inReplyTo: string;
+        opId: string;
+        outcome: "applied" | "pending" | "no_changes" | "op_rejected" | "indeterminate";
+        revision: number | null;
+        code: string | null;
+        receipt: Readonly<Record<string, unknown>>;
       }
     >
   | Msg<
@@ -379,6 +409,75 @@ const taskLease = shape({
   assignmentId: id,
   expiresAt: isUtcTimestamp,
 });
+const taskAssignmentScope = shape({ kind: one("task"), taskId: id, executionId: id, paths: array(logicalPath) }),
+  scheduleAssignmentScope = shape({ kind: one("schedule"), scheduleId: id, paths: array(logicalPath) }),
+  assignmentScope: Check = (value) => taskAssignmentScope(value) || scheduleAssignmentScope(value);
+const scheduleMission: Check = (value) => typeof value === "string" && value.length > 0 && value.length <= 32 * 1024,
+  scheduleActionShapes: Readonly<Record<string, Check>> = {
+    "schedule-create": optionalShape(
+      {
+        kind: one("schedule-create"),
+        scheduleId: id,
+        name: text,
+        everyMs: (value) => positiveInt(value) && Number(value) >= 60_000,
+        agentId: id,
+        runtimeInstanceId: id,
+        mission: scheduleMission,
+        model: text,
+        reasoningEffort: one("minimal", "low", "medium", "high", "xhigh"),
+        cwd: logicalPath,
+        disabled: boolean,
+        idempotencyKey: text,
+      },
+      ["kind", "scheduleId", "name", "everyMs", "agentId", "runtimeInstanceId", "mission"],
+    ),
+    "schedule-enable": optionalShape({ kind: one("schedule-enable"), scheduleId: id, idempotencyKey: text }, [
+      "kind",
+      "scheduleId",
+    ]),
+    "schedule-list": optionalShape({ kind: one("schedule-list"), scheduleId: id }, ["kind", "scheduleId"]),
+    "schedule-disable": optionalShape({ kind: one("schedule-disable"), scheduleId: id, idempotencyKey: text }, [
+      "kind",
+      "scheduleId",
+    ]),
+    "schedule-run-now": optionalShape(
+      {
+        kind: one("schedule-run-now"),
+        scheduleId: id,
+        idempotencyKey: text,
+        observedDefinitionRevision: uint,
+      },
+      ["kind", "scheduleId"],
+    ),
+    "schedule-settle": (value) =>
+      optionalShape(
+        {
+          kind: one("schedule-settle"),
+          scheduleId: id,
+          phase: one("dispatch-link"),
+          claimFence: id,
+          dispatchId: id,
+          runtimeSessionId: id,
+          idempotencyKey: text,
+        },
+        ["kind", "scheduleId", "phase", "claimFence", "dispatchId", "runtimeSessionId"],
+      )(value) ||
+      optionalShape(
+        {
+          kind: one("schedule-settle"),
+          scheduleId: id,
+          phase: one("outcome"),
+          claimFence: id,
+          outcome: one("succeeded", "failed", "unknown", "cancelled"),
+          endedAt: isUtcTimestamp,
+          detail: scheduleMission,
+          idempotencyKey: text,
+        },
+        ["kind", "scheduleId", "phase", "claimFence", "outcome", "endedAt"],
+      )(value),
+  },
+  scheduleAction: Check = (value) =>
+    record(value) && typeof value.kind === "string" && !!scheduleActionShapes[value.kind]?.(value);
 // Liveness is deliberately absent: the edge daemon derives exit/outcome from
 // its local process, and no parallel heartbeat or client-reported liveness is
 // admitted on the Fleet wire.
@@ -413,9 +512,7 @@ const schemas: Readonly<Record<string, Check>> = {
     ...reply,
     assignmentId: id,
     repoId: id,
-    taskId: id,
-    executionId: id,
-    paths: array(logicalPath),
+    scope: assignmentScope,
     baseLedgerSha: ledgerCut,
     expiresAt: isUtcTimestamp,
     writerEpoch: uint,
@@ -468,6 +565,23 @@ const schemas: Readonly<Record<string, Check>> = {
     receipt: nullable(record),
     lease: nullable(taskLease),
     queuePosition: nullable(uint),
+  }),
+  "fleet.schedule.command/v1": shape({
+    ...common,
+    assignmentId: id,
+    writerEpoch: uint,
+    opId: id,
+    repoId: id,
+    scheduleId: id,
+    action: scheduleAction,
+  }),
+  "fleet.schedule.result/v1": shape({
+    ...reply,
+    opId: id,
+    outcome: one("applied", "pending", "no_changes", "op_rejected", "indeterminate"),
+    revision: nullable(uint),
+    code: nullable(text),
+    receipt: record,
   }),
   "fleet.runtime.event/v1": shape({
     ...common,

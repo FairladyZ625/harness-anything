@@ -1,15 +1,7 @@
 #!/usr/bin/env node
 import { cliFailure, emitMeta, taskCreateHelpCatalog } from "./cli-meta.ts";
-import {
-  contractMigrationDryRunSummary,
-  humanError,
-  renderDispatchRow,
-  renderRuntimeBatchRow,
-} from "./cli-render.ts";
-import {
-  isRuntimeFacadeCommand,
-  runRuntimeFacadeCommand,
-} from "./cli-runtime-command.ts";
+import { contractMigrationDryRunSummary, humanError, renderDispatchRow, renderRuntimeBatchRow } from "./cli-render.ts";
+import { isRuntimeFacadeCommand, runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
 import {
   cliCommandDomains,
   firstCliCommand,
@@ -18,6 +10,7 @@ import {
   renderThinHelp,
   unsupportedCommandHint,
 } from "./cli/thin-command.ts";
+import { renderScheduleList } from "./cli/thin-command-schedule.ts";
 import {
   daemonAutostartFailureCode,
   daemonBuildStaleCode,
@@ -35,37 +28,19 @@ const repositoryDiffContract = [
   "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
 ].join("");
 
-export async function main(
-  argv: readonly string[] = process.argv.slice(2),
-): Promise<number> {
+export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   const command = firstCliCommand(argv);
-  if (
-    argv.includes("--version") ||
-    argv.includes("-v") ||
-    command === "version"
-  )
+  if (argv.includes("--version") || argv.includes("-v") || command === "version")
     return emitMeta("version", argv.includes("--json"));
-  if (command === "capabilities")
-    return emitMeta("capabilities", argv.includes("--json"));
+  if (command === "capabilities") return emitMeta("capabilities", argv.includes("--json"));
   if (argv.length === 0 || argv.includes("--help")) {
     const domain = helpDomain(argv);
     if (domain !== undefined && !cliCommandDomains().includes(domain)) {
-      emit(
-        cliFailure(
-          "help",
-          "unsupported_command",
-          unsupportedCommandHint([domain]),
-        ),
-        argv.includes("--json"),
-      );
+      emit(cliFailure("help", "unsupported_command", unsupportedCommandHint([domain])), argv.includes("--json"));
       return 2;
     }
     const rows = await taskCreateHelpCatalog(argv);
-    console.log(
-      rows.length === 0 && domain === undefined
-        ? renderThinHelp()
-        : renderThinHelp(rows, domain),
-    );
+    console.log(rows.length === 0 && domain === undefined ? renderThinHelp() : renderThinHelp(rows, domain));
     return 0;
   }
   if (command === "daemon" || command === "gui") {
@@ -80,15 +55,9 @@ export async function main(
   try {
     const receipt = isRuntimeFacadeCommand(parsed.command)
       ? await runRuntimeFacadeCommand(parsed.command)
-      : await runCommandThroughDaemon(parsed.command, (phase) =>
-          emit(phase, parsed.command.json),
-        );
+      : await runCommandThroughDaemon(parsed.command, (phase) => emit(phase, parsed.command.json));
     emit(receipt, parsed.command.json);
-    return Number.isInteger(receipt.exitCode)
-      ? Number(receipt.exitCode)
-      : receipt.ok === true
-        ? 0
-        : 1;
+    return Number.isInteger(receipt.exitCode) ? Number(receipt.exitCode) : receipt.ok === true ? 0 : 1;
   } catch (error) {
     const autostartCode = daemonAutostartFailureCode(error),
       timeoutCode = daemonResponseTimeoutCode(error),
@@ -113,22 +82,15 @@ export async function main(
 
 export function emit(receipt: Record<string, unknown>, json: boolean): void {
   if (json) console.log(JSON.stringify(receipt));
-  else if (
-    receipt.command === "runtime-batch" &&
-    Array.isArray(receipt.dispatches)
-  )
+  else if (receipt.command === "runtime-batch" && Array.isArray(receipt.dispatches))
     console.log(
-      receipt.dispatches.length
-        ? receipt.dispatches.map(renderRuntimeBatchRow).join("\n")
-        : "No batch dispatches.",
+      receipt.dispatches.length ? receipt.dispatches.map(renderRuntimeBatchRow).join("\n") : "No batch dispatches.",
     );
-  else if (
-    receipt.ok === true ||
-    (receipt.command === "migrate-import" &&
-      typeof receipt.summary === "string")
-  ) {
+  else if (receipt.ok === true || (receipt.command === "migrate-import" && typeof receipt.summary === "string")) {
     const summary = contractMigrationDryRunSummary(receipt);
-    if (
+    const scheduleList = renderScheduleList(receipt);
+    if (scheduleList !== null) console.log(scheduleList);
+    else if (
       receipt.command === "task-create" &&
       typeof receipt.presetId === "string" &&
       typeof receipt.profileId === "string" &&
@@ -137,14 +99,9 @@ export function emit(receipt: Record<string, unknown>, json: boolean): void {
       typeof receipt.nextAction === "string"
     )
       console.log(renderTaskCreateReceipt(receipt));
-    else if (receipt.command === "preset-list")
-      console.log(renderPresetListReceipt(receipt));
+    else if (receipt.command === "preset-list") console.log(renderPresetListReceipt(receipt));
     else if (Array.isArray(receipt.dispatches))
-      console.log(
-        receipt.dispatches.length
-          ? receipt.dispatches.map(renderDispatchRow).join("\n")
-          : "No dispatches.",
-      );
+      console.log(receipt.dispatches.length ? receipt.dispatches.map(renderDispatchRow).join("\n") : "No dispatches.");
     else
       console.log(
         String(
@@ -161,8 +118,7 @@ export function emit(receipt: Record<string, unknown>, json: boolean): void {
                     `commit: ${String(receipt.commit ?? "none")}`,
                     `next: ${String(receipt.next ?? "")}`,
                   ].join("\n")
-                : (receipt.summary ??
-                  `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`)),
+                : (receipt.summary ?? `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`)),
         ),
       );
   } else {
@@ -172,10 +128,7 @@ export function emit(receipt: Record<string, unknown>, json: boolean): void {
 }
 
 function renderTaskCreateReceipt(receipt: Record<string, unknown>): string {
-  const contract =
-    receipt.outputShape === "repository-diff"
-      ? [repositoryDiffContract]
-      : [];
+  const contract = receipt.outputShape === "repository-diff" ? [repositoryDiffContract] : [];
   return [
     String(receipt.summary),
     `preset: ${String(receipt.presetId)}/${String(receipt.profileId)}`,
@@ -187,14 +140,10 @@ function renderTaskCreateReceipt(receipt: Record<string, unknown>): string {
 }
 
 function renderPresetListReceipt(receipt: Record<string, unknown>): string {
-  const rows = JSON.parse(String(receipt.evidence)) as Array<
-    Record<string, unknown>
-  >;
+  const rows = JSON.parse(String(receipt.evidence)) as Array<Record<string, unknown>>;
   return rows
     .map((row) => {
-      const gates = Array.isArray(row.completionGates)
-        ? JSON.stringify(row.completionGates)
-        : "unavailable";
+      const gates = Array.isArray(row.completionGates) ? JSON.stringify(row.completionGates) : "unavailable";
       return [
         `${String(row.id)} — ${String(row.title)} — ${String(row.description)}`,
         `  validity: ${String(row.validity)}`,
@@ -210,9 +159,7 @@ function isCliEntrypoint(): boolean {
   const invoked = process.argv[1];
   if (!invoked) return false;
   try {
-    return (
-      realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url))
-    );
+    return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url));
   } catch {
     return invoked.endsWith("packages/cli/src/index.ts");
   }

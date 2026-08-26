@@ -4,5 +4,7 @@ export type {
   RuntimeDaemonRoute,
   RuntimeLauncher,
   RuntimeProcess,
+  TrustedScheduleRuntime,
+  TrustedScheduleSpawn,
 } from "./runtime-spawn-types.ts";
 export { makeRuntimeSpawner } from "./runtime-spawner.ts";

@@ -13,12 +13,14 @@ import {
   daemonIdFromEnv,
   daemonUserRoot,
   localUserDaemonEndpoint,
-  readRegisteredRepos,
   resolveLocalDaemonEndpoint,
   resolveLocalDaemonTarget,
 } from "../../../daemon/src/client/local-daemon-target.ts";
 import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
+import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route.ts";
+
+export { fleetScheduleRoute } from "./fleet-command-route.ts";
 
 export {
   daemonIdFromEnv,
@@ -161,6 +163,7 @@ export async function runCommandThroughDaemon(
   onPhase: (receipt: JsonObject) => void = () => undefined,
   options: { readonly autostart?: boolean; readonly env?: NodeJS.ProcessEnv } = {},
 ): Promise<JsonObject> {
+  command = materializeScheduleMission(command);
   const { requestLocalDaemonJsonRpcForTarget } = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
     autostart = options.autostart ?? command.action.kind !== "receipt-show",
     env = options.env ?? process.env;
@@ -205,6 +208,24 @@ export async function runCommandThroughDaemon(
           { userRoot, daemonId, socketPath },
           command.method,
           { payload: payload as JsonObject },
+          75,
+        ),
+      () => cliDaemonServeLaunch(userRoot, daemonId),
+      socketPath,
+      autostart,
+    );
+  }
+  const fleetSchedule = await fleetScheduleRoute(command, env);
+  if (fleetSchedule) {
+    const userRoot = daemonUserRoot(env),
+      daemonId = daemonIdFromEnv(env),
+      socketPath = localUserDaemonEndpoint(userRoot, daemonId);
+    return withAutostart(
+      () =>
+        requestLocalDaemonJsonRpcForTarget(
+          { userRoot, daemonId, socketPath },
+          "daemon.fleet.task.run",
+          { payload: fleetSchedule as JsonObject },
           75,
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
@@ -355,6 +376,18 @@ export async function runCommandThroughDaemon(
       };
     }
   }
+}
+
+function materializeScheduleMission(command: ThinCommand): ThinCommand {
+  if (command.action.kind !== "schedule-create" || typeof command.action.missionFile !== "string") return command;
+  const missionPath = path.resolve(command.rootDir, command.action.missionFile),
+    relative = path.relative(command.rootDir, missionPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative))
+    throw Object.assign(new Error("--mission-file must stay within the selected repository."), {
+      code: "invalid_field",
+    });
+  const { missionFile: _missionFile, ...action } = command.action;
+  return { ...command, action: { ...action, mission: readFileSync(missionPath, "utf8") } };
 }
 async function settleRepoWarming(
   initial: JsonObject,
@@ -594,31 +627,6 @@ export async function fleetTaskRoute(
     } else payload.action = { ...action, submission: packet };
   }
   return payload;
-}
-// The registry-mode gate behind every fleet reroute: a workspace only takes a
-// fleet channel when fleet-edge.json names it AND its canonical root is
-// registered in remote-edge mode (adversarial F7 discipline, shared by the
-// task and doc surfaces).
-type FleetEdgeConfigModule = import("../../../daemon/src/client/fleet-edge-config.ts").FleetEdgeConfig;
-async function fleetEdgeRegistration(
-  command: ThinCommand,
-  env: NodeJS.ProcessEnv,
-): Promise<(FleetEdgeConfigModule & { readonly workspaceRoot: string }) | null> {
-  const { readFleetEdgeConfig } = await import("../../../daemon/src/client/fleet-edge-config.ts");
-  const commandRoot = path.resolve(command.rootDir),
-    registered = readRegisteredRepos(daemonUserRoot(env))
-      .filter(
-        (repo) =>
-          repo.state === "enabled" &&
-          (commandRoot === path.resolve(repo.canonicalRoot) ||
-            commandRoot.startsWith(`${path.resolve(repo.canonicalRoot)}${path.sep}`)),
-      )
-      .sort((left, right) => path.resolve(right.canonicalRoot).length - path.resolve(left.canonicalRoot).length)[0];
-  if (registered?.mode !== "remote-edge") return null;
-  const config = readFleetEdgeConfig(registered.canonicalRoot);
-  return config?.repoId === registered.repoId
-    ? { ...config, workspaceRoot: path.resolve(registered.canonicalRoot) }
-    : null;
 }
 // Class-B surface on a remote-edge workspace: `ha doc sync` becomes one
 // compare→push/pull fleet round, and the three conflict exits become fleet

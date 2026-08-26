@@ -14,7 +14,11 @@ export function appendRuntimeIngress(cell: any, action: RuntimeIngressAction, bi
   if (!scope)
     throw cell.cellCodedError("assignment_required", "Runtime Fleet ingress requires an authenticated assignment.");
   if (action.kind === "archive") {
-    if (action.archive.taskId !== scope.taskId || action.archive.executionId !== scope.executionId)
+    if (
+      scope.scope.kind !== "task" ||
+      action.archive.taskId !== scope.scope.taskId ||
+      action.archive.executionId !== scope.scope.executionId
+    )
       throw cell.cellCodedError(
         "assignment_scope_mismatch",
         "Runtime archive task and execution must match the authenticated assignment.",
@@ -63,7 +67,9 @@ export function appendRuntimeIngress(cell: any, action: RuntimeIngressAction, bi
   }
   if (
     action.type === "runtime_session_task_bound" &&
-    (action.payload.taskId !== scope.taskId || action.payload.executionId !== scope.executionId)
+    (scope.scope.kind !== "task" ||
+      action.payload.taskId !== scope.scope.taskId ||
+      action.payload.executionId !== scope.scope.executionId)
   )
     throw cell.cellCodedError(
       "assignment_scope_mismatch",

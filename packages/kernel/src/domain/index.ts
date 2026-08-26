@@ -151,6 +151,16 @@ export type {
 
 export type { EngineError, BindingInvariantError, ArtifactStoreError, TemplateLibraryError } from "./errors.ts";
 
+export {
+  createScheduleV1,
+  nextScheduleOccurrence,
+  scheduleMissedReasons,
+  scheduleRunOutcomes,
+  validateScheduleV1,
+} from "./schedule.ts";
+export type { ScheduleMissedReason, ScheduleRunOutcome, ScheduleV1 } from "./schedule.ts";
+export { compileScheduleDefinitionEvent, compileScheduleRunEvent, isScheduleEvent } from "./schedule-event.ts";
+
 export { isEntityEvent } from "./entity-event.ts";
 
 export {

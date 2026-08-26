@@ -485,6 +485,52 @@ export function createRepoCellApi(context: any): RepoCell {
     );
     return pending;
   };
+  const scheduleOperation = <T>(
+    commandKind: "schedule-run-now" | "schedule-settle",
+    binding: RepoCellBinding,
+    execute: () => T | Promise<T>,
+  ): Promise<T> => {
+    const command = commandDescriptorForAction(commandKind),
+      admission = admitRepoMode(context.mode, command, binding.source);
+    if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
+    context.queueDepth += 1;
+    const pending = chainRepoCellWrite(context.tail, () => {
+      context.queueDepth -= 1;
+      if (context.state !== "attached") context.attemptRecovery();
+      const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
+      if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
+      if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
+      context.recheckRuntime();
+      assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
+      context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
+      context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
+      try {
+        return execute();
+      } finally {
+        context.activeWriterEpochGuard = null;
+        context.activeWriterEpochFence = null;
+      }
+    });
+    context.tail = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    void pending.then(
+      () => context.replica.kick(),
+      () => context.replica.kick(),
+    );
+    return pending;
+  };
+  const schedulePort: RepoCell["schedule"] = {
+    claimOccurrence: (input, binding) =>
+      scheduleOperation("schedule-run-now", binding, () => context.scheduleActions.claimOccurrence(input, binding)),
+    recordMissed: (input, binding) =>
+      scheduleOperation("schedule-settle", binding, () => context.scheduleActions.recordMissed(input, binding)),
+    linkDispatch: (input, binding) =>
+      scheduleOperation("schedule-settle", binding, () => context.scheduleActions.linkDispatch(input, binding)),
+    settle: (input, binding) =>
+      scheduleOperation("schedule-settle", binding, () => context.scheduleActions.settle(input, binding)),
+  };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
     run,
@@ -492,6 +538,7 @@ export function createRepoCellApi(context: any): RepoCell {
     spawnRuntime,
     cancelRuntime,
     runtimeIngress,
+    schedule: schedulePort,
     catalog: context.catalog,
     terminal: context.terminal,
     read,

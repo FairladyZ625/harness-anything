@@ -25,6 +25,7 @@ export async function executeAction(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
+  if (action.kind.startsWith("schedule-")) return cell.scheduleActions.run(action, binding);
   if (action.kind === "migrate-import")
     return runMigrationImport({
       action,

@@ -49,9 +49,10 @@ export function readAction(input: Input): WriteReceipt {
   if (!directPaths(input.rootDir, paths) || paths.some((candidate) => !resolveDocRoute(candidate).allowed))
     throw docSyncError("invalid_command", `${input.action.kind} requires valid doc-sync paths`);
   const current = input.store.currentCut(),
-    lease = input.binding.assignmentScope
-      ? input.projection.currentLeaseForExecution(input.binding.assignmentScope.executionId, input.now())
-      : null;
+    lease =
+      input.binding.assignmentScope?.scope.kind === "task"
+        ? input.projection.currentLeaseForExecution(input.binding.assignmentScope.scope.executionId, input.now())
+        : null;
   const scope = scopeTouches(input, paths);
   if (scope.length)
     return rejectDocSyncAction(
