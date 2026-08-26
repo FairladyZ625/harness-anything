@@ -179,4 +179,20 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
     const table = container.querySelector("table");
     expect(table?.className).toContain("w-full");
   });
+
+  it("attached 仓库行最右侧显示明确的观察按钮", async () => {
+    const opened: string[] = [],
+      container = await mountView(
+        createElement(SystemView, { activeRepoId: REPO_ID, onOpenObserve: (repoId) => opened.push(repoId) }),
+      ),
+      button = container.querySelector('[data-testid="system-repo-observe"]') as HTMLButtonElement;
+    expect(button).toBeTruthy();
+    expect(button.textContent).toBe("观察");
+    expect(button.closest("td")).toBe(button.closest("tr")?.lastElementChild);
+    expect(container.querySelector("tbody tr td:first-child")?.textContent).not.toContain("↗");
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(opened).toEqual([REPO_ID]);
+  });
 });

@@ -79,20 +79,7 @@ function RepoRow({
     <tr className={`border-b border-border last:border-b-0 ${isCurrent ? "bg-surface-raised/40" : ""}`}>
       <td className="px-3 py-2 align-top">
         <span className="flex flex-col gap-0.5">
-          {openObserve ? (
-            <button
-              type="button"
-              data-testid="system-repo-observe"
-              data-repo={repo.repoId}
-              title={t("views.systemView.openObserve")}
-              onClick={() => openObserve(repo.repoId)}
-              className="text-left font-mono text-[12px] text-text hover:text-accent hover:underline"
-            >
-              {label} ↗
-            </button>
-          ) : (
-            <span className="font-mono text-[12px] text-text">{label}</span>
-          )}
+          <span className="font-mono text-[12px] text-text">{label}</span>
           {repo.displayName ? <span className="font-mono text-[10px] text-text-faint">{repo.repoId}</span> : null}
           {isCurrent ? (
             <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">
@@ -140,6 +127,23 @@ function RepoRow({
         ) : (
           <span className="font-mono text-[11px] text-text-faint">{dash()}</span>
         )}
+      </td>
+      <td className="px-3 py-2 text-right align-top">
+        {openObserve ? (
+          <button
+            type="button"
+            data-testid="system-repo-observe"
+            data-repo={repo.repoId}
+            title={t("views.systemView.openObserve")}
+            onClick={() => openObserve(repo.repoId)}
+            className={[
+              "rounded-md border border-border-strong px-2.5 py-1 text-[12px] font-medium text-accent",
+              "hover:bg-surface-raised",
+            ].join(" ")}
+          >
+            {t("views.systemView.observeAction")}
+          </button>
+        ) : null}
       </td>
     </tr>
   );
@@ -298,6 +302,9 @@ export function SystemView({
                   <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColQueueDepth")}</th>
                   <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColLock")}</th>
                   <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColLastError")}</th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    <span className="sr-only">{t("views.systemView.observeAction")}</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>

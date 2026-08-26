@@ -387,6 +387,7 @@ export default Object.freeze({
     "Fleet-Wiring",
     "B2-S1",
     "G6-A",
+    "G8",
   ]),
   commands: effectiveDaemonOwnedProtocolCommands,
   methods: Object.freeze([
@@ -450,6 +451,7 @@ export type {
   ExecutionEvidenceProjection,
   GuiSubmissionV1,
   ObserveTailCursor,
+  ObserveTailDirection,
   ObserveTailKind,
   ObserveTailPayload,
   ObserveTailResult,

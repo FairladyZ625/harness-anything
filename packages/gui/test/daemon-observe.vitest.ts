@@ -10,7 +10,6 @@ import {
   filterObserveRows,
   initialObserveTail,
   observeTailRequest,
-  OBSERVE_ROW_LIMIT,
   observeEventRow,
 } from "../src/renderer/daemon-observe-model.ts";
 import { harnessClient, type SystemRepoRow } from "../src/renderer/api-client.ts";
@@ -49,11 +48,12 @@ const REPO_ROW: SystemRepoRow = {
 };
 
 const EVENT_PAGE: ObserveTailRead = {
-  schema: "daemon.observe-tail/v1",
+  schema: "daemon.observe-tail/v2",
   ok: true,
   repoId: REPO_ID,
   mode: "local",
   kind: "events",
+  direction: "history",
   status: "ready",
   items: [
     {
@@ -92,18 +92,20 @@ const EVENT_PAGE: ObserveTailRead = {
       payload: { runtimeSessionId: SESSION_ID },
     },
   ],
-  cursor: { kind: "events", revision: 13 },
+  historyCursor: { kind: "events", revision: 11 },
+  liveCursor: { kind: "events", revision: 13 },
   sourceCursor: { kind: "events", revision: 13 },
   done: true,
 };
 
 function logPage(kind: "repo-log" | "daemon-log"): ObserveTailRead {
   return {
-    schema: "daemon.observe-tail/v1",
+    schema: "daemon.observe-tail/v2",
     ok: true,
     repoId: REPO_ID,
     mode: "local",
     kind,
+    direction: "history",
     status: "ready",
     items: [
       {
@@ -115,7 +117,8 @@ function logPage(kind: "repo-log" | "daemon-log"): ObserveTailRead {
         durationMs: 4,
       },
     ],
-    cursor: { kind, fileId: "file-g6b", offset: 88 },
+    historyCursor: { kind, fileId: "file-g6b", offset: 0 },
+    liveCursor: { kind, fileId: "file-g6b", offset: 88 },
     sourceCursor: { kind, fileId: "file-g6b", offset: 88 },
     done: true,
   };
@@ -192,41 +195,46 @@ describe("G6-B observe 模型:分页 → 行流", () => {
       expect(state.rows[0]!.type).toBe("repo.tasks.list");
       expect(state.rows[0]!.text).toBe("4ms");
       expect(state.rows[0]!.ok).toBe(true);
-      expect(state.cursor).toEqual({ kind, fileId: "file-g6b", offset: 88 });
+      expect(state.liveCursor).toEqual({ kind, fileId: "file-g6b", offset: 88 });
+      expect(state.historyCursor).toEqual({ kind, fileId: "file-g6b", offset: 0 });
     }
   });
 
-  it("gap 在流内留标记行、清游标从保留集头重同步,老行不丢", () => {
+  it("history gap 在流顶留标记并停止向更老的保留集翻页", () => {
     const seeded = applyObserveTailPage(initialObserveTail(), EVENT_PAGE),
       gapped = applyObserveTailPage(seeded, {
-        schema: "daemon.observe-tail/v1",
+        schema: "daemon.observe-tail/v2",
         ok: true,
         repoId: REPO_ID,
         mode: "local",
         kind: "repo-log",
+        direction: "history",
         status: "gap",
         items: [],
-        cursor: null,
+        historyCursor: null,
+        liveCursor: null,
         sourceCursor: null,
         done: false,
         gap: { reason: "cursor-file-not-retained", requestedFileId: "file-gone" },
       });
     expect(gapped.status).toBe("gap");
-    expect(gapped.cursor).toBeNull();
+    expect(gapped.historyCursor).toBeNull();
     expect(gapped.rows).toHaveLength(4);
-    expect(gapped.rows.at(-1)!.gapMarker).toEqual({ reason: "cursor-file-not-retained", requestedFileId: "file-gone" });
+    expect(gapped.rows.at(0)!.gapMarker).toEqual({ reason: "cursor-file-not-retained", requestedFileId: "file-gone" });
   });
 
   it("unavailable 保留机器原因,不以空列表冒充追平", () => {
     const state = applyObserveTailPage(initialObserveTail(), {
-      schema: "daemon.observe-tail/v1",
+      schema: "daemon.observe-tail/v2",
       ok: true,
       repoId: REPO_ID,
       mode: "remote-edge",
       kind: "events",
+      direction: "history",
       status: "unavailable",
       items: [],
-      cursor: null,
+      historyCursor: null,
+      liveCursor: null,
       sourceCursor: null,
       done: false,
       unavailable: { reason: "edge-mirror-has-no-events", centerRevision: 42 },
@@ -249,24 +257,33 @@ describe("G6-B observe 模型:分页 → 行流", () => {
     expect(filterObserveRows(rows, "不存在的关键字")).toHaveLength(0);
   });
 
-  it("行流按 OBSERVE_ROW_LIMIT 截断最老的行", () => {
-    let state = initialObserveTail();
-    const total = OBSERVE_ROW_LIMIT + 10;
-    for (let revision = 1; revision <= total; revision += 1)
-      state = applyObserveTailPage(state, {
+  it("历史页插到顶部且 live follow 追加到底部,不删除已加载历史", () => {
+    const event = (revision: number) => ({
+        ...(EVENT_PAGE.items[0] as object),
+        eventId: `ev-g6b-${revision}`,
+        workspaceRevision: revision,
+      }),
+      latest = applyObserveTailPage(initialObserveTail(), EVENT_PAGE),
+      withHistory = applyObserveTailPage(latest, {
         ...EVENT_PAGE,
-        items: [
-          {
-            ...(EVENT_PAGE.items[0] as object),
-            eventId: `ev-g6b-bulk-${revision}`,
-            workspaceRevision: revision,
-          },
-        ],
-        cursor: { kind: "events", revision },
+        items: [event(9), event(10)] as never,
+        historyCursor: { kind: "events", revision: 9 },
+        liveCursor: { kind: "events", revision: 10 },
+        done: false,
+      }),
+      followed = applyObserveTailPage(withHistory, {
+        ...EVENT_PAGE,
+        direction: "follow",
+        items: [event(14)] as never,
+        historyCursor: null,
+        liveCursor: { kind: "events", revision: 14 },
+        sourceCursor: { kind: "events", revision: 14 },
+        done: true,
       });
-    expect(state.rows).toHaveLength(OBSERVE_ROW_LIMIT);
-    expect(state.rows.at(-1)!.revision).toBe(total);
-    expect(state.received).toBe(total);
+    expect(withHistory.rows.map((row) => row.revision)).toEqual([9, 10, 11, 12, 13]);
+    expect(followed.rows.map((row) => row.revision)).toEqual([9, 10, 11, 12, 13, 14]);
+    expect(followed.historyCursor).toEqual({ kind: "events", revision: 9 });
+    expect(followed.liveCursor).toEqual({ kind: "events", revision: 14 });
   });
 
   it("事件行摘要不把 payload JSON 倒进文本列,实体事件只给 kind", () => {
@@ -286,16 +303,28 @@ describe("G6-B observe 模型:分页 → 行流", () => {
     expect(entity.detail).toContain("agent_g6b");
   });
 
-  it("请求组装按 kind 携带同 kind 游标;无游标或异 kind 游标从保留集头读", () => {
-    expect(observeTailRequest(REPO_ID, "repo-log", { kind: "repo-log", fileId: "f", offset: 3 })).toEqual({
+  it("请求组装显式区分反向 history 与正向 follow", () => {
+    expect(observeTailRequest(REPO_ID, "repo-log", "history", { kind: "repo-log", fileId: "f", offset: 3 })).toEqual({
       repoId: REPO_ID,
       kind: "repo-log",
+      direction: "history",
       cursor: { kind: "repo-log", fileId: "f", offset: 3 },
     });
-    expect(observeTailRequest(REPO_ID, "events", null)).toEqual({ repoId: REPO_ID, kind: "events" });
-    expect(observeTailRequest(REPO_ID, "events", { kind: "daemon-log", fileId: "f", offset: 3 })).toEqual({
+    expect(observeTailRequest(REPO_ID, "events", "history", null)).toEqual({
       repoId: REPO_ID,
       kind: "events",
+      direction: "history",
+    });
+    expect(observeTailRequest(REPO_ID, "events", "follow", { kind: "events", revision: 13 })).toEqual({
+      repoId: REPO_ID,
+      kind: "events",
+      direction: "follow",
+      cursor: { kind: "events", revision: 13 },
+    });
+    expect(observeTailRequest(REPO_ID, "events", "follow", { kind: "daemon-log", fileId: "f", offset: 3 })).toEqual({
+      repoId: REPO_ID,
+      kind: "events",
+      direction: "history",
     });
   });
 });
@@ -308,11 +337,17 @@ describe("G6-B observe 视图:两栏实况", () => {
   }) {
     const calls: string[] = [];
     vi.spyOn(harnessClient, "tailObservability").mockImplementation(async (payload) => {
-      const kind = (payload as { readonly kind: "events" | "repo-log" | "daemon-log" }).kind;
+      const { kind, direction } = payload as {
+        readonly kind: "events" | "repo-log" | "daemon-log";
+        readonly direction: "history" | "follow";
+      };
       calls.push(kind);
       const script = pages[kind] ?? [];
-      return (script[Math.min(calls.filter((call) => call === kind).length - 1, script.length - 1)] ??
+      const page = (script[Math.min(calls.filter((call) => call === kind).length - 1, script.length - 1)] ??
         logPage("repo-log")) as ObserveTailRead;
+      return direction === "follow"
+        ? ({ ...page, direction, items: [], historyCursor: null, done: true } as ObserveTailRead)
+        : page;
     });
     return calls;
   }
@@ -330,6 +365,58 @@ describe("G6-B observe 视图:两栏实况", () => {
       chip!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(navigated).toEqual([`repo/${REPO_ID}/task/${TASK_ID}`]);
+  });
+
+  it("事件栏触顶用 historyCursor 请求上一页并把旧行插到顶部", async () => {
+    const payloads: unknown[] = [],
+      older = {
+        ...EVENT_PAGE,
+        items: [
+          {
+            ...(EVENT_PAGE.items[0] as object),
+            eventId: "ev-g6b-old",
+            workspaceRevision: 10,
+          },
+        ],
+        historyCursor: { kind: "events" as const, revision: 10 },
+        liveCursor: { kind: "events" as const, revision: 10 },
+        done: true,
+      } satisfies ObserveTailRead;
+    vi.spyOn(harnessClient, "tailObservability").mockImplementation(async (payload) => {
+      payloads.push(payload);
+      if (payload.kind === "events") {
+        if (payload.direction === "history" && payload.cursor) return older;
+        if (payload.direction === "follow")
+          return { ...EVENT_PAGE, direction: "follow", items: [], historyCursor: null, done: true };
+        return { ...EVENT_PAGE, done: false };
+      }
+      const page = logPage(payload.kind);
+      return payload.direction === "follow"
+        ? { ...page, direction: "follow", items: [], historyCursor: null, done: true }
+        : page;
+    });
+    const container = await mountObserve({}),
+      body = container.querySelector('[data-testid="observe-body-events"]') as HTMLDivElement;
+    Object.defineProperties(body, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 400 },
+    });
+    body.scrollTop = 0;
+    await act(async () => {
+      body.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(payloads).toContainEqual({
+      repoId: REPO_ID,
+      kind: "events",
+      direction: "history",
+      cursor: { kind: "events", revision: 11 },
+    });
+    const revisions = Array.from(
+      container.querySelectorAll('[data-testid="observe-pane-events"] [data-testid="observe-row"]'),
+      (row) => row.textContent,
+    );
+    expect(revisions[0]).toContain("#10");
   });
 
   it("暂停停发 tail 请求,续跑立即恢复读取", async () => {
@@ -392,14 +479,16 @@ describe("G6-B observe 视图:两栏实况", () => {
     mockTail({
       events: [
         {
-          schema: "daemon.observe-tail/v1",
+          schema: "daemon.observe-tail/v2",
           ok: true,
           repoId: REPO_ID,
           mode: "remote-edge",
           kind: "events",
+          direction: "history",
           status: "unavailable",
           items: [],
-          cursor: null,
+          historyCursor: null,
+          liveCursor: null,
           sourceCursor: null,
           done: false,
           unavailable: { reason: "edge-mirror-has-no-events", centerRevision: 7 },
@@ -407,14 +496,16 @@ describe("G6-B observe 视图:两栏实况", () => {
       ],
       "repo-log": [
         {
-          schema: "daemon.observe-tail/v1",
+          schema: "daemon.observe-tail/v2",
           ok: true,
           repoId: REPO_ID,
           mode: "local",
           kind: "repo-log",
+          direction: "history",
           status: "gap",
           items: [],
-          cursor: null,
+          historyCursor: null,
+          liveCursor: null,
           sourceCursor: null,
           done: false,
           gap: { reason: "cursor-offset-out-of-range", requestedFileId: "file-rotated" },

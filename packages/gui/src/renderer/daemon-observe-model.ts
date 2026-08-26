@@ -3,14 +3,14 @@ import type { ObserveTailPayload, ObserveTailRead } from "../api/renderer-dto.ts
 /**
  * G6-B daemon 观察页的纯数据面:`observe.tail` 分页 → 可渲染行流。
  *
- * 契约(G6-A,权威):items 上限 64/页;cursor 由客户端持有并原样回传;
+ * 契约(v2,权威):items 上限 64/页;history/live cursor 由客户端分别持有并原样回传;
  * `unavailable` 携带机器原因(edge 镜像无事件 / center request-log 未接线),
  * `gap` 携带保留缺口原因(cursor 文件不在保留集 / 偏移越界),两者都不冒充空列表。
  * 本模块不做 IO、不碰 React,形状推导全部来自已到货的 page,供视图与 vitest 共用。
  */
 
 export type ObserveTailKind = ObserveTailRead["kind"];
-export type ObserveTailCursor = ObserveTailRead["cursor"];
+export type ObserveTailCursor = ObserveTailRead["historyCursor"];
 export type ObserveTailMode = ObserveTailRead["mode"];
 
 export interface ObserveRefChip {
@@ -37,30 +37,32 @@ export interface ObserveRow {
 
 export interface ObserveTailSnapshot {
   readonly rows: readonly ObserveRow[];
-  readonly cursor: ObserveTailCursor;
+  readonly historyCursor: ObserveTailCursor;
+  readonly liveCursor: ObserveTailCursor;
   readonly status: "idle" | "live" | "unavailable" | "gap" | "error";
   readonly unavailable: { readonly reason: string; readonly centerRevision: number | null } | null;
   readonly gap: { readonly reason: string; readonly requestedFileId: string } | null;
   readonly error: string | null;
   readonly caughtUp: boolean;
+  readonly historyDone: boolean;
   readonly mode: ObserveTailMode | null;
-  /** 已接收的记录总数(截断前计数,供「仅保留最近 N 行」提示)。 */
+  /** 本视图生命周期内已接收的记录总数,用于生成稳定的日志行 key。 */
   readonly received: number;
 }
 
-/** 内存上限:超过后从最老一行起丢弃,不做「再显示 N 条」渐进点击。 */
-export const OBSERVE_ROW_LIMIT = 500;
 const DETAIL_LIMIT = 2_000;
 
 export function initialObserveTail(): ObserveTailSnapshot {
   return {
     rows: [],
-    cursor: null,
+    historyCursor: null,
+    liveCursor: null,
     status: "idle",
     unavailable: null,
     gap: null,
     error: null,
     caughtUp: false,
+    historyDone: false,
     mode: null,
     received: 0,
   };
@@ -76,37 +78,56 @@ export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTa
       error: null,
       caughtUp: false,
       mode: page.mode,
-      cursor: null,
+      historyCursor: null,
+      liveCursor: null,
     };
-  if (page.status === "gap")
+  if (page.status === "gap") {
+    const marker = gapMarkerRow(page.gap, state.rows.length),
+      historyGap = page.direction === "history";
     return {
       ...state,
-      // 缺口在流内留一行标记(老行保留,历史不丢),cursor 归零后从保留集头重同步。
-      rows: capRows([...state.rows, gapMarkerRow(page.gap, state.rows.length)]),
+      rows: historyGap ? [marker, ...state.rows] : [marker],
       status: "gap",
       gap: page.gap,
       unavailable: null,
       error: null,
       caughtUp: false,
       mode: page.mode,
-      cursor: null,
+      historyCursor: historyGap ? null : state.historyCursor,
+      liveCursor: historyGap ? state.liveCursor : null,
+      historyDone: historyGap || state.historyDone,
+      received: historyGap ? state.received : 0,
     };
+  }
   const fresh =
     page.kind === "events"
       ? page.items.map((item) => observeEventRow(item))
       : page.items.map((item, index) =>
           observeLogRow(item as Readonly<Record<string, unknown>>, state.received + index),
         );
-  const rows = page.kind === "events" ? mergeEventRows(state.rows, fresh) : capRows([...state.rows, ...fresh]);
+  const prepend = page.direction === "history",
+    initializing = prepend && state.liveCursor === null,
+    appendAfterGap = initializing && state.status === "gap",
+    rows =
+      page.kind === "events"
+        ? mergeEventRows(state.rows, fresh, prepend && !appendAfterGap)
+        : prepend && !appendAfterGap
+          ? [...fresh, ...state.rows]
+          : [...state.rows, ...fresh];
   return {
     ...state,
     rows,
-    cursor: page.cursor,
+    historyCursor: prepend ? page.historyCursor : state.historyCursor,
+    liveCursor: prepend ? (initializing ? page.liveCursor : state.liveCursor) : page.liveCursor,
     status: "live",
     unavailable: null,
     gap: null,
     error: null,
-    caughtUp: page.done,
+    caughtUp:
+      page.direction === "follow"
+        ? page.done
+        : initializing && page.status === "ready" && sameCursor(page.liveCursor, page.sourceCursor),
+    historyDone: prepend ? page.done : state.historyDone,
     mode: page.mode,
     received: state.received + fresh.length,
   };
@@ -118,21 +139,34 @@ export function applyObserveTailError(state: ObserveTailSnapshot, message: strin
 
 /**
  * 组装 `observe.tail` 请求:payload 是按 kind 判别的联合,只有逐 kind 收窄才能让
- * cursor 与 kind 的相关性通过类型检查。cursor 与 kind 不匹配时丢弃游标从保留集头重读
- * (正常生命周期里不会发生:每仓每 kind 一个 pane 实例,游标只来自同 kind 的上一页)。
+ * cursor 与 kind 的相关性通过类型检查。cursor 与 kind 不匹配时退化为无 cursor 的 history
+ * 请求(正常生命周期里不会发生:每仓每 kind 一个 pane 实例,游标只来自同 kind 的上一页)。
  */
 export function observeTailRequest(
   repoId: string,
   kind: ObserveTailKind,
+  direction: "history" | "follow",
   cursor: ObserveTailCursor | null,
 ): { readonly repoId: string } & ObserveTailPayload {
   switch (kind) {
     case "events":
-      return cursor?.kind === "events" ? { repoId, kind, cursor } : { repoId, kind };
+      return direction === "follow" && cursor?.kind === "events"
+        ? { repoId, kind, direction, cursor }
+        : cursor?.kind === "events"
+          ? { repoId, kind, direction: "history", cursor }
+          : { repoId, kind, direction: "history" };
     case "repo-log":
-      return cursor?.kind === "repo-log" ? { repoId, kind, cursor } : { repoId, kind };
+      return direction === "follow" && cursor?.kind === "repo-log"
+        ? { repoId, kind, direction, cursor }
+        : cursor?.kind === "repo-log"
+          ? { repoId, kind, direction: "history", cursor }
+          : { repoId, kind, direction: "history" };
     default:
-      return cursor?.kind === "daemon-log" ? { repoId, kind, cursor } : { repoId, kind };
+      return direction === "follow" && cursor?.kind === "daemon-log"
+        ? { repoId, kind, direction, cursor }
+        : cursor?.kind === "daemon-log"
+          ? { repoId, kind, direction: "history", cursor }
+          : { repoId, kind, direction: "history" };
   }
 }
 
@@ -143,14 +177,19 @@ export function filterObserveRows(rows: readonly ObserveRow[], query: string): r
   return rows.filter((row) => row.searchText.includes(needle));
 }
 
-function mergeEventRows(existing: readonly ObserveRow[], fresh: readonly ObserveRow[]): readonly ObserveRow[] {
+function mergeEventRows(
+  existing: readonly ObserveRow[],
+  fresh: readonly ObserveRow[],
+  prepend: boolean,
+): readonly ObserveRow[] {
   // 事件行以 eventId 为键:ledger 重建后同一 revision 段重放时不重复入列。
   const seen = new Set(existing.map((row) => row.key));
-  return capRows([...existing, ...fresh.filter((row) => !seen.has(row.key))]);
+  const unique = fresh.filter((row) => !seen.has(row.key));
+  return prepend ? [...unique, ...existing] : [...existing, ...unique];
 }
 
-function capRows(rows: readonly ObserveRow[]): readonly ObserveRow[] {
-  return rows.length <= OBSERVE_ROW_LIMIT ? rows : rows.slice(rows.length - OBSERVE_ROW_LIMIT);
+function sameCursor(left: ObserveTailCursor, right: ObserveTailCursor): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: string }, seq: number): ObserveRow {

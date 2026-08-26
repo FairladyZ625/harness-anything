@@ -76,7 +76,7 @@ export const apiSchemaContracts = [
   { id: "gui.relation-query/v1", owner: "gui", typeName: "GuiRelationQueryPayload" },
   { id: "gui.task-document/v1", owner: "gui", typeName: "GuiTaskDocumentPayload" },
   { id: "gui.task-document-list/v1", owner: "gui", typeName: "GuiTaskDocumentListPayload" },
-  { id: "gui.observe-tail/v1", owner: "gui", typeName: "ObserveTailPayload" },
+  { id: "gui.observe-tail/v2", owner: "gui", typeName: "ObserveTailPayload" },
   { id: "gui.agent-runtime-overview/v1", owner: "gui", typeName: "AgentRuntimeOverviewPayload" },
   { id: "gui.agent-runtime-session/v1", owner: "gui", typeName: "AgentRuntimeSessionPayload" },
   { id: "gui.agent-runtime-events/v1", owner: "gui", typeName: "AgentRuntimeEventsPayload" },
