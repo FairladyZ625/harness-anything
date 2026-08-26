@@ -470,7 +470,7 @@ describe("runtime entry split (W6 IA)", () => {
     expect(onSelectEntity).toHaveBeenCalledWith("agent/terra");
   });
 
-  it("acknowledges provider enablement before the daemon receipt and does not reread page data", async () => {
+  it("reflects provider enablement only after the daemon receipt, through one catalog reread", async () => {
     let settleUpdate: (value: Record<string, unknown>) => void = () => undefined;
     const update = vi.spyOn(runtimeInstanceClient, "setEnabled").mockImplementation(
         () =>
@@ -487,23 +487,47 @@ describe("runtime entry split (W6 IA)", () => {
     expect(toggle).toBeInstanceOf(HTMLButtonElement);
     expect(toggle?.getAttribute("aria-checked")).toBe("true");
 
-    const startedAt = performance.now();
     await act(async () => {
       (toggle as HTMLButtonElement).click();
     });
     await flushEffects();
 
-    expect(toggle?.getAttribute("aria-checked")).toBe("false");
-    expect(performance.now() - startedAt).toBeLessThan(300);
+    // 回执未到:开关保持原值——不再有乐观翻转(评审 #5 第 8 条删除)。
     expect(update).toHaveBeenCalledWith("provider-edit", false);
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
     expect(list).not.toHaveBeenCalled();
-    expect(agentRuntimeClient.overview).not.toHaveBeenCalled();
 
+    list.mockResolvedValue({
+      instances: [{ ...providerInstance, enabled: false }],
+      installations: providerInstallations,
+    });
     settleUpdate({ ok: true });
     await flushEffects();
+    await flushEffects();
+
     expect(toggle?.getAttribute("aria-checked")).toBe("false");
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the enablement switch unchanged and surfaces the failure when the daemon rejects it", async () => {
+    vi.spyOn(runtimeInstanceClient, "setEnabled").mockRejectedValue(new Error("daemon refused"));
+    const list = vi.spyOn(runtimeInstanceClient, "list").mockResolvedValue({
+      instances: [providerInstance],
+      installations: providerInstallations,
+    });
+    await mountProviders("provider/provider-edit");
+    const toggle = byTestId("runtime-card-provider").querySelector('[role="switch"]');
+    expect(toggle).toBeInstanceOf(HTMLButtonElement);
+
+    await act(async () => {
+      (toggle as HTMLButtonElement).click();
+    });
+    await flushEffects();
+
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
     expect(list).not.toHaveBeenCalled();
-    expect(agentRuntimeClient.overview).not.toHaveBeenCalled();
+    const status = [...byTestId("providers-view").querySelectorAll('[role="status"]')].map((node) => node.textContent);
+    expect(status.some((text) => text?.includes("daemon refused"))).toBe(true);
   });
 
   it("prewarms and retains one shared machine catalog read", async () => {
