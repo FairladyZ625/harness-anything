@@ -85,6 +85,8 @@ type SquadState = {
   readonly phase: SquadRunPhase;
   readonly revision: number;
   readonly error: string | null;
+  /** 最近一次状态落盘时间(writeState 写入);早于该字段的持久化状态为 null。 */
+  readonly updatedAt: string | null;
 };
 
 type RuntimeOutcomeEvent = Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>;
@@ -133,6 +135,7 @@ export function makeSquadCoordinator(input: {
         phase: "planning",
         revision: 0,
         error: null,
+        updatedAt: null,
       };
     try {
       const running = await spawnLeader(state, { kind: "initial" });
@@ -183,7 +186,7 @@ export function makeSquadCoordinator(input: {
       cut = input.projection().readTaskStatuses([]),
       matching = readStates()
         .map(summaryDto)
-        .filter((run) => activePhase(run.phase) || query.since === null || run.latestActivityAt >= query.since)
+        .filter((run) => activePhase(run.phase) || query.since === null || runInActivityWindow(run, query.since))
         .filter((run) => matchesRunQuery(run, query.tokens))
         .sort(compareRunSummaries),
       selected = matching.slice(0, query.limit);
@@ -570,16 +573,19 @@ export function makeSquadCoordinator(input: {
 
   function writeState(state: SquadState): void {
     if (!state.stateDispatchId) throw new Error("Squad state has no owning dispatch stream.");
+    // 每次落盘都带上转换时间:latestActivityAt 的「run 自身活动」来源,也是读面能对
+    // terminal run 过窗的唯一自身时间证据(revise 不写盘,只在写盘点取真实时钟)。
+    const persisted: SquadState = { ...state, updatedAt: new Date().toISOString() };
     ensureSquadRunProjection();
     const projection = input.projection();
     projection.markSquadRunProjectionDirty();
     appendRuntimeWorkerRecord(input.rootDir, state.stateDispatchId, {
       kind: "squad_run_state",
-      squadRunId: state.squadRunId,
-      revision: state.revision,
-      state,
+      squadRunId: persisted.squadRunId,
+      revision: persisted.revision,
+      state: persisted,
     });
-    projection.upsertSquadRun({ squadRunId: state.squadRunId, revision: state.revision, state });
+    projection.upsertSquadRun({ squadRunId: persisted.squadRunId, revision: persisted.revision, state: persisted });
   }
 
   function statusDto(state: SquadState) {
@@ -674,9 +680,14 @@ export function makeSquadCoordinator(input: {
       leaderTurnCount: state.leaderTurns.length,
       workerAttemptCount: state.workerAttempts.length,
       runningCount: sessions.filter((session) => runtimeSessionSemanticState(session) === "running").length,
+      // 活动时间 = 成员会话的最后观测时间 ∪ run 自身最近一次状态落盘时间。只看会话时,
+      // 会话不可解析(未孵化/投影缺行)的 terminal run 会把 reduce 初值 1970 泄漏成
+      // 「从无活动」,导致它在任何 since 窗口恒不可见;以 updatedAt 为初值后,run 自身
+      // 的状态流转就是真实活动时间。
       latestActivityAt: sessions.reduce(
-        (latest, session) => (session.lastObservedAt > latest ? session.lastObservedAt : latest),
-        "1970-01-01T00:00:00.000Z",
+        (latest, session) =>
+          Date.parse(session.lastObservedAt) > Date.parse(latest) ? session.lastObservedAt : latest,
+        state.updatedAt ?? "1970-01-01T00:00:00.000Z",
       ),
     };
   }
@@ -862,6 +873,12 @@ function matchesRunQuery(run: SquadRunSummaryDto, tokens: readonly string[]): bo
 
 function activePhase(phase: SquadRunPhase): boolean {
   return phase === "planning" || phase === "leader_running" || phase === "workers_running";
+}
+
+/** 小队 run 版的活动窗判定,语义对齐 kernel 的 runtimeSessionInActivityWindow:比时间
+ * 瞬值而非字符串,不同毫秒精度/秒精度的 ISO 戳不会因字典序错判进出窗口。 */
+function runInActivityWindow(run: SquadRunSummaryDto, since: string): boolean {
+  return Date.parse(run.latestActivityAt) >= Date.parse(since);
 }
 
 function compareRunSummaries(left: SquadRunSummaryDto, right: SquadRunSummaryDto): number {
