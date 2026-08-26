@@ -214,7 +214,7 @@ test(
 );
 
 test(
-  "fleet fallback settlement atomically releases its assignment Task and moves it to blocked",
+  "fleet fallback settlement atomically releases its assignment while keeping the Task active",
   { timeout: 30_000 },
   async (t) => {
     const fixture = await leaseFixture();
@@ -241,11 +241,14 @@ test(
     });
     try {
       const snapshot = projection.read(taskId).snapshot;
-      assert.equal(snapshot.task?.status, "blocked");
+      assert.equal(snapshot.task?.status, "active");
       assert.equal(snapshot.lease, null);
     } finally {
       projection.close();
     }
+    const restarted = await fixture.command("node-two", { kind: "task-start", taskId });
+    assert.equal(restarted.outcome, "applied");
+    assert.equal(restarted.lease?.assignmentId, "assignment-node-two");
   },
 );
 

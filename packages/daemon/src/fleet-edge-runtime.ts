@@ -276,7 +276,7 @@ export function openFleetEdgeRuntime(input: {
           });
         if (settled.outcome !== "applied")
           throw edgeRuntimeError(
-            "fallback_block_failed",
+            "fallback_exhaustion_failed",
             `Center rejected provider fallback exhaustion settlement: ${String(settled.code ?? settled.outcome)}.`,
           );
       }
