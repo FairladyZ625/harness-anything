@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import process from "node:process";
+import { isMergifyQueueDraft } from "./gates/mergify-queue-draft.mjs";
 import { parseProductionDeclaration } from "./gates/production-delta.mjs";
 
 export const defaultThresholds = Object.freeze({
@@ -18,8 +19,6 @@ const CHINESE_HEADING = /^# 中文\s*$/mu;
 const SHARED_CHECKLIST_HEADING = /^## PR Gate Checklist \/ PR 门禁清单\s*$/mu;
 const ENGLISH_JUSTIFICATION_HEADING = /^## Architectural Justification\s*$/mu;
 const CHINESE_JUSTIFICATION_HEADING = /^## 架构辩护\s*$/mu;
-const MERGIFY_QUEUE_BRANCH = /^mergify\/merge-queue\//u;
-const MERGIFY_AUTHORS = new Set(["mergify[bot]", "app/mergify"]);
 const DELETED_PRODUCTION_PATHS = /^Deleted-Production-Paths:[ \t]*(.*?)\s*$/gmu;
 const DELETED_GATES_FIXTURES = /^Deleted-Gates-Fixtures:[ \t]*(.*?)\s*$/gmu;
 
@@ -221,10 +220,6 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds) {
   };
 }
 
-export function shouldSkipPrBodyBilingualCheck({ headRefName = "", authorLogin = "" } = {}) {
-  return MERGIFY_AUTHORS.has(authorLogin) && MERGIFY_QUEUE_BRANCH.test(headRefName);
-}
-
 function readBodyFromArgs(argv) {
   if (argv.length === 0) return process.env.PR_BODY ?? "";
   for (let index = 0; index < argv.length; index += 1) {
@@ -263,8 +258,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const body = readBodyFromArgs(process.argv.slice(2));
     if (
-      shouldSkipPrBodyBilingualCheck({
-        body,
+      isMergifyQueueDraft({
         headRefName: process.env.PR_HEAD_REF ?? "",
         authorLogin: process.env.PR_AUTHOR_LOGIN ?? "",
       })

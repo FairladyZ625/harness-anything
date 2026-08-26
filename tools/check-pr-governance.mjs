@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { shouldSkipPrBodyBilingualCheck } from "./check-pr-body-bilingual.mjs";
+import { isMergifyQueueDraft } from "./gates/mergify-queue-draft.mjs";
 
 const DEFAULT_ROOT = process.cwd();
 const DEFAULT_MANIFEST = "tools/gate-manifest.json";
@@ -309,8 +309,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const args = parseArgs(process.argv.slice(2));
     const body = readBody(args);
-    if (shouldSkipPrBodyBilingualCheck({
-      body,
+    if (isMergifyQueueDraft({
       headRefName: process.env.PR_HEAD_REF ?? "",
       authorLogin: process.env.PR_AUTHOR_LOGIN ?? ""
     })) {

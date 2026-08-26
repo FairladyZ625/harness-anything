@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { git, pathExistsAt, repoRoot } from "./git.mjs";
+import { isMergifyQueueDraft } from "./mergify-queue-draft.mjs";
 import { classifyModule, isProductionPath, normalizeRepoPath } from "./module-policy.mjs";
-import { shouldSkipPrBodyBilingualCheck } from "../check-pr-body-bilingual.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
 
 const DELTA_LINE = /^Production-Delta:[ \t]*\+(\d+)\s*\/\s*-(\d+)\s*$/gmu;
@@ -140,7 +140,7 @@ export function main(argv = process.argv.slice(2)) {
     const { base, prBodyFile } = parseArgs(argv);
     if (
       prBodyFile === null &&
-      shouldSkipPrBodyBilingualCheck({
+      isMergifyQueueDraft({
         headRefName: process.env.PR_HEAD_REF ?? "",
         authorLogin: process.env.PR_AUTHOR_LOGIN ?? "",
       })
