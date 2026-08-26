@@ -153,9 +153,12 @@ function evaluatePredicate(
     holds =
       leaseTargetsSubject &&
       lease !== null &&
-      (lease.phase === "orphaned" || target.canonicalExecutionExists === false || terminalRuntimeOwnsLease) &&
-      (isSamePerson(lease.actor, actor) ||
-        (target.owner !== null && target.owner !== undefined && isSamePerson(target.owner, actor)));
+      ((isSamePerson(lease.actor, actor) &&
+        (lease.phase === "orphaned" || target.canonicalExecutionExists === false || terminalRuntimeOwnsLease)) ||
+        ((lease.phase === "orphaned" || terminalRuntimeOwnsLease) &&
+          target.owner !== null &&
+          target.owner !== undefined &&
+          isSamePerson(target.owner, actor)));
   else if (expression.predicate === "dispatchesExecution")
     holds =
       leaseTargetsSubject &&

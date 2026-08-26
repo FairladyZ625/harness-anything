@@ -2,6 +2,7 @@ import {
   bindWriterGenerationToken,
   consumeKnownError,
   createEntityStore,
+  isSameExecution,
   type CanonicalEventAppendReceipt,
   type DaemonRepoMode,
   type EventPublicationKillpoint,
@@ -56,6 +57,36 @@ import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 
 export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
   return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };
+}
+
+export async function reacquireSquadTaskLease(input: {
+  readonly taskId: string;
+  readonly binding: RepoCellBinding;
+  readonly snapshot: Snapshot;
+  readonly start: (executionId: string) => Promise<{ readonly outcome: string }>;
+}): Promise<void> {
+  const execution = input.snapshot.executions.find(
+    (candidate) => candidate.iteration === input.snapshot.task?.iteration && candidate.state === "active",
+  );
+  if (!execution)
+    throw cellCodedError(
+      "runtime_task_lease_required",
+      `Task ${input.taskId} has no active execution for the squad continuation to reacquire.`,
+    );
+  const lease = input.snapshot.lease;
+  if (lease) {
+    if (lease.executionId === execution.executionId && isSameExecution(lease.actor, input.binding.actor)) return;
+    throw cellCodedError(
+      "lease_conflict",
+      `Task ${input.taskId} is leased by another execution or actor; the squad continuation stopped.`,
+    );
+  }
+  const started = await input.start(execution.executionId);
+  if (started.outcome !== "applied")
+    throw cellCodedError(
+      "runtime_task_lease_required",
+      `Squad continuation could not reacquire execution ${execution.executionId} for task ${input.taskId}.`,
+    );
 }
 
 export async function openRepoCell(input: {
@@ -275,14 +306,6 @@ export async function openRepoCell(input: {
       () => replica.kick(),
     );
   };
-  let settleFallbackExhaustion: (value: {
-    readonly taskId: string;
-    readonly executionId: string;
-    readonly reason: string;
-    readonly binding: RepoCellBinding;
-  }) => Promise<void> = async () => {
-    throw cellCodedError("runtime_preconditions_unavailable", "RepoCell fallback settlement is not ready.");
-  };
   let settleExecutionLease: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell execution settlement is not ready.");
   };
@@ -317,15 +340,7 @@ export async function openRepoCell(input: {
       input.onRuntimeOutcome?.(event);
     },
     onAttemptTerminal: async (terminal) => {
-      if (terminal.task) {
-        if (terminal.fallbackExhausted)
-          await settleFallbackExhaustion({
-            ...terminal.task,
-            reason: terminal.reason ?? "Provider fallback exhausted.",
-            binding: terminal.binding,
-          });
-        else await settleExecutionLease(terminal);
-      }
+      if (terminal.task) await settleExecutionLease(terminal);
       if (terminal.schedule) schedule(() => settleScheduledOutcome(terminal));
       input.onAttemptTerminal?.(terminal);
     },
@@ -337,25 +352,16 @@ export async function openRepoCell(input: {
     projection: () => projection,
     store: () => store,
     reacquireTaskLease: async (taskId, binding) => {
-      const snapshot = projection.read(taskId).snapshot as Snapshot;
-      if (snapshot.lease) return;
-      const execution = snapshot.executions.find(
-        (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.state === "active",
-      );
-      if (!execution)
-        throw cellCodedError(
-          "runtime_task_lease_required",
-          `Task ${taskId} has no active execution for the squad continuation to reacquire.`,
-        );
-      const started = await extracted.lifecycleAction(
-        { kind: "task-start", taskId, executionId: execution.executionId },
-        { ...binding, commandClasses: [commandClassForAction("task-start")] },
-      );
-      if (started.outcome !== "applied")
-        throw cellCodedError(
-          "runtime_task_lease_required",
-          `Squad continuation could not reacquire execution ${execution.executionId} for task ${taskId}.`,
-        );
+      await reacquireSquadTaskLease({
+        taskId,
+        binding,
+        snapshot: projection.read(taskId).snapshot as Snapshot,
+        start: (executionId) =>
+          extracted.lifecycleAction(
+            { kind: "task-start", taskId, executionId },
+            { ...binding, commandClasses: [commandClassForAction("task-start")] },
+          ),
+      });
     },
     runtimeSpawner: () => runtimeSpawner,
   });
@@ -447,14 +453,6 @@ export async function openRepoCell(input: {
         "schedule_settlement_pending",
         `Schedule ${scheduled.scheduleId} settlement was ${receipt.outcome}.`,
       );
-  };
-  settleFallbackExhaustion = async ({ taskId, executionId, reason, binding }) => {
-    const settled = await extracted.taskSurfaceWrite(
-      { kind: "task-fallback-exhausted", taskId, executionId, reason },
-      binding,
-    );
-    if (settled.outcome !== "applied")
-      throw cellCodedError("fallback_exhaustion_failed", `Fallback exhaustion settlement was ${settled.outcome}.`);
   };
   settleExecutionLease = async (terminal) => {
     const task = terminal.task;

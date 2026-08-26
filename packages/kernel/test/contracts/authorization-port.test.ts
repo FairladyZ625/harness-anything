@@ -110,7 +110,7 @@ test("v2 models held and orphaned release bindings without overloading ownership
   );
 });
 
-test("v2 lets the task owner reclaim a lease only after its execution is orphaned", () => {
+test("v2 limits task-owner reclamation to orphaned leases and terminal Runtime bindings", () => {
   const targetOwner = { principal: taskOwner.principal, executor: { kind: "agent", id: "task-creator" } } as const,
     terminalRuntimeBinding = {
       runtimeSessionId: "runtime-1",
@@ -120,6 +120,18 @@ test("v2 lets the task owner reclaim a lease only after its execution is orphane
   assert.equal(
     decide("execution.release", taskOwner, "execution/execution-1", {
       target: { owner: targetOwner, lease, canonicalExecutionExists: true },
+    }).outcome,
+    "denied",
+  );
+  assert.equal(
+    decide("execution.release", taskOwner, "execution/execution-1", {
+      target: { owner: targetOwner, lease: { ...lease, phase: "orphaned" }, canonicalExecutionExists: true },
+    }).outcome,
+    "allowed",
+  );
+  assert.equal(
+    decide("execution.release", taskOwner, "execution/execution-1", {
+      target: { owner: targetOwner, lease, canonicalExecutionExists: false },
     }).outcome,
     "denied",
   );

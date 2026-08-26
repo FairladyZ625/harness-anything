@@ -30,55 +30,61 @@ export async function runRuntimeBatchDeclaration(
   writeActivity: (text: string) => void,
 ): Promise<JsonObject> {
   const results: RuntimeBatchResult[] = [];
+  let next = 0;
   const releasedTaskIds = new Set<string>();
-  for (let offset = 0; offset < declaration.dispatches.length; offset += declaration.maxConcurrency) {
-    const wave = declaration.dispatches.slice(offset, offset + declaration.maxConcurrency),
-      reacquireFailures = new Map<string, JsonObject>(),
-      reacquireTaskIds = wave
-        .flatMap((entry) => (entry.task && releasedTaskIds.has(entry.task) ? [entry.task] : []))
-        .filter((taskId, index, taskIds) => taskIds.indexOf(taskId) === index);
-    for (const taskId of reacquireTaskIds) {
-      const receipt = await runCommandThroughDaemon({
+  const reacquisitions = new Map<string, Promise<JsonObject>>();
+  const reacquireReleasedTask = async (taskId: string): Promise<JsonObject | null> => {
+    if (!releasedTaskIds.has(taskId)) return null;
+    let pending = reacquisitions.get(taskId);
+    if (!pending) {
+      pending = runCommandThroughDaemon({
         ...command,
         method: "repo.task.run",
         action: { kind: "task-start", taskId },
       });
-      if (receipt.ok === true && receipt.outcome === "applied") releasedTaskIds.delete(taskId);
-      else reacquireFailures.set(taskId, receipt);
+      reacquisitions.set(taskId, pending);
     }
-    const settled = await Promise.all(
-      wave.map(async (entry, waveIndex) => {
-        const index = offset + waveIndex;
-        let receipt: JsonObject;
-        try {
-          receipt =
-            entry.task && reacquireFailures.has(entry.task)
-              ? reacquireFailures.get(entry.task)!
-              : await runRuntimeFacadeCommand(
-                  {
-                    ...command,
-                    method: "repo.agentRuntime.spawn",
-                    action: runtimeBatchSpawnAction(entry),
-                  },
-                  writeActivity,
-                );
-        } catch (error) {
-          consumeKnownError(error);
-          receipt = runtimeRejected(
-            "runtime-run",
-            "batch_dispatch_failed",
-            error instanceof Error ? error.message : String(error),
-          );
-        }
-        return runtimeBatchResult(index, entry, receipt);
-      }),
-    );
-    for (const result of settled) results[result.index] = result;
-    for (const result of settled) {
-      const taskId = declaration.dispatches[result.index]?.task;
-      if (taskId && result.runtimeSessionId) releasedTaskIds.add(taskId);
+    const receipt = await pending;
+    if (reacquisitions.get(taskId) === pending) reacquisitions.delete(taskId);
+    if (receipt.ok === true && receipt.outcome === "applied") {
+      releasedTaskIds.delete(taskId);
+      return null;
     }
-  }
+    return receipt;
+  };
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = next++;
+      if (index >= declaration.dispatches.length) return;
+      const entry = declaration.dispatches[index]!;
+      let receipt: JsonObject;
+      try {
+        const reacquireFailure = entry.task ? await reacquireReleasedTask(entry.task) : null;
+        receipt =
+          reacquireFailure ??
+          (await runRuntimeFacadeCommand(
+            {
+              ...command,
+              method: "repo.agentRuntime.spawn",
+              action: runtimeBatchSpawnAction(entry),
+            },
+            writeActivity,
+          ));
+      } catch (error) {
+        consumeKnownError(error);
+        receipt = runtimeRejected(
+          "runtime-run",
+          "batch_dispatch_failed",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      results[index] = runtimeBatchResult(index, entry, receipt);
+      if (entry.task && runtimeBatchTaskDispatchSettled(receipt)) releasedTaskIds.add(entry.task);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(declaration.maxConcurrency, declaration.dispatches.length) }, () => worker()),
+  );
   const failed = results.filter((result) => result.status !== "succeeded"),
     unknown = results.some((result) => result.status === "unknown"),
     outcome = failed.length === 0 ? "succeeded" : unknown ? "unknown" : "partial_failure";
@@ -92,6 +98,29 @@ export async function runRuntimeBatchDeclaration(
     summary: `runtime-batch: ${results.length - failed.length} succeeded, ${failed.length} failed`,
     exitCode: failed.length ? 1 : 0,
   };
+}
+
+export function runtimeBatchTaskDispatchSettled(receipt: JsonObject): boolean {
+  if (
+    receipt.ok !== true ||
+    !["succeeded", "failed", "unknown", "cancelled"].includes(String(receipt.outcome)) ||
+    typeof receipt.runtimeSessionId !== "string"
+  )
+    return false;
+  const session = receipt.session;
+  if (!session || typeof session !== "object" || Array.isArray(session)) return true;
+  const attemptChain = (session as Record<string, unknown>).attemptChain;
+  if (!attemptChain || typeof attemptChain !== "object" || Array.isArray(attemptChain)) return true;
+  const attempts = (attemptChain as Record<string, unknown>).attempts;
+  if (!Array.isArray(attempts)) return true;
+  const attempt = attempts.find(
+    (candidate) =>
+      candidate !== null &&
+      typeof candidate === "object" &&
+      !Array.isArray(candidate) &&
+      (candidate as Record<string, unknown>).runtimeSessionId === receipt.runtimeSessionId,
+  ) as Record<string, unknown> | undefined;
+  return attempt?.fallbackState !== "scheduled" && attempt?.fallbackState !== "dispatched";
 }
 
 export function runtimeBatchSpawnAction(entry: RuntimeBatchEntry): ThinCommand["action"] {

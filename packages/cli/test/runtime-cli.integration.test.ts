@@ -866,12 +866,10 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       true,
       JSON.stringify(batchDispatches),
     );
+    const slowBatchArchive = path.join(artifactRoot, "dispatches", `${String(batchRows[1]?.dispatchId)}.json`);
+    await eventuallyFile(slowBatchArchive);
     assert.equal(
-      (
-        JSON.parse(
-          readFileSync(path.join(artifactRoot, "dispatches", `${String(batchRows[1]?.dispatchId)}.json`), "utf8"),
-        ) as Record<string, unknown>
-      ).reasoningEffort,
+      (JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).reasoningEffort,
       "high",
     );
     const emptyFailure = runMaybe(root, env, [
