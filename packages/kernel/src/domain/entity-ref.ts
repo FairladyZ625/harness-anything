@@ -145,9 +145,8 @@ function compileRefBodyPattern(contract: EntityKindRefAuthority, capture: boolea
     const pattern = unanchored(source.refPattern ?? source.pattern);
     return capture ? `(?<${token}>${pattern})` : `(?:${pattern})`;
   });
-  const anchor = contract.anchorPattern
-    ? `(?:/${capture ? `(?<anchor>${unanchored(contract.anchorPattern)})` : `(?:${unanchored(contract.anchorPattern)})`})?`
-    : "";
+  const anchorPattern = contract.anchorPattern ? unanchored(contract.anchorPattern) : "",
+    anchor = contract.anchorPattern ? `(?:/${capture ? `(?<anchor>${anchorPattern})` : `(?:${anchorPattern})`})?` : "";
   return `${segments.join("/")}${anchor}`;
 }
 
