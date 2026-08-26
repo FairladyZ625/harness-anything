@@ -48,14 +48,17 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
   } finally { rmSync(fixture.parent, { recursive: true, force: true }); }
 });
 
-test("autostart daemon does not inherit runtime worker environment", (context) => {
+test("task-bound runtime identity cannot autostart the shared daemon", (context) => {
   const fixture = setup(),
     repoId = "clean-autostart",
     endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),
+    workerHome = path.join(fixture.parent, "worker", "home"),
     workerEnv = {
       ...cliEnv(fixture.root, fixture.userRoot),
-      CODEX_HOME: path.join(fixture.parent, "worker", ".codex"),
-      CLAUDE_CONFIG_DIR: path.join(fixture.parent, "worker", ".claude"),
+      HOME: workerHome,
+      PATH: [path.join(fixture.parent, "worker", "arg0"), process.env.PATH ?? ""].join(path.delimiter),
+      CODEX_HOME: path.join(workerHome, ".codex"),
+      CLAUDE_CONFIG_DIR: path.join(workerHome, ".claude"),
       ANTHROPIC_API_KEY: "worker-anthropic-secret",
       ANTHROPIC_BASE_URL: "https://anthropic.worker.invalid",
       OPENAI_API_KEY: "worker-openai-secret",
@@ -67,37 +70,38 @@ test("autostart daemon does not inherit runtime worker environment", (context) =
       HARNESS_DAEMON_ENDPOINT: endpoint,
       HARNESS_DAEMON_ID: "default",
       HARNESS_DAEMON_REPO_ID: repoId,
+      HARNESS_TASK_BOUND: "1",
     };
   try {
     registerDaemonRepo({ canonicalRoot: fixture.root, repoId, userRoot: fixture.userRoot, createConvenienceLinks: false });
-    const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "task", "list"], {
+    const denied = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "task", "list"], {
       encoding: "utf8",
       env: workerEnv,
     });
-    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
-    assert.equal((JSON.parse(result.stdout) as { readonly outcome?: string }).outcome, "applied");
-    const pid = readDaemonPid(fixture.userRoot, "default");
-    assert.ok(pid, "autostart must leave a resident daemon pid file");
-    const processEnvironment = execFileSync("ps", ["eww", "-p", String(pid)], { encoding: "utf8" });
-    const forbidden = [
-      "CODEX_HOME",
-      "CLAUDE_CONFIG_DIR",
-      "ANTHROPIC_API_KEY",
-      "ANTHROPIC_BASE_URL",
-      "OPENAI_API_KEY",
-      "OPENAI_BASE_URL",
-      "CLAUDE_CODE_SESSION_ID",
-      "CODEX_THREAD_ID",
-      "CODEX_SESSION_ID",
-      "HARNESS_ACTOR",
-      "HARNESS_DAEMON_ENDPOINT",
-      "HARNESS_DAEMON_ID",
-      "HARNESS_DAEMON_REPO_ID",
-      "HARNESS_DAEMON_USER_ROOT",
-    ],
-      leaked = forbidden.filter((name) => new RegExp(`(?:^|\\s)${name}=`, "u").test(processEnvironment));
-    context.diagnostic(`ps eww -p ${pid} runtime-scoped env matches: ${JSON.stringify(leaked)}`);
-    assert.deepEqual(leaked, []);
+    assert.notEqual(denied.status, 0, `${denied.stderr}\n${denied.stdout}`);
+    const refusal = JSON.parse(denied.stdout) as { readonly error?: { readonly code?: string; readonly hint?: string } };
+    assert.equal(refusal.error?.code, "daemon_start_runtime_forbidden");
+    assert.match(String(refusal.error?.hint), /operator shell/u);
+    assert.equal(readDaemonPid(fixture.userRoot, "default"), null, "a runtime caller must not claim the daemon slot");
+
+    const explicitStart = spawnSync(
+      process.execPath,
+      [cli, "--root", fixture.root, "--json", "daemon", "start", "--service"],
+      { encoding: "utf8", env: workerEnv },
+    );
+    assert.notEqual(explicitStart.status, 0);
+    assert.equal(
+      (JSON.parse(explicitStart.stdout) as { readonly error?: { readonly code?: string } }).error?.code,
+      "daemon_start_runtime_forbidden",
+    );
+    assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    const available = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "task", "list"], {
+      encoding: "utf8",
+      env: workerEnv,
+    });
+    assert.equal(available.status, 0, `${available.stderr}\n${available.stdout}`);
+    assert.equal((JSON.parse(available.stdout) as { readonly outcome?: string }).outcome, "applied");
+    context.diagnostic(`task-bound refusal=${refusal.error?.code}; existing daemon request=applied`);
   } finally {
     stop(fixture.root, fixture.userRoot);
     rmSync(fixture.parent, { recursive: true, force: true });
