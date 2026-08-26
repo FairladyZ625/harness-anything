@@ -21,7 +21,11 @@ const id = /^[A-Za-z0-9_-]{1,96}$/u,
   row = (value: unknown): Record<string, unknown> | null =>
     value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null,
   shapeText =
-    '{ "schema": "fleet-roster/v2", "nodes": [{ "nodeId": string, "credential": string }], "assignments": [{ "assignmentId": string, "nodeId": string, "repoId": string, "viewId": string, "personId": string, "executorId"?: string, "expiresAt": ISO-8601-Z, "scope": { "kind": "task", "taskId": string, "executionId": string, "paths": string[] } | { "kind": "schedule", "scheduleId": string, "paths": string[] } }] }';
+    '{ "schema": "fleet-roster/v2", "nodes": [{ "nodeId": string, "credential": string }],' +
+    ' "assignments": [{ "assignmentId": string, "nodeId": string, "repoId": string, "viewId": string,' +
+    ' "personId": string, "executorId"?: string, "expiresAt": ISO-8601-Z,' +
+    ' "scope": { "kind": "task", "taskId": string, "executionId": string, "paths": string[] }' +
+    ' | { "kind": "schedule", "scheduleId": string, "paths": string[] } }] }';
 export function readFleetRosterFile(file: string): FleetRoster {
   try {
     return parseFleetRoster(JSON.parse(readFileSync(file, "utf8")));

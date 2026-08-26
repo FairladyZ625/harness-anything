@@ -193,7 +193,8 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--roster", "single", true, {
         code: "missing_field",
         nextAction:
-          "Fleet center start requires --roster pointing at a fleet-roster/v2 JSON; fleet-roster/v1 remains read-compatible.",
+          "Fleet center start requires --roster pointing at a fleet-roster/v2 JSON; " +
+          "fleet-roster/v1 remains read-compatible.",
       }),
       cliInput(
         "--quota-bytes",
