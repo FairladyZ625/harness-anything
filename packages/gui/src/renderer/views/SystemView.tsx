@@ -136,7 +136,10 @@ function RepoRow({
             data-repo={repo.repoId}
             title={t("views.systemView.openObserve")}
             onClick={() => openObserve(repo.repoId)}
-            className="rounded-md border border-border-strong px-2.5 py-1 text-[12px] font-medium text-accent hover:bg-surface-raised"
+            className={[
+              "rounded-md border border-border-strong px-2.5 py-1 text-[12px] font-medium text-accent",
+              "hover:bg-surface-raised",
+            ].join(" ")}
           >
             {t("views.systemView.observeAction")}
           </button>
