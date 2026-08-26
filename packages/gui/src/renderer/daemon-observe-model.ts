@@ -218,7 +218,6 @@ function sameCursor(left: ObserveTailCursor, right: ObserveTailCursor): boolean 
 }
 
 /** 行数到达上限后按增长方向的反侧丢弃;不足上限时原数组原样返回(见 OBSERVE_ROW_LIMIT)。 */
-/** 行数到达上限后按增长方向的反侧丢弃;不足上限时原数组原样返回(见 OBSERVE_ROW_LIMIT)。 */
 function capRows(rows: readonly ObserveRow[], growth: "history" | "follow"): readonly ObserveRow[] {
   if (rows.length <= OBSERVE_ROW_LIMIT) return rows;
   return growth === "history" ? rows.slice(0, OBSERVE_ROW_LIMIT) : rows.slice(rows.length - OBSERVE_ROW_LIMIT);
