@@ -1,14 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,14 +14,7 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     binRoot = path.join(parent, "bin"),
-    providerLog = path.join(
-      userRoot,
-      "runtime-instances",
-      "resident-worker",
-      "home",
-      ".codex",
-      "provider.jsonl",
-    );
+    providerLog = path.join(userRoot, "runtime-instances", "resident-worker", "home", ".codex", "provider.jsonl");
   mkdirSync(root, { recursive: true });
   mkdirSync(binRoot, { recursive: true });
   writeResidentProvider(path.join(binRoot, "codex"));
@@ -39,11 +25,7 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
       binRoot,
       ...(process.env.PATH ?? "")
         .split(path.delimiter)
-        .filter((entry) =>
-          ["codex", "codex.cmd", "codex.exe"].every(
-            (name) => !existsSync(path.join(entry, name)),
-          ),
-        ),
+        .filter((entry) => ["codex", "codex.cmd", "codex.exe"].every((name) => !existsSync(path.join(entry, name)))),
     ].join(path.delimiter),
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_ID: "squad-resident-test",
@@ -51,22 +33,10 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
   };
   try {
     run(root, env, ["daemon", "start", "--service"]);
-    run(root, env, [
-      "init",
-      "--repo-id",
-      "squad-resident",
-      "--person-id",
-      "owner",
-      "--display-name",
-      "Owner",
-    ]);
+    run(root, env, ["init", "--repo-id", "squad-resident", "--person-id", "owner", "--display-name", "Owner"]);
     for (const id of ["fable", "terra", "luna"]) {
       const source = path.join(parent, id);
-      writeIdentity(
-        source,
-        id,
-        id === "fable" ? "Fable" : id === "terra" ? "Terra" : "Luna",
-      );
+      writeIdentity(source, id, id === "fable" ? "Fable" : id === "terra" ? "Terra" : "Luna");
       run(root, env, ["agent", "install", "--source", source]);
     }
     const squadSource = path.join(parent, "core-squad");
@@ -100,22 +70,8 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
       "--auth",
       "subscription",
     ]);
-    run(root, env, [
-      "task",
-      "create",
-      "--id",
-      "resident-task",
-      "--admin",
-      "--title",
-      "Resident Squad",
-    ]);
-    run(root, env, [
-      "task",
-      "start",
-      "resident-task",
-      "--execution-id",
-      "resident-execution",
-    ]);
+    run(root, env, ["task", "create", "--id", "resident-task", "--admin", "--title", "Resident Squad"]);
+    run(root, env, ["task", "start", "resident-task", "--execution-id", "resident-execution"]);
     mkdirSync(path.join(root, "squadwork"));
     writeFileSync(path.join(root, "mission.txt"), "resident mission from file");
 
@@ -135,33 +91,19 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
     assert.equal(started.outcome, "running", JSON.stringify(started));
     assert.match(String(started.squadRunId), /^squad_[a-f0-9]{24}$/u);
 
-    const current = pollSquadStatus(
-      root,
-      env,
-      String(started.squadRunId),
-    );
+    const current = pollSquadStatus(root, env, String(started.squadRunId));
     assert.equal(current.status, "converged", JSON.stringify(current));
     assert.equal(current.workerCallbackCount, 3, JSON.stringify(current));
     assert.equal(Array.isArray(current.leaders), true);
     const leaderRuntimeSessionIds = current.leaderRuntimeSessionIds as string[];
-    assert.equal(
-      leaderRuntimeSessionIds.length,
-      4,
-      JSON.stringify(current),
-    );
+    assert.equal(leaderRuntimeSessionIds.length, 4, JSON.stringify(current));
     assert.equal(new Set(leaderRuntimeSessionIds).size, 4);
 
     const workers = current.workers as Array<Record<string, unknown>>;
     assert.equal(workers.length, 3, JSON.stringify(current));
+    assert.equal(workers.filter((worker) => worker.agentId === "terra").length, 2, JSON.stringify(current));
     assert.equal(
-      workers.filter((worker) => worker.agentId === "terra").length,
-      2,
-      JSON.stringify(current),
-    );
-    assert.equal(
-      workers.some(
-        (worker) => worker.agentId === "terra" && worker.status === "failed",
-      ),
+      workers.some((worker) => worker.agentId === "terra" && worker.status === "failed"),
       true,
       JSON.stringify(current),
     );
@@ -177,35 +119,25 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
     );
 
     const calls = readFileSync(providerLog, "utf8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown>),
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>),
       callbackLeaders = calls.filter(
         (call) =>
-          call.kind === "leader-callback" &&
-          Array.isArray(call.args) &&
-          (call.args as unknown[]).includes("resume"),
+          call.kind === "leader-callback" && Array.isArray(call.args) && (call.args as unknown[]).includes("resume"),
       );
     assert.equal(callbackLeaders.length, 3, JSON.stringify(calls));
     assert.equal(
-      calls.every((call) =>
-        String(call.cwd).endsWith(`${path.sep}squadwork`),
-      ),
+      calls.every((call) => String(call.cwd).endsWith(`${path.sep}squadwork`)),
       true,
       JSON.stringify(calls),
     );
-    assert.match(
-      String(calls.find((call) => call.kind === "leader-initial")?.prompt),
-      /resident mission from file/u,
-    );
+    assert.match(String(calls.find((call) => call.kind === "leader-initial")?.prompt), /resident mission from file/u);
 
     run(root, env, ["daemon", "stop"]);
+    rmSync(path.join(root, ".harness", "cache", "task.sqlite"), { force: true });
     run(root, env, ["daemon", "start", "--service"]);
-    const afterRestart = run(root, env, [
-      "squad",
-      "status",
-      String(started.squadRunId),
-    ]);
+    const afterRestart = run(root, env, ["squad", "status", String(started.squadRunId)]);
     assert.equal(afterRestart.status, "converged", JSON.stringify(afterRestart));
     assert.equal(afterRestart.workerCallbackCount, 3);
     process.stdout.write(
@@ -250,9 +182,7 @@ test("same-instance API-key squad workers reuse the materialized bearer", () => 
       ...(process.env.PATH ?? "")
         .split(path.delimiter)
         .filter((entry) =>
-          ["codex", "codex.cmd", "codex.exe", "secret-tool"].every(
-            (name) => !existsSync(path.join(entry, name)),
-          ),
+          ["codex", "codex.cmd", "codex.exe", "secret-tool"].every((name) => !existsSync(path.join(entry, name))),
         ),
     ].join(path.delimiter),
     HARNESS_DAEMON_USER_ROOT: userRoot,
@@ -267,15 +197,7 @@ test("same-instance API-key squad workers reuse the materialized bearer", () => 
     });
     assert.equal(stored.status, 0, stored.stderr);
     run(root, env, ["daemon", "start", "--service"]);
-    run(root, env, [
-      "init",
-      "--repo-id",
-      "squad-api-key",
-      "--person-id",
-      "owner",
-      "--display-name",
-      "Owner",
-    ]);
+    run(root, env, ["init", "--repo-id", "squad-api-key", "--person-id", "owner", "--display-name", "Owner"]);
     for (const id of ["fable", "terra", "luna"]) {
       const source = path.join(parent, id);
       writeIdentity(source, id, id === "fable" ? "Fable" : id === "terra" ? "Terra" : "Luna");
@@ -353,8 +275,14 @@ test("same-instance API-key squad workers reuse the materialized bearer", () => 
     const current = pollSquadStatus(root, env, String(started.squadRunId));
     assert.equal(current.status, "converged", JSON.stringify(current));
     const workers = current.workers as Array<Record<string, unknown>>;
-    assert.deepEqual(workers.map((worker) => worker.workerId), ["terra", "luna"]);
-    assert.equal(workers.every((worker) => worker.status === "succeeded" && worker.exitCode === 0), true);
+    assert.deepEqual(
+      workers.map((worker) => worker.workerId),
+      ["terra", "luna"],
+    );
+    assert.equal(
+      workers.every((worker) => worker.status === "succeeded" && worker.exitCode === 0),
+      true,
+    );
     const configPath = path.join(userRoot, "runtime-instances", "squad-api", "home", ".codex", "config.toml");
     assert.match(readFileSync(configPath, "utf8"), /experimental_bearer_token = "squad-secret"/u);
     process.stdout.write(`squad-api-key-flow ${JSON.stringify({ squadRunId: current.squadRunId, workers })}\n`);
@@ -364,11 +292,7 @@ test("same-instance API-key squad workers reuse the materialized bearer", () => 
   }
 });
 
-function pollSquadStatus(
-  root: string,
-  env: NodeJS.ProcessEnv,
-  squadRunId: string,
-): Record<string, unknown> {
+function pollSquadStatus(root: string, env: NodeJS.ProcessEnv, squadRunId: string): Record<string, unknown> {
   const deadline = Date.now() + 20_000;
   do {
     const current = run(root, env, ["squad", "status", squadRunId]);
@@ -378,17 +302,9 @@ function pollSquadStatus(
   return run(root, env, ["squad", "status", squadRunId]);
 }
 
-function run(
-  root: string,
-  env: NodeJS.ProcessEnv,
-  args: readonly string[],
-): Record<string, unknown> {
+function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Record<string, unknown> {
   const result = runMaybe(root, env, args);
-  assert.equal(
-    result.status,
-    0,
-    `${result.stderr}\n${JSON.stringify(result.receipt)}`,
-  );
+  assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
   return result.receipt;
 }
 
@@ -401,16 +317,10 @@ function runMaybe(
   readonly receipt: Record<string, unknown>;
   readonly stderr: string;
 } {
-  const result = spawnSync(
-    process.execPath,
-    [cli, "--root", root, "--json", ...args],
-    { encoding: "utf8", env },
-  );
+  const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], { encoding: "utf8", env });
   return {
     status: result.status,
-    receipt: result.stdout.trim()
-      ? (JSON.parse(result.stdout) as Record<string, unknown>)
-      : {},
+    receipt: result.stdout.trim() ? (JSON.parse(result.stdout) as Record<string, unknown>) : {},
     stderr: result.stderr,
   };
 }

@@ -133,7 +133,7 @@ function projectionDatabaseOwner(
         db!,
         [
           "UPDATE projection_meta SET watermark = 0, scan_cursor = NULL, scanned_revision = 0,",
-          "head_digest = NULL, state_digest = NULL WHERE singleton = 1",
+          "head_digest = NULL, state_digest = NULL, squad_run_ready = 0 WHERE singleton = 1",
         ].join(" "),
       );
     });
@@ -209,11 +209,12 @@ function createTables(db: DatabaseSync): void {
       scan_cursor TEXT,
       scanned_revision INTEGER NOT NULL,
       head_digest TEXT,
-      state_digest TEXT
+      state_digest TEXT,
+      squad_run_ready INTEGER NOT NULL CHECK(squad_run_ready IN (0, 1))
     );
     INSERT OR IGNORE INTO projection_meta(
-      singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest, state_digest
-    ) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL);
+      singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest, state_digest, squad_run_ready
+    ) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL, 0);
     CREATE TABLE IF NOT EXISTS event_source (
       workspace_revision INTEGER PRIMARY KEY,
       op_id TEXT NOT NULL UNIQUE,
@@ -262,6 +263,11 @@ function createTables(db: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS runtime_session_task_binding_session
       ON runtime_session_task_binding(runtime_session_id, task_id, execution_id);
+    CREATE TABLE IF NOT EXISTS squad_run_projection (
+      squad_run_id TEXT PRIMARY KEY,
+      revision INTEGER NOT NULL,
+      state_json TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS task_snapshot (
       task_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,

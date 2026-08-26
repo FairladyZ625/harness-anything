@@ -1,23 +1,16 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import type { AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
-import {
-  runtimeDockStatusDot,
-  runtimeDockStatusKey,
-  sessionSiblingRows,
-  sessionTaskTarget,
-  type RuntimeDockRow,
-} from "../../runtime-panorama.ts";
+import { sessionStatusDot, type SessionStatus } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
-import { EntityRefLink } from "../EntityRefLink.tsx";
 import {
   runtimeAuthPresentation,
   runtimeAuthPresentationText,
   type RuntimeAuthProbeState,
 } from "../../runtime-auth-presentation.ts";
 import { Avatar, CapDot, Empty, KindDot, KV, KVRow, LiveDot } from "./parts.tsx";
-import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
+import type { RuntimeDockRow, RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 // W6 IA 拆分:原四类通吃的 RuntimeInspector 拆成三个页级 inspector——右栏仍是
 // "同一个选中,从会话侧看过去:这东西最近在干什么",但跨页跳转(session/<id>、
@@ -27,61 +20,12 @@ import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 type OpenSession = (runtimeSessionId: string) => void;
 
-// Liveness maps, not point comparisons (dec_8DCD52E98BAB268B0194B1E399): the daemon's
-// liveness word decides the dot through a table lookup alone.
-const LIVENESS_DOT: Record<string, "live" | "idle"> = { live: "live" };
-
-/**
- * Provider 页与 Agent/Squad 页的会话段完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用
- * 按需渲染解决,不转嫁给用户点击):每行带 content-visibility:auto,离屏行的布局与绘制由
- * 渲染器跳过;段落标题的 `{count}` 就是行集的真实总数。
- * 会话页右栏 SessionInspector 的分批不在本任务文件面内(该页归会话页重构任务),
- * 仍用下面的 BatchedRows。
- */
-
-/**
- * 只显示前 N 行时必须把剩余条数显形:段落标题里的 `{count}` 是截断前的真实总数,
- * 若下面只列 8 行又不交代,界面就会出现"标题写 23、下面 8 行"这种没有出口的组合。
- */
-const SECTION_BATCH_SIZE = 8;
-
 /** 会话段整行渲染的按需渲染类:离屏行跳过布局与绘制。 */
 const SESSION_ROW_CV = "cv-auto-2r";
 
-function BatchedRows<Row>({
-  rows,
-  testId,
-  children,
-}: {
-  readonly rows: readonly Row[];
-  readonly testId: string;
-  readonly children: (row: Row) => ReactNode;
-}) {
-  const [visibleCount, setVisibleCount] = useState(SECTION_BATCH_SIZE);
-  useEffect(() => {
-    setVisibleCount(SECTION_BATCH_SIZE);
-  }, [rows.length]);
-  const hiddenCount = rows.length - Math.min(visibleCount, rows.length);
-  return (
-    <>
-      {rows.slice(0, visibleCount).map((row) => children(row))}
-      {hiddenCount > 0 && (
-        <button
-          type="button"
-          data-testid={testId}
-          onClick={() => setVisibleCount((count) => Math.min(count + SECTION_BATCH_SIZE, rows.length))}
-          className="mt-1 w-full rounded border border-dashed border-border px-1.5 py-1 text-center
-        font-mono text-[10px] text-text-muted hover:border-border-strong hover:text-text"
-        >
-          {t("agentRuntime.showMoreSessions", {
-            count: Math.min(SECTION_BATCH_SIZE, hiddenCount),
-            remaining: hiddenCount,
-          })}
-        </button>
-      )}
-    </>
-  );
-}
+// Liveness maps, not point comparisons (dec_8DCD52E98BAB268B0194B1E399): the daemon's
+// liveness word decides the dot through a table lookup alone.
+const LIVENESS_DOT: Record<string, "live" | "idle"> = { live: "live" };
 
 export function ProviderInspector({
   instance,
@@ -172,48 +116,6 @@ export function IdentityInspector({
   );
 }
 
-export function SessionInspector({
-  row,
-  rows,
-  onSelectSession,
-  onOpenTask,
-  onSelectEntity,
-}: {
-  readonly onSelectEntity: (ref: string) => void;
-  readonly row: RuntimeDockRow | null;
-  readonly rows: readonly RuntimeDockRow[];
-  readonly onSelectSession: OpenSession;
-  readonly onOpenTask: (taskId: string) => void;
-}) {
-  const siblings = sessionSiblingRows(rows, row?.runtimeSessionId ?? "");
-  return (
-    <aside
-      data-testid="runtime-inspector"
-      aria-label={t("agentRuntime.inspectorSession")}
-      className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface"
-    >
-      <h2
-        className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
-        tracking-[0.09em] text-text-faint"
-      >
-        {t("agentRuntime.inspectorSession")}
-      </h2>
-      <SessionFacts row={row} onOpenTask={onOpenTask} onSelectEntity={onSelectEntity} />
-      <Section title={t("agentRuntime.inspectorSessions", { count: siblings.length })}>
-        {siblings.length === 0 ? (
-          <Empty>{t("agentRuntime.noSessions")}</Empty>
-        ) : (
-          <BatchedRows rows={siblings} testId="runtime-inspector-siblings-more">
-            {(sibling) => (
-              <DispatchSessionRow key={sibling.runtimeSessionId} row={sibling} onOpenSession={onSelectSession} />
-            )}
-          </BatchedRows>
-        )}
-      </Section>
-    </aside>
-  );
-}
-
 function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) {
   return (
     <section className="border-b border-border px-3 py-2 last:border-b-0">
@@ -265,7 +167,7 @@ function DispatchSessionRow({
         SESSION_ROW_CV,
       ].join(" ")}
     >
-      <LiveDot state={runtimeDockStatusDot[row.status]} tip={t(runtimeDockStatusKey[row.status] as never)} />
+      <LiveDot state={sessionStatusDot[row.status as SessionStatus] ?? "idle"} tip={row.status} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[11.5px]">{row.agentName ?? row.instanceId}</span>
         <span className="block truncate font-mono text-[10px] text-text-faint">
@@ -406,83 +308,6 @@ function SquadFacts({
           <span className="font-mono text-[10px] text-text-faint">{t("agentRuntime.roleWorker")}</span>
         </button>
       ))}
-    </Section>
-  );
-}
-// A selected session seen from the side: whose it is and which task holds it, with the
-// reverse jump into that task's detail (W5:派工链归 Task 详情「派工」页签). Facts come
-// from the ledger row the workspace already read; the jump target is the same
-// sessionTaskTarget as the main panel.
-function SessionFacts({
-  row,
-  onOpenTask,
-  onSelectEntity,
-}: {
-  readonly row: RuntimeDockRow | null;
-  readonly onOpenTask: (taskId: string) => void;
-  readonly onSelectEntity: (ref: string) => void;
-}) {
-  const target = sessionTaskTarget(row, []);
-  return (
-    <Section title={t("agentRuntime.inspectorSessionFacts")}>
-      {row === null ? (
-        <Empty>{t("agentRuntime.notFound")}</Empty>
-      ) : (
-        <>
-          <KV>
-            {row.agentId ? (
-              <KVRow name="agent">
-                <EntityRefLink
-                  entityRef={`agent/${row.agentId}`}
-                  onNavigate={onSelectEntity}
-                  title={row.agentId}
-                  className="text-accent hover:underline"
-                />
-              </KVRow>
-            ) : (
-              <KVRow name="agent">{t("agentRuntime.unattributed")}</KVRow>
-            )}
-            {row.squadId ? (
-              <KVRow name="squad">
-                <EntityRefLink
-                  entityRef={`squad/${row.squadId}`}
-                  onNavigate={onSelectEntity}
-                  title={row.squadId}
-                  className="text-accent hover:underline"
-                />
-              </KVRow>
-            ) : (
-              <KVRow name="squad">{row.squadName ?? "—"}</KVRow>
-            )}
-            <KVRow name="instance">
-              <EntityRefLink
-                entityRef={`provider/${row.instanceId}`}
-                onNavigate={onSelectEntity}
-                title={row.instanceId}
-                className="text-accent hover:underline"
-              />
-            </KVRow>
-            <KVRow name="dispatch">{row.dispatchId ?? "—"}</KVRow>
-            <KVRow name="status">{row.status}</KVRow>
-          </KV>
-          {target !== null && (
-            <button
-              type="button"
-              data-testid="inspector-open-task"
-              data-task={target.taskId}
-              title={t("agentRuntime.openTask")}
-              onClick={() => onOpenTask(target.taskId)}
-              className="mt-2 flex w-full items-center gap-1.5 rounded border border-border px-2 py-1 text-left hover:border-accent hover:text-accent"
-            >
-              <span className="min-w-0 flex-1 truncate text-[11px]">{target.taskTitle ?? target.taskId}</span>
-              <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{target.taskId}</span>
-              <span aria-hidden className="shrink-0 text-[9.5px] text-text-faint">
-                ↗
-              </span>
-            </button>
-          )}
-        </>
-      )}
     </Section>
   );
 }

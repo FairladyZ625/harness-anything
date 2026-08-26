@@ -115,6 +115,41 @@ export type AgentRuntimeEventsResult = {
   readonly sourceCursor: string;
   readonly done: boolean;
 };
+export type AgentRuntimeSessionGroupBy = "task" | "squad" | "agent" | "day";
+export type AgentRuntimeSessionGroupKind = AgentRuntimeSessionGroupBy | "unattributed";
+export type AgentRuntimeSessionGroupStatus = RuntimeSessionSemanticState | "unknown" | "lost";
+export interface AgentRuntimeSessionGroupRoundDto {
+  readonly runtimeSessionId: string;
+  readonly dispatchId: string | null;
+  readonly agentName: string | null;
+  readonly instanceId: string;
+  readonly status: AgentRuntimeSessionGroupStatus;
+  readonly startedAt: string;
+}
+export interface AgentRuntimeSessionGroupDto {
+  readonly key: string;
+  readonly kind: AgentRuntimeSessionGroupKind;
+  readonly label: string;
+  readonly taskId?: string;
+  readonly squadId?: string;
+  readonly agentId?: string;
+  readonly day?: string;
+  readonly latestStatus: AgentRuntimeSessionGroupStatus;
+  readonly latestActivityAt: string;
+  readonly runningCount: number;
+  readonly sessionCount: number;
+  readonly roundCount: number;
+  readonly latestRound: AgentRuntimeSessionGroupRoundDto | null;
+}
+export type AgentRuntimeSessionGroupsResult = {
+  readonly ok: true;
+  readonly status: "ready" | "pending";
+  readonly groups: readonly AgentRuntimeSessionGroupDto[];
+  readonly totals: { readonly groups: number; readonly sessions: number };
+  readonly truncated: boolean;
+  readonly watermark: number;
+  readonly sourceRevision: number;
+};
 export function successfulAgentRuntimeResult(value: AgentRuntimeSessionResult): string | null {
   return value.session.activity.outcome === "succeeded" && value.result?.text ? value.result.text : null;
 }
@@ -186,6 +221,31 @@ export function validateAgentRuntimeEvents(value: unknown): readonly string[] {
     safeKeys(value)
     ? []
     : ["agent runtime lifecycle events are invalid"];
+}
+export function validateAgentRuntimeSessionGroups(value: unknown): readonly string[] {
+  return isAgentRuntimeContractRecord(value) &&
+    hasExactAgentRuntimeContractFields(value, [
+      "ok",
+      "status",
+      "groups",
+      "totals",
+      "truncated",
+      "watermark",
+      "sourceRevision",
+    ]) &&
+    value.ok === true &&
+    ["ready", "pending"].includes(String(value.status)) &&
+    Array.isArray(value.groups) &&
+    value.groups.every(validSessionGroup) &&
+    isAgentRuntimeContractRecord(value.totals) &&
+    hasExactAgentRuntimeContractFields(value.totals, ["groups", "sessions"]) &&
+    [value.totals.groups, value.totals.sessions].every(sessionGroupCount) &&
+    typeof value.truncated === "boolean" &&
+    sessionGroupCount(value.watermark) &&
+    sessionGroupCount(value.sourceRevision) &&
+    safeKeys(value)
+    ? []
+    : ["agent runtime session groups are invalid"];
 }
 function validInstallation(value: unknown): value is AgentRuntimeInstallationDto {
   return (
@@ -434,7 +494,8 @@ function safeKeys(value: unknown): boolean {
 }
 export const serializeAgentRuntimeOverview = (value: unknown): string => serialize(value, validateAgentRuntimeOverview),
   serializeAgentRuntimeSession = (value: unknown): string => serialize(value, validateAgentRuntimeSession),
-  serializeAgentRuntimeEvents = (value: unknown): string => serialize(value, validateAgentRuntimeEvents);
+  serializeAgentRuntimeEvents = (value: unknown): string => serialize(value, validateAgentRuntimeEvents),
+  serializeAgentRuntimeSessionGroups = (value: unknown): string => serialize(value, validateAgentRuntimeSessionGroups);
 export function serialize(value: unknown, validate: (candidate: unknown) => readonly string[]): string {
   const errors = validate(value);
   if (errors.length) throw coded("invalid_result", errors.join("; "));
@@ -455,4 +516,81 @@ function hasAgentRuntimeContractFields(
     required.every((field) => Object.hasOwn(value, field)) &&
     Object.keys(value).every((field) => required.includes(field) || optional.includes(field))
   );
+}
+
+const sessionGroupKinds: readonly AgentRuntimeSessionGroupKind[] = ["task", "squad", "agent", "day", "unattributed"],
+  sessionGroupStatuses: readonly AgentRuntimeSessionGroupStatus[] = [
+    "running",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "unknown",
+    "lost",
+    "ended-indeterminate",
+    "unavailable",
+  ];
+
+function validSessionGroup(value: unknown): value is AgentRuntimeSessionGroupDto {
+  if (!isAgentRuntimeContractRecord(value)) return false;
+  const identityFields = ["taskId", "squadId", "agentId", "day"].filter((field) => value[field] !== undefined),
+    required = [
+      "key",
+      "kind",
+      "label",
+      "latestStatus",
+      "latestActivityAt",
+      "runningCount",
+      "sessionCount",
+      "roundCount",
+      "latestRound",
+    ];
+  return (
+    hasAgentRuntimeContractFields(value, required, ["taskId", "squadId", "agentId", "day"]) &&
+    [value.key, value.label].every(sessionGroupText) &&
+    sessionGroupKinds.includes(value.kind as AgentRuntimeSessionGroupKind) &&
+    validSessionGroupIdentity(value, identityFields) &&
+    sessionGroupStatuses.includes(value.latestStatus as AgentRuntimeSessionGroupStatus) &&
+    sessionGroupIso(value.latestActivityAt) &&
+    [value.runningCount, value.sessionCount, value.roundCount].every(sessionGroupCount) &&
+    (value.latestRound === null || validSessionGroupRound(value.latestRound))
+  );
+}
+
+function validSessionGroupIdentity(value: Record<string, unknown>, fields: readonly string[]): boolean {
+  if (value.kind === "task") return fields.length === 1 && fields[0] === "taskId" && sessionGroupText(value.taskId);
+  if (value.kind === "squad") return fields.length === 1 && fields[0] === "squadId" && sessionGroupText(value.squadId);
+  if (value.kind === "day")
+    return fields.length === 1 && fields[0] === "day" && /^\d{4}-\d{2}-\d{2}$/u.test(String(value.day));
+  if (value.kind === "agent")
+    return fields.length === 0 || (fields.length === 1 && fields[0] === "agentId" && sessionGroupText(value.agentId));
+  return value.kind === "unattributed" && fields.length === 0;
+}
+
+function validSessionGroupRound(value: unknown): value is AgentRuntimeSessionGroupRoundDto {
+  return (
+    isAgentRuntimeContractRecord(value) &&
+    hasExactAgentRuntimeContractFields(value, [
+      "runtimeSessionId",
+      "dispatchId",
+      "agentName",
+      "instanceId",
+      "status",
+      "startedAt",
+    ]) &&
+    [value.runtimeSessionId, value.instanceId].every(sessionGroupText) &&
+    (value.dispatchId === null || sessionGroupText(value.dispatchId)) &&
+    (value.agentName === null || sessionGroupText(value.agentName)) &&
+    sessionGroupStatuses.includes(value.status as AgentRuntimeSessionGroupStatus) &&
+    sessionGroupIso(value.startedAt)
+  );
+}
+
+function sessionGroupText(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+function sessionGroupIso(value: unknown): value is string {
+  return sessionGroupText(value) && Number.isFinite(Date.parse(value));
+}
+function sessionGroupCount(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
 }

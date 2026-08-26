@@ -7,6 +7,7 @@ import {
   DAEMON_AGENT_RUNTIME_ATTACH_SCHEMA,
   DAEMON_AGENT_RUNTIME_EVENTS_SCHEMA,
   DAEMON_AGENT_RUNTIME_OVERVIEW_SCHEMA,
+  DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA,
   DAEMON_AGENT_RUNTIME_SESSION_SCHEMA,
   DAEMON_AGENT_SKILL_CATALOG_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
@@ -17,6 +18,7 @@ import {
   DAEMON_RELATION_GRAPH_SCHEMA,
   DAEMON_SQUAD_ENTITY_CATALOG_SCHEMA,
   DAEMON_SQUAD_ENTITY_DETAIL_SCHEMA,
+  DAEMON_SQUAD_RUN_LIST_SCHEMA,
   DAEMON_TASK_DISPATCHES_SCHEMA,
   DAEMON_TASK_DOCUMENT_LIST_SCHEMA,
   DAEMON_TASK_SNAPSHOT_LIST_SCHEMA,
@@ -157,6 +159,16 @@ export const daemonGuiReadSchemas = Object.freeze([
     ]),
   },
   {
+    id: DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA",
+    parser: "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroups",
+    writer: "packages/daemon/src/agent-runtime-contract.ts#serializeAgentRuntimeSessionGroups",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze([
+      "packages/daemon/fixtures/contracts/daemon-agent-runtime-session-groups-invalid.json",
+    ]),
+  },
+  {
     id: DAEMON_AGENT_RUNTIME_SESSION_SCHEMA.id,
     schema: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DAEMON_AGENT_RUNTIME_SESSION_SCHEMA",
     parser: "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSession",
@@ -229,6 +241,14 @@ export const daemonGuiReadSchemas = Object.freeze([
     writer: "packages/daemon/src/agent-entities.contract.ts#serializeSquadEntityDetail",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-squad-entity-detail-invalid.json"]),
+  },
+  {
+    id: DAEMON_SQUAD_RUN_LIST_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DAEMON_SQUAD_RUN_LIST_SCHEMA",
+    parser: "packages/daemon/src/squad-run-contract.ts#validateSquadRunsList",
+    writer: "packages/daemon/src/squad-run-contract.ts#serializeSquadRunsList",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-squad-run-list-invalid.json"]),
   },
 ]);
 

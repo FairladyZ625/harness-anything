@@ -9,11 +9,7 @@ import {
   pushLocation,
   type AppLocation,
 } from "../src/renderer/navigation/viewHistory.ts";
-import {
-  initialLocation,
-  readViewHistory,
-  writeViewHistory,
-} from "../src/renderer/navigation/viewHistoryStorage.ts";
+import { initialLocation, readViewHistory, writeViewHistory } from "../src/renderer/navigation/viewHistoryStorage.ts";
 
 /**
  * W4 可寻址路由:decision/fact 打开各自的详情页,不再落列表页;
@@ -23,6 +19,8 @@ import {
 function loc(patch: Partial<AppLocation>): AppLocation {
   return { ...initialLocation(), ...patch };
 }
+
+const TASK_ROUTE_ID = "task_1994d52c6b9676c17bb2d7fbae";
 
 describe("entity detail target routing (W4)", () => {
   it("routes decision refs to the decision detail view", () => {
@@ -55,11 +53,28 @@ describe("entity detail target routing (W4)", () => {
     // Agent 与 Squad 共享 Agent 入口(Squad 是该页内的一个面,不是第四入口);
     // provider 是 Runtime 实例在导航引用里的名字;session 归会话入口。
     expect(entityDetailTargetOf("agent/terra")).toEqual({ view: "agentSquad", focusedEntityRef: "agent/terra" });
-    expect(entityDetailTargetOf("squad/core-squad")).toEqual({ view: "agentSquad", focusedEntityRef: "squad/core-squad" });
-    expect(entityDetailTargetOf("provider/codex-review")).toEqual({ view: "providers", focusedEntityRef: "provider/codex-review" });
-    expect(entityDetailTargetOf("session/runtime-1")).toEqual({ view: "sessions", focusedEntityRef: "session/runtime-1" });
+    expect(entityDetailTargetOf("squad/core-squad")).toEqual({
+      view: "agentSquad",
+      focusedEntityRef: "squad/core-squad",
+    });
+    expect(entityDetailTargetOf("provider/codex-review")).toEqual({
+      view: "providers",
+      focusedEntityRef: "provider/codex-review",
+    });
+    expect(entityDetailTargetOf("session/runtime-1")).toEqual({
+      view: "sessions",
+      focusedEntityRef: "session/runtime-1",
+    });
+    // tasksessions/<taskId> 展开该任务的会话组(Task 详情反向入口)。无 production
+    // producer 的 squadRun/<id> 不保留预埋 consumer 路由。
+    expect(entityDetailTargetOf("squadRun/squad_abc")).toBeNull();
+    expect(entityDetailTargetOf(`tasksessions/${TASK_ROUTE_ID}`)).toEqual({
+      view: "sessions",
+      focusedEntityRef: `tasksessions/${TASK_ROUTE_ID}`,
+    });
     // 退役的聚合入口不再有路由,也不在 ViewId 词表里。
     expect(entityDetailTargetOf("agents")).toBeNull();
+    expect(entityDetailTargetOf("tasksessions/")).toBeNull();
   });
 });
 

@@ -10,14 +10,12 @@ vi.hoisted(() => {
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { CommandPalette, type PaletteEntry } from "../src/renderer/components/CommandPalette.tsx";
 import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
-import {
-  IdentityInspector,
-  ProviderInspector,
-  SessionInspector,
-} from "../src/renderer/components/runtime/RuntimeInspector.tsx";
+import { IdentityInspector, ProviderInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
+import { SessionInspector } from "../src/renderer/components/sessions/SessionInspector.tsx";
 import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
 import type { DecisionJudgmentConsent, DecisionRow, EventEntry, TaskRow } from "../src/renderer/model/types.ts";
-import type { RuntimeDockRow } from "../src/renderer/runtime-panorama.ts";
+import type { RuntimeDockRow } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
+import type { SessionRow } from "../src/renderer/sessions-model.ts";
 import type { AgentRuntimeSessionDto } from "../../daemon/src/agent-runtime-contract.ts";
 import {
   AGENT_ID,
@@ -38,15 +36,11 @@ import {
 /**
  * W6 Goal 第三个合取项(`task_be076d3ac25b87b79be09b02dd`)原判「只显示前 N 条必须显形」;
  * 2026-08-25 泽宇裁决升格为「不许要求用户点击显形」,站点改为**完整渲染**:
- * 命令面板、任务预览抽屉的事件流、provider/agent inspector 会话段、判定历史。
+ * 命令面板、任务预览抽屉的事件流、provider/agent/session inspector 会话段、判定历史。
  * 每条断言改成两个方向:全量行在 DOM 里 + 「再显示」按钮不存在(负向断言防倒退)。
- * 会话页右栏 SessionInspector 不在本任务文件面内(归会话页重构任务),仍分批。
  */
 
 const noop = () => undefined;
-
-/** en-US 目录里 showMore 家族的尾巴,断言只认这一段,不绑定整句排版。 */
-const remaining = (count: number) => `${count} remaining`;
 
 function paletteEntries(total: number): PaletteEntry[] {
   return Array.from({ length: total }, (_, index) => ({
@@ -72,6 +66,24 @@ function dockRows(total: number): RuntimeDockRow[] {
     runtimeSessionId: `session-${index}`,
     dispatchId: `dispatch-${index}`,
     agentId: AGENT_ID,
+  }));
+}
+/** 会话页 sibling 行(SessionRow):同组轮次行,整组渲染不分批。 */
+function siblingRows(total: number): SessionRow[] {
+  return Array.from({ length: total }, (_, index) => ({
+    kind: "round" as const,
+    roundIndex: total - index,
+    runtimeSessionId: `session-${index}`,
+    dispatchId: `dispatch_${String(index).padStart(24, "0")}`,
+    agentId: AGENT_ID,
+    agentName: "G10 Agent",
+    squadId: null,
+    instanceId: FIXTURE_SESSION_DTO.instanceId,
+    taskId: TASK_A_ID,
+    taskTitle: "G10 探针任务甲",
+    startedAt: `2026-08-20T0${index % 10}:00:00.000Z`,
+    status: "running" as const,
+    delegation: null,
   }));
 }
 
@@ -188,20 +200,23 @@ describe("W6 Goal 第三项:只显示前 N 条必须显形", () => {
     expect(markup).not.toContain("remaining");
   });
 
-  // 会话页右栏归会话页重构任务(task_1994d52c),此处维持原分批契约,只防静默截断。
-  it("session inspector 的同伴会话段(前 8)交代剩余条数", () => {
-    const rows = dockRows(13);
+  // 会话页右栏归会话页重构(task_1994d52c):2026-08-25 裁决同样适用——同伴会话
+  // 整段渲染,不再分批;此处断言与 provider/agent inspector 同构。
+  it("session inspector 的同伴会话段完整渲染全部行", () => {
+    const rows = siblingRows(13);
     const markup = renderToStaticMarkup(
       createElement(SessionInspector, {
         row: rows[0],
-        rows,
+        siblings: rows.slice(1),
+        squadNames: new Map(),
         onSelectSession: noop,
         onOpenTask: noop,
         onSelectEntity: noop,
       }),
     );
-    expect(markup).toContain('data-testid="runtime-inspector-siblings-more"');
-    expect(markup).toContain(remaining(4));
+    expect(markup.match(/>G10 Agent</gu)).toHaveLength(12);
+    expect(markup).not.toContain('data-testid="runtime-inspector-siblings-more"');
+    expect(markup).not.toContain("remaining");
   });
 
   it("canonical 判定历史完整渲染全部 consents", () => {

@@ -2,6 +2,8 @@ export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
 export {
   runtimeProtocolFamilies,
+  runtimeSessionInActivityWindow,
+  runtimeSessionIsRunning,
   runtimeSessionSemanticState,
   sessionProvenance,
   unavailableSessionIdentity,

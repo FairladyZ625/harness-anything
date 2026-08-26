@@ -77,6 +77,7 @@ export function readTaskRuntimeBatchPage(
   readonly taskIds: readonly string[];
   readonly rows: readonly {
     readonly taskId: string;
+    readonly title: string;
     readonly packagePath: string | null;
     readonly sessions: readonly RuntimeSession[];
   }[];
@@ -102,11 +103,13 @@ export function readTaskRuntimeBatchPage(
       `WITH requested(task_order, task_id) AS MATERIALIZED (
       SELECT CAST(key AS INTEGER), value FROM json_each(?)
     )
-    SELECT requested.task_id, task_package.package_path FROM requested JOIN task_snapshot USING(task_id)
+    SELECT requested.task_id, json_extract(task_snapshot.snapshot_json, '$.task.title') AS title,
+      task_package.package_path FROM requested JOIN task_snapshot USING(task_id)
     LEFT JOIN task_package USING(task_id) ORDER BY requested.task_order`,
     )
     .all(encoded) as unknown as readonly {
     readonly task_id: string;
+    readonly title: string;
     readonly package_path: string | null;
   }[];
   const tasks = new Map(taskRows.map((row) => [row.task_id, row])),
@@ -134,7 +137,9 @@ export function readTaskRuntimeBatchPage(
     taskIds,
     rows: taskIds.flatMap((taskId) => {
       const task = tasks.get(taskId);
-      return task ? [{ taskId, packagePath: task.package_path, sessions: sessions.get(taskId) ?? [] }] : [];
+      return task
+        ? [{ taskId, title: task.title, packagePath: task.package_path, sessions: sessions.get(taskId) ?? [] }]
+        : [];
     }),
     page: {
       limit,

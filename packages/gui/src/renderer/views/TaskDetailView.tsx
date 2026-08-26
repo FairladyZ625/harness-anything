@@ -215,6 +215,19 @@ export function TaskDetailView({
             </button>
           );
         })}
+        {/* 会话页重构(任务 task_1994d52c):Task 详情反向入口,落 sessions 页该任务的
+            会话组(tasksessions/<taskId> 可寻址,回撤原路返回)。 */}
+        <button
+          type="button"
+          data-testid="task-open-sessions"
+          onClick={() => onNavigateEntity(`tasksessions/${task.taskId}`)}
+          className={[
+            "ml-auto flex h-8 shrink-0 items-center gap-1 px-2 text-[11px] text-text-faint",
+            "hover:text-accent",
+          ].join(" ")}
+        >
+          会话组 ↗
+        </button>
       </nav>
 
       {/* 宽屏自适应:main 是容器量尺(内容盒宽 = 卡片宽),卡片铺满可用宽度。

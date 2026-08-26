@@ -1,6 +1,7 @@
 import {
   validateAgentRuntimeEvents,
   validateAgentRuntimeOverview,
+  validateAgentRuntimeSessionGroups,
   validateAgentRuntimeSession,
 } from "../agent-runtime-contract.ts";
 import {
@@ -16,6 +17,7 @@ import {
   type AgentRuntimeAttachEvent,
 } from "../agent-runtime-stream.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
+import { validateSquadRunsList } from "../squad-run-contract.ts";
 import {
   validateCatalogPreset,
   validateCatalogRereadReceipt,
@@ -62,6 +64,7 @@ const resultValidators = {
   "repo.tasks.document.read": validateDaemonDocumentRead,
   "repo.tasks.documents.list": validateDaemonTaskDocumentList,
   "repo.agentRuntime.overview": validateAgentRuntimeOverview,
+  "repo.agentRuntime.sessionGroups": validateAgentRuntimeSessionGroups,
   "repo.agentRuntime.sessions.read": validateAgentRuntimeSession,
   "repo.agentRuntime.events.read": validateAgentRuntimeEvents,
   "repo.task.dispatches": validateDaemonTaskDispatches,
@@ -70,6 +73,7 @@ const resultValidators = {
   "repo.agent.skills.list": validateAgentSkillCatalog,
   "repo.squad.entities.list": validateSquadEntityCatalog,
   "repo.squad.entity.read": validateSquadEntityDetail,
+  "repo.squad.runs.list": validateSquadRunsList,
   "repo.gui.catalog.snapshot": validateCatalogSnapshot,
   "repo.gui.catalog.preset.read": validateCatalogPreset,
   "repo.terminal.sessions.list": validateTerminalSessionList,

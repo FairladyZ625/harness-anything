@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
-import type { AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import type {
+  AgentRuntimeSessionDto,
+  AgentRuntimeSessionResult,
+} from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentRuntimeAttachEvent } from "../../../../../daemon/src/agent-runtime-stream.ts";
 import { agentRuntimeClient, openAgentRuntimePane } from "../../agent-runtime-client.ts";
-import { sessionTaskTarget, type RuntimeDockRow } from "../../runtime-panorama.ts";
+import { type SessionRow, shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import {
@@ -35,14 +38,18 @@ const LIVENESS_BADGE: Record<string, string> = { live: "active", exited: "done" 
 const LIVENESS_LIVE: Record<string, boolean> = { live: true };
 const OUTCOME_DOT: Record<string, "failed" | "idle"> = { failed: "failed" };
 
-// The first-class Sessions view: the main area behind the rail's Sessions segment, at the
-// same rank as the runtime / agent / squad / orchestration cards. Every fact comes from the
-// daemon projection — the session read, the attach stream, the ledger row the workspace
-// already holds — nothing is inferred or re-derived here.
+// The first-class Sessions view: the main area behind the group list's selected session, at
+// the same rank as the runtime / agent / squad cards. Every fact comes from the daemon
+// projection — the session read, the attach stream, the group row the page already holds —
+// nothing is inferred or re-derived here.
 export function SessionsPanel({
   repoId,
   runtimeSessionId,
+  snapshot,
+  snapshotError,
   row,
+  squadNames,
+  decisionRefs,
   busy,
   onCancel,
   onOpenTask,
@@ -50,7 +57,11 @@ export function SessionsPanel({
 }: {
   readonly repoId: string;
   readonly runtimeSessionId: string;
-  readonly row: RuntimeDockRow | null;
+  readonly snapshot: AgentRuntimeSessionResult | null;
+  readonly snapshotError: string | null;
+  readonly row: SessionRow | null;
+  readonly squadNames: ReadonlyMap<string, string>;
+  readonly decisionRefs: readonly string[];
   readonly busy: boolean;
   readonly onCancel: (runtimeSessionId: string) => void;
   readonly onOpenTask: (taskId: string) => void;
@@ -64,58 +75,65 @@ export function SessionsPanel({
   useEffect(() => {
     let active = true,
       detach: (() => void) | undefined;
-    setSession(null);
-    setResult(null);
+    setSession(snapshot?.session ?? null);
+    setResult(snapshot?.result?.text ?? null);
     setFrames([]);
     setAttach("detached");
-    setError(null);
+    setError(snapshotError);
+    if (snapshot === null) return () => void (active = false);
     const reread = async () => {
-      const snapshot = await agentRuntimeClient.session(repoId, runtimeSessionId);
+      const current = await agentRuntimeClient.session(repoId, runtimeSessionId);
       if (active) {
-        setSession(snapshot.session);
-        setResult(snapshot.result?.text ?? null);
+        setSession(current.session);
+        setResult(current.result?.text ?? null);
       }
     };
-    void agentRuntimeClient.session(repoId, runtimeSessionId).then(
-      (snapshot) => {
+    setAttach(snapshot.session.attachCapability === "supported" ? "attaching" : "unsupported");
+    if (snapshot.session.attachCapability === "supported")
+      detach = openAgentRuntimePane(repoId, runtimeSessionId, snapshot.session.streamCursor, (value) => {
         if (!active) return;
-        setSession(snapshot.session);
-        setResult(snapshot.result?.text ?? null);
-        setAttach(snapshot.session.attachCapability === "supported" ? "attaching" : "unsupported");
-        if (snapshot.session.attachCapability !== "supported") return;
-        detach = openAgentRuntimePane(repoId, runtimeSessionId, snapshot.session.streamCursor, (value) => {
-          if (!active) return;
-          if ("ok" in value) {
-            setAttach(value.ok ? value.status : value.code);
-            if (value.ok) {
-              const caught = value.events.filter((event) => event.type !== "gap");
-              if (caught.length) setFrames((current) => [...current, ...caught]);
-              if (value.status === "gap" || value.events.some((event) => event.type === "exit")) void reread();
-            }
-            return;
+        if ("ok" in value) {
+          setAttach(value.ok ? value.status : value.code);
+          if (value.ok) {
+            const caught = value.events.filter((event) => event.type !== "gap");
+            if (caught.length) setFrames((current) => [...current, ...caught]);
+            if (value.status === "gap" || value.events.some((event) => event.type === "exit")) void reread();
           }
-          if (value.type === "gap") void reread();
-          else {
-            setFrames((current) => [...current, value]);
-            if (value.type === "exit") void reread();
-          }
-        }).close;
-      },
-      (cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : String(cause));
-      },
-    );
+          return;
+        }
+        if (value.type === "gap") void reread();
+        else {
+          setFrames((current) => [...current, value]);
+          if (value.type === "exit") void reread();
+        }
+      }).close;
     return () => {
       active = false;
       detach?.();
     };
-  }, [repoId, runtimeSessionId]);
+  }, [repoId, runtimeSessionId, snapshot, snapshotError]);
   return (
     <>
       <Crumbs>
         <span>{t("agentRuntime.segSessions")}</span>
         <CrumbSep />
-        <b className="font-semibold text-text-muted">{row?.agentName ?? row?.instanceId ?? runtimeSessionId}</b>
+        {/* G10:载体 ID 出现就必须是路——无 agent 名时回落为 provider 链接而非死文本。 */}
+        {((row?.kind === "round" ? row.agentName : null) ?? row?.instanceId ?? null) ? (
+          <b className="font-semibold text-text-muted">
+            {(row?.kind === "round" ? row.agentName : null) ?? row?.instanceId}
+          </b>
+        ) : session === null ? null : (
+          <b className="font-semibold text-text-muted">
+            <EntityRefLink
+              entityRef={`provider/${session.instanceId}`}
+              onNavigate={onNavigateEntity}
+              title={session.instanceId}
+              className="text-text-muted hover:text-accent hover:underline"
+            >
+              {session.instanceId}
+            </EntityRefLink>
+          </b>
+        )}
         <CrumbSep />
         <EntityRefLink
           entityRef={`session/${runtimeSessionId}`}
@@ -134,6 +152,8 @@ export function SessionsPanel({
         <SessionDetailView
           session={session}
           row={row}
+          squadNames={squadNames}
+          decisionRefs={decisionRefs}
           result={result}
           frames={frames}
           attach={attach}
@@ -152,6 +172,8 @@ export function SessionsPanel({
 export function SessionDetailView({
   session,
   row,
+  squadNames,
+  decisionRefs,
   result,
   frames,
   attach,
@@ -161,7 +183,9 @@ export function SessionDetailView({
   onNavigateEntity,
 }: {
   readonly session: AgentRuntimeSessionDto;
-  readonly row: RuntimeDockRow | null;
+  readonly row: SessionRow | null;
+  readonly squadNames: ReadonlyMap<string, string>;
+  readonly decisionRefs: readonly string[];
   readonly result: string | null;
   readonly frames: readonly AgentRuntimeAttachEvent[];
   readonly attach: string;
@@ -170,13 +194,35 @@ export function SessionDetailView({
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
+  // 任务出口:组行携带 taskId 时用它(带标题),否则回落会话关联的第一个任务。
   const association = session.associations[0],
-    target = sessionTaskTarget(row, session.associations);
+    rowTaskId = row === null ? null : row.taskId,
+    rowTaskTitle = row === null || row.taskTitle === undefined ? null : row.taskTitle,
+    target =
+      rowTaskId !== null
+        ? { taskId: rowTaskId, taskTitle: rowTaskTitle }
+        : association
+          ? { taskId: association.taskId, taskTitle: null }
+          : null,
+    agentName = row?.kind === "round" ? row.agentName : null,
+    squadId = row?.kind === "round" ? row.squadId : null,
+    squadName = squadId === null ? null : (squadNames.get(squadId) ?? squadId);
   return (
     <div data-testid="session-detail">
       <Card>
         <CardHead>
-          <CardTitle>{row?.agentName ?? session.instanceId}</CardTitle>
+          <CardTitle>
+            {agentName ?? (
+              <EntityRefLink
+                entityRef={`provider/${session.instanceId}`}
+                onNavigate={onNavigateEntity}
+                title={session.instanceId}
+                className="text-text hover:text-accent hover:underline"
+              >
+                {session.instanceId}
+              </EntityRefLink>
+            )}
+          </CardTitle>
           <Badge status={LIVENESS_BADGE[session.liveness] ?? "unknown"}>{session.liveness}</Badge>
           <span className={`font-mono text-[10px] ${LIVENESS_TONE[session.liveness]}`}>
             {t("agentRuntime.attachStatus", { status: attach })}
@@ -198,15 +244,29 @@ export function SessionDetailView({
         </CardHead>
         <CardBody>
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Avatar id={row?.agentName ?? session.instanceId} />
-            <b className="text-[13px] font-[650]">{row?.agentName ?? session.instanceId}</b>
-            {row?.squadName && (
+            <Avatar id={agentName ?? session.instanceId} />
+            <b className="text-[13px] font-[650]">
+              {agentName ?? (
+                <EntityRefLink
+                  entityRef={`provider/${session.instanceId}`}
+                  onNavigate={onNavigateEntity}
+                  title={session.instanceId}
+                  className="text-text hover:text-accent hover:underline"
+                >
+                  {session.instanceId}
+                </EntityRefLink>
+              )}
+            </b>
+            {squadName && (
               <span
                 data-testid="session-owner-squad"
-                className="inline-flex items-center gap-1 rounded-[3px] border border-border-strong px-1.5 text-[10px] text-text-muted"
+                className={
+                  "inline-flex items-center gap-1 rounded-[3px] border border-border-strong " +
+                  "px-1.5 text-[10px] text-text-muted"
+                }
               >
                 <LiveDot state="idle" />
-                {row.squadName}
+                {squadName}
               </span>
             )}
             <span className="flex min-w-0 items-center gap-1 font-mono text-[10px] text-text-faint">
@@ -233,7 +293,10 @@ export function SessionDetailView({
               data-task={target.taskId}
               title={t("agentRuntime.openTask")}
               onClick={() => onOpenTask(target.taskId)}
-              className="flex w-full items-center gap-2 rounded border border-border px-2.5 py-1.5 text-left hover:border-accent/50 hover:bg-accent/[0.06]"
+              className={
+                "flex w-full items-center gap-2 rounded border border-border px-2.5 py-1.5 text-left " +
+                "hover:border-accent/50 hover:bg-accent/[0.06]"
+              }
             >
               <span className="min-w-0 flex-1 truncate text-[12px] font-[550]">
                 {target.taskTitle ?? target.taskId}
@@ -243,6 +306,28 @@ export function SessionDetailView({
                 ↗
               </span>
             </button>
+          )}
+          {/* 该任务 Decision:全局关系里 decision→task 边派生;无边时整段隐藏(不占位)。 */}
+          {target !== null && decisionRefs.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-text-faint">
+                {t("agentRuntime.sessionsTaskDecisionLabel")}
+              </span>
+              {decisionRefs.map((decisionRef) => (
+                <EntityRefLink
+                  key={decisionRef}
+                  entityRef={decisionRef}
+                  onNavigate={onNavigateEntity}
+                  title={decisionRef}
+                  className={
+                    "rounded border border-border px-1.5 py-px font-mono text-[10px] text-text-muted " +
+                    "hover:border-accent hover:text-accent"
+                  }
+                >
+                  {shortRef(decisionRef.split("/")[1] ?? decisionRef, 14)}
+                </EntityRefLink>
+              ))}
+            </div>
           )}
         </CardBody>
       </Card>
@@ -324,11 +409,11 @@ export function SessionDetailView({
             <KVRow name="model">{session.definitionSnapshot.model}</KVRow>
             <KVRow name="auth">{session.definitionSnapshot.authMode}</KVRow>
             <KVRow name="task">
-              {(row?.taskId ?? association?.taskId) ? (
+              {target !== null ? (
                 <EntityRefLink
-                  entityRef={`task/${row?.taskId ?? association!.taskId}`}
+                  entityRef={`task/${target.taskId}`}
                   onNavigate={(ref) => onOpenTask(ref.slice(5))}
-                  title={row?.taskId ?? association!.taskId}
+                  title={target.taskId}
                   className="text-accent hover:underline"
                 />
               ) : (
@@ -341,8 +426,23 @@ export function SessionDetailView({
                 ? `${association.lease.phase} · ${association.lease.expiresAt}`
                 : t("agentRuntime.noLease")}
             </KVRow>
-            <KVRow name="dispatch">{row?.dispatchId ?? "—"}</KVRow>
-            <KVRow name="delegation">{row?.delegation ?? "—"}</KVRow>
+            <KVRow name="dispatch">
+              {row?.kind === "round" && target !== null ? (
+                <EntityRefLink
+                  entityRef={`task/${target.taskId}`}
+                  onNavigate={(ref) => onOpenTask(ref.slice(5))}
+                  title={t("agentRuntime.sessionsDispatchChain", { dispatchId: row.dispatchId })}
+                  className="text-accent hover:underline"
+                >
+                  {row.dispatchId}
+                </EntityRefLink>
+              ) : row?.kind === "round" ? (
+                row.dispatchId
+              ) : (
+                "—"
+              )}
+            </KVRow>
+            <KVRow name="delegation">{row?.kind === "round" ? (row.delegation ?? "—") : "—"}</KVRow>
             <KVRow name="last activity">{session.activity.lastObservedAt}</KVRow>
           </KV>
         </CardBody>

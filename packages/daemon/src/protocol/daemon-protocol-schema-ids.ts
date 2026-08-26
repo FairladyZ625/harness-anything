@@ -67,6 +67,9 @@ export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({
 export const DAEMON_AGENT_RUNTIME_OVERVIEW_SCHEMA = Object.freeze({
     id: "daemon.agent-runtime-overview/v1",
   }),
+  DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA = Object.freeze({
+    id: "daemon.agent-runtime-session-groups/v1",
+  }),
   DAEMON_AGENT_RUNTIME_SESSION_SCHEMA = Object.freeze({
     id: "daemon.agent-runtime-session/v1",
   }),
@@ -97,6 +100,9 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
   }),
   DAEMON_SQUAD_ENTITY_DETAIL_SCHEMA = Object.freeze({
     id: "daemon.squad-entity-detail/v1",
+  }),
+  DAEMON_SQUAD_RUN_LIST_SCHEMA = Object.freeze({
+    id: "daemon.squad-run-list/v1",
   });
 
 export const GUI_SYSTEM_STATUS_SCHEMA = Object.freeze({

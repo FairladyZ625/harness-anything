@@ -178,6 +178,22 @@ export function runtimeSessionSemanticState(
   return session.liveness === "live" ? "running" : "unavailable";
 }
 
+export function runtimeSessionIsRunning(session: Pick<RuntimeSession, "liveness" | "outcome">): boolean {
+  return runtimeSessionSemanticState(session) === "running";
+}
+
+/** The session-list range judgment: active work is never hidden by a historical cutoff. */
+export function runtimeSessionInActivityWindow(
+  session: Pick<RuntimeSession, "liveness" | "outcome" | "lastObservedAt">,
+  since: string,
+): boolean {
+  const sinceTime = Date.parse(since);
+  if (!Number.isFinite(sinceTime)) throw new Error("runtime session activity window requires an ISO timestamp");
+  return (
+    session.liveness === "live" || runtimeSessionIsRunning(session) || Date.parse(session.lastObservedAt) >= sinceTime
+  );
+}
+
 interface RuntimePayloads {
   readonly runtime_installation_observed: {
     readonly installationId: string;

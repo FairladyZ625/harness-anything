@@ -1,16 +1,12 @@
 import { useState } from "react";
-import { useInfiniteQuery, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
-import {
-  successfulAgentRuntimeResult,
-  type AgentRuntimeSessionDto,
-} from "../../../../../daemon/src/agent-runtime-contract.ts";
-import { agentEntityClient, type SquadEntityRow } from "../../agent-entity-client.ts";
+import { successfulAgentRuntimeResult } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import { agentEntityClient } from "../../agent-entity-client.ts";
 import { agentRuntimeClient } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
 import { buildDispatchSpawnInput, type DispatchRequest } from "../../dispatch-flow.ts";
-import { joinRuntimePanorama, runtimeDockRows, type RuntimePanoramaTask } from "../../runtime-panorama.ts";
 import { runtimeCommandClient } from "../../runtime-command-client.ts";
 import { submitRuntimeSpawn, type RuntimeSpawnSettlement } from "../../runtime-control.ts";
 import {
@@ -20,10 +16,33 @@ import {
 } from "../../runtime-instance-client.ts";
 import type { RuntimeAuthProbeState } from "../../runtime-auth-presentation.ts";
 import { createGuiExecutionId } from "../../task-actions.ts";
+import { squadRunsClient } from "../../squad-run-client.ts";
+import { type SessionGroupBy } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 
 export type RuntimeSelection = { readonly type: "runtime" | "agent" | "squad" | "session"; readonly id: string };
 const message = (value: unknown): string => (value instanceof Error ? value.message : String(value));
+
+/**
+ * Agent 页 inspector 的相关会话行视图类型。数据源是 daemon 的 sessionGroups
+ * (query=agentId/squadId,每个任务组带最新一轮预览),这里只做展示投影——
+ * agent/squad 归属在 daemon 侧判定,前端不再 join 派工台账。
+ */
+export type RuntimeDockRow = {
+  readonly runtimeSessionId: string;
+  readonly agentId: string | null;
+  readonly agentName: string | null;
+  readonly squadId: string | null;
+  readonly squadName: string | null;
+  readonly instanceId: string;
+  readonly taskId: string | null;
+  readonly taskTitle: string | null;
+  readonly startedAt: string;
+  readonly status: string;
+  readonly liveness: "live" | "stale" | "unknown" | "exited" | null;
+  readonly dispatchId: string | null;
+  readonly delegation: string | null;
+};
 
 // 可寻址选择(W4 路由的运行时段):agent/squad/session 用本名,Runtime 实例在导航
 // 引用里叫 provider/<id>(与一级入口「Provider」同名),选择类型仍是 "runtime"。
@@ -49,8 +68,8 @@ const LIVENESS_LIVE: Record<string, boolean> = { live: true };
 // W6 IA 拆分:聚合页撤销后,「运行时」组三个入口各自只读自己的面——每页一个
 // hook,一处读失败只降级本页(原聚合页「每区域读自己的源」原则在页粒度上延续)。
 // 共享的 busy/feedback 通道与 spawn 收据轮询留在 useRuntimeChannel,三个 hook 都从
-// 这里组装;panorama 读保持 W6 收窄(runtimePanoramaTasks 只查 overview 已关联的
-// taskId),任何入口都不退回全量查询。
+// 这里组装。会话页的分组/检索/范围全部由 daemon 聚合读面完成(sessionGroups +
+// squad.runs.list),前端不拉全会话、不再有 overview 翻页与派工台账批量 join。
 
 // One busy/feedback channel per runtime page: every mutation reports through the same
 // feedback line, the same error line, and (for spawn-shaped actions) the same receipt
@@ -120,70 +139,51 @@ function useRuntimeChannel(repoId: string, refresh: () => Promise<unknown>) {
   };
 }
 
-// The dispatch-ledger panorama, narrowed to the task ids the overview already associates
-// with runtime sessions (W6) and shared verbatim between the sessions and agent entries —
-// one cache key, one batched task-dispatches read.
-function useRuntimePanorama(
+// 会话入口:daemon 聚合读面(sessionGroups + squad.runs.list),一次往返一组数据。
+// 组展开(单任务轮次 / 孤儿会话 / squad run 详情)由视图按展开键补读;唯一的写是 cancel。
+const SESSION_GROUPS_PAGE_LIMIT = 1000;
+const SQUAD_RUNS_LIMIT = 1000;
+export function useSessionsWorkspace(
   repoId: string,
-  tasks: readonly RuntimePanoramaTask[],
-  sessions: readonly AgentRuntimeSessionDto[],
+  list: {
+    readonly groupBy: SessionGroupBy;
+    readonly since: string;
+    readonly query: string;
+    readonly taskId?: string;
+  },
 ) {
-  const client = useQueryClient(),
-    panoramaTasks = runtimePanoramaTasks(tasks, sessions);
-  const squadQuery = {
-    queryKey: ["squads", repoId],
-    queryFn: () => agentEntityClient.listSquads(repoId),
-    staleTime: 4_000,
-  } as const;
-  return useQuery({
-    queryKey: ["runtime-panorama", repoId, panoramaTasks.map((task) => task.taskId).join(",")],
-    queryFn: () =>
-      readPanorama(repoId, panoramaTasks, {
-        listSquads: () => client.fetchQuery(squadQuery),
-        getTaskDispatches: (taskIds) =>
-          harnessClient.getTaskDispatches({
-            repoId,
-            taskIds,
-          }),
-      }),
-    staleTime: 4_000,
-  });
-}
-
-// 会话入口:overview + 收窄 panorama → dock rows。rail 分组、主区会话详情、inspector
-// 兄弟会话全部从这两面派生;唯一的写是 cancel。
-export function useSessionsWorkspace(repoId: string, tasks: readonly RuntimePanoramaTask[]) {
   const client = useQueryClient();
-  const overview = useInfiniteQuery({
-    queryKey: ["runtime-control", repoId, "overview", "pages"],
-    initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) =>
-      agentRuntimeClient.overview(repoId, undefined, {
-        limit: 12,
-        ...(pageParam === null ? {} : { cursor: pageParam }),
+  const groups = useQuery({
+    queryKey: ["session-groups", repoId, list.groupBy, list.since, list.query, list.taskId ?? ""],
+    queryFn: () =>
+      agentRuntimeClient.sessionGroups(repoId, {
+        groupBy: list.groupBy,
+        since: list.taskId === undefined ? list.since : "1970-01-01T00:00:00.000Z",
+        ...(list.taskId === undefined ? (list.query === "" ? {} : { query: list.query }) : { query: list.taskId }),
+        limit: SESSION_GROUPS_PAGE_LIMIT,
       }),
-    getNextPageParam: (lastPage) => lastPage.page?.nextCursor ?? undefined,
-    staleTime: 3_000,
+    staleTime: 4_000,
   });
-  const pages = overview.data?.pages ?? [],
-    sessions = () => pages.flatMap((page) => page.sessions),
-    remainingCount = pages.at(-1)?.page?.remainingCount ?? 0;
-  const panorama = useRuntimePanorama(repoId, tasks, sessions());
+  const squadRuns = useQuery({
+    queryKey: ["squad-runs", repoId, list.since, list.query],
+    queryFn: () =>
+      squadRunsClient.list(repoId, {
+        since: list.since,
+        ...(list.query === "" ? {} : { query: list.query }),
+        limit: SQUAD_RUNS_LIMIT,
+      }),
+    staleTime: 4_000,
+  });
   const channel = useRuntimeChannel(repoId, async () => {
     await Promise.all([
-      client.invalidateQueries({
-        queryKey: ["runtime-control", repoId],
-      }),
-      client.invalidateQueries({ queryKey: ["runtime-panorama", repoId] }),
+      client.invalidateQueries({ queryKey: ["session-groups", repoId] }),
+      client.invalidateQueries({ queryKey: ["squad-runs", repoId] }),
+      client.invalidateQueries({ queryKey: ["sessions-page", repoId] }),
     ]);
   });
   return {
-    overview,
-    panorama,
-    dockRows: runtimeDockRows(panorama.data ?? [], sessions()),
-    remainingCount,
-    loadMoreSessions: () => overview.fetchNextPage(),
-    loadingMoreSessions: overview.isFetchingNextPage,
+    groups,
+    squadRuns,
     busy: channel.busy,
     feedback: channel.feedback,
     error: channel.error,
@@ -193,10 +193,13 @@ export function useSessionsWorkspace(repoId: string, tasks: readonly RuntimePano
   };
 }
 
-// Agent 入口(含 Squad 面):身份层读写 + 派工。兼容 Runtime 实例列表来自 machine
-// 目录;dispatch 的实例校验来自 overview;inspector 的相关会话按 agentId/squadId 过滤
-// panorama 行(收窄读,与会话入口共享缓存键)。
-export function useAgentSquadWorkspace(repoId: string, tasks: readonly RuntimePanoramaTask[]) {
+/** Agent 入口(含 Squad 面):身份层读写 + 派工。兼容 Runtime 实例列表来自 machine
+ * 目录;dispatch 的实例校验来自 overview;inspector 的相关会话来自 sessionGroups 的
+ * agent/squad 检索(每个任务组带最新一轮预览),不再前端 join 派工台账。 */
+export function useAgentSquadWorkspace(
+  repoId: string,
+  related: { readonly kind: "agent" | "squad"; readonly id: string } | null,
+) {
   const client = useQueryClient();
   const overview = useQuery({
     queryKey: ["runtime-control", repoId, "overview"],
@@ -218,14 +221,44 @@ export function useAgentSquadWorkspace(repoId: string, tasks: readonly RuntimePa
     queryFn: runtimeInstanceClient.list,
     staleTime: 2_000,
   });
-  const sessions = () => overview.data?.sessions ?? [];
-  const panorama = useRuntimePanorama(repoId, tasks, sessions());
+  const relatedGroups = useQuery({
+    queryKey: ["session-groups", repoId, "related", related?.kind ?? "", related?.id ?? ""],
+    queryFn: () =>
+      agentRuntimeClient.sessionGroups(repoId, {
+        groupBy: "task",
+        since: "1970-01-01T00:00:00.000Z",
+        query: related!.id,
+      }),
+    enabled: related !== null,
+    staleTime: 4_000,
+  });
+  const dockRows: readonly RuntimeDockRow[] = (relatedGroups.data?.groups ?? []).flatMap((group) =>
+    group.latestRound === null
+      ? []
+      : [
+          {
+            runtimeSessionId: group.latestRound.runtimeSessionId,
+            agentId: related?.kind === "agent" ? related.id : null,
+            agentName: group.latestRound.agentName,
+            squadId: related?.kind === "squad" ? related.id : null,
+            squadName: null,
+            instanceId: group.latestRound.instanceId,
+            taskId: group.taskId ?? null,
+            taskTitle: group.kind === "task" ? group.label : null,
+            startedAt: group.latestRound.startedAt,
+            status: group.latestRound.status,
+            liveness: null,
+            dispatchId: group.latestRound.dispatchId,
+            delegation: null,
+          },
+        ],
+  );
   const channel = useRuntimeChannel(repoId, async () => {
     await Promise.all([
       client.invalidateQueries({
         queryKey: ["runtime-control", repoId],
       }),
-      client.invalidateQueries({ queryKey: ["runtime-panorama", repoId] }),
+      client.invalidateQueries({ queryKey: ["session-groups", repoId] }),
     ]);
   });
   return {
@@ -234,7 +267,8 @@ export function useAgentSquadWorkspace(repoId: string, tasks: readonly RuntimePa
     squads,
     machine,
     instances: machine.data?.instances ?? [],
-    dockRows: runtimeDockRows(panorama.data ?? [], sessions()),
+    relatedGroups,
+    dockRows,
     busy: channel.busy,
     feedback: channel.feedback,
     error: channel.error,
@@ -427,15 +461,6 @@ export function subscriptionCreationNeedsLogin(
   );
 }
 
-export function runtimePanoramaTasks(
-  tasks: readonly RuntimePanoramaTask[],
-  sessions: readonly AgentRuntimeSessionDto[],
-): readonly RuntimePanoramaTask[] {
-  const tasksById = new Map(tasks.map((task) => [task.taskId, task])),
-    taskIds = new Set(sessions.flatMap((session) => session.associations.map((association) => association.taskId)));
-  return [...taskIds].sort().map((taskId) => tasksById.get(taskId) ?? { taskId, title: taskId });
-}
-
 export function useAgentDetail(repoId: string, agentId: string | null) {
   return useQuery({
     queryKey: ["agent-detail", repoId, agentId],
@@ -451,34 +476,6 @@ export function useSquadDetail(repoId: string, squadId: string | null) {
     enabled: squadId !== null,
     staleTime: 4_000,
   });
-}
-
-export async function readPanorama(
-  repoId: string,
-  tasks: readonly RuntimePanoramaTask[],
-  reads: {
-    readonly listSquads: () => Promise<readonly SquadEntityRow[]>;
-    readonly getTaskDispatches: (taskIds: readonly string[]) => ReturnType<typeof harnessClient.getTaskDispatches>;
-  } = {
-    listSquads: () => agentEntityClient.listSquads(repoId),
-    getTaskDispatches: (taskIds) => harnessClient.getTaskDispatches({ repoId, taskIds }),
-  },
-) {
-  if (tasks.length === 0) return [];
-  const chunks = chunkTaskIds(tasks.map(({ taskId }) => taskId)),
-    squadPromise = reads.listSquads(),
-    dispatchPromises = chunks.map((taskIds) => reads.getTaskDispatches(taskIds)),
-    [squadRead] = await Promise.allSettled([squadPromise]),
-    dispatchReads = await Promise.allSettled(dispatchPromises);
-  for (const read of [squadRead, ...dispatchReads]) if (read?.status === "rejected") consumeKnownError(read.reason);
-  const squads = squadRead?.status === "fulfilled" ? squadRead.value : [],
-    dispatches = dispatchReads.flatMap((read) => (read.status === "fulfilled" ? read.value.dispatches : []));
-  return joinRuntimePanorama(tasks, dispatches, new Map(squads.map((squad) => [squad.id, squad])));
-}
-function chunkTaskIds(taskIds: readonly string[]): readonly (readonly string[])[] {
-  const chunks: string[][] = [];
-  for (let offset = 0; offset < taskIds.length; offset += 500) chunks.push(taskIds.slice(offset, offset + 500));
-  return chunks;
 }
 
 // A task-bound dispatch spawns first; only a runtime_task_lease_required rejection triggers
