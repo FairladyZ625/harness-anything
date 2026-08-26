@@ -450,6 +450,7 @@ export type {
   ExecutionEvidenceProjection,
   GuiSubmissionV1,
   ObserveTailCursor,
+  ObserveTailDirection,
   ObserveTailKind,
   ObserveTailPayload,
   ObserveTailResult,

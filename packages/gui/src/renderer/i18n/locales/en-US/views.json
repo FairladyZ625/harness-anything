@@ -329,12 +329,11 @@
   "views.daemonObserve.filterLabel": "Filter keyword",
   "views.daemonObserve.filterPlaceholder": "Filter…",
   "views.daemonObserve.loading": "Reading…",
-  "views.daemonObserve.replaying": "Replaying…",
+  "views.daemonObserve.following": "Following live…",
   "views.daemonObserve.caughtUp": "Caught up",
   "views.daemonObserve.waitingNew": "Caught up with the source; waiting for new records…",
   "views.daemonObserve.noMatch": "No matching rows",
   "views.daemonObserve.rowCount": "{shown} / {total} rows",
-  "views.daemonObserve.retainedNote": "Only the latest {max} rows are kept in memory; filtering applies to retained rows.",
   "views.daemonObserve.unavailableTitle": "This source is unavailable:",
   "views.daemonObserve.unavailableEdge": "The remote edge mirror holds no canonical event stream (events are written on the center and locally); this slice does not pull the center.",
   "views.daemonObserve.unavailableCenterLog": "The repo log for remote-center mode is not wired yet (Fleet TLS request-log pending); the daemon log is unaffected.",
@@ -342,8 +341,9 @@
   "views.daemonObserve.gapTitle": "Retention gap:",
   "views.daemonObserve.gapNotRetained": "The log file the cursor pointed at is no longer retained (rotated/cleaned).",
   "views.daemonObserve.gapOutOfRange": "The cursor offset is beyond the current file length (truncated/rotated).",
-  "views.daemonObserve.gapResync": "Cursor reset; resynchronizing from the head of the retained set.",
-  "views.daemonObserve.gapMarker": "⚠ Retention gap; resynchronized (cursor file {fileId} is no longer readable)",
+  "views.daemonObserve.gapResync": "Cursor reset; returning directly to the latest retained records.",
+  "views.daemonObserve.gapMarker": "⚠ Retention gap (cursor file {fileId} is no longer readable)",
   "views.daemonObserve.errorTitle": "Read failed:",
-  "views.systemView.openObserve": "Open the daemon observe view (event / log streams)"
+  "views.systemView.openObserve": "Open the daemon observe view (event / log streams)",
+  "views.systemView.observeAction": "Observe"
 }
