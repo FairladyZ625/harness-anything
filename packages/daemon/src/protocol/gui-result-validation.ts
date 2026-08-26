@@ -17,6 +17,7 @@ import {
   type AgentRuntimeAttachEvent,
 } from "../agent-runtime-stream.ts";
 import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
+import { validateSchedulesList } from "./schedules-gui-contract.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
 import {
@@ -79,6 +80,7 @@ const resultValidators = {
   "repo.squad.entity.read": validateSquadEntityDetail,
   "repo.squad.runs.list": validateSquadRunsList,
   "repo.squad.run.read": validateSquadRunRead,
+  "repo.schedules.list": validateSchedulesList,
   "repo.gui.catalog.snapshot": validateCatalogSnapshot,
   "repo.gui.catalog.preset.read": validateCatalogPreset,
   "repo.terminal.sessions.list": validateTerminalSessionList,

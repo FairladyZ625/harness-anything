@@ -12,6 +12,7 @@ import { readTaskDispatches } from "./dispatch-read.ts";
 import { listProjectedTaskDocuments, readProjectedDocument } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { readObserveTail } from "./observe-tail.ts";
+import { readSchedulesGui } from "./schedules-gui-read.ts";
 import {
   commandClassForAction,
   commandDescriptorForAction,
@@ -238,6 +239,7 @@ export function createRepoCellApi(context: any): RepoCell {
     "repo.squad.runs.list": (payload: Readonly<Record<string, unknown>>) => context.squadCoordinator.list(payload),
     "repo.squad.run.read": (payload: Readonly<Record<string, unknown>>) =>
       context.squadCoordinator.read(context.requiredCellText(payload.squadRunId, "squadRunId")),
+    "repo.schedules.list": () => readSchedulesGui(context),
     "repo.decisions.list": () => {
       const read = context.projection.listDecisions({}),
         source = makeGitReadinessSource(),

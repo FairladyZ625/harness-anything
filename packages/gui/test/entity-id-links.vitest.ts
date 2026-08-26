@@ -19,6 +19,8 @@ import { AdaptersView } from "../src/renderer/views/AdaptersView.tsx";
 import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
+import { SchedulesView } from "../src/renderer/views/SchedulesView.tsx";
+import { schedulesClient } from "../src/renderer/schedules-client.ts";
 import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { DaemonObserveView } from "../src/renderer/views/DaemonObserveView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
@@ -363,6 +365,59 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
     watermark: 1,
     sourceRevision: 1,
   });
+  // Schedules fixture carries routable session/agent refs so the behavioral scan
+  // covers the new plane's deep-link exits (the ids must stay activatable).
+  vi.spyOn(schedulesClient, "list").mockResolvedValue({
+    ok: true,
+    status: "ready",
+    repoId: REPO_ID,
+    repoMode: "local",
+    viewerNodeId: "local",
+    assignmentResolution: "roster",
+    schedules: [
+      {
+        scheduleId: "heartbeat-probe",
+        name: "Heartbeat probe",
+        state: "armed",
+        definitionResidency: "ledger",
+        definitionRevision: 7,
+        trigger: { kind: "interval", everyMs: 1_800_000, timezone: null, summary: "every 30m" },
+        target: {
+          agentId: AGENT_ID,
+          runtimeInstanceId: PROVIDER_ID,
+          model: null,
+          reasoningEffort: null,
+          cwd: null,
+        },
+        mission: "Probe the runtime surface.",
+        executionAvailability: "local",
+        claim: { nodeId: null, assignmentId: null },
+        nextRunAt: AT,
+        actions: {
+          enable: { available: false, code: "no_changes", nextAction: "The Schedule is already armed." },
+          disable: { available: true, code: null, nextAction: null },
+          runNow: { available: true, code: null, nextAction: null },
+        },
+        activeRun: {
+          occurrenceId: "occurrence_g10",
+          kind: "scheduled",
+          scheduledFor: AT,
+          claimedAt: AT,
+          nodeId: "local",
+          assignmentId: null,
+          attemptIndex: 0,
+          dispatchId: "dispatch_0000000000000000000000ff",
+          runtimeSessionId: SESSION_ID,
+        },
+        lastRun: null,
+        missed: { count: 0, lastMissedAt: null, lastMissedReason: null },
+        automaticEvaluatedThrough: AT,
+        updatedAt: AT,
+      },
+    ],
+    watermark: 1,
+    sourceRevision: 1,
+  } as never);
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -519,6 +574,13 @@ const VIEW_RENDERERS = {
       focusedEntityRef: `session/${SESSION_ID}`,
       onSelectEntity: noop,
       onOpenTask: noop,
+    }),
+  schedules: () =>
+    createElement(SchedulesView, {
+      repoId: REPO_ID,
+      focusedEntityRef: "schedule/heartbeat-probe",
+      onSelectEntity: noop,
+      onFocusSchedule: noop,
     }),
   agentSquad: () =>
     createElement(AgentSquadView, {

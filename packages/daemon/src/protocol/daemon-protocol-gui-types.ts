@@ -18,6 +18,7 @@ import type {
 } from "../agent-runtime-contract.ts";
 import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import type { SquadRunReadResult, SquadRunsListResult } from "../squad-run-contract.ts";
+import type { SchedulesListResult } from "./schedules-gui-contract.ts";
 import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
@@ -128,9 +129,7 @@ export type ObserveTailResult =
 export function validateObserveTailPayload(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return ["observe tail payload must be an object"];
   if (
-    Object.keys(value).some(
-      (key) => key !== "kind" && key !== "direction" && key !== "cursor" && key !== "dispatchId",
-    )
+    Object.keys(value).some((key) => key !== "kind" && key !== "direction" && key !== "cursor" && key !== "dispatchId")
   )
     return ["observe tail payload contains an unknown field"];
   if (!observeTailKinds.includes(value.kind as ObserveTailKind)) return ["observe tail kind is invalid"];
@@ -318,6 +317,7 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.squad.entity.read": Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-detail/v1" }>;
   readonly "repo.squad.runs.list": SquadRunsListResult;
   readonly "repo.squad.run.read": SquadRunReadResult;
+  readonly "repo.schedules.list": SchedulesListResult;
   readonly "repo.gui.catalog.snapshot": JsonObject;
   readonly "repo.gui.catalog.preset.read": JsonObject;
   readonly "repo.terminal.sessions.list": JsonObject;
@@ -380,6 +380,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.squad.run.read": {
     readonly squadRunId: string;
   };
+  readonly "repo.schedules.list": Readonly<Record<string, never>>;
   readonly "repo.gui.catalog.snapshot": Readonly<Record<string, never>>;
   readonly "repo.gui.catalog.preset.read": {
     readonly presetId: string;

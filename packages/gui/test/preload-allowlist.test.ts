@@ -147,7 +147,7 @@ test("preload exposes only the approved API methods", () => {
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
   assert.equal(getPreloadApiCapability("getTasks").status, "shipped");
-  assert.equal(daemonGuiActionMethods.length, 22);
+  assert.equal(daemonGuiActionMethods.length, 25);
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"),
     false,
@@ -180,6 +180,37 @@ test("repo and empty scopes are derived when a GUI contract grows", () => {
   assert.equal(deriveRepoScopedMethods(facets).has("futureRepoReadWithInput"), true);
   assert.equal(deriveEmptyRepoMethods(facets).has("futureRepoRead"), true);
   assert.equal(deriveEmptyRepoMethods(facets).has("futureRepoReadWithInput"), false);
+});
+
+// Schedule actions (S4) take exactly the retry-stable claim trio; the GUI read is an
+// empty repo read, so extra fields never survive the preload boundary.
+test("schedule read and action payloads stay closed at the preload boundary", () => {
+  assert.equal(assertPreloadPayload("listSchedules", { repoId: "repo-a" }), true);
+  assert.throws(
+    () => assertPreloadPayload("listSchedules", { repoId: "repo-a", scheduleId: "heartbeat-probe" }),
+    /not allowed/u,
+  );
+  for (const method of ["enableSchedule", "disableSchedule", "runScheduleNow"]) {
+    assert.equal(
+      assertPreloadPayload(method, { repoId: "repo-a", scheduleId: "heartbeat-probe", idempotencyKey: "retry-1" }),
+      true,
+    );
+    assert.throws(() => assertPreloadPayload(method, { repoId: "repo-a", scheduleId: "heartbeat-probe" }), /invalid/u);
+    assert.throws(
+      () => assertPreloadPayload(method, { repoId: "repo-a", scheduleId: "heartbeat-probe", idempotencyKey: 7 }),
+      /invalid/u,
+    );
+    assert.throws(
+      () =>
+        assertPreloadPayload(method, {
+          repoId: "repo-a",
+          scheduleId: "heartbeat-probe",
+          idempotencyKey: "retry-1",
+          observedDefinitionRevision: 3,
+        }),
+      /invalid/u,
+    );
+  }
 });
 
 // The Agent/Squad detail reads are contract-derived with their own input schema:
