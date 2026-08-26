@@ -236,20 +236,32 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
   vi.spyOn(agentRuntimeClient, "overview").mockImplementation(async (_repoId, taskId?: string) =>
     taskId === TASK_A_ID ? FIXTURE_RUNTIME_OVERVIEW : { ...FIXTURE_RUNTIME_OVERVIEW, sessions: [] },
   );
-  vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(
-    async (payload) =>
-      ({
-        ok: true,
-        status: "ready",
-        taskId: (payload as { readonly taskId: string }).taskId,
-        dispatches:
-          (payload as { readonly taskId: string }).taskId === TASK_A_ID
-            ? [{ ...FIXTURE_DOCK_ROW, dispatchId: "dispatch-g10round", startedAt: AT }]
-            : [],
-        watermark: 1,
-        sourceRevision: 1,
-      }) as never,
-  );
+  vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (payload) => {
+    const requested =
+        "taskId" in payload ? [payload.taskId as string] : [...(payload as { readonly taskIds: string[] }).taskIds],
+      dispatches = requested.includes(TASK_A_ID)
+        ? [{ ...FIXTURE_DOCK_ROW, dispatchId: "dispatch-g10round", startedAt: AT }]
+        : [];
+    return "taskId" in payload
+      ? ({
+          ok: true,
+          status: "ready",
+          taskId: (payload as { readonly taskId: string }).taskId,
+          dispatches,
+          watermark: 1,
+          sourceRevision: 1,
+        } as never)
+      : ({
+          ok: true,
+          status: "ready",
+          taskIds: requested,
+          unavailableTaskIds: [],
+          dispatches,
+          page: { limit: 500, cursor: null, nextCursor: null, remainingCount: 0 },
+          watermark: 1,
+          sourceRevision: 1,
+        } as never);
+  });
   // G6-B 观察页:observe.tail 按请求 kind 回一页含 fixture 实体引用的行,
   // 让死 ID 扫描覆盖到流内 chip 的渲染面(done=true → 挂载期只发生一次读)。
   vi.spyOn(harnessClient, "tailObservability").mockImplementation(async (payload) => {

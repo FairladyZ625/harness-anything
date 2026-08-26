@@ -340,5 +340,19 @@
   "agentRuntime.squadRunPhaseLeaderRunning": "Leader running",
   "agentRuntime.squadRunPhaseWorkersRunning": "Workers running",
   "agentRuntime.squadRunPhaseConverged": "Converged",
-  "agentRuntime.squadRunPhaseFailed": "Failed"
+  "agentRuntime.squadRunPhaseFailed": "Failed",
+  "agentRuntime.squadRunsEmptyWindow": "No squad runs in this range ({range}). Widen the range or clear the search.",
+  "agentRuntime.squadRunSelectEmpty": "Select a squad run to see its leader turns and worker dispatch chain.",
+  "agentRuntime.squadRunLeaderTurnsSection": "Leader turns ({count})",
+  "agentRuntime.squadRunWorkersSection": "Worker attempts ({count})",
+  "agentRuntime.squadRunNoTurns": "No leader turns recorded yet.",
+  "agentRuntime.squadRunNoWorkers": "No worker attempts recorded yet.",
+  "agentRuntime.squadRunNoDispatch": "no dispatch",
+  "agentRuntime.squadRunRejection": "rejected: {reason}",
+  "agentRuntime.squadRunTriggerInitial": "initial mission",
+  "agentRuntime.squadRunTriggerWorkerOutcome": "after worker session {ref}",
+  "agentRuntime.squadRunTriggerWorkerRejected": "after rejected attempt {ref}",
+  "agentRuntime.squadRunDecisionPending": "decision pending",
+  "agentRuntime.squadRunDecisionPlan": "plan · {count} dispatches",
+  "agentRuntime.squadRunDecisionConverged": "declared converged"
 }

@@ -73,6 +73,8 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateRuntimeSessionGroupsPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.squad.runs.list")
     errors.push(...validateSquadRunListPayload((value.params as JsonObject).payload));
+  if (!errors.length && value.method === "repo.squad.run.read")
+    errors.push(...validateSquadRunReadPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "observe.tail")
     errors.push(...validateObserveTailPayload((value.params as JsonObject).payload));
   if (!errors.length && isDaemonGuiActionMethod(value.method))
@@ -111,6 +113,8 @@ function validateRuntimeSessionGroupsPayload(value: unknown): string[] {
   if (!isJsonObject(value)) return ["runtime session groups payload must be an object"];
   if (
     (value.since !== undefined && !Number.isFinite(Date.parse(String(value.since)))) ||
+    (value.agentId !== undefined && !nonEmpty(value.agentId)) ||
+    (value.squadId !== undefined && !nonEmpty(value.squadId)) ||
     (value.limit !== undefined && (!integer(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 1_000))
   )
     return ["runtime session group facets are invalid"];
@@ -124,6 +128,13 @@ function validateSquadRunListPayload(value: unknown): string[] {
     (value.limit !== undefined && (!integer(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 1_000))
   )
     return ["squad run list facets are invalid"];
+  return [];
+}
+
+function validateSquadRunReadPayload(value: unknown): string[] {
+  if (!isJsonObject(value)) return ["squad run read payload must be an object"];
+  if (!nonEmpty(value.squadRunId) || !/^squad_[a-f0-9]{24}$/u.test(String(value.squadRunId)))
+    return ["squad run read requires the squad_<24 lowercase hex characters> handle"];
   return [];
 }
 

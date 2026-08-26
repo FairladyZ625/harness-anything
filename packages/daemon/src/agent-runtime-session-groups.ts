@@ -11,6 +11,9 @@ interface AgentRuntimeSessionGroupsQuery {
   readonly groupBy: AgentRuntimeSessionGroupBy;
   readonly since: string;
   readonly tokens: readonly string[];
+  /** 精确归属过滤(G12 §4b):按派工行的 agentId/squadId 精确匹配,替代子串检索。 */
+  readonly agentId: string | null;
+  readonly squadId: string | null;
   readonly limit: number;
 }
 
@@ -27,8 +30,19 @@ export function buildAgentRuntimeSessionGroups(input: {
     readonly sourceRevision: number;
   };
 }): AgentRuntimeSessionGroupsResult {
-  const dispatchBySession = latestDispatches(input.dispatches),
-    members = input.sessions.flatMap((session) =>
+  // 精确归属:先按 agentId/squadId 过滤派工行,再只保留有匹配派工的会话——
+  // 会话归属由其(过滤后的)最新派工决定,任何 groupBy 都与该过滤可组合。
+  const attributed =
+      input.query.agentId === null && input.query.squadId === null
+        ? input.dispatches
+        : input.dispatches.filter(
+            (row) =>
+              (input.query.agentId === null || row.agentId === input.query.agentId) &&
+              (input.query.squadId === null || row.squadId === input.query.squadId),
+          ),
+    scoped = attributed === input.dispatches ? input.sessions : sessionsWithDispatch(input.sessions, attributed),
+    dispatchBySession = latestDispatches(attributed),
+    members = scoped.flatMap((session) =>
       membersForSession(
         session,
         dispatchBySession.get(session.runtimeSessionId) ?? null,
@@ -232,6 +246,14 @@ function latestDispatches(rows: readonly TaskDispatchRow[]): ReadonlyMap<string,
     if (!known || row.startedAt > known.startedAt) result.set(row.runtimeSessionId, row);
   }
   return result;
+}
+
+function sessionsWithDispatch(
+  sessions: readonly RuntimeSession[],
+  rows: readonly TaskDispatchRow[],
+): readonly RuntimeSession[] {
+  const attributed = new Set(rows.map((row) => row.runtimeSessionId));
+  return sessions.filter((session) => attributed.has(session.runtimeSessionId));
 }
 
 function sessionGroupStatus(session: RuntimeSession, dispatch: TaskDispatchRow | null): AgentRuntimeSessionGroupStatus {
