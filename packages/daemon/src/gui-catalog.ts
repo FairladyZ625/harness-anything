@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { localAdapterProviderMetadata } from "../../adapters/local/src/index.ts";
 import { multicaAdapterProviderMetadata } from "../../adapters/multica/src/index.ts";
+import type { SettingsV1 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
 import { presetRuntimeDefaults } from "../../preset/src/preset-system.ts";
 import {
@@ -28,23 +29,28 @@ type PresetEntry = {
 export function openGuiCatalog(input: {
   readonly repoId: string;
   readonly rootDir: string;
+  readonly readSettings: () => SettingsV1;
   readonly now?: () => string;
 }) {
   const now = input.now ?? (() => new Date().toISOString());
   let lastDigest: string | null = null;
   const snapshot = async () => {
-    const defaults = presetRuntimeDefaults(input.rootDir),
+    const settings = input.readSettings(),
+      defaults = presetRuntimeDefaults(settings),
       presets = (await runPresetAction({
         rootDir: input.rootDir,
         action: { kind: "preset-list", verticalId: defaults.verticalId },
+        settings,
       })) as readonly PresetEntry[],
       vertical = (await runPresetAction({
         rootDir: input.rootDir,
         action: { kind: "vertical-validate" },
+        settings,
       })) as JsonObject,
       templates = (await runPresetAction({
         rootDir: input.rootDir,
         action: { kind: "template-list" },
+        settings,
       })) as readonly JsonObject[],
       verticalRow = vertical.vertical as JsonObject;
     const projectedPresets = presets.map((entry) => ({
@@ -104,7 +110,8 @@ export function openGuiCatalog(input: {
   };
   const preset = async (payload: JsonObject) => {
     const presetId = requiredCatalogText(payload.presetId, "presetId"),
-      defaults = presetRuntimeDefaults(input.rootDir),
+      settings = input.readSettings(),
+      defaults = presetRuntimeDefaults(settings),
       inspected = (await runPresetAction({
         rootDir: input.rootDir,
         action: {
@@ -114,6 +121,7 @@ export function openGuiCatalog(input: {
           ...(text(payload.profileId) ? { profileId: payload.profileId } : {}),
           ...(text(payload.locale) ? { locale: payload.locale } : {}),
         },
+        settings,
       })) as {
         readonly manifest: JsonObject;
         readonly snapshot: JsonObject;

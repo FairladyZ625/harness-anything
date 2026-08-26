@@ -5,13 +5,16 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
 import {
   acceptBuiltinVerticalScriptPlan,
   prepareBuiltinVerticalScriptExecution,
-  runPresetAction,
+  runPresetAction as runProjectedPresetAction,
 } from "../src/index.ts";
 
 import { write, writePackage } from "./preset-resolver.fixtures.ts";
+const runPresetAction = (input: Parameters<typeof runProjectedPresetAction>[0]) =>
+  runProjectedPresetAction({ ...input, settings: INITIAL_SETTINGS_V1 });
 test("generic list, inspect, check, install, and uninstall actions share the canonical inventory", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-actions-")),
     sourceRoot = path.join(rootDir, "source");

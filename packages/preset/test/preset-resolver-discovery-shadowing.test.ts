@@ -4,13 +4,16 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
 import {
   compileRepoTaskPackage,
   installPresetPackage,
-  runPresetAction,
+  runPresetAction as runProjectedPresetAction,
 } from "../src/index.ts";
 
 import { write, writePackage } from "./preset-resolver.fixtures.ts";
+const runPresetAction = (input: Parameters<typeof runProjectedPresetAction>[0]) =>
+  runProjectedPresetAction({ ...input, settings: INITIAL_SETTINGS_V1 });
 test("template and script discovery expose builtin content with typed vertical execution", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-discovery-"));
   try {
@@ -293,7 +296,7 @@ test("user shadow lifecycle dry-runs mutation, blocks invalid content, and revea
   }
 });
 
-test("profile precedence is explicit action, then settings, then manifest default", () => {
+test("profile precedence is explicit action, then projected settings", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-profile-")),
     sourceRoot = path.join(rootDir, "source"),
     profiles = [
@@ -319,9 +322,11 @@ test("profile precedence is explicit action, then settings, then manifest defaul
       source: path.join(sourceRoot, "profile-task"),
       userRoot: path.join(rootDir, ".harness/presets"),
     });
+    let settings = { ...INITIAL_SETTINGS_V1, defaultProfile: "relaxed" };
     const compile = (profileId?: string) =>
       compileRepoTaskPackage({
         rootDir,
+        settings,
         taskId: "task-profile",
         action: {
           kind: "task-create",
@@ -331,10 +336,7 @@ test("profile precedence is explicit action, then settings, then manifest defaul
         },
       }).snapshot.profile.id;
     assert.equal(compile(), "relaxed");
-    write(
-      path.join(rootDir, "harness/harness.yaml"),
-      "settings:\n  defaultProfile: baseline\n",
-    );
+    settings = INITIAL_SETTINGS_V1;
     assert.equal(compile(), "baseline");
     assert.equal(compile("relaxed"), "relaxed");
   } finally {

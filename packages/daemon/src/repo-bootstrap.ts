@@ -7,6 +7,8 @@ import {
   assertCurrentWriter,
   configureLedgerMaintenance,
   DEFAULT_TASK_WIP_LIMIT,
+  INITIAL_SETTINGS_V1,
+  readSettingsFacet,
   resolveHarnessLayout,
   type WriterGeneration,
   type WriterGenerationToken,
@@ -87,12 +89,31 @@ export function resolveRepoBootstrap(
     throw repoBootstrapError("bootstrap_identity_unavailable", "Bootstrap requires the local socket owner boundary.");
   const rootDir = canonicalRoot(request.rootDir, true),
     repoId = workspaceId(request.repoId),
-    config = `schema: harness-anything/v1\nname: ${request.name === undefined ? repoId : JSON.stringify(request.name)}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n  contextRoot: harness/context\n  governanceRoot: harness/governance\n  adrRoot: harness/adr\n  milestonesRoot: harness/milestones\nsettings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n  locale: en-US\n  tasks:\n    wipLimit: ${DEFAULT_TASK_WIP_LIMIT}\n  scaffolds:\n    task: governance/task-scaffold.json\n    repository: governance/repository-scaffold.json\n`,
+    config = [
+      "schema: harness-anything/v1",
+      `name: ${request.name === undefined ? repoId : JSON.stringify(request.name)}`,
+      "layout:",
+      "  authoredRoot: harness",
+      "  localRoot: .harness",
+      "  contextRoot: harness/context",
+      "  governanceRoot: harness/governance",
+      "  adrRoot: harness/adr",
+      "  milestonesRoot: harness/milestones",
+      "settings:",
+      `  defaultVertical: ${INITIAL_SETTINGS_V1.defaultVertical}`,
+      `  defaultPreset: ${INITIAL_SETTINGS_V1.defaultPreset}`,
+      `  defaultProfile: ${INITIAL_SETTINGS_V1.defaultProfile}`,
+      `  locale: ${INITIAL_SETTINGS_V1.locale}`,
+      "  tasks:",
+      `    wipLimit: ${DEFAULT_TASK_WIP_LIMIT}`,
+      "  scaffolds:",
+      `    task: ${INITIAL_SETTINGS_V1.scaffolds.task}`,
+      `    repository: ${INITIAL_SETTINGS_V1.scaffolds.repository}`,
+      "",
+    ].join("\n"),
     people = `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: request.personId, displayName: request.displayName, roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${os.hostname()}`, subject: String(uid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
-    identityDocuments = [
-      machineDocument(rootDir, "harness/harness.yaml", config, request.name),
-      machineDocument(rootDir, "harness/people.yaml", people),
-    ],
+    harnessDocument = machineDocument(rootDir, "harness/harness.yaml", config, request.name),
+    identityDocuments = [harnessDocument, machineDocument(rootDir, "harness/people.yaml", people)],
     initialized = identityDocuments.every(({ existingSha256 }) => existingSha256 !== null);
   if (initialized !== identityDocuments.some(({ existingSha256 }) => existingSha256 !== null))
     throw repoBootstrapError(
@@ -116,7 +137,7 @@ export function resolveRepoBootstrap(
     rootDir,
     repoId,
     machineDocuments,
-    repositoryPlan: compileRepoRepositoryScaffold(rootDir),
+    repositoryPlan: compileRepoRepositoryScaffold(rootDir, readSettingsFacet(harnessDocument.body)),
     ...(request.configureOnly ? { configureOnly: true } : {}),
   };
 }

@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { t, useI18n } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
 import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
 import { readTimeZoneOverride, supportedTimeZones, systemTimeZone, writeTimeZoneOverride } from "../model/time.ts";
+import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
+import type { SettingsSuccess } from "../api-client.ts";
 
 const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: "dark", label: "暗色" },
@@ -24,9 +26,20 @@ const SHORTCUTS: { keys: string[]; desc: string }[] = [
   { keys: ["Enter"], desc: "在列表中打开任务详情" },
 ];
 
-type SettingsTab = "appearance" | "language" | "shortcuts" | "notifications" | "data" | "terminal" | "privacy" | "sync";
+type SettingsTab =
+  | "repository"
+  | "appearance"
+  | "language"
+  | "shortcuts"
+  | "notifications"
+  | "data"
+  | "terminal"
+  | "privacy"
+  | "sync";
+type SettingsDraft = SettingsSuccess["settings"];
 
 const SETTINGS_TABS: { id: SettingsTab; label: string; desc: string }[] = [
+  { id: "repository", label: "仓库", desc: "默认值与脚手架" },
   { id: "appearance", label: "外观", desc: "主题与状态色" },
   { id: "language", label: "语言", desc: "界面文案" },
   { id: "shortcuts", label: "快捷键", desc: "全局操作" },
@@ -37,15 +50,109 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; desc: string }[] = [
   { id: "sync", label: "账号与同步", desc: "V2 能力" },
 ];
 
-export function SettingsView() {
+export function SettingsView({ repoId }: { readonly repoId: string }) {
   const { mode, setMode, uiScale, setUiScale } = useTheme();
   const { locale, setLocale } = useI18n();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("repository");
   const [notifyOnReady, setNotifyOnReady] = useState(true);
   const [timeZoneOverride, setTimeZoneOverride] = useState(() => readTimeZoneOverride() ?? "");
+  const settingsQuery = useSettingsQuery(repoId);
+  const settingsMutation = useSettingsMutation(repoId);
+  const [draft, setDraft] = useState<SettingsDraft | null>(null);
+
+  useEffect(() => {
+    if (!settingsQuery.data) return;
+    setDraft(settingsQuery.data.settings);
+    setLocale(settingsQuery.data.settings.locale);
+  }, [settingsQuery.data, setLocale]);
+
+  const updateDraft = (
+    field: keyof Pick<SettingsDraft, "defaultVertical" | "defaultPreset" | "defaultProfile">,
+    value: string,
+  ) => setDraft((current) => (current ? { ...current, [field]: value } : current));
 
   const renderActivePanel = () => {
     switch (activeTab) {
+      case "repository":
+        if (settingsQuery.error)
+          return (
+            <Section title="仓库设置">
+              <div className="p-4 text-danger">{String(settingsQuery.error)}</div>
+            </Section>
+          );
+        if (settingsQuery.isPending || !draft)
+          return (
+            <Section title="仓库设置">
+              <div className="p-4 text-text-faint">正在读取规范设置…</div>
+            </Section>
+          );
+        return (
+          <Section
+            title="仓库设置"
+            action={
+              <button
+                className={BTN}
+                disabled={settingsMutation.isPending}
+                onClick={() =>
+                  settingsMutation.mutate({
+                    defaultVertical: draft.defaultVertical,
+                    defaultPreset: draft.defaultPreset,
+                    defaultProfile: draft.defaultProfile,
+                    locale: draft.locale,
+                    taskScaffold: draft.scaffolds.task,
+                    repositoryScaffold: draft.scaffolds.repository,
+                  })
+                }
+              >
+                {settingsMutation.isPending ? "提交中…" : "提交到仓库"}
+              </button>
+            }
+          >
+            <Row label="默认垂直" desc="新任务使用的垂直能力目录">
+              <SettingInput
+                label="默认垂直"
+                value={draft.defaultVertical}
+                onChange={(value) => updateDraft("defaultVertical", value)}
+              />
+            </Row>
+            <Row label="默认预设" desc="新任务的 preset id">
+              <SettingInput
+                label="默认预设"
+                value={draft.defaultPreset}
+                onChange={(value) => updateDraft("defaultPreset", value)}
+              />
+            </Row>
+            <Row label="默认配置" desc="preset profile id">
+              <SettingInput
+                label="默认配置"
+                value={draft.defaultProfile}
+                onChange={(value) => updateDraft("defaultProfile", value)}
+              />
+            </Row>
+            <Row label="任务脚手架" desc="settings.scaffolds.task">
+              <SettingInput
+                label="任务脚手架"
+                value={draft.scaffolds.task}
+                onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, task: value } })}
+              />
+            </Row>
+            <Row label="仓库脚手架" desc="settings.scaffolds.repository">
+              <SettingInput
+                label="仓库脚手架"
+                value={draft.scaffolds.repository}
+                onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, repository: value } })}
+              />
+            </Row>
+            <Row label="实体" desc="规范 Settings 投影">
+              <span className="font-mono text-[12px] text-text-muted">
+                settings/{draft.settingsId} · {draft.schema}
+              </span>
+            </Row>
+            {settingsMutation.error ? (
+              <div className="px-3 py-2 text-[12px] text-danger">{String(settingsMutation.error)}</div>
+            ) : null}
+          </Section>
+        );
       case "appearance":
         return (
           <Section title="外观">
@@ -96,7 +203,11 @@ export function SettingsView() {
                   { key: "zh-CN", label: "中文" },
                   { key: "en-US", label: t("views.settingsView.english") },
                 ]}
-                onChange={setLocale}
+                onChange={(next) => {
+                  setLocale(next);
+                  setDraft((current) => (current ? { ...current, locale: next } : current));
+                  settingsMutation.mutate({ locale: next });
+                }}
               />
             </Row>
           </Section>
@@ -131,7 +242,10 @@ export function SettingsView() {
           <Section title="通知">
             <Row
               label="封存就绪桌面通知"
-              desc="closeoutReadiness=ready 时发送桌面通知（Electron Notification API 尚未接入,coming soon）"
+              desc={[
+                "closeoutReadiness=ready 时发送桌面通知",
+                "（Electron Notification API 尚未接入,coming soon）",
+              ].join("")}
             >
               <Toggle checked={notifyOnReady} onChange={setNotifyOnReady} disabled />
             </Row>
@@ -189,7 +303,10 @@ export function SettingsView() {
             {["多设备同步", "远程项目访问", "手机端审阅"].map((f) => (
               <div
                 key={f}
-                className="ui-meta flex items-center gap-2 border-b border-border px-3 py-1.5 text-text-faint last:border-b-0"
+                className={[
+                  "ui-meta flex items-center gap-2 border-b border-border px-3 py-1.5",
+                  "text-text-faint last:border-b-0",
+                ].join(" ")}
               >
                 <span className="font-mono text-[12px]">·</span>
                 {f}
@@ -204,14 +321,19 @@ export function SettingsView() {
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
         <h1 className="ui-title font-mono font-semibold">{t("settings.title")}</h1>
-        <p className="ui-meta mt-0.5 text-text-faint">应用偏好 · 原型内除主题外多数项为本地模拟，不会写入磁盘。</p>
+        <p className="ui-meta mt-0.5 text-text-faint">仓库默认值由守护进程提交到 harness.yaml；外观偏好保留在本机。</p>
       </header>
 
       <div
         data-testid="settings-content"
         className="grid w-full grid-cols-1 gap-4 p-4 lg:grid-cols-[12rem_minmax(0,1fr)]"
       >
-        <nav className="flex gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1 lg:flex-col lg:overflow-visible">
+        <nav
+          className={[
+            "flex gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1",
+            "lg:flex-col lg:overflow-visible",
+          ].join(" ")}
+        >
           {SETTINGS_TABS.map((tab) => (
             <button
               key={tab.id}
@@ -231,5 +353,27 @@ export function SettingsView() {
         <div className="min-w-0">{renderActivePanel()}</div>
       </div>
     </div>
+  );
+}
+
+function SettingInput({
+  label,
+  value,
+  onChange,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+}) {
+  return (
+    <input
+      aria-label={label}
+      className={[
+        "w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1",
+        "font-mono text-[12px] text-text",
+      ].join(" ")}
+      value={value}
+      onChange={(event) => onChange(event.currentTarget.value)}
+    />
   );
 }

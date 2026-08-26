@@ -389,6 +389,7 @@ export default Object.freeze({
     "G6-A",
     "G8",
     "Schedule-S3",
+    "Settings-Kind",
   ]),
   commands: effectiveDaemonOwnedProtocolCommands,
   methods: Object.freeze([
@@ -469,6 +470,7 @@ export type {
   WorkspaceId,
 } from "./daemon-protocol-identifiers.ts";
 export {
+  daemonMethodAcceptsPayload,
   daemonMethodAcceptsPayloadExecutor,
   DaemonProtocolContractError,
   isDaemonGuiActionMethod,
@@ -535,6 +537,7 @@ export {
   serializeDaemonWorkspaceSummary,
   serializeObserveTailResult,
   validateDaemonDocumentRead,
+  validateDaemonSettingsRead,
   validateDaemonGuiCommandReceipt,
   validateDaemonProtocolError,
   validateDaemonTaskDispatches,

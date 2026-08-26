@@ -87,7 +87,8 @@ export function createDaemonHostRepositoryApi(
       const steps = ["publication-readback"];
       try {
         const layout = resolveHarnessLayout(prepared.rootDir),
-          reparsed = compileRepoRepositoryScaffold(prepared.rootDir),
+          settings = (await cell.read("repo.settings.read")).settings,
+          reparsed = compileRepoRepositoryScaffold(prepared.rootDir, settings),
           expected = new Map(prepared.repositoryPlan.documents.map((document) => [document.slot, document.path]));
         if (
           reparsed.documents.length !== expected.size ||
@@ -104,6 +105,7 @@ export function createDaemonHostRepositoryApi(
         steps.push("daemon-l2-readiness");
         const smoke = compileRepoTaskPackage({
           rootDir: prepared.rootDir,
+          settings,
           taskId: "configure-verify-smoke",
           action: { kind: "task-create", title: "Configure Verify" },
         });

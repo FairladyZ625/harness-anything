@@ -309,6 +309,7 @@ export function completionContext(
   const contract = JSON.parse(contractDocument.body) as Record<string, unknown>,
     current = compileRepoTaskPackage({
       rootDir: cell.rootDir,
+      settings: cell.settingsActions.read(),
       taskId,
       action: {
         kind: "task-create",
