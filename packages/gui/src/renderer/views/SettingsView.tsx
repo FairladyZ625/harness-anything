@@ -186,7 +186,10 @@ export function SettingsView() {
         <p className="ui-meta mt-0.5 text-text-faint">应用偏好 · 原型内除主题外多数项为本地模拟，不会写入磁盘。</p>
       </header>
 
-      <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 p-4 lg:grid-cols-[12rem_minmax(0,1fr)]">
+      <div
+        data-testid="settings-content"
+        className="grid w-full grid-cols-1 gap-4 p-4 lg:grid-cols-[12rem_minmax(0,1fr)]"
+      >
         <nav className="flex gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1 lg:flex-col lg:overflow-visible">
           {SETTINGS_TABS.map((tab) => (
             <button

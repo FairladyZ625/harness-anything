@@ -186,7 +186,7 @@ export function SystemView({ activeRepoId }: { readonly activeRepoId: string | n
           </div>
         )}
       </header>
-      <div className="mx-auto grid w-full max-w-6xl gap-4 p-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
+      <div data-testid="system-content" className="grid w-full gap-4 p-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
         <section className="rounded-lg border border-border bg-surface p-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-[13px] font-semibold">{t("views.settingsView.systemDaemonStatus")}</h2>
