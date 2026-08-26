@@ -7,7 +7,6 @@ import {
   checkGateHarvestDeclarations,
   checkPrBodyBilingual,
   countBilingualSignals,
-  shouldSkipPrBodyBilingualCheck,
 } from "./check-pr-body-bilingual.mjs";
 
 const validEnglish = [
@@ -259,34 +258,4 @@ test("signal counter counts CJK characters and Latin words independently", () =>
     cjkChars: 4,
     latinWords: 3,
   });
-});
-
-test("Mergify merge-queue verification PR skips body template lint by author and branch alone", () => {
-  // Mergify's draft body format changed (2026-08-27: no "merge-queue-pr" payload marker any more),
-  // so the body carries no fingerprint; author + queue branch are the only stable signals.
-  const body = [
-    "**⏳ The pull request [#1849](/o/r/pull/1849) is queued for merge and currently being checked. ⏳**",
-    "",
-    "```yaml",
-    "pull_requests:",
-    "  - number: 1849",
-    "```",
-  ].join("\n");
-
-  assert.equal(
-    shouldSkipPrBodyBilingualCheck({ body, headRefName: "mergify/merge-queue/e00b463e2d", authorLogin: "mergify[bot]" }),
-    true,
-  );
-  assert.equal(
-    shouldSkipPrBodyBilingualCheck({ body, headRefName: "mergify/merge-queue/e00b463e2d", authorLogin: "app/mergify" }),
-    true,
-  );
-});
-
-test("Mergify skip requires both bot author and queue branch", () => {
-  assert.equal(shouldSkipPrBodyBilingualCheck({ headRefName: "codex/not-a-queue", authorLogin: "mergify[bot]" }), false);
-  assert.equal(
-    shouldSkipPrBodyBilingualCheck({ headRefName: "mergify/merge-queue/e00b463e2d", authorLogin: "FairladyZ625" }),
-    false,
-  );
 });

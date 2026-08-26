@@ -355,7 +355,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "No human-authored PR allowlist; PR body must satisfy the bilingual template contract. Mergify merge-queue verification PRs are narrowly skipped when authored by mergify[bot], using a mergify/merge-queue/* head ref, and carrying the Mergify queue payload marker."
+        "notes": "No human-authored PR allowlist; PR body must satisfy the bilingual template contract. Mergify merge-queue verification PRs are narrowly skipped when authored by a recognized Mergify bot using a mergify/merge-queue/* head ref."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -363,6 +363,7 @@
         "protectedSurfaces": [
           ".github/pull_request_template.md",
           "tools/check-pr-body-bilingual.mjs",
+          "tools/gates/mergify-queue-draft.mjs",
           "tools/gate-manifest.json"
         ]
       },
@@ -393,7 +394,8 @@
       "positiveControl": {
         "status": "covered",
         "evidence": [
-          "tools/check-pr-body-bilingual.test.mjs"
+          "tools/check-pr-body-bilingual.test.mjs",
+          "tools/gates/test/mergify-queue-draft.test.mjs"
         ]
       }
     },
