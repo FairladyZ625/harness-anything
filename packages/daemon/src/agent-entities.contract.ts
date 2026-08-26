@@ -5,6 +5,11 @@ export interface AgentSkillDeclarationV1 {
   readonly id: string;
   readonly path: string;
 }
+export interface AgentFallbackDeclarationV1 {
+  readonly enabled: boolean;
+  readonly chain: readonly { readonly instance: string; readonly model?: string }[];
+  readonly backoff: { readonly baseMs: number; readonly maxMs: number; readonly maxAttempts: number };
+}
 export type AgentRole = "worker" | "commander";
 export interface AgentDeclarationV1 {
   readonly id: string;
@@ -16,6 +21,7 @@ export interface AgentDeclarationV1 {
   readonly skills?: readonly AgentSkillDeclarationV1[];
   readonly prompts?: readonly string[];
   readonly preset?: string;
+  readonly fallback?: AgentFallbackDeclarationV1;
 }
 export interface SquadDeclarationV1 {
   readonly id: string;
@@ -66,7 +72,7 @@ export function entityNonEmpty(value: unknown): value is string {
 export function validateAgentDeclarationV1(value: unknown): readonly string[] {
   if (!isEntityRecord(value)) return ["agent declaration must be a JSON object; expected agent-declaration/v1."];
   const errors: string[] = [],
-    fields = [...AGENT_DECLARATION_V1_SCHEMA.required, "role", "model", "skills", "prompts", "preset"];
+    fields = [...AGENT_DECLARATION_V1_SCHEMA.required, "role", "model", "skills", "prompts", "preset", "fallback"];
   for (const field of Object.keys(value).filter((field) => !fields.includes(field)))
     errors.push(`agent declaration field "${field}" is unknown; remove it.`);
   for (const field of AGENT_DECLARATION_V1_SCHEMA.required)
@@ -101,6 +107,7 @@ export function validateAgentDeclarationV1(value: unknown): readonly string[] {
     errors.push('agent declaration field "prompts" must be an array of non-empty strings.');
   if (value.preset !== undefined && !entityNonEmpty(value.preset))
     errors.push('agent declaration field "preset" must be a non-empty preset id.');
+  if (value.fallback !== undefined) errors.push(...agentFallbackErrors(value.fallback));
   return errors;
 }
 export function validateSquadDeclarationV1(value: unknown): readonly string[] {
@@ -174,6 +181,57 @@ function agentSkills(value: unknown): value is readonly AgentSkillDeclarationV1[
     new Set(value.map((item) => (item as AgentSkillDeclarationV1).id)).size === value.length
   );
 }
+function agentFallbackErrors(value: unknown): readonly string[] {
+  if (!isEntityRecord(value)) return ['agent declaration field "fallback" must be an object.'];
+  const errors: string[] = [],
+    fields = ["enabled", "chain", "backoff"];
+  if (Object.keys(value).some((key) => !fields.includes(key)) || fields.some((key) => !Object.hasOwn(value, key)))
+    errors.push('agent declaration field "fallback" must contain exactly enabled, chain, and backoff.');
+  if (typeof value.enabled !== "boolean") errors.push('agent declaration field "fallback.enabled" must be boolean.');
+  if (
+    !Array.isArray(value.chain) ||
+    value.chain.length === 0 ||
+    !value.chain.every(
+      (candidate) =>
+        isEntityRecord(candidate) &&
+        Object.keys(candidate).every((key) => ["instance", "model"].includes(key)) &&
+        Object.hasOwn(candidate, "instance") &&
+        entityNonEmpty(candidate.instance) &&
+        (candidate.model === undefined || entityNonEmpty(candidate.model)),
+    )
+  )
+    errors.push(
+      'agent declaration field "fallback.chain" must be a non-empty array of exact {instance, model?} candidates.',
+    );
+  if (!isEntityRecord(value.backoff)) {
+    errors.push('agent declaration field "fallback.backoff" must be an object.');
+    return errors;
+  }
+  const backoff = value.backoff;
+  const backoffFields = ["baseMs", "maxMs", "maxAttempts"];
+  if (
+    Object.keys(backoff).some((key) => !backoffFields.includes(key)) ||
+    backoffFields.some((key) => !Object.hasOwn(backoff, key))
+  )
+    errors.push('agent declaration field "fallback.backoff" must contain exactly baseMs, maxMs, and maxAttempts.');
+  const { baseMs, maxMs, maxAttempts } = backoff;
+  if (!Number.isSafeInteger(baseMs) || Number(baseMs) < 0)
+    errors.push('agent declaration field "fallback.backoff.baseMs" must be a non-negative integer.');
+  if (!Number.isSafeInteger(maxMs) || Number(maxMs) < Number(baseMs))
+    errors.push('agent declaration field "fallback.backoff.maxMs" must be an integer greater than or equal to baseMs.');
+  if (
+    !Number.isSafeInteger(maxAttempts) ||
+    Number(maxAttempts) < 1 ||
+    (Array.isArray(value.chain) && Number(maxAttempts) > value.chain.length)
+  )
+    errors.push(
+      [
+        'agent declaration field "fallback.backoff.maxAttempts" must be positive and ',
+        "cannot exceed fallback.chain length.",
+      ].join(""),
+    );
+  return errors;
+}
 // GUI read envelopes for the identity layers. These validators live in this pure contract
 // module (no runtime imports) because the schema-closure gate imports them from a checkout
 // with no installed dependencies; packages/daemon/src/agent-entities.ts keeps the reads.
@@ -218,6 +276,7 @@ const agentCatalogRowFields = Object.freeze(["id", "name", "runtimeType", "role"
     "skills",
     "prompts",
     "preset",
+    "fallback",
   ]),
   squadDetailFields = Object.freeze(["id", "name", "leader", "workers", "roster"]);
 function catalogErrors(
@@ -292,6 +351,7 @@ const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
     row.preset !== null && row.preset !== undefined && !entityNonEmpty(row.preset)
       ? ["agent detail preset must be null or a non-empty preset id."]
       : [],
+    row.fallback !== null && row.fallback !== undefined ? agentFallbackErrors(row.fallback) : [],
   ].flat();
 const squadDetailChecks = (row: Record<string, unknown>): readonly string[] =>
   [

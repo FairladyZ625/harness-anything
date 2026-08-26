@@ -61,6 +61,7 @@ export async function adoptRuntimes(context: any): Promise<void> {
       reasoningEffort: metadata.reasoningEffort,
       startedAt: stream.header.startedAt,
       stream: reopenDispatchStream(context.input.rootDir, stream.header),
+      fallbackAttempt: stream.header.fallbackAttempt ?? null,
       resumeProviderSessionId: stream.header.resumeProviderSessionId ?? null,
       providerSessionId: stream.providerSessionId,
     });

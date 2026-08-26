@@ -28,6 +28,7 @@ export const FLEET_TASK_COMMAND_KINDS = Object.freeze([
   "task-progress-append",
   "task-submit",
   "task-release",
+  "task-transition",
   "task-show",
 ] as const);
 export type FleetTaskCommandKind = (typeof FLEET_TASK_COMMAND_KINDS)[number];
@@ -358,6 +359,12 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
   ),
   "task-submit": optionalShape({ kind: one("task-submit"), taskId: id, executionId: id, submission: record }, ["kind"]),
   "task-release": optionalShape({ kind: one("task-release"), taskId: id, reason: text }, ["kind"]),
+  "task-transition": optionalShape({ kind: one("task-transition"), taskId: id, status: one("blocked"), reason: text }, [
+    "kind",
+    "taskId",
+    "status",
+    "reason",
+  ]),
   "task-show": optionalShape({ kind: one("task-show"), taskId: id }, ["kind", "taskId"]),
 };
 const taskAction: Check = (value) =>

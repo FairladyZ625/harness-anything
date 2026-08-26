@@ -110,6 +110,17 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
       !nonEmpty(row.executionId) ||
       !nonEmpty(row.runtimeSessionId) ||
       !nonEmpty(row.instanceId) ||
+      !nonEmpty(row.attemptGroupId) ||
+      !integer(row.attemptIndex) ||
+      Number(row.attemptIndex) < 0 ||
+      !isJsonObject(row.provider) ||
+      !nonEmpty(row.provider.instance) ||
+      (row.provider.model !== null && !nonEmpty(row.provider.model)) ||
+      (row.classification !== null &&
+        !["provider_fault", "worker_stop", "gate_red"].includes(String(row.classification))) ||
+      (row.reason !== null && !nonEmpty(row.reason)) ||
+      (row.fallbackState !== null && !["scheduled", "dispatched", "exhausted"].includes(String(row.fallbackState))) ||
+      (row.nextDispatchId !== null && !nonEmpty(row.nextDispatchId)) ||
       (row.agentId !== undefined && !nonEmpty(row.agentId)) ||
       (row.agentName !== undefined && !nonEmpty(row.agentName)) ||
       (row.delegatedByAgentId !== undefined && !nonEmpty(row.delegatedByAgentId)) ||

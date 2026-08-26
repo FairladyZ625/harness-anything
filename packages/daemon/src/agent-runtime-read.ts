@@ -13,6 +13,7 @@ import {
   type AgentRuntimeEventsResult,
   type AgentRuntimeInstallationDto,
   type AgentRuntimeOverviewResult,
+  type AgentRuntimeAttemptChainDto,
   type AgentRuntimeSessionDto,
   type AgentRuntimeSessionGroupsResult,
   type AgentRuntimeSessionResult,
@@ -29,6 +30,7 @@ export function makeAgentRuntimeReadModel(input: {
     readonly sessions: readonly RuntimeSession[];
     readonly events: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   }) => readonly TaskDispatchRow[];
+  readonly readAttemptChain?: (runtimeSessionId: string) => AgentRuntimeAttemptChainDto | undefined;
   readonly projection: TaskProjection;
   readonly store: CanonicalEventStore;
   readonly stream: AgentRuntimeStreamHub;
@@ -48,10 +50,12 @@ export function makeAgentRuntimeReadModel(input: {
     session: RuntimeSession,
     installation: RuntimeInstallation | null | undefined,
     definitionSnapshot: AgentDefinitionSnapshot,
+    includeAttemptChain = false,
   ): AgentRuntimeSessionDto => {
     if (!installation) {
       throw coded("runtime_installation_not_found", `Runtime installation ${session.installationId} was not found.`);
     }
+    const attemptChain = includeAttemptChain ? input.readAttemptChain?.(session.runtimeSessionId) : undefined;
     return {
       runtimeSessionId: session.runtimeSessionId,
       providerSessionId: session.providerSessionId,
@@ -75,6 +79,7 @@ export function makeAgentRuntimeReadModel(input: {
           lease: lease ? { phase: lease.phase, expiresAt: lease.expiresAt } : null,
         };
       }),
+      ...(attemptChain ? { attemptChain } : {}),
       activity: {
         lastObservedAt: session.lastObservedAt,
         outcome: session.outcome,
@@ -191,6 +196,7 @@ export function makeAgentRuntimeReadModel(input: {
           session,
           input.projection.readRuntimeInstallation(session.installationId),
           definitionFor(session),
+          true,
         ),
         result: resultFor(session),
         watermark: cut.watermark,

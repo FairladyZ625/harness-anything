@@ -262,6 +262,13 @@ export interface TaskDispatchRow {
   readonly executionId: string;
   readonly runtimeSessionId: string;
   readonly instanceId: string;
+  readonly attemptGroupId: string;
+  readonly attemptIndex: number;
+  readonly provider: { readonly instance: string; readonly model: string | null };
+  readonly classification: "provider_fault" | "worker_stop" | "gate_red" | null;
+  readonly reason: string | null;
+  readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
+  readonly nextDispatchId: string | null;
   readonly agentId?: string;
   readonly agentName?: string;
   readonly delegatedByAgentId?: string;

@@ -21,11 +21,15 @@ type ActiveRuntimeBase = Omit<
   | "lossReason"
   | "lossSignal"
   | "lossExitCode"
-> & { readonly providerSessionId?: string | null };
+  | "toolCallObserved"
+  | "providerFault"
+  | "fallbackAttempt"
+> & { readonly providerSessionId?: string | null; readonly fallbackAttempt?: ActiveRuntime["fallbackAttempt"] };
 
 export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
   return {
     ...base,
+    fallbackAttempt: base.fallbackAttempt ?? null,
     buffer: "",
     durableOutputCount: 0,
     stdoutObserved: false,
@@ -45,6 +49,8 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     lossReason: null,
     lossSignal: null,
     lossExitCode: null,
+    toolCallObserved: false,
+    providerFault: null,
   };
 }
 
@@ -53,27 +59,31 @@ export function attachActiveRuntime(
   active: ActiveRuntime,
   resumeObservation?: ResumeProcessObservation,
 ): void {
-  const runtimeSessionId = active.runtimeSessionId, handlers = {
-    output: (chunk: string, persisted = false) => {
-      if (context.processes.get(runtimeSessionId) === active) context.input.schedule(async () => {
+  const runtimeSessionId = active.runtimeSessionId,
+    handlers = {
+      output: (chunk: string, persisted = false) => {
+        if (context.processes.get(runtimeSessionId) === active)
+          context.input.schedule(async () => {
+            if (context.processes.get(runtimeSessionId) === active) {
+              active.stdoutObserved ||= chunk.length > 0;
+              await context.consumeChunk(active, chunk, false, persisted);
+            }
+          });
+      },
+      error: (chunk: string) => {
         if (context.processes.get(runtimeSessionId) === active) {
-          active.stdoutObserved ||= chunk.length > 0;
-          await context.consumeChunk(active, chunk, false, persisted);
+          context.input.schedule(() => context.captureErrorOutput(active, chunk));
         }
-      });
-    },
-    error: (chunk: string) => {
-      if (context.processes.get(runtimeSessionId) === active) {
-        context.input.schedule(() => context.captureErrorOutput(active, chunk));
-      }
-    },
-    exit: (code: number | null) => {
-      if (context.processes.get(runtimeSessionId) === active) context.input.schedule(async () => {
-        if (context.processes.get(runtimeSessionId) !== active) return;
-        await context.consumeChunk(active, "", true); await context.publishExit(active, code);
-      });
-    },
-  };
+      },
+      exit: (code: number | null) => {
+        if (context.processes.get(runtimeSessionId) === active)
+          context.input.schedule(async () => {
+            if (context.processes.get(runtimeSessionId) !== active) return;
+            await context.consumeChunk(active, "", true);
+            await context.publishExit(active, code);
+          });
+      },
+    };
   if (resumeObservation) resumeObservation.activate(handlers);
   else {
     active.process.onOutput(handlers.output);

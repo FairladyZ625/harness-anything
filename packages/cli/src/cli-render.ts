@@ -5,16 +5,8 @@ export function humanError(receipt: Record<string, unknown>): {
   readonly code: string;
   readonly hint: string;
 } {
-  const outer =
-      receipt.error && typeof receipt.error === "object"
-        ? (receipt.error as Record<string, unknown>)
-        : {},
-    code =
-      typeof outer.code === "string"
-        ? outer.code
-        : typeof receipt.code === "string"
-          ? receipt.code
-          : "unknown",
+  const outer = receipt.error && typeof receipt.error === "object" ? (receipt.error as Record<string, unknown>) : {},
+    code = typeof outer.code === "string" ? outer.code : typeof receipt.code === "string" ? receipt.code : "unknown",
     hint =
       typeof outer.hint === "string"
         ? outer.hint
@@ -23,10 +15,7 @@ export function humanError(receipt: Record<string, unknown>): {
           : typeof receipt.next === "string"
             ? receipt.next
             : "Command failed.",
-    leader =
-      receipt.leader && typeof receipt.leader === "object"
-        ? (receipt.leader as Record<string, unknown>)
-        : null,
+    leader = receipt.leader && typeof receipt.leader === "object" ? (receipt.leader as Record<string, unknown>) : null,
     nested = leader ? humanError(leader) : null;
   return code === "squad_leader_failed" && nested && nested.code !== "unknown"
     ? {
@@ -62,6 +51,11 @@ export function renderDispatchRow(value: unknown): string {
     String(row.status),
     String(row.runtimeSessionId),
     String(row.outcome ?? "-"),
+    `attempt:${String(row.attemptIndex ?? 0)}`,
+    `provider:${String((row.provider as Record<string, unknown> | undefined)?.instance ?? row.instanceId ?? "-")}`,
+    `model:${String((row.provider as Record<string, unknown> | undefined)?.model ?? "-")}`,
+    `classification:${String(row.classification ?? "-")}`,
+    `fallback:${String(row.fallbackState ?? "-")}`,
     `worker:${String(row.agentId ?? "-")}`,
     `leader:${String(row.delegatedByAgentId ?? "-")}`,
     `squad:${String(row.squadId ?? "-")}`,
@@ -74,14 +68,8 @@ export function renderDispatchRow(value: unknown): string {
   ].join("\t");
 }
 
-export function contractMigrationDryRunSummary(
-  receipt: Record<string, unknown>,
-): string | undefined {
-  if (
-    receipt.command !== "task-contract-migrate" ||
-    typeof receipt.evidence !== "string"
-  )
-    return undefined;
+export function contractMigrationDryRunSummary(receipt: Record<string, unknown>): string | undefined {
+  if (receipt.command !== "task-contract-migrate" || typeof receipt.evidence !== "string") return undefined;
   let payload: unknown;
   try {
     payload = JSON.parse(receipt.evidence);
@@ -89,29 +77,17 @@ export function contractMigrationDryRunSummary(
     consumeKnownError(error);
     return undefined;
   }
-  if (!payload || typeof payload !== "object" || Array.isArray(payload))
-    return undefined;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
   const report = (payload as Record<string, unknown>).report,
     manual = (payload as Record<string, unknown>).manual;
-  if (
-    (payload as Record<string, unknown>).applied !== false ||
-    !Array.isArray(report) ||
-    !Array.isArray(manual)
-  )
+  if ((payload as Record<string, unknown>).applied !== false || !Array.isArray(report) || !Array.isArray(manual))
     return undefined;
   const rows = report.map(renderReceiptRow),
     scalars = Object.entries(payload)
-      .filter(
-        ([key, value]) =>
-          key !== "report" &&
-          key !== "manual" &&
-          (value === null || typeof value !== "object"),
-      )
+      .filter(([key, value]) => key !== "report" && key !== "manual" && (value === null || typeof value !== "object"))
       .map(([key, value]) => `${key}=${String(value)}`)
       .join("  ");
-  return [`report:\n${rows.length ? rows.join("\n") : "(none)"}`, scalars]
-    .filter(Boolean)
-    .join("\n");
+  return [`report:\n${rows.length ? rows.join("\n") : "(none)"}`, scalars].filter(Boolean).join("\n");
 }
 
 export function renderReceiptRow(row: unknown): string {

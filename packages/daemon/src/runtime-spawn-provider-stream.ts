@@ -11,6 +11,7 @@ import { readDispatchStream, scrubProviderValue } from "./dispatch-stream.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
+import { observeProviderFault } from "./runtime-provider-fault.ts";
 
 export async function publishRuntimeEvent<T extends AgentRuntimeEventV1["type"]>(
   context: any,
@@ -111,6 +112,7 @@ export async function consumeProviderLine(
     parsed.planObserved === true ||
     (parsed.finalText !== undefined && context.isStructuredSuccessResult(parsed.finalText));
   if (parsed.planIncomplete !== undefined) active.planIncomplete = parsed.planIncomplete;
+  observeProviderFault(active, parsed);
 }
 
 export async function consumeDurableOutput(
@@ -156,12 +158,8 @@ export function durableOutputRecordCount(records: readonly Record<string, unknow
   return durableOutputRecords(records).length;
 }
 
-function durableOutputRecords(
-  records: readonly Record<string, unknown>[],
-): readonly Record<string, unknown>[] {
-  return records.filter(
-    (record) => record.kind === "provider_event" || record.kind === "provider_output_invalid",
-  );
+function durableOutputRecords(records: readonly Record<string, unknown>[]): readonly Record<string, unknown>[] {
+  return records.filter((record) => record.kind === "provider_event" || record.kind === "provider_output_invalid");
 }
 
 export function captureErrorOutput(context: any, active: ActiveRuntime, chunk: string): void {

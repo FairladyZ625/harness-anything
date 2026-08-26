@@ -18,6 +18,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { adjudicateDocIntent } from "./doc-sync-adjudication.ts";
 import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
+import type { DispatchExitClassification } from "./runtime-fallback-contract.ts";
 import { detail, directPaths, matches, recycleClaims } from "./doc-sync-details.ts";
 import {
   docSyncError,
@@ -53,6 +54,11 @@ export interface RuntimeDispatchArchive {
   readonly resultRef: string;
   readonly resultText: string;
   readonly eventStreamRef?: string;
+  readonly attemptGroupId: string;
+  readonly attemptIndex: number;
+  readonly provider: { readonly instance: string; readonly model: string };
+  readonly classification: DispatchExitClassification;
+  readonly reason: string;
 }
 
 export function archiveRuntimeDispatch(
@@ -91,6 +97,11 @@ export function archiveRuntimeDispatch(
       exitCode: value.exitCode,
       resultRef: value.resultRef,
       ...(value.eventStreamRef ? { eventStreamRef: value.eventStreamRef } : {}),
+      attemptGroupId: value.attemptGroupId,
+      attemptIndex: value.attemptIndex,
+      provider: value.provider,
+      classification: value.classification,
+      reason: value.reason,
     },
     documents = [
       ...(existingMissionRef === null

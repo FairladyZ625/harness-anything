@@ -73,6 +73,26 @@ test("registered declaration Entity kinds explain the same contract shape from t
   );
 });
 
+test("Agent fallback is an exact bounded attempt declaration", () => {
+  const fallback = {
+    enabled: true,
+    chain: [{ instance: "provider-a" }, { instance: "provider-b", model: "model-b" }],
+    backoff: { baseMs: 25, maxMs: 100, maxAttempts: 2 },
+  };
+  assert.deepEqual(validateAgentDeclarationV1({ ...agent, fallback }), []);
+  assert.match(
+    validateAgentDeclarationV1({ ...agent, fallback: { ...fallback, unknown: true } }).join("\n"),
+    /fallback.*unknown/u,
+  );
+  assert.match(
+    validateAgentDeclarationV1({
+      ...agent,
+      fallback: { ...fallback, backoff: { ...fallback.backoff, maxAttempts: 3 } },
+    }).join("\n"),
+    /cannot exceed fallback\.chain length/u,
+  );
+});
+
 test("RuntimeSession explains its identity, task handoff, status vocabulary, and executes edge", () => {
   const explanation = explainEntityKind("runtime-session");
   assert.equal(explanation.id.field, "runtimeSessionId");

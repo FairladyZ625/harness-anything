@@ -1,9 +1,6 @@
 import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
-import {
-  relayRuntimeAuthTerminal,
-  runCommandThroughDaemon,
-} from "./daemon/client.ts";
+import { relayRuntimeAuthTerminal, runCommandThroughDaemon } from "./daemon/client.ts";
 import { randomUUID } from "node:crypto";
 
 // Sign-in is interactive by design: the daemon spawns the provider CLI on the instance's isolated
@@ -23,14 +20,9 @@ export async function runRuntimeAuthCommand(
           : `runtime-auth-${randomUUID()}`,
     },
   });
-  if (spawned.ok !== true || typeof spawned.sessionId !== "string")
-    return spawned;
+  if (spawned.ok !== true || typeof spawned.sessionId !== "string") return spawned;
   try {
-    const exitCode = await relayRuntimeAuthTerminal(
-      command,
-      spawned.sessionId,
-      writeActivity,
-    );
+    const exitCode = await relayRuntimeAuthTerminal(command, spawned.sessionId, writeActivity);
     return {
       ...spawned,
       command: command.action.kind,
@@ -50,7 +42,9 @@ export async function runRuntimeAuthCommand(
 export function renderRuntimeStatus(value: JsonObject): string {
   if (value.session && typeof value.session === "object") {
     const session = value.session as Record<string, unknown>,
-      activity = session.activity as Record<string, unknown>;
+      activity = session.activity as Record<string, unknown>,
+      attemptChain = session.attemptChain as Record<string, unknown> | undefined,
+      attempts = Array.isArray(attemptChain?.attempts) ? (attemptChain.attempts as Record<string, unknown>[]) : [];
     return [
       `session: ${session.runtimeSessionId}`,
       `instance: ${session.instanceId}`,
@@ -58,11 +52,28 @@ export function renderRuntimeStatus(value: JsonObject): string {
       `liveness: ${session.liveness}`,
       `outcome: ${activity.outcome ?? "-"}`,
       `result: ${activity.resultRef ?? "-"}`,
+      ...(attempts.length
+        ? [
+            `attempt-group: ${String(attemptChain?.attemptGroupId)}`,
+            "ATTEMPT\tPROVIDER\tMODEL\tCLASSIFICATION\tFALLBACK\tREASON",
+            ...attempts.map((attempt) => {
+              const provider = attempt.provider as Record<string, unknown>;
+              return [
+                attempt.attemptIndex,
+                provider.instance,
+                provider.model ?? "-",
+                attempt.classification ?? "-",
+                attempt.fallbackState ?? "-",
+                attempt.reason ?? "-",
+              ]
+                .map(String)
+                .join("\t");
+            }),
+          ]
+        : []),
     ].join("\n");
   }
-  const sessions = Array.isArray(value.sessions)
-    ? (value.sessions as Record<string, unknown>[])
-    : [];
+  const sessions = Array.isArray(value.sessions) ? (value.sessions as Record<string, unknown>[]) : [];
   return sessions.length
     ? [
         "SESSION\tINSTANCE\tLIVENESS\tOUTCOME\tRESULT",
@@ -82,11 +93,7 @@ export function renderRuntimeStatus(value: JsonObject): string {
     : "No runtime sessions.";
 }
 
-export function runtimeRejected(
-  command: string,
-  code: string,
-  hint: string,
-): JsonObject {
+export function runtimeRejected(command: string, code: string, hint: string): JsonObject {
   return {
     schema: "command-receipt/v2",
     ok: false,

@@ -21,6 +21,7 @@ import {
   type WriteSource,
 } from "../../kernel/src/index.ts";
 import type { RuntimePermissionMode } from "./runtime-permissions.ts";
+import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 
 const streamSchema = "runtime-dispatch-stream/v1" as const;
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
@@ -57,6 +58,8 @@ export interface DispatchStreamHeader {
   readonly model?: string;
   readonly reasoningEffort?: string | null;
   readonly resumeProviderSessionId?: string | null;
+  readonly mission?: string;
+  readonly fallbackAttempt?: RuntimeFallbackAttempt;
 }
 
 export type DispatchStreamRecord = Record<string, unknown>;
@@ -79,6 +82,18 @@ export interface DispatchStreamWriter {
       readonly timedOut: boolean;
       readonly errorCode?: string;
     },
+    occurredAt: string,
+  ) => void;
+  readonly appendAttemptOutcome: (value: RuntimeAttemptOutcome, occurredAt: string) => void;
+  readonly appendFallbackState: (
+    value:
+      | {
+          readonly state: "scheduled";
+          readonly delayMs: number;
+          readonly nextProvider: { readonly instance: string; readonly model?: string };
+        }
+      | { readonly state: "dispatched"; readonly nextDispatchId: string; readonly nextRuntimeSessionId: string }
+      | { readonly state: "exhausted"; readonly reason: string },
     occurredAt: string,
   ) => void;
 }
@@ -130,6 +145,10 @@ export function openDispatchStream(
       appendJsonl(target, { schema: streamSchema, kind: "provider_binding", occurredAt, providerSessionId }),
     appendExitNotification: (value, occurredAt) =>
       appendJsonl(target, { schema: streamSchema, kind: "exit_notification", occurredAt, ...value }),
+    appendAttemptOutcome: (value, occurredAt) =>
+      appendJsonl(target, { schema: streamSchema, kind: "attempt_outcome", occurredAt, ...value }),
+    appendFallbackState: (value, occurredAt) =>
+      appendJsonl(target, { schema: streamSchema, kind: "fallback_state", occurredAt, ...value }),
   };
 }
 
@@ -224,6 +243,9 @@ export function readDispatchStream(
   readonly header: DispatchStreamHeader;
   readonly providerSessionId: string | null;
   readonly process: DispatchProcessState | null;
+  readonly attemptOutcome: RuntimeAttemptOutcome | null;
+  readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
+  readonly nextDispatchId: string | null;
   readonly records: readonly DispatchStreamRecord[];
 } | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
@@ -232,7 +254,10 @@ export function readDispatchStream(
     first = parseRecord(lines[0]);
   if (!isHeader(first) || first.dispatchId !== dispatchId) return null;
   let providerSessionId: string | null = null,
-    processState: DispatchProcessState | null = null;
+    processState: DispatchProcessState | null = null,
+    attemptOutcome: RuntimeAttemptOutcome | null = null,
+    fallbackState: "scheduled" | "dispatched" | "exhausted" | null = null,
+    nextDispatchId: string | null = null;
   const records = lines
     .slice(1)
     .map(parseRecord)
@@ -252,8 +277,21 @@ export function readDispatchStream(
         exited: true,
       };
     }
+    if (record.kind === "attempt_outcome" && isRuntimeAttemptOutcome(record)) attemptOutcome = record;
+    if (record.kind === "fallback_state" && ["scheduled", "dispatched", "exhausted"].includes(String(record.state))) {
+      fallbackState = record.state as typeof fallbackState;
+      nextDispatchId = typeof record.nextDispatchId === "string" ? record.nextDispatchId : nextDispatchId;
+    }
   }
-  return { header: first, providerSessionId, process: processState, records };
+  return {
+    header: first,
+    providerSessionId,
+    process: processState,
+    attemptOutcome,
+    fallbackState,
+    nextDispatchId,
+    records,
+  };
 }
 
 export function readDispatchStreams(rootDir: string): readonly NonNullable<ReturnType<typeof readDispatchStream>>[] {
@@ -390,6 +428,24 @@ function parseRecord(value: string | undefined): Record<string, unknown> | null 
 }
 function isDispatchIndexRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function isRuntimeAttemptOutcome(
+  value: Record<string, unknown>,
+): value is Record<string, unknown> & RuntimeAttemptOutcome {
+  const provider = value.provider;
+  return (
+    ["provider_fault", "worker_stop", "gate_red"].includes(String(value.classification)) &&
+    typeof value.reason === "string" &&
+    typeof value.attemptGroupId === "string" &&
+    Number.isSafeInteger(value.attemptIndex) &&
+    (value.attemptIndex as number) >= 0 &&
+    provider !== null &&
+    typeof provider === "object" &&
+    !Array.isArray(provider) &&
+    typeof (provider as Record<string, unknown>).instance === "string" &&
+    typeof (provider as Record<string, unknown>).model === "string" &&
+    ["claude", "codex", "agy"].includes(String((provider as Record<string, unknown>).kind))
+  );
 }
 function isHeader(value: Record<string, unknown> | null): value is Record<string, unknown> & DispatchStreamHeader {
   return (

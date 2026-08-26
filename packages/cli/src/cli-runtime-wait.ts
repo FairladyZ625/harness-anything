@@ -30,24 +30,15 @@ export async function waitForRuntime(
   if (current.ok !== true) return current;
   if (stream)
     try {
-      detach = await streamRuntimeThroughDaemon(
-        command,
-        runtimeSessionId,
-        (value) => renderRuntimeFrames(value, writeActivity),
+      detach = await streamRuntimeThroughDaemon(command, runtimeSessionId, (value) =>
+        renderRuntimeFrames(value, writeActivity),
       );
     } catch (error) {
       consumeKnownError(error);
-      writeActivity(
-        `[stream] ${error instanceof Error ? error.message : String(error)}\n`,
-      );
+      writeActivity(`[stream] ${error instanceof Error ? error.message : String(error)}\n`);
     }
-  let statusReader:
-    | Awaited<ReturnType<typeof openRuntimeStatusReader>>
-    | undefined;
-  if (
-    (current as unknown as AgentRuntimeSessionResult).session.activity
-      .outcome === null
-  )
+  let statusReader: Awaited<ReturnType<typeof openRuntimeStatusReader>> | undefined;
+  if ((current as unknown as AgentRuntimeSessionResult).session.activity.outcome === null)
     try {
       statusReader = await openRuntimeStatusReader(command, runtimeSessionId);
     } catch (error) {
@@ -65,10 +56,7 @@ export async function waitForRuntime(
     }
   };
   try {
-    while (
-      (current as unknown as AgentRuntimeSessionResult).session.activity
-        .outcome === null
-    ) {
+    while ((current as unknown as AgentRuntimeSessionResult).session.activity.outcome === null) {
       await new Promise((resolve) => setTimeout(resolve, 250));
       current = await readNext();
       if (current.ok !== true) return current;
@@ -95,18 +83,13 @@ export async function waitForRuntime(
     outcome,
     runtimeSessionId,
     ...(spawned ? { spawn: spawned } : {}),
-    ...(reason
-      ? { code: providerExit ? "provider_exit" : "runtime_failed", reason }
-      : {}),
+    ...(reason ? { code: providerExit ? "provider_exit" : "runtime_failed", reason } : {}),
     summary: text || reason || `${commandName}: ${outcome}`,
     exitCode: outcome === "succeeded" ? 0 : 1,
   };
 }
 
-export async function waitForTaskDispatches(
-  command: ThinCommand,
-  taskId: string,
-): Promise<JsonObject> {
+export async function waitForTaskDispatches(command: ThinCommand, taskId: string): Promise<JsonObject> {
   const readCommand = {
     ...command,
     method: "repo.task.dispatches",
@@ -120,19 +103,22 @@ export async function waitForTaskDispatches(
     if (current.ok !== true) return current;
   }
   const dispatches: readonly unknown[] = Array.isArray(current.dispatches) ? current.dispatches : [],
-    noDispatches = dispatches.length === 0,
-    cancelled = dispatches.some((row: unknown) => (row as Record<string, unknown>).status === "cancelled"),
-    lost = dispatches.some((row: unknown) => {
+    finalDispatches = dispatches.filter(
+      (row: unknown) => (row as Record<string, unknown>).fallbackState !== "dispatched",
+    ),
+    noDispatches = finalDispatches.length === 0,
+    cancelled = finalDispatches.some((row: unknown) => (row as Record<string, unknown>).status === "cancelled"),
+    lost = finalDispatches.some((row: unknown) => {
       const status = row && typeof row === "object" ? (row as Record<string, unknown>).status : undefined;
       return status === "lost";
     }),
-    failed = dispatches.some((row: unknown) => {
+    failed = finalDispatches.some((row: unknown) => {
       const status = row && typeof row === "object" ? (row as Record<string, unknown>).status : undefined;
       return status === "failed";
     }),
     outcome = noDispatches
       ? "unknown"
-      : lost || dispatches.some((row: unknown) => (row as Record<string, unknown>).status === "unknown")
+      : lost || finalDispatches.some((row: unknown) => (row as Record<string, unknown>).status === "unknown")
         ? "unknown"
         : failed
           ? "failed"
@@ -144,18 +130,36 @@ export async function waitForTaskDispatches(
     command: "runtime-status",
     taskId,
     outcome,
-    summary:
-      `runtime-status task ${taskId}: ${dispatches.length} dispatch${dispatches.length === 1 ? "" : "es"} ${outcome}`,
+    summary: [
+      `runtime-status task ${taskId}:`,
+      `${dispatches.length} dispatch${dispatches.length === 1 ? "" : "es"}`,
+      outcome,
+    ].join(" "),
     exitCode: outcome === "succeeded" ? 0 : 1,
   };
 }
 
 function taskDispatchesSettled(value: JsonObject): boolean {
   if (!Array.isArray(value.dispatches)) return false;
-  return (value.dispatches as readonly unknown[]).every((row: unknown) => {
+  const rows = value.dispatches as readonly unknown[],
+    dispatchIds = rows.flatMap((row) =>
+      row &&
+      typeof row === "object" &&
+      !Array.isArray(row) &&
+      typeof (row as Record<string, unknown>).dispatchId === "string"
+        ? [String((row as Record<string, unknown>).dispatchId)]
+        : [],
+    );
+  return rows.every((row: unknown) => {
     if (!row || typeof row !== "object" || Array.isArray(row)) return false;
     const record = row as Record<string, unknown>,
       status = String(record.status);
+    if (record.fallbackState === "scheduled") return false;
+    if (
+      record.fallbackState === "dispatched" &&
+      (typeof record.nextDispatchId !== "string" || !dispatchIds.includes(record.nextDispatchId))
+    )
+      return false;
     if (["succeeded", "failed", "cancelled", "lost"].includes(status)) return true;
     // A just-exited process can briefly have status=unknown while its outcome event is
     // still being projected. Only an explicit unknown outcome is terminal.
@@ -163,10 +167,7 @@ function taskDispatchesSettled(value: JsonObject): boolean {
   });
 }
 
-export function renderRuntimeFrames(
-  value: unknown,
-  write: (text: string) => void,
-): void {
+export function renderRuntimeFrames(value: unknown, write: (text: string) => void): void {
   if (!value || typeof value !== "object") return;
   const record = value as Record<string, unknown>;
   if (Array.isArray(record.events)) {

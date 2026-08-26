@@ -8,6 +8,7 @@ import {
   readDispatchLiveIndex,
   readDispatchStream,
   readDispatchStreamHeader,
+  readDispatchStreams,
   removeDispatchLiveIndexEntries,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
@@ -16,6 +17,7 @@ import type {
   DaemonTaskDispatchesResult,
   TaskDispatchRow,
 } from "./protocol/daemon-protocol.contract.ts";
+import type { AgentRuntimeAttemptChainDto } from "./agent-runtime-contract.ts";
 
 type DispatchLiveIndexRow = ReturnType<typeof readDispatchLiveIndex>["entries"][number];
 
@@ -77,7 +79,7 @@ export function readTaskDispatches(
       const read = input.projection.readDocument(documentPath);
       const archive = read.document ? parseArchive(read.document.body) : null;
       if (archive?.taskId !== target.taskId) continue;
-      rows.set(dispatchId, archiveRow(archive, candidate.session, target.packagePath, lost));
+      rows.set(dispatchId, archiveRow(archive, stream, candidate.session, target.packagePath, lost));
       if (candidate.indexed) staleIndexEntries.set(dispatchId, indexedEntries.get(dispatchId)!);
       break;
     }
@@ -91,6 +93,7 @@ export function readTaskDispatches(
       dispatchId,
       liveRow(
         stream.header,
+        stream,
         stream.providerSessionId,
         candidate.session,
         live,
@@ -147,8 +150,41 @@ export function readSessionGroupDispatches(input: {
         startedAt: event.occurredAt,
         eventStreamRef: `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
       };
-    return [liveRow(sourceHeader, session.providerSessionId, session, false, null, false)];
+    return [liveRow(sourceHeader, null, session.providerSessionId, session, false, null, false)];
   });
+}
+
+export function readRuntimeAttemptChain(
+  rootDir: string,
+  runtimeSessionId: string,
+): AgentRuntimeAttemptChainDto | undefined {
+  const streams = readDispatchStreams(rootDir),
+    target = streams.find((stream) => stream.header.runtimeSessionId === runtimeSessionId);
+  if (!target) return undefined;
+  const groupId = attemptGroupId(target),
+    attempts = streams
+      .filter((stream) => attemptGroupId(stream) === groupId)
+      .map((stream) => ({
+        dispatchId: stream.header.dispatchId,
+        runtimeSessionId: stream.header.runtimeSessionId,
+        attemptIndex: stream.attemptOutcome?.attemptIndex ?? stream.header.fallbackAttempt?.attemptIndex ?? 0,
+        provider: {
+          instance: stream.attemptOutcome?.provider.instance ?? stream.header.instanceId,
+          model: stream.attemptOutcome?.provider.model ?? stream.header.model ?? null,
+        },
+        classification: stream.attemptOutcome?.classification ?? null,
+        reason: stream.attemptOutcome?.reason ?? null,
+        fallbackState: stream.fallbackState,
+        nextDispatchId: stream.nextDispatchId,
+      }))
+      .sort((left, right) => left.attemptIndex - right.attemptIndex);
+  return { attemptGroupId: groupId, attempts };
+}
+
+function attemptGroupId(stream: NonNullable<ReturnType<typeof readDispatchStream>>): string {
+  return (
+    stream.attemptOutcome?.attemptGroupId ?? stream.header.fallbackAttempt?.attemptGroupId ?? stream.header.dispatchId
+  );
 }
 
 function addCandidate(
@@ -176,16 +212,44 @@ function addCandidate(
 
 function archiveRow(
   value: Record<string, unknown>,
+  stream: ReturnType<typeof readDispatchStream>,
   session: RuntimeSession | undefined,
   packagePath: string,
   lost: boolean,
 ): TaskDispatchRow {
+  const archivedProvider = isRecord(value.provider) ? value.provider : null,
+    attemptOutcome = stream?.attemptOutcome,
+    classification = isClassification(value.classification)
+      ? value.classification
+      : (attemptOutcome?.classification ?? null),
+    reason = typeof value.reason === "string" ? value.reason : (attemptOutcome?.reason ?? null);
   return {
     dispatchId: String(value.dispatchId),
     taskId: String(value.taskId),
     executionId: String(value.executionId),
     runtimeSessionId: String(value.runtimeSessionId),
     instanceId: String(value.instanceId),
+    attemptGroupId:
+      typeof value.attemptGroupId === "string"
+        ? value.attemptGroupId
+        : (attemptOutcome?.attemptGroupId ?? String(value.dispatchId)),
+    attemptIndex: Number.isInteger(value.attemptIndex)
+      ? Number(value.attemptIndex)
+      : (attemptOutcome?.attemptIndex ?? 0),
+    provider: {
+      instance:
+        typeof archivedProvider?.instance === "string"
+          ? archivedProvider.instance
+          : (attemptOutcome?.provider.instance ?? String(value.instanceId)),
+      model:
+        typeof archivedProvider?.model === "string"
+          ? archivedProvider.model
+          : (attemptOutcome?.provider.model ?? (typeof value.model === "string" ? value.model : null)),
+    },
+    classification,
+    reason,
+    fallbackState: stream?.fallbackState ?? null,
+    nextDispatchId: stream?.nextDispatchId ?? null,
     ...(typeof value.agentId === "string"
       ? { agentId: value.agentId, agentName: typeof value.agentName === "string" ? value.agentName : value.agentId }
       : {}),
@@ -212,6 +276,7 @@ function archiveRow(
 }
 function liveRow(
   header: DispatchStreamHeader,
+  stream: ReturnType<typeof readDispatchStream>,
   providerSessionId: string | null,
   session: RuntimeSession | undefined,
   processRunning: boolean,
@@ -225,6 +290,17 @@ function liveRow(
     executionId: header.executionId!,
     runtimeSessionId: header.runtimeSessionId,
     instanceId: header.instanceId,
+    attemptGroupId:
+      stream?.attemptOutcome?.attemptGroupId ?? header.fallbackAttempt?.attemptGroupId ?? header.dispatchId,
+    attemptIndex: stream?.attemptOutcome?.attemptIndex ?? header.fallbackAttempt?.attemptIndex ?? 0,
+    provider: {
+      instance: stream?.attemptOutcome?.provider.instance ?? header.instanceId,
+      model: stream?.attemptOutcome?.provider.model ?? header.model ?? null,
+    },
+    classification: stream?.attemptOutcome?.classification ?? null,
+    reason: stream?.attemptOutcome?.reason ?? null,
+    fallbackState: stream?.fallbackState ?? null,
+    nextDispatchId: stream?.nextDispatchId ?? null,
     ...(header.agentId ? { agentId: header.agentId, agentName: header.agentName ?? header.agentId } : {}),
     ...(header.delegatedByAgentId
       ? {
@@ -263,4 +339,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 function isOutcome(value: unknown): value is NonNullable<TaskDispatchRow["outcome"]> {
   return value === "succeeded" || value === "failed" || value === "unknown" || value === "cancelled";
+}
+function isClassification(value: unknown): value is NonNullable<TaskDispatchRow["classification"]> {
+  return value === "provider_fault" || value === "worker_stop" || value === "gate_red";
 }
