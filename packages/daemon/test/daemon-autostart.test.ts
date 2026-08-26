@@ -11,6 +11,7 @@ import {
   isDaemonUnreachable,
   readDaemonStartProgress,
   runtimeDaemonStartRefusal,
+  runtimeDaemonStartRefusalForUnavailable,
   type DaemonAutostartResult,
   type DaemonLaunchSpec,
 } from "../src/client/daemon-autostart.ts";
@@ -48,11 +49,7 @@ test("runtime start refusal requires a runtime actor and an unavailable daemon",
   );
   assert.equal(resident, null, "a runtime actor may use a resident daemon");
 
-  const absent = await runtimeDaemonStartRefusal(
-    "/tmp/ha-autostart.sock",
-    { HARNESS_ACTOR: "agent:runtime-session:worker" },
-    async () => false,
-  );
+  const absent = runtimeDaemonStartRefusalForUnavailable({ HARNESS_ACTOR: "agent:runtime-session:worker" });
   assert.equal(absent?.code, "daemon_start_runtime_forbidden");
 });
 
