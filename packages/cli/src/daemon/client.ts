@@ -112,18 +112,14 @@ async function withAutostart(
     return await request();
   } catch (error) {
     if (!options.autostart) throw error;
-    const {
-      DaemonAutostartError,
-      ensureLocalDaemonRunning,
-      isDaemonUnreachable,
-      runtimeDaemonStartRefusalForUnavailable,
-    } = await import("../../../daemon/src/client/daemon-autostart.ts");
+    const { DaemonAutostartError, ensureLocalDaemonRunning, isDaemonUnreachable, runtimeDaemonStartRefusal } =
+      await import("../../../daemon/src/client/daemon-autostart.ts");
     const buildStale = isDaemonBuildStale(error);
     if (!buildStale && !isDaemonUnreachable(error)) throw error;
     if (buildStale) await waitForDaemonRestart(socketPath);
     // The failed connection (or the completed stale-daemon shutdown wait) already proves this
     // socket unavailable. A second socket probe can consume its full timeout without adding evidence.
-    const refusal = runtimeDaemonStartRefusalForUnavailable(options.env);
+    const refusal = runtimeDaemonStartRefusal(options.env);
     if (refusal) throw new DaemonAutostartError({ ok: false, ...refusal, attempts: 0 });
     const started = await ensureLocalDaemonRunning({
       socketPath,
