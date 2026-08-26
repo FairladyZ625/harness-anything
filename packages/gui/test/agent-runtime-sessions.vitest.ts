@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SessionGroupList } from "../src/renderer/components/sessions/SessionGroupList.tsx";
@@ -10,14 +10,17 @@ import {
   sessionDecisionRefs,
   sessionOrphans,
   sessionRounds,
+  relativeTime,
   shortRef,
   type SessionGroup,
 } from "../src/renderer/sessions-model.ts";
+import { TIME_ZONE_STORAGE_KEY } from "../src/renderer/model/time.ts";
 import type { AgentRuntimeSessionDto } from "../../daemon/src/agent-runtime-contract.ts";
 import type { RelationEdge } from "../src/renderer/model/types.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 beforeAll(() => setActiveLocale("en-US"));
+afterEach(() => vi.unstubAllGlobals());
 
 const noop = () => undefined;
 const definition = {
@@ -196,6 +199,19 @@ describe("sessions page: single-session groups", () => {
     expect(markup).toContain("No dispatch record: 1 bound sessions");
     expect(markup).toContain('data-testid="rail-session-runtime-orphan"');
     expect(markup).not.toContain("runtime-sessions-more");
+  });
+
+  it("formats session rows and the old relative-time fallback in the configured time zone", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => (key === TIME_ZONE_STORAGE_KEY ? "Asia/Taipei" : null),
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    });
+    const markup = groupList();
+    expect(markup).toContain(">10:00<");
+    expect(markup).toContain(">11:00<");
+    expect(markup).not.toContain(">02:00<");
+    expect(relativeTime("2026-07-01T02:44:00.000Z", Date.parse("2026-08-26T02:44:00.000Z"))).toBe("2026-07-01 10:44");
   });
 
   it("renders every status word of the group vocabulary without inventing states", () => {

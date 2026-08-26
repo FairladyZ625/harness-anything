@@ -6,6 +6,7 @@ import {
   type SessionRow,
 } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
+import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { Empty, KV, KVRow, LiveDot } from "../runtime/parts.tsx";
 
@@ -168,7 +169,9 @@ function SiblingRow({
       <span className={`shrink-0 font-mono text-[9.5px] ${sessionStatusTone[sibling.status]}`}>
         {t(sessionStatusKey[sibling.status] as never)}
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{sibling.startedAt.slice(11, 16)}</span>
+      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+        {formatTime(sibling.startedAt, { style: "time" }) ?? sibling.startedAt}
+      </span>
     </button>
   );
 }

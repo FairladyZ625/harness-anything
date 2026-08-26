@@ -9,6 +9,7 @@ import {
   type SessionRound,
 } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
+import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { KindDot, LiveDot } from "../runtime/parts.tsx";
 
@@ -293,7 +294,9 @@ function RoundRow({
         <span className="ml-1.5 font-mono text-[9.5px] text-text-faint">{shortRef(row.instanceId, 14)}</span>
         {row.delegation && <span className="ml-1.5 text-[10px] text-text-muted">{row.delegation}</span>}
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{row.startedAt.slice(11, 16)}</span>
+      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+        {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
+      </span>
       <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{shortRef(row.dispatchId, 14)}</span>
       <span
         data-testid={`runtime-outcome-${row.runtimeSessionId}`}
@@ -329,7 +332,9 @@ function OrphanRow({
         {row.instanceId}
         <span className="ml-1.5 font-mono text-[9.5px] text-text-faint">{t("agentRuntime.sessionsNoDispatchTag")}</span>
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{row.startedAt.slice(11, 16)}</span>
+      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+        {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
+      </span>
       <span className={`shrink-0 font-mono text-[9.5px] ${sessionStatusTone[row.status]}`}>
         {t(sessionStatusKey[row.status] as never)}
       </span>
