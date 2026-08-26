@@ -260,24 +260,30 @@ function sessionGroupsQuery(
   readonly groupBy: "task" | "squad" | "agent" | "day";
   readonly since: string;
   readonly tokens: readonly string[];
+  readonly agentId: string | null;
+  readonly squadId: string | null;
   readonly limit: number;
 } {
   const keys = Object.keys(payload),
     groupBy = payload.groupBy,
     since = payload.since,
     query = payload.query,
+    agentId = payload.agentId,
+    squadId = payload.squadId,
     limit = payload.limit;
   if (
-    keys.some((key) => !["groupBy", "since", "query", "limit"].includes(key)) ||
+    keys.some((key) => !["groupBy", "since", "query", "agentId", "squadId", "limit"].includes(key)) ||
     (groupBy !== undefined && !["task", "squad", "agent", "day"].includes(String(groupBy))) ||
     (since !== undefined && (typeof since !== "string" || !Number.isFinite(Date.parse(since)))) ||
     (query !== undefined && typeof query !== "string") ||
+    (agentId !== undefined && (typeof agentId !== "string" || !agentId)) ||
+    (squadId !== undefined && (typeof squadId !== "string" || !squadId)) ||
     (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000)) ||
     !Number.isFinite(Date.parse(now))
   )
     throw coded(
       "invalid_request",
-      "Agent runtime session groups accept groupBy, ISO since, text query, and limit 1..1000.",
+      "Agent runtime session groups accept groupBy, ISO since, text query, exact agent/squad ids, and limit 1..1000.",
     );
   return {
     groupBy: groupBy === "squad" || groupBy === "agent" || groupBy === "day" ? groupBy : "task",
@@ -286,6 +292,8 @@ function sessionGroupsQuery(
         ? new Date(since).toISOString()
         : new Date(Date.parse(now) - 24 * 60 * 60 * 1_000).toISOString(),
     tokens: typeof query === "string" ? query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean) : [],
+    agentId: typeof agentId === "string" ? agentId : null,
+    squadId: typeof squadId === "string" ? squadId : null,
     limit: typeof limit === "number" ? limit : 200,
   };
 }
