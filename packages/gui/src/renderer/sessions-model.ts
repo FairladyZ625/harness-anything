@@ -9,7 +9,7 @@ import { t } from "./i18n/index.tsx";
 
 /**
  * 会话页的纯数据模型(设计稿 §2–§5):组、轮次行、孤儿会话行全部是 daemon 读面的
- * 纯投影——组与检索在 daemon 侧完成(sessionGroups / squad.runs.*),前端不拉全会话、
+ * 纯投影——组与检索在 daemon 侧完成(sessionGroups / squad.runs.list),前端不拉全会话、
  * 不做前端分组。这里只做展示级派生:状态词表映射、短码、相对时间、轮次编号。
  */
 export type SessionGroupBy = "task" | "squad" | "agent" | "day";

@@ -748,7 +748,7 @@ describe("agent runtime renderer", () => {
       query: "terra",
     });
   });
-  it("reads squad runs through the list/read bridge with exact payloads", async () => {
+  it("reads squad runs through the list bridge with exact payloads", async () => {
     const run = {
       squadRunId: "squad_" + "a".repeat(18),
       squadId: "squad-x",
@@ -761,26 +761,15 @@ describe("agent runtime renderer", () => {
       latestActivityAt: "2026-08-26T00:00:00.000Z",
     } as const;
     const listSquadRuns = vi.fn(async () => ({
-        ok: true,
-        status: "ready",
-        runs: [run],
-        totals: { runs: 1 },
-        truncated: false,
-        watermark: 1,
-        sourceRevision: 1,
-      })),
-      readSquadRun = vi.fn(async () => ({
-        ok: true,
-        status: "ready",
-        run: {
-          leaders: [],
-          workers: [],
-          error: null,
-        },
-        watermark: 1,
-        sourceRevision: 1,
-      }));
-    vi.stubGlobal("window", { harness: { listSquadRuns, readSquadRun } });
+      ok: true,
+      status: "ready",
+      runs: [run],
+      totals: { runs: 1 },
+      truncated: false,
+      watermark: 1,
+      sourceRevision: 1,
+    }));
+    vi.stubGlobal("window", { harness: { listSquadRuns } });
     const listed = await squadRunsClient.list("repo-a", { since: "2026-08-26T00:00:00.000Z", query: "ontology" });
     expect(listed.runs).toHaveLength(1);
     expect(listSquadRuns).toHaveBeenCalledWith({
@@ -788,11 +777,7 @@ describe("agent runtime renderer", () => {
       since: "2026-08-26T00:00:00.000Z",
       query: "ontology",
     });
-    await expect(squadRunsClient.read("repo-a", run.squadRunId)).resolves.toMatchObject({ run: { leaders: [] } });
-    expect(readSquadRun).toHaveBeenCalledWith({ repoId: "repo-a", squadRunId: run.squadRunId });
-    vi.stubGlobal("window", {
-      harness: { listSquadRuns: vi.fn(async () => ({ ok: true, runs: "no" })), readSquadRun: vi.fn() },
-    });
+    vi.stubGlobal("window", { harness: { listSquadRuns: vi.fn(async () => ({ ok: true, runs: "no" })) } });
     await expect(squadRunsClient.list("repo-a")).rejects.toThrow(/invalid result/u);
   });
 });

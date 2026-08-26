@@ -1,46 +1,26 @@
-import { useQuery } from "@tanstack/react-query";
 import type { SquadRunSummaryDto } from "../../../../../daemon/src/squad-run-contract.ts";
-import {
-  relativeTime,
-  sessionStatusDot,
-  sessionStatusKey,
-  sessionStatusTone,
-  shortRef,
-  type SessionStatus,
-} from "../../sessions-model.ts";
-import { squadRunsClient } from "../../squad-run-client.ts";
+import { relativeTime, shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { LiveDot } from "../runtime/parts.tsx";
 
 /**
- * 小队编排段(设计稿 §7.3):一次 `ha squad run` 一个编排单元(squadRunId),展开后
- * leader 轮次与 worker 尝试整单元渲染。列表来自 repo.squad.runs.list,展开详情来自
- * repo.squad.runs.read;成员行的 status/agent/instance 都在 detail DTO 里,不再二次
- * 查询。GUI 发起的单次 squad 派工(dispatch 头带 squadId、无 squadRunId)归单会话段,
- * 不冒充编排单元。
+ * 小队编排段:一次 `ha squad run` 一个列表单元。GUI 发起的单次 squad 派工
+ * (dispatch 头带 squadId、无 squadRunId)归单会话段,不冒充编排单元。
  */
 export function SquadRunList({
-  repoId,
   runs,
   truncated,
   totalRuns,
-  expandedKeys,
   squadNames,
   query,
-  onToggleRun,
-  onSelectSession,
   onOpenTask,
 }: {
-  readonly repoId: string;
   readonly runs: readonly SquadRunSummaryDto[];
   readonly truncated: boolean;
   readonly totalRuns: number;
-  readonly expandedKeys: ReadonlySet<string>;
   readonly squadNames: ReadonlyMap<string, string>;
   readonly query: string;
-  readonly onToggleRun: (squadRunId: string) => void;
-  readonly onSelectSession: (runtimeSessionId: string) => void;
   readonly onOpenTask: (taskId: string) => void;
 }) {
   return (
@@ -50,18 +30,7 @@ export function SquadRunList({
           {t(query === "" ? "agentRuntime.squadRunsEmpty" : "agentRuntime.sessionsNoMatches")}
         </p>
       ) : (
-        runs.map((run) => (
-          <RunSection
-            key={run.squadRunId}
-            repoId={repoId}
-            run={run}
-            expanded={expandedKeys.has(run.squadRunId)}
-            squadNames={squadNames}
-            onToggleRun={onToggleRun}
-            onSelectSession={onSelectSession}
-            onOpenTask={onOpenTask}
-          />
-        ))
+        runs.map((run) => <RunSection key={run.squadRunId} run={run} squadNames={squadNames} onOpenTask={onOpenTask} />)
       )}
       {truncated && (
         <p
@@ -91,45 +60,18 @@ const PHASE_TONE: Readonly<Record<SquadRunSummaryDto["phase"], string>> = {
 };
 
 function RunSection({
-  repoId,
   run,
-  expanded,
   squadNames,
-  onToggleRun,
-  onSelectSession,
   onOpenTask,
 }: {
-  readonly repoId: string;
   readonly run: SquadRunSummaryDto;
-  readonly expanded: boolean;
   readonly squadNames: ReadonlyMap<string, string>;
-  readonly onToggleRun: (squadRunId: string) => void;
-  readonly onSelectSession: (runtimeSessionId: string) => void;
   readonly onOpenTask: (taskId: string) => void;
 }) {
-  const detail = useQuery({
-    queryKey: ["sessions-page", repoId, "squad-run", run.squadRunId],
-    queryFn: () => squadRunsClient.read(repoId, run.squadRunId),
-    enabled: expanded,
-    staleTime: 4_000,
-  });
-  const members = detail.data?.run;
   return (
     <section data-testid={`squad-run-${run.squadRunId}`} className="border-b border-border">
-      <button
-        type="button"
-        data-testid={`squad-run-toggle-${run.squadRunId}`}
-        aria-expanded={expanded}
-        onClick={() => onToggleRun(run.squadRunId)}
-        className="flex w-full flex-col gap-0.5 px-4 pt-3 pb-2 text-left hover:bg-surface-raised"
-      >
+      <div className="flex w-full flex-col gap-0.5 px-4 pt-3 pb-2 text-left">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span
-            aria-hidden
-            className={`shrink-0 text-[7px] text-text-faint transition-transform ${expanded ? "rotate-90" : ""}`}
-          >
-            ▶
-          </span>
           <LiveDot
             state={run.runningCount > 0 ? "live" : "idle"}
             tip={t("agentRuntime.liveSessions", { count: run.runningCount })}
@@ -140,7 +82,7 @@ function RunSection({
             {t(PHASE_KEY[run.phase] as never)}
           </span>
         </span>
-        <span className="flex min-w-0 flex-wrap items-center gap-1.5 pl-[14px] text-[10.5px] text-text-muted">
+        <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-[10.5px] text-text-muted">
           {t("agentRuntime.squadRunTask")}
           <EntityRefLink
             entityRef={`task/${run.taskId}`}
@@ -156,128 +98,10 @@ function RunSection({
             {relativeTime(run.latestActivityAt)}
           </span>
         </span>
-      </button>
-      {expanded && (
-        <div className="cv-auto-10r px-4 pb-3">
-          <p className="mb-1.5 max-w-[72rem] truncate text-[11px] text-text-muted" title={run.mission}>
-            {run.mission}
-          </p>
-          {detail.isPending && <p className="text-[10.5px] text-text-faint">{t("agentRuntime.loading")}</p>}
-          {detail.isError && (
-            <p role="alert" className="font-mono text-[10px] text-status-blocked">
-              {detail.error instanceof Error ? detail.error.message : String(detail.error)}
-            </p>
-          )}
-          {members?.error && (
-            <p role="alert" className="mb-1.5 font-mono text-[10px] text-status-blocked">
-              {members.error}
-            </p>
-          )}
-          {members?.leaders.map((leader) => (
-            <MemberRow
-              key={leader.turnId}
-              kind="leader"
-              id={leader.turnId}
-              runtimeSessionId={leader.runtimeSessionId}
-              dispatchId={leader.dispatchId}
-              agentName={leader.agentName}
-              instanceId={leader.instanceId}
-              status={leader.status}
-              rejection={null}
-              startedAt={leader.startedAt}
-              onSelectSession={onSelectSession}
-            />
-          ))}
-          {members?.workers.map((worker) => (
-            <MemberRow
-              key={worker.attemptId}
-              kind="worker"
-              id={worker.attemptId}
-              runtimeSessionId={worker.runtimeSessionId}
-              dispatchId={worker.dispatchId}
-              agentName={worker.agentName}
-              instanceId={worker.instanceId}
-              status={worker.rejection === null ? worker.status : "rejected"}
-              rejection={worker.rejection}
-              startedAt={worker.startedAt}
-              onSelectSession={onSelectSession}
-            />
-          ))}
-        </div>
-      )}
+        <p className="max-w-[72rem] truncate text-[11px] text-text-muted" title={run.mission}>
+          {run.mission}
+        </p>
+      </div>
     </section>
-  );
-}
-
-function MemberRow({
-  kind,
-  id,
-  runtimeSessionId,
-  dispatchId,
-  agentName,
-  instanceId,
-  status,
-  rejection,
-  startedAt,
-  onSelectSession,
-}: {
-  readonly kind: "leader" | "worker";
-  readonly id: string;
-  readonly runtimeSessionId: string | null;
-  readonly dispatchId: string | null;
-  readonly agentName: string | null;
-  readonly instanceId: string | null;
-  readonly status: string;
-  readonly rejection: string | null;
-  readonly startedAt: string | null;
-  readonly onSelectSession: (runtimeSessionId: string) => void;
-}) {
-  const statusKey =
-    status === "rejected"
-      ? "agentRuntime.squadRunRejected"
-      : (sessionStatusKey[status as SessionStatus] ?? "agentRuntime.sessionStatusUnknown");
-  return (
-    <div
-      className={"cv-auto-2r flex items-center gap-2 rounded px-1 py-1 text-left text-[11.5px] hover:bg-surface-raised"}
-    >
-      <span className="w-[62px] shrink-0 font-mono text-[9.5px] uppercase tracking-[0.05em] text-text-faint">
-        {t(kind === "leader" ? "agentRuntime.squadRunLeader" : "agentRuntime.squadRunWorker")}
-      </span>
-      <span className="w-[80px] shrink-0 truncate font-mono text-[10px] text-text-muted">{id}</span>
-      <LiveDot state={sessionStatusDot[status as SessionStatus] ?? "idle"} tip={status} />
-      <span className="min-w-0 flex-1 truncate" title={rejection ?? undefined}>
-        {rejection ?? agentName ?? instanceId ?? "—"}
-        {!rejection && instanceId && agentName && (
-          <span className="ml-1.5 font-mono text-[9.5px] text-text-faint">{shortRef(instanceId, 14)}</span>
-        )}
-      </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{startedAt?.slice(11, 16) ?? ""}</span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
-        {dispatchId ? shortRef(dispatchId, 14) : "—"}
-      </span>
-      <span
-        className={`shrink-0 font-mono text-[9.5px] ${
-          status === "rejected"
-            ? "text-status-blocked"
-            : (sessionStatusTone[status as SessionStatus] ?? "text-status-unknown")
-        }`}
-      >
-        {t(statusKey as never)}
-      </span>
-      {runtimeSessionId !== null && (
-        <button
-          type="button"
-          data-testid={`squad-run-session-${runtimeSessionId}`}
-          onClick={() => onSelectSession(runtimeSessionId)}
-          title={runtimeSessionId}
-          className={
-            "shrink-0 rounded border border-border px-1.5 py-px font-mono text-[9.5px] text-text-muted " +
-            "hover:border-accent hover:text-accent"
-          }
-        >
-          {t("agentRuntime.sessionsOpenSession")} ↗
-        </button>
-      )}
-    </div>
   );
 }

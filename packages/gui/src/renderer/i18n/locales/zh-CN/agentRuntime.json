@@ -336,12 +336,9 @@
   "agentRuntime.squadRunTask": "任务:",
   "agentRuntime.squadRunLeaderTurns": "{count} leader 轮",
   "agentRuntime.squadRunWorkerAttempts": "{count} worker 次尝试",
-  "agentRuntime.squadRunLeader": "leader",
-  "agentRuntime.squadRunWorker": "worker",
   "agentRuntime.squadRunPhasePlanning": "规划中",
   "agentRuntime.squadRunPhaseLeaderRunning": "leader 运行中",
   "agentRuntime.squadRunPhaseWorkersRunning": "worker 运行中",
   "agentRuntime.squadRunPhaseConverged": "已收敛",
-  "agentRuntime.squadRunPhaseFailed": "已失败",
-  "agentRuntime.squadRunRejected": "已拒派"
+  "agentRuntime.squadRunPhaseFailed": "已失败"
 }

@@ -24,7 +24,7 @@ import {
 /**
  * 会话页(设计稿 §2–§5):顶层两大段——单会话(默认,按 Task 分组)与小队编排
  * (一次 `ha squad run` 一个编排单元)。分组、范围与检索都在 daemon 侧完成
- * (sessionGroups / squad.runs.*),前端一次 RPC 拿组,不再翻 overview 分页、不再
+ * (sessionGroups / squad.runs.list),前端一次 RPC 拿组,不再翻 overview 分页、不再
  * 前端 join 派工台账。选择可寻址:session/<id>、tasksessions/<taskId>,导航回撤
  * 原路返回。
  */
@@ -53,7 +53,6 @@ export function SessionsView({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [inspector, setInspector] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
-  const [expandedRuns, setExpandedRuns] = useState<ReadonlySet<string>>(new Set());
   const [sessionTaskScope, setSessionTaskScope] = useState<{
     readonly runtimeSessionId: string;
     readonly taskId: string;
@@ -398,22 +397,11 @@ export function SessionsView({
         </div>
       ) : (
         <SquadRunList
-          repoId={repoId}
           runs={runs}
           truncated={workspace.squadRuns.data?.truncated ?? false}
           totalRuns={runTotals.runs}
-          expandedKeys={expandedRuns}
           squadNames={squadNames}
           query={debouncedSearch}
-          onToggleRun={(squadRunId) =>
-            setExpandedRuns((current) => {
-              const next = new Set(current);
-              if (next.has(squadRunId)) next.delete(squadRunId);
-              else next.add(squadRunId);
-              return next;
-            })
-          }
-          onSelectSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
           onOpenTask={onOpenTask}
         />
       )}

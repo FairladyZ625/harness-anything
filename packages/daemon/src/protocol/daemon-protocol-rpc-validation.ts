@@ -71,8 +71,6 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateRuntimeSessionGroupsPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.squad.runs.list")
     errors.push(...validateSquadRunListPayload((value.params as JsonObject).payload));
-  if (!errors.length && value.method === "repo.squad.runs.read")
-    errors.push(...validateSquadRunReadPayload((value.params as JsonObject).payload));
   if (!errors.length && isDaemonGuiActionMethod(value.method))
     errors.push(...validateGuiActionPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.terminal.attach") {
@@ -123,12 +121,6 @@ function validateSquadRunListPayload(value: unknown): string[] {
   )
     return ["squad run list facets are invalid"];
   return [];
-}
-
-function validateSquadRunReadPayload(value: unknown): string[] {
-  return isJsonObject(value) && /^squad_[a-f0-9]{24}$/u.test(String(value.squadRunId))
-    ? []
-    : ["squad run read requires a valid squadRunId"];
 }
 
 // The wide task reads accept optional narrow/paged facets; absent payload or absent

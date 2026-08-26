@@ -336,12 +336,9 @@
   "agentRuntime.squadRunTask": "Task:",
   "agentRuntime.squadRunLeaderTurns": "{count} leader turns",
   "agentRuntime.squadRunWorkerAttempts": "{count} worker attempts",
-  "agentRuntime.squadRunLeader": "leader",
-  "agentRuntime.squadRunWorker": "worker",
   "agentRuntime.squadRunPhasePlanning": "Planning",
   "agentRuntime.squadRunPhaseLeaderRunning": "Leader running",
   "agentRuntime.squadRunPhaseWorkersRunning": "Workers running",
   "agentRuntime.squadRunPhaseConverged": "Converged",
-  "agentRuntime.squadRunPhaseFailed": "Failed",
-  "agentRuntime.squadRunRejected": "Rejected"
+  "agentRuntime.squadRunPhaseFailed": "Failed"
 }

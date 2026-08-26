@@ -14,13 +14,7 @@ import { readTaskDispatches } from "./dispatch-read.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
-import type {
-  SquadRunDetailDto,
-  SquadRunPhase,
-  SquadRunReadResult,
-  SquadRunsListResult,
-  SquadRunSummaryDto,
-} from "./squad-run-contract.ts";
+import type { SquadRunPhase, SquadRunsListResult, SquadRunSummaryDto } from "./squad-run-contract.ts";
 
 type LeaderDecision =
   | { readonly kind: "converged" }
@@ -194,21 +188,6 @@ export function makeSquadCoordinator(input: {
       runs: selected,
       totals: { runs: matching.length },
       truncated: selected.length < matching.length,
-      watermark: cut.watermark,
-      sourceRevision: cut.sourceRevision,
-    };
-  };
-
-  const read = (payload: Readonly<Record<string, unknown>>): SquadRunReadResult => {
-    if (Object.keys(payload).some((field) => field !== "squadRunId") || !validSquadRunId(payload.squadRunId))
-      throw squadReadError("invalid_request", "Squad run reads require one valid squadRunId.");
-    const cut = input.projection().readTaskStatuses([]),
-      state = readSquadRunState(payload.squadRunId);
-    if (!state) throw squadReadError("squad_run_not_found", `Squad run ${payload.squadRunId} does not exist.`);
-    return {
-      ok: true,
-      status: cut.status,
-      run: detailDto(state),
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
     };
@@ -583,39 +562,6 @@ export function makeSquadCoordinator(input: {
     projection.upsertSquadRun({ squadRunId: state.squadRunId, revision: state.revision, state });
   }
 
-  function detailDto(state: SquadState): SquadRunDetailDto {
-    const rows = dispatchRows(state),
-      byDispatchId = new Map(rows.map((row) => [row.dispatchId, row]));
-    return {
-      leaders: state.leaderTurns.map((turn) => {
-        const row = byDispatchId.get(turn.dispatchId);
-        return {
-          turnId: turn.turnId,
-          dispatchId: turn.dispatchId,
-          runtimeSessionId: turn.runtimeSessionId,
-          agentName: row?.agentName ?? row?.agentId ?? null,
-          instanceId: row?.instanceId ?? null,
-          status: row?.status ?? "unknown",
-          startedAt: row?.startedAt ?? null,
-        };
-      }),
-      workers: state.workerAttempts.map((attempt) => {
-        const row = attempt.dispatchId ? byDispatchId.get(attempt.dispatchId) : undefined;
-        return {
-          attemptId: attempt.attemptId,
-          dispatchId: attempt.dispatchId,
-          runtimeSessionId: attempt.runtimeSessionId,
-          agentName: row?.agentName ?? row?.agentId ?? null,
-          instanceId: row?.instanceId ?? null,
-          status: row?.status ?? "unknown",
-          startedAt: row?.startedAt ?? null,
-          rejection: attempt.rejection,
-        };
-      }),
-      error: state.error,
-    };
-  }
-
   function statusDto(state: SquadState) {
     const rows = dispatchRows(state),
       byDispatchId = new Map(rows.map((row) => [row.dispatchId, row]));
@@ -661,7 +607,7 @@ export function makeSquadCoordinator(input: {
     };
   }
 
-  return { start, status, list, read, observeOutcome, reconcile };
+  return { start, status, list, observeOutcome, reconcile };
 }
 
 function initialLeaderPrompt(state: SquadState): string {

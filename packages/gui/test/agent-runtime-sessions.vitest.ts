@@ -2,7 +2,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionGroupList } from "../src/renderer/components/sessions/SessionGroupList.tsx";
 import { SessionInspector } from "../src/renderer/components/sessions/SessionInspector.tsx";
 import { SquadRunList } from "../src/renderer/components/sessions/SquadRunList.tsx";
@@ -159,44 +158,6 @@ const squadRunSummary = {
   runningCount: 0,
   latestActivityAt: "2026-08-25T18:22:00.000Z",
 };
-const squadRunDetail = {
-  leaders: [
-    {
-      turnId: "turn-6",
-      dispatchId: "dispatch_77a1",
-      runtimeSessionId: "runtime-leader-6",
-      agentName: "commander",
-      instanceId: "codex-m1",
-      status: "succeeded" as const,
-      startedAt: "2026-08-25T18:00:00.000Z",
-    },
-  ],
-  workers: [
-    {
-      attemptId: "w-5",
-      workerId: "terra",
-      dispatchId: "dispatch_08cd",
-      runtimeSessionId: "runtime-worker-5",
-      agentName: "terra",
-      instanceId: "codex-m1",
-      status: "succeeded" as const,
-      startedAt: "2026-08-25T17:30:00.000Z",
-      rejection: null,
-    },
-    {
-      attemptId: "w-4",
-      dispatchId: null,
-      runtimeSessionId: null,
-      agentName: null,
-      instanceId: null,
-      status: "unknown" as const,
-      startedAt: null,
-      rejection: "no runtime available",
-    },
-  ],
-  error: null,
-};
-
 const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> = {}) =>
   renderToStaticMarkup(
     createElement(SessionDetailView, {
@@ -338,54 +299,32 @@ describe("sessions page: session inspector", () => {
   });
 });
 
-const squadRunView = (props: Partial<Parameters<typeof SquadRunList>[0]>) => {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["sessions-page", "repo-a", "squad-run", squadRunSummary.squadRunId], {
-    ok: true,
-    status: "ready",
-    run: squadRunDetail,
-    watermark: 9,
-    sourceRevision: 9,
-  });
-  return renderToStaticMarkup(
-    createElement(
-      QueryClientProvider,
-      { client },
-      createElement(SquadRunList, {
-        repoId: "repo-a",
-        runs: [squadRunSummary],
-        truncated: false,
-        totalRuns: 1,
-        expandedKeys: new Set([squadRunSummary.squadRunId]),
-        squadNames: new Map([[squadRunSummary.squadId, "ontology-squad"]]),
-        query: "",
-        onToggleRun: noop,
-        onSelectSession: noop,
-        onOpenTask: noop,
-        ...props,
-      }),
-    ),
+const squadRunView = (props: Partial<Parameters<typeof SquadRunList>[0]>) =>
+  renderToStaticMarkup(
+    createElement(SquadRunList, {
+      runs: [squadRunSummary],
+      truncated: false,
+      totalRuns: 1,
+      squadNames: new Map([[squadRunSummary.squadId, "ontology-squad"]]),
+      query: "",
+      onOpenTask: noop,
+      ...props,
+    }),
   );
-};
 
 describe("sessions page: squad orchestration", () => {
-  it("renders each squad run as one unit with leader turns and worker attempts from the read detail", () => {
+  it("renders each squad run as one summary from the list read", () => {
     const markup = squadRunView({});
     expect(markup).toContain("ontology-squad");
     expect(markup).toContain("Converged");
     expect(markup).toContain("6 leader turns");
     expect(markup).toContain("5 worker attempts");
-    expect(markup).toContain("leader");
-    expect(markup).toContain("turn-6");
-    expect(markup).toContain("runtime-leader-6");
-    expect(markup).toContain("worker");
-    expect(markup).toContain("w-4");
-    expect(markup).toContain("no runtime available");
+    expect(markup).toContain("Ship the ontology milestone");
     expect(markup).not.toContain("runtime-sessions-more");
   });
 
   it("keeps the empty state honest when no squad run matches the range", () => {
-    const markup = squadRunView({ runs: [], totalRuns: 0, expandedKeys: new Set(), squadNames: new Map() });
+    const markup = squadRunView({ runs: [], totalRuns: 0, squadNames: new Map() });
     expect(markup).toContain("No squad runs yet");
   });
 });

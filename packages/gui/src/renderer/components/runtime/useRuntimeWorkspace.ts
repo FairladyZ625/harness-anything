@@ -69,7 +69,7 @@ const LIVENESS_LIVE: Record<string, boolean> = { live: true };
 // hook,一处读失败只降级本页(原聚合页「每区域读自己的源」原则在页粒度上延续)。
 // 共享的 busy/feedback 通道与 spawn 收据轮询留在 useRuntimeChannel,三个 hook 都从
 // 这里组装。会话页的分组/检索/范围全部由 daemon 聚合读面完成(sessionGroups +
-// squad.runs.*),前端不拉全会话、不再有 overview 翻页与派工台账批量 join。
+// squad.runs.list),前端不拉全会话、不再有 overview 翻页与派工台账批量 join。
 
 // One busy/feedback channel per runtime page: every mutation reports through the same
 // feedback line, the same error line, and (for spawn-shaped actions) the same receipt
