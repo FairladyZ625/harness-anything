@@ -261,53 +261,32 @@ test("signal counter counts CJK characters and Latin words independently", () =>
   });
 });
 
-test("Mergify merge-queue verification PR can skip body template lint", () => {
+test("Mergify merge-queue verification PR skips body template lint by author and branch alone", () => {
+  // Mergify's draft body format changed (2026-08-27: no "merge-queue-pr" payload marker any more),
+  // so the body carries no fingerprint; author + queue branch are the only stable signals.
   const body = [
-    "<!---",
-    "DO NOT EDIT",
-    "-*- Mergify Payload -*-",
-    '{"merge-queue-pr": true}',
-    "-*- Mergify Payload End -*-",
-    "-->",
+    "**⏳ The pull request [#1849](/o/r/pull/1849) is queued for merge and currently being checked. ⏳**",
     "",
-    "This pull request has been created by Mergify to check mergeability.",
+    "```yaml",
+    "pull_requests:",
+    "  - number: 1849",
+    "```",
   ].join("\n");
 
   assert.equal(
-    shouldSkipPrBodyBilingualCheck({
-      body,
-      headRefName: "mergify/merge-queue/e00b463e2d",
-      authorLogin: "mergify[bot]",
-    }),
+    shouldSkipPrBodyBilingualCheck({ body, headRefName: "mergify/merge-queue/e00b463e2d", authorLogin: "mergify[bot]" }),
+    true,
+  );
+  assert.equal(
+    shouldSkipPrBodyBilingualCheck({ body, headRefName: "mergify/merge-queue/e00b463e2d", authorLogin: "app/mergify" }),
     true,
   );
 });
 
-test("Mergify skip requires bot author, queue branch, and payload marker", () => {
-  const body = '{"merge-queue-pr": true}';
-
+test("Mergify skip requires both bot author and queue branch", () => {
+  assert.equal(shouldSkipPrBodyBilingualCheck({ headRefName: "codex/not-a-queue", authorLogin: "mergify[bot]" }), false);
   assert.equal(
-    shouldSkipPrBodyBilingualCheck({
-      body,
-      headRefName: "codex/not-a-queue",
-      authorLogin: "mergify[bot]",
-    }),
-    false,
-  );
-  assert.equal(
-    shouldSkipPrBodyBilingualCheck({
-      body,
-      headRefName: "mergify/merge-queue/e00b463e2d",
-      authorLogin: "FairladyZ625",
-    }),
-    false,
-  );
-  assert.equal(
-    shouldSkipPrBodyBilingualCheck({
-      body: "regular body",
-      headRefName: "mergify/merge-queue/e00b463e2d",
-      authorLogin: "mergify[bot]",
-    }),
+    shouldSkipPrBodyBilingualCheck({ headRefName: "mergify/merge-queue/e00b463e2d", authorLogin: "FairladyZ625" }),
     false,
   );
 });
