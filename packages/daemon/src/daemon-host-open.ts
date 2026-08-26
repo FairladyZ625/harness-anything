@@ -12,6 +12,7 @@ import {
   type RuntimeInstallationWitness,
 } from "./agent-runtime-instances.ts";
 import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
+import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import {
   admitHostMode as admitHostModeImpl,
@@ -49,7 +50,6 @@ import {
 } from "./daemon-host-registry.ts";
 import { createDaemonHostRepositoryApi } from "./daemon-host-repository-api.ts";
 import { createDaemonHostRuntimeApi } from "./daemon-host-runtime-api.ts";
-import { makeE2EProbeScheduler } from "./e2e-probe-scheduler.ts";
 import {
   invalidRegistryStatus,
   invalidRegistrySystemRow,
@@ -60,7 +60,7 @@ import {
   requiredText,
 } from "./daemon-host-status.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
-import { openFleetEdgeRuntime } from "./fleet-edge-runtime.ts";
+import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -71,6 +71,7 @@ import { makeRecoveryProbe } from "./recovery-state.ts";
 import { causeClassOf, latchReprobeThrottleMs, openRepoCell, type RepoCell, type RepoCellStatus } from "./repo-cell.ts";
 import { type RepoModeAdmission } from "./repo-mode.ts";
 import type { RuntimeLauncher } from "./runtime-spawn.ts";
+import { makeScheduleScheduler } from "./schedule-scheduler.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 
 export async function openDaemonHost(input: {
@@ -118,12 +119,41 @@ export async function openDaemonHost(input: {
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
-  const e2eProbeScheduler = makeE2EProbeScheduler({
-    cells,
-    daemonRoute: runtimeDaemonRoute,
-    binding: localRepairBinding,
-    now,
-  });
+  const edgeRuntimeFor = (request: FleetEdgeRuntimeRequest["payload"]) => {
+      const key = `${request.repoId}\0${request.assignmentId}\0${request.host}\0${request.port}`,
+        runtime =
+          fleetEdgeRuntimes.get(key) ??
+          openFleetEdgeRuntime({
+            request,
+            daemonGeneration: Date.now() * 1000 + (process.pid % 1000),
+            daemonRoute: runtimeDaemonRoute,
+            ports: runtimePorts,
+            ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
+            now,
+          });
+      fleetEdgeRuntimes.set(key, runtime);
+      return runtime;
+    },
+    scheduleScheduler = makeScheduleScheduler({
+      cells,
+      now,
+      remoteEdgeAction: async (repoId, rootDir, action) => {
+        const config = readFleetEdgeConfig(rootDir);
+        if (!config || config.repoId !== repoId)
+          throw hostCodedError(
+            "fleet_edge_config_invalid",
+            `Remote-edge Schedule ${repoId} requires a matching fleet-edge.json.`,
+          );
+        const request: FleetEdgeRuntimeRequest["payload"] = {
+          ...config,
+          repoId,
+          workspaceRoot: rootDir,
+          method: "repo.schedule.run",
+          action,
+        };
+        return edgeRuntimeFor(request).run(request.method, action);
+      },
+    });
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;
   let initialAttachments: Promise<void> | null = null,
@@ -197,7 +227,8 @@ export async function openDaemonHost(input: {
     openCell,
     runtimePorts,
     runtimeDaemonRoute,
-    e2eProbeScheduler,
+    scheduleScheduler,
+    edgeRuntimeFor,
     invalidRepoId,
     closeCell,
     unavailableProbes,
@@ -368,7 +399,8 @@ export async function openDaemonHost(input: {
     },
     fleetEdgeRuntimes,
     runtimeDaemonRoute,
-    e2eProbeScheduler,
+    scheduleScheduler,
+    edgeRuntimeFor,
     instances,
     requiredText,
     point,
@@ -455,7 +487,7 @@ export async function openDaemonHost(input: {
     return waitForWarmingImpl(extracted, repoId);
   }
   function startInitialAttachments(): Promise<void> {
-    return startInitialAttachmentsImpl(extracted).then(() => e2eProbeScheduler.start());
+    return startInitialAttachmentsImpl(extracted).then(() => scheduleScheduler.start());
   }
   async function attachInitial(): Promise<void> {
     return attachInitialImpl(extracted);
