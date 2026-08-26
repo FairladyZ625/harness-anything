@@ -254,6 +254,45 @@ test("runtime instance command receipts expose readiness metadata without creden
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
+test("runtime catalog reads and auth probes reuse one installation discovery snapshot per command", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-discovery-snapshot-"));
+  let discoveries = 0;
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => {
+        discoveries += 1;
+        return [observed];
+      },
+      subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "codex-discovery-snapshot",
+      name: "Codex discovery snapshot",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      authMode: "subscription",
+    });
+
+    discoveries = 0;
+    store.command({ kind: "runtime-instance-list", all: true });
+    assert.equal(discoveries, 1);
+
+    discoveries = 0;
+    await store.command({ kind: "runtime-instance-show", instanceId: "codex-discovery-snapshot", probe: true });
+    assert.equal(discoveries, 1);
+
+    discoveries = 0;
+    store.command({ kind: "runtime-instance-update", instanceId: "codex-discovery-snapshot", enabled: false });
+    assert.equal(discoveries, 0);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("runtime instance create filters auto-resolution by kind and rejects same-kind ambiguity", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-installation-resolution-")), ambiguousRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-installation-ambiguous-")), claude = { ...observed, installationId: "claude-first", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude", version: "claude 1.0.0" }, codex = { ...observed, installationId: "codex-first", version: "codex 1.0.0" }, secondClaude = { ...claude, installationId: "claude-second", version: "claude 2.0.0" };
   try {

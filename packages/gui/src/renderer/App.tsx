@@ -47,6 +47,7 @@ import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel, NAV_GROUPS } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
+import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
 
 function AppShell() {
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
@@ -103,6 +104,13 @@ function AppShell() {
     lastLedgerCut.current = cut;
     void invalidateLedgerDependents(queryClient, activeRepoId);
   }, [activeRepoId, queryClient, tasksQuery.data?.sourceRevision, tasksQuery.data?.watermark]);
+
+  useEffect(() => {
+    if (!systemQuery.isSuccess || !tasksQuery.isSuccess) return;
+    // Runtime installation discovery may execute provider version/model probes on its first read.
+    // Start it only after the primary workspace is ready, then retain the result for Agent/Provider.
+    void prewarmRuntimeInstanceCatalog(queryClient);
+  }, [queryClient, systemQuery.isSuccess, tasksQuery.isSuccess]);
 
   const decisions = triadicQuery.decisions;
   const facts = triadicQuery.facts;

@@ -13,12 +13,12 @@ import { runtimeSelectionFromRef, useProviderWorkspace } from "../components/run
 // 兼容 Agent chips → Agent 入口,相关会话 → 会话入口;均为可寻址路由。
 export function ProvidersView({ repoId, focusedEntityRef, onSelectEntity }: { readonly repoId: string;
   readonly focusedEntityRef: string | null; readonly onSelectEntity: (ref: string) => void }) {
-  const workspace = useProviderWorkspace(repoId);
+  const refSelection = runtimeSelectionFromRef(focusedEntityRef);
+  const refId = refSelection?.type === "runtime" ? refSelection.id : null;
+  const workspace = useProviderWorkspace(repoId, refId);
   const [dialog, setDialog] = useState(false), [inspector, setInspector] = useState(true);
   const installations = workspace.machine.data?.installations ?? [];
   const instances = workspace.instances;
-  const refSelection = runtimeSelectionFromRef(focusedEntityRef);
-  const refId = refSelection?.type === "runtime" ? refSelection.id : null;
   // 深链指向的实例可能已被删除(或仍在读取):存在才采用,否则回落首项——派生选择,
   // 不写回导航栈。
   const selectedId = refId !== null && instances.some((candidate) => candidate.instanceId === refId) ?

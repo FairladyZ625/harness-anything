@@ -14,6 +14,7 @@ import {
   type RuntimeInstanceCreateInput,
   type RuntimeInstanceUpdateInput,
 } from "../../runtime-instance-client.ts";
+import { runtimeInstanceCatalogQuery, runtimeInstanceCatalogQueryKey } from "../../runtime-instance-data.ts";
 import type { RuntimeAuthProbeState } from "../../runtime-auth-presentation.ts";
 import { createGuiExecutionId } from "../../task-actions.ts";
 import { squadRunsClient } from "../../squad-run-client.ts";
@@ -147,6 +148,7 @@ export function useSessionsWorkspace(
   repoId: string,
   list: {
     readonly groupBy: SessionGroupBy;
+    readonly range: string;
     readonly since: string;
     readonly query: string;
     readonly taskId?: string;
@@ -154,7 +156,7 @@ export function useSessionsWorkspace(
 ) {
   const client = useQueryClient();
   const groups = useQuery({
-    queryKey: ["session-groups", repoId, list.groupBy, list.since, list.query, list.taskId ?? ""],
+    queryKey: ["session-groups", repoId, list.groupBy, list.range, list.query, list.taskId ?? ""],
     queryFn: () =>
       agentRuntimeClient.sessionGroups(repoId, {
         groupBy: list.groupBy,
@@ -165,7 +167,7 @@ export function useSessionsWorkspace(
     staleTime: 4_000,
   });
   const squadRuns = useQuery({
-    queryKey: ["squad-runs", repoId, list.since, list.query],
+    queryKey: ["squad-runs", repoId, list.range, list.query],
     queryFn: () =>
       squadRunsClient.list(repoId, {
         since: list.since,
@@ -216,11 +218,7 @@ export function useAgentSquadWorkspace(
     queryFn: () => agentEntityClient.listSquads(repoId),
     staleTime: 4_000,
   });
-  const machine = useQuery({
-    queryKey: ["runtime-instances", "machine"],
-    queryFn: runtimeInstanceClient.list,
-    staleTime: 2_000,
-  });
+  const machine = useQuery(runtimeInstanceCatalogQuery());
   const relatedGroups = useQuery({
     queryKey: ["session-groups", repoId, "related", related?.kind ?? "", related?.id ?? ""],
     queryFn: () =>
@@ -305,33 +303,41 @@ export function useAgentSquadWorkspace(
 // liveness(daemon 自己的在跑投影),不为此读 dispatch 台账;self-test 走与会话派工
 // 同一条 spawn 收据链。agents 目录只为实例卡上的「兼容 Agents」区服务(跨页出口的
 // 数据面),与 Agent 入口共享缓存键。
-export function useProviderWorkspace(repoId: string) {
+export function useProviderWorkspace(repoId: string, requestedInstanceId: string | null = null) {
   const client = useQueryClient();
-  const machine = useQuery({
-    queryKey: ["runtime-instances", "machine"],
-    queryFn: runtimeInstanceClient.list,
-    staleTime: 2_000,
-  });
+  const machine = useQuery(runtimeInstanceCatalogQuery());
   const agents = useQuery({
     queryKey: ["agents", repoId],
     queryFn: () => agentEntityClient.listAgents(repoId),
     staleTime: 4_000,
   });
-  const listedInstances = machine.data?.instances ?? [];
+  const listedInstances = machine.data?.instances ?? [],
+    autoProbeInstanceId = listedInstances.some((instance) => instance.instanceId === requestedInstanceId)
+      ? requestedInstanceId
+      : (listedInstances[0]?.instanceId ?? null);
   const authProbes = useQueries({
     queries: listedInstances.map((instance) => {
       const needsProbe = instance.authReadiness.code === "runtime_auth_not_checked";
       return {
         queryKey: ["runtime-instance-auth", instance.instanceId, machine.dataUpdatedAt],
         queryFn: () => runtimeInstanceClient.probe(instance.instanceId),
-        enabled: needsProbe,
+        // Provider auth commands may invoke the provider executable. Probe the visible carrier;
+        // probing every catalog row at once created a second daemon request storm on cold entry.
+        enabled: needsProbe && instance.instanceId === autoProbeInstanceId,
         retry: false,
         staleTime: 2_000,
         ...(needsProbe ? {} : { initialData: instance }),
       };
     }),
   });
-  const instances = listedInstances.map((instance, index) => authProbes[index]?.data ?? instance);
+  const instances = listedInstances.map((instance, index) => {
+    const probed = authProbes[index]?.data;
+    // The machine catalog owns configuration fields (including enabled). A probe may only overlay
+    // authentication state; returning its older full instance used to erase optimistic writes.
+    return probed === undefined
+      ? instance
+      : { ...instance, authState: probed.authState, authReadiness: probed.authReadiness };
+  });
   const authProbeStates = new Map<string, RuntimeAuthProbeState>(
     listedInstances.map((instance, index) => {
       const probe = authProbes[index];
@@ -419,10 +425,31 @@ export function useProviderWorkspace(repoId: string) {
     },
     updateInstance: (input: RuntimeInstanceUpdateInput) =>
       channel.run(t("agentRuntime.opInstanceUpdated"), () => runtimeInstanceClient.update(input)),
-    setInstanceEnabled: (instanceId: string, enabled: boolean) =>
-      channel.run(t(enabled ? "agentRuntime.opInstanceEnabled" : "agentRuntime.opInstanceDisabled"), () =>
-        runtimeInstanceClient.setEnabled(instanceId, enabled),
-      ),
+    setInstanceEnabled: async (instanceId: string, enabled: boolean) => {
+      const queryKey = runtimeInstanceCatalogQueryKey,
+        previous = client.getQueryData<Awaited<ReturnType<typeof runtimeInstanceClient.list>>>(queryKey),
+        updatedAt = client.getQueryState(queryKey)?.dataUpdatedAt;
+      client.setQueryData<Awaited<ReturnType<typeof runtimeInstanceClient.list>>>(
+        queryKey,
+        (catalog) =>
+          catalog === undefined
+            ? catalog
+            : {
+                ...catalog,
+                instances: catalog.instances.map((instance) =>
+                  instance.instanceId === instanceId ? { ...instance, enabled } : instance,
+                ),
+              },
+        updatedAt === undefined ? undefined : { updatedAt },
+      );
+      const result = await channel.run(
+        t(enabled ? "agentRuntime.opInstanceEnabled" : "agentRuntime.opInstanceDisabled"),
+        () => runtimeInstanceClient.setEnabled(instanceId, enabled),
+        false,
+      );
+      if (result === null) client.setQueryData(queryKey, previous, updatedAt === undefined ? undefined : { updatedAt });
+      return result;
+    },
     deleteInstance: (instanceId: string) =>
       channel.run(t("agentRuntime.opInstanceDeleted"), () => runtimeInstanceClient.delete(instanceId)),
     validateInstance: (instanceId: string) =>

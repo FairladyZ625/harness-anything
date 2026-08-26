@@ -143,7 +143,6 @@ async function withAutostart(
     return await request();
   }
 }
-
 function isDaemonBuildStale(error: unknown): boolean {
   return (
     typeof error === "object" && error !== null && (error as { readonly code?: unknown }).code === "daemon_build_stale"
@@ -427,6 +426,7 @@ export async function streamRuntimeThroughDaemon(
   command: ThinCommand,
   runtimeSessionId: string,
   onValue: (value: unknown) => void,
+  onClosed?: (failure: import("../../../daemon/src/client/local-json-rpc-stream.ts").DaemonStreamLost) => void,
 ): Promise<() => void> {
   const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
     { streamAgentRuntimeAt } = await import("../../../daemon/src/client/local-json-rpc-stream.ts");
@@ -436,6 +436,7 @@ export async function streamRuntimeThroughDaemon(
     payload: { runtimeSessionId, afterCursor: "stream:0" },
     onValue,
     timeoutMs: 2_000,
+    ...(onClosed ? { onClosed } : {}),
   });
 }
 export async function openRuntimeStatusReader(
