@@ -408,18 +408,22 @@ export async function streamRuntimeThroughDaemon(
 export async function openRuntimeStatusReader(
   command: ThinCommand,
   runtimeSessionId: string,
+  waitTarget?: { readonly taskId: string; readonly dispatchId: string },
 ): Promise<{ readonly read: () => Promise<JsonObject>; readonly close: () => void }> {
   const fleetCommand = {
     ...command,
     method: "repo.agentRuntime.sessions.read",
-    action: { kind: "runtime-status", runtimeSessionId },
+    action: { kind: "runtime-status", ...(waitTarget ?? { runtimeSessionId }) },
   } as ThinCommand;
   if (await fleetRuntimeRoute(fleetCommand))
-    return { read: () => runCommandThroughDaemon(fleetCommand), close: () => undefined };
-  const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
+    return {
+      read: () => runCommandThroughDaemon(fleetCommand, () => undefined, { autostart: false }),
+      close: () => undefined,
+    };
+  const daemonTarget = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
     { connectSocket, JsonRpcLineClient } = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
     { currentDaemonProtocolVersion } = await import("../../../daemon/src/protocol/version.ts"),
-    socket = await connectSocket(target.socketPath, 2_000),
+    socket = await connectSocket(daemonTarget.socketPath, 2_000),
     client = new JsonRpcLineClient(socket, socket);
   try {
     await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 30_000);
@@ -431,7 +435,7 @@ export async function openRuntimeStatusReader(
     read: () =>
       client.request(
         "repo.agentRuntime.sessions.read",
-        { repo: { repoId: target.repoId }, payload: { runtimeSessionId } },
+        { repo: { repoId: daemonTarget.repoId }, payload: waitTarget ?? { runtimeSessionId } },
         30_000,
       ),
     close: () => client.close(),

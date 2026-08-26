@@ -1,5 +1,6 @@
 export const thinCliLocalErrorCodes = Object.freeze([
   "daemon_disconnect",
+  "daemon_gone",
   "daemon_target_conflict",
   "duplicate_field",
   "invalid_field",
@@ -30,27 +31,14 @@ import {
   thinCliCommands,
 } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  accepted,
-  globalOption,
-  nonEmpty,
-  rejected,
-  stripGlobals,
-} from "./thin-command-flags.ts";
-import {
-  commandDomains,
-  unsupportedCommandHint,
-} from "./thin-command-help.ts";
+import { accepted, globalOption, nonEmpty, rejected, stripGlobals } from "./thin-command-flags.ts";
+import { commandDomains, unsupportedCommandHint } from "./thin-command-help.ts";
 import type { ThinHelpCatalogEntry } from "./thin-command-help.ts";
 import { deriveInputDirectory } from "./thin-command-inputs.ts";
 import { parseRouted } from "./thin-command-router.ts";
 import { parseResumeDispatch } from "./thin-command-runtime.ts";
 import { parseTask } from "./thin-command-task.ts";
-import type {
-  ProtocolCommand,
-  ThinCliInputDirectory,
-  ThinParseResult,
-} from "./thin-command-types.ts";
+import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 type LifecyclePublicationAction =
   | "task-create"
@@ -71,28 +59,15 @@ export function parseThinCommand(
     route =
       commands === daemonProtocolCommands
         ? resolveThinCliCommand(args)
-        : commands.find((entry) =>
-            entry.path.every((token, index) => args[index] === token),
-          ),
+        : commands.find((entry) => entry.path.every((token, index) => args[index] === token)),
     inputs = deriveInputDirectory(route);
-  if (
-    route?.id === "runtime-run" &&
-    args[2]?.startsWith("--") &&
-    args.includes("--resume-dispatch")
-  )
+  if (route?.id === "runtime-run" && args[2]?.startsWith("--") && args.includes("--resume-dispatch"))
     return parseResumeDispatch(rootDir, repoId, json, args, inputs);
   if (route?.id === "task-dispatches" && nonEmpty(args[2]) && args.length === 3)
-    return accepted(
-      rootDir,
-      repoId,
-      json,
-      { kind: "task-dispatches", taskId: args[2] },
-      "repo.task.dispatches",
-    );
+    return accepted(rootDir, repoId, json, { kind: "task-dispatches", taskId: args[2] }, "repo.task.dispatches");
   const routed = parseRouted(route, args, rootDir, repoId, json, inputs);
   if (routed) return routed;
-  if (!route || args[0] !== "task")
-    return rejected("unsupported_command", unsupportedCommandHint(args), json);
+  if (!route || args[0] !== "task") return rejected("unsupported_command", unsupportedCommandHint(args), json);
   return parseTaskRoute(route.id, args, rootDir, repoId, json, inputs);
 }
 
@@ -107,10 +82,7 @@ function parseTaskRoute(
   return parseTask(id, args, rootDir, repoId, json, inputs);
 }
 
-export function renderThinHelp(
-  catalog: readonly ThinHelpCatalogEntry[] = [],
-  domain?: string,
-): string {
+export function renderThinHelp(catalog: readonly ThinHelpCatalogEntry[] = [], domain?: string): string {
   const rows = [
       ...thinCliCommands.map(({ usage, summary, help }) => ({
         usage,
@@ -118,37 +90,25 @@ export function renderThinHelp(
         help,
       })),
     ],
-    visible = domain
-      ? rows.filter(({ usage }) => usage.split(" ")[1] === domain)
-      : rows,
+    visible = domain ? rows.filter(({ usage }) => usage.split(" ")[1] === domain) : rows,
     groups = commandDomains(),
     body = domain
       ? [
           `Commands for ${domain}:`,
-          ...visible.map(
-            ({ usage, summary, help }) =>
-              `  ${usage}\n    ${summary}${help ? `\n${help}` : ""}`,
-          ),
+          ...visible.map(({ usage, summary, help }) => `  ${usage}\n    ${summary}${help ? `\n${help}` : ""}`),
         ]
       : [
           "Commands:",
-          ...groups.map(
-            ({ name, count }) =>
-              `  ${name} (${count} command${count === 1 ? "" : "s"})`,
-          ),
+          ...groups.map(({ name, count }) => `  ${name} (${count} command${count === 1 ? "" : "s"})`),
           "",
           "Meta:",
           "  capabilities [--json] — Describe the contracted CLI command surface.",
           "  --version — Print the CLI package version.",
           "",
           "Use ha <domain> --help for the commands in a domain.",
-          ...rows
-            .filter(({ usage }) => usage.includes("--service"))
-            .map(({ usage }) => `  ${usage}`),
+          ...rows.filter(({ usage }) => usage.includes("--service")).map(({ usage }) => `  ${usage}`),
         ],
-    presetRows = catalog.length
-      ? ["", "Recommended presets:", ...catalog.map(renderPresetHelpEntry)]
-      : [];
+    presetRows = catalog.length ? ["", "Recommended presets:", ...catalog.map(renderPresetHelpEntry)] : [];
   return ["Harness Anything thin CLI", "", ...body, ...presetRows].join("\n");
 }
 
