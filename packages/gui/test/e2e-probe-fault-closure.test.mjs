@@ -5,8 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import {
-  installE2EProbeElectronForTest,
   recordE2EProbeFailure,
+  resolveE2EProbeElectronForTest,
   runE2EProbeJourney,
 } from "../../../tools/e2e-probe.mjs";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
@@ -17,7 +17,11 @@ test(
   "isolated E2E probe closes an injected invalid_result with a 24h-deduplicated failure task",
   { timeout: 180_000 },
   async (t) => {
-    const testRuntime = installE2EProbeElectronForTest(workspaceRoot);
+    const testRuntime = resolveE2EProbeElectronForTest(workspaceRoot);
+    if (!testRuntime.available) {
+      t.skip(testRuntime.reason);
+      return;
+    }
     t.after(testRuntime.close);
     const fixture = await startGuiResidentDaemonFixture({
       prefix: "ha-e2e-probe-fault-",

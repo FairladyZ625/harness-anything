@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash, randomUUID } from "node:crypto";
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -168,37 +168,21 @@ export function prepareE2EProbeGui(rootDir = repositoryRoot, env = process.env) 
     }
 }
 
-export function installE2EProbeElectronForTest(rootDir = repositoryRoot, env = process.env) {
+export function resolveE2EProbeElectronForTest(rootDir = repositoryRoot, env = process.env) {
   const packageRoot = path.join(rootDir, "node_modules", "electron"),
     marker = path.join(packageRoot, "path.txt");
   if (!existsSync(marker))
-    execFileSync(process.execPath, [path.join(packageRoot, "install.js")], {
-      cwd: rootDir,
+    return unavailableElectronTestRuntime("The Electron binary is not installed in this environment.", env);
+  if (process.platform === "linux" && !env.DISPLAY)
+    return unavailableElectronTestRuntime(
+      "The canonical GUI journey requires an existing DISPLAY and is skipped in headless environments.",
       env,
-      stdio: "inherit",
-    });
-  if (process.platform !== "linux" || env.DISPLAY) return { env, close: () => undefined };
-  const playwrightCli = path.join(rootDir, "node_modules", "playwright-core", "cli.js");
-  if (spawnSync("Xvfb", ["-help"], { stdio: "ignore" }).error)
-    execFileSync(process.execPath, [playwrightCli, "install-deps", "chromium"], {
-      cwd: rootDir,
-      env,
-      stdio: "inherit",
-    });
-  const display = `:${100 + (process.pid % 500)}`,
-    xvfb = spawn("Xvfb", [display, "-screen", "0", "1440x920x24", "-nolisten", "tcp"], {
-      env,
-      stdio: "ignore",
-    });
-  // Xvfb creates its socket synchronously during startup; keep this bounded test-only seam
-  // deterministic without adding a shell sleep or touching the host display.
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
-  return {
-    env: { ...env, DISPLAY: display },
-    close: () => {
-      if (xvfb.exitCode === null && xvfb.signalCode === null) xvfb.kill("SIGKILL");
-    },
-  };
+    );
+  return { available: true, reason: null, env, close: () => undefined };
+}
+
+function unavailableElectronTestRuntime(reason, env) {
+  return { available: false, reason, env, close: () => undefined };
 }
 
 export async function recordE2EProbeFailure({
