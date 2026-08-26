@@ -72,7 +72,7 @@ export function PresetsView({ repoId }: { readonly repoId: string }) {
           </button>
         ))}
       </div>
-      <div className="mx-auto grid w-full max-w-6xl gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div data-testid="presets-content" className="grid w-full gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <section className="min-w-0 space-y-2">
           {tab === "presets" &&
             data.presets.map((preset) => (

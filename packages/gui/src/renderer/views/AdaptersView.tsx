@@ -37,7 +37,10 @@ export function AdaptersView({ repoId, tasks = [] }: { readonly repoId: string; 
         </div>
         <p className="mt-1 text-[12px] text-text-faint">{t("views.adaptersView.readOnlyDescription")}</p>
       </header>
-      <div className="mx-auto grid w-full max-w-5xl gap-3 p-4 md:grid-cols-2">
+      <div
+        data-testid="adapters-content"
+        className="grid w-full grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-3 p-4"
+      >
         {catalog.data.adapters.map((adapter) => {
           const projectedCount = projectedByEngine.get(adapter.adapterId) ?? 0;
           return (
