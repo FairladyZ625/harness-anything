@@ -91,6 +91,7 @@ export interface DispatchStreamWriter {
       | {
           readonly state: "scheduled";
           readonly delayMs: number;
+          readonly notBeforeAt: string;
           readonly nextProvider: { readonly instance: string; readonly model?: string };
         }
       | { readonly state: "dispatched"; readonly nextDispatchId: string; readonly nextRuntimeSessionId: string }
@@ -246,6 +247,10 @@ export function readDispatchStream(
   readonly process: DispatchProcessState | null;
   readonly attemptOutcome: RuntimeAttemptOutcome | null;
   readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
+  readonly fallbackSchedule: {
+    readonly notBeforeAt: string;
+    readonly nextProvider: { readonly instance: string; readonly model?: string };
+  } | null;
   readonly nextDispatchId: string | null;
   readonly records: readonly DispatchStreamRecord[];
 } | null {
@@ -258,6 +263,10 @@ export function readDispatchStream(
     processState: DispatchProcessState | null = null,
     attemptOutcome: RuntimeAttemptOutcome | null = null,
     fallbackState: "scheduled" | "dispatched" | "exhausted" | null = null,
+    fallbackSchedule: {
+      readonly notBeforeAt: string;
+      readonly nextProvider: { readonly instance: string; readonly model?: string };
+    } | null = null,
     nextDispatchId: string | null = null;
   const records = lines
     .slice(1)
@@ -281,6 +290,12 @@ export function readDispatchStream(
     if (record.kind === "attempt_outcome" && isRuntimeAttemptOutcome(record)) attemptOutcome = record;
     if (record.kind === "fallback_state" && ["scheduled", "dispatched", "exhausted"].includes(String(record.state))) {
       fallbackState = record.state as typeof fallbackState;
+      fallbackSchedule =
+        record.state === "scheduled" &&
+        typeof record.notBeforeAt === "string" &&
+        isFallbackProvider(record.nextProvider)
+          ? { notBeforeAt: record.notBeforeAt, nextProvider: record.nextProvider }
+          : null;
       nextDispatchId = typeof record.nextDispatchId === "string" ? record.nextDispatchId : nextDispatchId;
     }
   }
@@ -290,9 +305,21 @@ export function readDispatchStream(
     process: processState,
     attemptOutcome,
     fallbackState,
+    fallbackSchedule,
     nextDispatchId,
     records,
   };
+}
+
+function isFallbackProvider(value: unknown): value is { readonly instance: string; readonly model?: string } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof (value as { readonly instance?: unknown }).instance === "string" &&
+    ((value as { readonly model?: unknown }).model === undefined ||
+      typeof (value as { readonly model?: unknown }).model === "string")
+  );
 }
 
 export function readDispatchStreams(rootDir: string): readonly NonNullable<ReturnType<typeof readDispatchStream>>[] {

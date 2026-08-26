@@ -348,6 +348,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       (value.dispatchId !== undefined && !nonEmpty(value.dispatchId)) ||
       (value.agentId !== undefined && !nonEmpty(value.agentId)) ||
       (value.targetAgentId !== undefined && !nonEmpty(value.targetAgentId)) ||
+      (value.squadId !== undefined && !nonEmpty(value.squadId)) ||
       (value.model !== undefined && !nonEmpty(value.model)) ||
       (value.effort !== undefined && !nonEmpty(value.effort)) ||
       (value.permissionMode !== undefined && !nonEmpty(value.permissionMode)) ||

@@ -31,68 +31,22 @@ test("thin parser converts the sole preset script target into closed typed start
         inputs: { title: "Canary" },
       },
     });
+  assert.equal(parseThinCommand(["script", "run", "user-canary/check", "--idempotency-key", "once"]).ok, false);
   assert.equal(
-    parseThinCommand([
-      "script",
-      "run",
-      "user-canary/check",
-      "--idempotency-key",
-      "once",
-    ]).ok,
-    false,
-  );
-  assert.equal(
-    parseThinCommand([
-      "script",
-      "run",
-      "preset:user-canary/check",
-      "--idempotency-key",
-      "once",
-      "--inputs",
-      "not-json",
-    ]).ok,
+    parseThinCommand(["script", "run", "preset:user-canary/check", "--idempotency-key", "once", "--inputs", "not-json"])
+      .ok,
     false,
   );
 });
 
 test("thin doc commands derive descriptor-only actions from the protocol directory", () => {
   const status = parseThinCommand(["doc", "status"]),
-    selectedStatus = parseThinCommand([
-      "doc",
-      "status",
-      "--path",
-      "context/a.md",
-      "--path",
-      "context/b.md",
-    ]),
-    dryRun = parseThinCommand([
-      "doc",
-      "sync",
-      "--dry-run",
-      "--path",
-      "context/a.md",
-      "--path",
-      "context/b.md",
-    ]),
+    selectedStatus = parseThinCommand(["doc", "status", "--path", "context/a.md", "--path", "context/b.md"]),
+    dryRun = parseThinCommand(["doc", "sync", "--dry-run", "--path", "context/a.md", "--path", "context/b.md"]),
     materialize = parseThinCommand(["doc", "materialize"]),
     show = parseThinCommand(["doc", "show", "--path", "tasks/task-1/INDEX.md"]),
-    retire = parseThinCommand([
-      "doc",
-      "retire",
-      "--path",
-      "context/old.md",
-      "--reason",
-      "superseded scratch",
-    ]),
-    submit = parseThinCommand([
-      "doc",
-      "sync",
-      "--submit",
-      "--path",
-      "context/a.md",
-      "--path",
-      "context/b.md",
-    ]),
+    retire = parseThinCommand(["doc", "retire", "--path", "context/old.md", "--reason", "superseded scratch"]),
+    submit = parseThinCommand(["doc", "sync", "--submit", "--path", "context/a.md", "--path", "context/b.md"]),
     taskSubmit = parseThinCommand(["doc", "sync", "--submit", "--task", "task-1"]);
   assert.equal(status.ok, true);
   assert.equal(selectedStatus.ok, true);
@@ -102,8 +56,7 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
   assert.equal(retire.ok, true);
   assert.equal(submit.ok, true);
   assert.equal(taskSubmit.ok, true);
-  if (status.ok)
-    assert.deepEqual(status.command.action, { kind: "doc-status", paths: [] });
+  if (status.ok) assert.deepEqual(status.command.action, { kind: "doc-status", paths: [] });
   if (selectedStatus.ok)
     assert.deepEqual(selectedStatus.command.action, {
       kind: "doc-status",
@@ -114,8 +67,7 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
       kind: "doc-dry-run",
       paths: ["context/a.md", "context/b.md"],
     });
-  if (materialize.ok)
-    assert.deepEqual(materialize.command.action, { kind: "doc-materialize" });
+  if (materialize.ok) assert.deepEqual(materialize.command.action, { kind: "doc-materialize" });
   if (show.ok)
     assert.deepEqual(show.command.action, {
       kind: "doc-show",
@@ -143,19 +95,9 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
     parseThinCommand(["doc", "sync", "--submit", "--task", "task-1", "--path", "tasks/task-1/task_plan.md"]).ok,
     false,
   );
-  assert.equal(
-    parseThinCommand(["doc", "sync", "--submit", "--execution-id", "exec-1"]).ok,
-    false,
-  );
-  assert.equal(
-    parseThinCommand(["doc", "show", "--path", "INDEX.md", "--body", "inline"])
-      .ok,
-    false,
-  );
-  assert.equal(
-    parseThinCommand(["doc", "retire", "--path", "context/old.md"]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["doc", "sync", "--submit", "--execution-id", "exec-1"]).ok, false);
+  assert.equal(parseThinCommand(["doc", "show", "--path", "INDEX.md", "--body", "inline"]).ok, false);
+  assert.equal(parseThinCommand(["doc", "retire", "--path", "context/old.md"]).ok, false);
 });
 
 test("doc CLI and GUI delivery surfaces do not import store, Git, or semantic compiler code", () => {
@@ -196,10 +138,7 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
       name: "Alpha Project",
       addNpmScripts: true,
     });
-  assert.equal(
-    parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner"]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner"]).ok, false);
   const configureOnly = parseThinCommand([
     "init",
     "--repo-id",
@@ -230,6 +169,8 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       "fable",
       "--to",
       "terra",
+      "--squad",
+      "runtime-squad",
       "--prompt",
       "Inspect",
       "--cwd",
@@ -242,24 +183,8 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       "once",
       "--no-stream",
     ]),
-    taskOnly = parseThinCommand([
-      "runtime",
-      "run",
-      "worker",
-      "--agent",
-      "terra",
-      "--task",
-      "task-1",
-      "--cwd",
-      ".",
-    ]),
-    file = parseThinCommand([
-      "runtime",
-      "run",
-      "worker",
-      "--prompt-file",
-      "prompt.txt",
-    ]),
+    taskOnly = parseThinCommand(["runtime", "run", "worker", "--agent", "terra", "--task", "task-1", "--cwd", "."]),
+    file = parseThinCommand(["runtime", "run", "worker", "--prompt-file", "prompt.txt"]),
     batch = parseThinCommand(["runtime", "batch", "dispatches.json"]),
     detached = parseThinCommand([
       "runtime",
@@ -282,27 +207,9 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     dispatches = parseThinCommand(["task", "dispatches", "task-1"]),
     list = parseThinCommand(["runtime", "status", "--task", "task-1"]),
     show = parseThinCommand(["runtime", "status", "runtime-1"]),
-    wait = parseThinCommand([
-      "runtime",
-      "status",
-      "runtime-1",
-      "--wait",
-      "--no-stream",
-    ]),
+    wait = parseThinCommand(["runtime", "status", "runtime-1", "--wait", "--no-stream"]),
     cancel = parseThinCommand(["runtime", "cancel", "runtime-1"]);
-  for (const parsed of [
-    run,
-    taskOnly,
-    file,
-    batch,
-    detached,
-    resumed,
-    dispatches,
-    list,
-    show,
-    wait,
-    cancel,
-  ])
+  for (const parsed of [run, taskOnly, file, batch, detached, resumed, dispatches, list, show, wait, cancel])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (run.ok)
     assert.deepEqual(run.command.action, {
@@ -310,6 +217,7 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       runtimeInstanceId: "worker",
       agentId: "fable",
       targetAgentId: "terra",
+      squadId: "runtime-squad",
       prompt: "Inspect",
       cwd: { scope: "repo-relative", path: "packages/cli" },
       taskId: "task-1",
@@ -394,64 +302,22 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     });
   assert.equal(parseThinCommand(["runtime", "run", "worker"]).ok, false);
   assert.equal(parseThinCommand(["runtime", "batch"]).ok, false);
+  assert.equal(parseThinCommand(["runtime", "batch", "dispatches.json", "--detach"]).ok, false);
   assert.equal(
-    parseThinCommand(["runtime", "batch", "dispatches.json", "--detach"]).ok,
+    parseThinCommand(["runtime", "run", "worker", "--prompt", "Inspect", "--on-exit", "./notify.sh"]).ok,
     false,
   );
   assert.equal(
-    parseThinCommand([
-      "runtime",
-      "run",
-      "worker",
-      "--prompt",
-      "Inspect",
-      "--on-exit",
-      "./notify.sh",
-    ]).ok,
+    parseThinCommand(["runtime", "run", "worker", "--squad", "runtime-squad", "--prompt", "Inspect"]).ok,
     false,
   );
+  assert.equal(parseThinCommand(["runtime", "run", "worker", "--prompt", "one", "--prompt-file", "two"]).ok, false);
   assert.equal(
-    parseThinCommand([
-      "runtime",
-      "run",
-      "worker",
-      "--prompt",
-      "one",
-      "--prompt-file",
-      "two",
-    ]).ok,
+    parseThinCommand(["runtime", "run", "worker", "--task", "task-1", "--prompt", "one", "--prompt-file", "two"]).ok,
     false,
   );
-  assert.equal(
-    parseThinCommand([
-      "runtime",
-      "run",
-      "worker",
-      "--task",
-      "task-1",
-      "--prompt",
-      "one",
-      "--prompt-file",
-      "two",
-    ]).ok,
-    false,
-  );
-  assert.equal(
-    parseThinCommand([
-      "runtime",
-      "run",
-      "worker",
-      "--to",
-      "terra",
-      "--prompt",
-      "Inspect",
-    ]).ok,
-    false,
-  );
-  assert.equal(
-    parseThinCommand(["runtime", "status", "runtime-1", "--task", "task-1"]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["runtime", "run", "worker", "--to", "terra", "--prompt", "Inspect"]).ok, false);
+  assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--task", "task-1"]).ok, false);
   const taskWait = parseThinCommand(["runtime", "status", "--task", "task-1", "--wait", "--no-stream"]);
   assert.equal(taskWait.ok, true);
   if (taskWait.ok)
@@ -462,9 +328,6 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       noStream: true,
     });
   assert.equal(parseThinCommand(["runtime", "status", "--wait"]).ok, false);
-  assert.equal(
-    parseThinCommand(["runtime", "status", "runtime-1", "--no-stream"]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--no-stream"]).ok, false);
   assert.equal(parseThinCommand(["runtime", "wait", "runtime-1"]).ok, false);
 });

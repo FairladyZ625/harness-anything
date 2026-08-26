@@ -1,11 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import {
-  consumeKnownError,
-  resolveHarnessLayout,
-  settingBlockValue,
-  type AgentRuntimeEventV1,
-} from "../../kernel/src/index.ts";
+import { consumeKnownError, resolveHarnessLayout, settingBlockValue } from "../../kernel/src/index.ts";
 import { readDispatchStreams } from "./dispatch-stream.ts";
 import type { RepoCell, RepoCellBinding } from "./repo-cell.ts";
 import type { RuntimeDaemonRoute } from "./runtime-spawn.ts";
@@ -190,19 +185,16 @@ export function makeE2EProbeScheduler(input: {
     timer = null;
   };
 
-  const onRuntimeOutcome = async (
-    repoId: string,
-    event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
-  ): Promise<void> => {
+  const onAttemptTerminal = async (repoId: string, runtimeSessionId: string): Promise<void> => {
     const current = active;
     if (
       !current ||
       current.repoId !== repoId ||
-      (current.runtimeSessionId !== null && current.runtimeSessionId !== event.payload.runtimeSessionId)
+      (current.runtimeSessionId !== null && current.runtimeSessionId !== runtimeSessionId)
     )
       return;
-    current.runtimeSessionId = event.payload.runtimeSessionId;
-    await settle(schedules.get(repoId)!, event.payload.runtimeSessionId, now(), current.token);
+    current.runtimeSessionId = runtimeSessionId;
+    await settle(schedules.get(repoId)!, runtimeSessionId, now(), current.token);
   };
 
   async function hydrate(schedule: E2EProbeSchedule): Promise<void> {
@@ -347,7 +339,7 @@ export function makeE2EProbeScheduler(input: {
     ].join("\n");
   }
 
-  return { start, close, status, onRuntimeOutcome };
+  return { start, close, status, onAttemptTerminal };
 }
 
 function disabledSchedule(source: string): E2EProbeScheduleConfig {

@@ -22,7 +22,7 @@ export type RuntimeFallbackAttempt = {
   readonly rootIdempotencyKey: string;
   readonly originalMission: string;
   readonly candidates: readonly RuntimeFallbackCandidate[];
-  readonly backoff: { readonly baseMs: number; readonly maxMs: number; readonly maxAttempts: number };
+  readonly backoff: { readonly baseMs: number; readonly maxMs: number };
 };
 
 export type RuntimeAttemptOutcome = {

@@ -73,11 +73,10 @@ test("registered declaration Entity kinds explain the same contract shape from t
   );
 });
 
-test("Agent fallback is an exact bounded attempt declaration", () => {
+test("Agent fallback is an exact chain-bounded attempt declaration", () => {
   const fallback = {
-    enabled: true,
     chain: [{ instance: "provider-a" }, { instance: "provider-b", model: "model-b" }],
-    backoff: { baseMs: 25, maxMs: 100, maxAttempts: 2 },
+    backoff: { baseMs: 25, maxMs: 100 },
   };
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, fallback }), []);
   assert.match(
@@ -85,11 +84,15 @@ test("Agent fallback is an exact bounded attempt declaration", () => {
     /fallback.*unknown/u,
   );
   assert.match(
+    validateAgentDeclarationV1({ ...agent, fallback: { ...fallback, enabled: true } }).join("\n"),
+    /enabled.*unknown/u,
+  );
+  assert.match(
     validateAgentDeclarationV1({
       ...agent,
       fallback: { ...fallback, backoff: { ...fallback.backoff, maxAttempts: 3 } },
     }).join("\n"),
-    /cannot exceed fallback\.chain length/u,
+    /maxAttempts.*unknown/u,
   );
 });
 

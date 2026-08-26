@@ -214,25 +214,22 @@ test(
 );
 
 test(
-  "fleet fallback settlement can only transition its released assignment Task to blocked",
+  "fleet fallback settlement atomically releases its assignment Task and moves it to blocked",
   { timeout: 30_000 },
   async (t) => {
     const fixture = await leaseFixture();
     t.after(() => fixture.close());
     const created = await fixture.command("node-one", { kind: "task-create", title: "Fallback exhausted" }),
       taskId = String((created.receipt as Record<string, unknown>).taskId);
-    assert.equal((await fixture.command("node-one", { kind: "task-start", taskId })).outcome, "applied");
-    assert.equal(
-      (await fixture.command("node-one", { kind: "task-release", taskId, reason: "provider fallback exhausted" }))
-        .outcome,
-      "applied",
-    );
+    const started = await fixture.command("node-one", { kind: "task-start", taskId });
+    assert.equal(started.outcome, "applied");
+    const executionId = String(started.lease?.executionId);
     assert.equal(
       (
         await fixture.command("node-one", {
-          kind: "task-transition",
+          kind: "task-fallback-exhausted",
           taskId,
-          status: "blocked",
+          executionId,
           reason: "provider chain exhausted",
         })
       ).outcome,

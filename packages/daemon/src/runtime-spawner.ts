@@ -14,7 +14,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { createRuntime } from "../../preset/src/preset-resolver.ts";
 import { presetRuntimeDefaults, presetUserRoot } from "../../preset/src/preset-system.ts";
-import type { SquadDispatchTarget } from "./agent-entities.ts";
+import type { SquadDispatchSelection } from "./agent-entities.ts";
 import { runtimeTypeMatchesKind } from "./agent-runtime-contract.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
@@ -22,6 +22,7 @@ import { resolveAgentSkills } from "./agent-skills.ts";
 import {
   openDispatchStream,
   readDispatchStream,
+  reopenDispatchStream,
   removeDispatchStream,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -78,6 +79,7 @@ import type {
   RuntimeAgent,
   RuntimeBinding,
   RuntimeDaemonRoute,
+  RuntimeAttemptTerminal,
   RuntimeLauncher,
   RuntimeProcess,
   TrustedScheduleRuntime,
@@ -116,24 +118,22 @@ export function makeRuntimeSpawner(input: {
   ) => Promise<PreparedRuntimeLaunch>;
   readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
   readonly resolveAgent?: (agentId: string) => RuntimeAgent;
-  readonly resolveSquadDispatchTarget?: (leaderId: string, workerId: string) => SquadDispatchTarget;
+  readonly resolveSquadDispatch?: (
+    squadId: string | undefined,
+    leaderId: string,
+    workerId?: string,
+  ) => SquadDispatchSelection;
   readonly launch?: RuntimeLauncher;
   readonly schedule: (work: () => void | Promise<void>) => void;
   readonly onRuntimeOutcome?: (
     event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
     schedule: TrustedScheduleRuntime | null,
   ) => void;
-  readonly onFallbackExhausted?: (input: {
-    readonly taskId: string;
-    readonly executionId: string;
-    readonly reason: string;
-    readonly binding: RuntimeBinding;
-  }) => void | Promise<void>;
+  readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void | Promise<void>;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
-    fallbackTimers = new Set<ReturnType<typeof setTimeout>>(),
     launch = input.launch ?? launchNative,
     prepareWorkerGitEnvironment = async (instanceId: string): Promise<NodeJS.ProcessEnv | undefined> => {
       const credentialEnvironment = await input.prepareWorkerGitEnvironment?.(instanceId);
@@ -145,6 +145,7 @@ export function makeRuntimeSpawner(input: {
           }
         : undefined;
     };
+  let fallbackClosed = false;
   const extracted = {
     input,
     requiredRuntimeStore,
@@ -168,6 +169,7 @@ export function makeRuntimeSpawner(input: {
     captureErrorOutput,
     prepareWorkerGitEnvironment,
     settleFallback,
+    reconcileFallback,
   };
 
   const spawnAttempt = async (
@@ -181,6 +183,7 @@ export function makeRuntimeSpawner(input: {
         "dispatchId",
         "agentId",
         "targetAgentId",
+        "squadId",
         "model",
         "effort",
         "permissionMode",
@@ -213,6 +216,7 @@ export function makeRuntimeSpawner(input: {
         payload.targetAgentId === undefined
           ? undefined
           : requiredRuntimeSpawnText(payload.targetAgentId, "targetAgentId"),
+      squadId = payload.squadId === undefined ? undefined : requiredRuntimeSpawnText(payload.squadId, "squadId"),
       model = payload.model === undefined ? undefined : requiredRuntimeSpawnText(payload.model, "model"),
       effort = payload.effort === undefined ? undefined : requiredRuntimeSpawnText(payload.effort, "effort"),
       permissionMode =
@@ -236,6 +240,8 @@ export function makeRuntimeSpawner(input: {
           : resumed?.providerSessionId;
     if (targetAgentId !== undefined && agentId === undefined)
       throw runtimeSpawnError("squad_leader_required", "Targeted squad dispatch requires --agent <leader-id>.");
+    if (squadId !== undefined && agentId === undefined)
+      throw runtimeSpawnError("squad_leader_required", "Squad attribution requires --agent <leader-id>.");
     const cwd = resolveRuntimeCwd(input.rootDir, payload.cwd),
       store = input.remote ? null : requiredRuntimeStore(input),
       projection = input.remote ? null : requiredRuntimeProjection(input),
@@ -317,18 +323,21 @@ export function makeRuntimeSpawner(input: {
                 runtimeActor,
               })
             : mission,
-      target = targetAgentId
-        ? (input.resolveSquadDispatchTarget?.(agentId!, targetAgentId) ??
-          (() => {
-            throw runtimeSpawnError(
-              "squad_member_not_found",
-              `Agent ${targetAgentId} is not available in a squad led by ${agentId}.`,
-            );
-          })())
-        : null,
-      delegatedBy = target?.leader ?? null,
+      squad =
+        squadId || targetAgentId
+          ? (input.resolveSquadDispatch?.(squadId, agentId!, targetAgentId) ??
+            (() => {
+              if (squadId) throw runtimeSpawnError("squad_not_found", `Squad ${squadId} is unavailable.`);
+              throw runtimeSpawnError(
+                "squad_member_not_found",
+                `Agent ${targetAgentId} is not available in a squad led by ${agentId}.`,
+              );
+            })())
+          : null,
+      delegatedBy = squad?.worker ? squad.leader : null,
       agent =
-        target?.worker ??
+        squad?.worker ??
+        squad?.leader ??
         (agentId
           ? (input.resolveAgent?.(agentId) ??
             (() => {
@@ -352,15 +361,7 @@ export function makeRuntimeSpawner(input: {
         : undefined,
       fallbackAttempt =
         inheritedFallback ??
-        initialFallbackAttempt(
-          agent,
-          explicitRuntimeInstanceId,
-          model,
-          providerSessionId,
-          taskId,
-          idempotencyKey,
-          mission,
-        ),
+        initialFallbackAttempt(agent, explicitRuntimeInstanceId, model, providerSessionId, idempotencyKey, mission),
       fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
       prompt = agent
         ? assembleAgentPrompt(agent, selfContainedMission ?? mission, preset, resolvedSkills)
@@ -488,11 +489,11 @@ export function makeRuntimeSpawner(input: {
         resumeProviderSessionId: providerSessionId ?? null,
         ...(onExitCommand ? { onExitCommand } : {}),
         ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
+        ...(squad ? { squadId: squad.squadId } : {}),
         ...(delegatedBy
           ? {
               delegatedByAgentId: delegatedBy.id,
               delegatedByAgentName: delegatedBy.name,
-              squadId: target!.squadId,
             }
           : {}),
       }));
@@ -599,7 +600,7 @@ export function makeRuntimeSpawner(input: {
       permissionMode: launchedPermissionMode ?? null,
       agent,
       delegatedBy,
-      squadId: target?.squadId ?? null,
+      squadId: squad?.squadId ?? null,
       binding,
       task: taskBinding,
       schedule: trustedSchedule ?? null,
@@ -654,8 +655,7 @@ export function makeRuntimeSpawner(input: {
     adopt: () => adoptRuntimes(extracted),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     close: () => {
-      for (const timer of fallbackTimers) clearTimeout(timer);
-      fallbackTimers.clear();
+      fallbackClosed = true;
       closeRuntimes(extracted);
     },
   };
@@ -713,22 +713,28 @@ export function makeRuntimeSpawner(input: {
   function controlReceipt(opId: string, runtimeSessionId: string, detail?: string) {
     return controlReceiptImpl(extracted, opId, runtimeSessionId, detail);
   }
-  async function settleFallback(active: ActiveRuntime, outcome: RuntimeAttemptOutcome): Promise<void> {
+  async function settleFallback(
+    active: ActiveRuntime,
+    outcome: RuntimeAttemptOutcome,
+    terminal: RuntimeAttemptTerminal,
+  ): Promise<void> {
     const fallback = active.fallbackAttempt;
-    if (outcome.classification !== "provider_fault" || !fallback || !active.task) return;
+    if (outcome.classification !== "provider_fault" || !fallback) {
+      await input.onAttemptTerminal?.(terminal);
+      return;
+    }
     const nextAttemptIndex = fallback.attemptIndex + 1,
-      exhausted = nextAttemptIndex >= fallback.backoff.maxAttempts || nextAttemptIndex >= fallback.candidates.length;
+      exhausted = nextAttemptIndex >= fallback.candidates.length;
     if (exhausted) {
       const reason = `Provider fallback exhausted after ${String(nextAttemptIndex)} attempt(s): ${outcome.reason}`;
       active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
       try {
-        await input.onFallbackExhausted?.({
-          ...active.task,
-          reason,
-          binding: active.binding,
-        });
+        await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", fallbackExhausted: true, reason });
       } catch (error) {
-        const settlementReason = `Provider fallback exhaustion could not block the Task: ${runtimeErrorMessage(error)}`;
+        const settlementReason = [
+          "Provider fallback exhaustion could not settle terminal state: ",
+          runtimeErrorMessage(error),
+        ].join("");
         active.stream.appendFallbackState({ state: "exhausted", reason: settlementReason }, input.now());
         console.warn(`[runtime-fallback] ${settlementReason}`);
         throw error;
@@ -737,38 +743,85 @@ export function makeRuntimeSpawner(input: {
     }
     const next = fallback.candidates[nextAttemptIndex]!,
       delayMs = Math.min(fallback.backoff.maxMs, fallback.backoff.baseMs * 2 ** fallback.attemptIndex),
-      nextFallback = { ...fallback, attemptIndex: nextAttemptIndex },
-      continuation = continuationMission(outcome, fallback.originalMission);
-    active.stream.appendFallbackState({ state: "scheduled", delayMs, nextProvider: next }, input.now());
+      notBeforeAt = new Date(Date.parse(input.now()) + delayMs).toISOString();
+    active.stream.appendFallbackState({ state: "scheduled", delayMs, notBeforeAt, nextProvider: next }, input.now());
+    reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
+  }
+
+  function reconcileFallback(stream: ReturnType<typeof readDispatchStream>): void {
+    if (
+      fallbackClosed ||
+      !stream ||
+      stream.fallbackState !== "scheduled" ||
+      !stream.fallbackSchedule ||
+      !stream.attemptOutcome ||
+      !stream.header.fallbackAttempt ||
+      !stream.header.binding ||
+      typeof stream.header.cwd !== "string"
+    )
+      return;
+    const notBeforeMs = Date.parse(stream.fallbackSchedule.notBeforeAt),
+      observedNowMs = Date.parse(input.now());
+    if (!Number.isFinite(notBeforeMs) || !Number.isFinite(observedNowMs)) return;
+    const remainingMs = Math.max(0, notBeforeMs - observedNowMs);
     const timer = setTimeout(() => {
-      fallbackTimers.delete(timer);
+      if (fallbackClosed) return;
       input.schedule(async () => {
+        const current = readDispatchStream(input.rootDir, stream.header.dispatchId);
+        if (
+          !current ||
+          current.fallbackState !== "scheduled" ||
+          current.fallbackSchedule?.notBeforeAt !== stream.fallbackSchedule!.notBeforeAt ||
+          !current.attemptOutcome ||
+          !current.header.fallbackAttempt ||
+          !current.header.binding ||
+          typeof current.header.cwd !== "string"
+        )
+          return;
+        const header = current.header,
+          binding = header.binding,
+          dispatchCwd = header.cwd;
+        if (!binding || typeof dispatchCwd !== "string") return;
+        const fallback = header.fallbackAttempt!,
+          nextAttemptIndex = fallback.attemptIndex + 1,
+          nextFallback = { ...fallback, attemptIndex: nextAttemptIndex },
+          next = fallback.candidates[nextAttemptIndex],
+          writer = reopenDispatchStream(input.rootDir, header),
+          continuation = continuationMission(current.attemptOutcome, fallback.originalMission);
+        if (
+          !next ||
+          next.instance !== current.fallbackSchedule.nextProvider.instance ||
+          next.model !== current.fallbackSchedule.nextProvider.model
+        )
+          return;
         try {
           const receipt = await spawnAttempt(
             {
               runtimeInstanceId: next.instance,
-              ...(active.delegatedBy
-                ? { agentId: active.delegatedBy.id, targetAgentId: active.agent!.id }
-                : active.agent
-                  ? { agentId: active.agent.id }
+              ...(header.delegatedByAgentId && header.agentId
+                ? { agentId: header.delegatedByAgentId, targetAgentId: header.agentId }
+                : header.agentId
+                  ? { agentId: header.agentId }
                   : {}),
+              ...(header.squadId ? { squadId: header.squadId } : {}),
               ...(next.model ? { model: next.model } : {}),
-              ...(active.reasoningEffort ? { effort: active.reasoningEffort } : {}),
-              ...(active.permissionMode ? { permissionMode: active.permissionMode } : {}),
+              ...(header.reasoningEffort ? { effort: header.reasoningEffort } : {}),
+              ...(header.permissionMode ? { permissionMode: header.permissionMode } : {}),
               cwd:
-                active.cwd === input.rootDir
+                dispatchCwd === input.rootDir
                   ? { scope: "repo-root" }
-                  : { scope: "repo-relative", path: path.relative(input.rootDir, active.cwd) },
+                  : { scope: "repo-relative", path: path.relative(input.rootDir, dispatchCwd) },
               prompt: continuation,
-              ...(active.promptSource ? { promptSource: active.promptSource } : {}),
-              ...(active.onExitCommand ? { onExitCommand: active.onExitCommand } : {}),
-              taskId: active.task!.taskId,
+              ...(header.promptSource ? { promptSource: header.promptSource } : {}),
+              ...(header.onExitCommand ? { onExitCommand: header.onExitCommand } : {}),
+              ...(header.taskId ? { taskId: header.taskId } : {}),
               idempotencyKey: `${fallback.rootIdempotencyKey}:fallback:${String(nextAttemptIndex)}`,
             },
-            active.binding,
+            binding,
             nextFallback,
+            header.schedule,
           );
-          active.stream.appendFallbackState(
+          writer.appendFallbackState(
             {
               state: "dispatched",
               nextDispatchId: String(receipt.dispatchId),
@@ -779,13 +832,24 @@ export function makeRuntimeSpawner(input: {
         } catch (error) {
           consumeKnownError(error);
           const reason = `Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`;
-          active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
-          await input.onFallbackExhausted?.({ ...active.task!, reason, binding: active.binding });
+          writer.appendFallbackState({ state: "exhausted", reason }, input.now());
+          await input.onAttemptTerminal?.({
+            runtimeSessionId: header.runtimeSessionId,
+            dispatchId: header.dispatchId,
+            task:
+              header.taskId && header.executionId ? { taskId: header.taskId, executionId: header.executionId } : null,
+            schedule: header.schedule ?? null,
+            outcome: "failed",
+            fallbackExhausted: true,
+            reason,
+            endedAt: input.now(),
+            resultRef: null,
+            binding,
+          });
         }
       });
-    }, delayMs);
+    }, remainingMs);
     timer.unref();
-    fallbackTimers.add(timer);
   }
 }
 
@@ -794,12 +858,11 @@ function initialFallbackAttempt(
   requestedInstance: string | undefined,
   requestedModel: string | undefined,
   providerSessionId: string | null | undefined,
-  taskId: string | null,
   idempotencyKey: string,
   mission: string,
 ): RuntimeFallbackAttempt | undefined {
   const declared = agent?.fallback;
-  if (!declared?.enabled || providerSessionId || !taskId) return undefined;
+  if (!declared || providerSessionId) return undefined;
   const requestedIndex =
     requestedInstance === undefined
       ? 0
@@ -810,7 +873,6 @@ function initialFallbackAttempt(
         );
   if (requestedIndex < 0) return undefined;
   const candidates = declared.chain.slice(requestedIndex),
-    maxAttempts = Math.min(declared.backoff.maxAttempts, candidates.length),
     digest = createHash("sha256").update(`${agent!.id}\0${idempotencyKey}`).digest("hex");
   return {
     attemptGroupId: `attempt_${digest.slice(0, 24)}`,
@@ -818,7 +880,7 @@ function initialFallbackAttempt(
     rootIdempotencyKey: idempotencyKey,
     originalMission: mission,
     candidates,
-    backoff: { ...declared.backoff, maxAttempts },
+    backoff: declared.backoff,
   };
 }
 

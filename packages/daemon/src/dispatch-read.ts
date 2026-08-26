@@ -222,7 +222,8 @@ function archiveRow(
     classification = isClassification(value.classification)
       ? value.classification
       : (attemptOutcome?.classification ?? null),
-    reason = typeof value.reason === "string" ? value.reason : (attemptOutcome?.reason ?? null);
+    reason = typeof value.reason === "string" ? value.reason : (attemptOutcome?.reason ?? null),
+    outcome = isOutcome(value.outcome) ? value.outcome : (session?.outcome ?? "unknown");
   return {
     dispatchId: String(value.dispatchId),
     taskId: String(value.taskId),
@@ -258,16 +259,16 @@ function archiveRow(
           delegatedByAgentId: value.delegatedByAgentId,
           delegatedByAgentName:
             typeof value.delegatedByAgentName === "string" ? value.delegatedByAgentName : value.delegatedByAgentId,
-          squadId: String(value.squadId),
         }
       : {}),
+    ...(typeof value.squadId === "string" ? { squadId: value.squadId } : {}),
     providerSessionId:
       typeof value.providerSessionId === "string" ? value.providerSessionId : (session?.providerSessionId ?? null),
     eventStreamRef: typeof value.eventStreamRef === "string" ? value.eventStreamRef : null,
     startedAt: String(value.startedAt),
     endedAt: typeof value.endedAt === "string" ? value.endedAt : null,
-    outcome: isOutcome(value.outcome) ? value.outcome : (session?.outcome ?? "unknown"),
-    status: lost ? "lost" : isOutcome(value.outcome) ? value.outcome : (session?.outcome ?? "unknown"),
+    outcome,
+    status: lost ? "lost" : outcome,
     resultRef: typeof value.resultRef === "string" ? value.resultRef : (session?.resultRef ?? null),
     exitCode: typeof value.exitCode === "number" ? value.exitCode : (session?.exitCode ?? null),
     dispatchPath: `${packagePath}/artifacts/dispatches/${String(value.dispatchId)}.json`,
@@ -306,9 +307,9 @@ function liveRow(
       ? {
           delegatedByAgentId: header.delegatedByAgentId,
           delegatedByAgentName: header.delegatedByAgentName ?? header.delegatedByAgentId,
-          squadId: header.squadId!,
         }
       : {}),
+    ...(header.squadId ? { squadId: header.squadId } : {}),
     providerSessionId: providerSessionId ?? session?.providerSessionId ?? null,
     eventStreamRef: header.eventStreamRef,
     startedAt: header.startedAt,

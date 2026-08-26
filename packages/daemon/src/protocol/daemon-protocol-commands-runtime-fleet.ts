@@ -29,6 +29,10 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         code: "invalid_field",
         nextAction: "Use --to <worker-agent-id> only with --agent <leader-agent-id>.",
       }),
+      cliInput("--squad", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use --squad <squad-id> only with --agent <leader-agent-id>.",
+      }),
       cliInput("--model", "single", false, {
         code: "invalid_field",
         nextAction: "Use one model supported by the runtime instance.",

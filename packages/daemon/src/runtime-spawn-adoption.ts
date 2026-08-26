@@ -19,6 +19,7 @@ export async function adoptRuntimes(context: any): Promise<void> {
     sessions.map((session: { readonly runtimeSessionId: string }) => [session.runtimeSessionId, session]),
   );
   for (const stream of readDispatchStreams(context.input.rootDir)) {
+    context.reconcileFallback(stream);
     const session = byId.get(stream.header.runtimeSessionId) as
       | { readonly liveness: string; readonly outcome: string | null }
       | undefined;

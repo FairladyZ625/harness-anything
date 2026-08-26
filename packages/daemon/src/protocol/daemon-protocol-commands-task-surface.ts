@@ -27,6 +27,16 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
+  defineCenterForwardWriteCommand({
+    id: "task-fallback-exhausted",
+    actionKind: "task-fallback-exhausted",
+    internal: true,
+    phase: "Runtime-B",
+    path: ["task", "_fallback-exhausted", "<task-id>"],
+    summary: "Atomically release a fallback attempt lease and move its Task to blocked.",
+    method: "repo.task.run",
+    inputs: [],
+  }),
   defineLedgerWriteCommand({
     id: "task-declare-executor",
     phase: "W3",

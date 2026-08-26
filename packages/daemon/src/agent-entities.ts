@@ -263,19 +263,36 @@ export function readSquadDeclaration(input: {
     );
   return squad;
 }
-export interface SquadDispatchTarget {
+export interface SquadDispatchSelection {
   readonly squadId: string;
   readonly leader: AgentDeclarationV1;
-  readonly worker: AgentDeclarationV1;
+  readonly worker: AgentDeclarationV1 | null;
 }
-export function resolveSquadDispatchTarget(input: {
+export function resolveSquadDispatch(input: {
   readonly rootDir: string;
+  readonly squadId?: string;
   readonly leaderId: string;
-  readonly workerId: string;
+  readonly workerId?: string;
   readonly entityStore?: EntityStore;
-}): SquadDispatchTarget {
-  const entityStore = input.entityStore ?? openEntityStore(input.rootDir),
-    matches: SquadDispatchTarget[] = [];
+}): SquadDispatchSelection {
+  const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
+  if (input.squadId) {
+    const squad = readSquadDeclaration({ rootDir: input.rootDir, squadId: input.squadId, entityStore });
+    if (squad.leader !== input.leaderId)
+      throw entityError("squad_leader_mismatch", `Agent ${input.leaderId} is not the leader of squad ${squad.id}.`);
+    if (input.workerId && !squad.workers.includes(input.workerId))
+      throw entityError("squad_member_not_found", `Agent ${input.workerId} is not a worker in squad ${squad.id}.`);
+    return {
+      squadId: squad.id,
+      leader: readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader, entityStore }),
+      worker: input.workerId
+        ? readAgentDeclaration({ rootDir: input.rootDir, agentId: input.workerId, entityStore })
+        : null,
+    };
+  }
+  if (!input.workerId)
+    throw entityError("squad_not_found", `A squad id is required to dispatch leader ${input.leaderId}.`);
+  const matches: SquadDispatchSelection[] = [];
   for (const { id: squadId, value } of entityStore.list<SquadDeclarationV1>("squad")) {
     const squad = parseSquadDeclarationV1(value);
     if (squad.leader !== input.leaderId || !squad.workers.includes(input.workerId)) continue;

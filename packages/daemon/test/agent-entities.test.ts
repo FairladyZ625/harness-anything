@@ -18,7 +18,7 @@ import { createEntityStore, makeTaskEventStore, makeTaskProjection } from "../..
 import {
   prepareAgentEntityInstall,
   readAgentEntityGuiProjection,
-  resolveSquadDispatchTarget,
+  resolveSquadDispatch,
   runAgentEntityAction,
 } from "../src/agent-entities.ts";
 import { discoverAgentSkills, resolveAgentSkills } from "../src/agent-skills.ts";
@@ -165,9 +165,8 @@ test("agent model is optional but must be non-empty when declared", () => {
 
 test("daemon Agent fallback validation mirrors the kernel authority", () => {
   const fallback = {
-    enabled: true,
     chain: [{ instance: "provider-a" }, { instance: "provider-b", model: "model-b" }],
-    backoff: { baseMs: 25, maxMs: 100, maxAttempts: 2 },
+    backoff: { baseMs: 25, maxMs: 100 },
   };
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, fallback }), []);
   assert.match(
@@ -544,13 +543,13 @@ test("Squad dispatch resolution selects one declared worker and rejects outsider
     }
     writeEntity(source, "core-squad", "squad", { ...squad, leader: "fable", workers: ["luna"] });
     await install({ rootDir, kind: "squad-install", packageSource: path.join(source, "core-squad") });
-    assert.deepEqual(resolveSquadDispatchTarget({ rootDir, leaderId: "fable", workerId: "luna" }), {
+    assert.deepEqual(resolveSquadDispatch({ rootDir, leaderId: "fable", workerId: "luna" }), {
       squadId: "core-squad",
       leader: fable,
       worker: luna,
     });
     assert.throws(
-      () => resolveSquadDispatchTarget({ rootDir, leaderId: "fable", workerId: "outsider" }),
+      () => resolveSquadDispatch({ rootDir, leaderId: "fable", workerId: "outsider" }),
       (error: unknown) => (error as { code?: string }).code === "squad_member_not_found",
     );
     writeEntity(source, "other-squad", "squad", {
@@ -562,12 +561,12 @@ test("Squad dispatch resolution selects one declared worker and rejects outsider
     });
     await install({ rootDir, kind: "squad-install", packageSource: path.join(source, "other-squad") });
     assert.throws(
-      () => resolveSquadDispatchTarget({ rootDir, leaderId: "fable", workerId: "luna" }),
+      () => resolveSquadDispatch({ rootDir, leaderId: "fable", workerId: "luna" }),
       (error: unknown) => (error as { code?: string }).code === "squad_member_ambiguous",
     );
     writeFileSync(path.join(rootDir, "harness/squads/broken.json"), "{not-json\n");
     assert.throws(
-      () => resolveSquadDispatchTarget({ rootDir, leaderId: "fable", workerId: "luna" }),
+      () => resolveSquadDispatch({ rootDir, leaderId: "fable", workerId: "luna" }),
       (error: unknown) => (error as { code?: string }).code === "squad_member_ambiguous",
     );
   } finally {

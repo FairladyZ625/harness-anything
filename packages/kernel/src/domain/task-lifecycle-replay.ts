@@ -1,4 +1,4 @@
-import type { ExecutionV1 } from "./execution.ts";
+import type { ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
 import type { ActorAxes, ContractValidationIssue } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
@@ -26,6 +26,7 @@ import {
 } from "./task-lifecycle-contract-support.ts";
 import { isReadyToComplete } from "./task-lifecycle-review-transitions.ts";
 import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
+import { explainStatusTransition } from "./lifecycle-status.ts";
 
 // Transition application plus event replay and executor-declaration repair.
 export function validateTransition<C extends TaskLifecycleCommand>(
@@ -280,6 +281,17 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
   assertReplay(snapshot, event, next);
   return next;
 }
+function sameReleasedLease(current: LeaseV1, released: LeaseV1): boolean {
+  if (stableStringify(released) === stableStringify(current)) return true;
+  // `orphaned` is derived from the wall clock by the live projection; canonical
+  // replay still sees the same stored lease as `held`. Normalize only that
+  // derived phase while preserving every field that identifies the lease CAS.
+  return (
+    current.phase === "held" &&
+    released.phase === "orphaned" &&
+    stableStringify({ ...released, phase: "held" }) === stableStringify(current)
+  );
+}
 function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next: TaskLifecycleSnapshot): void {
   if (event.type === "code_doc_repointed") {
     const target = snapshot.codeDocWitnesses.find(
@@ -312,6 +324,21 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     throw new TaskLifecycleContractError("invalid_transition", [
       lifecycleContractIssue("invalid_submit_atomicity", "replayed submit is incomplete"),
     ]);
+  if (event.type === "lease_released") {
+    const changesStatus = event.payload.mutation.fields.includes("status"),
+      expectedTask = changesStatus && snapshot.task ? { ...snapshot.task, status: "blocked" as const } : snapshot.task;
+    if (
+      !snapshot.lease ||
+      !sameReleasedLease(snapshot.lease, event.payload.releasedLease) ||
+      event.payload.execution.executionId !== snapshot.lease.executionId ||
+      stableStringify(event.payload.task) !== stableStringify(expectedTask) ||
+      (changesStatus && (!snapshot.task || !explainStatusTransition(snapshot.task.status, "blocked").allowed)) ||
+      next.lease !== null
+    )
+      throw new TaskLifecycleContractError("invalid_transition", [
+        lifecycleContractIssue("invalid_release_atomicity", "replayed lease release is incomplete"),
+      ]);
+  }
   if (event.type === "execution_executor_declared") {
     const current = execution(snapshot, event.payload.execution.executionId),
       expected = current ? { ...current, actor: event.actor } : null,

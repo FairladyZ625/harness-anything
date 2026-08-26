@@ -7,7 +7,7 @@ import {
   type AgentRuntimeEventV1,
   type EntityStore,
 } from "../../kernel/src/index.ts";
-import { readAgentDeclaration, resolveSquadDispatchTarget } from "./agent-entities.ts";
+import { readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
 import { parseAgentDeclarationV1 } from "./agent-entities.contract.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import {
@@ -249,58 +249,54 @@ export function openFleetEdgeRuntime(input: {
     resolveAgent: (agentId) =>
       trustedScheduleAgents.get(agentId) ??
       readAgentDeclaration({ rootDir: request.workspaceRoot, agentId, entityStore: getEntityStore() }),
-    resolveSquadDispatchTarget: (leaderId, workerId) =>
-      resolveSquadDispatchTarget({
+    resolveSquadDispatch: (squadId, leaderId, workerId) =>
+      resolveSquadDispatch({
         rootDir: request.workspaceRoot,
+        ...(squadId ? { squadId } : {}),
         leaderId,
-        workerId,
+        ...(workerId ? { workerId } : {}),
         entityStore: getEntityStore(),
       }),
-    onFallbackExhausted: async ({ taskId, executionId, reason }) => {
-      const waitMs = runtimeReadTimeoutMs ?? 30_000,
-        release = await runFleetTaskCommandClient({
-          ...peer,
-          repoId: request.repoId,
-          taskId,
-          opId: `provider-fallback-release-${executionId}`,
-          waitMs,
-          action: { kind: "task-release", taskId, reason: `Provider fallback exhausted: ${reason}` },
-        });
-      if (release.outcome !== "applied")
-        throw edgeRuntimeError(
-          "fallback_block_failed",
-          `Center rejected provider fallback lease release: ${String(release.code ?? release.outcome)}.`,
-        );
-      const blocked = await runFleetTaskCommandClient({
-        ...peer,
-        repoId: request.repoId,
-        taskId,
-        opId: `provider-fallback-block-${executionId}`,
-        waitMs,
-        action: { kind: "task-transition", taskId, status: "blocked", reason },
-      });
-      if (blocked.outcome !== "applied")
-        throw edgeRuntimeError(
-          "fallback_block_failed",
-          `Center rejected provider fallback blocked transition: ${String(blocked.code ?? blocked.outcome)}.`,
-        );
-    },
-    onRuntimeOutcome: (event, scheduled) => {
+    onAttemptTerminal: async (terminal) => {
+      if (terminal.fallbackExhausted && terminal.task) {
+        const waitMs = runtimeReadTimeoutMs ?? 30_000,
+          { taskId, executionId } = terminal.task,
+          settled = await runFleetTaskCommandClient({
+            ...peer,
+            repoId: request.repoId,
+            taskId,
+            opId: `provider-fallback-exhausted-${executionId}`,
+            waitMs,
+            action: {
+              kind: "task-fallback-exhausted",
+              taskId,
+              executionId,
+              reason: terminal.reason ?? "Provider fallback exhausted.",
+            },
+          });
+        if (settled.outcome !== "applied")
+          throw edgeRuntimeError(
+            "fallback_block_failed",
+            `Center rejected provider fallback exhaustion settlement: ${String(settled.code ?? settled.outcome)}.`,
+          );
+      }
+      const scheduled = terminal.schedule,
+        detail = terminal.resultRef ?? terminal.reason;
       if (!scheduled) return;
       schedule(async () => {
         const response = await runFleetScheduleCommandClient({
           ...peer,
           repoId: request.repoId,
           scheduleId: scheduled.scheduleId,
-          opId: `${event.payload.runtimeSessionId}-schedule-outcome`,
+          opId: `${terminal.runtimeSessionId}-schedule-attempt-terminal`,
           action: {
             kind: "schedule-settle",
             phase: "outcome",
             scheduleId: scheduled.scheduleId,
             claimFence: scheduled.claimFence,
-            outcome: event.payload.outcome,
-            endedAt: event.occurredAt,
-            detail: event.payload.resultRef,
+            outcome: terminal.outcome,
+            endedAt: terminal.endedAt,
+            ...(detail ? { detail } : {}),
           },
         });
         if (response.outcome !== "applied")

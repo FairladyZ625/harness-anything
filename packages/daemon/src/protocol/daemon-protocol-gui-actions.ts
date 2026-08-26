@@ -242,6 +242,7 @@ export const daemonGuiActionMethods = Object.freeze([
       dispatchId: "string?",
       agentId: "string?",
       targetAgentId: "string?",
+      squadId: "string?",
       model: "string?",
       effort: "string?",
       permissionMode: "string?",

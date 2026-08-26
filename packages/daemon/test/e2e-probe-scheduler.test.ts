@@ -97,10 +97,7 @@ test("daemon probe scheduler owns one timer, one in-flight run, and readable set
     });
 
     observedAt = "2026-08-26T00:10:00.000Z";
-    await scheduler.onRuntimeOutcome("alpha", {
-      type: "runtime_session_outcome_observed",
-      payload: { runtimeSessionId: "runtime-probe-one" },
-    } as never);
+    await scheduler.onAttemptTerminal("alpha", "runtime-probe-one");
     const status = scheduler.status();
     assert.equal(status.running, null);
     assert.equal(status.repos[0]?.lastRun?.probeOutcome, "failed");

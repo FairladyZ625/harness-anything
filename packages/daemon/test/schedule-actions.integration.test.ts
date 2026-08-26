@@ -110,6 +110,10 @@ test("run-now launches only after an applied claim, stays single-flight, and set
                 name: "Probe Agent",
                 instructions: "Run the exact probe mission.",
                 runtime_type: "codex",
+                fallback: {
+                  chain: [{ instance: definition.instanceId }, { instance: definition.instanceId }],
+                  backoff: { baseMs: 1, maxMs: 1 },
+                },
               },
             },
             actor,
@@ -175,6 +179,17 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         },
       );
       output?.(
+        `${JSON.stringify({ type: "thread.started", thread_id: "provider-schedule-first" })}\n` +
+          `${JSON.stringify({ type: "turn.failed", error: { http_status: 429, message: "rate limited" } })}\n`,
+      );
+      exit?.(1);
+      assert.equal(await eventually(async () => launchCount === 2), true);
+      const continuing = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
+        readonly schedules: readonly { readonly status: { readonly activeRun: unknown; readonly lastRun: unknown } }[];
+      };
+      assert.notEqual(continuing.schedules[0]?.status.activeRun, null);
+      assert.equal(continuing.schedules[0]?.status.lastRun, null);
+      output?.(
         `${JSON.stringify({ type: "thread.started", thread_id: "provider-schedule" })}\n` +
           `${JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } })}\n` +
           `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } })}\n` +
@@ -192,7 +207,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         );
       });
       assert.equal(settled, true);
-      assert.equal(launchCount, 1);
+      assert.equal(launchCount, 2);
     } finally {
       await cell.close();
     }
