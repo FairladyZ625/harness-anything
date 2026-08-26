@@ -59,7 +59,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     emit(receipt, parsed.command.json);
     return Number.isInteger(receipt.exitCode) ? Number(receipt.exitCode) : receipt.ok === true ? 0 : 1;
   } catch (error) {
-    const autostartCode = daemonAutostartFailureCode(error),
+    const autostartCode = await daemonAutostartFailureCode(error),
       timeoutCode = daemonResponseTimeoutCode(error),
       targetCode = daemonTargetFailureCode(error),
       buildStaleCode = daemonBuildStaleCode(error),

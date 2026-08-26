@@ -12,13 +12,15 @@ export interface DaemonLaunchSpec {
   readonly args: readonly string[];
   readonly env: NodeJS.ProcessEnv;
 }
-export type DaemonAutostartFailureCode =
-  | "daemon_start_runtime_forbidden"
-  | "daemon_spawn_not_found"
-  | "daemon_spawn_permission"
-  | "daemon_start_failed"
-  | "daemon_bind_timeout"
-  | "daemon_starting";
+export const autostartFailureCodes = [
+  "daemon_start_runtime_forbidden",
+  "daemon_spawn_not_found",
+  "daemon_spawn_permission",
+  "daemon_start_failed",
+  "daemon_bind_timeout",
+  "daemon_starting",
+] as const;
+export type DaemonAutostartFailureCode = (typeof autostartFailureCodes)[number];
 export interface DaemonAutostartResult {
   readonly ok: boolean;
   readonly code?: DaemonAutostartFailureCode;
@@ -45,6 +47,20 @@ export function isDaemonUnreachable(error: unknown): boolean {
     if (typeof code === "string") return code === "ECONNREFUSED" || code === "ENOENT" || code === "ETIMEDOUT";
   }
   return error instanceof Error && error.message === "daemon_unavailable";
+}
+export async function runtimeDaemonStartRefusal(
+  socketPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+  probe: (socketPath: string) => Promise<boolean> = daemonSocketProbe,
+): Promise<{ readonly code: "daemon_start_runtime_forbidden"; readonly hint: string } | null> {
+  if (env.HARNESS_ACTOR?.startsWith("agent:runtime-session:") !== true || (await probe(socketPath))) return null;
+  return {
+    code: "daemon_start_runtime_forbidden",
+    hint: [
+      "A task-bound runtime cannot start the shared daemon because its HOME and PATH belong to the runtime instance.",
+      "Start the daemon from an operator shell with `ha daemon start --service`, then retry the worker command.",
+    ].join(" "),
+  };
 }
 export async function ensureLocalDaemonRunning(input: {
   readonly socketPath: string;
