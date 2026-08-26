@@ -87,11 +87,7 @@ test("G33 skips Mergify merge-queue verification PRs by bot author and queue bra
 });
 
 test("G33 measures the branch from its merge-base, so the target advancing does not move the number", () => {
-  const repo = makeRepo();
-  writeRepoFile(repo, "packages/kernel/src/a.ts", "export const a = 1;\n");
-  git(repo, ["add", "-A"]);
-  git(repo, ["commit", "-q", "-m", "base"]);
-  const base = git(repo, ["rev-parse", "HEAD"]).trim(),
+  const { rootDir: repo, base } = makeRepo({ "packages/kernel/src/a.ts": "export const a = 1;\n" }),
     target = git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
   git(repo, ["checkout", "-q", "-b", "feature"]);
   writeRepoFile(repo, "packages/kernel/src/b.ts", "export const b = 1;\nexport const c = 2;\n");
@@ -106,4 +102,5 @@ test("G33 measures the branch from its merge-base, so the target advancing does 
   git(repo, ["checkout", "-q", "feature"]);
   const after = computeProductionDelta({ rootDir: repo, base: mainTip });
   assert.deepEqual([after.added, after.deleted], [before.added, before.deleted]);
+  assert.deepEqual([after.added, after.deleted], [2, 0]);
 });
