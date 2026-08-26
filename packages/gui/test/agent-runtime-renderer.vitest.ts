@@ -769,7 +769,7 @@ describe("agent runtime renderer", () => {
       watermark: 1,
       sourceRevision: 1,
     }));
-    vi.stubGlobal("window", { harness: { listSquadRuns } });
+    vi.stubGlobal("window", { harness: { listSquadRuns, readSquadRun: vi.fn() } });
     const listed = await squadRunsClient.list("repo-a", { since: "2026-08-26T00:00:00.000Z", query: "ontology" });
     expect(listed.runs).toHaveLength(1);
     expect(listSquadRuns).toHaveBeenCalledWith({
@@ -777,7 +777,59 @@ describe("agent runtime renderer", () => {
       since: "2026-08-26T00:00:00.000Z",
       query: "ontology",
     });
-    vi.stubGlobal("window", { harness: { listSquadRuns: vi.fn(async () => ({ ok: true, runs: "no" })) } });
+    vi.stubGlobal("window", {
+      harness: { listSquadRuns: vi.fn(async () => ({ ok: true, runs: "no" })), readSquadRun: vi.fn() },
+    });
     await expect(squadRunsClient.list("repo-a")).rejects.toThrow(/invalid result/u);
+  });
+
+  it("reads one squad run's orchestration flow through the read bridge and fails closed", async () => {
+    const squadRunId = "squad_" + "a".repeat(18);
+    const detail = {
+      ok: true as const,
+      status: "ready" as const,
+      run: {
+        squadRunId,
+        squadId: "squad-x",
+        taskId: "task-x",
+        mission: "m",
+        phase: "workers_running" as const,
+        error: null,
+        currentLeaderRuntimeSessionId: "runtime-leader",
+        leaderTurns: [
+          {
+            turnId: "leader-1",
+            trigger: { kind: "initial" },
+            dispatchId: "dispatch-a",
+            runtimeSessionId: "runtime-leader",
+            decision: { kind: "plan", dispatchCount: 2 },
+            status: "running",
+            startedAt: "2026-08-26T00:00:00.000Z",
+            endedAt: null,
+          },
+        ],
+        workerAttempts: [
+          {
+            attemptId: "worker-1",
+            workerId: "terra",
+            dispatchId: "dispatch-b",
+            runtimeSessionId: "runtime-worker",
+            rejection: null,
+            status: null,
+            startedAt: null,
+            endedAt: null,
+          },
+        ],
+      },
+      watermark: 1,
+      sourceRevision: 1,
+    };
+    const readSquadRun = vi.fn(async () => detail);
+    vi.stubGlobal("window", { harness: { listSquadRuns: vi.fn(), readSquadRun } });
+    const read = await squadRunsClient.read("repo-a", squadRunId);
+    expect(read.run.leaderTurns[0]?.decision).toEqual({ kind: "plan", dispatchCount: 2 });
+    expect(readSquadRun).toHaveBeenCalledWith({ repoId: "repo-a", squadRunId });
+    vi.stubGlobal("window", { harness: { listSquadRuns: vi.fn(), readSquadRun: vi.fn(async () => ({ ok: true })) } });
+    await expect(squadRunsClient.read("repo-a", squadRunId)).rejects.toThrow(/invalid result/u);
   });
 });

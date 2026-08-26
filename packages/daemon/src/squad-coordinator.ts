@@ -14,7 +14,12 @@ import { readTaskDispatches } from "./dispatch-read.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
-import type { SquadRunPhase, SquadRunsListResult, SquadRunSummaryDto } from "./squad-run-contract.ts";
+import type {
+  SquadRunPhase,
+  SquadRunReadResult,
+  SquadRunsListResult,
+  SquadRunSummaryDto,
+} from "./squad-run-contract.ts";
 
 type LeaderDecision =
   | { readonly kind: "converged" }
@@ -191,6 +196,21 @@ export function makeSquadCoordinator(input: {
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
     };
+  };
+
+  // GUI 读面(G12 §2c):把 `ha squad status` 的 statusDto 内容对 GUI 开放为编排
+  // 流转详情——leader 轮次、worker 派工链、error 全部来自既有 SquadState 与派工
+  // 台账行,零新计算;不存在/非法句柄走读面错误(protocol error),不伪造空详情。
+  const read = (squadRunId: string): SquadRunReadResult => {
+    if (!validSquadRunId(squadRunId))
+      throw squadReadError(
+        "invalid_squad_run_id",
+        "Use the squad_<24 lowercase hex characters> handle returned by ha squad run.",
+      );
+    const state = readSquadRunState(squadRunId);
+    if (!state) throw squadReadError("squad_run_not_found", `Squad run ${squadRunId} does not exist.`);
+    const cut = input.projection().readTaskStatuses([]);
+    return detailDto(state, cut);
   };
 
   const observeOutcome = async (event: RuntimeOutcomeEvent): Promise<void> => {
@@ -584,6 +604,60 @@ export function makeSquadCoordinator(input: {
     };
   }
 
+  function detailDto(
+    state: SquadState,
+    cut: { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number },
+  ): SquadRunReadResult {
+    const rows = dispatchRows(state),
+      byDispatchId = new Map(rows.map((row) => [row.dispatchId, row]));
+    return {
+      ok: true,
+      status: cut.status,
+      run: {
+        squadRunId: state.squadRunId,
+        squadId: state.squadId,
+        taskId: state.taskId,
+        mission: state.mission,
+        phase: state.phase,
+        error: state.error,
+        currentLeaderRuntimeSessionId: state.currentLeaderRuntimeSessionId,
+        leaderTurns: state.leaderTurns.map((turn) => {
+          const row = byDispatchId.get(turn.dispatchId);
+          return {
+            turnId: turn.turnId,
+            trigger: turn.trigger,
+            dispatchId: turn.dispatchId,
+            runtimeSessionId: turn.runtimeSessionId,
+            decision:
+              turn.decision === null
+                ? null
+                : turn.decision.kind === "converged"
+                  ? { kind: "converged" }
+                  : { kind: "plan", dispatchCount: turn.decision.dispatches.length },
+            status: row?.status ?? null,
+            startedAt: row?.startedAt ?? null,
+            endedAt: row?.endedAt ?? null,
+          };
+        }),
+        workerAttempts: state.workerAttempts.map((attempt) => {
+          const row = attempt.dispatchId ? byDispatchId.get(attempt.dispatchId) : undefined;
+          return {
+            attemptId: attempt.attemptId,
+            workerId: attempt.workerId,
+            dispatchId: attempt.dispatchId,
+            runtimeSessionId: attempt.runtimeSessionId,
+            rejection: attempt.rejection,
+            status: row?.status ?? null,
+            startedAt: row?.startedAt ?? null,
+            endedAt: row?.endedAt ?? null,
+          };
+        }),
+      },
+      watermark: cut.watermark,
+      sourceRevision: cut.sourceRevision,
+    };
+  }
+
   function summaryDto(state: SquadState): SquadRunSummaryDto {
     const sessions = [
       ...state.leaderTurns.map((turn) => turn.runtimeSessionId),
@@ -607,7 +681,7 @@ export function makeSquadCoordinator(input: {
     };
   }
 
-  return { start, status, list, observeOutcome, reconcile };
+  return { start, status, list, read, observeOutcome, reconcile };
 }
 
 function initialLeaderPrompt(state: SquadState): string {

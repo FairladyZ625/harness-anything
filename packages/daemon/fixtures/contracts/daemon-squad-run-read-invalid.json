@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "status": "ready",
+  "run": {
+    "squadRunId": "squad_0123456789abcdef01234567",
+    "squadId": "core-squad",
+    "taskId": "task-runtime",
+    "mission": "Review the runtime read model",
+    "phase": "leader_running",
+    "error": null,
+    "currentLeaderRuntimeSessionId": null,
+    "leaderTurns": [
+      {
+        "turnId": "leader-1",
+        "trigger": { "kind": "initial" },
+        "dispatchId": "dispatch_000000000000000000000000",
+        "runtimeSessionId": "runtime-leader",
+        "decision": null,
+        "status": "running",
+        "startedAt": "2026-08-26T00:00:00.000Z",
+        "endedAt": null
+      }
+    ],
+    "workerAttempts": []
+  },
+  "watermark": 42,
+  "sourceRevision": 42,
+  "totals": { "runs": 1 }
+}

@@ -22,7 +22,58 @@ export type SquadRunsListResult = {
   readonly sourceRevision: number;
 };
 
+/** 一个 leader 轮次的触发(G12 §2c 读面):initial / worker 会话结算回调 / worker 派工被拒。 */
+export type SquadRunTriggerDto =
+  | { readonly kind: "initial" }
+  | { readonly kind: "worker_outcome"; readonly runtimeSessionId: string }
+  | { readonly kind: "worker_rejected"; readonly attemptId: string };
+/** leader 轮次已解析的决策:派工计划(含派工数)或收敛。null = 决策尚未解析。 */
+export type SquadRunDecisionDto =
+  | { readonly kind: "converged" }
+  | { readonly kind: "plan"; readonly dispatchCount: number };
+export type SquadRunTurnStatus = "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "lost";
+export interface SquadRunLeaderTurnDto {
+  readonly turnId: string;
+  readonly trigger: SquadRunTriggerDto;
+  readonly dispatchId: string;
+  readonly runtimeSessionId: string;
+  readonly decision: SquadRunDecisionDto | null;
+  readonly status: SquadRunTurnStatus | null;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+}
+export interface SquadRunWorkerAttemptDto {
+  readonly attemptId: string;
+  readonly workerId: string;
+  readonly dispatchId: string | null;
+  readonly runtimeSessionId: string | null;
+  readonly rejection: string | null;
+  readonly status: SquadRunTurnStatus | null;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+}
+/** `ha squad status` 的 statusDto 对 GUI 开放的编排流转(leader 轮次 → worker 派工链):
+ * daemon 侧零新计算,全部来自 readSquadRunState 的 SquadState 与既有派工台账行。 */
+export type SquadRunReadResult = {
+  readonly ok: true;
+  readonly status: "ready" | "pending";
+  readonly run: {
+    readonly squadRunId: string;
+    readonly squadId: string;
+    readonly taskId: string;
+    readonly mission: string;
+    readonly phase: SquadRunPhase;
+    readonly error: string | null;
+    readonly currentLeaderRuntimeSessionId: string | null;
+    readonly leaderTurns: readonly SquadRunLeaderTurnDto[];
+    readonly workerAttempts: readonly SquadRunWorkerAttemptDto[];
+  };
+  readonly watermark: number;
+  readonly sourceRevision: number;
+};
+
 const phases: readonly SquadRunPhase[] = ["planning", "leader_running", "workers_running", "converged", "failed"];
+const turnStatuses: readonly SquadRunTurnStatus[] = ["running", "succeeded", "failed", "unknown", "cancelled", "lost"];
 
 export function validateSquadRunsList(value: unknown): readonly string[] {
   return squadRunRecord(value) &&
@@ -44,6 +95,105 @@ export function validateSquadRunsList(value: unknown): readonly string[] {
 
 export const serializeSquadRunsList = (value: unknown): string =>
   serializeSquadRunContract(value, validateSquadRunsList);
+
+export function validateSquadRunRead(value: unknown): readonly string[] {
+  return squadRunRecord(value) &&
+    exactSquadRunFields(value, ["ok", "status", "run", "watermark", "sourceRevision"]) &&
+    value.ok === true &&
+    squadRunReadyStatus(value.status) &&
+    squadRunRecord(value.run) &&
+    exactSquadRunFields(value.run, [
+      "squadRunId",
+      "squadId",
+      "taskId",
+      "mission",
+      "phase",
+      "error",
+      "currentLeaderRuntimeSessionId",
+      "leaderTurns",
+      "workerAttempts",
+    ]) &&
+    [value.run.squadRunId, value.run.squadId, value.run.taskId, value.run.mission].every(squadRunText) &&
+    phases.includes(value.run.phase as SquadRunPhase) &&
+    (value.run.error === null || squadRunText(value.run.error)) &&
+    (value.run.currentLeaderRuntimeSessionId === null || squadRunText(value.run.currentLeaderRuntimeSessionId)) &&
+    Array.isArray(value.run.leaderTurns) &&
+    value.run.leaderTurns.every(validSquadRunLeaderTurn) &&
+    Array.isArray(value.run.workerAttempts) &&
+    value.run.workerAttempts.every(validSquadRunWorkerAttempt) &&
+    squadRunCount(value.watermark) &&
+    squadRunCount(value.sourceRevision) &&
+    squadRunSafeKeys(value)
+    ? []
+    : ["squad run read is invalid"];
+}
+
+export const serializeSquadRunRead = (value: unknown): string => serializeSquadRunContract(value, validateSquadRunRead);
+
+function validSquadRunLeaderTurn(value: unknown): value is SquadRunLeaderTurnDto {
+  return (
+    squadRunRecord(value) &&
+    exactSquadRunFields(value, [
+      "turnId",
+      "trigger",
+      "dispatchId",
+      "runtimeSessionId",
+      "decision",
+      "status",
+      "startedAt",
+      "endedAt",
+    ]) &&
+    [value.turnId, value.dispatchId, value.runtimeSessionId].every(squadRunText) &&
+    validSquadRunTrigger(value.trigger) &&
+    (value.decision === null || validSquadRunDecision(value.decision)) &&
+    (value.status === null || turnStatuses.includes(value.status as SquadRunTurnStatus)) &&
+    (value.startedAt === null || squadRunIso(value.startedAt)) &&
+    (value.endedAt === null || squadRunIso(value.endedAt))
+  );
+}
+
+function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAttemptDto {
+  return (
+    squadRunRecord(value) &&
+    exactSquadRunFields(value, [
+      "attemptId",
+      "workerId",
+      "dispatchId",
+      "runtimeSessionId",
+      "rejection",
+      "status",
+      "startedAt",
+      "endedAt",
+    ]) &&
+    [value.attemptId, value.workerId].every(squadRunText) &&
+    (value.dispatchId === null || squadRunText(value.dispatchId)) &&
+    (value.runtimeSessionId === null || squadRunText(value.runtimeSessionId)) &&
+    (value.rejection === null || squadRunText(value.rejection)) &&
+    (value.status === null || turnStatuses.includes(value.status as SquadRunTurnStatus)) &&
+    (value.startedAt === null || squadRunIso(value.startedAt)) &&
+    (value.endedAt === null || squadRunIso(value.endedAt))
+  );
+}
+
+function validSquadRunTrigger(value: unknown): value is SquadRunTriggerDto {
+  if (!squadRunRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "initial") return exactSquadRunFields(value, ["kind"]);
+  if (value.kind === "worker_outcome")
+    return exactSquadRunFields(value, ["kind", "runtimeSessionId"]) && squadRunText(value.runtimeSessionId);
+  return (
+    value.kind === "worker_rejected" &&
+    exactSquadRunFields(value, ["kind", "attemptId"]) &&
+    squadRunText(value.attemptId)
+  );
+}
+
+function validSquadRunDecision(value: unknown): value is SquadRunDecisionDto {
+  if (!squadRunRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "converged") return exactSquadRunFields(value, ["kind"]);
+  return (
+    value.kind === "plan" && exactSquadRunFields(value, ["kind", "dispatchCount"]) && squadRunCount(value.dispatchCount)
+  );
+}
 
 function validSquadRunSummary(value: unknown): value is SquadRunSummaryDto {
   return (
