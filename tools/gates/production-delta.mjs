@@ -9,8 +9,15 @@ import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
 const DELTA_LINE = /^Production-Delta:[ \t]*\+(\d+)\s*\/\s*-(\d+)\s*$/gmu;
 const RETAINED_LINE = /^Retained-Path:[ \t]*(\S+)\s+until\s+(\d{4}-\d{2}-\d{2})\s+per\s+(dec_[0-9A-Za-z]+)\s*$/gmu;
 
+// The declared delta describes the branch, so it is measured from the merge-base with the
+// target ref rather than from the target's tip: main advancing under an open PR must not
+// change a number the author already verified (2026-08-27: six body edits on one PR).
+export function resolveDeltaBase(rootDir, base) {
+  return git(rootDir, ["merge-base", base, "HEAD"]).trim() || base;
+}
+
 export function computeProductionDelta({ rootDir, base }) {
-  const output = git(rootDir, ["diff", "--no-renames", "--numstat", "-z", base, "--"]);
+  const output = git(rootDir, ["diff", "--no-renames", "--numstat", "-z", resolveDeltaBase(rootDir, base), "--"]);
   const changed = [];
   const unclassified = [];
   let added = 0;
