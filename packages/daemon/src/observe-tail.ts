@@ -1,7 +1,7 @@
 import { readdirSync, statSync, type BigIntStats } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
 import path from "node:path";
-import type { DaemonRepoMode, TaskProjection } from "../../kernel/src/index.ts";
+import type { CanonicalEventV1, DaemonRepoMode, TaskProjection } from "../../kernel/src/index.ts";
 import { daemonConnLogFileStem } from "./conn-log.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { locateFleetMirrorView } from "./fleet-edge-mirror.ts";
@@ -37,6 +37,7 @@ export async function readObserveTail(input: {
       repoId: input.repoId,
       mode: input.mode,
       kind: payload.kind,
+      direction: payload.direction,
     };
   if (payload.kind === "events") {
     if (input.mode === "remote-edge")
@@ -44,7 +45,8 @@ export async function readObserveTail(input: {
         ...base,
         status: "unavailable",
         items: [],
-        cursor: null,
+        historyCursor: null,
+        liveCursor: null,
         sourceCursor: null,
         done: false,
         unavailable: {
@@ -52,8 +54,38 @@ export async function readObserveTail(input: {
           centerRevision: edgeCenterRevision(input.rootDir, input.repoId),
         },
       };
-    const after = payload.cursor?.revision ?? 0,
-      page = input.projection.readCanonicalEvents(after, pageSize + 1);
+    return { ...base, ...readEventTail(input.projection, payload) };
+  }
+  if (payload.kind === "repo-log" && input.mode === "remote-center")
+    return {
+      ...base,
+      status: "unavailable",
+      items: [],
+      historyCursor: null,
+      liveCursor: null,
+      sourceCursor: null,
+      done: false,
+      unavailable: { reason: "center-request-log-not-wired", centerRevision: null },
+    };
+  const logPage = await readJsonlTail(
+    payload.kind,
+    payload.direction,
+    payload.cursor,
+    payload.kind === "repo-log"
+      ? () => repoLogFiles(input.rootDir)
+      : () => daemonLogFiles(input.userRoot, input.daemonId),
+  );
+  return { ...base, ...logPage };
+}
+
+function readEventTail(
+  projection: TaskProjection,
+  payload: Extract<ObserveTailPayload, { readonly kind: "events" }>,
+): TailPage {
+  const requested = payload.cursor?.revision;
+  if (payload.direction === "follow") {
+    const after = requested!,
+      page = projection.readCanonicalEvents(after, pageSize + 1);
     if (after > page.sourceRevision)
       throw observeError(
         "invalid_cursor",
@@ -61,34 +93,42 @@ export async function readObserveTail(input: {
       );
     const selected = page.events.slice(0, pageSize),
       revision = selected.at(-1)?.workspaceRevision ?? after,
-      cursor = { kind: "events" as const, revision };
+      liveCursor = { kind: "events" as const, revision },
+      sourceCursor = { kind: "events" as const, revision: page.sourceRevision };
     return {
-      ...base,
       status: page.status,
       items: selected,
-      cursor,
-      sourceCursor: { kind: "events", revision: page.sourceRevision },
-      done: page.status === "ready" && page.events.length <= pageSize && revision === page.sourceRevision,
+      historyCursor: null,
+      liveCursor,
+      sourceCursor,
+      done: page.status === "ready" && page.events.length <= pageSize && sameCursor(liveCursor, sourceCursor),
     };
   }
-  if (payload.kind === "repo-log" && input.mode === "remote-center")
-    return {
-      ...base,
-      status: "unavailable",
-      items: [],
-      cursor: null,
-      sourceCursor: null,
-      done: false,
-      unavailable: { reason: "center-request-log-not-wired", centerRevision: null },
-    };
-  const logPage = await readJsonlTail(
-    payload.kind,
-    payload.cursor,
-    payload.kind === "repo-log"
-      ? () => repoLogFiles(input.rootDir)
-      : () => daemonLogFiles(input.userRoot, input.daemonId),
-  );
-  return { ...base, ...logPage };
+
+  // readCanonicalEvents is an ascending projection query. Probe its current watermark, then ask
+  // only for the small window immediately before the requested boundary; the initial request uses
+  // watermark + 1, so it lands on the latest projected page instead of replaying revision zero.
+  const probe = projection.readCanonicalEvents(0, 1),
+    before = requested ?? probe.watermark + 1;
+  if (before > probe.sourceRevision + 1)
+    throw observeError(
+      "invalid_cursor",
+      `Canonical event cursor ${before} is ahead of source revision ${probe.sourceRevision}.`,
+    );
+  const after = Math.max(0, before - pageSize - 1),
+    page = projection.readCanonicalEvents(after, pageSize + 1),
+    eligible = page.events.filter((event: CanonicalEventV1) => event.workspaceRevision < before),
+    selected = eligible.slice(-pageSize),
+    firstRevision = selected.at(0)?.workspaceRevision ?? Math.max(0, before - 1),
+    lastRevision = selected.at(-1)?.workspaceRevision ?? Math.min(probe.watermark, Math.max(0, before - 1));
+  return {
+    status: page.status,
+    items: selected,
+    historyCursor: { kind: "events", revision: firstRevision },
+    liveCursor: { kind: "events", revision: lastRevision },
+    sourceCursor: { kind: "events", revision: page.sourceRevision },
+    done: page.status === "ready" && (selected.length === 0 || firstRevision <= 1),
+  };
 }
 
 function parseObserveTailPayload(value: unknown): ObserveTailPayload {
@@ -105,39 +145,108 @@ interface TailFile {
 
 async function readJsonlTail(
   kind: "repo-log" | "daemon-log",
+  direction: "history" | "follow",
   cursor: ObserveTailCursor | undefined,
   snapshot: () => readonly TailFile[],
-): Promise<LogTailPage> {
+): Promise<TailPage> {
+  return direction === "history" ? readJsonlHistory(kind, cursor, snapshot) : readJsonlFollow(kind, cursor!, snapshot);
+}
+
+async function readJsonlHistory(
+  kind: "repo-log" | "daemon-log",
+  cursor: ObserveTailCursor | undefined,
+  snapshot: () => readonly TailFile[],
+): Promise<TailPage> {
   const requested = cursor as Extract<ObserveTailCursor, { readonly kind: typeof kind }> | undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const files = snapshot();
     if (files.length === 0) {
       if (requested) return gap(kind, "cursor-file-not-retained", requested.fileId);
-      return { status: "ready", items: [], cursor: null, sourceCursor: null, done: true };
+      return {
+        status: "ready",
+        items: [],
+        historyCursor: null,
+        liveCursor: null,
+        sourceCursor: null,
+        done: true,
+      };
     }
-    const start = requested ? files.findIndex((file) => file.fileId === requested.fileId) : 0;
+    const start = requested ? files.findIndex((file) => file.fileId === requested.fileId) : files.length - 1;
     if (start < 0) {
       if (attempt === 0) continue;
       return gap(kind, "cursor-file-not-retained", requested!.fileId);
     }
     try {
       const items: Readonly<Record<string, unknown>>[] = [];
-      let nextCursor: Extract<ObserveTailCursor, { readonly kind: typeof kind }> | null = null;
+      let historyCursor: Extract<ObserveTailCursor, { readonly kind: typeof kind }> | null = null;
+      const sourceCursor = await retainedEndCursor(kind, files);
+      for (let index = start; index >= 0; index -= 1) {
+        const file = files[index]!,
+          initialOffset = index === start && requested ? requested.offset : await completeEndOffset(file),
+          scanned = await scanLogFileBackward(file, initialOffset, pageSize - items.length);
+        if (scanned.outOfRange) return gap(kind, "cursor-offset-out-of-range", requested?.fileId ?? file.fileId);
+        items.unshift(...scanned.items);
+        if (scanned.items.length > 0) historyCursor = { kind, fileId: file.fileId, offset: scanned.offset };
+        if (items.length === pageSize) {
+          return {
+            status: "ready",
+            items,
+            historyCursor,
+            liveCursor: requested ?? sourceCursor,
+            sourceCursor,
+            done: index === 0 && scanned.offset === 0,
+          };
+        }
+      }
+      return {
+        status: "ready",
+        items,
+        historyCursor,
+        liveCursor: requested ?? sourceCursor,
+        sourceCursor,
+        done: true,
+      };
+    } catch (error) {
+      if (error instanceof TailSnapshotChanged && attempt === 0) continue;
+      throw error;
+    }
+  }
+  throw observeError("log_snapshot_unstable", "Log files kept rotating while the tail snapshot was read; retry.");
+}
+
+async function readJsonlFollow(
+  kind: "repo-log" | "daemon-log",
+  cursor: ObserveTailCursor,
+  snapshot: () => readonly TailFile[],
+): Promise<TailPage> {
+  const requested = cursor as Extract<ObserveTailCursor, { readonly kind: typeof kind }>;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const files = snapshot();
+    if (files.length === 0) return gap(kind, "cursor-file-not-retained", requested.fileId);
+    const start = files.findIndex((file) => file.fileId === requested.fileId);
+    if (start < 0) {
+      if (attempt === 0) continue;
+      return gap(kind, "cursor-file-not-retained", requested.fileId);
+    }
+    try {
+      const items: Readonly<Record<string, unknown>>[] = [];
+      let liveCursor: Extract<ObserveTailCursor, { readonly kind: typeof kind }> = requested;
       for (let index = start; index < files.length; index += 1) {
         const file = files[index]!,
-          initialOffset = index === start ? (requested?.offset ?? 0) : 0,
+          initialOffset = index === start ? requested.offset : 0,
           scanned = await scanLogFile(file, initialOffset, pageSize - items.length);
-        if (scanned.outOfRange) return gap(kind, "cursor-offset-out-of-range", requested?.fileId ?? file.fileId);
+        if (scanned.outOfRange) return gap(kind, "cursor-offset-out-of-range", requested.fileId);
         items.push(...scanned.items);
-        nextCursor = { kind, fileId: file.fileId, offset: scanned.offset };
+        liveCursor = { kind, fileId: file.fileId, offset: scanned.offset };
         if (items.length === pageSize) {
           const sourceCursor = await retainedEndCursor(kind, files);
           return {
             status: "ready",
             items,
-            cursor: nextCursor,
+            historyCursor: null,
+            liveCursor,
             sourceCursor,
-            done: sameCursor(nextCursor, sourceCursor),
+            done: sameCursor(liveCursor, sourceCursor),
           };
         }
         if (scanned.partial && index < files.length - 1)
@@ -147,7 +256,14 @@ async function readJsonlTail(
           );
       }
       const sourceCursor = await retainedEndCursor(kind, files);
-      return { status: "ready", items, cursor: nextCursor, sourceCursor, done: sameCursor(nextCursor, sourceCursor) };
+      return {
+        status: "ready",
+        items,
+        historyCursor: null,
+        liveCursor,
+        sourceCursor,
+        done: sameCursor(liveCursor, sourceCursor),
+      };
     } catch (error) {
       if (error instanceof TailSnapshotChanged && attempt === 0) continue;
       throw error;
@@ -205,8 +321,13 @@ async function retainedEndCursor(
   kind: "repo-log" | "daemon-log",
   files: readonly TailFile[],
 ): Promise<Extract<ObserveTailCursor, { readonly kind: typeof kind }>> {
-  const last = files.at(-1)!,
-    opened = await openStableFile(last);
+  const last = files.at(-1)!;
+  return { kind, fileId: last.fileId, offset: await completeEndOffset(last) };
+}
+
+/** Last complete JSONL boundary; an in-flight partial append is deliberately not exposed. */
+async function completeEndOffset(file: TailFile): Promise<number> {
+  const opened = await openStableFile(file);
   try {
     const buffer = Buffer.allocUnsafe(Math.min(readChunkBytes, Math.max(opened.size, 1)));
     let end = opened.size;
@@ -215,13 +336,73 @@ async function retainedEndCursor(
         length = end - start;
       await readExactAt(opened.handle, buffer, length, start);
       const finalNewline = buffer.subarray(0, length).lastIndexOf(0x0a);
-      if (finalNewline >= 0) return { kind, fileId: last.fileId, offset: start + finalNewline + 1 };
+      if (finalNewline >= 0) return start + finalNewline + 1;
       end = start;
     }
-    return { kind, fileId: last.fileId, offset: 0 };
+    return 0;
   } finally {
     await opened.handle.close();
   }
+}
+
+/**
+ * Read at most `limit` complete records before `initialOffset` without loading the file.
+ * Chunks are prepended until we have one more newline than records requested (or reach byte zero),
+ * which is enough to identify the oldest selected record boundary exactly.
+ */
+async function scanLogFileBackward(
+  file: TailFile,
+  initialOffset: number,
+  limit: number,
+): Promise<{
+  readonly items: readonly Readonly<Record<string, unknown>>[];
+  readonly offset: number;
+  readonly outOfRange: boolean;
+}> {
+  const opened = await openStableFile(file);
+  try {
+    if (initialOffset > opened.size || !(await isLineBoundary(opened.handle, initialOffset)))
+      return { items: [], offset: initialOffset, outOfRange: true };
+    if (initialOffset === 0 || limit === 0) return { items: [], offset: initialOffset, outOfRange: false };
+    let start = initialOffset,
+      window = Buffer.alloc(0),
+      newlines = 0;
+    while (start > 0 && newlines <= limit) {
+      const chunkStart = Math.max(0, start - readChunkBytes),
+        length = start - chunkStart,
+        chunk = Buffer.allocUnsafe(length);
+      await readExactAt(opened.handle, chunk, length, chunkStart);
+      for (const byte of chunk) if (byte === 0x0a) newlines += 1;
+      window = Buffer.concat([chunk, window]);
+      start = chunkStart;
+    }
+    const reversed: Readonly<Record<string, unknown>>[] = [];
+    let boundary = window.length,
+      offset = initialOffset;
+    while (reversed.length < limit && boundary > 0) {
+      if (window[boundary - 1] !== 0x0a)
+        throw observeError(
+          "log_record_invalid",
+          `Retained log ${path.basename(file.path)} cursor is not on a complete JSONL boundary.`,
+        );
+      const previousNewline = window.lastIndexOf(0x0a, boundary - 2),
+        lineStart = previousNewline + 1,
+        line = window.subarray(lineStart, boundary - 1);
+      offset = start + lineStart;
+      boundary = lineStart;
+      if (line.length > 0) reversed.push(parseLogRecord(file.path, line));
+    }
+    return { items: reversed.reverse(), offset, outOfRange: false };
+  } finally {
+    await opened.handle.close();
+  }
+}
+
+async function isLineBoundary(handle: FileHandle, offset: number): Promise<boolean> {
+  if (offset === 0) return true;
+  const byte = Buffer.allocUnsafe(1),
+    result = await handle.read(byte, 0, 1, offset - 1);
+  return result.bytesRead === 1 && byte[0] === 0x0a;
 }
 
 async function scanLogFile(
@@ -320,11 +501,12 @@ function gap(
   kind: "repo-log" | "daemon-log",
   reason: "cursor-file-not-retained" | "cursor-offset-out-of-range",
   requestedFileId: string,
-): Extract<LogTailPage, { readonly status: "gap" }> {
+): Extract<TailPage, { readonly status: "gap" }> {
   return {
     status: "gap",
     items: [],
-    cursor: null,
+    historyCursor: null,
+    liveCursor: null,
     sourceCursor: null,
     done: false,
     gap: { reason, requestedFileId },
@@ -355,12 +537,12 @@ function observeError(code: string, message: string): Error {
 
 class TailSnapshotChanged extends Error {}
 
-type LogTailPage =
+type TailPage =
   | Pick<
       Extract<ObserveTailResult, { readonly status: "ready" | "pending" }>,
-      "status" | "items" | "cursor" | "sourceCursor" | "done"
+      "status" | "items" | "historyCursor" | "liveCursor" | "sourceCursor" | "done"
     >
   | Pick<
       Extract<ObserveTailResult, { readonly status: "gap" }>,
-      "status" | "items" | "cursor" | "sourceCursor" | "done" | "gap"
+      "status" | "items" | "historyCursor" | "liveCursor" | "sourceCursor" | "done" | "gap"
     >;
