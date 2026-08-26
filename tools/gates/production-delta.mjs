@@ -3,6 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { git, pathExistsAt, repoRoot } from "./git.mjs";
 import { classifyModule, isProductionPath, normalizeRepoPath } from "./module-policy.mjs";
+import { shouldSkipPrBodyBilingualCheck } from "../check-pr-body-bilingual.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
 
 const DELTA_LINE = /^Production-Delta:[ \t]*\+(\d+)\s*\/\s*-(\d+)\s*$/gmu;
@@ -130,6 +131,16 @@ function parseArgs(argv) {
 export function main(argv = process.argv.slice(2)) {
   try {
     const { base, prBodyFile } = parseArgs(argv);
+    if (
+      prBodyFile === null &&
+      shouldSkipPrBodyBilingualCheck({
+        headRefName: process.env.PR_HEAD_REF ?? "",
+        authorLogin: process.env.PR_AUTHOR_LOGIN ?? "",
+      })
+    ) {
+      console.log("production-delta: skipped for Mergify merge-queue verification PR (the queued PR carries the declaration).");
+      return 0;
+    }
     const rootDir = repoRoot();
     const prBody = prBodyFile === null ? process.env.PR_BODY : readFileSync(prBodyFile, "utf8");
     if (prBody === undefined) throw new Error("PR body is required through PR_BODY or --pr-body-file");

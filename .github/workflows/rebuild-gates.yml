@@ -189,6 +189,8 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
+          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
         run: node tools/gates/production-delta.mjs --base "$BASE_SHA"
 
   lint:
