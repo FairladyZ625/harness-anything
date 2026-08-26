@@ -4,8 +4,10 @@ import path from "node:path";
 import {
   openEntityStore,
   resolveHarnessLayout,
+  validateScheduleV1,
   type AgentRuntimeEventV1,
   type EntityStore,
+  type ScheduleV1,
 } from "../../kernel/src/index.ts";
 import { readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
 import { parseAgentDeclarationV1 } from "./agent-entities.contract.ts";
@@ -28,6 +30,7 @@ import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } fro
 import type { RuntimeAgent } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { dispatchClaimedSchedule } from "./repo-cell-schedule-actions.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: {
@@ -372,21 +375,16 @@ export function openFleetEdgeRuntime(input: {
     const scheduleValue = receipt.schedule;
     if (!scheduleValue || typeof scheduleValue !== "object" || Array.isArray(scheduleValue))
       throw edgeRuntimeError("schedule_claim_invalid", "Applied Schedule claim omitted its projected Schedule value.");
-    const scheduleRecord = scheduleValue as JsonObject,
-      status = scheduleRecord.status as JsonObject | undefined,
-      active = status?.activeRun as JsonObject | undefined,
-      spec = scheduleRecord.spec as JsonObject | undefined,
-      target = spec?.target as JsonObject | undefined;
+    if (validateScheduleV1(scheduleValue).length)
+      throw edgeRuntimeError("schedule_claim_invalid", "Applied Schedule claim returned an invalid Schedule value.");
+    const scheduleValueV1 = scheduleValue as unknown as ScheduleV1,
+      active = scheduleValueV1.status.activeRun,
+      target = scheduleValueV1.spec.target;
     if (
       !active ||
       active.nodeId !== request.nodeId ||
       active.assignmentId !== request.assignmentId ||
-      typeof active.claimFence !== "string" ||
-      !spec ||
-      typeof spec.mission !== "string" ||
-      !target ||
-      typeof target.agentId !== "string" ||
-      typeof target.runtimeInstanceId !== "string"
+      typeof active.claimFence !== "string"
     )
       throw edgeRuntimeError(
         "schedule_claim_invalid",
@@ -411,63 +409,46 @@ export function openFleetEdgeRuntime(input: {
     if (trustedAgent.id !== target.agentId)
       throw edgeRuntimeError("schedule_agent_invalid", "Applied Schedule claim Agent does not match its target.");
     trustedScheduleAgents.set(trustedAgent.id, trustedAgent);
-    let spawned: JsonObject;
-    try {
-      spawned = await spawner.spawnScheduled(
-        {
+    const dispatched = await dispatchClaimedSchedule({
+      schedule: scheduleValueV1,
+      idempotencyKey: operationKey,
+      now,
+      spawn: async (scheduled) => {
+        const spawned = await spawner.spawnScheduled(scheduled, edgeBinding());
+        return {
+          outcome: String(spawned.outcome),
+          ...(typeof spawned.dispatchId === "string" ? { dispatchId: spawned.dispatchId } : {}),
+          ...(typeof spawned.runtimeSessionId === "string" ? { runtimeSessionId: spawned.runtimeSessionId } : {}),
+        };
+      },
+      linkDispatch: ({ idempotencyKey, ...linked }) =>
+        runFleetScheduleCommandClient({
+          ...peer,
+          repoId: request.repoId,
           scheduleId,
-          claimFence: active.claimFence,
-          mission: spec.mission,
-          agentId: target.agentId,
-          runtimeInstanceId: target.runtimeInstanceId,
-          ...(typeof target.model === "string" ? { model: target.model } : {}),
-          ...(typeof target.reasoningEffort === "string" ? { effort: target.reasoningEffort } : {}),
-          ...(typeof target.cwd === "string" ? { cwd: target.cwd } : {}),
-        },
-        edgeBinding(),
-      );
-    } catch (error) {
-      await runFleetScheduleCommandClient({
-        ...peer,
-        repoId: request.repoId,
-        scheduleId,
-        opId: fleetScheduleOpId(request.repoId, request.assignmentId, `${operationKey}:dispatch-failed`),
-        action: {
-          kind: "schedule-settle",
-          phase: "outcome",
+          opId: fleetScheduleOpId(request.repoId, request.assignmentId, idempotencyKey),
+          action: { kind: "schedule-settle", phase: "dispatch-link", ...linked },
+        }),
+      settleFailure: ({ idempotencyKey, ...failed }) =>
+        runFleetScheduleCommandClient({
+          ...peer,
+          repoId: request.repoId,
           scheduleId,
-          claimFence: active.claimFence,
-          outcome: "failed",
-          endedAt: now(),
-          detail: error instanceof Error ? error.message : String(error),
-        },
-      });
-      throw error;
-    }
-    if (spawned.outcome !== "applied")
+          opId: fleetScheduleOpId(request.repoId, request.assignmentId, idempotencyKey),
+          action: { kind: "schedule-settle", phase: "outcome", ...failed },
+        }),
+    });
+    if (dispatched.kind === "spawn-failed") throw dispatched.error;
+    if (dispatched.kind === "spawn-unapplied")
       return {
-        ...spawned,
+        ...dispatched.receipt,
         scheduleId,
         claimFence: active.claimFence,
       };
-    const linked = await runFleetScheduleCommandClient({
-      ...peer,
-      repoId: request.repoId,
-      scheduleId,
-      opId: fleetScheduleOpId(request.repoId, request.assignmentId, `${operationKey}:dispatch`),
-      action: {
-        kind: "schedule-settle",
-        phase: "dispatch-link",
-        scheduleId,
-        claimFence: active.claimFence,
-        dispatchId: spawned.dispatchId,
-        runtimeSessionId: spawned.runtimeSessionId,
-      },
-    });
     return {
-      ...scheduleResult(actionKind, linked),
-      dispatchId: spawned.dispatchId,
-      runtimeSessionId: spawned.runtimeSessionId,
+      ...scheduleResult(actionKind, dispatched.receipt),
+      dispatchId: dispatched.dispatchId,
+      runtimeSessionId: dispatched.runtimeSessionId,
       claimFence: active.claimFence,
     };
   }

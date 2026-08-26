@@ -7,7 +7,7 @@ import {
   type FleetCenterAdmissionRequest,
   type FleetEdgeSyncRequest,
 } from "./fleet-center-admission.ts";
-import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
+import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
@@ -129,9 +129,11 @@ export function createDaemonHostRuntimeApi(
             "repo_mode_read_only",
             "Fleet edge sync requires the matching enabled remote-edge registration.",
           );
-        return syncFleetEdgeMirror({
+        const receipt = await syncFleetEdgeMirror({
           payload: request,
         });
+        await context.scheduleScheduler.refresh();
+        return receipt;
       },
       edgeRuntime: async (payload, auth) => {
         context.localOnly(auth);
@@ -148,19 +150,9 @@ export function createDaemonHostRuntimeApi(
             "repo_mode_read_only",
             "Fleet runtime launch requires the matching enabled remote-edge registration.",
           );
-        const key = `${request.repoId}\0${request.assignmentId}\0${request.host}\0${request.port}`,
-          runtime =
-            context.fleetEdgeRuntimes.get(key) ??
-            openFleetEdgeRuntime({
-              request,
-              daemonGeneration: Date.now() * 1000 + (process.pid % 1000),
-              daemonRoute: context.runtimeDaemonRoute,
-              ports: context.runtimePorts,
-              ...(context.input.runtimeLaunch ? { launch: context.input.runtimeLaunch } : {}),
-              now: context.now,
-            });
-        context.fleetEdgeRuntimes.set(key, runtime);
-        return runtime.run(request.method, request.action);
+        const result = await context.edgeRuntimeFor(request).run(request.method, request.action);
+        await context.scheduleScheduler.refresh();
+        return result;
       },
     },
     system: context.system,

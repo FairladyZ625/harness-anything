@@ -15,6 +15,7 @@ import {
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { TrustedScheduleSpawn } from "./runtime-spawn.ts";
 
 type ScheduleClaimKind = "scheduled" | "manual";
 type ScheduleClaimInput = {
@@ -26,6 +27,72 @@ type ScheduleClaimInput = {
   readonly observedDefinitionRevision?: number;
   readonly idempotencyKey: string;
 };
+
+type ScheduleSpawnReceipt = {
+  readonly outcome: string;
+  readonly dispatchId?: string;
+  readonly runtimeSessionId?: string;
+};
+
+export async function dispatchClaimedSchedule<TReceipt>(input: {
+  readonly schedule: ScheduleV1;
+  readonly idempotencyKey: string;
+  readonly now: () => string;
+  readonly spawn: (scheduled: TrustedScheduleSpawn) => Promise<ScheduleSpawnReceipt>;
+  readonly linkDispatch: (linked: {
+    readonly scheduleId: string;
+    readonly claimFence: string;
+    readonly dispatchId: string;
+    readonly runtimeSessionId: string;
+    readonly idempotencyKey: string;
+  }) => TReceipt | Promise<TReceipt>;
+  readonly settleFailure: (failed: {
+    readonly scheduleId: string;
+    readonly claimFence: string;
+    readonly outcome: "failed";
+    readonly endedAt: string;
+    readonly detail: string;
+    readonly idempotencyKey: string;
+  }) => TReceipt | Promise<TReceipt>;
+}) {
+  const active = input.schedule.status.activeRun;
+  if (!active) throw new Error(`Schedule ${input.schedule.scheduleId} has no claimed occurrence to dispatch.`);
+  const target = input.schedule.spec.target;
+  let spawned: ScheduleSpawnReceipt;
+  try {
+    spawned = await input.spawn({
+      scheduleId: input.schedule.scheduleId,
+      claimFence: active.claimFence,
+      mission: input.schedule.spec.mission,
+      runtimeInstanceId: target.runtimeInstanceId,
+      agentId: target.agentId,
+      ...(target.model ? { model: target.model } : {}),
+      ...(target.reasoningEffort ? { effort: target.reasoningEffort } : {}),
+      ...(target.cwd ? { cwd: target.cwd } : {}),
+    });
+  } catch (error) {
+    const receipt = await input.settleFailure({
+      scheduleId: input.schedule.scheduleId,
+      claimFence: active.claimFence,
+      outcome: "failed",
+      endedAt: input.now(),
+      detail: error instanceof Error ? error.message : String(error),
+      idempotencyKey: `${input.idempotencyKey}:dispatch-failed`,
+    });
+    return { kind: "spawn-failed", error, receipt } as const;
+  }
+  if (spawned.outcome !== "applied") return { kind: "spawn-unapplied", receipt: spawned } as const;
+  const dispatchId = String(spawned.dispatchId),
+    runtimeSessionId = String(spawned.runtimeSessionId),
+    receipt = await input.linkDispatch({
+      scheduleId: input.schedule.scheduleId,
+      claimFence: active.claimFence,
+      dispatchId,
+      runtimeSessionId,
+      idempotencyKey: `${input.idempotencyKey}:dispatch`,
+    });
+  return { kind: "linked", receipt, dispatchId, runtimeSessionId } as const;
+}
 
 export function makeRepoCellScheduleActions(cell: any) {
   const read = (scheduleId: string): { readonly schedule: ScheduleV1; readonly revision: number } => {
@@ -274,6 +341,7 @@ export function makeRepoCellScheduleActions(cell: any) {
       readonly to: string;
       readonly count: number;
       readonly reason: ScheduleMissedReason;
+      readonly observedDefinitionRevision?: number;
       readonly idempotencyKey: string;
     },
     binding: RepoCellBinding,
@@ -286,6 +354,16 @@ export function makeRepoCellScheduleActions(cell: any) {
       replayed = replay(missedAction, binding);
     if (replayed) return replayed;
     const { schedule, revision } = read(input.scheduleId);
+    if (schedule.state !== "armed")
+      throw cell.cellCodedError(
+        "schedule_paused",
+        `Schedule ${input.scheduleId} is paused; it cannot record a timer miss.`,
+      );
+    if (input.observedDefinitionRevision !== undefined && input.observedDefinitionRevision !== revision)
+      throw cell.cellCodedError(
+        "schedule_definition_stale",
+        `Schedule ${input.scheduleId} changed at revision ${revision}; refresh it before recording a timer miss.`,
+      );
     if (
       !Number.isSafeInteger(input.count) ||
       input.count < 1 ||
@@ -312,6 +390,35 @@ export function makeRepoCellScheduleActions(cell: any) {
       expectedRevision: revision,
       missed: { from: input.from, to: input.to, count: input.count, reason: input.reason },
     });
+  };
+
+  const dispatchClaimed = async (
+    claimed: WriteReceipt & { readonly schedule?: ScheduleV1 },
+    idempotencyKey: string,
+    binding: RepoCellBinding,
+  ): Promise<WriteReceipt> => {
+    const schedule = claimed.schedule,
+      active = schedule?.status.activeRun;
+    if (claimed.outcome !== "applied" || !schedule || !active || cell.mode === "remote-center") return claimed;
+    if (active.dispatchId && active.runtimeSessionId) return claimed;
+    const dispatched = await dispatchClaimedSchedule({
+      schedule,
+      idempotencyKey,
+      now: cell.now,
+      spawn: (scheduled) => cell.runtimeSpawner.spawnScheduled(scheduled, binding),
+      linkDispatch: (linked) => linkDispatch(linked, binding),
+      settleFailure: (failed) => settle(failed, binding),
+    });
+    if (dispatched.kind === "spawn-failed")
+      return { ...dispatched.receipt, code: "schedule_dispatch_failed" } as WriteReceipt;
+    if (dispatched.kind === "spawn-unapplied")
+      return {
+        ...dispatched.receipt,
+        scheduleId: schedule.scheduleId,
+        schedule,
+        claimFence: active.claimFence,
+      } as unknown as WriteReceipt;
+    return dispatched.receipt;
   };
 
   return {
@@ -418,26 +525,45 @@ export function makeRepoCellScheduleActions(cell: any) {
               },
               binding,
             )
-          : settle(
-              {
-                scheduleId,
-                claimFence: cell.requiredCellText(action.claimFence, "claimFence"),
-                outcome: action.outcome as ScheduleRunOutcome,
-                endedAt: cell.requiredCellText(action.endedAt, "endedAt"),
-                ...(typeof action.detail === "string" ? { detail: action.detail } : {}),
-                idempotencyKey,
-              },
-              binding,
-            );
+          : action.phase === "missed"
+            ? recordMissed(
+                {
+                  scheduleId,
+                  from: cell.requiredCellText(action.from, "from"),
+                  to: cell.requiredCellText(action.to, "to"),
+                  count: Number(action.count),
+                  reason: action.reason as ScheduleMissedReason,
+                  observedDefinitionRevision: Number(action.observedDefinitionRevision),
+                  idempotencyKey,
+                },
+                binding,
+              )
+            : settle(
+                {
+                  scheduleId,
+                  claimFence: cell.requiredCellText(action.claimFence, "claimFence"),
+                  outcome: action.outcome as ScheduleRunOutcome,
+                  endedAt: cell.requiredCellText(action.endedAt, "endedAt"),
+                  ...(typeof action.detail === "string" ? { detail: action.detail } : {}),
+                  idempotencyKey,
+                },
+                binding,
+              );
       if (action.kind !== "schedule-run-now")
         throw cell.cellCodedError("unsupported_command", `No Schedule action exists for ${action.kind}.`);
-      const replayedClaim = replay({ kind: "schedule-run-now", scheduleId, idempotencyKey }, binding);
-      if (replayedClaim) return replayedClaim;
+      const scheduledFor = typeof action.scheduledFor === "string" ? action.scheduledFor : null,
+        replayedClaim = replay({ kind: "schedule-run-now", scheduleId, idempotencyKey }, binding);
+      if (replayedClaim)
+        return dispatchClaimed(
+          replayedClaim as WriteReceipt & { readonly schedule?: ScheduleV1 },
+          idempotencyKey,
+          binding,
+        );
       const claimed = claimOccurrence(
         {
           scheduleId,
-          kind: "manual",
-          scheduledFor: cell.now(),
+          kind: scheduledFor === null ? "manual" : "scheduled",
+          scheduledFor: scheduledFor ?? cell.now(),
           nodeId:
             typeof binding.source === "object" && binding.source.kind === "assignment"
               ? binding.source.nodeId
@@ -453,55 +579,7 @@ export function makeRepoCellScheduleActions(cell: any) {
         },
         binding,
       ) as WriteReceipt & { readonly schedule?: ScheduleV1 };
-      if (claimed.outcome !== "applied" || !claimed.schedule?.status.activeRun) return claimed;
-      if (cell.mode === "remote-center") return claimed;
-      const active = claimed.schedule.status.activeRun,
-        target = claimed.schedule.spec.target;
-      try {
-        const spawned = await cell.runtimeSpawner.spawnScheduled(
-          {
-            scheduleId,
-            claimFence: active.claimFence,
-            mission: claimed.schedule.spec.mission,
-            runtimeInstanceId: target.runtimeInstanceId,
-            agentId: target.agentId,
-            ...(target.model ? { model: target.model } : {}),
-            ...(target.reasoningEffort ? { effort: target.reasoningEffort } : {}),
-            ...(target.cwd ? { cwd: target.cwd } : {}),
-          },
-          binding,
-        );
-        if (spawned.outcome !== "applied")
-          return {
-            ...spawned,
-            scheduleId,
-            schedule: claimed.schedule,
-            claimFence: active.claimFence,
-          } as unknown as WriteReceipt;
-        return linkDispatch(
-          {
-            scheduleId,
-            claimFence: active.claimFence,
-            dispatchId: String(spawned.dispatchId),
-            runtimeSessionId: String(spawned.runtimeSessionId),
-            idempotencyKey: `${idempotencyKey}:dispatch`,
-          },
-          binding,
-        );
-      } catch (error) {
-        const failed = settle(
-          {
-            scheduleId,
-            claimFence: active.claimFence,
-            outcome: "failed",
-            endedAt: cell.now(),
-            detail: error instanceof Error ? error.message : String(error),
-            idempotencyKey: `${idempotencyKey}:dispatch-failed`,
-          },
-          binding,
-        );
-        return { ...failed, code: "schedule_dispatch_failed" } as WriteReceipt;
-      }
+      return dispatchClaimed(claimed, idempotencyKey, binding);
     },
     claimOccurrence,
     linkDispatch,
