@@ -33,7 +33,6 @@ import {
   GUI_SYSTEM_STATUS_SCHEMA,
   TERMINAL_SESSION_LIST_SCHEMA,
 } from "./daemon-protocol-schema-ids.ts";
-import { settingsReadCommand } from "./daemon-protocol-commands-settings.ts";
 
 export const observeTailReadMethod = Object.freeze({
   id: "observe.tail",
@@ -114,8 +113,7 @@ export const daemonGuiReadMethods = Object.freeze([
     errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
     serviceMethod: "getSettings",
     auth: "local-session-token",
-    commandClass: settingsReadCommand.commandClass,
-    admission: settingsReadCommand.admission,
+    commandClass: "repo-read",
   },
   {
     id: "tasks.list",

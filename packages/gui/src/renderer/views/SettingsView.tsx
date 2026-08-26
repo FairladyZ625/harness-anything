@@ -27,7 +27,15 @@ const SHORTCUTS: { keys: string[]; desc: string }[] = [
 ];
 
 type SettingsTab =
-  "repository" | "appearance" | "language" | "shortcuts" | "notifications" | "data" | "terminal" | "privacy" | "sync";
+  | "repository"
+  | "appearance"
+  | "language"
+  | "shortcuts"
+  | "notifications"
+  | "data"
+  | "terminal"
+  | "privacy"
+  | "sync";
 type SettingsDraft = SettingsSuccess["settings"];
 
 const SETTINGS_TABS: { id: SettingsTab; label: string; desc: string }[] = [
@@ -234,7 +242,10 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
           <Section title="通知">
             <Row
               label="封存就绪桌面通知"
-              desc="closeoutReadiness=ready 时发送桌面通知（Electron Notification API 尚未接入,coming soon）"
+              desc={[
+                "closeoutReadiness=ready 时发送桌面通知",
+                "（Electron Notification API 尚未接入,coming soon）",
+              ].join("")}
             >
               <Toggle checked={notifyOnReady} onChange={setNotifyOnReady} disabled />
             </Row>
@@ -292,7 +303,10 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
             {["多设备同步", "远程项目访问", "手机端审阅"].map((f) => (
               <div
                 key={f}
-                className="ui-meta flex items-center gap-2 border-b border-border px-3 py-1.5 text-text-faint last:border-b-0"
+                className={[
+                  "ui-meta flex items-center gap-2 border-b border-border px-3 py-1.5",
+                  "text-text-faint last:border-b-0",
+                ].join(" ")}
               >
                 <span className="font-mono text-[12px]">·</span>
                 {f}
@@ -314,7 +328,12 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
         data-testid="settings-content"
         className="grid w-full grid-cols-1 gap-4 p-4 lg:grid-cols-[12rem_minmax(0,1fr)]"
       >
-        <nav className="flex gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1 lg:flex-col lg:overflow-visible">
+        <nav
+          className={[
+            "flex gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1",
+            "lg:flex-col lg:overflow-visible",
+          ].join(" ")}
+        >
           {SETTINGS_TABS.map((tab) => (
             <button
               key={tab.id}
@@ -349,7 +368,10 @@ function SettingInput({
   return (
     <input
       aria-label={label}
-      className="w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1 font-mono text-[12px] text-text"
+      className={[
+        "w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1",
+        "font-mono text-[12px] text-text",
+      ].join(" ")}
       value={value}
       onChange={(event) => onChange(event.currentTarget.value)}
     />

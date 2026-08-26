@@ -13,25 +13,58 @@ import {
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export function makeRepoCellSettingsActions(cell: any) {
-  const read = (): SettingsV1 => {
+  const projected = (): SettingsV1 | null => {
     const projected = cell.projection.getEntity("settings", "repository")?.value;
-    if (projected !== undefined) {
-      const errors = validateSettingsV1(projected);
-      if (errors.length) throw cell.cellCodedError("invalid_store", errors.join("; "));
-      return projected as unknown as SettingsV1;
-    }
-    const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml");
-    return readSettingsFacet(readFileSync(configPath, "utf8"));
+    if (projected === undefined) return null;
+    const errors = validateSettingsV1(projected);
+    if (errors.length) throw cell.cellCodedError("invalid_store", errors.join("; "));
+    return projected as unknown as SettingsV1;
+  };
+
+  const read = (): SettingsV1 => {
+    const settings = projected();
+    if (settings === null)
+      throw cell.cellCodedError(
+        "projection_pending",
+        "Settings projection is unavailable; rebuild the repository projection before retrying.",
+      );
+    return settings;
+  };
+
+  const initialize = (binding: RepoCellBinding): SettingsV1 => {
+    const current = projected();
+    if (current !== null) return current;
+    const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml"),
+      baseDocumentBody = readFileSync(configPath, "utf8"),
+      settings = readSettingsFacet(baseDocumentBody),
+      revision = cell.store.readHead()?.revision ?? 0,
+      digest = createHash("sha256").update(`${cell.input.repoId}\0${baseDocumentBody}`).digest("hex"),
+      opId = `settings-initialize-${digest}`,
+      bundle = compileSettingsChangedEvent({
+        settings,
+        baseDocumentBody,
+        candidateDocumentBody: baseDocumentBody,
+        eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
+        opId,
+        workspaceRevision: revision + 1,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: cell.now(),
+      });
+    cell.store.append(bundle);
+    cell.projection.apply(bundle.event, bundle.plan);
+    return read();
   };
 
   const update = (action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt => {
     const current = read(),
       settings: SettingsV1 = {
-        ...current,
-        ...(text(action.defaultVertical) ? { defaultVertical: text(action.defaultVertical)! } : {}),
-        ...(text(action.defaultPreset) ? { defaultPreset: text(action.defaultPreset)! } : {}),
-        ...(text(action.defaultProfile) ? { defaultProfile: text(action.defaultProfile)! } : {}),
-        ...(text(action.locale) ? { locale: text(action.locale)! as SettingsV1["locale"] } : {}),
+        schema: current.schema,
+        settingsId: current.settingsId,
+        defaultVertical: text(action.defaultVertical) ?? current.defaultVertical,
+        defaultPreset: text(action.defaultPreset) ?? current.defaultPreset,
+        defaultProfile: text(action.defaultProfile) ?? current.defaultProfile,
+        locale: (text(action.locale) ?? current.locale) as SettingsV1["locale"],
         scaffolds: {
           task: text(action.taskScaffold) ?? current.scaffolds.task,
           repository: text(action.repositoryScaffold) ?? current.scaffolds.repository,
@@ -100,7 +133,7 @@ export function makeRepoCellSettingsActions(cell: any) {
     } as WriteReceipt;
   };
 
-  return { read, update };
+  return { initialize, read, update };
 }
 
 function text(value: unknown): string | undefined {

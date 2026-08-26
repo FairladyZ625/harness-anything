@@ -16,7 +16,6 @@ import type { DaemonHost } from "./daemon-host.ts";
 import {
   commandClassForAction,
   commandDescriptorForAction,
-  daemonGuiReadMethods,
   type DaemonGuiReadResultMap,
 } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -88,7 +87,8 @@ export function createDaemonHostRepositoryApi(
       const steps = ["publication-readback"];
       try {
         const layout = resolveHarnessLayout(prepared.rootDir),
-          reparsed = compileRepoRepositoryScaffold(prepared.rootDir),
+          settings = (await cell.read("repo.settings.read")).settings,
+          reparsed = compileRepoRepositoryScaffold(prepared.rootDir, settings),
           expected = new Map(prepared.repositoryPlan.documents.map((document) => [document.slot, document.path]));
         if (
           reparsed.documents.length !== expected.size ||
@@ -105,6 +105,7 @@ export function createDaemonHostRepositoryApi(
         steps.push("daemon-l2-readiness");
         const smoke = compileRepoTaskPackage({
           rootDir: prepared.rootDir,
+          settings,
           taskId: "configure-verify-smoke",
           action: { kind: "task-create", title: "Configure Verify" },
         });
@@ -312,12 +313,7 @@ export function createDaemonHostRepositoryApi(
       }
     },
     read: async (repoId, method, payload, auth) => {
-      const readDescriptor = daemonGuiReadMethods.find((candidate) => candidate.method === method);
-      context.requireHostMode(
-        repoId,
-        readDescriptor && "admission" in readDescriptor ? readDescriptor : repoReadCommandTopology,
-        auth,
-      );
+      context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
       if (!cell)

@@ -19,6 +19,19 @@ export interface SettingsV1 {
   };
 }
 
+export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
+  schema: "settings/v1",
+  settingsId: SETTINGS_ID,
+  defaultVertical: "software/coding",
+  defaultPreset: "standard-task",
+  defaultProfile: "baseline",
+  locale: "en-US",
+  scaffolds: Object.freeze({
+    task: "governance/task-scaffold.json",
+    repository: "governance/repository-scaffold.json",
+  }),
+});
+
 const settingValuePattern = "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$";
 
 export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {

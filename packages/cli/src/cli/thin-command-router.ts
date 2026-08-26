@@ -57,7 +57,8 @@ export function parseRouted(
   if (route.id.startsWith("runtime-instance-")) return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
   if (route.id.startsWith("runtime-")) return parseRuntime(route, args, rootDir, repoId, json, inputs);
   if (route.id.startsWith("schedule-")) return parseSchedule(route, args, rootDir, repoId, json, inputs);
-  if (route.id.startsWith("settings-")) return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs);
+  if (route.id.startsWith("settings-"))
+    return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (route.id === "receipt-show" && nonEmpty(args[2]) && args.length === 3)
     return accepted(rootDir, repoId, json, {
       kind: "receipt-show",

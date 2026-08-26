@@ -5,6 +5,7 @@ import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts"
 import {
   canonicalRoot,
   commandClassForAction,
+  daemonMethodAcceptsPayload,
   daemonMethodAcceptsPayloadExecutor,
   workspaceId,
   type DaemonSessionEnvironment,
@@ -304,7 +305,10 @@ export async function runCommandThroughDaemon(
     requestLocalDaemonJsonRpcForTarget(
       target,
       command.method,
-      { repo: { repoId: target.repoId }, payload: requestPayload as JsonObject },
+      {
+        repo: { repoId: target.repoId },
+        ...(daemonMethodAcceptsPayload(command.method) ? { payload: requestPayload as JsonObject } : {}),
+      },
       75,
       readResponseDeadlineMs(command.action.kind),
     );

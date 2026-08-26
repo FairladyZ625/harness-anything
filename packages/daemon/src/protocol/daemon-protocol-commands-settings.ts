@@ -1,13 +1,4 @@
-import { cliInput, defineCliCommand } from "../../../preset/src/preset-command-contract.ts";
-
-const settingsReadTopology = {
-  commandClass: "repo-read" as const,
-  admission: {
-    local: "direct" as const,
-    "remote-center": "direct" as const,
-    "remote-edge": "via-center-forward" as const,
-  },
-};
+import { cliInput, defineCliCommand, defineRepoReadCommand } from "../../../preset/src/preset-command-contract.ts";
 const settingsWriteTopology = {
   commandClass: "repo-write" as const,
   admission: {
@@ -29,15 +20,14 @@ const settingValueInput = (name: string) =>
   );
 
 export const settingsProtocolCommands = Object.freeze([
-  defineCliCommand({
+  defineRepoReadCommand({
     id: "settings-read",
     actionKind: "settings-read",
     phase: "Settings-Kind",
     path: ["settings", "read"],
     summary: "Read the repository Settings entity from the canonical projection.",
-    method: "repo.task.run",
+    method: "repo.settings.read",
     inputs: [],
-    ...settingsReadTopology,
   }),
   defineCliCommand({
     id: "settings-update",
@@ -70,6 +60,3 @@ export const settingsProtocolCommands = Object.freeze([
     ...settingsWriteTopology,
   }),
 ]);
-
-export const settingsReadCommand = settingsProtocolCommands[0];
-export const settingsUpdateCommand = settingsProtocolCommands[1];

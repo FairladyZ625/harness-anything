@@ -1,12 +1,17 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { daemonMethodAcceptsPayload } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("Settings CLI projects read and owned update flags to the closed daemon actions", () => {
   const read = parseThinCommand(["settings", "read"]);
   assert.equal(read.ok, true);
-  if (read.ok) assert.deepEqual(read.command.action, { kind: "settings-read" });
+  if (read.ok) {
+    assert.equal(read.command.method, "repo.settings.read");
+    assert.equal(daemonMethodAcceptsPayload(read.command.method), false);
+    assert.deepEqual(read.command.action, { kind: "settings-read" });
+  }
 
   const update = parseThinCommand([
     "settings",

@@ -26,15 +26,6 @@ export async function executeAction(
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
   if (action.kind.startsWith("schedule-")) return cell.scheduleActions.run(action, binding);
-  if (action.kind === "settings-read") {
-    const revision = cell.store.readHead()?.revision ?? 0;
-    return cell.readResult(
-      cell.operationId(action, binding, cell.input.repoId, revision),
-      { schema: "settings-read/v1", settings: cell.settingsActions.read() },
-      revision,
-      true,
-    );
-  }
   if (action.kind === "settings-update") return cell.settingsActions.update(action, binding);
   if (action.kind === "migrate-import")
     return runMigrationImport({
@@ -252,7 +243,11 @@ export async function executeAction(
     action.kind.startsWith("preset-") ||
     /^(?:vertical-validate|template-(?:list|render)|script-(?:list|inspect))$/u.test(action.kind)
   ) {
-    const result = await runPresetAction({ rootDir: cell.rootDir, action }),
+    const result = await runPresetAction({
+        rootDir: cell.rootDir,
+        action,
+        settings: cell.settingsActions.read(),
+      }),
       revision = cell.store.readHead()?.revision ?? 0,
       opId = cell.operationId(action, binding, cell.input.repoId, revision),
       localWrite = ["preset-install", "preset-seed", "preset-uninstall"].includes(action.kind);

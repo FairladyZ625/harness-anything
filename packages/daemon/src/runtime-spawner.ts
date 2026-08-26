@@ -4,6 +4,7 @@ import type {
   AgentRuntimeEventV1,
   CanonicalEventStore,
   SessionIdentity,
+  SettingsV1,
   TaskProjection,
 } from "../../kernel/src/index.ts";
 import {
@@ -101,6 +102,7 @@ export function makeRuntimeSpawner(input: {
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly store?: () => CanonicalEventStore;
   readonly projection?: () => TaskProjection;
+  readonly readSettings?: () => SettingsV1;
   readonly remote?: RemoteRuntimePersistence;
   readonly stream: Pick<AgentRuntimeStreamHub, "publish">;
   readonly now: () => string;
@@ -347,7 +349,12 @@ export function makeRuntimeSpawner(input: {
       resolvedSkills = agent ? resolveAgentSkills({ rootDir: input.rootDir, skills: agent.skills }) : [],
       preset = agent?.preset
         ? (() => {
-            const defaults = presetRuntimeDefaults(input.rootDir);
+            if (!input.readSettings)
+              throw runtimeSpawnError(
+                "settings_projection_unavailable",
+                "Agent preset resolution requires the repository Settings projection.",
+              );
+            const defaults = presetRuntimeDefaults(input.readSettings());
             return createRuntime({
               userRoot: presetUserRoot(input.rootDir),
             }).resolveInternal({

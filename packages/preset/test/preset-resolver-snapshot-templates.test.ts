@@ -14,6 +14,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   eventObjectTarget,
+  INITIAL_SETTINGS_V1,
   makeTaskEventStore,
   makeTaskProjection,
   serializeCanonicalEvent,
@@ -25,7 +26,7 @@ import {
   compilePresetSnapshotUpgrade,
   compileTaskBootstrap,
   installPresetPackage,
-  runPresetAction,
+  runPresetAction as runProjectedPresetAction,
 } from "../src/index.ts";
 import {
   createRuntime,
@@ -39,6 +40,8 @@ import {
   write,
   writePackage,
 } from "./preset-resolver.fixtures.ts";
+const runPresetAction = (input: Parameters<typeof runProjectedPresetAction>[0]) =>
+  runProjectedPresetAction({ ...input, settings: INITIAL_SETTINGS_V1 });
 test("snapshot upgrade atomically replaces the complete snapshot and typed task contract without touching task prose", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-upgrade-")),
     sourceRoot = path.join(rootDir, "source"),

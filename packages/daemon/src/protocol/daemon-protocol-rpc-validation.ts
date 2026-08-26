@@ -54,6 +54,13 @@ export function daemonMethodAcceptsPayloadExecutor(method: string): boolean {
   );
 }
 
+export function daemonMethodAcceptsPayload(method: string): boolean {
+  return Object.hasOwn(
+    allDaemonProtocolMethods.find((entry) => entry.method === method)?.params.fields ?? {},
+    "payload",
+  );
+}
+
 export function validateDaemonRpcCall(value: unknown): readonly string[] {
   if (!isJsonObject(value) || typeof value.method !== "string") return ["RPC method is required"];
   const method = allDaemonProtocolMethods.find((entry) => entry.method === value.method);

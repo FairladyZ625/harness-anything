@@ -194,7 +194,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const harnessYaml = readFileSync(path.join(fixture.rootDir, "harness/harness.yaml"), "utf8");
     assert.match(harnessYaml, /defaultPreset: strict-task/u);
     assert.match(harnessYaml, /locale: zh-CN/u);
-    assert.match(harnessYaml, /wipLimit: 60/u);
+    assert.match(harnessYaml, /wipLimit: 30/u);
     const observability = parseDaemonGuiReadResult("observe.tail", results.get("observe.tail"));
     assert.equal(observability.schema, "daemon.observe-tail/v3");
     assert.equal(observability.repoId, fixture.repoId);

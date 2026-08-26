@@ -13,31 +13,6 @@ export function writeTriadicLedger(rootDir) {
   const taskDir = path.join(rootDir, "harness/tasks/task-gui-smoke");
   mkdirSync(taskDir, { recursive: true });
   writeFileSync(
-    path.join(rootDir, "harness/harness.yaml"),
-    [
-      "schema: harness-anything/v1",
-      "name: gui-triadic-smoke",
-      "layout:",
-      "  authoredRoot: harness",
-      "  localRoot: .harness",
-      "  contextRoot: harness/context",
-      "  governanceRoot: harness/governance",
-      "  adrRoot: harness/adr",
-      "  milestonesRoot: harness/milestones",
-      "settings:",
-      "  defaultVertical: software/coding",
-      "  defaultPreset: standard-task",
-      "  defaultProfile: baseline",
-      "  locale: en-US",
-      "  tasks:",
-      "    wipLimit: 60",
-      "  scaffolds:",
-      "    task: governance/task-scaffold.json",
-      "    repository: governance/repository-scaffold.json",
-      "",
-    ].join("\n"),
-  );
-  writeFileSync(
     path.join(taskDir, "INDEX.md"),
     [
       "---",

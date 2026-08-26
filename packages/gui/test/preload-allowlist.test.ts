@@ -5,6 +5,7 @@ import {
   daemonGuiActionMethods,
   daemonGuiInvokeFacets,
   daemonGuiStreamFacets,
+  validateDaemonRpcCall,
 } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import {
   HARNESS_PRELOAD_API,
@@ -60,9 +61,16 @@ test("preload exposes only the approved API methods", () => {
     }),
     true,
   );
-  assert.throws(
-    () => assertPreloadPayload("updateSettings", { repoId: "repo-a", idempotencyKey: "settings-1" }),
-    /invalid/u,
+  assert.equal(assertPreloadPayload("updateSettings", { repoId: "repo-a", idempotencyKey: "settings-1" }), true);
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.settings.update",
+      params: {
+        repo: { repoId: "repo-a" },
+        payload: { idempotencyKey: "settings-1" },
+      },
+    }),
+    ["settings update is invalid"],
   );
   assert.equal(
     assertPreloadPayload("getTasks", { repoId: "repo-a", status: "active", changedAfterRevision: 42, limit: 50 }),

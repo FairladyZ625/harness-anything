@@ -1,11 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
+import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
 import { openGuiCatalog } from "../src/gui-catalog.ts";
 import { validateCatalogPreset, validateCatalogRereadReceipt, validateCatalogSnapshot } from "../src/gui-s3-control.ts";
 
+const openCatalog = () =>
+  openGuiCatalog({ repoId: "catalog-test", rootDir: process.cwd(), readSettings: () => INITIAL_SETTINGS_V1 });
+
 test("GUI catalog projection uses canonical inventory without source paths or placeholders", async () => {
-  const catalog = openGuiCatalog({ repoId: "catalog-test", rootDir: process.cwd() });
+  const catalog = openCatalog();
   const snapshot = await catalog.snapshot();
   assert.deepEqual(validateCatalogSnapshot(snapshot), []);
   assert.equal(snapshot.presets.length, 12);
@@ -24,7 +28,7 @@ test("GUI catalog projection uses canonical inventory without source paths or pl
 });
 
 test("GUI catalog preset read carries resolver document bodies (route A: single read surface)", async () => {
-  const catalog = openGuiCatalog({ repoId: "catalog-test", rootDir: process.cwd() });
+  const catalog = openCatalog();
   const snapshot = await catalog.snapshot();
   const detail = (await catalog.preset({ presetId: snapshot.presets[0]!.id })) as {
     readonly resolved: {
@@ -56,7 +60,7 @@ test("GUI catalog preset read carries resolver document bodies (route A: single 
 });
 
 test("GUI catalog preset read carries only detail-page consumed fields (review#4 §10.1 narrowing)", async () => {
-  const catalog = openGuiCatalog({ repoId: "catalog-test", rootDir: process.cwd() });
+  const catalog = openCatalog();
   const snapshot = await catalog.snapshot();
   const detail = (await catalog.preset({ presetId: snapshot.presets[0]!.id })) as {
     readonly preset: Record<string, unknown>;

@@ -77,14 +77,18 @@ test("Schedule descriptors derive all three mode routes without a CLI mode branc
   assert.equal(admitRepoMode("remote-center", byId.get("schedule-run-now")!, assignmentSource).ok, true);
 });
 
-test("Settings read and update use direct center authority with edge forwarding", () => {
+test("Settings CLI read uses the common read topology while update forwards from edge", () => {
   const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
-  for (const id of ["settings-read", "settings-update"])
-    assert.deepEqual(byId.get(id)?.admission, {
-      local: "direct",
-      "remote-center": "direct",
-      "remote-edge": "via-center-forward",
-    });
+  assert.deepEqual(byId.get("settings-read")?.admission, {
+    local: "direct",
+    "remote-center": "direct",
+    "remote-edge": "direct",
+  });
+  assert.deepEqual(byId.get("settings-update")?.admission, {
+    local: "direct",
+    "remote-center": "direct",
+    "remote-edge": "via-center-forward",
+  });
   assert.equal(byId.get("settings-read")?.commandClass, "repo-read");
   assert.equal(byId.get("settings-update")?.commandClass, "repo-write");
 });

@@ -470,6 +470,7 @@ export type {
   WorkspaceId,
 } from "./daemon-protocol-identifiers.ts";
 export {
+  daemonMethodAcceptsPayload,
   daemonMethodAcceptsPayloadExecutor,
   DaemonProtocolContractError,
   isDaemonGuiActionMethod,

@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import type { SettingsV1 } from "../../kernel/src/index.ts";
 import {
   canonicalPresetBytes,
   consumeKnownError,
@@ -50,6 +51,7 @@ export interface PresetProcessService {
 export interface PresetProcessServiceOptions extends Partial<PresetProcessExecutionPort> {
   readonly rootDir: string;
   readonly userRoot: string;
+  readonly readSettings: () => SettingsV1;
   readonly runRoot?: string;
   readonly timeoutMs?: number;
   readonly maxResultBytes?: number;
@@ -84,7 +86,15 @@ export function recoverPresetRunStatus(
   options: Pick<PresetProcessServiceOptions, "rootDir" | "userRoot">,
   runId: string,
 ): PresetRunReceiptV1 {
-  return createPresetProcessService(options).status(runId);
+  return createPresetProcessService({
+    ...options,
+    readSettings: () => {
+      throw presetProcessError(
+        "settings_projection_unavailable",
+        "Settings projection is unavailable during recovery.",
+      );
+    },
+  }).status(runId);
 }
 
 export function createPresetProcessService(options: PresetProcessServiceOptions): PresetProcessService {
@@ -144,7 +154,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
           "invalid_input",
           "Run input must contain presetId, entrypoint, optional taskId, object inputs, and idempotencyKey.",
         );
-      const defaults = presetRuntimeDefaults(rootDir),
+      const defaults = presetRuntimeDefaults(options.readSettings()),
         resolved = createRuntime({ userRoot: options.userRoot }).resolveInternal({
           presetId: input.presetId,
           entrypoint: input.entrypoint,

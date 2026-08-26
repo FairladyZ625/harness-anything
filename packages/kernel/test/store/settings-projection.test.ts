@@ -11,8 +11,10 @@ import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 const actor = { principal: { personId: "person-settings" }, executor: null } as const;
+const rebuildTitle =
+  "Settings publication commits harness.yaml and cold rebuild restores its entity and document projections";
 
-test("Settings publication commits harness.yaml and cold rebuild restores its entity and document projections", async () => {
+test(rebuildTitle, async () => {
   await withTempStoreAsync(async (rootDir) => {
     const original = initRepo(rootDir),
       eventStore = makeTaskEventStore({ repoId: "settings-projection", rootDir }),
