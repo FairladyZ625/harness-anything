@@ -65,21 +65,18 @@ test("U-12 Configure-Verify failure keeps the canonical publication and returns 
     assert.equal(git(fixture.alpha, "rev-parse", "HEAD"), before);
     assert.equal((result.receipt.created as string[]).length > 0, true);
     assert.match(String(result.receipt.next), /daemon status/u);
-    assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), result.receipt.commit);
+    const stream = makeTaskEventStore({
+      rootDir: fixture.alpha,
+      repoId: "alpha",
+    }).read();
     assert.equal(
       git(ledgerRoot, "ls-tree", "-r", "--name-only", "HEAD")
         .split("\n")
-        .some(
-          (target) =>
-            target.startsWith("tasks/") || target.startsWith("events/"),
-        ),
+        .some((target) => target.startsWith("tasks/")),
       false,
     );
-    assert.equal(
-      makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read()
-        .revision,
-      0,
-    );
+    assert.equal(stream.revision, 1);
+    assert.equal(stream.events[0]?.schema, "settings-event/v1");
   } finally {
     stop(fixture.alpha, fixture.userRoot);
     rmSync(fixture.root, { recursive: true, force: true });
@@ -391,6 +388,18 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
           .projectOverlayDigest,
       ),
       /^sha256:/u,
+    );
+    const stream = makeTaskEventStore({
+      rootDir: fixture.alpha,
+      repoId: "alpha",
+    }).read();
+    assert.equal(stream.revision, 1);
+    assert.equal(stream.events[0]?.schema, "settings-event/v1");
+    assert.equal(
+      stream.events[0]?.schema === "settings-event/v1"
+        ? stream.events[0].payload.settings.scaffolds.repository
+        : null,
+      "governance-repository-scaffold.json",
     );
     assert.notEqual(initialized.commit, before);
     stop(fixture.alpha, fixture.userRoot);

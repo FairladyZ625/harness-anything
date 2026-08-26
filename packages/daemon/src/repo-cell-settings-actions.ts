@@ -1,10 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   compileSettingsChangedEvent,
-  INITIAL_SETTINGS_V1,
-  readSettingsFacet,
   resolveHarnessLayout,
   validateSettingsV1,
   writeSettingsFacet,
@@ -15,22 +13,46 @@ import { runPresetAction } from "../../preset/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export function makeRepoCellSettingsActions(cell: any) {
-  const projected = (): SettingsV1 | null => {
+  const read = (): SettingsV1 => {
     const projected = cell.projection.getEntity("settings", "repository")?.value;
-    if (projected === undefined) return null;
-    const errors = validateSettingsV1(projected);
-    if (errors.length) throw cell.cellCodedError("invalid_store", errors.join("; "));
+    if (projected === undefined)
+      throw cell.cellCodedError(
+        "projection_pending",
+        "Settings projection is unavailable; bootstrap the repository before retrying.",
+      );
     return projected as unknown as SettingsV1;
   };
 
-  const read = (): SettingsV1 => {
-    const settings = projected();
-    if (settings === null) {
-      const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml");
-      if (!existsSync(configPath)) return INITIAL_SETTINGS_V1;
-      return readSettingsFacet(readFileSync(configPath, "utf8"));
-    }
-    return settings;
+  const append = (
+    settings: SettingsV1,
+    baseDocumentBody: string,
+    candidateDocumentBody: string,
+    opId: string,
+    revision: number,
+    binding: RepoCellBinding,
+  ) => {
+    const bundle = compileSettingsChangedEvent({
+        settings,
+        baseDocumentBody,
+        candidateDocumentBody,
+        eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
+        opId,
+        workspaceRevision: revision + 1,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: cell.now(),
+      }),
+      appended = cell.store.append(bundle);
+    cell.projection.apply(bundle.event, bundle.plan);
+    return appended;
+  };
+
+  const initialize = (settings: SettingsV1, documentBody: string, binding: RepoCellBinding) => {
+    if (cell.projection.getEntity("settings", "repository")?.value !== undefined) return null;
+    const revision = cell.store.readHead()?.revision ?? 0,
+      digest = createHash("sha256").update(`${cell.input.repoId}\0${documentBody}`).digest("hex"),
+      opId = `settings-initialize-${digest}`;
+    return append(settings, documentBody, documentBody, opId, revision, binding);
   };
 
   const update = async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
@@ -87,20 +109,8 @@ export function makeRepoCellSettingsActions(cell: any) {
       } as WriteReceipt;
     const existing = cell.store.readEvent(opId);
     if (existing) return cell.receiptForOperation(opId, binding);
-    const bundle = compileSettingsChangedEvent({
-        settings,
-        baseDocumentBody,
-        candidateDocumentBody,
-        eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
-        opId,
-        workspaceRevision: revision + 1,
-        actor: binding.actor,
-        source: binding.source,
-        occurredAt: cell.now(),
-      }),
-      appended = cell.store.append(bundle),
+    const appended = append(settings, baseDocumentBody, candidateDocumentBody, opId, revision, binding),
       publication = cell.publicPublication(appended);
-    cell.projection.apply(bundle.event, bundle.plan);
     const applied = cell.projection.readOperation(opId),
       canonicalVisible = applied !== null && applied.watermark >= appended.revision;
     return {
@@ -122,7 +132,7 @@ export function makeRepoCellSettingsActions(cell: any) {
     } as WriteReceipt;
   };
 
-  return { read, update };
+  return { initialize, read, update };
 }
 
 interface SettingsCatalogPreset {

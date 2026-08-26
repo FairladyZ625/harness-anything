@@ -2,12 +2,40 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import {
   validateCatalogPreset, validateCatalogRereadReceipt, validateCatalogSnapshot, validateDaemonControlReceipt,
   validateRuntimeSpawnReceipt, validateSystemStatus,
   validateTerminalAttach, validateTerminalAttachEvent, validateTerminalControlReceipt,
   validateTerminalDetachAck, validateTerminalInputAck, validateTerminalSessionList
 } from "../src/gui-s3-control.ts";
+
+test("daemon Settings reads use the exact canonical Settings shape", () => {
+  const settings = {
+    schema: "settings/v1",
+    settingsId: "repository",
+    defaultVertical: "software/coding",
+    defaultPreset: "standard-task",
+    defaultProfile: "baseline",
+    locale: "en-US",
+    scaffolds: {
+      task: "governance/task-scaffold.json",
+      repository: "governance/repository-scaffold.json",
+    },
+  };
+  const valid = { schema: "daemon.settings-read/v1", ok: true, settings };
+  assert.equal(parseDaemonGuiReadResult("repo.settings.read", valid), valid);
+  assert.throws(() =>
+    parseDaemonGuiReadResult("repo.settings.read", {
+      schema: "daemon.settings-read/v1",
+      ok: true,
+      settings: {
+        ...settings,
+        scaffolds: { ...settings.scaffolds, unknown: "rejected" },
+      },
+    }),
+  );
+});
 
 test("GUI S3 contracts reject unknown and secret-like fields recursively", () => {
   assert.notDeepEqual(validateSystemStatus({ ok: true, token: "x" }), []);
