@@ -385,7 +385,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
   const channel = useRuntimeChannel(repoId, async () => {
     await Promise.all([
       client.invalidateQueries({
-        queryKey: ["runtime-instances", "machine"],
+        queryKey: runtimeInstanceCatalogQueryKey,
       }),
       client.invalidateQueries({ queryKey: ["runtime-control", repoId] }),
     ]);
@@ -445,37 +445,18 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
             false,
           );
       }
-      await client.invalidateQueries({ queryKey: ["runtime-instances", "machine"] });
+      await client.invalidateQueries({ queryKey: runtimeInstanceCatalogQueryKey });
       await client.invalidateQueries({ queryKey: ["runtime-control", repoId] });
       return created;
     },
     updateInstance: (input: RuntimeInstanceUpdateInput) =>
       channel.run(t("agentRuntime.opInstanceUpdated"), () => runtimeInstanceClient.update(input)),
-    setInstanceEnabled: async (instanceId: string, enabled: boolean) => {
-      const queryKey = runtimeInstanceCatalogQueryKey,
-        previous = client.getQueryData<Awaited<ReturnType<typeof runtimeInstanceClient.list>>>(queryKey),
-        updatedAt = client.getQueryState(queryKey)?.dataUpdatedAt;
-      client.setQueryData<Awaited<ReturnType<typeof runtimeInstanceClient.list>>>(
-        queryKey,
-        (catalog) =>
-          catalog === undefined
-            ? catalog
-            : {
-                ...catalog,
-                instances: catalog.instances.map((instance) =>
-                  instance.instanceId === instanceId ? { ...instance, enabled } : instance,
-                ),
-              },
-        updatedAt === undefined ? undefined : { updatedAt },
-      );
-      const result = await channel.run(
-        t(enabled ? "agentRuntime.opInstanceEnabled" : "agentRuntime.opInstanceDisabled"),
-        () => runtimeInstanceClient.setEnabled(instanceId, enabled),
-        false,
-      );
-      if (result === null) client.setQueryData(queryKey, previous, updatedAt === undefined ? undefined : { updatedAt });
-      return result;
-    },
+    // 与 updateInstance 同一条 await + invalidate 通道:布尔开关回显等一次目录重读,
+    // 不做乐观写回滚(评审 #5 第 8 条:无实测延迟收益,删除优先)。
+    setInstanceEnabled: (instanceId: string, enabled: boolean) =>
+      channel.run(t(enabled ? "agentRuntime.opInstanceEnabled" : "agentRuntime.opInstanceDisabled"), () =>
+        runtimeInstanceClient.setEnabled(instanceId, enabled),
+      ),
     deleteInstance: (instanceId: string) =>
       channel.run(t("agentRuntime.opInstanceDeleted"), () => runtimeInstanceClient.delete(instanceId)),
     validateInstance: (instanceId: string) =>
