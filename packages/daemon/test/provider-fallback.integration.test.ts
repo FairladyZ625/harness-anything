@@ -5,11 +5,13 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, type AgentDefinitionSnapshot, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
 import type { RuntimeInstanceSummary, RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { readDispatchStreams } from "../src/dispatch-stream.ts";
 import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
+import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 
 const binding = {
@@ -23,13 +25,17 @@ const installation: RuntimeInstallationWitness = {
   version: "1.0.0",
   observedAt: "2026-08-26T00:00:00.000Z",
 };
-const behaviors = new Map<string, "429" | "success" | "worker_stop">([
+type Behavior = "429" | "success" | "worker_stop" | "empty_success";
+const behaviors = new Map<string, Behavior>([
   ["provider-rate-first", "429"],
   ["provider-success-second", "success"],
   ["provider-rate-a", "429"],
   ["provider-rate-b", "429"],
   ["provider-stop-first", "worker_stop"],
   ["provider-unused-second", "success"],
+  ["provider-restart-first", "429"],
+  ["provider-restart-second", "success"],
+  ["provider-empty-success", "empty_success"],
 ]);
 
 test("provider fallback switches attempts, exhausts to blocked, and never switches on worker_stop", async () => {
@@ -44,33 +50,35 @@ test("provider fallback switches attempts, exhausts to blocked, and never switch
   git(root, "config", "user.name", "Provider Fallback Test");
   git(root, "config", "user.email", "provider-fallback@example.invalid");
   git(root, "commit", "--allow-empty", "-qm", "base");
-  const cell = await openRepoCell({
-    repoId: workspaceId("provider-fallback"),
-    rootDir: canonicalRoot(root),
-    ownerId: "provider-fallback",
-    runtimeDaemonRoute: {
-      userRoot,
-      daemonId: "provider-fallback",
-      endpoint: path.join(userRoot, "provider-fallback.sock"),
-    },
-    runtimeInstances: () => instances,
-    prepareRuntimeLaunch: async (instanceId, request) => ({
-      definition: definition(instanceId, request.model ?? `${instanceId}-model`),
-      installation,
-      executablePath: installation.executablePath,
-      args: ["exec", "--json", "-"],
-      env: {},
-      cwd: request.cwd,
-      prompt: request.prompt,
-    }),
-    runtimeLaunch: (prepared) => {
-      const instanceId = prepared.definition.instanceId,
-        behavior = behaviors.get(instanceId);
-      assert.ok(behavior, `missing fake behavior for ${instanceId}`);
-      prompts.set(instanceId, [...(prompts.get(instanceId) ?? []), prepared.prompt]);
-      return fakeProcess(++pid, behavior);
-    },
-  });
+  const open = () =>
+    openRepoCell({
+      repoId: workspaceId("provider-fallback"),
+      rootDir: canonicalRoot(root),
+      ownerId: "provider-fallback",
+      runtimeDaemonRoute: {
+        userRoot,
+        daemonId: "provider-fallback",
+        endpoint: path.join(userRoot, "provider-fallback.sock"),
+      },
+      runtimeInstances: () => instances,
+      prepareRuntimeLaunch: async (instanceId, request) => ({
+        definition: definition(instanceId, request.model ?? `${instanceId}-model`),
+        installation,
+        executablePath: installation.executablePath,
+        args: ["exec", "--json", "-"],
+        env: {},
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: (prepared) => {
+        const instanceId = prepared.definition.instanceId,
+          behavior = behaviors.get(instanceId);
+        assert.ok(behavior, `missing fake behavior for ${instanceId}`);
+        prompts.set(instanceId, [...(prompts.get(instanceId) ?? []), prepared.prompt]);
+        return fakeProcess(++pid, behavior);
+      },
+    });
+  let cell = await open();
   try {
     await installAgent(cell, "fallback-success", [
       { instance: "provider-rate-first" },
@@ -149,6 +157,14 @@ test("provider fallback switches attempts, exhausts to blocked, and never switch
       ["provider_fault", "provider_fault"],
     );
     assert.equal(exhausted.rows[1]?.fallbackState, "exhausted");
+    const exhaustionEvents = makeTaskEventStore({ repoId: "provider-fallback", rootDir: root })
+      .read()
+      .events.filter((event) => event.taskId === "task_provider_fallback_exhausted");
+    assert.equal(exhaustionEvents.filter((event) => event.type === "lease_released").length, 1);
+    assert.equal(exhaustionEvents.filter((event) => event.type === "task_transitioned").length, 0);
+    const exhaustion = exhaustionEvents.find((event) => event.type === "lease_released");
+    assert.deepEqual(exhaustion?.payload.mutation.fields, ["lease", "status"]);
+    assert.equal(exhaustion?.payload.task.status, "blocked");
 
     await installAgent(cell, "fallback-worker-stop", [
       { instance: "provider-stop-first" },
@@ -176,9 +192,178 @@ test("provider fallback switches attempts, exhausts to blocked, and never switch
     );
     assert.equal(stopped[0]?.classification, "worker_stop");
     assert.equal(prompts.has("provider-unused-second"), false);
+
+    await installAgent(cell, "fallback-empty-success", [{ instance: "provider-empty-success" }]);
+    await startTask(cell, "task_provider_empty_success", "execution-provider-empty-success");
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-empty-success",
+        cwd: { scope: "repo-root" },
+        prompt: "Exit zero without structured provider output.",
+        taskId: "task_provider_empty_success",
+        idempotencyKey: "provider-empty-success",
+      },
+      binding,
+    );
+    const emptyUnknown = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_empty_success" })).dispatches;
+      return rows.length === 1 && rows[0]?.outcome === "unknown" ? rows[0] : null;
+    });
+    assert.equal(emptyUnknown.outcome, "unknown");
+    assert.equal(emptyUnknown.exitCode, 0);
+
+    await installAgent(
+      cell,
+      "fallback-restart",
+      [{ instance: "provider-restart-first" }, { instance: "provider-restart-second" }],
+      { baseMs: 500, maxMs: 500 },
+    );
+    await startTask(cell, "task_provider_fallback_restart", "execution-provider-fallback-restart");
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-restart",
+        cwd: { scope: "repo-root" },
+        prompt: "Resume fallback after daemon restart.",
+        taskId: "task_provider_fallback_restart",
+        idempotencyKey: "provider-fallback-restart",
+      },
+      binding,
+    );
+    await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_restart" })).dispatches;
+      return rows.length === 1 && rows[0]?.fallbackState === "scheduled" ? rows : null;
+    });
+    await cell.close();
+    cell = await open();
+    const restarted = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_restart" })).dispatches;
+      return rows.length === 2 && rows[1]?.status === "succeeded" ? rows : null;
+    });
+    assertAttemptChain(restarted, ["provider-restart-first", "provider-restart-second"]);
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("repeated adoption dispatches one durable fallback continuation", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-provider-fallback-adopt-twice-")),
+    now = () => new Date().toISOString(),
+    receipts = new Map<string, Record<string, unknown>>(),
+    published: AgentRuntimeEventV1[] = [];
+  let pid = 10_000,
+    revision = 0,
+    nextLaunches = 0,
+    scheduled = Promise.resolve();
+  const remote = {
+      existing: async (opId: string) => receipts.get(opId) ?? null,
+      taskContext: async () => {
+        throw new Error("task context is not used by this taskless fallback test");
+      },
+      readRuntimeSessions: async () => [],
+      publish: async (draft: {
+        readonly type: AgentRuntimeEventV1["type"];
+        readonly payload: Readonly<Record<string, unknown>>;
+        readonly opId: string;
+        readonly resultBody?: string;
+      }) => {
+        const event = {
+            schema: "agent-runtime-event/v1",
+            eventId: `event-${String(++revision)}`,
+            workspaceRevision: revision,
+            opId: draft.opId,
+            type: draft.type,
+            actor: binding.actor,
+            source: binding.source,
+            occurredAt: now(),
+            payload: draft.payload,
+          } as unknown as AgentRuntimeEventV1,
+          receipt = { outcome: "applied", opId: draft.opId };
+        published.push(event);
+        receipts.set(draft.opId, receipt);
+        return { event, receipt };
+      },
+      archive: async () => ({ outcome: "applied" }),
+    },
+    agent = {
+      id: "fallback-adopt-twice",
+      name: "Fallback Adopt Twice",
+      instructions: "Exercise durable fallback adoption.",
+      runtime_type: "codex",
+      fallback: {
+        chain: [{ instance: "provider-adopt-first" }, { instance: "provider-adopt-next" }],
+        backoff: { baseMs: 500, maxMs: 500 },
+      },
+    },
+    instances = [runtimeInstance("provider-adopt-first"), runtimeInstance("provider-adopt-next")],
+    schedule = (work: () => void | Promise<void>) => {
+      scheduled = scheduled.then(async () => {
+        await work();
+      });
+    },
+    open = () =>
+      makeRuntimeSpawner({
+        repoId: "provider-fallback-adopt-twice",
+        rootDir: root,
+        daemonGeneration: 1,
+        remote,
+        stream: { publish: () => ({}) as never },
+        now,
+        runtimeInstances: () => instances,
+        prepareLaunch: async (instanceId, request) => ({
+          definition: definition(instanceId, request.model ?? `${instanceId}-model`),
+          installation,
+          executablePath: installation.executablePath,
+          args: ["exec", "--json", "-"],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        }),
+        resolveAgent: () => agent,
+        launch: (prepared) => {
+          const isNext = prepared.definition.instanceId === "provider-adopt-next";
+          if (isNext) nextLaunches += 1;
+          return fakeProcess(++pid, isNext ? "success" : "429");
+        },
+        schedule,
+      });
+  let spawner = open();
+  try {
+    await spawner.spawn(
+      {
+        agentId: agent.id,
+        cwd: { scope: "repo-root" },
+        prompt: "Schedule one durable fallback.",
+        taskId: null,
+        idempotencyKey: "adopt-twice",
+      },
+      binding,
+    );
+    const first = await eventually(async () => {
+      const stream = readDispatchStreams(root)[0];
+      return stream?.fallbackState === "scheduled" ? stream : null;
+    });
+    spawner.close();
+    spawner = open();
+    await spawner.adopt();
+    await spawner.adopt();
+    const streams = await eventually(async () => {
+      const values = readDispatchStreams(root),
+        original = values.find((stream) => stream.header.dispatchId === first.header.dispatchId);
+      return values.length === 2 && original?.fallbackState === "dispatched" ? values : null;
+    });
+    await scheduled;
+    const original = streams.find((stream) => stream.header.dispatchId === first.header.dispatchId),
+      continuation = streams.find((stream) => stream.header.dispatchId !== first.header.dispatchId),
+      continuations = published.filter(
+        (event) => event.type === "runtime_dispatch_requested" && event.payload.instanceId === "provider-adopt-next",
+      );
+    assert.equal(nextLaunches, 1);
+    assert.equal(continuations.length, 1);
+    assert.equal(original?.nextDispatchId, continuation?.header.dispatchId);
+  } finally {
+    spawner.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -186,6 +371,7 @@ async function installAgent(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
   agentId: string,
   chain: readonly { readonly instance: string; readonly model?: string }[],
+  backoff = { baseMs: 1, maxMs: 2 },
 ): Promise<void> {
   const receipt = await cell.run(
     {
@@ -196,7 +382,7 @@ async function installAgent(
         name: agentId,
         instructions: "Execute the assigned mission.",
         runtime_type: "codex",
-        fallback: { enabled: true, chain, backoff: { baseMs: 1, maxMs: 2, maxAttempts: chain.length } },
+        fallback: { chain, backoff },
       },
     },
     binding,
@@ -269,7 +455,7 @@ function definition(instanceId: string, model: string): AgentDefinitionSnapshot 
   };
 }
 
-function fakeProcess(pid: number, behavior: "429" | "success" | "worker_stop"): RuntimeProcess {
+function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null,
     terminated = false;
@@ -284,27 +470,29 @@ function fakeProcess(pid: number, behavior: "429" | "success" | "worker_stop"): 
       setImmediate(() => {
         if (terminated) return;
         const frames =
-          behavior === "429"
-            ? [
-                { type: "thread.started", thread_id: `provider-${pid}` },
-                {
-                  type: "turn.failed",
-                  error: {
-                    http_status: 429,
-                    code: "rate_limit",
-                    message: "quota exhausted OPENAI_API_KEY=sk-provider-fallback-secret",
+          behavior === "empty_success"
+            ? []
+            : behavior === "429"
+              ? [
+                  { type: "thread.started", thread_id: `provider-${pid}` },
+                  {
+                    type: "turn.failed",
+                    error: {
+                      http_status: 429,
+                      code: "rate_limit",
+                      message: "quota exhausted OPENAI_API_KEY=sk-provider-fallback-secret",
+                    },
                   },
-                },
-              ]
-            : [
-                { type: "thread.started", thread_id: `provider-${pid}` },
-                ...(behavior === "success"
-                  ? [{ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } }]
-                  : []),
-                { type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } },
-                { type: "turn.completed" },
-              ];
-        output?.(`${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
+                ]
+              : [
+                  { type: "thread.started", thread_id: `provider-${pid}` },
+                  ...(behavior === "success"
+                    ? [{ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } }]
+                    : []),
+                  { type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } },
+                  { type: "turn.completed" },
+                ];
+        if (frames.length) output?.(`${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
         exit?.(behavior === "429" ? 1 : 0);
       });
     },

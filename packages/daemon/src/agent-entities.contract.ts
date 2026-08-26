@@ -6,9 +6,8 @@ export interface AgentSkillDeclarationV1 {
   readonly path: string;
 }
 export interface AgentFallbackDeclarationV1 {
-  readonly enabled: boolean;
   readonly chain: readonly { readonly instance: string; readonly model?: string }[];
-  readonly backoff: { readonly baseMs: number; readonly maxMs: number; readonly maxAttempts: number };
+  readonly backoff: { readonly baseMs: number; readonly maxMs: number };
 }
 export type AgentRole = "worker" | "commander";
 export interface AgentDeclarationV1 {
@@ -184,10 +183,9 @@ function agentSkills(value: unknown): value is readonly AgentSkillDeclarationV1[
 function agentFallbackErrors(value: unknown): readonly string[] {
   if (!isEntityRecord(value)) return ['agent declaration field "fallback" must be an object.'];
   const errors: string[] = [],
-    fields = ["enabled", "chain", "backoff"];
+    fields = ["chain", "backoff"];
   if (Object.keys(value).some((key) => !fields.includes(key)) || fields.some((key) => !Object.hasOwn(value, key)))
-    errors.push('agent declaration field "fallback" must contain exactly enabled, chain, and backoff.');
-  if (typeof value.enabled !== "boolean") errors.push('agent declaration field "fallback.enabled" must be boolean.');
+    errors.push('agent declaration field "fallback" must contain exactly chain and backoff.');
   if (
     !Array.isArray(value.chain) ||
     value.chain.length === 0 ||
@@ -208,28 +206,17 @@ function agentFallbackErrors(value: unknown): readonly string[] {
     return errors;
   }
   const backoff = value.backoff;
-  const backoffFields = ["baseMs", "maxMs", "maxAttempts"];
+  const backoffFields = ["baseMs", "maxMs"];
   if (
     Object.keys(backoff).some((key) => !backoffFields.includes(key)) ||
     backoffFields.some((key) => !Object.hasOwn(backoff, key))
   )
-    errors.push('agent declaration field "fallback.backoff" must contain exactly baseMs, maxMs, and maxAttempts.');
-  const { baseMs, maxMs, maxAttempts } = backoff;
+    errors.push('agent declaration field "fallback.backoff" must contain exactly baseMs and maxMs.');
+  const { baseMs, maxMs } = backoff;
   if (!Number.isSafeInteger(baseMs) || Number(baseMs) < 0)
     errors.push('agent declaration field "fallback.backoff.baseMs" must be a non-negative integer.');
   if (!Number.isSafeInteger(maxMs) || Number(maxMs) < Number(baseMs))
     errors.push('agent declaration field "fallback.backoff.maxMs" must be an integer greater than or equal to baseMs.');
-  if (
-    !Number.isSafeInteger(maxAttempts) ||
-    Number(maxAttempts) < 1 ||
-    (Array.isArray(value.chain) && Number(maxAttempts) > value.chain.length)
-  )
-    errors.push(
-      [
-        'agent declaration field "fallback.backoff.maxAttempts" must be positive and ',
-        "cannot exceed fallback.chain length.",
-      ].join(""),
-    );
   return errors;
 }
 // GUI read envelopes for the identity layers. These validators live in this pure contract

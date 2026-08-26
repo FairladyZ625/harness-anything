@@ -12,9 +12,8 @@ export interface AgentSkillDeclarationV1 {
   readonly path: string;
 }
 export interface AgentFallbackDeclarationV1 {
-  readonly enabled: boolean;
   readonly chain: readonly { readonly instance: string; readonly model?: string }[];
-  readonly backoff: { readonly baseMs: number; readonly maxMs: number; readonly maxAttempts: number };
+  readonly backoff: { readonly baseMs: number; readonly maxMs: number };
 }
 export type AgentRole = "worker" | "commander";
 export const agentStates = ["configured", "active", "retired"] as const;
@@ -82,10 +81,9 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
     fallback: {
       type: "object",
       additionalProperties: false,
-      required: ["enabled", "chain", "backoff"],
+      required: ["chain", "backoff"],
       description: "Attempt-bound provider fallback policy.",
       properties: {
-        enabled: { type: "boolean", description: "Whether provider-fault exits advance the chain." },
         chain: {
           type: "array",
           minItems: 1,
@@ -103,7 +101,7 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
         backoff: {
           type: "object",
           additionalProperties: false,
-          required: ["baseMs", "maxMs", "maxAttempts"],
+          required: ["baseMs", "maxMs"],
           properties: {
             baseMs: {
               type: "integer",
@@ -116,12 +114,6 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
               minimum: 0,
               maximum: Number.MAX_SAFE_INTEGER,
               description: "Maximum attempt backoff in milliseconds.",
-            },
-            maxAttempts: {
-              type: "integer",
-              minimum: 1,
-              maximum: Number.MAX_SAFE_INTEGER,
-              description: "Maximum attempts including the first.",
             },
           },
         },
@@ -162,14 +154,10 @@ export class AgentEntityContractError extends EntitySchemaContractError {
 export function validateAgentDeclarationV1(value: unknown): readonly string[] {
   const issues = [...validateEntityJsonSchema(AGENT_DECLARATION_V1_SCHEMA, value, "agent declaration")];
   if (entityRecord(value) && entityRecord(value.fallback) && entityRecord(value.fallback.backoff)) {
-    const chain = value.fallback.chain,
-      baseMs = value.fallback.backoff.baseMs,
-      maxMs = value.fallback.backoff.maxMs,
-      maxAttempts = value.fallback.backoff.maxAttempts;
+    const baseMs = value.fallback.backoff.baseMs,
+      maxMs = value.fallback.backoff.maxMs;
     if (Number.isInteger(baseMs) && Number.isInteger(maxMs) && Number(maxMs) < Number(baseMs))
       issues.push('agent declaration field "fallback.backoff.maxMs" must be greater than or equal to baseMs.');
-    if (Array.isArray(chain) && Number.isInteger(maxAttempts) && Number(maxAttempts) > chain.length)
-      issues.push('agent declaration field "fallback.backoff.maxAttempts" cannot exceed fallback.chain length.');
   }
   return issues;
 }

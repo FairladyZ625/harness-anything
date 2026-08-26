@@ -140,7 +140,9 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           "code" in error &&
           error.code === "invalid_runtime_spawn" &&
           error.message ===
-            'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "runtimeInstanceId", "dispatchId", "agentId", "targetAgentId", "model", "effort", "permissionMode", "cwd", "prompt", "promptSource", "onExitCommand", "taskId", "idempotencyKey", "providerSessionId".',
+            'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "runtimeInstanceId", ' +
+              '"dispatchId", "agentId", "targetAgentId", "squadId", "model", "effort", "permissionMode", "cwd", ' +
+              '"prompt", "promptSource", "onExitCommand", "taskId", "idempotencyKey", "providerSessionId".',
       );
       await assert.rejects(
         cell.cancelRuntime({ runtimeSessionId: "missing", force: true }, binding),
@@ -895,6 +897,11 @@ test(
         ).detail,
         "cancelled",
       );
+      const cancelledSession = await eventuallyValue(async () => {
+        const read = await cell!.read("repo.agentRuntime.sessions.read", { runtimeSessionId });
+        return read.session.activity.outcome === "cancelled" ? read.session : null;
+      });
+      assert.equal(cancelledSession.activity.outcome, "cancelled");
       const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${String(spawned.dispatchId)}.jsonl`),
         descendants = await eventuallyValue(() => {
           const records = readFileSync(streamPath, "utf8")

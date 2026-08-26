@@ -9,7 +9,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { createPresetProcessService, presetUserRoot } from "../../preset/src/index.ts";
 import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
-import { readAgentDeclaration, resolveSquadDispatchTarget } from "./agent-entities.ts";
+import { readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
@@ -41,7 +41,12 @@ import type {
 } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { makeDaemonRuntimeAdmissionGuard } from "./runtime-admission.ts";
-import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
+import {
+  makeRuntimeSpawner,
+  type RuntimeAttemptTerminal,
+  type RuntimeDaemonRoute,
+  type RuntimeLauncher,
+} from "./runtime-spawn.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -79,6 +84,7 @@ export async function openRepoCell(input: {
       { readonly type: "runtime_session_outcome_observed" }
     >,
   ) => void;
+  readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
@@ -270,13 +276,7 @@ export async function openRepoCell(input: {
   }) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell fallback settlement is not ready.");
   };
-  let settleScheduledOutcome: (
-    event: Extract<
-      import("../../kernel/src/index.ts").AgentRuntimeEventV1,
-      { readonly type: "runtime_session_outcome_observed" }
-    >,
-    scheduled: { readonly scheduleId: string; readonly claimFence: string },
-  ) => Promise<void> = async () => {
+  let settleScheduledOutcome: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell Schedule settlement is not ready.");
   };
   const runtimeSpawner = makeRuntimeSpawner({
@@ -293,14 +293,28 @@ export async function openRepoCell(input: {
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
     ...(input.prepareWorkerGitEnvironment ? { prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment } : {}),
     resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId, entityStore: createEntityStore(store) }),
-    resolveSquadDispatchTarget: (leaderId, workerId) =>
-      resolveSquadDispatchTarget({ rootDir, leaderId, workerId, entityStore: createEntityStore(store) }),
-    onRuntimeOutcome: (event, scheduled) => {
+    resolveSquadDispatch: (squadId, leaderId, workerId) =>
+      resolveSquadDispatch({
+        rootDir,
+        ...(squadId ? { squadId } : {}),
+        leaderId,
+        ...(workerId ? { workerId } : {}),
+        entityStore: createEntityStore(store),
+      }),
+    onRuntimeOutcome: (event) => {
       schedule(() => squadCoordinator.observeOutcome(event));
-      if (scheduled) schedule(() => settleScheduledOutcome(event, scheduled));
       input.onRuntimeOutcome?.(event);
     },
-    onFallbackExhausted: (value) => settleFallbackExhaustion(value as Parameters<typeof settleFallbackExhaustion>[0]),
+    onAttemptTerminal: async (terminal) => {
+      if (terminal.fallbackExhausted && terminal.task)
+        await settleFallbackExhaustion({
+          ...terminal.task,
+          reason: terminal.reason ?? "Provider fallback exhausted.",
+          binding: terminal.binding,
+        });
+      if (terminal.schedule) schedule(() => settleScheduledOutcome(terminal));
+      input.onAttemptTerminal?.(terminal);
+    },
     ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });
@@ -376,17 +390,20 @@ export async function openRepoCell(input: {
   });
   const scheduleActions = makeRepoCellScheduleActions(extracted);
   Object.assign(extracted, { mode, runtimeSpawner, scheduleActions });
-  settleScheduledOutcome = async (event, scheduled) => {
+  settleScheduledOutcome = async (terminal) => {
+    const scheduled = terminal.schedule,
+      detail = terminal.resultRef ?? terminal.reason;
+    if (!scheduled) return;
     const receipt = scheduleActions.settle(
       {
         scheduleId: scheduled.scheduleId,
         claimFence: scheduled.claimFence,
-        outcome: event.payload.outcome,
-        endedAt: event.occurredAt,
-        detail: event.payload.resultRef,
-        idempotencyKey: `${event.payload.runtimeSessionId}:outcome`,
+        outcome: terminal.outcome,
+        endedAt: terminal.endedAt,
+        ...(detail ? { detail } : {}),
+        idempotencyKey: `${terminal.runtimeSessionId}:attempt-terminal`,
       },
-      { actor: event.actor, source: "local" },
+      terminal.binding,
     );
     if (receipt.outcome !== "applied")
       throw cellCodedError(
@@ -395,29 +412,12 @@ export async function openRepoCell(input: {
       );
   };
   settleFallbackExhaustion = async ({ taskId, executionId, reason, binding }) => {
-    const before = await service.read(taskId);
-    if (before.snapshot.lease) {
-      if (before.snapshot.lease.executionId !== executionId)
-        throw cellCodedError(
-          "lease_conflict",
-          [
-            `Fallback exhaustion belongs to ${executionId}, but `,
-            `${before.snapshot.lease.executionId} holds the task lease.`,
-          ].join(""),
-        );
-      const released = await extracted.taskSurfaceWrite(
-        { kind: "task-release", taskId, reason: `Release after provider fallback exhaustion: ${reason}` },
-        binding,
-      );
-      if (released.outcome !== "applied")
-        throw cellCodedError("fallback_block_failed", `Fallback lease release was ${released.outcome}.`);
-    }
-    const blocked = await extracted.lifecycleAction(
-      { kind: "task-transition", taskId, status: "blocked", reason },
+    const settled = await extracted.taskSurfaceWrite(
+      { kind: "task-fallback-exhausted", taskId, executionId, reason },
       binding,
     );
-    if (blocked.outcome !== "applied")
-      throw cellCodedError("fallback_block_failed", `Fallback task transition was ${blocked.outcome}.`);
+    if (settled.outcome !== "applied")
+      throw cellCodedError("fallback_block_failed", `Fallback exhaustion settlement was ${settled.outcome}.`);
   };
   await runtimeSpawner.adopt();
   schedule(() => squadCoordinator.reconcile());

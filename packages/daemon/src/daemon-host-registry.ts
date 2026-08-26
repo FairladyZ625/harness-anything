@@ -3,10 +3,10 @@ import {
   consumeKnownError,
   readDaemonRegistry,
   unregisterDaemonRepo,
-  type AgentRuntimeEventV1,
   type DaemonRepoMode,
 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.ts";
+import type { RuntimeAttemptTerminal } from "./runtime-spawn.ts";
 
 export async function closeCell(context: any, repoId: string): Promise<void> {
   const cell = context.cells.get(repoId),
@@ -140,8 +140,8 @@ export async function performOpenRegistered(
       authoredBranch: repo.authoredBranch,
       ...(context.input.shutdownRequested ? { shouldStop: context.input.shutdownRequested } : {}),
       ...(context.input.recordLifecycle ? { recordLifecycle: context.input.recordLifecycle } : {}),
-      onRuntimeOutcome: (event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>) =>
-        void context.e2eProbeScheduler.onRuntimeOutcome(repo.repoId, event),
+      onAttemptTerminal: (terminal: RuntimeAttemptTerminal) =>
+        void context.e2eProbeScheduler.onAttemptTerminal(repo.repoId, terminal.runtimeSessionId),
       ...context.runtimePorts,
       ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
     });

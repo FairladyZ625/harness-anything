@@ -689,6 +689,27 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
       assert.equal(Object.hasOwn(launch.request, "skillRoot"), false);
       assert.equal(Object.hasOwn(launch.request, "skills"), false);
     }
+    const leaderReceipt = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "codex-squad",
+        agentId: "squad-leader",
+        squadId: "runtime-squad",
+        cwd: { scope: "repo-root" },
+        prompt: "Run as the attributed squad leader.",
+        taskId: null,
+        idempotencyKey: "squad-leader-codex",
+      },
+      binding,
+    );
+    const header = JSON.parse(
+      readFileSync(
+        path.join(root, ".harness/runtime/dispatches", `${String(leaderReceipt.dispatchId)}.jsonl`),
+        "utf8",
+      ).split(/\r?\n/u)[0]!,
+    ) as Record<string, unknown>;
+    assert.equal(header.squadId, "runtime-squad");
+    assert.equal(header.agentId, "squad-leader");
+    assert.equal(Object.hasOwn(header, "delegatedByAgentId"), false);
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });

@@ -30,19 +30,8 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
         (code === 0 && (active.finalText === null || active.providerOutcome === null)))
     )
       context.markProtocolError(active);
-    const writeEvidenceRequired = active.kindId !== "agy" && active.permissionMode !== "read-only",
-      letOutcome = cancelled
-        ? ("cancelled" as const)
-        : code === null || active.protocolError
-          ? ("unknown" as const)
-          : code !== 0
-            ? ("failed" as const)
-            : active.providerOutcome === "succeeded" &&
-                (active.planIncomplete || (writeEvidenceRequired && !active.writeItemObserved && !active.planObserved))
-              ? ("unknown" as const)
-              : (active.providerOutcome ?? ("unknown" as const));
-    let outcome = letOutcome;
-    const classifiedAttempt = classifyRuntimeExit(active, code),
+    const outcome = deriveRuntimeSpawnOutcome(active, code),
+      classifiedAttempt = classifyRuntimeExit(active, code),
       attemptOutcome = {
         ...classifiedAttempt,
         reason: String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
@@ -73,11 +62,11 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
             dispatchId: active.dispatchId,
             ...active.task,
             ...(active.agent ? { agentId: active.agent.id, agentName: active.agent.name } : {}),
+            ...(active.squadId ? { squadId: active.squadId } : {}),
             ...(active.delegatedBy
               ? {
                   delegatedByAgentId: active.delegatedBy.id,
                   delegatedByAgentName: active.delegatedBy.name,
-                  squadId: active.squadId!,
                 }
               : {}),
             instanceId: active.instanceId,
@@ -123,7 +112,8 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
           );
       } catch (error) {
         consumeKnownError(error);
-        outcome = "unknown";
+        const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+        console.warn(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
       }
     context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome });
     context.input.recordLifecycle?.({
@@ -180,11 +170,48 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
           };
     context.processes.delete(active.runtimeSessionId);
     active.process.release?.();
-    await context.settleFallback(active, attemptOutcome);
+    await context.settleFallback(active, attemptOutcome, {
+      runtimeSessionId: active.runtimeSessionId,
+      dispatchId: active.dispatchId,
+      task: active.task,
+      schedule: active.schedule,
+      outcome: outcome === "succeeded" ? "succeeded" : "failed",
+      fallbackExhausted: false,
+      reason: outcome === "succeeded" ? null : attemptOutcome.reason,
+      endedAt,
+      resultRef,
+      binding: active.binding,
+    });
     if (notification) setImmediate(() => context.launchExitNotification({ ...notification, now: context.input.now }));
   } finally {
     context.exiting.delete(active.runtimeSessionId);
   }
+}
+
+export function deriveRuntimeSpawnOutcome(
+  active: Pick<
+    ActiveRuntime,
+    | "cancelRequested"
+    | "kindId"
+    | "permissionMode"
+    | "planIncomplete"
+    | "planObserved"
+    | "protocolError"
+    | "providerOutcome"
+    | "writeItemObserved"
+  >,
+  code: number | null,
+): "succeeded" | "failed" | "unknown" | "cancelled" {
+  if (active.cancelRequested) return "cancelled";
+  if (code === null || active.protocolError) return "unknown";
+  if (code !== 0) return "failed";
+  const writeEvidenceRequired = active.kindId !== "agy" && active.permissionMode !== "read-only";
+  if (
+    active.providerOutcome === "succeeded" &&
+    (active.planIncomplete || (writeEvidenceRequired && !active.writeItemObserved && !active.planObserved))
+  )
+    return "unknown";
+  return active.providerOutcome ?? "unknown";
 }
 
 export function runtimeResultText(

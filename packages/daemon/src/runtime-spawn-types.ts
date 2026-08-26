@@ -55,6 +55,19 @@ export interface TrustedScheduleSpawn extends TrustedScheduleRuntime {
   readonly cwd?: string;
 }
 
+export interface RuntimeAttemptTerminal {
+  readonly runtimeSessionId: string;
+  readonly dispatchId: string;
+  readonly task: { readonly taskId: string; readonly executionId: string } | null;
+  readonly schedule: TrustedScheduleRuntime | null;
+  readonly outcome: "succeeded" | "failed";
+  readonly fallbackExhausted: boolean;
+  readonly reason: string | null;
+  readonly endedAt: string;
+  readonly resultRef: string | null;
+  readonly binding: RuntimeBinding;
+}
+
 export type RuntimeAgent = {
   readonly id: string;
   readonly name: string;
