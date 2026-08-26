@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { evaluateProductionDelta, parseProductionDeclaration, parseRetainedPaths } from "../production-delta.mjs";
+import {
+  computeProductionDelta,
+  evaluateProductionDelta,
+  parseProductionDeclaration,
+  parseRetainedPaths,
+} from "../production-delta.mjs";
+import { git } from "../git.mjs";
 import { signReceipt } from "../receipt-verify.mjs";
 import { makeRepo, writeRepoFile } from "./helpers.mjs";
 
@@ -78,4 +84,23 @@ test("G33 skips Mergify merge-queue verification PRs by bot author and queue bra
   assert.match(draft.stdout, /skipped for Mergify merge-queue/u);
   const human = run({ PR_HEAD_REF: "codex/not-a-queue", PR_AUTHOR_LOGIN: "FairladyZ625" });
   assert.equal(human.status, 1);
+});
+
+test("G33 measures the branch from its merge-base, so the target advancing does not move the number", () => {
+  const { rootDir: repo, base } = makeRepo({ "packages/kernel/src/a.ts": "export const a = 1;\n" }),
+    target = git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+  git(repo, ["checkout", "-q", "-b", "feature"]);
+  writeRepoFile(repo, "packages/kernel/src/b.ts", "export const b = 1;\nexport const c = 2;\n");
+  git(repo, ["add", "-A"]);
+  git(repo, ["commit", "-q", "-m", "feature"]);
+  const before = computeProductionDelta({ rootDir: repo, base });
+  git(repo, ["checkout", "-q", target]);
+  writeRepoFile(repo, "packages/kernel/src/z.ts", "export const z = 1;\nexport const y = 2;\nexport const x = 3;\n");
+  git(repo, ["add", "-A"]);
+  git(repo, ["commit", "-q", "-m", "main moves on"]);
+  const mainTip = git(repo, ["rev-parse", "HEAD"]).trim();
+  git(repo, ["checkout", "-q", "feature"]);
+  const after = computeProductionDelta({ rootDir: repo, base: mainTip });
+  assert.deepEqual([after.added, after.deleted], [before.added, before.deleted]);
+  assert.deepEqual([after.added, after.deleted], [2, 0]);
 });
