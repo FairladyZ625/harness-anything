@@ -263,8 +263,8 @@ export function openFleetLeaseBroker(options: {
       }
       return null;
     }
-    const assignment = await options.resolveAssignment(domain.assignmentId);
-    if (!assignment) {
+    const assignment = normalizeTaskAssignment(await options.resolveAssignment(domain.assignmentId));
+    if (!assignment || assignment.scope.kind !== "task") {
       if (state.leases[key]) {
         delete state.leases[key];
         persist();
@@ -512,12 +512,13 @@ export function openFleetLeaseBroker(options: {
     frame: FleetTaskCommandFrame,
     clientGone: () => boolean,
   ): Promise<FleetTaskResultFields> {
-    const assignment = await options.resolveAssignment(frame.assignmentId);
+    const assignment = normalizeTaskAssignment(await options.resolveAssignment(frame.assignmentId));
     const nowMs = Date.parse(options.now());
     if (
       !assignment ||
       assignment.nodeId !== nodeId ||
       assignment.repoId !== frame.repoId ||
+      assignment.scope.kind !== "task" ||
       Date.parse(assignment.expiresAt) <= nowMs
     )
       return {
@@ -552,7 +553,7 @@ export function openFleetLeaseBroker(options: {
         opId: frame.opId,
       };
     if (kind === "task-show") {
-      if (taskId !== assignment.taskId || frame.docChanges !== null || frame.mirrorBaseCut !== null)
+      if (taskId !== assignment.scope.taskId || frame.docChanges !== null || frame.mirrorBaseCut !== null)
         return {
           ...failure(
             "op_rejected",
@@ -891,6 +892,27 @@ export function openFleetLeaseBroker(options: {
       parks.clear();
     },
   };
+}
+
+function normalizeTaskAssignment(value: FleetAssignmentRecord | null): FleetAssignmentRecord | null {
+  if (!value) return null;
+  if (value.scope?.kind === "task") return value;
+  const legacy = value as unknown as FleetAssignmentRecord & {
+    readonly taskId?: unknown;
+    readonly executionId?: unknown;
+    readonly paths?: unknown;
+  };
+  return typeof legacy.taskId === "string" && typeof legacy.executionId === "string" && Array.isArray(legacy.paths)
+    ? {
+        ...value,
+        scope: {
+          kind: "task",
+          taskId: legacy.taskId,
+          executionId: legacy.executionId,
+          paths: legacy.paths as readonly string[],
+        },
+      }
+    : null;
 }
 function loadBrokerState(file: string): BrokerState {
   if (!existsSync(file)) return { seq: 0, leases: {}, queue: {}, receipts: {} };

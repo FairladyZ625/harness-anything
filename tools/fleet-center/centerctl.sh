@@ -205,7 +205,7 @@ const [credentialFile, output, nodeId, assignmentId, repoId, taskId, executionId
 const credential = fs.readFileSync(credentialFile, "utf8").trim();
 const paths = [...new Set(pathsCsv.split(",").map((value) => value.trim()).filter(Boolean))];
 if (paths.length === 0 || paths.some((value) => value.startsWith("/") || value.split("/").some((part) => part === "" || part === "." || part === ".."))) throw new Error("HARNESS_CENTER_ASSIGNMENT_PATHS must be a comma-separated list of canonical relative path prefixes");
-const roster = { schema: "fleet-roster/v1", nodes: [{ nodeId, credential }], assignments: [{ assignmentId, nodeId, repoId, taskId, executionId, viewId, personId, executorId, expiresAt, paths }] };
+const roster = { schema: "fleet-roster/v2", nodes: [{ nodeId, credential }], assignments: [{ assignmentId, nodeId, repoId, viewId, personId, executorId, expiresAt, scope: { kind: "task", taskId, executionId, paths } }] };
 fs.writeFileSync(output, `${JSON.stringify(roster, null, 2)}\n`, { mode: 0o600 });
 NODE
   chmod 600 "$fleet_root/roster.json.staging"

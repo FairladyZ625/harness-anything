@@ -313,7 +313,10 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
     // bind this write, so the mislabeled scope no longer rejects it.
     const identity = await scoped.cell.run(remoteAction(before, relativePath, "identity", body), {
       ...identityBinding,
-      assignmentScope: { ...identityBinding.assignmentScope!, taskId: "task-other" },
+      assignmentScope: {
+        ...identityBinding.assignmentScope!,
+        scope: { ...identityBinding.assignmentScope!.scope, taskId: "task-other" },
+      },
     });
     assert.equal(identity.outcome, "applied", JSON.stringify(identity).slice(0, 400));
     assert.equal(existsSync(path.join(scoped.rootDir, ".harness/doc-sync-claims/identity")), false);
@@ -429,7 +432,10 @@ function assignmentBinding(repoId: string, paths: readonly string[]): RepoCellBi
   return {
     actor,
     source: assignmentSource,
-    assignmentScope: { repoId, taskId: "task-doc", executionId: "execution-doc", paths },
+    assignmentScope: {
+      repoId,
+      scope: { kind: "task", taskId: "task-doc", executionId: "execution-doc", paths },
+    },
   };
 }
 function remoteAction(baseLedgerSha: unknown, relativePath: string, ref: string, body: string) {

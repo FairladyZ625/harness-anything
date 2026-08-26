@@ -162,7 +162,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
       eventBinding,
       body,
     );
-    context.input.onRuntimeOutcome?.(outcomeEvent.event);
+    context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
     const notification =
       active.onExitCommand === null
         ? null

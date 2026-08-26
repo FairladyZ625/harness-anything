@@ -10,8 +10,8 @@ const localSource = "local" as const;
 const assignmentSource = { kind: "assignment", nodeId: "edge-one", assignmentId: "assignment-one" } as const;
 const admissionRoutes = new Set(["direct", "via-assignment", "via-center-forward", "rejected"]);
 
-test("all 117 daemon commands close every repo-mode admission cell", () => {
-  assert.equal(daemonProtocolCommands.length, 117);
+test("all 123 daemon commands close every repo-mode admission cell", () => {
+  assert.equal(daemonProtocolCommands.length, 123);
   let cells = 0;
   for (const command of daemonProtocolCommands) {
     assert.deepEqual(Object.keys(command.admission).sort(), [...daemonRepoModeWords].sort(), command.id);
@@ -35,7 +35,7 @@ test("all 117 daemon commands close every repo-mode admission cell", () => {
       }
     }
   }
-  assert.equal(cells, 117 * 3);
+  assert.equal(cells, 123 * 3);
 });
 
 test("observe.tail declares direct admission and named source residency for every tail kind", () => {
@@ -52,4 +52,26 @@ test("observe.tail declares direct admission and named source residency for ever
   });
   for (const mode of daemonRepoModeWords)
     assert.equal(admitRepoMode(mode, command, localSource).ok, true, `observe.tail ${mode} direct fixture`);
+});
+
+test("Schedule descriptors derive all three mode routes without a CLI mode branch", () => {
+  const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
+  for (const id of ["schedule-create", "schedule-enable", "schedule-disable"])
+    assert.deepEqual(byId.get(id)?.admission, {
+      local: "direct",
+      "remote-center": "via-assignment",
+      "remote-edge": "via-center-forward",
+    });
+  assert.deepEqual(byId.get("schedule-list")?.admission, {
+    local: "direct",
+    "remote-center": "direct",
+    "remote-edge": "via-center-forward",
+  });
+  assert.deepEqual(byId.get("schedule-run-now")?.admission, {
+    local: "direct",
+    "remote-center": "via-assignment",
+    "remote-edge": "direct",
+  });
+  assert.equal(admitRepoMode("remote-center", byId.get("schedule-run-now")!, localSource).ok, false);
+  assert.equal(admitRepoMode("remote-center", byId.get("schedule-run-now")!, assignmentSource).ok, true);
 });

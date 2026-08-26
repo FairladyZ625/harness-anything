@@ -7,6 +7,7 @@ import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
 import { parseRuntimeInstance } from "./thin-command-runtime-instance.ts";
 import { parseRuntime } from "./thin-command-runtime.ts";
+import { parseSchedule } from "./thin-command-schedule.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseRouted(
@@ -55,6 +56,7 @@ export function parseRouted(
       : rejected("unknown_field", "ha ledger migrate takes no options.", json);
   if (route.id.startsWith("runtime-instance-")) return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
   if (route.id.startsWith("runtime-")) return parseRuntime(route, args, rootDir, repoId, json, inputs);
+  if (route.id.startsWith("schedule-")) return parseSchedule(route, args, rootDir, repoId, json, inputs);
   if (route.id === "receipt-show" && nonEmpty(args[2]) && args.length === 3)
     return accepted(rootDir, repoId, json, {
       kind: "receipt-show",

@@ -30,6 +30,7 @@ import {
 import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
+import { makeRepoCellScheduleActions } from "./repo-cell-schedule-actions.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   PublicPublication,
@@ -269,6 +270,15 @@ export async function openRepoCell(input: {
   }) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell fallback settlement is not ready.");
   };
+  let settleScheduledOutcome: (
+    event: Extract<
+      import("../../kernel/src/index.ts").AgentRuntimeEventV1,
+      { readonly type: "runtime_session_outcome_observed" }
+    >,
+    scheduled: { readonly scheduleId: string; readonly claimFence: string },
+  ) => Promise<void> = async () => {
+    throw cellCodedError("runtime_preconditions_unavailable", "RepoCell Schedule settlement is not ready.");
+  };
   const runtimeSpawner = makeRuntimeSpawner({
     repoId: input.repoId,
     rootDir,
@@ -285,8 +295,9 @@ export async function openRepoCell(input: {
     resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId, entityStore: createEntityStore(store) }),
     resolveSquadDispatchTarget: (leaderId, workerId) =>
       resolveSquadDispatchTarget({ rootDir, leaderId, workerId, entityStore: createEntityStore(store) }),
-    onRuntimeOutcome: (event) => {
+    onRuntimeOutcome: (event, scheduled) => {
       schedule(() => squadCoordinator.observeOutcome(event));
+      if (scheduled) schedule(() => settleScheduledOutcome(event, scheduled));
       input.onRuntimeOutcome?.(event);
     },
     onFallbackExhausted: (value) => settleFallbackExhaustion(value as Parameters<typeof settleFallbackExhaustion>[0]),
@@ -363,6 +374,26 @@ export async function openRepoCell(input: {
     },
     getSquadCoordinator: () => squadCoordinator,
   });
+  const scheduleActions = makeRepoCellScheduleActions(extracted);
+  Object.assign(extracted, { mode, runtimeSpawner, scheduleActions });
+  settleScheduledOutcome = async (event, scheduled) => {
+    const receipt = scheduleActions.settle(
+      {
+        scheduleId: scheduled.scheduleId,
+        claimFence: scheduled.claimFence,
+        outcome: event.payload.outcome,
+        endedAt: event.occurredAt,
+        detail: event.payload.resultRef,
+        idempotencyKey: `${event.payload.runtimeSessionId}:outcome`,
+      },
+      { actor: event.actor, source: "local" },
+    );
+    if (receipt.outcome !== "applied")
+      throw cellCodedError(
+        "schedule_settlement_pending",
+        `Schedule ${scheduled.scheduleId} settlement was ${receipt.outcome}.`,
+      );
+  };
   settleFallbackExhaustion = async ({ taskId, executionId, reason, binding }) => {
     const before = await service.read(taskId);
     if (before.snapshot.lease) {
@@ -480,6 +511,7 @@ export async function openRepoCell(input: {
       return runtimeReads;
     },
     runtimeSpawner,
+    scheduleActions,
     appendRuntimeIngress: extracted.appendRuntimeIngress,
     get bootstrapReceipt() {
       return bootstrapReceipt;

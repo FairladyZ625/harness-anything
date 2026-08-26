@@ -286,6 +286,18 @@ export function createJsonRpcProtocolServer(options: {
             )) as unknown as JsonObject,
           );
         }
+        if (isJsonObject(fleetAction) && fleetAction.kind === "fleet-schedule") {
+          if (!isJsonObject(fleetAction.payload))
+            throw Object.assign(new Error("Fleet Schedule envelope must carry one closed action payload."), {
+              code: "invalid_field",
+            });
+          return reply(
+            (await options.host.fleet.edgeRuntime(
+              { ...fleetPayload, method: "repo.schedule.run", action: fleetAction.payload } as JsonObject,
+              options.authContext,
+            )) as unknown as JsonObject,
+          );
+        }
         const { runFleetEdgeTask } = await import("../fleet-edge-task.ts");
         return reply(
           (await runFleetEdgeTask({

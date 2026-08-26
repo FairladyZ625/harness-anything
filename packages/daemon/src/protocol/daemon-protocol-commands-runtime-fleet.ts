@@ -1,5 +1,7 @@
 import {
   cliInput,
+  defineCenterForwardReadCommand,
+  defineCenterForwardWriteCommand,
   defineHostAdminCommand,
   defineRepoReadCommand,
   defineRuntimeLocalWriteCommand,
@@ -191,7 +193,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--roster", "single", true, {
         code: "missing_field",
         nextAction:
-          "Fleet center start requires --roster pointing at a fleet-roster/v1 JSON declaring nodes and assignments.",
+          "Fleet center start requires --roster pointing at a fleet-roster/v2 JSON; fleet-roster/v1 remains read-compatible.",
       }),
       cliInput(
         "--quota-bytes",
@@ -260,7 +262,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       }),
       cliInput("--roster", "single", false, {
         code: "invalid_field",
-        nextAction: "Use the mode-0600 fleet-roster/v1 file containing the credential for --node-id.",
+        nextAction: "Use the mode-0600 fleet-roster/v2 file containing the credential for --node-id.",
       }),
       cliInput(
         "--assignment",
@@ -304,5 +306,117 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         { regex: "^[1-9][0-9]{0,9}$" },
       ),
     ],
+  }),
+] as const);
+
+const scheduleIdInput = (verb: string) =>
+  cliInput("--idempotency-key", "single", false, {
+    code: "invalid_field",
+    nextAction: `Use one stable non-empty --idempotency-key when retrying schedule ${verb}.`,
+  });
+
+export const scheduleProtocolCommands = Object.freeze([
+  defineCenterForwardWriteCommand({
+    id: "schedule-create",
+    phase: "Schedule-S3",
+    path: ["schedule", "create", "<schedule-id>"],
+    summary: "Create an interval Schedule targeting one declared Agent and runtime instance.",
+    method: "repo.task.run",
+    positional: "scheduleId",
+    inputs: [
+      cliInput("--name", "single", true, {
+        code: "missing_field",
+        nextAction: "Add --name <schedule-name>.",
+      }),
+      cliInput("--every", "single", true, {
+        code: "missing_field",
+        nextAction: "Add --every <duration>, for example 30m or 2h; the minimum is 1m.",
+      }),
+      cliInput("--agent", "single", true, {
+        code: "missing_field",
+        nextAction: "Add --agent <agent-id>.",
+      }),
+      cliInput("--instance", "single", true, {
+        code: "missing_field",
+        nextAction: "Add --instance <runtime-instance-id>.",
+      }),
+      cliInput("--mission", "single", false, {
+        code: "missing_field",
+        nextAction: "Use exactly one of --mission <text> or --mission-file <path>.",
+      }),
+      cliInput("--mission-file", "single", false, {
+        code: "missing_field",
+        nextAction: "Use exactly one of --mission <text> or --mission-file <path>.",
+      }),
+      cliInput("--model", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one model supported by the runtime instance.",
+      }),
+      cliInput(
+        "--effort",
+        "single",
+        false,
+        {
+          code: "invalid_runtime_effort",
+          nextAction: "Use minimal, low, medium, high, or xhigh with a Codex instance.",
+        },
+        { enum: ["minimal", "low", "medium", "high", "xhigh"] },
+      ),
+      cliInput("--cwd", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use a repository-relative directory; omit --cwd for the repository root.",
+      }),
+      cliInput("--disabled", "boolean", false, {
+        code: "invalid_field",
+        nextAction: "Use --disabled once to create the Schedule paused.",
+      }),
+      scheduleIdInput("creation"),
+    ],
+  }),
+  defineCenterForwardReadCommand({
+    id: "schedule-list",
+    phase: "Schedule-S3",
+    path: ["schedule", "list"],
+    summary: "List canonical Schedules and their projected run state.",
+    method: "repo.task.run",
+    inputs: [],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "schedule-enable",
+    phase: "Schedule-S3",
+    path: ["schedule", "enable", "<schedule-id>"],
+    summary: "Arm a paused Schedule without changing its cadence.",
+    method: "repo.task.run",
+    positional: "scheduleId",
+    inputs: [scheduleIdInput("enable")],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "schedule-disable",
+    phase: "Schedule-S3",
+    path: ["schedule", "disable", "<schedule-id>"],
+    summary: "Pause a Schedule without deleting its definition or run history.",
+    method: "repo.task.run",
+    positional: "scheduleId",
+    inputs: [scheduleIdInput("disable")],
+  }),
+  defineRuntimeLocalWriteCommand({
+    id: "schedule-run-now",
+    phase: "Schedule-S3",
+    path: ["schedule", "run-now", "<schedule-id>"],
+    summary: "Claim one manual occurrence and launch it only after the claim is canonical.",
+    method: "repo.task.run",
+    positional: "scheduleId",
+    inputs: [scheduleIdInput("run-now")],
+  }),
+  defineRuntimeLocalWriteCommand({
+    id: "schedule-settle",
+    actionKind: "schedule-settle",
+    internal: true,
+    phase: "Schedule-S3",
+    path: ["schedule", "_settle", "<schedule-id>"],
+    summary: "Settle a claimed Schedule occurrence from a trusted runtime outcome.",
+    method: "repo.task.run",
+    positional: "scheduleId",
+    inputs: [],
   }),
 ] as const);

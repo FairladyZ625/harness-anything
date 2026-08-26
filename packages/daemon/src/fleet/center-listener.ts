@@ -126,12 +126,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     keyId = (key: ReplicaDeliveryKey) => `${key.nodeId}\0${key.viewId}\0${key.repoId}`,
     auth = writerAuth;
   const assignment = async (nodeId: string, assignmentId: string) => {
-    const value = await options.resolveAssignment(assignmentId);
+    const resolved = await options.resolveAssignment(assignmentId),
+      value = normalizeAssignmentRecord(resolved);
     if (
       !value ||
       value.nodeId !== nodeId ||
-      value.paths.length === 0 ||
-      value.paths.length > 128 ||
+      value.scope.paths.length === 0 ||
+      value.scope.paths.length > 128 ||
       Date.parse(value.expiresAt) <= Date.parse(now())
     )
       throw new FleetFault("assignment_rejected", "Assignment is absent, expired, or bound to another node.");
@@ -188,9 +189,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         inReplyTo: frame.messageId,
         assignmentId: a.assignmentId,
         repoId: a.repoId,
-        taskId: a.taskId,
-        executionId: a.executionId,
-        paths: a.paths,
+        scope: a.scope,
         baseLedgerSha,
         expiresAt: a.expiresAt,
         writerEpoch: ownedEpochFor(a.repoId).epoch,
@@ -327,6 +326,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.doc.submit/v1") {
       const a = await assignment(nodeId, frame.assignmentId);
+      if (a.scope.kind !== "task")
+        throw new FleetFault("assignment_scope_mismatch", "Schedule assignments cannot submit task documents.");
       assertFrameEpoch(a.repoId, frame.writerEpoch);
       const completed: string[] = [];
       for (const change of frame.changes) {
@@ -427,6 +428,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.task.command/v1") {
       const a = await assignment(nodeId, frame.assignmentId);
+      if (a.scope.kind !== "task")
+        throw new FleetFault("assignment_scope_mismatch", "Task commands require a task-scoped assignment.");
       try {
         assertFrameEpoch(a.repoId, frame.writerEpoch);
       } catch (error) {
@@ -441,6 +444,33 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         messageId: mid(frame.messageId, "task"),
         inReplyTo: frame.messageId,
         ...result,
+      });
+    }
+    if (frame.schema === "fleet.schedule.command/v1") {
+      const a = await assignment(nodeId, frame.assignmentId);
+      if (
+        a.scope.kind !== "schedule" ||
+        frame.repoId !== a.repoId ||
+        frame.scheduleId !== a.scope.scheduleId ||
+        frame.action.scheduleId !== a.scope.scheduleId
+      )
+        throw new FleetFault(
+          "assignment_scope_mismatch",
+          "Schedule command repository and Schedule id must match the authenticated assignment.",
+        );
+      assertFrameEpoch(a.repoId, frame.writerEpoch);
+      const ingressAuth = auth(a),
+        baseReceipt = await options.host.run(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth),
+        receipt = await attachTrustedScheduleAgent(options.host, a.repoId, frame.action.kind, baseReceipt, ingressAuth);
+      return immediate({
+        schema: "fleet.schedule.result/v1",
+        messageId: mid(frame.messageId, "schedule"),
+        inReplyTo: frame.messageId,
+        opId: frame.opId,
+        outcome: receipt.outcome,
+        revision: receipt.revision ?? null,
+        code: receipt.code ?? null,
+        receipt: receipt as unknown as Readonly<Record<string, unknown>>,
       });
     }
     if (frame.schema === "fleet.runtime.event/v1") {
@@ -590,4 +620,56 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       };
     },
   };
+}
+
+function normalizeAssignmentRecord(value: FleetAssignmentRecord | null): FleetAssignmentRecord | null {
+  if (!value) return null;
+  if (value.scope) return value;
+  const legacy = value as unknown as FleetAssignmentRecord & {
+    readonly taskId?: unknown;
+    readonly executionId?: unknown;
+    readonly paths?: unknown;
+  };
+  return typeof legacy.taskId === "string" && typeof legacy.executionId === "string" && Array.isArray(legacy.paths)
+    ? {
+        ...value,
+        scope: {
+          kind: "task",
+          taskId: legacy.taskId,
+          executionId: legacy.executionId,
+          paths: legacy.paths as readonly string[],
+        },
+      }
+    : null;
+}
+
+async function attachTrustedScheduleAgent(
+  host: FleetCenterOptions["host"],
+  repoId: string,
+  actionKind: string,
+  receipt: Awaited<ReturnType<FleetCenterOptions["host"]["run"]>>,
+  auth: Parameters<FleetCenterOptions["host"]["run"]>[2],
+): Promise<Awaited<ReturnType<FleetCenterOptions["host"]["run"]>> & { readonly trustedAgent?: unknown }> {
+  if (actionKind !== "schedule-run-now" || receipt.outcome !== "applied") return receipt;
+  const schedule = (
+      receipt as unknown as {
+        readonly schedule?: { readonly spec?: { readonly target?: { readonly agentId?: unknown } } };
+      }
+    ).schedule,
+    agentId = schedule?.spec?.target?.agentId;
+  if (typeof agentId !== "string")
+    throw new FleetFault("schedule_claim_invalid", "Applied Schedule claim omitted its Agent target.");
+  const inspected = await host.run(repoId, { kind: "agent-inspect", agentId }, auth);
+  if (inspected.outcome !== "applied" || typeof inspected.evidence !== "string")
+    throw new FleetFault(
+      "schedule_agent_unavailable",
+      `Schedule Agent ${agentId} is unavailable at the claimed center cut.`,
+    );
+  let trustedAgent: unknown;
+  try {
+    trustedAgent = (JSON.parse(inspected.evidence) as { readonly agent?: unknown }).agent;
+  } catch {
+    throw new FleetFault("schedule_agent_unavailable", `Schedule Agent ${agentId} projection evidence is invalid.`);
+  }
+  return { ...receipt, trustedAgent };
 }

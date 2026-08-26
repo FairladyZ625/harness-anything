@@ -386,13 +386,13 @@ export function scopeTouches(input: Pick<Input, "binding" | "workspaceId">, path
       typeof input.binding.source === "object" && input.binding.source.kind === "assignment"
         ? input.binding.source.assignmentId
         : "remote-direct",
-    route = `assignment:${assignmentId}:${scope?.paths.join(",") ?? "scope-missing"}`;
+    route = `assignment:${assignmentId}:${scope?.scope.paths.join(",") ?? "scope-missing"}`;
   return paths
     .filter(
       (candidate) =>
         !scope ||
         scope.repoId !== input.workspaceId ||
-        !scope.paths.some((allowed) => candidate === allowed || candidate.startsWith(`${allowed}/`)),
+        !scope.scope.paths.some((allowed) => candidate === allowed || candidate.startsWith(`${allowed}/`)),
     )
     .map((candidate) => touch(candidate, route, "path is outside the authenticated assignment scope"));
 }
