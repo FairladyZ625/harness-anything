@@ -340,6 +340,8 @@ describe("runtime entry split (W6 IA)", () => {
     await clickButtonWithText("24h");
 
     expect(agentRuntimeClient.sessionGroups).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps a dimension switch sticky while a session focus exists (G12 §1a)", async () => {
     await mountSessions("session/runtime-bound");
     const agentDimension = [...byTestId("sessions-view").querySelectorAll("button")].find(
