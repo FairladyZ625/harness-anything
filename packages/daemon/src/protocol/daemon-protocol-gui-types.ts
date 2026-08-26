@@ -62,35 +62,44 @@ export const optionalEnum = (values: readonly string[]): RpcEnumRule => ({
 
 export const observeTailKinds = ["events", "repo-log", "daemon-log"] as const;
 export type ObserveTailKind = (typeof observeTailKinds)[number];
+export const observeTailDirections = ["history", "follow"] as const;
+export type ObserveTailDirection = (typeof observeTailDirections)[number];
 
 export type ObserveTailCursor =
   | { readonly kind: "events"; readonly revision: number }
   | { readonly kind: "repo-log"; readonly fileId: string; readonly offset: number }
   | { readonly kind: "daemon-log"; readonly fileId: string; readonly offset: number };
 
-export type ObserveTailPayload =
+type ObserveTailRequestFor<K extends ObserveTailKind> =
   | {
-      readonly kind: "events";
-      readonly cursor?: Extract<ObserveTailCursor, { readonly kind: "events" }>;
+      readonly kind: K;
+      readonly direction: "history";
+      readonly cursor?: Extract<ObserveTailCursor, { readonly kind: K }>;
     }
   | {
-      readonly kind: "repo-log";
-      readonly cursor?: Extract<ObserveTailCursor, { readonly kind: "repo-log" }>;
-    }
-  | {
-      readonly kind: "daemon-log";
-      readonly cursor?: Extract<ObserveTailCursor, { readonly kind: "daemon-log" }>;
+      readonly kind: K;
+      readonly direction: "follow";
+      readonly cursor: Extract<ObserveTailCursor, { readonly kind: K }>;
     };
 
+export type ObserveTailPayload =
+  ObserveTailRequestFor<"events"> | ObserveTailRequestFor<"repo-log"> | ObserveTailRequestFor<"daemon-log">;
+
 type ObserveTailBase = {
-  readonly schema: "daemon.observe-tail/v1";
+  readonly schema: "daemon.observe-tail/v2";
   readonly ok: true;
   readonly repoId: string;
   readonly mode: DaemonRepoMode;
   readonly kind: ObserveTailKind;
+  readonly direction: ObserveTailDirection;
   readonly items: readonly (CanonicalEventV1 | Readonly<Record<string, unknown>>)[];
-  readonly cursor: ObserveTailCursor | null;
+  /** Exclusive upper boundary for the next older history page. */
+  readonly historyCursor: ObserveTailCursor | null;
+  /** Last record included by the initial history page or a forward follow page. */
+  readonly liveCursor: ObserveTailCursor | null;
+  /** Current end of the retained source snapshot; it may be ahead of liveCursor while pending. */
   readonly sourceCursor: ObserveTailCursor | null;
+  /** history: no older retained records; follow: liveCursor has reached sourceCursor. */
   readonly done: boolean;
 };
 
@@ -113,10 +122,13 @@ export type ObserveTailResult =
 
 export function validateObserveTailPayload(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return ["observe tail payload must be an object"];
-  if (Object.keys(value).some((key) => key !== "kind" && key !== "cursor"))
+  if (Object.keys(value).some((key) => key !== "kind" && key !== "direction" && key !== "cursor"))
     return ["observe tail payload contains an unknown field"];
   if (!observeTailKinds.includes(value.kind as ObserveTailKind)) return ["observe tail kind is invalid"];
-  if (value.cursor === undefined) return [];
+  if (!observeTailDirections.includes(value.direction as ObserveTailDirection))
+    return ["observe tail direction is invalid"];
+  if (value.cursor === undefined)
+    return value.direction === "history" ? [] : ["observe tail follow request requires a cursor"];
   return validateObserveTailCursor(value.cursor, value.kind as ObserveTailKind)
     ? []
     : ["observe tail cursor is invalid for the requested kind"];
@@ -125,18 +137,20 @@ export function validateObserveTailPayload(value: unknown): readonly string[] {
 export function validateObserveTailResult(value: unknown): readonly string[] {
   if (
     !isJsonObject(value) ||
-    value.schema !== "daemon.observe-tail/v1" ||
+    value.schema !== "daemon.observe-tail/v2" ||
     value.ok !== true ||
     typeof value.repoId !== "string" ||
     !value.repoId ||
     !["local", "remote-center", "remote-edge"].includes(String(value.mode)) ||
     !observeTailKinds.includes(value.kind as ObserveTailKind) ||
+    !observeTailDirections.includes(value.direction as ObserveTailDirection) ||
     !["ready", "pending", "unavailable", "gap"].includes(String(value.status)) ||
     !Array.isArray(value.items) ||
     value.items.length > 64 ||
     value.items.some((item) => !isJsonObject(item)) ||
     typeof value.done !== "boolean" ||
-    !nullableObserveCursor(value.cursor, value.kind as ObserveTailKind) ||
+    !nullableObserveCursor(value.historyCursor, value.kind as ObserveTailKind) ||
+    !nullableObserveCursor(value.liveCursor, value.kind as ObserveTailKind) ||
     !nullableObserveCursor(value.sourceCursor, value.kind as ObserveTailKind)
   )
     return ["daemon observe tail result is invalid"];
@@ -166,9 +180,11 @@ const observeTailBaseFields = [
   "repoId",
   "mode",
   "kind",
+  "direction",
   "status",
   "items",
-  "cursor",
+  "historyCursor",
+  "liveCursor",
   "sourceCursor",
   "done",
 ] as const;
@@ -181,7 +197,7 @@ function exactObserveResultFields(value: Readonly<Record<string, unknown>>, extr
 function availableObserveTailResult(value: JsonObject): boolean {
   return (
     exactObserveResultFields(value) &&
-    (value.kind !== "events" || (value.cursor !== null && value.sourceCursor !== null))
+    (value.kind !== "events" || (value.liveCursor !== null && value.sourceCursor !== null))
   );
 }
 
@@ -209,7 +225,8 @@ const observeTailStatusValidators: Readonly<Record<string, (value: JsonObject) =
       exactObserveResultFields(value, ["unavailable"]) &&
       Array.isArray(value.items) &&
       value.items.length === 0 &&
-      value.cursor === null &&
+      value.historyCursor === null &&
+      value.liveCursor === null &&
       value.sourceCursor === null &&
       value.done === false
     );
@@ -226,7 +243,8 @@ const observeTailStatusValidators: Readonly<Record<string, (value: JsonObject) =
       exactObserveResultFields(value, ["gap"]) &&
       Array.isArray(value.items) &&
       value.items.length === 0 &&
-      value.cursor === null &&
+      value.historyCursor === null &&
+      value.liveCursor === null &&
       value.sourceCursor === null &&
       value.done === false
     );

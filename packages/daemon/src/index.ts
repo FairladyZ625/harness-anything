@@ -46,6 +46,7 @@ export { createJsonRpcProtocolServer, type JsonRpcProtocolServer } from "./proto
 export { jsonRpcMethodContracts } from "./protocol/daemon-protocol.contract.ts";
 export type {
   ObserveTailCursor,
+  ObserveTailDirection,
   ObserveTailKind,
   ObserveTailPayload,
   ObserveTailResult,

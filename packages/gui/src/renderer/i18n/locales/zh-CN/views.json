@@ -329,12 +329,11 @@
   "views.daemonObserve.filterLabel": "过滤关键字",
   "views.daemonObserve.filterPlaceholder": "过滤…",
   "views.daemonObserve.loading": "正在读取…",
-  "views.daemonObserve.replaying": "回放中…",
+  "views.daemonObserve.following": "实时尾随中…",
   "views.daemonObserve.caughtUp": "已追平",
   "views.daemonObserve.waitingNew": "已追平源,等待新记录…",
   "views.daemonObserve.noMatch": "无匹配行",
   "views.daemonObserve.rowCount": "{shown} / {total} 行",
-  "views.daemonObserve.retainedNote": "为控内存仅保留最近 {max} 行;过滤只作用于已保留行。",
   "views.daemonObserve.unavailableTitle": "此数据面不可用:",
   "views.daemonObserve.unavailableEdge": "远端 edge 镜像不持有 canonical 事件流(事件只在 center 与本地写入),不在本切片拉取 center。",
   "views.daemonObserve.unavailableCenterLog": "远端 center 模式的仓库日志尚未接线(Fleet TLS request-log 未接入);守护进程日志不受影响。",
@@ -342,8 +341,9 @@
   "views.daemonObserve.gapTitle": "日志保留缺口:",
   "views.daemonObserve.gapNotRetained": "游标指向的日志文件已不在保留集(轮转/清理)。",
   "views.daemonObserve.gapOutOfRange": "游标偏移超出当前文件长度(文件被截断/轮转)。",
-  "views.daemonObserve.gapResync": "游标已重置,将从保留集头部重新同步。",
-  "views.daemonObserve.gapMarker": "⚠ 日志保留缺口,已重同步(原游标文件 {fileId} 不再可读)",
+  "views.daemonObserve.gapResync": "游标已重置,将直接重新落到保留集最新记录。",
+  "views.daemonObserve.gapMarker": "⚠ 日志保留缺口(原游标文件 {fileId} 不再可读)",
   "views.daemonObserve.errorTitle": "读取失败:",
-  "views.systemView.openObserve": "打开守护进程观察页(事件流 / 日志流)"
+  "views.systemView.openObserve": "打开守护进程观察页(事件流 / 日志流)",
+  "views.systemView.observeAction": "观察"
 }
