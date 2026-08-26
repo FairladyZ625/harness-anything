@@ -155,8 +155,8 @@ export function makeScheduleScheduler(input: {
       missed: MissedOccurrences[] = [],
       currentOccurrences = new Set<string>();
     for (const [repoId, cell] of input.cells) {
-      const status = cell.status();
-      if (status.mode === "remote-center") continue;
+      const { mode } = cell.status();
+      if (mode === "remote-center") continue;
       const target = targetFor(repoId, cell);
       if (!target) continue;
       let schedules: readonly ScheduleListRow[];
@@ -191,17 +191,17 @@ export function makeScheduleScheduler(input: {
   }
 
   function targetFor(repoId: string, cell: RepoCell): ScheduleTarget | null {
-    const status = cell.status();
-    if (status.mode === "local")
+    const { mode, rootDir } = cell.status();
+    if (mode === "local")
       return {
         repoId,
         execute: (action) =>
           cell.run(action, localRepairBinding) as unknown as Promise<Readonly<Record<string, unknown>>>,
       };
-    if (status.mode !== "remote-edge" || !input.remoteEdgeAction) return null;
+    if (mode !== "remote-edge" || !input.remoteEdgeAction) return null;
     return {
       repoId,
-      execute: (action) => input.remoteEdgeAction!(repoId, status.rootDir, action as JsonObject),
+      execute: (action) => input.remoteEdgeAction!(repoId, rootDir, action as JsonObject),
     };
   }
 
@@ -290,7 +290,7 @@ async function recordMissed(input: MissedOccurrences): Promise<void> {
 async function applyMissed(inputs: readonly MissedOccurrences[]): Promise<boolean> {
   const outcomes = await Promise.allSettled(inputs.map(recordMissed));
   for (const [index, outcome] of outcomes.entries())
-    if (outcome.status === "rejected") {
+    if (isRejected(outcome)) {
       consumeKnownError(outcome.reason);
       const input = inputs[index]!;
       console.warn(
@@ -298,7 +298,7 @@ async function applyMissed(inputs: readonly MissedOccurrences[]): Promise<boolea
           errorMessage(outcome.reason),
       );
     }
-  return outcomes.every(({ status }) => status === "fulfilled");
+  return !outcomes.some(isRejected);
 }
 
 function occurrenceKey(input: DueOccurrence): string {
@@ -307,4 +307,8 @@ function occurrenceKey(input: DueOccurrence): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRejected(outcome: PromiseSettledResult<unknown>): outcome is PromiseRejectedResult {
+  return outcome.status === "rejected";
 }
