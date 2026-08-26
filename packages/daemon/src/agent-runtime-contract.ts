@@ -138,6 +138,8 @@ export interface AgentRuntimeSessionGroupRoundDto {
   readonly agentName: string | null;
   readonly instanceId: string;
   readonly status: AgentRuntimeSessionGroupStatus;
+  readonly classification?: "provider_fault" | "worker_stop" | "gate_red" | null;
+  readonly reason?: string | null;
   readonly startedAt: string;
 }
 export interface AgentRuntimeSessionGroupDto {
@@ -622,18 +624,19 @@ function validSessionGroupIdentity(value: Record<string, unknown>, fields: reado
 function validSessionGroupRound(value: unknown): value is AgentRuntimeSessionGroupRoundDto {
   return (
     isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, [
-      "runtimeSessionId",
-      "dispatchId",
-      "agentName",
-      "instanceId",
-      "status",
-      "startedAt",
-    ]) &&
+    hasAgentRuntimeContractFields(
+      value,
+      ["runtimeSessionId", "dispatchId", "agentName", "instanceId", "status", "startedAt"],
+      ["classification", "reason"],
+    ) &&
     [value.runtimeSessionId, value.instanceId].every(sessionGroupText) &&
     (value.dispatchId === null || sessionGroupText(value.dispatchId)) &&
     (value.agentName === null || sessionGroupText(value.agentName)) &&
     sessionGroupStatuses.includes(value.status as AgentRuntimeSessionGroupStatus) &&
+    (value.classification === undefined ||
+      value.classification === null ||
+      ["provider_fault", "worker_stop", "gate_red"].includes(String(value.classification))) &&
+    (value.reason === undefined || value.reason === null || sessionGroupText(value.reason)) &&
     sessionGroupIso(value.startedAt)
   );
 }

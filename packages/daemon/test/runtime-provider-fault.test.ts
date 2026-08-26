@@ -5,22 +5,20 @@ import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { classifyRuntimeExit, observeProviderFault, providerFaultFromFrame } from "../src/runtime-provider-fault.ts";
 
 test("structured provider errors classify rate limits, server faults, quota, model, and auth failures", () => {
-  assert.equal(
-    providerFaultFromFrame("codex", {
+  const rateLimit = providerFaultFromFrame("codex", {
       type: "turn.failed",
       error: { http_status: 429, code: "rate_limit", message: "request throttled" },
-    })?.code,
-    "rate_limited",
-  );
-  assert.equal(
-    providerFaultFromFrame("claude", {
+    }),
+    serverError = providerFaultFromFrame("claude", {
       type: "result",
       api_error_status: 503,
       error: "upstream unavailable",
       result: "upstream unavailable",
-    })?.code,
-    "server_error",
-  );
+    });
+  assert.equal(rateLimit?.code, "rate_limited");
+  assert.match(rateLimit?.reason ?? "", /HTTP 429.*request throttled/u);
+  assert.equal(serverError?.code, "server_error");
+  assert.match(serverError?.reason ?? "", /HTTP 503.*upstream unavailable/u);
   assert.equal(
     providerFaultFromFrame("agy", {
       event: "result",
@@ -45,13 +43,22 @@ test("structured provider errors classify rate limits, server faults, quota, mod
 });
 
 test("attempt-bound classification falls back only before tools or for recognized provider faults", () => {
-  assert.equal(classifyRuntimeExit(active({ toolCallObserved: false }), 1).classification, "provider_fault");
-  assert.equal(
-    classifyRuntimeExit(active({ toolCallObserved: false, providerOutcome: "failed" }), 0).classification,
-    "provider_fault",
-  );
-  assert.equal(classifyRuntimeExit(active({ toolCallObserved: true }), null).classification, "provider_fault");
-  assert.equal(classifyRuntimeExit(active({ toolCallObserved: true }), 1).classification, "gate_red");
+  assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: false }), 1)), {
+    outcome: "failed",
+    classification: "provider_fault",
+  });
+  assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: false, providerOutcome: "failed" }), 0)), {
+    outcome: "failed",
+    classification: "provider_fault",
+  });
+  assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: true }), null)), {
+    outcome: "unknown",
+    classification: "provider_fault",
+  });
+  assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: true }), 1)), {
+    outcome: "failed",
+    classification: "gate_red",
+  });
   assert.equal(
     classifyRuntimeExit(
       active({
@@ -59,8 +66,8 @@ test("attempt-bound classification falls back only before tools or for recognize
         providerFault: { code: "rate_limited", reason: "structured 429" },
       }),
       1,
-    ).classification,
-    "provider_fault",
+    ).outcome,
+    "failed",
   );
   assert.equal(
     classifyRuntimeExit(
@@ -72,10 +79,16 @@ test("attempt-bound classification falls back only before tools or for recognize
     ).classification,
     "worker_stop",
   );
-  assert.equal(classifyRuntimeExit(active({ providerOutcome: "succeeded" }), 0).classification, "worker_stop");
-  assert.equal(
-    classifyRuntimeExit(active({ cancelRequested: true, toolCallObserved: false }), 1).classification,
-    "worker_stop",
+  const succeeded = classifyRuntimeExit(active({ providerOutcome: "succeeded" }), 0);
+  assert.deepEqual(pick(succeeded), { outcome: "succeeded", classification: "worker_stop" });
+  assert.match(succeeded.reason, /successfully/u);
+  assert.deepEqual(pick(classifyRuntimeExit(active({ cancelRequested: true, toolCallObserved: false }), 1)), {
+    outcome: "cancelled",
+    classification: "worker_stop",
+  });
+  assert.deepEqual(
+    pick(classifyRuntimeExit(active({ lossReason: "runtime process disappeared", toolCallObserved: true }), null)),
+    { outcome: "unknown", classification: "worker_stop" },
   );
   const recovered = active({ providerFault: { code: "rate_limited", reason: "transient 429" } });
   observeProviderFault(recovered, { toolCallObserved: true });
@@ -97,6 +110,16 @@ function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     toolCallObserved: false,
     providerOutcome: null,
     failureText: null,
+    permissionMode: "read-only",
+    protocolError: false,
+    planIncomplete: false,
+    planObserved: false,
+    writeItemObserved: false,
+    lossReason: null,
     ...overrides,
   } as ActiveRuntime;
+}
+
+function pick(value: ReturnType<typeof classifyRuntimeExit>) {
+  return { outcome: value.outcome, classification: value.classification };
 }

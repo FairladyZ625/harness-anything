@@ -30,8 +30,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
         (code === 0 && (active.finalText === null || active.providerOutcome === null)))
     )
       context.markProtocolError(active);
-    const outcome = deriveRuntimeSpawnOutcome(active, code),
-      classifiedAttempt = classifyRuntimeExit(active, code),
+    const { outcome, ...classifiedAttempt } = classifyRuntimeExit(active, code),
       attemptOutcome = {
         ...classifiedAttempt,
         reason: String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
@@ -186,32 +185,6 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
   } finally {
     context.exiting.delete(active.runtimeSessionId);
   }
-}
-
-export function deriveRuntimeSpawnOutcome(
-  active: Pick<
-    ActiveRuntime,
-    | "cancelRequested"
-    | "kindId"
-    | "permissionMode"
-    | "planIncomplete"
-    | "planObserved"
-    | "protocolError"
-    | "providerOutcome"
-    | "writeItemObserved"
-  >,
-  code: number | null,
-): "succeeded" | "failed" | "unknown" | "cancelled" {
-  if (active.cancelRequested) return "cancelled";
-  if (code === null || active.protocolError) return "unknown";
-  if (code !== 0) return "failed";
-  const writeEvidenceRequired = active.kindId !== "agy" && active.permissionMode !== "read-only";
-  if (
-    active.providerOutcome === "succeeded" &&
-    (active.planIncomplete || (writeEvidenceRequired && !active.writeItemObserved && !active.planObserved))
-  )
-    return "unknown";
-  return active.providerOutcome ?? "unknown";
 }
 
 export function runtimeResultText(
