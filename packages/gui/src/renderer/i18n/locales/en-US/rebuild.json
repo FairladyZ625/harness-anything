@@ -9,6 +9,7 @@
   "shell.nav.presets": "Preset / Vertical",
   "shell.nav.adapters": "Engine Adapters",
   "shell.nav.system": "System",
+  "shell.nav.daemonObserve": "Daemon Observe",
   "shell.nav.settings": "Settings",
   "shell.nav.workspace": "Workspace",
   "shell.nav.decisionGroup": "Decisions",

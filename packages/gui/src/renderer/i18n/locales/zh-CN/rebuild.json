@@ -9,6 +9,7 @@
   "shell.nav.presets": "预设 / 垂直领域",
   "shell.nav.adapters": "引擎适配器",
   "shell.nav.system": "系统",
+  "shell.nav.daemonObserve": "守护进程观察",
   "shell.nav.settings": "设置",
   "shell.nav.workspace": "工作区",
   "shell.nav.decisionGroup": "决策",

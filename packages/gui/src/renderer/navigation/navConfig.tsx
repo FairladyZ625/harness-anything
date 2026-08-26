@@ -1,5 +1,16 @@
-import { Kanban, SquaresFour, Graph, Scales, Stack, PlugsConnected, GearSix, GitBranch, Users, Waveform,
-  HourglassMedium } from "@phosphor-icons/react";
+import {
+  Kanban,
+  SquaresFour,
+  Graph,
+  Scales,
+  Stack,
+  PlugsConnected,
+  GearSix,
+  GitBranch,
+  Users,
+  Waveform,
+  HourglassMedium,
+} from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
 
@@ -26,6 +37,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   agentSquad: "shell.nav.agentSquad",
   providers: "shell.nav.providers",
   system: "shell.nav.system",
+  daemonObserve: "shell.nav.daemonObserve",
   settings: "shell.nav.settings",
 };
 

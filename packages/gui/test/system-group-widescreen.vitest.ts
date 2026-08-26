@@ -137,7 +137,7 @@ async function mountedContainerClasses(testId: (typeof FILL_TESTIDS)[number]): P
       : testId === "adapters-content"
         ? createElement(AdaptersView, { repoId: REPO_ID, tasks: [] })
         : testId === "system-content"
-          ? createElement(SystemView, { activeRepoId: REPO_ID })
+          ? createElement(SystemView, { activeRepoId: REPO_ID, onOpenObserve: () => undefined })
           : createElement(SettingsView, {}),
   );
   const el = container.querySelector(`[data-testid="${testId}"]`);
@@ -165,7 +165,9 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
   });
 
   it("system 仓库表截断列宽保留(有意列宽),表体仍随外层铺满", async () => {
-    const container = await mountView(createElement(SystemView, { activeRepoId: REPO_ID }));
+    const container = await mountView(
+      createElement(SystemView, { activeRepoId: REPO_ID, onOpenObserve: () => undefined }),
+    );
     const cappedCells = container.querySelectorAll("td.max-w-\\[16rem\\]");
     expect(cappedCells.length).toBeGreaterThan(0);
     const table = container.querySelector("table");

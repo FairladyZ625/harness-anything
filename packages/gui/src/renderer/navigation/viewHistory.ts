@@ -31,6 +31,7 @@ export type ViewId =
   | "agentSquad"
   | "providers"
   | "system"
+  | "daemonObserve"
   | "settings";
 
 export interface DrillState {
@@ -92,20 +93,14 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
 }
 
 /** 推一个新位置(截断 forward;与当前位置相同则 no-op)。 */
-export function pushLocation(
-  state: ViewHistoryState,
-  next: AppLocation,
-): ViewHistoryState {
+export function pushLocation(state: ViewHistoryState, next: AppLocation): ViewHistoryState {
   if (locationsEqual(currentLocation(state), next)) return state;
   const nextIndex = state.index + 1;
   return { entries: [...state.entries.slice(0, nextIndex), next], index: nextIndex };
 }
 
 /** 原地更新当前位置(不推栈)。用于过滤器微调等非导航性变更。 */
-export function patchCurrent(
-  state: ViewHistoryState,
-  fields: Partial<AppLocation>,
-): ViewHistoryState {
+export function patchCurrent(state: ViewHistoryState, fields: Partial<AppLocation>): ViewHistoryState {
   const next = { ...currentLocation(state), ...fields };
   if (locationsEqual(currentLocation(state), next)) return state;
   const entries = state.entries.slice();
