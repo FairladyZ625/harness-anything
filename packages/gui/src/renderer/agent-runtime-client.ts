@@ -1,6 +1,7 @@
 import type {
   AgentRuntimeEventsResult,
   AgentRuntimeOverviewResult,
+  AgentRuntimeSessionGroupsResult,
   AgentRuntimeSessionResult,
 } from "../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentRuntimeAttachEvent, AgentRuntimeAttachResult } from "../../../daemon/src/agent-runtime-stream.ts";
@@ -13,6 +14,9 @@ import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 type RuntimeBridge = {
   readonly getAgentRuntimeOverview: (
     payload: DaemonGuiReadPayloadMap["repo.agentRuntime.overview"],
+  ) => Promise<unknown>;
+  readonly getAgentRuntimeSessionGroups: (
+    payload: DaemonGuiReadPayloadMap["repo.agentRuntime.sessionGroups"],
   ) => Promise<unknown>;
   readonly getAgentRuntimeSession: (
     payload: DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"],
@@ -30,12 +34,20 @@ const bridge = (): RuntimeBridge => {
   const value = window.harness as unknown as Partial<RuntimeBridge> | undefined;
   if (
     !value?.getAgentRuntimeOverview ||
+    !value.getAgentRuntimeSessionGroups ||
     !value.getAgentRuntimeSession ||
     !value.getAgentRuntimeEvents ||
     !value.attachAgentRuntime
   )
     throw new Error("Agent runtime contract bridge is unavailable.");
   return value as RuntimeBridge;
+};
+/** The sessions page list read: grouping, range and text query all happen daemon-side. */
+export type SessionGroupsQuery = {
+  readonly groupBy?: "task" | "squad" | "agent" | "day";
+  readonly since?: string;
+  readonly query?: string;
+  readonly limit?: number;
 };
 export const agentRuntimeClient = {
   overview: async (
@@ -51,6 +63,13 @@ export const agentRuntimeClient = {
       } as DaemonGuiReadPayloadMap["repo.agentRuntime.overview"] & RepoScope),
       "installations",
     ) as AgentRuntimeOverviewResult,
+  sessionGroups: async (repoId: string, query: SessionGroupsQuery = {}): Promise<AgentRuntimeSessionGroupsResult> =>
+    checkedSessionGroups(
+      await bridge().getAgentRuntimeSessionGroups({
+        repoId,
+        ...query,
+      } as DaemonGuiReadPayloadMap["repo.agentRuntime.sessionGroups"] & RepoScope),
+    ) as AgentRuntimeSessionGroupsResult,
   session: async (repoId: string, runtimeSessionId: string): Promise<AgentRuntimeSessionResult> =>
     checked(
       await bridge().getAgentRuntimeSession({
@@ -97,5 +116,16 @@ export function openAgentRuntimePane(
 function checked(value: unknown, field: string): Record<string, unknown> {
   if (!isRendererRecord(value) || value.ok !== true || !Object.hasOwn(value, field))
     throw new Error(rendererErrorHint(value, "Agent runtime bridge returned an invalid result."));
+  return value;
+}
+function checkedSessionGroups(value: unknown): Record<string, unknown> {
+  if (
+    !isRendererRecord(value) ||
+    value.ok !== true ||
+    !Array.isArray(value.groups) ||
+    !isRendererRecord(value.totals) ||
+    typeof value.truncated !== "boolean"
+  )
+    throw new Error(rendererErrorHint(value, "Agent runtime session groups bridge returned an invalid result."));
   return value;
 }

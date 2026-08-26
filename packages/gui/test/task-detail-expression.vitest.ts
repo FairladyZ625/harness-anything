@@ -435,6 +435,15 @@ function installBridge() {
       ],
       warnings: [],
     })),
+    getAgentRuntimeSessionGroups: vi.fn(async () => ({
+      ok: true,
+      status: "ready",
+      groups: [],
+      totals: { groups: 0, sessions: 0 },
+      truncated: false,
+      watermark: 7,
+      sourceRevision: 7,
+    })),
     getAgentRuntimeOverview: vi.fn(async () => ({
       ok: true,
       status: "ready",

@@ -555,7 +555,7 @@ function AppShell() {
             ) : view === "sessions" ? (
               <SessionsView
                 repoId={projectId}
-                tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))}
+                relations={relations}
                 focusedEntityRef={focusedEntityRef}
                 onSelectEntity={selectRuntimeEntity}
                 // W5:「编排」段随入口撤销;session → task 的出口改指 Task 详情(派工链所在)。

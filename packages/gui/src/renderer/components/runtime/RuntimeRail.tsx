@@ -1,12 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
-import {
-  runtimeDockGroups,
-  runtimeDockStatusDot,
-  runtimeDockStatusKey,
-  type RuntimeDockRow,
-} from "../../runtime-panorama.ts";
 import { t } from "../../i18n/index.tsx";
 import {
   runtimeAuthPresentation,
@@ -16,23 +10,12 @@ import {
 import { Avatar, CapDot, KindDot, LiveDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
-const OUTCOME_TONE: Record<RuntimeDockRow["status"], string> = {
-  succeeded: "text-status-done",
-  failed: "text-status-blocked",
-  cancelled: "text-status-cancelled",
-  running: "text-status-active",
-  unknown: "text-status-unknown",
-  lost: "text-status-unknown",
-  "ended-indeterminate": "text-status-unknown",
-  unavailable: "text-text-faint",
-};
-const ROW_BATCH_SIZE = 12;
-
-// W6 IA 拆分:原四段聚合 rail 随「Agent 运行时」入口撤销,拆成三条页级 rail——
-// ProviderRail(承运者)/ IdentityRail(身份 + 组织,Squad 是 Agent 页内的面)/
-// SessionRail(执行)。行渲染与 testid(rail-runtime-*/rail-agent-*/rail-squad-*/
-// rail-session-*/runtime-new-*)原样保留,只是各回各页;跨页不再共享选中态,
-// 互跳走可寻址路由。
+// W6 IA 拆分:原四段聚合 rail 随「Agent 运行时」入口撤销,拆成页级 rail——
+// ProviderRail(承运者)/ IdentityRail(身份 + 组织,Squad 是 Agent 页内的面)。
+// 会话页的 SessionRail 已随会话页重构撤销:会话列表改为 daemon 分组读面
+// (sessionGroups),组件在 components/sessions/ 下。行渲染与 testid
+// (rail-runtime-*/rail-agent-*/rail-squad-*/runtime-new-*)原样保留;跨页不再
+// 共享选中态,互跳走可寻址路由。
 export function ProviderRail({
   instances,
   authProbeStates,
@@ -179,130 +162,6 @@ export function IdentityRail({
         <p className="mt-1">{t("agentRuntime.thesisBody")}</p>
       </details>
     </nav>
-  );
-}
-
-// Sessions answer "who is running": grouped by Agent or Squad, never by runtime instance —
-// the carrier is only where a session happens to run. A runtime session the dispatch ledger
-// does not know about still belongs here, under its unattributed group. W5:「编排」段撤销
-// ——task 派工链归 Task 详情「派工」页签,运行侧只保留 session 行与其绑定的 task 标题。
-export function SessionRail({
-  sessions,
-  remainingCount = 0,
-  loadingMore = false,
-  selectedId,
-  onSelect,
-  onLoadMore,
-}: {
-  readonly sessions: readonly RuntimeDockRow[];
-  readonly remainingCount?: number;
-  readonly loadingMore?: boolean;
-  readonly selectedId: string | null;
-  readonly onSelect: (runtimeSessionId: string) => void;
-  readonly onLoadMore?: () => Promise<unknown>;
-}) {
-  const [open, setOpen] = useState(true),
-    [visibleCount, setVisibleCount] = useState(ROW_BATCH_SIZE);
-  const loadedHidden = Math.max(0, sessions.length - visibleCount),
-    remaining = loadedHidden + remainingCount;
-  return (
-    <nav
-      data-testid="runtime-rail"
-      aria-label={t("agentRuntime.railLabel")}
-      className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
-    >
-      <Segment
-        segment="sessions"
-        title={t("agentRuntime.segSessions")}
-        sub={t("agentRuntime.segSessionsSub")}
-        count={sessions.length + remainingCount}
-        open={open}
-        onToggle={() => setOpen(!open)}
-      >
-        <SessionGroupRows sessions={sessions.slice(0, visibleCount)} selectedId={selectedId} onSelect={onSelect} />
-        {remaining > 0 && (
-          <button
-            type="button"
-            data-testid="runtime-sessions-more"
-            disabled={loadingMore}
-            onClick={() => {
-              const reveal = () => setVisibleCount((count) => count + ROW_BATCH_SIZE);
-              if (loadedHidden > 0 || onLoadMore === undefined) reveal();
-              else void onLoadMore().then(reveal);
-            }}
-            className="mt-1 w-full rounded border border-dashed border-border px-1.5 py-1 text-center font-mono
-          text-[10px] text-text-muted hover:border-border-strong hover:text-text disabled:opacity-60"
-          >
-            {t("agentRuntime.showMoreSessions", { count: Math.min(ROW_BATCH_SIZE, remaining), remaining })}
-          </button>
-        )}
-      </Segment>
-    </nav>
-  );
-}
-
-function SessionGroupRows({
-  sessions,
-  selectedId,
-  onSelect,
-}: {
-  readonly sessions: readonly RuntimeDockRow[];
-  readonly selectedId: string | null;
-  readonly onSelect: (runtimeSessionId: string) => void;
-}) {
-  const [collapsed, setCollapsed] = useState<Readonly<Record<string, boolean>>>({});
-  return (
-    <>
-      {runtimeDockGroups(sessions).map((group) => (
-        <div key={group.key}>
-          <button
-            type="button"
-            aria-expanded={!collapsed[group.key]}
-            onClick={() => setCollapsed((current) => ({ ...current, [group.key]: !current[group.key] }))}
-            className="flex w-full items-center gap-1.5 px-1.5 pt-1 pb-0.5 text-left text-[10.5px] text-text-muted"
-          >
-            <span
-              aria-hidden
-              className={`text-[7px] text-text-faint transition-transform ${collapsed[group.key] ? "" : "rotate-90"}`}
-            >
-              ▶
-            </span>
-            {group.kind === "squad" ? (
-              <KindDot kind="any" />
-            ) : group.kind === "agent" ? (
-              <Avatar id={group.label || group.key} />
-            ) : (
-              <KindDot kind="claude" />
-            )}
-            <b className="font-semibold">{group.label || t("agentRuntime.unattributed")}</b>
-            <span className="text-text-faint">{group.kind}</span>
-            <span className="ml-auto font-mono text-[10px] text-text-faint">{group.rows.length}</span>
-          </button>
-          {!collapsed[group.key] &&
-            group.rows.map((row) => (
-              <Row
-                key={row.runtimeSessionId}
-                tip={row.runtimeSessionId}
-                testId={`rail-session-${row.runtimeSessionId}`}
-                selected={selectedId === row.runtimeSessionId}
-                onSelect={() => onSelect(row.runtimeSessionId)}
-              >
-                <LiveDot state={runtimeDockStatusDot[row.status]} tip={t(runtimeDockStatusKey[row.status] as never)} />
-                <span className="min-w-0 flex-1 truncate text-[11.5px]">{row.agentName ?? row.instanceId}</span>
-                <span className="min-w-0 max-w-[76px] shrink truncate font-mono text-[9.5px] text-text-muted">
-                  {row.taskTitle ?? t("agentRuntime.noTask")}
-                </span>
-                <span
-                  data-testid={`runtime-outcome-${row.runtimeSessionId}`}
-                  className={`shrink-0 font-mono text-[9.5px] ${OUTCOME_TONE[row.status]}`}
-                >
-                  {t(runtimeDockStatusKey[row.status] as never)}
-                </span>
-              </Row>
-            ))}
-        </div>
-      ))}
-    </>
   );
 }
 

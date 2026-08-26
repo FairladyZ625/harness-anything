@@ -27,6 +27,8 @@ import { CommandPalette, buildPaletteIndex } from "../src/renderer/components/Co
 import { FactInspector } from "../src/renderer/components/FactInspector.tsx";
 import { EntityRefLink } from "../src/renderer/components/EntityRefLink.tsx";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
+import { harnessClient } from "../src/renderer/api-client.ts";
+import { squadRunsClient } from "../src/renderer/squad-run-client.ts";
 import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
@@ -56,6 +58,7 @@ import {
   FIXTURE_AGENT_DETAIL,
   FIXTURE_SQUAD_DETAIL,
   FIXTURE_DOCK_ROW,
+  FIXTURE_SESSION_GROUPS,
   ENTITY_ID_NEEDLES,
 } from "./entityIdGateFixtures.ts";
 import { scanDeadEntityIds } from "./entityIdScan.ts";
@@ -116,7 +119,6 @@ function seedRuntimeQueries(client: QueryClient): void {
   client.setQueryData(["runtime-control", REPO_ID, "overview"], FIXTURE_RUNTIME_OVERVIEW);
   client.setQueryData(["agents", REPO_ID], [FIXTURE_AGENT_ROW]);
   client.setQueryData(["squads", REPO_ID], [FIXTURE_SQUAD_ROW]);
-  client.setQueryData(["runtime-panorama", REPO_ID, TASK_A_ID], [FIXTURE_DOCK_ROW]);
   client.setQueryData(["catalog", REPO_ID, "snapshot"], {
     status: "ready",
     catalogDigest: "digest-g10digest-g10digest-g10",
@@ -225,6 +227,38 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
     sourceCursor: "lifecycle:1",
     done: true,
   } as never);
+  vi.spyOn(agentRuntimeClient, "sessionGroups").mockImplementation(async (_repoId, query = {}) =>
+    query.groupBy === "task" || (query.query !== undefined && query.query !== "")
+      ? FIXTURE_SESSION_GROUPS
+      : { ...FIXTURE_SESSION_GROUPS, groups: [] },
+  );
+  vi.spyOn(agentRuntimeClient, "overview").mockImplementation(async (_repoId, taskId?: string) =>
+    taskId === TASK_A_ID ? FIXTURE_RUNTIME_OVERVIEW : { ...FIXTURE_RUNTIME_OVERVIEW, sessions: [] },
+  );
+  vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(
+    async (payload) =>
+      ({
+        ok: true,
+        status: "ready",
+        taskId: (payload as { readonly taskId: string }).taskId,
+        dispatches:
+          (payload as { readonly taskId: string }).taskId === TASK_A_ID
+            ? [{ ...FIXTURE_DOCK_ROW, dispatchId: "dispatch-g10round", startedAt: AT }]
+            : [],
+        watermark: 1,
+        sourceRevision: 1,
+      }) as never,
+  );
+  vi.spyOn(squadRunsClient, "list").mockResolvedValue({
+    ok: true,
+    status: "ready",
+    runs: [],
+    totals: { runs: 0 },
+    truncated: false,
+    page: { limit: 200, cursor: null, nextCursor: null, remainingCount: 0 },
+    watermark: 1,
+    sourceRevision: 1,
+  });
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -370,7 +404,7 @@ const VIEW_RENDERERS = {
   sessions: () =>
     createElement(SessionsView, {
       repoId: REPO_ID,
-      tasks: runtimeTasks,
+      relations: FIXTURE_RELATIONS,
       focusedEntityRef: `session/${SESSION_ID}`,
       onSelectEntity: noop,
       onOpenTask: noop,
