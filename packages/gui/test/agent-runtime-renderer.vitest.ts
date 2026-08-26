@@ -755,12 +755,10 @@ describe("agent runtime renderer", () => {
       taskId: "task-x",
       mission: "m",
       phase: "converged",
-      revision: 1,
       leaderTurnCount: 1,
       workerAttemptCount: 1,
       runningCount: 0,
       latestActivityAt: "2026-08-26T00:00:00.000Z",
-      currentLeaderRuntimeSessionId: null,
     } as const;
     const listSquadRuns = vi.fn(async () => ({
         ok: true,
@@ -768,7 +766,6 @@ describe("agent runtime renderer", () => {
         runs: [run],
         totals: { runs: 1 },
         truncated: false,
-        page: { limit: 200, cursor: null, nextCursor: null, remainingCount: 0 },
         watermark: 1,
         sourceRevision: 1,
       })),
@@ -776,12 +773,8 @@ describe("agent runtime renderer", () => {
         ok: true,
         status: "ready",
         run: {
-          ...run,
-          leaderRuntimeSessionIds: [],
           leaders: [],
           workers: [],
-          workerCallbackCount: 0,
-          pendingLeaderCallbackCount: 0,
           error: null,
         },
         watermark: 1,
@@ -795,9 +788,7 @@ describe("agent runtime renderer", () => {
       since: "2026-08-26T00:00:00.000Z",
       query: "ontology",
     });
-    await expect(squadRunsClient.read("repo-a", run.squadRunId)).resolves.toMatchObject({
-      run: { squadRunId: run.squadRunId },
-    });
+    await expect(squadRunsClient.read("repo-a", run.squadRunId)).resolves.toMatchObject({ run: { leaders: [] } });
     expect(readSquadRun).toHaveBeenCalledWith({ repoId: "repo-a", squadRunId: run.squadRunId });
     vi.stubGlobal("window", {
       harness: { listSquadRuns: vi.fn(async () => ({ ok: true, runs: "no" })), readSquadRun: vi.fn() },

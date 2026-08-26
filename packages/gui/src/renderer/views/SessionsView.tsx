@@ -25,8 +25,8 @@ import {
  * 会话页(设计稿 §2–§5):顶层两大段——单会话(默认,按 Task 分组)与小队编排
  * (一次 `ha squad run` 一个编排单元)。分组、范围与检索都在 daemon 侧完成
  * (sessionGroups / squad.runs.*),前端一次 RPC 拿组,不再翻 overview 分页、不再
- * 前端 join 派工台账。选择可寻址:session/<id>、tasksessions/<taskId>、
- * squadRun/<id>(entityRoutes),导航回撤原路返回。
+ * 前端 join 派工台账。选择可寻址:session/<id>、tasksessions/<taskId>,导航回撤
+ * 原路返回。
  */
 type Segment = "sessions" | "squads";
 type Range = "24h" | "7d" | "30d" | "all";
@@ -54,6 +54,15 @@ export function SessionsView({
   const [inspector, setInspector] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
   const [expandedRuns, setExpandedRuns] = useState<ReadonlySet<string>>(new Set());
+  const [sessionTaskScope, setSessionTaskScope] = useState<{
+    readonly runtimeSessionId: string;
+    readonly taskId: string;
+  } | null>(null);
+  const refSelection = runtimeSelectionFromRef(focusedEntityRef);
+  const focusedSessionId = refSelection?.type === "session" ? refSelection.id : null;
+  const taskRouteId = focusedEntityRef?.startsWith("tasksessions/")
+    ? focusedEntityRef.slice("tasksessions/".length) || null
+    : null;
 
   // 检索 150ms debounce(设计稿 §4):即时过滤,但 RPC 频率有界。
   useEffect(() => {
@@ -61,30 +70,40 @@ export function SessionsView({
     return () => window.clearTimeout(timer);
   }, [search]);
 
-  // 深链落点:squadRun/<id> 切小队段并展开该单元;tasksessions/<taskId> 切单会话段、
-  // Task 分组并展开该任务组;session/<id> 切单会话段。组键在 Task 分组下就是 taskId。
+  // 深链落点:tasksessions/<taskId> 切单会话段、Task 分组并把读范围收窄到该
+  // task;session/<id> 切单会话段,精确 read 返回后再展开其 task binding。
   useEffect(() => {
-    if (focusedEntityRef === null) return;
-    if (focusedEntityRef.startsWith("squadRun/")) {
-      const squadRunId = focusedEntityRef.slice("squadRun/".length);
-      setSegment("squads");
-      setExpandedRuns((current) => new Set([...current, squadRunId]));
+    if (focusedEntityRef === null) {
+      setSessionTaskScope(null);
       return;
     }
     setSegment("sessions");
     if (focusedEntityRef.startsWith("tasksessions/")) {
       const taskId = focusedEntityRef.slice("tasksessions/".length);
       setGroupBy("task");
+      setRange("all");
+      setSessionTaskScope(null);
       setExpandedGroups((current) => new Set([...current, taskId]));
+      return;
     }
-  }, [focusedEntityRef]);
+    setSessionTaskScope((current) =>
+      focusedSessionId !== null && current?.runtimeSessionId === focusedSessionId ? current : null,
+    );
+  }, [focusedEntityRef, focusedSessionId]);
 
   const since = useMemo(() => {
     const span = RANGE_SPAN[range];
     return new Date(span === 0 ? 0 : Date.now() - span * 1000).toISOString();
   }, [range]);
 
-  const workspace = useSessionsWorkspace(repoId, { groupBy, since, query: debouncedSearch });
+  const scopedTaskId =
+    taskRouteId ?? (sessionTaskScope?.runtimeSessionId === focusedSessionId ? sessionTaskScope.taskId : undefined);
+  const workspace = useSessionsWorkspace(repoId, {
+    groupBy,
+    since,
+    query: debouncedSearch,
+    ...(scopedTaskId === undefined ? {} : { taskId: scopedTaskId }),
+  });
   const groups = workspace.groups.data?.groups ?? [],
     totals = workspace.groups.data?.totals ?? { groups: 0, sessions: 0 },
     truncated = workspace.groups.data?.truncated ?? false;
@@ -159,22 +178,43 @@ export function SessionsView({
     return rows;
   }, [expandedTasks, roundsQueries, taskSessionQueries]);
 
-  // 派生选择:深链 session/<id> 存在于已展开行集才落到行,否则组头预览兜底——
-  // 不写回导航栈。无深链时回落最新一组的首轮(daemon 已把 running 组排前)。
-  const refSelection = runtimeSelectionFromRef(focusedEntityRef);
+  // 深链 session/<id> 始终先成为精确选择;存在性与 task binding 由同一个
+  // repo.agentRuntime.sessions.read 判定,绝不因组尚未展开而改选首组 latestRound。
   const allRows = useMemo(
     () => [...groupRows.values()].flatMap(({ rounds, orphans }) => [...rounds, ...orphans]),
     [groupRows],
   );
-  const focusedSessionId = refSelection?.type === "session" ? refSelection.id : null;
-  const selectedSessionId =
-    (focusedSessionId !== null && allRows.some((row) => row.runtimeSessionId === focusedSessionId)
-      ? focusedSessionId
-      : null) ??
-    groups[0]?.latestRound?.runtimeSessionId ??
-    null;
+  const defaultSessionId =
+      groups.find(({ latestRound }) => latestRound !== null)?.latestRound?.runtimeSessionId ?? null,
+    selectedSessionId = focusedSessionId ?? defaultSessionId;
+  const selectedSession = useQuery({
+    queryKey: ["sessions-page", repoId, "session", selectedSessionId],
+    queryFn: () => agentRuntimeClient.session(repoId, selectedSessionId!),
+    enabled: selectedSessionId !== null,
+    staleTime: 4_000,
+  });
+  useEffect(() => {
+    const session = selectedSession.data?.session;
+    if (focusedSessionId === null || session?.runtimeSessionId !== focusedSessionId) return;
+    const taskIds = [...new Set(session.associations.map(({ taskId }) => taskId))];
+    if (taskIds.length === 0) return;
+    setGroupBy("task");
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      taskIds.forEach((taskId) => next.add(taskId));
+      return next.size === current.size ? current : next;
+    });
+    if (groups.some((group) => group.taskId !== undefined && taskIds.includes(group.taskId))) return;
+    setRange("all");
+    setSessionTaskScope((current) =>
+      current?.runtimeSessionId === focusedSessionId && current.taskId === taskIds[0]
+        ? current
+        : { runtimeSessionId: focusedSessionId, taskId: taskIds[0]! },
+    );
+  }, [focusedSessionId, groups, selectedSession.data]);
   const selectedRow =
     selectedSessionId === null ? null : (allRows.find((row) => row.runtimeSessionId === selectedSessionId) ?? null);
+  const selectedTaskId = selectedRow?.taskId ?? selectedSession.data?.session.associations[0]?.taskId ?? null;
   const siblings =
     selectedRow === null
       ? []
@@ -197,6 +237,8 @@ export function SessionsView({
     "30d": "30d",
     all: t("agentRuntime.sessionsRangeAll"),
   };
+  const visibleRead = segment === "sessions" ? workspace.groups : workspace.squadRuns;
+  const visibleReadError = visibleRead.error instanceof Error ? visibleRead.error.message : String(visibleRead.error);
   return (
     <section data-testid="sessions-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
@@ -273,7 +315,7 @@ export function SessionsView({
             : t("agentRuntime.squadRunsCounts", { range: rangeLabel[range], runs: runTotals.runs })}
         </span>
       </div>
-      {workspace.groups.isError && (
+      {visibleRead.isError && (
         <p
           role="alert"
           data-testid="runtime-read-error"
@@ -281,8 +323,7 @@ export function SessionsView({
         text-status-blocked"
         >
           {t("agentRuntime.readFailed", {
-            error:
-              workspace.groups.error instanceof Error ? workspace.groups.error.message : String(workspace.groups.error),
+            error: visibleReadError,
           })}
         </p>
       )}
@@ -326,9 +367,17 @@ export function SessionsView({
               <SessionsPanel
                 repoId={repoId}
                 runtimeSessionId={selectedSessionId}
+                snapshot={selectedSession.data ?? null}
+                snapshotError={
+                  selectedSession.isError
+                    ? selectedSession.error instanceof Error
+                      ? selectedSession.error.message
+                      : String(selectedSession.error)
+                    : null
+                }
                 row={selectedRow}
                 squadNames={squadNames}
-                decisionRefs={selectedRow === null ? [] : sessionDecisionRefs(relations, selectedRow.taskId)}
+                decisionRefs={selectedTaskId === null ? [] : sessionDecisionRefs(relations, selectedTaskId)}
                 busy={workspace.busy}
                 onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)}
                 onOpenTask={onOpenTask}

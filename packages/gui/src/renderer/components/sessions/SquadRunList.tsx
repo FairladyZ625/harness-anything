@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { SquadRunDetailDto, SquadRunSummaryDto } from "../../../../../daemon/src/squad-run-contract.ts";
+import type { SquadRunSummaryDto } from "../../../../../daemon/src/squad-run-contract.ts";
 import {
   relativeTime,
   sessionStatusDot,
@@ -180,11 +180,11 @@ function RunSection({
               id={leader.turnId}
               runtimeSessionId={leader.runtimeSessionId}
               dispatchId={leader.dispatchId}
-              agentName={memberText(leader, "agentName")}
-              instanceId={memberText(leader, "instanceId")}
-              status={memberStatus(leader)}
+              agentName={leader.agentName}
+              instanceId={leader.instanceId}
+              status={leader.status}
               rejection={null}
-              startedAt={memberText(leader, "startedAt")}
+              startedAt={leader.startedAt}
               onSelectSession={onSelectSession}
             />
           ))}
@@ -195,11 +195,11 @@ function RunSection({
               id={worker.attemptId}
               runtimeSessionId={worker.runtimeSessionId}
               dispatchId={worker.dispatchId}
-              agentName={memberText(worker, "agentName")}
-              instanceId={memberText(worker, "instanceId")}
-              status={memberText(worker, "rejection") === null ? memberStatus(worker) : "rejected"}
-              rejection={memberText(worker, "rejection")}
-              startedAt={memberText(worker, "startedAt")}
+              agentName={worker.agentName}
+              instanceId={worker.instanceId}
+              status={worker.rejection === null ? worker.status : "rejected"}
+              rejection={worker.rejection}
+              startedAt={worker.startedAt}
               onSelectSession={onSelectSession}
             />
           ))}
@@ -281,14 +281,3 @@ function MemberRow({
     </div>
   );
 }
-
-/** detail DTO 的成员行是 JsonObject(dispatch 行展开字段),读取时做窄化而不是断言。 */
-function memberText(member: Record<string, unknown>, field: string): string | null {
-  const value = member[field];
-  return typeof value === "string" && value !== "" ? value : null;
-}
-function memberStatus(member: Record<string, unknown>): string {
-  const value = member.status;
-  return typeof value === "string" ? value : "unknown";
-}
-export type { SquadRunDetailDto };

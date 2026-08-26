@@ -255,7 +255,6 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
     runs: [],
     totals: { runs: 0 },
     truncated: false,
-    page: { limit: 200, cursor: null, nextCursor: null, remainingCount: 0 },
     watermark: 1,
     sourceRevision: 1,
   });

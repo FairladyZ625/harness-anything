@@ -166,14 +166,14 @@ export function makeSquadCoordinator(input: {
       );
     const state = readSquadRunState(squadRunId);
     if (!state) return rejection("squad-status", "squad_run_not_found", `Squad run ${squadRunId} does not exist.`);
-    const { phase, ...detail } = detailDto(state);
+    const detail = statusDto(state);
     return {
       schema: "command-receipt/v2",
       ok: true,
       command: "squad-status",
       outcome: "applied",
       ...detail,
-      status: phase,
+      status: state.phase,
       summary: `squad-run ${state.squadId}: ${state.phase}`,
       exitCode: 0,
     };
@@ -187,21 +187,13 @@ export function makeSquadCoordinator(input: {
         .filter((run) => activePhase(run.phase) || query.since === null || run.latestActivityAt >= query.since)
         .filter((run) => matchesRunQuery(run, query.tokens))
         .sort(compareRunSummaries),
-      start = query.cursor === null ? 0 : indexAfterCursor(matching, query.cursor),
-      selected = matching.slice(start, start + query.limit),
-      remainingCount = Math.max(0, matching.length - start - selected.length);
+      selected = matching.slice(0, query.limit);
     return {
       ok: true,
       status: cut.status,
       runs: selected,
       totals: { runs: matching.length },
-      truncated: start > 0 || remainingCount > 0,
-      page: {
-        limit: query.limit,
-        cursor: query.cursor,
-        nextCursor: remainingCount > 0 ? runCursor(selected.at(-1)!) : null,
-        remainingCount,
-      },
+      truncated: selected.length < matching.length,
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
     };
@@ -595,29 +587,50 @@ export function makeSquadCoordinator(input: {
     const rows = dispatchRows(state),
       byDispatchId = new Map(rows.map((row) => [row.dispatchId, row]));
     return {
+      leaders: state.leaderTurns.map((turn) => {
+        const row = byDispatchId.get(turn.dispatchId);
+        return {
+          turnId: turn.turnId,
+          dispatchId: turn.dispatchId,
+          runtimeSessionId: turn.runtimeSessionId,
+          agentName: row?.agentName ?? row?.agentId ?? null,
+          instanceId: row?.instanceId ?? null,
+          status: row?.status ?? "unknown",
+          startedAt: row?.startedAt ?? null,
+        };
+      }),
+      workers: state.workerAttempts.map((attempt) => {
+        const row = attempt.dispatchId ? byDispatchId.get(attempt.dispatchId) : undefined;
+        return {
+          attemptId: attempt.attemptId,
+          dispatchId: attempt.dispatchId,
+          runtimeSessionId: attempt.runtimeSessionId,
+          agentName: row?.agentName ?? row?.agentId ?? null,
+          instanceId: row?.instanceId ?? null,
+          status: row?.status ?? "unknown",
+          startedAt: row?.startedAt ?? null,
+          rejection: attempt.rejection,
+        };
+      }),
+      error: state.error,
+    };
+  }
+
+  function statusDto(state: SquadState) {
+    const rows = dispatchRows(state),
+      byDispatchId = new Map(rows.map((row) => [row.dispatchId, row]));
+    return {
       squadRunId: state.squadRunId,
       squadId: state.squadId,
       taskId: state.taskId,
       mission: state.mission,
-      phase: state.phase,
       revision: state.revision,
       currentLeaderRuntimeSessionId: state.currentLeaderRuntimeSessionId,
       leaderRuntimeSessionIds: state.leaderTurns.map((turn) => turn.runtimeSessionId),
-      leaders: state.leaderTurns.map((turn) => ({
-        ...byDispatchId.get(turn.dispatchId),
-        turnId: turn.turnId,
-        trigger: turn.trigger,
-        dispatchId: turn.dispatchId,
-        runtimeSessionId: turn.runtimeSessionId,
-        decision: turn.decision,
-      })),
+      leaders: state.leaderTurns.map((turn) => ({ ...byDispatchId.get(turn.dispatchId), ...turn })),
       workers: state.workerAttempts.map((attempt) => ({
         ...(attempt.dispatchId ? byDispatchId.get(attempt.dispatchId) : undefined),
-        attemptId: attempt.attemptId,
-        workerId: attempt.workerId,
-        dispatchId: attempt.dispatchId,
-        runtimeSessionId: attempt.runtimeSessionId,
-        ...(attempt.rejection ? { status: "rejected", rejection: attempt.rejection } : {}),
+        ...attempt,
       })),
       workerCallbackCount: state.observedWorkerRuntimeSessionIds.length,
       pendingLeaderCallbackCount: state.pendingLeaderTriggers.length,
@@ -638,7 +651,6 @@ export function makeSquadCoordinator(input: {
       taskId: state.taskId,
       mission: state.mission,
       phase: state.phase,
-      revision: state.revision,
       leaderTurnCount: state.leaderTurns.length,
       workerAttemptCount: state.workerAttempts.length,
       runningCount: sessions.filter((session) => runtimeSessionSemanticState(session) === "running").length,
@@ -646,7 +658,6 @@ export function makeSquadCoordinator(input: {
         (latest, session) => (session.lastObservedAt > latest ? session.lastObservedAt : latest),
         "1970-01-01T00:00:00.000Z",
       ),
-      currentLeaderRuntimeSessionId: state.currentLeaderRuntimeSessionId,
     };
   }
 
@@ -805,29 +816,22 @@ function listQuery(payload: Readonly<Record<string, unknown>>): {
   readonly since: string | null;
   readonly tokens: readonly string[];
   readonly limit: number;
-  readonly cursor: string | null;
 } {
   const fields = Object.keys(payload),
     since = payload.since,
     query = payload.query,
-    limit = payload.limit,
-    cursor = payload.cursor;
+    limit = payload.limit;
   if (
-    fields.some((field) => !["since", "query", "limit", "cursor"].includes(field)) ||
+    fields.some((field) => !["since", "query", "limit"].includes(field)) ||
     (since !== undefined && (typeof since !== "string" || !Number.isFinite(Date.parse(since)))) ||
     (query !== undefined && typeof query !== "string") ||
-    (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000)) ||
-    (cursor !== undefined && (typeof cursor !== "string" || !cursor))
+    (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000))
   )
-    throw squadReadError(
-      "invalid_request",
-      "Squad run lists accept ISO since, text query, limit 1..1000, and a non-empty cursor.",
-    );
+    throw squadReadError("invalid_request", "Squad run lists accept ISO since, text query, and limit 1..1000.");
   return {
     since: typeof since === "string" ? new Date(since).toISOString() : null,
     tokens: typeof query === "string" ? query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean) : [],
     limit: typeof limit === "number" ? limit : 200,
-    cursor: typeof cursor === "string" ? cursor : null,
   };
 }
 
@@ -847,16 +851,6 @@ function compareRunSummaries(left: SquadRunSummaryDto, right: SquadRunSummaryDto
     right.latestActivityAt.localeCompare(left.latestActivityAt) ||
     left.squadRunId.localeCompare(right.squadRunId)
   );
-}
-
-function runCursor(run: SquadRunSummaryDto): string {
-  return `squad-run:${Buffer.from(JSON.stringify([run.latestActivityAt, run.squadRunId])).toString("base64url")}`;
-}
-
-function indexAfterCursor(runs: readonly SquadRunSummaryDto[], cursor: string): number {
-  const index = runs.findIndex((run) => runCursor(run) === cursor);
-  if (index < 0) throw squadReadError("invalid_cursor", `Invalid or stale squad run cursor: ${cursor}.`);
-  return index + 1;
 }
 
 function validSquadRunId(value: unknown): value is string {

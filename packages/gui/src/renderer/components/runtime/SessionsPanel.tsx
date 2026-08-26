@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import type { AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import type {
+  AgentRuntimeSessionDto,
+  AgentRuntimeSessionResult,
+} from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentRuntimeAttachEvent } from "../../../../../daemon/src/agent-runtime-stream.ts";
 import { agentRuntimeClient, openAgentRuntimePane } from "../../agent-runtime-client.ts";
 import { type SessionRow, shortRef } from "../../sessions-model.ts";
@@ -42,6 +45,8 @@ const OUTCOME_DOT: Record<string, "failed" | "idle"> = { failed: "failed" };
 export function SessionsPanel({
   repoId,
   runtimeSessionId,
+  snapshot,
+  snapshotError,
   row,
   squadNames,
   decisionRefs,
@@ -52,6 +57,8 @@ export function SessionsPanel({
 }: {
   readonly repoId: string;
   readonly runtimeSessionId: string;
+  readonly snapshot: AgentRuntimeSessionResult | null;
+  readonly snapshotError: string | null;
   readonly row: SessionRow | null;
   readonly squadNames: ReadonlyMap<string, string>;
   readonly decisionRefs: readonly string[];
@@ -68,52 +75,43 @@ export function SessionsPanel({
   useEffect(() => {
     let active = true,
       detach: (() => void) | undefined;
-    setSession(null);
-    setResult(null);
+    setSession(snapshot?.session ?? null);
+    setResult(snapshot?.result?.text ?? null);
     setFrames([]);
     setAttach("detached");
-    setError(null);
+    setError(snapshotError);
+    if (snapshot === null) return () => void (active = false);
     const reread = async () => {
-      const snapshot = await agentRuntimeClient.session(repoId, runtimeSessionId);
+      const current = await agentRuntimeClient.session(repoId, runtimeSessionId);
       if (active) {
-        setSession(snapshot.session);
-        setResult(snapshot.result?.text ?? null);
+        setSession(current.session);
+        setResult(current.result?.text ?? null);
       }
     };
-    void agentRuntimeClient.session(repoId, runtimeSessionId).then(
-      (snapshot) => {
+    setAttach(snapshot.session.attachCapability === "supported" ? "attaching" : "unsupported");
+    if (snapshot.session.attachCapability === "supported")
+      detach = openAgentRuntimePane(repoId, runtimeSessionId, snapshot.session.streamCursor, (value) => {
         if (!active) return;
-        setSession(snapshot.session);
-        setResult(snapshot.result?.text ?? null);
-        setAttach(snapshot.session.attachCapability === "supported" ? "attaching" : "unsupported");
-        if (snapshot.session.attachCapability !== "supported") return;
-        detach = openAgentRuntimePane(repoId, runtimeSessionId, snapshot.session.streamCursor, (value) => {
-          if (!active) return;
-          if ("ok" in value) {
-            setAttach(value.ok ? value.status : value.code);
-            if (value.ok) {
-              const caught = value.events.filter((event) => event.type !== "gap");
-              if (caught.length) setFrames((current) => [...current, ...caught]);
-              if (value.status === "gap" || value.events.some((event) => event.type === "exit")) void reread();
-            }
-            return;
+        if ("ok" in value) {
+          setAttach(value.ok ? value.status : value.code);
+          if (value.ok) {
+            const caught = value.events.filter((event) => event.type !== "gap");
+            if (caught.length) setFrames((current) => [...current, ...caught]);
+            if (value.status === "gap" || value.events.some((event) => event.type === "exit")) void reread();
           }
-          if (value.type === "gap") void reread();
-          else {
-            setFrames((current) => [...current, value]);
-            if (value.type === "exit") void reread();
-          }
-        }).close;
-      },
-      (cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : String(cause));
-      },
-    );
+          return;
+        }
+        if (value.type === "gap") void reread();
+        else {
+          setFrames((current) => [...current, value]);
+          if (value.type === "exit") void reread();
+        }
+      }).close;
     return () => {
       active = false;
       detach?.();
     };
-  }, [repoId, runtimeSessionId]);
+  }, [repoId, runtimeSessionId, snapshot, snapshotError]);
   return (
     <>
       <Crumbs>

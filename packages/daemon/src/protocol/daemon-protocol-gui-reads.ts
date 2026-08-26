@@ -389,7 +389,7 @@ export const daemonGuiReadMethods = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ since: "string?", query: "string?", limit: "number?", cursor: "string?" }),
+      payload: shape({ since: "string?", query: "string?", limit: "number?" }),
     }),
     guiBridgeMethod: "listSquadRuns",
     httpMethod: "GET",

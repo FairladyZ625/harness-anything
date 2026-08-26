@@ -155,7 +155,6 @@ export type DaemonGuiReadPayloadMap = {
     readonly since?: string;
     readonly query?: string;
     readonly limit?: number;
-    readonly cursor?: string;
   };
   readonly "repo.squad.runs.read": { readonly squadRunId: string };
   readonly "repo.gui.catalog.snapshot": Readonly<Record<string, never>>;

@@ -103,6 +103,15 @@ const sessionGroups = {
     },
   ],
 };
+const emptySquadRuns = {
+  ok: true as const,
+  status: "ready" as const,
+  runs: [],
+  totals: { runs: 0 },
+  truncated: false,
+  watermark: 1,
+  sourceRevision: 1,
+};
 const tasks = [{ taskId: "task-bound", title: "Bound task title" }] as const;
 const agents = [
   { id: "terra", name: "terra", runtimeType: "codex", role: "worker", layer: "user", validity: "valid", issues: [] },
@@ -186,11 +195,65 @@ describe("runtime entry split (W6 IA)", () => {
 
   it("expands a task group and selects its round row into the sessions workspace main area", async () => {
     await mountSessions("session/runtime-bound");
-    await click("session-group-toggle-task-bound");
 
+    expect(byTestId("session-group-toggle-task-bound").getAttribute("aria-expanded")).toBe("true");
     expect(byTestId("rail-session-runtime-bound").getAttribute("aria-current")).toBe("true");
     expect(byTestId("rail-session-runtime-sibling")).toBeTruthy();
     expect(byTestId("session-detail").textContent).toContain("runtime-bound");
+  });
+
+  it("resolves a session deep link before the target task group is expanded", async () => {
+    const firstGroup = {
+      ...sessionGroups.groups[0]!,
+      key: "task-first",
+      label: "First task",
+      taskId: "task-first",
+      latestRound: {
+        ...sessionGroups.groups[0]!.latestRound!,
+        runtimeSessionId: "runtime-first",
+        dispatchId: "dispatch_first",
+      },
+    };
+    await mountSessions("session/runtime-sibling", {}, undefined, {
+      ...sessionGroups,
+      totals: { groups: 2, sessions: 3 },
+      groups: [firstGroup, sessionGroups.groups[0]!],
+    });
+
+    expect(byTestId("session-group-toggle-task-bound").getAttribute("aria-expanded")).toBe("true");
+    expect(byTestId("rail-session-runtime-sibling").getAttribute("aria-current")).toBe("true");
+    expect(byTestId("session-detail").textContent).toContain("runtime-sibling");
+    expect(agentRuntimeClient.session).toHaveBeenCalledWith("repo-a", "runtime-sibling");
+  });
+
+  it("narrows a task-sessions deep link to that task across the full range", async () => {
+    await mountSessions("tasksessions/task-bound");
+
+    expect(agentRuntimeClient.sessionGroups).toHaveBeenCalledWith(
+      "repo-a",
+      expect.objectContaining({
+        groupBy: "task",
+        since: "1970-01-01T00:00:00.000Z",
+        query: "task-bound",
+      }),
+    );
+    expect(byTestId("session-group-toggle-task-bound").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("shows squad list read failures when the squad segment is active", async () => {
+    await mountSessions("session/runtime-bound", {}, undefined, sessionGroups, async () => {
+      throw new Error("squad read failed");
+    });
+    const squadSegment = [...byTestId("sessions-view").querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Squad orchestration"),
+    );
+    expect(squadSegment).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => {
+      squadSegment!.click();
+    });
+    await flushEffects();
+
+    expect(byTestId("runtime-read-error").textContent).toContain("squad read failed");
   });
 
   it("opens the bound task detail from the selected session (W5:派工链归 Task 详情)", async () => {
@@ -208,7 +271,6 @@ describe("runtime entry split (W6 IA)", () => {
   it("routes a sibling session pick from the inspector through the addressable session ref", async () => {
     const onSelectEntity = vi.fn();
     await mountSessions("session/runtime-bound", { onSelectEntity });
-    await click("session-group-toggle-task-bound");
     const inspector = byTestId("runtime-inspector");
     const sibling = [...inspector.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("terra sibling"),
@@ -350,6 +412,8 @@ function seedQueries(client: QueryClient) {
 async function mountView(
   element: React.ReactElement,
   attachImpl: (onValue: (value: unknown) => void) => () => void = () => () => undefined,
+  sessionGroupsResult = sessionGroups,
+  listSquadRuns: () => Promise<Awaited<ReturnType<typeof squadRunsClient.list>>> = async () => emptySquadRuns,
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   seedQueries(client);
@@ -365,7 +429,7 @@ async function mountView(
     attachImpl(onValue as (value: unknown) => void),
   );
   vi.spyOn(agentRuntimeClient, "sessionGroups").mockImplementation(async (_repoId, query = {}) =>
-    query.query === "terra" || query.groupBy === "task" ? sessionGroups : { ...sessionGroups, groups: [] },
+    query.query === "terra" || query.groupBy === "task" ? sessionGroupsResult : { ...sessionGroupsResult, groups: [] },
   );
   vi.spyOn(agentRuntimeClient, "overview").mockImplementation(async (_repoId, taskId?: string) =>
     taskId === "task-bound"
@@ -384,16 +448,7 @@ async function mountView(
         sourceRevision: 1,
       }) as never,
   );
-  vi.spyOn(squadRunsClient, "list").mockResolvedValue({
-    ok: true,
-    status: "ready",
-    runs: [],
-    totals: { runs: 0 },
-    truncated: false,
-    page: { limit: 200, cursor: null, nextCursor: null, remainingCount: 0 },
-    watermark: 1,
-    sourceRevision: 1,
-  });
+  vi.spyOn(squadRunsClient, "list").mockImplementation(listSquadRuns);
   const container = document.createElement("div"),
     root = createRoot(container);
   document.body.append(container);
@@ -412,6 +467,7 @@ async function mountView(
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+  await flushEffects();
   return container;
 }
 
@@ -419,6 +475,8 @@ async function mountSessions(
   focusedEntityRef: string,
   handlers: { readonly onOpenTask?: (taskId: string) => void; readonly onSelectEntity?: (ref: string) => void } = {},
   attachImpl?: (onValue: (value: unknown) => void) => () => void,
+  sessionGroupsResult = sessionGroups,
+  listSquadRuns?: () => Promise<Awaited<ReturnType<typeof squadRunsClient.list>>>,
 ) {
   const element = createElement(SessionsView, {
     repoId: "repo-a",
@@ -434,7 +492,7 @@ async function mountSessions(
     onSelectEntity: handlers.onSelectEntity ?? (() => undefined),
     onOpenTask: handlers.onOpenTask ?? (() => undefined),
   });
-  return mountView(element, attachImpl);
+  return mountView(element, attachImpl, sessionGroupsResult, listSquadRuns);
 }
 async function mountAgentSquad(
   focusedEntityRef: string,

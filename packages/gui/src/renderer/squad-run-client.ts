@@ -14,9 +14,10 @@ const bridge = (): SquadRunBridge => {
   if (!value?.listSquadRuns || !value.readSquadRun) throw new Error("Squad run read bridge is unavailable.");
   return value as SquadRunBridge;
 };
-export type SquadRunsListQuery = {
+type SquadRunsListQuery = {
   readonly since?: string;
   readonly query?: string;
+  readonly limit?: number;
 };
 export const squadRunsClient = {
   list: async (repoId: string, query: SquadRunsListQuery = {}): Promise<SquadRunsListResult> => {

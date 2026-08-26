@@ -291,7 +291,6 @@
   "agentRuntime.selfTestFailed": "The runtime ended with outcome {outcome}.",
   "agentRuntime.selfTestTimeout": "The runtime did not finish the self-test in time.",
   "agentRuntime.sessionsTitle": "Sessions",
-  "agentRuntime.sessionsSubtitle": "Single sessions & squad orchestration · daemon-side grouping",
   "agentRuntime.agentsTitle": "Agents · Squads",
   "agentRuntime.agentsSubtitle": "identity and organisation · dispatch from here",
   "agentRuntime.providersTitle": "Providers",

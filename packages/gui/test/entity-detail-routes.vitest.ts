@@ -65,19 +65,15 @@ describe("entity detail target routing (W4)", () => {
       view: "sessions",
       focusedEntityRef: "session/runtime-1",
     });
-    // 会话页重构新增落点:squadRun/<id> 展开该编排单元;tasksessions/<taskId>
-    // 展开该任务的会话组(Task 详情反向入口);两者都只落会话页。
-    expect(entityDetailTargetOf("squadRun/squad_abc")).toEqual({
-      view: "sessions",
-      focusedEntityRef: "squadRun/squad_abc",
-    });
+    // tasksessions/<taskId> 展开该任务的会话组(Task 详情反向入口)。无 production
+    // producer 的 squadRun/<id> 不保留预埋 consumer 路由。
+    expect(entityDetailTargetOf("squadRun/squad_abc")).toBeNull();
     expect(entityDetailTargetOf(`tasksessions/${TASK_ROUTE_ID}`)).toEqual({
       view: "sessions",
       focusedEntityRef: `tasksessions/${TASK_ROUTE_ID}`,
     });
     // 退役的聚合入口不再有路由,也不在 ViewId 词表里。
     expect(entityDetailTargetOf("agents")).toBeNull();
-    expect(entityDetailTargetOf("squadRun/")).toBeNull();
     expect(entityDetailTargetOf("tasksessions/")).toBeNull();
   });
 });

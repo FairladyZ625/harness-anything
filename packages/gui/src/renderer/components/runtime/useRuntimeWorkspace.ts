@@ -141,19 +141,25 @@ function useRuntimeChannel(repoId: string, refresh: () => Promise<unknown>) {
 
 // 会话入口:daemon 聚合读面(sessionGroups + squad.runs.list),一次往返一组数据。
 // 组展开(单任务轮次 / 孤儿会话 / squad run 详情)由视图按展开键补读;唯一的写是 cancel。
-export const SESSION_GROUPS_PAGE_LIMIT = 1000;
+const SESSION_GROUPS_PAGE_LIMIT = 1000;
+const SQUAD_RUNS_LIMIT = 1000;
 export function useSessionsWorkspace(
   repoId: string,
-  list: { readonly groupBy: SessionGroupBy; readonly since: string; readonly query: string },
+  list: {
+    readonly groupBy: SessionGroupBy;
+    readonly since: string;
+    readonly query: string;
+    readonly taskId?: string;
+  },
 ) {
   const client = useQueryClient();
   const groups = useQuery({
-    queryKey: ["session-groups", repoId, list.groupBy, list.since, list.query],
+    queryKey: ["session-groups", repoId, list.groupBy, list.since, list.query, list.taskId ?? ""],
     queryFn: () =>
       agentRuntimeClient.sessionGroups(repoId, {
         groupBy: list.groupBy,
-        since: list.since,
-        ...(list.query === "" ? {} : { query: list.query }),
+        since: list.taskId === undefined ? list.since : "1970-01-01T00:00:00.000Z",
+        ...(list.taskId === undefined ? (list.query === "" ? {} : { query: list.query }) : { query: list.taskId }),
         limit: SESSION_GROUPS_PAGE_LIMIT,
       }),
     staleTime: 4_000,
@@ -164,6 +170,7 @@ export function useSessionsWorkspace(
       squadRunsClient.list(repoId, {
         since: list.since,
         ...(list.query === "" ? {} : { query: list.query }),
+        limit: SQUAD_RUNS_LIMIT,
       }),
     staleTime: 4_000,
   });

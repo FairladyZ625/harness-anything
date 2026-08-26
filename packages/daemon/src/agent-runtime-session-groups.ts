@@ -7,7 +7,7 @@ import type {
 } from "./agent-runtime-contract.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 
-export interface AgentRuntimeSessionGroupsQuery {
+interface AgentRuntimeSessionGroupsQuery {
   readonly groupBy: AgentRuntimeSessionGroupBy;
   readonly since: string;
   readonly tokens: readonly string[];

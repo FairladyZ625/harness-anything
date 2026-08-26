@@ -291,7 +291,6 @@
   "agentRuntime.selfTestFailed": "Runtime 以 {outcome} 结束。",
   "agentRuntime.selfTestTimeout": "Runtime 未在自测时限内完成。",
   "agentRuntime.sessionsTitle": "会话",
-  "agentRuntime.sessionsSubtitle": "单会话与小队编排 · daemon 分组读面",
   "agentRuntime.agentsTitle": "Agent · 含 Squad",
   "agentRuntime.agentsSubtitle": "身份与组织 · 派工由此发起",
   "agentRuntime.providersTitle": "Provider",

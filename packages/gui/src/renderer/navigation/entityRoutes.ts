@@ -7,9 +7,9 @@ import type { ViewId } from "./viewHistory.ts";
  *
  * W6 IA 拆分:运行时实体也走可寻址路由——agent/squad 归「Agent · 含 Squad」入口
  * (Squad 是该页的一个面,不是第四入口),provider(Runtime 实例)归「Provider」,
- * session 归「会话」。会话页重构追加两个落点前缀:squadRun/<id>(小队编排段展开该
- * 单元)与 tasksessions/<taskId>(单会话段 Task 分组展开该任务组,Task 详情反向
- * 入口)。页内选择与跨入口跳转共用同一条推栈路径,导航回撤原路返回。
+ * session 归「会话」。会话页重构追加 tasksessions/<taskId> 落点(单会话段 Task
+ * 分组展开该任务组,Task 详情反向入口)。页内选择与跨入口跳转共用同一条推栈路径,
+ * 导航回撤原路返回。
  *
  * 纯函数,供 App 的 navigateLocalEntity 与测试共用。
  */
@@ -38,10 +38,9 @@ export function entityDetailTargetOf(ref: string): EntityDetailTarget | null {
   if (ref.startsWith("session/")) {
     return { view: "sessions", focusedEntityRef: ref };
   }
-  // 会话页重构新增落点:squadRun/<id> 落小队编排段并展开该单元;tasksessions/<taskId>
-  // 落单会话段 Task 分组并展开该任务组(Task 详情反向入口)。只是路由落点,
-  // 不引入新导航入口。
-  if (ref.startsWith("squadRun/") || ref.startsWith("tasksessions/")) {
+  // 会话页的 Task 详情反向入口只落单会话段并展开该任务组;小队编排当前没有跨页
+  // producer,因此不预埋对应的 consumer 路由。
+  if (ref.startsWith("tasksessions/")) {
     const id = ref.split("/")[1];
     if (!id) return null;
     return { view: "sessions", focusedEntityRef: ref };
