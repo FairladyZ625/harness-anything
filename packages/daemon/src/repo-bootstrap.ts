@@ -8,6 +8,7 @@ import {
   configureLedgerMaintenance,
   DEFAULT_TASK_WIP_LIMIT,
   INITIAL_SETTINGS_V1,
+  readSettingsFacet,
   resolveHarnessLayout,
   type WriterGeneration,
   type WriterGenerationToken,
@@ -111,10 +112,8 @@ export function resolveRepoBootstrap(
       "",
     ].join("\n"),
     people = `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: request.personId, displayName: request.displayName, roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${os.hostname()}`, subject: String(uid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
-    identityDocuments = [
-      machineDocument(rootDir, "harness/harness.yaml", config, request.name),
-      machineDocument(rootDir, "harness/people.yaml", people),
-    ],
+    harnessDocument = machineDocument(rootDir, "harness/harness.yaml", config, request.name),
+    identityDocuments = [harnessDocument, machineDocument(rootDir, "harness/people.yaml", people)],
     initialized = identityDocuments.every(({ existingSha256 }) => existingSha256 !== null);
   if (initialized !== identityDocuments.some(({ existingSha256 }) => existingSha256 !== null))
     throw repoBootstrapError(
@@ -138,7 +137,7 @@ export function resolveRepoBootstrap(
     rootDir,
     repoId,
     machineDocuments,
-    repositoryPlan: compileRepoRepositoryScaffold(rootDir, INITIAL_SETTINGS_V1),
+    repositoryPlan: compileRepoRepositoryScaffold(rootDir, readSettingsFacet(harnessDocument.body)),
     ...(request.configureOnly ? { configureOnly: true } : {}),
   };
 }
