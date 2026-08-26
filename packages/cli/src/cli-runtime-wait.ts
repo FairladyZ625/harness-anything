@@ -42,14 +42,17 @@ export async function waitForRuntime(
           statusReader = undefined;
         },
       );
-      if (isDaemonGone(next))
-        return runtimeDaemonGone(
+      if (isDaemonGone(next)) {
+        const runtime = current as unknown as AgentRuntimeSessionResult | undefined,
+          status = runtime?.session.activity.outcome ?? (runtime?.session ? "running" : "unknown"),
+          commandName = spawned ? "runtime-run" : "runtime-status";
+        return daemonGoneReceipt(commandName, next.cause, status, {
           runtimeSessionId,
-          spawned,
-          target,
-          current as unknown as AgentRuntimeSessionResult | undefined,
-          next.cause,
-        );
+          ...(target ?? {}),
+          ...(spawned ? { spawn: spawned } : {}),
+          lastKnownDispatch: lastKnownRuntimeDispatch(runtimeSessionId, target, runtime, status),
+        });
+      }
       if (next.ok !== true) return next;
       current = next;
       if (stream && !streamStarted) {
@@ -105,7 +108,17 @@ export async function waitForTaskDispatches(command: ThinCommand, taskId: string
     const next = await readDaemonSubscription(command, () =>
       runCommandThroughDaemon(readCommand, () => undefined, { autostart: false }),
     );
-    if (isDaemonGone(next)) return taskDispatchDaemonGone(taskId, current, next.cause);
+    if (isDaemonGone(next)) {
+      const dispatches = Array.isArray(current?.dispatches) ? current.dispatches : [],
+        rows = `${dispatches.length} row${dispatches.length === 1 ? "" : "s"}`;
+      return daemonGoneReceipt(
+        "runtime-status",
+        next.cause,
+        rows,
+        { taskId, lastKnownDispatches: dispatches },
+        `runtime-status task ${taskId}`,
+      );
+    }
     current = next;
     if (current.ok !== true) return current;
     if (current.status !== "pending" && taskDispatchesSettled(current)) break;
@@ -179,9 +192,7 @@ function recoverableSubscriptionFailure(error: unknown): boolean {
         : null,
     message = error instanceof Error ? error.message : String(error);
   return (
-    ["daemon_response_timeout", "daemon_closed", "ECONNREFUSED", "ECONNRESET", "ENOENT", "EPIPE", "ETIMEDOUT"].includes(
-      String(code),
-    ) ||
+    ["daemon_response_timeout", "daemon_closed", "ECONNREFUSED", "ECONNRESET", "ENOENT"].includes(String(code)) ||
     message === "daemon_unavailable" ||
     message === "daemon_stream_unavailable"
   );
@@ -200,76 +211,52 @@ function isDaemonGone(value: JsonObject | DaemonGone): value is DaemonGone {
   return "kind" in value && value.kind === "daemon-gone";
 }
 
-function runtimeDaemonGone(
+function lastKnownRuntimeDispatch(
   runtimeSessionId: string,
-  spawned: JsonObject | undefined,
   target: { readonly taskId: string; readonly dispatchId: string } | undefined,
   current: AgentRuntimeSessionResult | undefined,
-  cause: string,
-): JsonObject {
-  const session = current?.session,
-    activity = session?.activity,
-    attempts = session?.attemptChain?.attempts ?? [],
-    attempt = attempts.find((candidate) => candidate.runtimeSessionId === runtimeSessionId),
-    association = session?.associations[0],
-    status = activity?.outcome ?? (session ? "running" : "unknown"),
-    lastKnownDispatch = session
-      ? {
-          taskId: target?.taskId ?? association?.taskId ?? null,
-          dispatchId: target?.dispatchId ?? attempt?.dispatchId ?? null,
-          runtimeSessionId,
-          status,
-          liveness: session.liveness,
-          outcome: activity?.outcome ?? null,
-          exitCode: activity?.exitCode ?? null,
-          classification: attempt?.classification ?? null,
-          fallbackState: attempt?.fallbackState ?? null,
-        }
-      : null,
-    commandName = spawned ? "runtime-run" : "runtime-status",
-    hint =
-      `The daemon process and socket are gone. Last known dispatch status: ${status}. ` +
-      "Restart the daemon, then inspect the dispatch before deciding whether to run it again.";
+  status: string,
+): JsonObject | null {
+  const session = current?.session;
+  if (!session) return null;
+  const activity = session.activity,
+    attempt = session.attemptChain?.attempts.find((candidate) => candidate.runtimeSessionId === runtimeSessionId),
+    association = session.associations[0];
   return {
-    schema: "command-receipt/v2",
-    ok: false,
-    command: commandName,
-    outcome: "op_rejected",
-    origin: "cli",
-    code: "daemon_gone",
-    evidence: "rejection:daemon_gone",
+    taskId: target?.taskId ?? association?.taskId ?? null,
+    dispatchId: target?.dispatchId ?? attempt?.dispatchId ?? null,
     runtimeSessionId,
-    ...(target ?? {}),
-    ...(spawned ? { spawn: spawned } : {}),
-    lastKnownDispatch,
-    error: { code: "daemon_gone", hint, cause },
-    nextAction: hint,
-    summary: `${commandName}: daemon_gone; last known dispatch status ${status}`,
-    exitCode: 1,
+    status,
+    liveness: session.liveness,
+    outcome: activity.outcome ?? null,
+    exitCode: activity.exitCode ?? null,
+    classification: attempt?.classification ?? null,
+    fallbackState: attempt?.fallbackState ?? null,
   };
 }
 
-function taskDispatchDaemonGone(taskId: string, current: JsonObject | undefined, cause: string): JsonObject {
-  const dispatches = Array.isArray(current?.dispatches) ? current.dispatches : [],
-    hint =
-      `The daemon process and socket are gone. ${dispatches.length} last-known task dispatch status ` +
-      `row${dispatches.length === 1 ? " is" : "s are"} attached. ` +
-      "Restart the daemon, then inspect the task dispatches before deciding whether to run them again.";
+function daemonGoneReceipt(
+  command: string,
+  cause: string,
+  lastKnownStatus: string,
+  details: JsonObject,
+  summaryCommand = command,
+): JsonObject {
+  const hint =
+    `The daemon process and socket are gone. Last known dispatch status: ${lastKnownStatus}. ` +
+    "Restart the daemon, then inspect the recorded status before deciding whether to run again.";
   return {
     schema: "command-receipt/v2",
     ok: false,
-    command: "runtime-status",
+    command,
     outcome: "op_rejected",
     origin: "cli",
     code: "daemon_gone",
     evidence: "rejection:daemon_gone",
-    taskId,
-    lastKnownDispatches: dispatches,
+    ...details,
     error: { code: "daemon_gone", hint, cause },
     nextAction: hint,
-    summary:
-      `runtime-status task ${taskId}: daemon_gone; ` +
-      `${dispatches.length} last-known dispatch status row${dispatches.length === 1 ? "" : "s"}`,
+    summary: `${summaryCommand}: daemon_gone; last known dispatch status ${lastKnownStatus}`,
     exitCode: 1,
   };
 }

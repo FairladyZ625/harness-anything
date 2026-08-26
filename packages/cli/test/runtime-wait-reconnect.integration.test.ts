@@ -91,6 +91,33 @@ test("runtime status --wait returns daemon_gone with the last-known dispatch aft
   }
 });
 
+test("task dispatch wait classifies an ENOENT reconnect as daemon_gone and retains the last-known rows", async () => {
+  const fixture = await openFixtureDaemon("task-daemon-gone"),
+    taskId = "task-runtime-wait",
+    dispatch = { dispatchId: "dispatch-runtime-wait", status: "running", fallbackState: null };
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    assert.equal(request.method, "repo.task.dispatches");
+    reply(socket, request.id, { ok: true, status: "ready", dispatches: [dispatch] });
+    socket.once("close", fixture.die);
+  };
+  const invocation = runWait(fixture, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
+  try {
+    const result = await invocation.result(10_000);
+    assert.equal(result.code, 1, result.stderr);
+    assert.equal(result.receipt.code, "daemon_gone");
+    assert.equal(result.receipt.taskId, taskId);
+    assert.deepEqual(result.receipt.lastKnownDispatches, [dispatch]);
+    assert.match(String((result.receipt.error as Record<string, unknown>).cause), /ENOENT/u);
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
 interface FixtureDaemon {
   readonly root: string;
   readonly userRoot: string;
@@ -131,6 +158,7 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
         rmSync(daemonPidPath(userRoot, daemonId), { force: true });
         if (server.listening) server.close();
         for (const socket of sockets) socket.destroy();
+        rmSync(socketPath, { force: true });
       },
       close: async () => {
         fixture.die();
@@ -165,25 +193,24 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
   return fixture;
 }
 
-function runWait(fixture: FixtureDaemon): {
+function runWait(
+  fixture: FixtureDaemon,
+  args: readonly string[] = ["runtime", "status", runtimeSessionId, "--wait", "--no-stream"],
+): {
   readonly closed: boolean;
   readonly result: (timeoutMs: number) => Promise<InvocationResult>;
   readonly stop: () => void;
 } {
   const { HARNESS_DAEMON_ENDPOINT: _endpoint, HARNESS_DAEMON_REPO_ID: _repoId, ...baseEnv } = process.env,
-    child = spawn(
-      process.execPath,
-      [cli, "--root", fixture.root, "--json", "runtime", "status", runtimeSessionId, "--wait", "--no-stream"],
-      {
-        env: {
-          ...baseEnv,
-          HARNESS_DAEMON_USER_ROOT: fixture.userRoot,
-          HARNESS_DAEMON_ID: fixture.daemonId,
-          HARNESS_DAEMON_REPO_ID: "runtime-wait",
-        },
-        stdio: ["ignore", "pipe", "pipe"],
+    child = spawn(process.execPath, [cli, "--root", fixture.root, "--json", ...args], {
+      env: {
+        ...baseEnv,
+        HARNESS_DAEMON_USER_ROOT: fixture.userRoot,
+        HARNESS_DAEMON_ID: fixture.daemonId,
+        HARNESS_DAEMON_REPO_ID: "runtime-wait",
       },
-    );
+      stdio: ["ignore", "pipe", "pipe"],
+    });
   let closed = false,
     stdout = "",
     stderr = "";
