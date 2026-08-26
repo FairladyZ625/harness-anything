@@ -13,6 +13,7 @@ export async function closeCell(context: any, repoId: string): Promise<void> {
     closing = cell?.close();
   if (closing) await closing;
   context.cells.delete(repoId);
+  await context.scheduleScheduler.refresh();
 }
 
 // Registry hygiene: a registered root that no longer exists on disk (an OS-cleaned temp
@@ -140,12 +141,12 @@ export async function performOpenRegistered(
       authoredBranch: repo.authoredBranch,
       ...(context.input.shutdownRequested ? { shouldStop: context.input.shutdownRequested } : {}),
       ...(context.input.recordLifecycle ? { recordLifecycle: context.input.recordLifecycle } : {}),
-      onAttemptTerminal: (terminal: RuntimeAttemptTerminal) =>
-        void context.e2eProbeScheduler.onAttemptTerminal(repo.repoId, terminal.runtimeSessionId),
+      onAttemptTerminal: (_terminal: RuntimeAttemptTerminal) => void context.scheduleScheduler.refresh(),
       ...context.runtimePorts,
       ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
     });
     context.cells.set(repo.repoId, cell);
+    await context.scheduleScheduler.refresh();
     context.settleWarming(repo.repoId);
     context.unavailable.delete(repo.repoId);
     context.input.recordLifecycle?.({

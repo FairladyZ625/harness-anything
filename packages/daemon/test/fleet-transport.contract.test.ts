@@ -272,6 +272,28 @@ test("Fleet transport union round-trips every closed wire variant", () => {
     { kind: "task-transition", taskId: "task_abc", status: "blocked", reason: "manual review required" },
   ])
     assert.deepEqual(parseFleetFrame({ ...taskCommand, taskId: "task_abc", action }).action, action);
+  const scheduleCommand = frames.find((frame) => frame.schema === "fleet.schedule.command/v1")!;
+  for (const action of [
+    {
+      kind: "schedule-run-now",
+      scheduleId: "probe",
+      scheduledFor: "2099-01-01T00:00:00.000Z",
+      observedDefinitionRevision: 7,
+      idempotencyKey: "timer-probe",
+    },
+    {
+      kind: "schedule-settle",
+      scheduleId: "probe",
+      phase: "missed",
+      from: "2099-01-01T00:00:00.000Z",
+      to: "2099-01-01T01:00:00.000Z",
+      count: 2,
+      reason: "scheduler_unavailable",
+      observedDefinitionRevision: 7,
+      idempotencyKey: "missed-probe",
+    },
+  ])
+    assert.deepEqual(parseFleetFrame({ ...scheduleCommand, action }).action, action);
 });
 
 test("Fleet codec rejects unknown provenance, nested fields, malformed values, and limits", () => {
