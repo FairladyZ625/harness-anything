@@ -425,8 +425,7 @@ function isRepoWarming(result: JsonObject): boolean {
 }
 export async function streamRuntimeThroughDaemon(
   command: ThinCommand,
-  runtimeSessionId: string,
-  onValue: (value: unknown) => void,
+  runtimeSessionId: string, onValue: (value: unknown) => void,
   onClosed?: (failure: import("../../../daemon/src/client/local-json-rpc-stream.ts").DaemonStreamLost) => void,
 ): Promise<() => void> {
   const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
