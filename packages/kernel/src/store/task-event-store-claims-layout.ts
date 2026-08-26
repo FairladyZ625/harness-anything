@@ -1,5 +1,6 @@
 import { isAgentRuntimeEvent, runtimeEventContentClaims } from "../domain/agent-runtime.ts";
 import { isEntityEvent } from "../domain/entity-event.ts";
+import { isScheduleEvent } from "../domain/schedule-event.ts";
 import {
   isDecisionEvent,
   isDocEvent,
@@ -33,6 +34,8 @@ export function canonicalDocumentClaims(event: CanonicalEventV1): readonly {
   readonly size: number;
   readonly mediaType: string;
 }[] {
+  if (isScheduleEvent(event))
+    return "declarationDocumentClaim" in event.payload ? [event.payload.declarationDocumentClaim] : [];
   return isDocEvent(event)
     ? event.payload.changes.flatMap(({ path: target, candidate }) =>
         candidate === null ? [] : [{ path: target, ...candidate }],
@@ -81,6 +84,8 @@ export function contentClaims(event: CanonicalEventV1): readonly {
   readonly size: number;
   readonly mediaType: string;
 }[] {
+  if (isScheduleEvent(event))
+    return "declarationDocumentClaim" in event.payload ? [event.payload.declarationDocumentClaim] : [];
   const claims = isDocEvent(event)
     ? event.payload.changes.flatMap((change) => (change.candidate === null ? [] : [change.candidate]))
     : isEntityEvent(event)

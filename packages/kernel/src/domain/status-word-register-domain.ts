@@ -47,6 +47,49 @@ export const domainStatusWords: readonly StatusWordRegistration[] = [
     meaning: "Policy is no longer in effect but remains auditable.",
     divergence: "entity-scoped",
   },
+  // ---- Schedule definition state / occurrence outcome ----
+  {
+    word: "armed",
+    entity: "Schedule",
+    field: "state",
+    meaning: "The Schedule definition is eligible for automatic occurrence evaluation and claim.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "paused",
+    entity: "Schedule",
+    field: "state",
+    meaning: "The Schedule definition rejects new automatic claims while any already claimed run may finish.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "succeeded",
+    entity: "Schedule",
+    field: "status.lastRun.outcome",
+    meaning: "The Schedule occurrence settled successfully after its dispatch attempt chain.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "failed",
+    entity: "Schedule",
+    field: "status.lastRun.outcome",
+    meaning: "The Schedule occurrence reached a terminal failure, including failure before a RuntimeSession existed.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "unknown",
+    entity: "Schedule",
+    field: "status.lastRun.outcome",
+    meaning: "The Schedule occurrence settled without an observable terminal result.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "cancelled",
+    entity: "Schedule",
+    field: "status.lastRun.outcome",
+    meaning: "The Schedule occurrence settled because its dispatched work was actively cancelled.",
+    divergence: "entity-scoped",
+  },
   // ---- Slice-3 domain judgments (registered here when the two slices met on main) ----
   {
     word: "blocked",

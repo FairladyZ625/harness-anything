@@ -25,6 +25,8 @@ import { requireEntityStoreKindContract } from "../domain/entity-kind-registry.t
 import { isTaskBootstrapEvent, taskBootstrapPackagePath } from "../domain/task-bootstrap-event.ts";
 import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
+import { isScheduleEvent } from "../domain/schedule-event.ts";
+import { scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
@@ -32,7 +34,10 @@ import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { projectMigration } from "./rebuildable-task-projection-migration.ts";
 import { projectDecision, projectFact, projectProgress } from "./rebuildable-task-projection-write-model.ts";
 import { applyTaskEvent } from "./rebuildable-task-projection-task-events.ts";
-import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
+import {
+  projectEmbeddedCanonicalEntities,
+  projectInterpretedEntityValue,
+} from "./rebuildable-task-projection-entities.ts";
 import {
   readRuntimeInstallation,
   readRuntimeSession,
@@ -138,6 +143,51 @@ export function applyEvent(
     );
     runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
     projectInterpretedEntityValue(db, contract, entity, event.workspaceRevision, `event:${event.opId}`);
+    return;
+  }
+  if (isScheduleEvent(event)) {
+    runSql(
+      db,
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+      event.opId,
+      event.workspaceRevision,
+      eventJson,
+    );
+    if ("declarationDocumentClaim" in event.payload) {
+      const claim = event.payload.declarationDocumentClaim,
+        bytes = readBlob(claim.sha256);
+      if (!bytes || bytes.byteLength !== claim.size)
+        throw new Error(`schedule definition blob ${claim.sha256} is unavailable`);
+      let body: string;
+      try {
+        body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        throw new Error(`schedule definition blob ${claim.sha256} is not UTF-8`);
+      }
+      if (sha256Text(body) !== claim.sha256) throw new Error(`schedule definition blob ${claim.sha256} hash mismatch`);
+      let value: unknown;
+      try {
+        value = JSON.parse(body);
+      } catch {
+        throw new Error(`schedule definition blob ${claim.sha256} is not JSON`);
+      }
+      if (
+        validateScheduleDefinitionV1(value).length > 0 ||
+        canonicalJson(value) !== canonicalJson(scheduleDefinition(event.payload.schedule))
+      )
+        throw new Error(`schedule definition blob ${claim.sha256} does not match the event definition facet`);
+      const document: DocumentState = {
+        path: claim.path as DocumentState["path"],
+        blobSha256: claim.sha256,
+        body,
+        size: docByteLength(claim.size),
+        mediaType: claim.mediaType,
+        policyId: claim.policyId,
+        workspaceRevision: event.workspaceRevision,
+      };
+      runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    }
+    projectEmbeddedCanonicalEntities(db, event);
     return;
   }
   if (isFactEvent(event)) {

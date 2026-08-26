@@ -16,6 +16,7 @@ import {
 import { validateCurrentTaskBootstrapEvent, validateTaskBootstrapEvent } from "./task-bootstrap-event.ts";
 import { validateCurrentTaskEvent, validateTaskEvent, type TaskEventV1 } from "./task-lifecycle-event.ts";
 import { validateCurrentTaskProgressEvent, validateTaskProgressEvent } from "./task-progress-event.ts";
+import { validateCurrentScheduleEvent, validateScheduleEvent } from "./schedule-event.ts";
 import { canonicalizeWriteValue, isRecord } from "./write-chain.contract.ts";
 import { normalizePersistedTimestamp } from "./timestamp.ts";
 
@@ -40,6 +41,11 @@ export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] 
     schema: "agent-runtime-event/v1",
     validate: validateAgentRuntimeEvent,
     validateCurrent: validateCurrentAgentRuntimeEvent,
+  },
+  {
+    schema: "schedule-event/v1",
+    validate: validateScheduleEvent,
+    validateCurrent: validateCurrentScheduleEvent,
   },
   {
     schema: "task-bootstrap-event/v1",

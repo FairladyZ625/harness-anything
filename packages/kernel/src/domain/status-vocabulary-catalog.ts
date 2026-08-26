@@ -102,6 +102,23 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: ["draft", "active", "retired"],
   },
   {
+    id: "schedule.state",
+    entity: "Schedule",
+    field: "state",
+    module: "packages/kernel/src/domain/schedule.ts",
+    anchor: "scheduleStates",
+    words: ["armed", "paused"],
+  },
+  {
+    id: "schedule.run-outcome",
+    entity: "Schedule",
+    field: "status.lastRun.outcome",
+    module: "packages/kernel/src/domain/schedule.ts",
+    anchor: "scheduleRunOutcomes",
+    words: ["succeeded", "failed", "unknown", "cancelled"],
+    note: "Terminal result of a Schedule occurrence; it can fail before a RuntimeSession exists.",
+  },
+  {
     id: "execution.state.v1",
     entity: "Execution",
     field: "state",

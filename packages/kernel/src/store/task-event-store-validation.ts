@@ -26,6 +26,7 @@ import {
   type TaskBootstrapEventV1,
 } from "../domain/task-bootstrap-event.ts";
 import { assertTaskProgressWritePlan, isTaskProgressEvent } from "../domain/task-progress-event.ts";
+import { assertScheduleEventInputs, isScheduleEvent } from "../domain/schedule-event.ts";
 import { assertSnapshotUpgradeInputs, isSnapshotUpgradeEvent } from "../domain/task-snapshot-upgrade-store-seam.ts";
 import {
   isFrozenWritePlan,
@@ -71,6 +72,15 @@ export function assertBundle(bundle: CanonicalWriteBundle): void {
       throw new TaskEventStoreError(
         "invalid_write_plan",
         "entity upsert must carry a schema-valid declaration and exact write plan",
+      );
+    }
+  if (isScheduleEvent(event))
+    try {
+      assertScheduleEventInputs(event, plan, blobs);
+    } catch {
+      throw new TaskEventStoreError(
+        "invalid_write_plan",
+        "schedule event must carry an exact definition-only claim or run-only evidence plan",
       );
     }
   if (isTaskEvent(event))
