@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { serializeSquadRunsList, validateSquadRunsList } from "../src/squad-run-contract.ts";
+import {
+  serializeSquadRunRead,
+  serializeSquadRunsList,
+  validateSquadRunRead,
+  validateSquadRunsList,
+} from "../src/squad-run-contract.ts";
 
 const summary = {
   squadRunId: "squad_0123456789abcdef01234567",
@@ -25,10 +30,69 @@ const list = {
   watermark: 42,
   sourceRevision: 42,
 };
+const detail = {
+  ok: true as const,
+  status: "ready" as const,
+  run: {
+    squadRunId: "squad_0123456789abcdef01234567",
+    squadId: "core-squad",
+    taskId: "task-runtime",
+    mission: "Review the runtime read model",
+    phase: "converged" as const,
+    error: null,
+    currentLeaderRuntimeSessionId: null,
+    leaderTurns: [
+      {
+        turnId: "leader-1",
+        trigger: { kind: "initial" },
+        dispatchId: "dispatch_000000000000000000000001",
+        runtimeSessionId: "runtime-leader",
+        decision: { kind: "plan", dispatchCount: 1 },
+        status: "succeeded" as const,
+        startedAt: "2026-08-26T00:00:00.000Z",
+        endedAt: "2026-08-26T00:05:00.000Z",
+      },
+      {
+        turnId: "leader-2",
+        trigger: { kind: "worker_outcome", runtimeSessionId: "runtime-worker-1" },
+        dispatchId: "dispatch_000000000000000000000002",
+        runtimeSessionId: "runtime-leader",
+        decision: { kind: "converged" },
+        status: null,
+        startedAt: null,
+        endedAt: null,
+      },
+    ],
+    workerAttempts: [
+      {
+        attemptId: "worker-1",
+        workerId: "terra",
+        dispatchId: "dispatch_000000000000000000000003",
+        runtimeSessionId: "runtime-worker-1",
+        rejection: null,
+        status: "succeeded" as const,
+        startedAt: "2026-08-26T00:06:00.000Z",
+        endedAt: "2026-08-26T00:09:00.000Z",
+      },
+      {
+        attemptId: "worker-2",
+        workerId: "sol",
+        dispatchId: null,
+        runtimeSessionId: null,
+        rejection: "Runtime dispatch was rejected.",
+        status: null,
+        startedAt: null,
+        endedAt: null,
+      },
+    ],
+  },
+  watermark: 42,
+  sourceRevision: 42,
+};
 test("squad run list facet is registered and rejects malformed bounds", () => {
   assert.deepEqual(
-    daemonGuiReadMethods.filter(({ method }) => method.startsWith("repo.squad.runs.")).map(({ method }) => method),
-    ["repo.squad.runs.list"],
+    daemonGuiReadMethods.filter(({ method }) => method.startsWith("repo.squad.run")).map(({ method }) => method),
+    ["repo.squad.runs.list", "repo.squad.run.read"],
   );
   const validate = (method: string, payload: Record<string, unknown>) =>
     validateDaemonRpcCall({ method, params: { repo: { repoId: "runtime-contract" }, payload } });
@@ -45,9 +109,63 @@ test("squad run list facet is registered and rejects malformed bounds", () => {
   assert.notDeepEqual(validate("repo.squad.runs.list", { cursor: "retired" }), []);
 });
 
+test("squad run read facet requires the exact squad run handle", () => {
+  const validate = (payload: Record<string, unknown>) =>
+    validateDaemonRpcCall({
+      method: "repo.squad.run.read",
+      params: { repo: { repoId: "runtime-contract" }, payload },
+    });
+  assert.deepEqual(validate({ squadRunId: "squad_0123456789abcdef01234567" }), []);
+  assert.notDeepEqual(validate({ squadRunId: "squad-short" }), []);
+  assert.notDeepEqual(validate({ squadRunId: "squad_0123456789ABCDEF01234567" }), []);
+  assert.notDeepEqual(validate({}), []);
+  assert.notDeepEqual(validate({ squadRunId: "squad_0123456789abcdef01234567", extra: true }), []);
+});
+
 test("squad run list validator locks the redacted wire shape", () => {
   assert.deepEqual(validateSquadRunsList(list), []);
   assert.equal(parseDaemonGuiReadResult("repo.squad.runs.list", list), list);
   assert.equal(serializeSquadRunsList(list), `${JSON.stringify(list)}\n`);
   assert.notDeepEqual(validateSquadRunsList({ ...list, token: "secret" }), []);
+});
+
+test("squad run read validator locks the orchestration-flow wire shape", () => {
+  assert.deepEqual(validateSquadRunRead(detail), []);
+  assert.equal(parseDaemonGuiReadResult("repo.squad.run.read", detail), detail);
+  assert.equal(serializeSquadRunRead(detail), `${JSON.stringify(detail)}\n`);
+  assert.notDeepEqual(validateSquadRunRead({ ...detail, token: "secret" }), []);
+  // 台账行缺失(leader 轮次无对应派工)必须以 null 呈现,不得伪造状态。
+  assert.deepEqual(
+    validateSquadRunRead({
+      ...detail,
+      run: {
+        ...detail.run,
+        leaderTurns: detail.run.leaderTurns.map((turn: { readonly status: string | null }) => ({
+          ...turn,
+          status: turn.status === null ? "running" : turn.status,
+        })),
+      },
+    }),
+    [],
+  );
+  assert.notDeepEqual(
+    validateSquadRunRead({
+      ...detail,
+      run: {
+        ...detail.run,
+        leaderTurns: detail.run.leaderTurns.map((turn: object) => ({ ...turn, status: "expired" })),
+      },
+    }),
+    [],
+  );
+  assert.notDeepEqual(
+    validateSquadRunRead({
+      ...detail,
+      run: {
+        ...detail.run,
+        leaderTurns: detail.run.leaderTurns.map((turn: object) => ({ ...turn, decision: { kind: "unknown" } })),
+      },
+    }),
+    [],
+  );
 });

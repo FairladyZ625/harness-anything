@@ -51,6 +51,7 @@ test("runtime read facets expose safe overview/session/events through the shared
         "repo.squad.entities.list",
         "repo.squad.entity.read",
         "repo.squad.runs.list",
+        "repo.squad.run.read",
       ],
     );
     assert.deepEqual(

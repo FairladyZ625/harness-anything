@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { SessionGroupList } from "../src/renderer/components/sessions/SessionGroupList.tsx";
 import { SessionInspector } from "../src/renderer/components/sessions/SessionInspector.tsx";
 import { SquadRunList } from "../src/renderer/components/sessions/SquadRunList.tsx";
+import { SquadRunDetail } from "../src/renderer/components/sessions/SquadRunDetail.tsx";
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
 import {
   sessionDecisionRefs,
@@ -323,7 +324,9 @@ const squadRunView = (props: Partial<Parameters<typeof SquadRunList>[0]>) =>
       totalRuns: 1,
       squadNames: new Map([[squadRunSummary.squadId, "ontology-squad"]]),
       query: "",
-      onOpenTask: noop,
+      range: "30d",
+      selectedId: null,
+      onSelectRun: noop,
       ...props,
     }),
   );
@@ -339,8 +342,132 @@ describe("sessions page: squad orchestration", () => {
     expect(markup).not.toContain("runtime-sessions-more");
   });
 
-  it("keeps the empty state honest when no squad run matches the range", () => {
-    const markup = squadRunView({ runs: [], totalRuns: 0, squadNames: new Map() });
-    expect(markup).toContain("No squad runs yet");
+  it("keeps the whole run row clickable with a selected state (G12 §2b)", () => {
+    const markup = squadRunView({ selectedId: squadRunSummary.squadRunId });
+    expect(markup).toMatch(/data-testid="squad-run-toggle-squad_a{18}"[^>]*aria-current="true"/u);
+    expect(markup).toMatch(/squad-run-toggle-squad_a{18}"[^>]*class="[^"]*bg-accent/u);
+  });
+
+  it("keeps the empty state honest when no squad run matches the range (G12 §2a)", () => {
+    const inWindow = squadRunView({ runs: [], totalRuns: 0, squadNames: new Map(), range: "30d" });
+    expect(inWindow).toContain("No squad runs in this range (30d)");
+    expect(inWindow).toContain('data-testid="squad-runs-empty"');
+    const never = squadRunView({ runs: [], totalRuns: 0, squadNames: new Map(), range: "all" });
+    expect(never).toContain("No squad runs yet");
+  });
+});
+
+const squadRunDetail = {
+  ok: true as const,
+  status: "ready" as const,
+  run: {
+    squadRunId: "squad_" + "b".repeat(18),
+    squadId: squadRunSummary.squadId,
+    taskId: "task_5fc508",
+    mission: "Ship the ontology milestone",
+    phase: "workers_running" as const,
+    error: null,
+    currentLeaderRuntimeSessionId: "runtime-leader-2",
+    leaderTurns: [
+      {
+        turnId: "leader-1",
+        trigger: { kind: "initial" },
+        dispatchId: "dispatch_000000000000000000000001",
+        runtimeSessionId: "runtime-leader-1",
+        decision: { kind: "plan", dispatchCount: 2 },
+        status: "succeeded" as const,
+        startedAt: "2026-08-25T18:00:00.000Z",
+        endedAt: "2026-08-25T18:04:00.000Z",
+      },
+      {
+        turnId: "leader-2",
+        trigger: { kind: "worker_outcome", runtimeSessionId: "runtime-worker-1" },
+        dispatchId: "dispatch_000000000000000000000002",
+        runtimeSessionId: "runtime-leader-2",
+        decision: null,
+        status: "running" as const,
+        startedAt: "2026-08-25T18:10:00.000Z",
+        endedAt: null,
+      },
+    ],
+    workerAttempts: [
+      {
+        attemptId: "worker-1",
+        workerId: "terra",
+        dispatchId: "dispatch_000000000000000000000003",
+        runtimeSessionId: "runtime-worker-1",
+        rejection: null,
+        status: "succeeded" as const,
+        startedAt: "2026-08-25T18:05:00.000Z",
+        endedAt: "2026-08-25T18:09:00.000Z",
+      },
+      {
+        attemptId: "worker-2",
+        workerId: "sol",
+        dispatchId: null,
+        runtimeSessionId: null,
+        rejection: "Runtime dispatch was rejected.",
+        status: null,
+        startedAt: null,
+        endedAt: null,
+      },
+    ],
+  },
+  watermark: 9,
+  sourceRevision: 9,
+};
+
+describe("sessions page: squad run detail", () => {
+  const detailView = (props: Partial<Parameters<typeof SquadRunDetail>[0]> = {}) =>
+    renderToStaticMarkup(
+      createElement(SquadRunDetail, {
+        detail: squadRunDetail,
+        squadName: "ontology-squad",
+        pending: false,
+        error: null,
+        onOpenTask: noop,
+        onSelectEntity: noop,
+        ...props,
+      }),
+    );
+
+  it("renders the leader turn timeline with triggers, decisions, and session exits", () => {
+    const markup = detailView();
+    expect(markup).toContain("Leader turns (2)");
+    expect(markup).toContain("leader-1");
+    expect(markup).toContain("initial mission");
+    expect(markup).toContain("plan · 2 dispatches");
+    expect(markup).toContain("leader-2");
+    expect(markup).toContain("after worker session");
+    expect(markup).toContain("decision pending");
+    expect(markup).toMatch(/data-testid="squad-run-turn-leader-2"/u);
+    // 当前 leader 轮高亮;轮次行直达 session/<id>(EntityRefLink 是 button 出口)。
+    expect(markup).toMatch(/border-accent\/40/u);
+    expect(markup).toContain('title="runtime-leader-2"');
+    expect(markup).toContain("runtime-leader-2");
+  });
+
+  it("renders the worker dispatch chain with rejections and missing-dispatch nulls", () => {
+    const markup = detailView();
+    expect(markup).toContain("Worker attempts (2)");
+    expect(markup).toContain("worker-1");
+    expect(markup).toContain("terra");
+    expect(markup).toContain("worker-2");
+    expect(markup).toContain("rejected: Runtime dispatch was rejected.");
+    expect(markup).toContain("no dispatch");
+    expect(markup).toMatch(/data-testid="squad-run-attempt-worker-2"/u);
+  });
+
+  it("surfaces the run error line and read failures without inventing flow", () => {
+    const failed = detailView({
+      detail: {
+        ...squadRunDetail,
+        run: { ...squadRunDetail.run, error: "Leader turn leader-1 ended with failed." },
+      },
+    });
+    expect(failed).toContain("Leader turn leader-1 ended with failed.");
+    const error = detailView({ detail: null, pending: false, error: "squad read failed" });
+    expect(error).toContain("squad read failed");
+    expect(error).toMatch(/data-testid="squad-run-detail-error"/u);
   });
 });

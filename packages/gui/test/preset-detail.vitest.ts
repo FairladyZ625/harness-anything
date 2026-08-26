@@ -199,6 +199,22 @@ describe("G7 Preset 列表 → 详情", () => {
     expect(container.querySelector('[data-testid="preset-ancestry"]')?.textContent).toContain(PRESET_ID);
   });
 
+  it("详情页 digest 不把 dt/dd 嵌进 dd", async () => {
+    const container = await mountView(
+      createElement(PresetDetailView, {
+        repoId: REPO_ID,
+        presetId: PRESET_ID,
+        locale: "zh-CN",
+        row: null,
+        projectName: "G7 Probe",
+        fromViewLabel: "目录 / Preset",
+        onBack: () => undefined,
+      }),
+    );
+    expect(container.querySelector("dd dt")).toBeNull();
+    expect(container.querySelector("dd dd")).toBeNull();
+  });
+
   it("详情页包内容:侧栏列包内文档,DocReader 渲染 markdown 正文,纯文本按原样", async () => {
     const container = await mountView(
       createElement(PresetDetailView, {
