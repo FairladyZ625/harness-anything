@@ -1,4 +1,3 @@
-import type { DaemonStreamLost } from "../../../daemon/src/client/local-json-rpc-stream.ts";
 import { realpathSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -428,7 +427,7 @@ export async function streamRuntimeThroughDaemon(
   command: ThinCommand,
   runtimeSessionId: string,
   onValue: (value: unknown) => void,
-  onClosed?: (failure: DaemonStreamLost) => void,
+  onClosed?: (failure: import("../../../daemon/src/client/local-json-rpc-stream.ts").DaemonStreamLost) => void,
 ): Promise<() => void> {
   const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
     { streamAgentRuntimeAt } = await import("../../../daemon/src/client/local-json-rpc-stream.ts");
