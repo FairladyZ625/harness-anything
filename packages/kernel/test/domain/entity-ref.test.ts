@@ -59,17 +59,19 @@ test("EntityRef parser accepts hosted relation entity refs", () => {
   assert.equal(parseEntityRef("relation/not-a-relation"), null);
 });
 
-test("EntityRef parser accepts Phase 1 relation endpoints", () => {
+test("EntityRef parser derives the nine canonical kind grammars from authority", () => {
   for (const [kind, ref] of [
     ["execution", "execution/exe-1"],
     ["review", "review/rev-1"],
     ["agent", "agent/codex"],
-    ["runtime-session", "runtime-session/run-1"],
+    ["squad", "squad/codex"],
+    ["runtime-session", "runtime-session/runtime_session1"],
     ["policy", "policy/policy-1"],
   ] as const) {
     assert.equal(parseEntityRef(ref)?.kind, kind);
   }
-  assert.equal(parseEntityRef("squad/codex"), null);
+  assert.equal(parseEntityRef("execution/task-1/exe-1"), null);
+  assert.equal(parseEntityRef("review/exe-1/rev-1"), null);
 });
 
 test("EntityRef scanner preserves external harness prefixes without resolving them", () => {

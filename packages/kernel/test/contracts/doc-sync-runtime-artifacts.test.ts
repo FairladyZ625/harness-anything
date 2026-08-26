@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
 import { DOC_POLICY_ID, decideDocWrite, documentPath, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
-import { resolveLiveTaskBoundRuntimeBinding } from "../../src/domain/task-bound-runtime-authority.ts";
+import { resolveTaskBoundRuntimeBinding } from "../../src/domain/task-bound-runtime-authority.ts";
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
@@ -102,12 +102,12 @@ test("a task-bound runtime may write only its assigned task artifacts subtree wh
     resultRef: null,
     lastObservedAt: "2026-08-12T10:00:00.000Z",
   } as const;
-  assert.deepEqual(resolveLiveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId), runtimeBinding);
+  assert.deepEqual(resolveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId), runtimeBinding);
   assert.deepEqual(
-    resolveLiveTaskBoundRuntimeBinding({ ...session, liveness: "unknown" }, lease.taskId, lease.executionId),
+    resolveTaskBoundRuntimeBinding({ ...session, liveness: "unknown" }, lease.taskId, lease.executionId),
     runtimeBinding,
   );
-  assert.equal(resolveLiveTaskBoundRuntimeBinding(session, lease.taskId, "another-execution"), null);
+  assert.equal(resolveTaskBoundRuntimeBinding(session, lease.taskId, "another-execution"), null);
 });
 
 test("an opaque artifact write reclassifies an existing prose record without a policy upgrade", () => {

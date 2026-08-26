@@ -157,15 +157,15 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
   });
   assert.throws(
     () => compileEntityUpsert({ ...base, entityKind: "execution", entity: execution }),
-    /execution.*must be authored via lifecycle\/runtime events, not generic upsert/u,
+    /execution.*no generic entity-store surface/u,
   );
   assert.throws(
     () => compileEntityUpsert({ ...base, entityKind: "review", entity: review }),
-    /review.*must be authored via lifecycle\/runtime events, not generic upsert/u,
+    /review.*no generic entity-store surface/u,
   );
   assert.throws(
     () => compileEntityUpsert({ ...base, entityKind: "runtime-session", entity: runtimeSession }),
-    /runtime-session.*must be authored via lifecycle\/runtime events, not generic upsert/u,
+    /runtime-session.*no generic entity-store surface/u,
   );
   assert.doesNotThrow(() => compileEntityUpsert({ ...base, entityKind: "agent", entity: agent }));
   assert.doesNotThrow(() => compileEntityUpsert({ ...base, entityKind: "squad", entity: squad }));
@@ -189,8 +189,10 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
   assert.equal(isAllowedRelationKindTriple("execution", "executes", "task"), true);
   assert.equal(isAllowedRelationKindTriple("review", "reviews", "execution"), true);
   assert.equal(isAllowedRelationKindTriple("task", "executes", "execution"), false);
-  assert.deepEqual(parseEntityRef(`execution/${execution.taskId}/${execution.executionId}`)?.kind, "execution");
-  assert.deepEqual(parseEntityRef(`review/${execution.executionId}/${review.reviewId}`)?.kind, "review");
+  assert.deepEqual(parseEntityRef(`execution/${execution.executionId}`)?.kind, "execution");
+  assert.deepEqual(parseEntityRef(`review/${review.reviewId}`)?.kind, "review");
+  assert.equal(parseEntityRef(`execution/${execution.taskId}/${execution.executionId}`), null);
+  assert.equal(parseEntityRef(`review/${execution.executionId}/${review.reviewId}`), null);
 });
 
 test("a synthetic third contract drives the same embedded projection interpreter", () => {

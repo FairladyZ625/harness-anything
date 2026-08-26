@@ -3,7 +3,7 @@ import {
   decideDocWrite,
   docSyncWritePlan,
   parseDocWriteIntent,
-  resolveLiveTaskBoundRuntimeBinding,
+  resolveTaskBoundRuntimeBinding,
   resolveRetirableDocument,
   runtimeSessionIdFromActor,
   sha256Bytes,
@@ -91,7 +91,7 @@ export function adjudicateDocIntent(
     runtimeSessionId = runtimeSessionIdFromActor(input.binding.actor),
     runtimeSession = runtimeSessionId === null ? null : input.projection.readRuntimeSession(runtimeSessionId),
     runtimeBinding =
-      lease === null ? null : resolveLiveTaskBoundRuntimeBinding(runtimeSession, lease.taskId, lease.executionId),
+      lease === null ? null : resolveTaskBoundRuntimeBinding(runtimeSession, lease.taskId, lease.executionId),
     authorizationDecision =
       intent.executionId === null
         ? null

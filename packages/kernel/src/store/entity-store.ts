@@ -5,12 +5,8 @@ import {
   type EntityUpsertBundle,
   type StoredEntityEventV1,
 } from "../domain/entity-event.ts";
-import {
-  interpretEmbeddedEntityProjections,
-  interpretEntityValue,
-  type InterpretedEntityProjection,
-} from "../domain/entity-kind-projection.ts";
-import { entityDocumentPath, requireEntityStoreKindContract } from "../domain/entity-kind-registry.ts";
+import { interpretEntityValue } from "../domain/entity-kind-projection.ts";
+import { requireEntityStoreKindContract } from "../domain/entity-kind-registry.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveLedgerGitLayout } from "./ledger-git-layout.ts";
 import { publicationRefs } from "./task-event-store-git-refs.ts";
@@ -37,15 +33,9 @@ export function createEntityStore(source: EntityEventSource): EntityStore {
   const records = (kind: string): readonly StoredEntity[] => {
     const contract = requireEntityStoreKindContract(kind),
       latest = new Map<string, ReturnType<typeof entityEventRecord>>();
-    const keepLatest = (record: StoredEntity): void => {
-      const current = latest.get(record.id);
-      if (current === undefined || current.workspaceRevision <= record.workspaceRevision) latest.set(record.id, record);
-    };
     for (const event of source.read().events) {
       if (isEntityEvent(event) && event.payload.entityKind === contract.kind)
-        keepLatest(entityEventRecord(event, source, contract));
-      for (const projection of interpretEmbeddedEntityProjections(contract, event))
-        keepLatest(embeddedEventRecord(projection, contract));
+        latest.set(event.payload.entityId, entityEventRecord(event, source, contract));
     }
     return [...latest.values()].sort((left, right) => left.id.localeCompare(right.id));
   };
@@ -54,19 +44,6 @@ export function createEntityStore(source: EntityEventSource): EntityStore {
     get: <T>(kind: string, id: string) =>
       (records(kind).find((record) => record.id === id) as StoredEntity<T> | undefined) ?? null,
     list: <T>(kind: string) => records(kind) as readonly StoredEntity<T>[],
-  };
-}
-
-function embeddedEventRecord(
-  projection: InterpretedEntityProjection,
-  contract: ReturnType<typeof requireEntityStoreKindContract>,
-): StoredEntity {
-  return {
-    kind: contract.kind,
-    id: projection.id,
-    value: projection.value,
-    documentPath: entityDocumentPath(contract, projection.id),
-    workspaceRevision: projection.workspaceRevision,
   };
 }
 

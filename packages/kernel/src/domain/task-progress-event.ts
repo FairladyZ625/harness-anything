@@ -17,7 +17,7 @@ import {
 } from "./write-chain.contract.ts";
 import type { LeaseV1 } from "./execution.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
-import { isTaskBoundRuntimeWriter, type LiveTaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
+import { isTaskBoundRuntimeWriter, type TaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
 import { isValidDocEventChange, type DocEventChange } from "./doc-sync.contract.ts";
 
 export const TASK_PROGRESS_POLICY_ID = "typed-machine-writer/v1" as const;
@@ -100,7 +100,7 @@ export function compileTaskProgress(input: {
   readonly currentDocument: ProgressDocumentState | null;
   readonly activeLease: LeaseV1 | null;
   readonly startRecoveryAvailable: boolean;
-  readonly runtimeBinding?: LiveTaskBoundRuntimeBinding;
+  readonly runtimeBinding?: TaskBoundRuntimeBinding;
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly eventId: string;

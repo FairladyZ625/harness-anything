@@ -8,7 +8,7 @@ import type {
 } from "../../kernel/src/index.ts";
 import {
   consumeKnownError,
-  resolveLiveTaskBoundRuntimeBinding,
+  resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
   type AuthorizationDecision,
 } from "../../kernel/src/index.ts";
@@ -236,7 +236,7 @@ export function makeRuntimeSpawner(input: {
           runtimeBinding =
             callerRuntimeSessionId === null || lease === null
               ? null
-              : resolveLiveTaskBoundRuntimeBinding(
+              : resolveTaskBoundRuntimeBinding(
                   projection!.readRuntimeSession(callerRuntimeSessionId),
                   taskId,
                   lease.executionId,

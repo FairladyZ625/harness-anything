@@ -34,10 +34,7 @@ export {
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
 export { isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
-export {
-  resolveLiveTaskBoundRuntimeBinding,
-  runtimeSessionIdFromActor,
-} from "./domain/task-bound-runtime-authority.ts";
+export { resolveTaskBoundRuntimeBinding, runtimeSessionIdFromActor } from "./domain/task-bound-runtime-authority.ts";
 export {
   compileTaskLifecycleWrite,
   lifecycleDocumentFetchPaths,
