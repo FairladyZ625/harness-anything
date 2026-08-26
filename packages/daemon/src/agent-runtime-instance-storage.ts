@@ -230,6 +230,11 @@ export function sharedProviderDirectory(
 // Mode); if even that fails, sharing is best-effort skipped and the provider's own
 // subscription probe reports the consequence instead of failing the launch.
 export function ensureSharedAuthFile(src: string, dst: string): void {
+  if (path.resolve(src) === path.resolve(dst))
+    throw runtimeInstanceError(
+      "runtime_auth_share_self_reference",
+      `Runtime auth sharing source and destination resolve to the same path: ${path.resolve(src)}.`,
+    );
   if (!existsSync(src)) return;
   const existing = lstatSync(dst, { throwIfNoEntry: false });
   if (existing?.isSymbolicLink() && readlinkSync(dst) === src) return;
