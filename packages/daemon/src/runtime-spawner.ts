@@ -42,6 +42,7 @@ import {
 } from "./runtime-spawn-errors.ts";
 import {
   assembleAgentPrompt,
+  assembleScheduledMission,
   assembleTaskMission,
   deriveTaskMission,
   resolveRuntimeCwd,
@@ -79,6 +80,8 @@ import type {
   RuntimeDaemonRoute,
   RuntimeLauncher,
   RuntimeProcess,
+  TrustedScheduleRuntime,
+  TrustedScheduleSpawn,
 } from "./runtime-spawn-types.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { authorizeAction } from "./authorization.ts";
@@ -118,6 +121,7 @@ export function makeRuntimeSpawner(input: {
   readonly schedule: (work: () => void | Promise<void>) => void;
   readonly onRuntimeOutcome?: (
     event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
+    schedule: TrustedScheduleRuntime | null,
   ) => void;
   readonly onFallbackExhausted?: (input: {
     readonly taskId: string;
@@ -170,6 +174,7 @@ export function makeRuntimeSpawner(input: {
     payload: JsonObject,
     binding: RuntimeBinding,
     inheritedFallback?: RuntimeFallbackAttempt,
+    trustedSchedule?: TrustedScheduleRuntime,
   ): Promise<JsonObject> => {
     const allowed = [
         "runtimeInstanceId",
@@ -258,11 +263,11 @@ export function makeRuntimeSpawner(input: {
     }
     if (authorizationDecision?.outcome === "denied")
       throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId!, lease));
-    const daemonRoute = taskId ? input.runtimeDaemonRoute : undefined;
-    if (taskId && !daemonRoute)
+    const daemonRoute = taskId || trustedSchedule ? input.runtimeDaemonRoute : undefined;
+    if ((taskId || trustedSchedule) && !daemonRoute)
       throw runtimeSpawnError(
         "runtime_preconditions_unavailable",
-        "Task-bound runtime spawn requires a sealed daemon route before dispatch.",
+        "Task-bound and scheduled runtime spawn require a sealed daemon route before dispatch.",
       );
     const taskMission = taskId ? (remoteTask ?? deriveTaskMission(input.rootDir, projection!, taskId)) : null,
       mission = explicitMission ?? taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt");
@@ -300,7 +305,18 @@ export function makeRuntimeSpawner(input: {
               daemonRoute,
               runtimeActor,
             })
-          : mission,
+          : trustedSchedule && daemonRoute
+            ? assembleScheduledMission({
+                mission,
+                repoId: input.repoId,
+                canonicalRoot: input.rootDir,
+                workerRoot: cwd,
+                scheduleId: trustedSchedule.scheduleId,
+                claimFence: trustedSchedule.claimFence,
+                daemonRoute,
+                runtimeActor,
+              })
+            : mission,
       target = targetAgentId
         ? (input.resolveSquadDispatchTarget?.(agentId!, targetAgentId) ??
           (() => {
@@ -408,11 +424,15 @@ export function makeRuntimeSpawner(input: {
       ].join(""),
       runtimeKind = runtimeKindForId(definition.kindId),
       protocolFamily = runtimeKind.protocolFamily,
-      workerGitEnvironment = taskId ? await prepareWorkerGitEnvironment(runtimeInstanceId) : undefined;
+      workerGitEnvironment = taskId
+        ? await prepareWorkerGitEnvironment(runtimeInstanceId)
+        : trustedSchedule
+          ? await input.prepareWorkerGitEnvironment?.(runtimeInstanceId)
+          : undefined;
     // Enforced runtimes replace HOME and TMPDIR, so a task worker needs the daemon's sealed callback
     // route as well as its own executor identity.
     const workerLaunch =
-      taskId && daemonRoute
+      (taskId || trustedSchedule) && daemonRoute
         ? {
             ...prepared,
             env: {
@@ -430,7 +450,13 @@ export function makeRuntimeSpawner(input: {
               HARNESS_DAEMON_ENDPOINT: daemonRoute.endpoint,
               HARNESS_DAEMON_REPO_ID: input.repoId,
               HARNESS_ACTOR: runtimeActor,
-              HARNESS_TASK_BOUND: "1",
+              ...(taskId ? { HARNESS_TASK_BOUND: "1" } : {}),
+              ...(trustedSchedule
+                ? {
+                    HARNESS_SCHEDULE_ID: trustedSchedule.scheduleId,
+                    HARNESS_SCHEDULE_CLAIM_FENCE: trustedSchedule.claimFence,
+                  }
+                : {}),
             },
           }
         : prepared;
@@ -444,6 +470,7 @@ export function makeRuntimeSpawner(input: {
         dispatchId: newDispatchId,
         taskId: taskBinding?.taskId ?? null,
         executionId: taskBinding?.executionId ?? null,
+        ...(trustedSchedule ? { schedule: trustedSchedule } : {}),
         runtimeSessionId,
         instanceId: definition.instanceId,
         startedAt: streamStartedAt,
@@ -575,6 +602,7 @@ export function makeRuntimeSpawner(input: {
       squadId: target?.squadId ?? null,
       binding,
       task: taskBinding,
+      schedule: trustedSchedule ?? null,
       cwd,
       prompt,
       ...(promptSource ? { promptSource } : {}),
@@ -608,6 +636,21 @@ export function makeRuntimeSpawner(input: {
   };
   return {
     spawn: (payload: JsonObject, binding: RuntimeBinding) => spawnAttempt(payload, binding),
+    spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) =>
+      spawnAttempt(
+        {
+          runtimeInstanceId: scheduled.runtimeInstanceId,
+          agentId: scheduled.agentId,
+          prompt: scheduled.mission,
+          idempotencyKey: `${scheduled.scheduleId}:${scheduled.claimFence}`,
+          cwd: scheduled.cwd ? { scope: "repo-relative", path: scheduled.cwd } : { scope: "repo-root" },
+          ...(scheduled.model ? { model: scheduled.model } : {}),
+          ...(scheduled.effort ? { effort: scheduled.effort } : {}),
+        },
+        binding,
+        undefined,
+        { scheduleId: scheduled.scheduleId, claimFence: scheduled.claimFence },
+      ),
     adopt: () => adoptRuntimes(extracted),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     close: () => {

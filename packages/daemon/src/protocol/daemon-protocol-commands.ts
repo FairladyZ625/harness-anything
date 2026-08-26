@@ -9,7 +9,7 @@ import { decisionLifecycleProtocolCommands } from "./daemon-protocol-commands-de
 import { decisionRelationProtocolCommands } from "./daemon-protocol-commands-decision-relations.ts";
 import { docFactProtocolCommands } from "./daemon-protocol-commands-doc-fact.ts";
 import { runtimeConfigProtocolCommands } from "./daemon-protocol-commands-runtime-config.ts";
-import { runtimeFleetProtocolCommands } from "./daemon-protocol-commands-runtime-fleet.ts";
+import { runtimeFleetProtocolCommands, scheduleProtocolCommands } from "./daemon-protocol-commands-runtime-fleet.ts";
 import { taskSurfaceProtocolCommands } from "./daemon-protocol-commands-task-surface.ts";
 import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
@@ -24,6 +24,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...decisionRelationProtocolCommands,
   ...runtimeConfigProtocolCommands,
   ...runtimeFleetProtocolCommands,
+  ...scheduleProtocolCommands,
 ] as const);
 
 export const runtimePromptInputs = daemonOwnedProtocolCommands
@@ -186,15 +187,19 @@ export const daemonProtocolCommands = Object.freeze([
 ]);
 
 export const thinCliCommands = Object.freeze(
-  daemonProtocolCommands.map(({ usage, summary, help }) => ({
-    usage,
-    summary,
-    help,
-  })),
+  daemonProtocolCommands
+    .filter((command) => !("internal" in command && command.internal))
+    .map(({ usage, summary, help }) => ({
+      usage,
+      summary,
+      help,
+    })),
 );
 
 export function resolveThinCliCommand(args: readonly string[]): (typeof daemonProtocolCommands)[number] | undefined {
-  const matches = daemonProtocolCommands.filter((entry) => entry.path.every((token, index) => args[index] === token));
+  const matches = daemonProtocolCommands.filter(
+    (entry) => !("internal" in entry && entry.internal) && entry.path.every((token, index) => args[index] === token),
+  );
   if (matches.length < 2) return matches[0];
   const target = args[matches[0]!.path.length] ?? "";
   return matches.find((entry) =>

@@ -387,6 +387,7 @@ export default Object.freeze({
     "Fleet-Wiring",
     "B2-S1",
     "G6-A",
+    "Schedule-S3",
   ]),
   commands: effectiveDaemonOwnedProtocolCommands,
   methods: Object.freeze([

@@ -8,11 +8,13 @@ export type ThinHelpCatalogEntry = {
   readonly errorCode?: string;
 };
 
+const publicCommands = () => daemonProtocolCommands.filter((command) => !("internal" in command && command.internal));
+
 export function deriveCliCapabilities(
   commands: ReadonlyArray<{
     readonly id: string;
     readonly path: readonly string[];
-  }> = daemonProtocolCommands,
+  }> = publicCommands(),
 ): Readonly<Record<string, readonly string[]>> {
   const groups = new Map<string, string[]>();
   for (const command of commands) {
@@ -20,29 +22,20 @@ export function deriveCliCapabilities(
     if (domain) groups.set(domain, [...(groups.get(domain) ?? []), command.id]);
   }
   return Object.fromEntries(
-    [...groups]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([domain, ids]) => [domain, ids.sort()]),
+    [...groups].sort(([left], [right]) => left.localeCompare(right)).map(([domain, ids]) => [domain, ids.sort()]),
   );
 }
 
 export function runtimeBatchDeclarationFields(): readonly string[] {
-  const inputs =
-    daemonProtocolCommands.find((command) => command.id === "runtime-run")
-      ?.inputs ?? [];
+  const inputs = daemonProtocolCommands.find((command) => command.id === "runtime-run")?.inputs ?? [];
   return [
     "instance",
     ...inputs
       .filter(
         (input) =>
-          ![
-            "--resume",
-            "--resume-dispatch",
-            "--idempotency-key",
-            "--detach",
-            "--on-exit",
-            "--no-stream",
-          ].includes(input.name),
+          !["--resume", "--resume-dispatch", "--idempotency-key", "--detach", "--on-exit", "--no-stream"].includes(
+            input.name,
+          ),
       )
       .map((input) => input.name.slice(2)),
   ];
@@ -97,13 +90,11 @@ export function commandDomains(): readonly {
   readonly count: number;
 }[] {
   const counts = new Map<string, number>();
-  for (const command of daemonProtocolCommands) {
+  for (const command of publicCommands()) {
     const domain = command.path[0];
     if (domain) counts.set(domain, (counts.get(domain) ?? 0) + 1);
   }
-  return [...counts]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, count]) => ({ name, count }));
+  return [...counts].sort(([left], [right]) => left.localeCompare(right)).map(([name, count]) => ({ name, count }));
 }
 
 export function cliCommandDomains(): readonly string[] {
@@ -117,10 +108,8 @@ export function unsupportedCommandHint(args: readonly string[]): string {
       .slice(1)
       .filter((token) => !token.startsWith("-"))
       .join(" ");
-  if (domain === undefined)
-    return `No command domain was named; use one of ${domains.join(", ")}.`;
-  if (!domains.includes(domain))
-    return `${domain} is not a command domain; use one of ${domains.join(", ")}.`;
+  if (domain === undefined) return `No command domain was named; use one of ${domains.join(", ")}.`;
+  if (!domains.includes(domain)) return `${domain} is not a command domain; use one of ${domains.join(", ")}.`;
   return verb
     ? `${domain} has no ${verb} command; run ha ${domain} --help for the commands it does have.`
     : `ha ${domain} needs a command; run ha ${domain} --help for the commands it has.`;
