@@ -102,6 +102,42 @@ test("a cooperative shutdown queues stop without waiting for the hello response"
   }
 });
 
+test("the shutdown client keeps the pipe open until a delayed stop reply arrives", async () => {
+  const { endpoint, cleanup } = probeEndpoint("ha-shutdown-reply-");
+  const server = net.createServer((socket) => {
+    let input = "",
+      replyScheduled = false;
+    socket.on("data", (chunk: Buffer) => {
+      input += chunk.toString("utf8");
+      const requests = input
+        .split("\n")
+        .filter((line) => line.startsWith("{"))
+        .map((line) => JSON.parse(line) as JsonRpcRequest);
+      if (requests.length < 2 || replyScheduled) return;
+      replyScheduled = true;
+      // The complete request exchange is the trigger. Yielding one event-loop turn models a
+      // loaded daemon without using a wall-clock delay to arrange the intermediate state.
+      setImmediate(() =>
+        setImmediate(() => {
+          socket.write(
+            `${JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ok: true, build: { commit: null } } })}\n` +
+              `${JSON.stringify({ jsonrpc: "2.0", id: 2, result: { ok: true } })}\n`,
+          );
+        }),
+      );
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(endpoint, resolve));
+  try {
+    const exchange = await requestDaemonShutdownAt(endpoint, 2_000);
+    assert.equal(exchange.helloAnswered, true, JSON.stringify(exchange));
+    assert.deepEqual(exchange.stopReply, { ok: true, code: null, message: null });
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    cleanup();
+  }
+});
+
 test("transport stop stays bounded when an in-flight request never completes", async () => {
   const { endpoint, cleanup } = probeEndpoint("ha-transport-hang-");
   let handlerEntered: () => void = () => {};
