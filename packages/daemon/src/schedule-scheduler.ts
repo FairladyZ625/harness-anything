@@ -129,7 +129,8 @@ export function makeScheduleScheduler(input: {
         } catch (error) {
           consumeKnownError(error);
           console.warn(
-            `[schedule-scheduler] ${occurrence.target.repoId}/${occurrence.scheduleId} fire failed: ${errorMessage(error)}`,
+            `[schedule-scheduler] ${occurrence.target.repoId}/${occurrence.scheduleId} fire failed: ` +
+              errorMessage(error),
           );
         }
       }),
@@ -293,7 +294,8 @@ async function applyMissed(inputs: readonly MissedOccurrences[]): Promise<boolea
       consumeKnownError(outcome.reason);
       const input = inputs[index]!;
       console.warn(
-        `[schedule-scheduler] ${input.target.repoId}/${input.scheduleId} missed settlement failed: ${errorMessage(outcome.reason)}`,
+        `[schedule-scheduler] ${input.target.repoId}/${input.scheduleId} missed settlement failed: ` +
+          errorMessage(outcome.reason),
       );
     }
   return outcomes.every(({ status }) => status === "fulfilled");
