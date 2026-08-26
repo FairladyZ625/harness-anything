@@ -282,6 +282,9 @@ export async function openRepoCell(input: {
   }) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell fallback settlement is not ready.");
   };
+  let settleExecutionLease: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
+    throw cellCodedError("runtime_preconditions_unavailable", "RepoCell execution settlement is not ready.");
+  };
   let settleScheduledOutcome: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell Schedule settlement is not ready.");
   };
@@ -313,12 +316,15 @@ export async function openRepoCell(input: {
       input.onRuntimeOutcome?.(event);
     },
     onAttemptTerminal: async (terminal) => {
-      if (terminal.fallbackExhausted && terminal.task)
-        await settleFallbackExhaustion({
-          ...terminal.task,
-          reason: terminal.reason ?? "Provider fallback exhausted.",
-          binding: terminal.binding,
-        });
+      if (terminal.task) {
+        if (terminal.fallbackExhausted)
+          await settleFallbackExhaustion({
+            ...terminal.task,
+            reason: terminal.reason ?? "Provider fallback exhausted.",
+            binding: terminal.binding,
+          });
+        else await settleExecutionLease(terminal);
+      }
       if (terminal.schedule) schedule(() => settleScheduledOutcome(terminal));
       input.onAttemptTerminal?.(terminal);
     },
@@ -427,6 +433,24 @@ export async function openRepoCell(input: {
     );
     if (settled.outcome !== "applied")
       throw cellCodedError("fallback_exhaustion_failed", `Fallback exhaustion settlement was ${settled.outcome}.`);
+  };
+  settleExecutionLease = async (terminal) => {
+    const task = terminal.task;
+    if (!task) return;
+    const lease = extracted.projection.currentLease(task.taskId, terminal.endedAt);
+    if (!lease || lease.phase === "released" || lease.executionId !== task.executionId) return;
+    const settled = await extracted.taskSurfaceWrite(
+      {
+        kind: "task-release",
+        taskId: task.taskId,
+        terminalExecutionId: task.executionId,
+        terminalRuntimeSessionId: terminal.runtimeSessionId,
+        reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
+      },
+      terminal.binding,
+    );
+    if (settled.outcome !== "applied")
+      throw cellCodedError("runtime_lease_release_failed", `Runtime terminal lease settlement was ${settled.outcome}.`);
   };
   await runtimeSpawner.adopt();
   schedule(() => squadCoordinator.reconcile());

@@ -16,6 +16,7 @@ const owner: ActorIdentity = {
     executor: { kind: "agent", id: "implementer" },
   },
   humanOwner: ActorIdentity = { principal: owner.principal, executor: null },
+  taskOwner: ActorIdentity = { principal: { personId: "task-owner" }, executor: null },
   reviewer: ActorIdentity = {
     principal: owner.principal,
     executor: { kind: "agent", id: "reviewer" },
@@ -106,6 +107,33 @@ test("v2 models held and orphaned release bindings without overloading ownership
       target: { lease, canonicalExecutionExists: false },
     }).outcome,
     "allowed",
+  );
+});
+
+test("v2 lets the task owner reclaim a lease only after its execution is orphaned", () => {
+  const targetOwner = { principal: taskOwner.principal, executor: { kind: "agent", id: "task-creator" } } as const,
+    terminalRuntimeBinding = {
+      runtimeSessionId: "runtime-1",
+      taskId: lease.taskId,
+      executionId: lease.executionId,
+    };
+  assert.equal(
+    decide("execution.release", taskOwner, "execution/execution-1", {
+      target: { owner: targetOwner, lease, canonicalExecutionExists: true },
+    }).outcome,
+    "denied",
+  );
+  assert.equal(
+    decide("execution.release", taskOwner, "execution/execution-1", {
+      target: { owner: targetOwner, lease, canonicalExecutionExists: true, terminalRuntimeBinding },
+    }).outcome,
+    "allowed",
+  );
+  assert.equal(
+    decide("execution.release", outsider, "execution/execution-1", {
+      target: { owner: targetOwner, lease, canonicalExecutionExists: true, terminalRuntimeBinding },
+    }).outcome,
+    "denied",
   );
 });
 

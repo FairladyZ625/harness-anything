@@ -1,14 +1,21 @@
 import {
   deriveRelationId,
+  isSameExecution,
   isTerminalStatus,
+  resolveTaskBoundRuntimeBinding,
+  runtimeSessionSemanticState,
   taskClasses,
   validateRelationRecordsForHost,
   type EntityRelationRecord,
   type AuthorizationDecision,
+  type LeaseV1,
+  type RuntimeSession,
+  type TaskBoundRuntimeBinding,
   type TaskEventV1,
   type TaskV1,
 } from "../../kernel/src/index.ts";
 import { authorizeAction } from "./authorization.ts";
+import { readDispatchStreams } from "./dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 
 export function taskMutation(
@@ -51,12 +58,28 @@ export function taskMutation(
   if (action.kind === "task-release" || action.kind === "task-fallback-exhausted") {
     if (!activeLease)
       throw cell.cellCodedError("lease_not_found", `Start task ${task.taskId} before releasing its lease.`);
+    const terminalExecutionId = optionalText(action.terminalExecutionId),
+      terminalRuntimeSessionId = optionalText(action.terminalRuntimeSessionId);
+    if ((terminalExecutionId === null) !== (terminalRuntimeSessionId === null))
+      throw cell.cellCodedError(
+        "invalid_command",
+        "Runtime terminal lease settlement requires both terminal execution and RuntimeSession identities.",
+      );
+    if (terminalExecutionId !== null && terminalExecutionId !== activeLease.executionId)
+      throw cell.cellCodedError(
+        "runtime_terminal_superseded",
+        `Runtime terminal settlement belongs to ${terminalExecutionId}; ${activeLease.executionId} now holds the lease.`,
+      );
     if (action.kind === "task-fallback-exhausted" && action.executionId !== activeLease.executionId)
       throw cell.cellCodedError(
         "lease_conflict",
         `Fallback exhaustion belongs to ${String(action.executionId)}, but ${activeLease.executionId} holds the lease.`,
       );
     const execution = snapshot.executions.find((value) => value.executionId === activeLease.executionId),
+      terminalRuntimeBinding =
+        terminalRuntimeSessionId !== null || !isSameExecution(activeLease.actor, binding.actor)
+          ? terminalExecutionRuntimeBinding(cell, activeLease, terminalRuntimeSessionId)
+          : null,
       actionId = `task-release:${task.taskId}:${activeLease.executionId}:${snapshot.revision}`,
       authorizationDecision = authorizeAction(
         "execution.release",
@@ -64,7 +87,12 @@ export function taskMutation(
         binding.actor,
         actionId,
         {
-          target: { lease: activeLease, canonicalExecutionExists: execution !== undefined },
+          target: {
+            owner: task.createdBy,
+            lease: activeLease,
+            canonicalExecutionExists: execution !== undefined,
+            terminalRuntimeBinding,
+          },
           evaluatedAtCut: `canonical:${snapshot.revision}`,
         },
       );
@@ -334,4 +362,43 @@ export function taskMutation(
     };
   }
   throw cell.cellCodedError("unsupported_command", `No task mutation contract exists for ${action.kind}.`);
+}
+
+function optionalText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function terminalExecutionRuntimeBinding(
+  cell: any,
+  lease: LeaseV1,
+  runtimeSessionId: string | null,
+): TaskBoundRuntimeBinding | null {
+  if (typeof cell.projection?.readRuntimeSessionsForTask !== "function") return null;
+  const inferredTerminalSessionIds =
+    runtimeSessionId === null
+      ? new Set(
+          readDispatchStreams(cell.rootDir)
+            .filter(
+              (stream) =>
+                stream.header.taskId === lease.taskId &&
+                stream.header.executionId === lease.executionId &&
+                stream.attemptOutcome !== null &&
+                (stream.attemptOutcome.classification !== "provider_fault" ||
+                  stream.header.fallbackAttempt === undefined ||
+                  stream.fallbackState === "exhausted"),
+            )
+            .map((stream) => stream.header.runtimeSessionId),
+        )
+      : null;
+  const sessions = [...(cell.projection.readRuntimeSessionsForTask(lease.taskId) as readonly RuntimeSession[])].sort(
+    (left, right) => right.lastObservedAt.localeCompare(left.lastObservedAt),
+  );
+  for (const session of sessions) {
+    if (runtimeSessionId !== null && session.runtimeSessionId !== runtimeSessionId) continue;
+    if (inferredTerminalSessionIds !== null && !inferredTerminalSessionIds.has(session.runtimeSessionId)) continue;
+    if (session.liveness !== "exited" || runtimeSessionSemanticState(session) === "running") continue;
+    const binding = resolveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId);
+    if (binding) return binding;
+  }
+  return null;
 }

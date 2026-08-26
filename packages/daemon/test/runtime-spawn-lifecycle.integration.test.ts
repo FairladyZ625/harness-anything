@@ -356,7 +356,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
   }
 });
 
-test("attached runtime settlement includes provider records persisted after attach before exit", async () => {
+test("attached task runtime settlement consumes its durable tail and releases its execution lease", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-attached-tail-"));
   let exit: ((code: number | null) => void) | null = null;
   try {
@@ -365,6 +365,11 @@ test("attached runtime settlement includes provider records persisted after atta
       repoId: workspaceId("runtime-attached-tail"),
       rootDir: canonicalRoot(root),
       ownerId: "attached-tail-test",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "attached-tail-test",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
       runtimeInstances: () => [
         {
           schemaVersion: 2,
@@ -404,18 +409,34 @@ test("attached runtime settlement includes provider records persisted after atta
       }),
     });
     try {
+      const taskId = "task-runtime-attached-tail",
+        executionId = "execution-runtime-attached-tail",
+        binding = {
+          actor: { principal: { personId: "person-attached-tail" }, executor: null },
+          source: "local" as const,
+        };
+      assert.equal(
+        (await cell.run({ kind: "task-create", taskId, title: "Attached tail lease" }, binding)).outcome,
+        "applied",
+      );
+      assert.equal(
+        (
+          await cell.run(
+            { kind: "task-start", taskId, executionId, executor: { kind: "agent", id: "attached-tail-worker" } },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
       const receipt = await cell.spawnRuntime(
         {
           runtimeInstanceId: definition.instanceId,
           cwd: { scope: "repo-root" },
           prompt: "Settle the durable tail after attach",
-          taskId: null,
+          taskId,
           idempotencyKey: "attached-tail",
         },
-        {
-          actor: { principal: { personId: "person-attached-tail" }, executor: null },
-          source: "local",
-        },
+        binding,
       );
       const records = [
         { type: "thread.started", thread_id: "provider-attached-tail" },
@@ -449,20 +470,28 @@ test("attached runtime settlement includes provider records persisted after atta
       });
       assert.ok(exit, "runtime exit listener must be attached before the provider exits");
       exit(0);
-      await eventually(() =>
-        makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root })
-          .read()
-          .events.some(
+      await eventually(() => {
+        const events = makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }).read().events;
+        return (
+          events.some(
             (event) =>
               event.type === "runtime_session_outcome_observed" &&
               event.payload.runtimeSessionId === receipt.runtimeSessionId,
-          ),
-      );
+          ) &&
+          events.some(
+            (event) =>
+              event.type === "lease_released" &&
+              event.taskId === taskId &&
+              event.payload.execution.executionId === executionId,
+          )
+        );
+      });
       const projection = makeTaskProjection({
           rootDir: root,
           eventStore: makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }),
         }),
-        settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!;
+        settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!,
+        taskSnapshot = projection.read(taskId).snapshot;
       projection.close();
       assert.deepEqual(
         {
@@ -472,6 +501,7 @@ test("attached runtime settlement includes provider records persisted after atta
         },
         { liveness: "exited", outcome: "succeeded", exitCode: 0 },
       );
+      assert.equal(taskSnapshot.lease, null, "terminal RuntimeSession settlement must release the execution lease");
     } finally {
       await cell.close();
     }

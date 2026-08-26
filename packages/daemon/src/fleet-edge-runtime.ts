@@ -258,7 +258,33 @@ export function openFleetEdgeRuntime(input: {
         entityStore: getEntityStore(),
       }),
     onAttemptTerminal: async (terminal) => {
-      if (terminal.fallbackExhausted && terminal.task) {
+      if (terminal.task && !terminal.fallbackExhausted) {
+        const waitMs = runtimeReadTimeoutMs ?? 30_000,
+          { taskId, executionId } = terminal.task,
+          settled = await runFleetTaskCommandClient({
+            ...peer,
+            repoId: request.repoId,
+            taskId,
+            opId: `runtime-terminal-${terminal.runtimeSessionId}`,
+            waitMs,
+            action: {
+              kind: "task-release",
+              taskId,
+              terminalExecutionId: executionId,
+              terminalRuntimeSessionId: terminal.runtimeSessionId,
+              reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
+            },
+          });
+        if (
+          settled.outcome !== "applied" &&
+          settled.code !== "lease_not_found" &&
+          settled.code !== "runtime_terminal_superseded"
+        )
+          throw edgeRuntimeError(
+            "runtime_lease_release_failed",
+            `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
+          );
+      } else if (terminal.fallbackExhausted && terminal.task) {
         const waitMs = runtimeReadTimeoutMs ?? 30_000,
           { taskId, executionId } = terminal.task,
           settled = await runFleetTaskCommandClient({
