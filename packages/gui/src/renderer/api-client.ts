@@ -539,14 +539,16 @@ function readObserveTailResult(value: unknown): ObserveTailRead {
   const result = value as Partial<ObserveTailRead>;
   if (
     !result ||
-    result.schema !== "daemon.observe-tail/v1" ||
+    result.schema !== "daemon.observe-tail/v2" ||
     result.ok !== true ||
     typeof result.repoId !== "string" ||
     !["local", "remote-center", "remote-edge"].includes(String(result.mode)) ||
     !["events", "repo-log", "daemon-log"].includes(String(result.kind)) ||
+    !["history", "follow"].includes(String(result.direction)) ||
     !["ready", "pending", "unavailable", "gap"].includes(String(result.status)) ||
     !Array.isArray(result.items) ||
-    !(result.cursor === null || isRendererRecord(result.cursor)) ||
+    !(result.historyCursor === null || isRendererRecord(result.historyCursor)) ||
+    !(result.liveCursor === null || isRendererRecord(result.liveCursor)) ||
     !(result.sourceCursor === null || isRendererRecord(result.sourceCursor)) ||
     typeof result.done !== "boolean"
   )

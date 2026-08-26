@@ -10,7 +10,7 @@ import { createDaemonHostRepositoryApi } from "../src/daemon-host-repository-api
 import { validateObserveTailResult } from "../src/protocol/daemon-protocol-gui-types.ts";
 import { validateDaemonRpcCall } from "../src/protocol/daemon-protocol-rpc-validation.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openDaemonRequestLog } from "../src/request-log.ts";
+import { daemonRequestLogPath, openDaemonRequestLog } from "../src/request-log.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
 const actor = { principal: { personId: "person-observer" }, executor: null };
@@ -67,17 +67,21 @@ test("observe.tail exposes the 3x3 mode matrix and advances only when the source
       "applied",
     );
 
-    const firstEvents = await hostObserve(cell, { repoId, userRoot, daemonId }, { kind: "events" });
+    const firstEvents = await hostObserve(
+      cell,
+      { repoId, userRoot, daemonId },
+      { kind: "events", direction: "history" },
+    );
     assertAvailable(firstEvents, "local", "events");
     assert.ok(firstEvents.items.length > 0);
-    assert.equal(firstEvents.cursor.kind, "events");
+    assert.equal(firstEvents.liveCursor.kind, "events");
     const unchangedEvents = await cell.observeTail(
-      { kind: "events", cursor: firstEvents.cursor },
+      { kind: "events", direction: "follow", cursor: firstEvents.liveCursor },
       { userRoot, daemonId },
     );
     assertAvailable(unchangedEvents, "local", "events");
     assert.deepEqual(unchangedEvents.items, []);
-    assert.deepEqual(unchangedEvents.cursor, firstEvents.cursor);
+    assert.deepEqual(unchangedEvents.liveCursor, firstEvents.liveCursor);
 
     assert.equal(
       (await cell.run({ kind: "task-create", taskId: "task-observe-second", title: "Observe second" }, binding))
@@ -85,32 +89,32 @@ test("observe.tail exposes the 3x3 mode matrix and advances only when the source
       "applied",
     );
     const appendedEvents = await cell.observeTail(
-      { kind: "events", cursor: firstEvents.cursor },
+      { kind: "events", direction: "follow", cursor: firstEvents.liveCursor },
       { userRoot, daemonId },
     );
     assertAvailable(appendedEvents, "local", "events");
     assert.ok(appendedEvents.items.length > 0);
-    assert.ok(appendedEvents.cursor.revision > firstEvents.cursor.revision);
+    assert.ok(appendedEvents.liveCursor.revision > firstEvents.liveCursor.revision);
 
-    const localRepoLog = await cell.observeTail({ kind: "repo-log" }, { userRoot, daemonId });
+    const localRepoLog = await cell.observeTail({ kind: "repo-log", direction: "history" }, { userRoot, daemonId });
     assertAvailable(localRepoLog, "local", "repo-log");
     assert.equal(
       localRepoLog.items.some((item) => item.connectionId === "observe-request-1"),
       true,
     );
-    const localDaemonLog = await cell.observeTail({ kind: "daemon-log" }, { userRoot, daemonId });
+    const localDaemonLog = await cell.observeTail({ kind: "daemon-log", direction: "history" }, { userRoot, daemonId });
     assertAvailable(localDaemonLog, "local", "daemon-log");
     assert.equal(
       localDaemonLog.items.some((item) => item.event === "conn_open"),
       true,
     );
     const unchangedDaemonLog = await cell.observeTail(
-      { kind: "daemon-log", cursor: localDaemonLog.cursor },
+      { kind: "daemon-log", direction: "follow", cursor: localDaemonLog.liveCursor },
       { userRoot, daemonId },
     );
     assertAvailable(unchangedDaemonLog, "local", "daemon-log");
     assert.deepEqual(unchangedDaemonLog.items, []);
-    assert.deepEqual(unchangedDaemonLog.cursor, localDaemonLog.cursor);
+    assert.deepEqual(unchangedDaemonLog.liveCursor, localDaemonLog.liveCursor);
     await cell.close();
     cell = undefined;
 
@@ -120,11 +124,15 @@ test("observe.tail exposes the 3x3 mode matrix and advances only when the source
       ownerId: "observe-tail-center",
       mode: "remote-center",
     });
-    assertAvailable(await cell.observeTail({ kind: "events" }, { userRoot, daemonId }), "remote-center", "events");
-    const centerRepoLog = await cell.observeTail({ kind: "repo-log" }, { userRoot, daemonId });
+    assertAvailable(
+      await cell.observeTail({ kind: "events", direction: "history" }, { userRoot, daemonId }),
+      "remote-center",
+      "events",
+    );
+    const centerRepoLog = await cell.observeTail({ kind: "repo-log", direction: "history" }, { userRoot, daemonId });
     assertUnavailable(centerRepoLog, "remote-center", "repo-log", "center-request-log-not-wired", null);
     assertAvailable(
-      await cell.observeTail({ kind: "daemon-log" }, { userRoot, daemonId }),
+      await cell.observeTail({ kind: "daemon-log", direction: "history" }, { userRoot, daemonId }),
       "remote-center",
       "daemon-log",
     );
@@ -138,11 +146,15 @@ test("observe.tail exposes the 3x3 mode matrix and advances only when the source
       ownerId: "observe-tail-edge",
       mode: "remote-edge",
     });
-    const edgeEvents = await cell.observeTail({ kind: "events" }, { userRoot, daemonId });
+    const edgeEvents = await cell.observeTail({ kind: "events", direction: "history" }, { userRoot, daemonId });
     assertUnavailable(edgeEvents, "remote-edge", "events", "edge-mirror-has-no-events", 7);
-    assertAvailable(await cell.observeTail({ kind: "repo-log" }, { userRoot, daemonId }), "remote-edge", "repo-log");
     assertAvailable(
-      await cell.observeTail({ kind: "daemon-log" }, { userRoot, daemonId }),
+      await cell.observeTail({ kind: "repo-log", direction: "history" }, { userRoot, daemonId }),
+      "remote-edge",
+      "repo-log",
+    );
+    assertAvailable(
+      await cell.observeTail({ kind: "daemon-log", direction: "history" }, { userRoot, daemonId }),
       "remote-edge",
       "daemon-log",
     );
@@ -171,30 +183,84 @@ test("observe.tail follows a conn-log file identity across rotation and reports 
     });
     connLog.connectionOpened("gap-connection-1", "unix-socket");
     await connLog.settle();
-    const beforeRetention = await cell.observeTail({ kind: "daemon-log" }, { userRoot, daemonId });
+    const beforeRetention = await cell.observeTail(
+      { kind: "daemon-log", direction: "history" },
+      { userRoot, daemonId },
+    );
     assertAvailable(beforeRetention, "local", "daemon-log");
     assert.equal(beforeRetention.items.length, 1);
 
     connLog.connectionOpened("gap-connection-2", "unix-socket");
     await connLog.settle();
     const afterRename = await cell.observeTail(
-      { kind: "daemon-log", cursor: beforeRetention.cursor },
+      { kind: "daemon-log", direction: "follow", cursor: beforeRetention.liveCursor },
       { userRoot, daemonId },
     );
     assertAvailable(afterRename, "local", "daemon-log");
     assert.equal(afterRename.items.length, 1);
-    assert.notEqual(afterRename.cursor.fileId, beforeRetention.cursor.fileId);
+    assert.notEqual(afterRename.liveCursor.fileId, beforeRetention.liveCursor.fileId);
+    const rotatedHistory = await cell.observeTail({ kind: "daemon-log", direction: "history" }, { userRoot, daemonId });
+    assert.deepEqual(
+      rotatedHistory.items.map((item) => item.conn),
+      ["c-1", "c-2"],
+    );
 
     connLog.connectionOpened("gap-connection-3", "unix-socket");
     await connLog.settle();
     const afterRetention = await cell.observeTail(
-      { kind: "daemon-log", cursor: beforeRetention.cursor },
+      { kind: "daemon-log", direction: "follow", cursor: beforeRetention.liveCursor },
       { userRoot, daemonId },
     );
     assert.equal(afterRetention.status, "gap");
     assert.equal(afterRetention.gap.reason, "cursor-file-not-retained");
-    assert.equal(afterRetention.gap.requestedFileId, beforeRetention.cursor.fileId);
+    assert.equal(afterRetention.gap.requestedFileId, beforeRetention.liveCursor.fileId);
     assert.deepEqual(validateObserveTailResult(afterRetention), []);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("observe.tail opens a 5000-line JSONL source at the latest page and pages backward", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-observe-reverse-"));
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-observe-reverse-user-"));
+  const repoId = workspaceId("observe-reverse");
+  const daemonId = "observe-reverse-daemon";
+  let cell;
+  try {
+    initRepo(rootDir);
+    const logPath = daemonRequestLogPath(rootDir),
+      fixture = Array.from({ length: 5_000 }, (_, index) =>
+        JSON.stringify({ schema: "daemon-request-log/v1", at: `fixture-${index + 1}`, seq: index + 1 }),
+      ).join("\n");
+    mkdirSync(path.dirname(logPath), { recursive: true });
+    writeFileSync(logPath, `${fixture}\n`);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "observe-reverse" });
+
+    const started = performance.now(),
+      latest = await cell.observeTail({ kind: "repo-log", direction: "history" }, { userRoot, daemonId }),
+      elapsedMs = performance.now() - started;
+    assertAvailable(latest, "local", "repo-log");
+    assert.ok(elapsedMs < 1_000, `5000-line first page took ${elapsedMs.toFixed(1)}ms`);
+    assert.deepEqual(
+      latest.items.map((item) => item.seq),
+      Array.from({ length: 64 }, (_, index) => 4_937 + index),
+    );
+
+    const seen = [...latest.items];
+    let page = latest;
+    while (!page.done) {
+      page = await cell.observeTail(
+        { kind: "repo-log", direction: "history", cursor: page.historyCursor },
+        { userRoot, daemonId },
+      );
+      seen.unshift(...page.items);
+    }
+    assert.equal(seen.length, 5_000);
+    assert.equal(seen[0].seq, 1);
+    assert.equal(seen.at(-1).seq, 5_000);
+    console.info(`observe.tail 5000-line first page: ${elapsedMs.toFixed(1)}ms`);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -217,9 +283,23 @@ async function hostObserve(cell, daemon, payload) {
   const call = { method: "observe.tail", params: { repo: { repoId: daemon.repoId }, payload } };
   assert.deepEqual(validateDaemonRpcCall(call), []);
   assert.notDeepEqual(
+    validateDaemonRpcCall({ ...call, params: { ...call.params, payload: { kind: payload.kind } } }),
+    [],
+  );
+  assert.notDeepEqual(
     validateDaemonRpcCall({
       ...call,
-      params: { ...call.params, payload: { kind: payload.kind, cursor: { kind: "events", revision: -1 } } },
+      params: { ...call.params, payload: { kind: payload.kind, direction: "follow" } },
+    }),
+    [],
+  );
+  assert.notDeepEqual(
+    validateDaemonRpcCall({
+      ...call,
+      params: {
+        ...call.params,
+        payload: { kind: payload.kind, direction: "follow", cursor: { kind: "events", revision: -1 } },
+      },
     }),
     [],
   );
