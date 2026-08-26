@@ -11,6 +11,7 @@ import {
   applyObserveTailPage,
   filterObserveRows,
   initialObserveTail,
+  observePaneCursor,
   observeTailRequest,
   type ObserveRow,
   type ObserveTailCursor,
@@ -430,13 +431,13 @@ function useObserveTail(
         initializedRef.current = false;
       }
     } else if (page.direction === "history") {
-      historyCursorRef.current = page.historyCursor;
+      historyCursorRef.current = observePaneCursor(page.historyCursor);
       if (!initializedRef.current) {
-        liveCursorRef.current = page.liveCursor;
+        liveCursorRef.current = observePaneCursor(page.liveCursor);
         initializedRef.current = page.liveCursor !== null;
       }
     } else {
-      liveCursorRef.current = page.liveCursor;
+      liveCursorRef.current = observePaneCursor(page.liveCursor);
     }
     setSnapshot((previous) => {
       const next = applyObserveTailPage(previous, page);

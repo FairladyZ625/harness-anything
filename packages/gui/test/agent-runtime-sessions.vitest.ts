@@ -8,6 +8,10 @@ import { SquadRunList } from "../src/renderer/components/sessions/SquadRunList.t
 import { SquadRunDetail } from "../src/renderer/components/sessions/SquadRunDetail.tsx";
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
 import {
+  SessionTranscript,
+  SessionTranscriptTurns,
+} from "../src/renderer/components/sessions/SessionTranscript.tsx";
+import {
   sessionDecisionRefs,
   sessionOrphans,
   sessionRounds,
@@ -19,6 +23,7 @@ import { TIME_ZONE_STORAGE_KEY } from "../src/renderer/model/time.ts";
 import type { AgentRuntimeSessionDto } from "../../daemon/src/agent-runtime-contract.ts";
 import type { RelationEdge } from "../src/renderer/model/types.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { sessionTranscriptTurns } from "../src/renderer/session-transcript-model.ts";
 
 beforeAll(() => setActiveLocale("en-US"));
 afterEach(() => vi.unstubAllGlobals());
@@ -170,8 +175,7 @@ const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> 
       squadNames: new Map([["core-squad", "Core Squad"]]),
       decisionRefs: sessionDecisionRefs(relations, "task_1994d52c"),
       result: null,
-      frames: [],
-      attach: "attached",
+      transcript: createElement("p", null, "No dispatch record."),
       busy: false,
       onCancel: noop,
       onOpenTask: noop,
@@ -179,6 +183,85 @@ const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> 
       ...overrides,
     } as never),
   );
+
+describe("session transcript replay", () => {
+  const records = [
+    {
+      kind: "provider_event",
+      occurredAt: "2026-08-26T05:02:11.076Z",
+      event: {
+        type: "assistant",
+        message: {
+          id: "message-one",
+          content: [{ type: "thinking", thinking: "Read the task plan first." }],
+        },
+      },
+    },
+    {
+      kind: "provider_event",
+      occurredAt: "2026-08-26T05:02:11.148Z",
+      event: {
+        type: "assistant",
+        message: {
+          id: "message-one",
+          content: [
+            { type: "tool_use", id: "call-read", name: "Read", input: { file_path: "/fixture/plan" } },
+          ],
+        },
+      },
+    },
+    {
+      kind: "provider_event",
+      occurredAt: "2026-08-26T05:02:11.156Z",
+      event: {
+        type: "user",
+        message: {
+          content: [{ type: "tool_result", tool_use_id: "call-read", content: "Fixture plan." }],
+        },
+      },
+    },
+    {
+      kind: "provider_event",
+      occurredAt: "2026-08-26T05:02:12.000Z",
+      event: {
+        type: "assistant",
+        message: {
+          id: "message-two",
+          content: [
+            { type: "thinking", thinking: "The check passed." },
+            { type: "text", text: "Task complete." },
+          ],
+        },
+      },
+    },
+    { kind: "process_exit", occurredAt: "2026-08-26T05:02:12.300Z", exitCode: 0 },
+  ] as const;
+
+  it("groups ended thinking, tool calls, tool results, and text into collapsible turns", () => {
+    const turns = sessionTranscriptTurns(records),
+      markup = renderToStaticMarkup(createElement(SessionTranscriptTurns, { turns }));
+    expect(turns).toHaveLength(2);
+    expect(turns[0]?.items.map((item) => item.type)).toEqual(["thinking", "tool_call", "tool_result"]);
+    expect(turns[1]?.items.map((item) => item.type)).toEqual(["thinking", "text"]);
+    expect(markup.match(/data-testid="session-transcript-turn"/gu)).toHaveLength(2);
+    expect(markup).toContain("Tool call");
+    expect(markup).toContain("Tool result");
+    expect(markup).toContain("Task complete.");
+  });
+
+  it("states explicitly that a session without a dispatch has no replay record", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionTranscript, {
+        repoId: "repo-a",
+        dispatchId: null,
+        live: false,
+        onSettled: noop,
+      }),
+    );
+    expect(markup).toContain("No dispatch record is available for this session.");
+    expect(markup).toContain('data-testid="session-transcript-empty"');
+  });
+});
 
 describe("sessions page: single-session groups", () => {
   it("renders group headers from the daemon read: title, short task id, status, rounds, activity", () => {

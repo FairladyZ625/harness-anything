@@ -48,7 +48,7 @@ const REPO_ROW: SystemRepoRow = {
 };
 
 const EVENT_PAGE: ObserveTailRead = {
-  schema: "daemon.observe-tail/v2",
+  schema: "daemon.observe-tail/v3",
   ok: true,
   repoId: REPO_ID,
   mode: "local",
@@ -100,7 +100,7 @@ const EVENT_PAGE: ObserveTailRead = {
 
 function logPage(kind: "repo-log" | "daemon-log"): ObserveTailRead {
   return {
-    schema: "daemon.observe-tail/v2",
+    schema: "daemon.observe-tail/v3",
     ok: true,
     repoId: REPO_ID,
     mode: "local",
@@ -203,7 +203,7 @@ describe("G6-B observe 模型:分页 → 行流", () => {
   it("history gap 在流顶留标记并停止向更老的保留集翻页", () => {
     const seeded = applyObserveTailPage(initialObserveTail(), EVENT_PAGE),
       gapped = applyObserveTailPage(seeded, {
-        schema: "daemon.observe-tail/v2",
+        schema: "daemon.observe-tail/v3",
         ok: true,
         repoId: REPO_ID,
         mode: "local",
@@ -225,7 +225,7 @@ describe("G6-B observe 模型:分页 → 行流", () => {
 
   it("unavailable 保留机器原因,不以空列表冒充追平", () => {
     const state = applyObserveTailPage(initialObserveTail(), {
-      schema: "daemon.observe-tail/v2",
+      schema: "daemon.observe-tail/v3",
       ok: true,
       repoId: REPO_ID,
       mode: "remote-edge",
@@ -479,7 +479,7 @@ describe("G6-B observe 视图:两栏实况", () => {
     mockTail({
       events: [
         {
-          schema: "daemon.observe-tail/v2",
+          schema: "daemon.observe-tail/v3",
           ok: true,
           repoId: REPO_ID,
           mode: "remote-edge",
@@ -496,7 +496,7 @@ describe("G6-B observe 视图:两栏实况", () => {
       ],
       "repo-log": [
         {
-          schema: "daemon.observe-tail/v2",
+          schema: "daemon.observe-tail/v3",
           ok: true,
           repoId: REPO_ID,
           mode: "local",
