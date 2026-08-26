@@ -282,25 +282,7 @@ export async function runCommandThroughDaemon(
     ...resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env }),
     sessionEnvironment: interactiveSessionEnvironment(env),
   };
-  const { kind: _kind, ...actionPayload } = command.action,
-    payload =
-      command.method === "repo.script.run"
-        ? Object.fromEntries(
-            Object.entries(actionPayload).filter(
-              ([field, value]) => field !== "schema" && (field !== "taskId" || value !== null),
-            ),
-          )
-        : actionPayload,
-    executor = declaredExecutor(env);
-  // repo.task.run carries the executor inside its open action envelope; every other method takes
-  // payload.executor exactly where the daemon contract declares the field (daemonMethodAcceptsPayloadExecutor),
-  // so a newly contracted command needs no CLI-side list edit to stay un-injected.
-  const requestPayload =
-    command.method === "repo.task.run"
-      ? { action: executor ? { ...command.action, executor } : command.action }
-      : executor && daemonMethodAcceptsPayloadExecutor(command.method)
-        ? { ...payload, executor }
-        : payload;
+  const requestPayload = daemonRequestPayload(command, env);
   const request = () =>
     requestLocalDaemonJsonRpcForTarget(
       target,
@@ -370,6 +352,26 @@ export async function runCommandThroughDaemon(
       };
     }
   }
+}
+
+function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Readonly<Record<string, unknown>> {
+  const { kind: _kind, ...actionPayload } = command.action,
+    payload =
+      command.method === "repo.script.run"
+        ? Object.fromEntries(
+            Object.entries(actionPayload).filter(
+              ([field, value]) => field !== "schema" && (field !== "taskId" || value !== null),
+            ),
+          )
+        : actionPayload,
+    executor = declaredExecutor(env);
+  // repo.task.run carries the executor inside its open action envelope; every other method takes
+  // payload.executor exactly where the daemon contract declares the field.
+  return command.method === "repo.task.run"
+    ? { action: executor ? { ...command.action, executor } : command.action }
+    : executor && daemonMethodAcceptsPayloadExecutor(command.method)
+      ? { ...payload, executor }
+      : payload;
 }
 
 function materializeScheduleMission(command: ThinCommand): ThinCommand {

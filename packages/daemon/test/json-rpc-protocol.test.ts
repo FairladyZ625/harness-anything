@@ -238,6 +238,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.decision.reject", { decisionId: "dec_A", reason: "Rejected" }],
     ["repo.decision.defer", { decisionId: "dec_A", reason: "Deferred" }],
     ["repo.receipt.show", { opId: "op_A" }],
+    ["repo.settings.update", { defaultPreset: "strict-task", locale: "zh-CN", idempotencyKey: "settings-once" }],
     ["repo.gui.catalog.reread", {}],
     ["repo.agentRuntime.spawn", { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "runtime-once" }],
     ["repo.agent.entity.write", { declaration: { schema: "agent-declaration/v1", id: "gui-created-agent", name: "GUI Created Agent", instructions: "Keep the roster intact.\nSecond line.", runtime_type: "any", role: "worker", model: "gpt-5.6-terra", skills: [{ id: "review", path: "skills/review" }], prompts: ["prompt://gui"], preset: "standard-task" } }],

@@ -67,13 +67,13 @@ export function readSettingsFacet(body: string): SettingsV1 {
   const settings: SettingsV1 = {
     schema: "settings/v1",
     settingsId: SETTINGS_ID,
-    defaultVertical: required(setting(body, "defaultVertical"), "settings.defaultVertical"),
-    defaultPreset: required(setting(body, "defaultPreset"), "settings.defaultPreset"),
-    defaultProfile: required(setting(body, "defaultProfile"), "settings.defaultProfile"),
-    locale: required(setting(body, "locale"), "settings.locale") as SettingsLocale,
+    defaultVertical: setting(body, "defaultVertical") ?? INITIAL_SETTINGS_V1.defaultVertical,
+    defaultPreset: setting(body, "defaultPreset") ?? INITIAL_SETTINGS_V1.defaultPreset,
+    defaultProfile: setting(body, "defaultProfile") ?? INITIAL_SETTINGS_V1.defaultProfile,
+    locale: (setting(body, "locale") ?? INITIAL_SETTINGS_V1.locale) as SettingsLocale,
     scaffolds: {
-      task: required(settingBlockValue(body, "scaffolds", "task"), "settings.scaffolds.task"),
-      repository: required(settingBlockValue(body, "scaffolds", "repository"), "settings.scaffolds.repository"),
+      task: settingBlockValue(body, "scaffolds", "task") ?? INITIAL_SETTINGS_V1.scaffolds.task,
+      repository: settingBlockValue(body, "scaffolds", "repository") ?? INITIAL_SETTINGS_V1.scaffolds.repository,
     },
   };
   const errors = validateSettingsV1(settings);
@@ -85,12 +85,36 @@ export function writeSettingsFacet(body: string, settings: SettingsV1): string {
   const errors = validateSettingsV1(settings);
   if (errors.length) throw new Error(errors.join("; "));
   let next = body;
-  next = replaceScalar(next, "  ", "defaultVertical", settings.defaultVertical);
-  next = replaceScalar(next, "  ", "defaultPreset", settings.defaultPreset);
-  next = replaceScalar(next, "  ", "defaultProfile", settings.defaultProfile);
-  next = replaceScalar(next, "  ", "locale", settings.locale);
-  next = replaceBlockScalar(next, "scaffolds", "task", settings.scaffolds.task);
-  next = replaceBlockScalar(next, "scaffolds", "repository", settings.scaffolds.repository);
+  next = replaceDefaultedScalar(
+    next,
+    "  ",
+    "defaultVertical",
+    settings.defaultVertical,
+    INITIAL_SETTINGS_V1.defaultVertical,
+  );
+  next = replaceDefaultedScalar(next, "  ", "defaultPreset", settings.defaultPreset, INITIAL_SETTINGS_V1.defaultPreset);
+  next = replaceDefaultedScalar(
+    next,
+    "  ",
+    "defaultProfile",
+    settings.defaultProfile,
+    INITIAL_SETTINGS_V1.defaultProfile,
+  );
+  next = replaceDefaultedScalar(next, "  ", "locale", settings.locale, INITIAL_SETTINGS_V1.locale);
+  next = replaceDefaultedBlockScalar(
+    next,
+    "scaffolds",
+    "task",
+    settings.scaffolds.task,
+    INITIAL_SETTINGS_V1.scaffolds.task,
+  );
+  next = replaceDefaultedBlockScalar(
+    next,
+    "scaffolds",
+    "repository",
+    settings.scaffolds.repository,
+    INITIAL_SETTINGS_V1.scaffolds.repository,
+  );
   if (JSON.stringify(readSettingsFacet(next)) !== JSON.stringify(settings))
     throw new Error("settings facet replacement did not round-trip exactly");
   return next;
@@ -102,6 +126,11 @@ function replaceScalar(body: string, indent: string, key: string, value: string)
   return body.replace(line, `$1${value}$2`);
 }
 
+function replaceDefaultedScalar(body: string, indent: string, key: string, value: string, fallback: string): string {
+  if (setting(body, key) === undefined && value === fallback) return body;
+  return replaceScalar(body, indent, key, value);
+}
+
 function replaceBlockScalar(body: string, block: string, key: string, value: string): string {
   const section = new RegExp(`(^  ${block}:[^\\S\\r\\n]*(?:\\r?\\n))((?:    [^\\r\\n]*(?:\\r?\\n|$))*)`, "mu");
   const match = section.exec(body);
@@ -110,7 +139,13 @@ function replaceBlockScalar(body: string, block: string, key: string, value: str
   return `${body.slice(0, match.index)}${match[1]}${replaced}${body.slice(match.index + match[0].length)}`;
 }
 
-function required(value: string | undefined, field: string): string {
-  if (value === undefined) throw new Error(`Missing ${field} in harness.yaml.`);
-  return value;
+function replaceDefaultedBlockScalar(
+  body: string,
+  block: string,
+  key: string,
+  value: string,
+  fallback: string,
+): string {
+  if (settingBlockValue(body, block, key) === undefined && value === fallback) return body;
+  return replaceBlockScalar(body, block, key, value);
 }

@@ -13,7 +13,6 @@ import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-cont
 import { readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
-import { localRepairBinding } from "./daemon-host-binding.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
@@ -400,7 +399,6 @@ export async function openRepoCell(input: {
   const settingsActions = makeRepoCellSettingsActions(extracted);
   Object.assign(extracted, { mode, runtimeSpawner, scheduleActions, settingsActions });
   readSettings = settingsActions.read;
-  if (mode !== "remote-edge") settingsActions.initialize(localRepairBinding);
   settleScheduledOutcome = async (terminal) => {
     const scheduled = terminal.schedule,
       detail = terminal.resultRef ?? terminal.reason;

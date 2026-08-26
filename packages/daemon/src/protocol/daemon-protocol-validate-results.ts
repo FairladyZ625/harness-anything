@@ -26,7 +26,34 @@ import {
 } from "./daemon-protocol-validate-task.ts";
 import { receiptOutcomeWords } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
-import { validateSettingsV1 } from "../../../kernel/src/index.ts";
+
+const settingValuePattern = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
+
+function validateSettingsV1Wire(value: unknown): boolean {
+  if (
+    !exactRecord(value, [
+      "schema",
+      "settingsId",
+      "defaultVertical",
+      "defaultPreset",
+      "defaultProfile",
+      "locale",
+      "scaffolds",
+    ]) ||
+    value.schema !== "settings/v1" ||
+    value.settingsId !== "repository" ||
+    ![value.defaultVertical, value.defaultPreset, value.defaultProfile].every(
+      (field) => typeof field === "string" && settingValuePattern.test(field),
+    ) ||
+    (value.locale !== "en-US" && value.locale !== "zh-CN") ||
+    !exactRecord(value.scaffolds, ["task", "repository"]) ||
+    ![value.scaffolds.task, value.scaffolds.repository].every(
+      (field) => typeof field === "string" && settingValuePattern.test(field),
+    )
+  )
+    return false;
+  return true;
+}
 
 export function validateDaemonSettingsRead(value: unknown): readonly string[] {
   if (
@@ -34,7 +61,7 @@ export function validateDaemonSettingsRead(value: unknown): readonly string[] {
     value.schema !== "daemon.settings-read/v1" ||
     value.ok !== true ||
     !isJsonObject(value.settings) ||
-    validateSettingsV1(value.settings).length > 0 ||
+    !validateSettingsV1Wire(value.settings) ||
     Object.keys(value).some((field) => !["schema", "ok", "settings"].includes(field))
   )
     return ["daemon settings read is invalid"];

@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   compileSettingsChangedEvent,
+  INITIAL_SETTINGS_V1,
   readSettingsFacet,
   resolveHarnessLayout,
   validateSettingsV1,
@@ -23,37 +24,12 @@ export function makeRepoCellSettingsActions(cell: any) {
 
   const read = (): SettingsV1 => {
     const settings = projected();
-    if (settings === null)
-      throw cell.cellCodedError(
-        "projection_pending",
-        "Settings projection is unavailable; rebuild the repository projection before retrying.",
-      );
+    if (settings === null) {
+      const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml");
+      if (!existsSync(configPath)) return INITIAL_SETTINGS_V1;
+      return readSettingsFacet(readFileSync(configPath, "utf8"));
+    }
     return settings;
-  };
-
-  const initialize = (binding: RepoCellBinding): SettingsV1 => {
-    const current = projected();
-    if (current !== null) return current;
-    const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml"),
-      baseDocumentBody = readFileSync(configPath, "utf8"),
-      settings = readSettingsFacet(baseDocumentBody),
-      revision = cell.store.readHead()?.revision ?? 0,
-      digest = createHash("sha256").update(`${cell.input.repoId}\0${baseDocumentBody}`).digest("hex"),
-      opId = `settings-initialize-${digest}`,
-      bundle = compileSettingsChangedEvent({
-        settings,
-        baseDocumentBody,
-        candidateDocumentBody: baseDocumentBody,
-        eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
-        opId,
-        workspaceRevision: revision + 1,
-        actor: binding.actor,
-        source: binding.source,
-        occurredAt: cell.now(),
-      });
-    cell.store.append(bundle);
-    cell.projection.apply(bundle.event, bundle.plan);
-    return read();
   };
 
   const update = (action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt => {
@@ -61,13 +37,13 @@ export function makeRepoCellSettingsActions(cell: any) {
       settings: SettingsV1 = {
         schema: current.schema,
         settingsId: current.settingsId,
-        defaultVertical: text(action.defaultVertical) ?? current.defaultVertical,
-        defaultPreset: text(action.defaultPreset) ?? current.defaultPreset,
-        defaultProfile: text(action.defaultProfile) ?? current.defaultProfile,
-        locale: (text(action.locale) ?? current.locale) as SettingsV1["locale"],
+        defaultVertical: settingsText(action.defaultVertical) ?? current.defaultVertical,
+        defaultPreset: settingsText(action.defaultPreset) ?? current.defaultPreset,
+        defaultProfile: settingsText(action.defaultProfile) ?? current.defaultProfile,
+        locale: (settingsText(action.locale) ?? current.locale) as SettingsV1["locale"],
         scaffolds: {
-          task: text(action.taskScaffold) ?? current.scaffolds.task,
-          repository: text(action.repositoryScaffold) ?? current.scaffolds.repository,
+          task: settingsText(action.taskScaffold) ?? current.scaffolds.task,
+          repository: settingsText(action.repositoryScaffold) ?? current.scaffolds.repository,
         },
       },
       errors = validateSettingsV1(settings);
@@ -76,7 +52,7 @@ export function makeRepoCellSettingsActions(cell: any) {
       baseDocumentBody = readFileSync(configPath, "utf8"),
       candidateDocumentBody = writeSettingsFacet(baseDocumentBody, settings),
       revision = cell.store.readHead()?.revision ?? 0,
-      opId = cell.operationId(action, binding, cell.input.repoId, text(action.idempotencyKey) ? 0 : revision);
+      opId = cell.operationId(action, binding, cell.input.repoId, settingsText(action.idempotencyKey) ? 0 : revision);
     if (candidateDocumentBody === baseDocumentBody)
       return {
         outcome: "no_changes",
@@ -133,9 +109,9 @@ export function makeRepoCellSettingsActions(cell: any) {
     } as WriteReceipt;
   };
 
-  return { initialize, read, update };
+  return { read, update };
 }
 
-function text(value: unknown): string | undefined {
+function settingsText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }

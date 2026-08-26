@@ -111,7 +111,7 @@ function validateSettingsEventFields(value: unknown, allowUnknownFields: boolean
     value.entity.id !== SETTINGS_ID ||
     !isRecord(value.payload) ||
     !hasContractFields(value.payload, ["settings", "harnessDocumentClaim", "baseDocumentSha256"], allowUnknownFields) ||
-    validateSettingsV1(value.payload.settings).length > 0 ||
+    !validSettingsSnapshot(value.payload.settings, allowUnknownFields) ||
     !validClaim(value.payload.harnessDocumentClaim, allowUnknownFields) ||
     !/^[0-9a-f]{64}$/u.test(String(value.payload.baseDocumentSha256))
   )
@@ -119,6 +119,25 @@ function validateSettingsEventFields(value: unknown, allowUnknownFields: boolean
   return validateEventEnvelopeIdentity(value, allowUnknownFields).length
     ? ["settings event envelope identity is invalid"]
     : [];
+}
+
+function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boolean {
+  if (!allowUnknownFields) return validateSettingsV1(value).length === 0;
+  if (!isRecord(value) || !isRecord(value.scaffolds)) return false;
+  return (
+    validateSettingsV1({
+      schema: value.schema,
+      settingsId: value.settingsId,
+      defaultVertical: value.defaultVertical,
+      defaultPreset: value.defaultPreset,
+      defaultProfile: value.defaultProfile,
+      locale: value.locale,
+      scaffolds: {
+        task: value.scaffolds.task,
+        repository: value.scaffolds.repository,
+      },
+    }).length === 0
+  );
 }
 
 export function isSettingsEvent(event: { readonly schema: string }): event is SettingsEventV1 {
