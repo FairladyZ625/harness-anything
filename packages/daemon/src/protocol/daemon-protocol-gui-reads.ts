@@ -1,7 +1,6 @@
 import type { EntityResidencyFacets } from "../../../kernel/src/index.ts";
 import { repoReadCommandTopology } from "../../../preset/src/preset-command-contract.ts";
-import type { DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
-import { optionalEnum, shape } from "./daemon-protocol-gui-types.ts";
+import { observeTailKinds, optionalEnum, shape, type DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
 import {
   DAEMON_AGENDA_SCHEMA,
   DAEMON_AGENT_ENTITY_CATALOG_SCHEMA,
@@ -42,7 +41,7 @@ export const observeTailReadMethod = Object.freeze({
   params: shape({
     repo: shape({ repoId: "string" }),
     payload: shape({
-      kind: { values: ["events", "repo-log", "daemon-log", "dispatch"], optional: false },
+      kind: { values: observeTailKinds, optional: false },
       direction: { values: ["history", "follow"], optional: false },
       cursor: "json?",
       dispatchId: "string?",

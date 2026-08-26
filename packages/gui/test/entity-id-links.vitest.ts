@@ -219,7 +219,6 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
     watermark: 1,
     sourceRevision: 1,
   } as never);
-  vi.spyOn(agentRuntimeClient, "attach").mockImplementation((() => () => undefined) as never);
   vi.spyOn(agentRuntimeClient, "events").mockResolvedValue({
     ok: true,
     runtimeSessionId: SESSION_ID,

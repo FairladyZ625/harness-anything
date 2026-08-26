@@ -126,7 +126,7 @@ export function SessionsPanel({
             <SessionTranscript
               repoId={repoId}
               dispatchId={row?.kind === "round" ? row.dispatchId : null}
-              live={session.liveness === "live"}
+              live={LIVENESS_LIVE[session.liveness] ?? false}
               onSettled={reread}
             />
           }

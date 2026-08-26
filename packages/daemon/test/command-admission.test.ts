@@ -49,6 +49,7 @@ test("observe.tail declares direct admission and named source residency for ever
     events: "projection",
     "repo-log": "runtime-local",
     "daemon-log": "runtime-local",
+    dispatch: "runtime-local",
   });
   for (const mode of daemonRepoModeWords)
     assert.equal(admitRepoMode(mode, command, localSource).ok, true, `observe.tail ${mode} direct fixture`);

@@ -1,3 +1,5 @@
+import { clip, recordOf, stringOf } from "./daemon-observe-model.ts";
+
 export type SessionTranscriptItemType = "thinking" | "tool_call" | "tool_result" | "text" | "error";
 
 export interface SessionTranscriptItem {
@@ -47,21 +49,15 @@ export function sessionTranscriptTurns(
       turns.push(created);
       return created;
     },
-    add = (
-      target: MutableTurn,
-      type: SessionTranscriptItemType,
-      label: string,
-      detail: string,
-      at: string | null,
-    ) => {
-      const normalized = clip(detail.trim()),
+    add = (target: MutableTurn, type: SessionTranscriptItemType, label: string, detail: string, at: string | null) => {
+      const normalized = clip(detail.trim(), DETAIL_LIMIT),
         prior = target.items.at(-1);
       if (!normalized) return;
       if (prior && prior.type === type && (type === "thinking" || type === "text")) {
         target.items[target.items.length - 1] = {
           ...prior,
           summary: summaryOf(`${prior.detail}\n\n${normalized}`),
-          detail: clip(`${prior.detail}\n\n${normalized}`),
+          detail: clip(`${prior.detail}\n\n${normalized}`, DETAIL_LIMIT),
           occurredAt: at ?? prior.occurredAt,
         };
         return;
@@ -173,9 +169,7 @@ export function sessionTranscriptTurns(
       if (failed) add(current, "error", "process exit", `exit code ${exitCode}`, at);
     }
   }
-  return turns
-    .filter((entry) => entry.items.length > 0)
-    .map((entry) => ({ ...entry, items: [...entry.items] }));
+  return turns.filter((entry) => entry.items.length > 0).map((entry) => ({ ...entry, items: [...entry.items] }));
 }
 
 function toolLabel(item: Readonly<Record<string, unknown>>): string {
@@ -199,7 +193,7 @@ function contentOf(value: unknown): string {
     return value
       .map((part) => {
         const record = recordOf(part);
-        return record ? stringOf(record.text) ?? contentOf(record) : String(part);
+        return record ? (stringOf(record.text) ?? contentOf(record)) : String(part);
       })
       .join("\n");
   try {
@@ -212,20 +206,6 @@ function contentOf(value: unknown): string {
 function summaryOf(value: string): string {
   const compact = value.replace(/\s+/gu, " ").trim();
   return compact.length > 140 ? `${compact.slice(0, 137)}…` : compact;
-}
-
-function clip(value: string): string {
-  return value.length > DETAIL_LIMIT ? `${value.slice(0, DETAIL_LIMIT - 1)}…` : value;
-}
-
-function recordOf(value: unknown): Readonly<Record<string, unknown>> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Readonly<Record<string, unknown>>)
-    : null;
-}
-
-function stringOf(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function numberOf(value: unknown): number | null {

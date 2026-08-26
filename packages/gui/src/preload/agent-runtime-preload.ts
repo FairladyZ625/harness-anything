@@ -4,10 +4,6 @@ import {
 } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { assertPreloadPayload } from "./allowlist.ts";
 let sequence = 0;
-export type AgentRuntimePreloadStream = (
-  payload: DaemonGuiStreamPayloadMap["repo.agentRuntime.attach"],
-  onValue: (value: unknown) => void,
-) => () => void;
 export type TerminalPreloadStream = (
   payload: DaemonGuiStreamPayloadMap["repo.terminal.attach"],
   onValue: (value: unknown) => void,
@@ -18,7 +14,6 @@ interface RendererIpc {
   readonly removeListener: (channel: string, listener: (event: unknown, value: unknown) => void) => void;
 }
 export function agentRuntimePreloadApi(ipc: RendererIpc): {
-  readonly attachAgentRuntime: AgentRuntimePreloadStream;
   readonly attachTerminal: TerminalPreloadStream;
 } {
   const result: Record<string, (payload: never, onValue: (value: unknown) => void) => () => void> = {};
@@ -40,7 +35,6 @@ export function agentRuntimePreloadApi(ipc: RendererIpc): {
       };
     }) as never;
   return result as unknown as {
-    readonly attachAgentRuntime: AgentRuntimePreloadStream;
     readonly attachTerminal: TerminalPreloadStream;
   };
 }

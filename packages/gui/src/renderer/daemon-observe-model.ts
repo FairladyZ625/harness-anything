@@ -10,10 +10,7 @@ import type { ObserveTailPayload, ObserveTailRead } from "../api/renderer-dto.ts
  */
 
 export type ObserveTailKind = Exclude<ObserveTailRead["kind"], "dispatch">;
-export type ObserveTailCursor = Exclude<
-  ObserveTailRead["historyCursor"],
-  { readonly kind: "dispatch" }
->;
+export type ObserveTailCursor = Exclude<ObserveTailRead["historyCursor"], { readonly kind: "dispatch" }>;
 export type ObserveTailMode = ObserveTailRead["mode"];
 
 export interface ObserveRefChip {
@@ -232,7 +229,7 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
       readonly schema?: unknown;
       readonly payload?: unknown;
     },
-    payload = recordOf(source.payload),
+    payload = recordOf(source.payload) ?? {},
     taskId = stringOf(source.taskId) ?? stringOf(payload.taskId),
     decisionId = stringOf(source.decisionId),
     factId = stringOf(source.factId),
@@ -304,7 +301,7 @@ function eventSummary(payload: Readonly<Record<string, unknown>>): string {
   const direct = firstString(payload.title, payload.statement, payload.text);
   if (direct !== null) return clip(direct, 140);
   const task = recordOf(payload.task),
-    title = stringOf(task.title);
+    title = stringOf(task?.title);
   if (title !== null) return clip(title, 140);
   const changes = payload.changes;
   if (Array.isArray(changes)) return `${changes.length} doc change(s)`;
@@ -324,13 +321,13 @@ function searchTextOf(row: Omit<ObserveRow, "searchText">): string {
     .toLowerCase();
 }
 
-function recordOf(value: unknown): Readonly<Record<string, unknown>> {
+export function recordOf(value: unknown): Readonly<Record<string, unknown>> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Readonly<Record<string, unknown>>)
-    : {};
+    : null;
 }
 
-function stringOf(value: unknown): string | null {
+export function stringOf(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
@@ -350,6 +347,6 @@ function numberToMs(value: unknown): string | null {
   return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value)}ms` : null;
 }
 
-function clip(value: string, limit = DETAIL_LIMIT): string {
-  return value.length <= limit ? value : `${value.slice(0, limit)}…`;
+export function clip(value: string, limit = DETAIL_LIMIT): string {
+  return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
 }

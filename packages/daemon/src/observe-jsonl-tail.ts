@@ -392,7 +392,7 @@ function gap(
   };
 }
 
-function sameCursor(left: ObserveTailCursor | null, right: ObserveTailCursor | null): boolean {
+export function sameCursor(left: ObserveTailCursor | null, right: ObserveTailCursor | null): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 

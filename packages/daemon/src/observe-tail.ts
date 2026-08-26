@@ -6,6 +6,7 @@ import { dispatchStreamPath } from "./dispatch-stream.ts";
 import { locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import {
   readJsonlTail,
+  sameCursor,
   singleJsonlFile,
   snapshotJsonlFiles,
   type JsonlTailFile,
@@ -210,10 +211,6 @@ function usefulProviderEvent(event: Readonly<Record<string, unknown>>): boolean 
 function edgeCenterRevision(rootDir: string, repoId: string): number | null {
   const config = readFleetEdgeConfig(rootDir);
   return config?.repoId === repoId ? (locateFleetMirrorView(config.viewRoot, repoId)?.revision ?? null) : null;
-}
-
-function sameCursor(left: ObserveTailCursor | null, right: ObserveTailCursor | null): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function escapeRegExp(value: string): string {
