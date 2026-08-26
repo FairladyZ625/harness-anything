@@ -1,4 +1,3 @@
-import { CronExpressionParser } from "cron-parser";
 import type { EntityDocumentJsonSchema, EntityJsonObjectSchema } from "./entity-json-schema.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
 import { ENTITY_ID_PATTERN } from "./entity-ref.ts";
@@ -25,9 +24,7 @@ export type ScheduleDefinitionEventType = (typeof scheduleDefinitionEventTypes)[
 export type ScheduleRunEventType = (typeof scheduleRunEventTypes)[number];
 export type ScheduleEventType = (typeof scheduleEventTypes)[number];
 
-export type ScheduleTriggerV1 =
-  | { readonly kind: "interval"; readonly everyMs: number; readonly anchorAt: string }
-  | { readonly kind: "cron"; readonly expression: string; readonly timeZone: string };
+export type ScheduleTriggerV1 = { readonly kind: "interval"; readonly everyMs: number; readonly anchorAt: string };
 
 export interface ScheduleTargetV1 {
   readonly kind: "agent";
@@ -94,11 +91,9 @@ export type ScheduleV1 = ScheduleDefinitionV1 & { readonly status: ScheduleRunVi
 const triggerSchema: EntityJsonObjectSchema = {
   type: "object",
   properties: {
-    kind: { type: "string", enum: ["interval", "cron"] },
+    kind: { type: "string", const: "interval" },
     everyMs: { type: "integer", minimum: 60_000 },
     anchorAt: { type: "string", minLength: 1 },
-    expression: { type: "string", minLength: 1 },
-    timeZone: { type: "string", minLength: 1 },
   },
   required: ["kind"],
   additionalProperties: false,
@@ -261,16 +256,6 @@ export function validateScheduleV1(value: unknown, allowUnknownFields = false): 
 
 export function nextScheduleOccurrence(trigger: ScheduleTriggerV1, after: string): string {
   if (!timestamp(after) || !validTrigger(trigger, false)) throw new Error("schedule trigger or cursor is invalid");
-  if (trigger.kind === "cron") {
-    const next = CronExpressionParser.parse(trigger.expression, {
-      currentDate: after,
-      tz: trigger.timeZone,
-    })
-      .next()
-      .toISOString();
-    if (next === null) throw new Error("schedule occurrence cannot be represented as an ISO timestamp");
-    return next;
-  }
   const anchor = Date.parse(trigger.anchorAt),
     cursor = Date.parse(after),
     steps = Math.max(1, Math.floor((cursor - anchor) / trigger.everyMs) + 1);
@@ -288,28 +273,14 @@ function validSpec(value: unknown, allowUnknownFields: boolean): boolean {
 }
 
 function validTrigger(value: unknown, allowUnknownFields: boolean): value is ScheduleTriggerV1 {
-  if (!isRecord(value)) return false;
-  if (value.kind === "interval")
-    return (
-      hasContractFields(value, ["kind", "everyMs", "anchorAt"], allowUnknownFields) &&
-      Number.isSafeInteger(value.everyMs) &&
-      Number(value.everyMs) >= 60_000 &&
-      timestamp(value.anchorAt)
-    );
-  if (
-    value.kind !== "cron" ||
-    !hasContractFields(value, ["kind", "expression", "timeZone"], allowUnknownFields) ||
-    !isNonEmptyString(value.expression) ||
-    value.expression.trim().split(/\s+/u).length !== 5 ||
-    !isNonEmptyString(value.timeZone)
-  )
-    return false;
-  try {
-    CronExpressionParser.parse(value.expression, { currentDate: "2026-01-01T00:00:00.000Z", tz: value.timeZone });
-    return true;
-  } catch {
-    return false;
-  }
+  return (
+    isRecord(value) &&
+    hasContractFields(value, ["kind", "everyMs", "anchorAt"], allowUnknownFields) &&
+    value.kind === "interval" &&
+    Number.isSafeInteger(value.everyMs) &&
+    Number(value.everyMs) >= 60_000 &&
+    timestamp(value.anchorAt)
+  );
 }
 
 function validTarget(value: unknown, allowUnknownFields: boolean): value is ScheduleTargetV1 {

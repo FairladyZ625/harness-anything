@@ -16,23 +16,18 @@ test("Schedule interval occurrences keep the creation anchor without fixed-delay
   assert.equal(nextScheduleOccurrence(trigger, "2026-08-26T10:05:30.000Z"), "2026-08-26T10:06:00.000Z");
 });
 
-test("Schedule cron uses explicit IANA wall-clock semantics across both DST boundaries", () => {
-  const spring = { kind: "cron" as const, expression: "30 2 * * *", timeZone: "America/New_York" };
-  assert.equal(nextScheduleOccurrence(spring, "2026-03-07T07:30:00.000Z"), "2026-03-08T07:30:00.000Z");
-
-  const fall = { kind: "cron" as const, expression: "30 1 * * *", timeZone: "America/New_York" },
-    first = nextScheduleOccurrence(fall, "2026-10-31T05:30:00.000Z");
-  assert.equal(first, "2026-11-01T05:30:00.000Z");
-  assert.equal(nextScheduleOccurrence(fall, first), "2026-11-02T06:30:00.000Z");
-});
-
-test("Schedule rejects six-field cron, missing time zone, non-agent targets, and non-UTC instants", () => {
+test("Schedule rejects deferred trigger kinds, non-agent targets, and non-UTC instants", () => {
   const schedule = fixtureSchedule();
-  for (const trigger of [
-    { kind: "cron", expression: "0 30 2 * * *", timeZone: "UTC" },
-    { kind: "cron", expression: "30 2 * * *" },
-  ])
-    assert.notDeepEqual(validateScheduleV1({ ...schedule, spec: { ...schedule.spec, trigger } }), []);
+  assert.notDeepEqual(
+    validateScheduleV1({
+      ...schedule,
+      spec: {
+        ...schedule.spec,
+        trigger: { kind: "cron", expression: "0 8 * * *", timeZone: "Asia/Taipei" },
+      },
+    }),
+    [],
+  );
   assert.notDeepEqual(
     validateScheduleV1({
       ...schedule,
