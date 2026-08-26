@@ -9,6 +9,7 @@ import {
   validateAgentRuntimeSessionGroups,
   validateAgentRuntimeSession,
 } from "../agent-runtime-contract.ts";
+import { validateSettingsV1 } from "../../../kernel/src/domain/settings.ts";
 import {
   validateAgentEntityCatalog,
   validateAgentEntityDetail,
@@ -46,7 +47,6 @@ import {
   validateDaemonTaskDocumentList,
   validateDaemonTaskSnapshotList,
   validateDaemonWorkspaceSummary,
-  validateDaemonSettingsRead,
   type DaemonGuiActionMethod,
   type DaemonGuiActionResult,
   type DaemonGuiReadResultMap,
@@ -56,6 +56,14 @@ import {
   type DaemonProtocolErrorResult,
 } from "./daemon-protocol.contract.ts";
 type ResultValidator = (value: unknown) => readonly string[];
+const validateDaemonSettingsRead: ResultValidator = (value) =>
+  isJsonObject(value) &&
+  Object.keys(value).length === 3 &&
+  value.schema === "daemon.settings-read/v1" &&
+  value.ok === true &&
+  validateSettingsV1(value.settings).length === 0
+    ? []
+    : ["daemon settings read is invalid"];
 const resultValidators = {
   "daemon.gui.system.read": validateSystemStatus,
   "daemon.gui.control.receipt": validateDaemonControlReceipt,

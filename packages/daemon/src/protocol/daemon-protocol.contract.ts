@@ -539,7 +539,6 @@ export {
   serializeDaemonWorkspaceSummary,
   serializeObserveTailResult,
   validateDaemonDocumentRead,
-  validateDaemonSettingsRead,
   validateDaemonGuiCommandReceipt,
   validateDaemonProtocolError,
   validateDaemonTaskDispatches,

@@ -12,7 +12,11 @@ import {
 import path from "node:path";
 import test from "node:test";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import {
+  compileSettingsChangedEvent,
+  makeTaskEventStore,
+  readSettingsFacet,
+} from "../../kernel/src/index.ts";
 
 import {
   cli,
@@ -178,19 +182,23 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
         target.startsWith("harness/"),
       ),
     );
+    const stream = makeTaskEventStore({
+      rootDir: fixture.repo,
+      repoId: "fresh",
+    }).read();
     assert.equal(
       git(ledgerRoot, "ls-tree", "-r", "--name-only", "HEAD")
         .split("\n")
-        .some(
-          (target) =>
-            target.startsWith("tasks/") || target.startsWith("events/"),
-        ),
+        .some((target) => target.startsWith("tasks/")),
       false,
     );
-    assert.equal(
-      makeTaskEventStore({ rootDir: fixture.repo, repoId: "fresh" }).read()
-        .revision,
-      0,
+    assert.equal(stream.revision, 1);
+    assert.equal(stream.events[0]?.schema, "settings-event/v1");
+    assert.deepEqual(
+      run(fixture.repo, fixture.userRoot, ["settings", "read"]).settings,
+      stream.events[0]?.schema === "settings-event/v1"
+        ? stream.events[0].payload.settings
+        : null,
     );
     const repeated = run(fixture.repo, fixture.userRoot, [
       "init",
@@ -207,7 +215,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.deepEqual(repeated.created, []);
     assert.deepEqual(repeated.updated, []);
     assert.deepEqual(repeated.preserved, initialized.created);
-    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "1");
+    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "2");
     const walls = spawnSync(
       process.execPath,
       [path.join(fixture.repo, "harness/governance/walls/run-walls.mjs")],
@@ -271,7 +279,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     const reports = readdirSync(reportsRoot, { withFileTypes: true });
     assert.equal(reports.length, 1);
     assert.equal(reports[0]?.isFile(), true);
-    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "1");
+    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "2");
     const textReceipt = spawnSync(
       process.execPath,
       [
@@ -410,10 +418,29 @@ test("local init isolates the ledger from later project commits and removes trac
   }
 });
 
-test("center registration keeps an external ledger repository readable and writable", (context) => {
+test("center registration keeps an external ledger repository readable and writable", async (context) => {
   const fixture = setup();
   try {
     assert.equal(existsSync(path.join(fixture.alpha, "harness/.git")), false);
+    const documentBody = readFileSync(
+        path.join(fixture.alpha, "harness/harness.yaml"),
+        "utf8",
+      ),
+      store = makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" });
+    store.append(
+      compileSettingsChangedEvent({
+        settings: readSettingsFacet(documentBody),
+        baseDocumentBody: documentBody,
+        candidateDocumentBody: documentBody,
+        eventId: "event-center-settings",
+        opId: "settings-initialize-center",
+        workspaceRevision: 1,
+        actor: { principal: { personId: "owner" }, executor: null },
+        source: "local",
+        occurredAt: "2026-08-27T00:00:00.000Z",
+      }),
+    );
+    await store.drain();
     assert.equal(
       run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok,
       true,
