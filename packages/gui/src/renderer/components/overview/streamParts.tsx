@@ -1,5 +1,5 @@
 import { t } from "../../i18n/index.tsx";
-import { localMonthDayTime } from "../../model/local-time.ts";
+import { formatTime } from "../../model/time.ts";
 
 /**
  * 四条流的共用骨架:紧凑行、就地状态切换、内部滚动、空态。
@@ -86,5 +86,5 @@ export function StreamExitButton({ label, onClick, title }: { label: string; onC
 
 export const streamTime = (iso: string | null | undefined) =>
   iso
-    ? (localMonthDayTime(iso) ?? t("views.overviewView.streamCreatedUnknown"))
+    ? (formatTime(iso, { style: "month-day-time" }) ?? t("views.overviewView.streamCreatedUnknown"))
     : t("views.overviewView.streamCreatedUnknown");

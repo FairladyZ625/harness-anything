@@ -4,8 +4,8 @@ import { DatabaseSync } from "node:sqlite";
 import { consumeKnownError } from "../../../kernel/src/index.ts";
 import {
   canonicalDocumentClaims,
-  serializeCanonicalEvent,
   serializeEventHead,
+  serializePersistedCanonicalEvent,
   sha256Bytes,
   sha256Text,
   stableStringify,
@@ -118,7 +118,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         applied:
           !!applied &&
           applied.watermark >= event.workspaceRevision &&
-          serializeCanonicalEvent(applied.event) === serializeCanonicalEvent(event),
+          serializePersistedCanonicalEvent(applied.event) === serializePersistedCanonicalEvent(event),
       };
     };
   const manifestPath = (digest: string) => path.join(manifestRoot, digest.slice(0, 2), digest);
@@ -168,7 +168,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         serializeEventHead({
           revision: event.workspaceRevision,
           opId: event.opId,
-          eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}`,
+          eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
         }),
       )}`,
       store = db(),

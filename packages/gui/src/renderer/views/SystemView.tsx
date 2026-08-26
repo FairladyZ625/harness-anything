@@ -2,7 +2,7 @@ import { ArrowClockwise, Power } from "@phosphor-icons/react";
 import { controlSucceeded, useDaemonControl, useSystemStatusQuery } from "../system-data.ts";
 import type { SystemRepoRow } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
-import { localDateTime } from "../model/local-time.ts";
+import { formatTime } from "../model/time.ts";
 
 /**
  * System 面板:面向使用者的守护进程状态 + 本地仓库表。
@@ -13,7 +13,7 @@ import { localDateTime } from "../model/local-time.ts";
  * 机器值(generation 序号、recovery 毫秒)保留为次级行,不再作为唯一呈现。
  */
 const dash = () => t("views.settingsView.systemUnknownDash");
-const dateTime = (iso: string) => localDateTime(iso, true) ?? dash();
+const dateTime = (iso: string) => formatTime(iso, { style: "date-time-seconds" }) ?? dash();
 
 export function formatUptimeMs(uptimeMs: number | undefined): string {
   if (typeof uptimeMs !== "number" || !Number.isFinite(uptimeMs) || uptimeMs < 0) return dash();

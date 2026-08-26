@@ -26,6 +26,7 @@ import {
 import type { EventEnvelope } from "./write-chain.contract.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { isValidDocEventChange, type DocEventChange } from "./doc-sync.contract.ts";
+import { timestamp } from "./timestamp.ts";
 export const taskEventTypes = [
   "task_created",
   "execution_started",
@@ -277,7 +278,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     !isNonEmptyString(value.eventId) ||
     !isNonEmptyString(value.opId) ||
     !isNonEmptyString(value.taskId) ||
-    !isNonEmptyString(value.occurredAt) ||
+    !timestamp(value.occurredAt) ||
     !Number.isInteger(value.workspaceRevision) ||
     (value.workspaceRevision as number) < 1 ||
     !taskEventTypes.includes(value.type as TaskEventType)
@@ -340,7 +341,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     if (payload.previousHolder !== null)
       issues.push(...validateLeaseHolder(payload.previousHolder, allowUnknownFields));
     if (
-      !isNonEmptyString(payload.leaseExpiresAt) ||
+      !timestamp(payload.leaseExpiresAt) ||
       !["initial_claim", "same_principal_reconnect", "ttl_expired_takeover"].includes(String(payload.reason)) ||
       (value.type === "lease_renewed" &&
         (payload.previousHolder === null || payload.reason !== "same_principal_reconnect"))

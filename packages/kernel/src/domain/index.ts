@@ -107,6 +107,7 @@ export type { FactConfidence, FactEventDraftV1, FactEventV1, FactMemoryClass, Fa
 
 export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";
 export type { ContractVersion } from "./contract-version.ts";
+export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 
 export {
   createEntityKindRegistry,

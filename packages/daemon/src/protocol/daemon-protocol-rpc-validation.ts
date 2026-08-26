@@ -21,6 +21,7 @@ import { decisionStateWords, relationStateWords, taskStatusWords } from "./daemo
 import {
   DaemonProtocolContractError,
   isJsonObject,
+  isUtcTimestamp,
   rejectSecretKeys,
   unknownFieldViolation,
   type JsonObject,
@@ -151,9 +152,7 @@ export function validateDaemonQueryPayload(
   )
     errors.push(`${method}.payload.changedAfterRevision is invalid`);
   if (
-    [after, before].some(
-      (item) => item !== undefined && (typeof item !== "string" || !Number.isFinite(Date.parse(item))),
-    ) ||
+    [after, before].some((item) => item !== undefined && !isUtcTimestamp(item)) ||
     (typeof after === "string" && typeof before === "string" && after > before)
   )
     errors.push(`${method}.payload time window is invalid`);

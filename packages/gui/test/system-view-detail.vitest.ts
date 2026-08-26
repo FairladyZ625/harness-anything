@@ -1,6 +1,43 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
 import { formatUptimeMs, totalQueueDepth } from "../src/renderer/views/SystemView.tsx";
+import {
+  formatTime,
+  readTimeZoneOverride,
+  TIME_ZONE_STORAGE_KEY,
+  writeTimeZoneOverride,
+} from "../src/renderer/model/time.ts";
+
+describe("GUI time service", () => {
+  it("renders the same instant as UTC 02:44 and Taipei 10:44", () => {
+    const iso = "2026-08-26T02:44:00.000Z",
+      utc = formatTime(iso, { tz: "UTC", style: "date-time" }),
+      taipei = formatTime(iso, { tz: "Asia/Taipei", style: "date-time" });
+    console.info(`UTC=${utc} Asia/Taipei=${taipei}`);
+    expect(utc).toBe("2026-08-26 02:44");
+    expect(taipei).toBe("2026-08-26 10:44");
+    expect(taipei).not.toBe(utc);
+  });
+
+  it("persists a valid settings override and treats removal as system time", () => {
+    const values = new Map<string, string>(),
+      storage = {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      };
+    writeTimeZoneOverride("Asia/Taipei", storage);
+    expect(values.get(TIME_ZONE_STORAGE_KEY)).toBe("Asia/Taipei");
+    expect(readTimeZoneOverride(storage)).toBe("Asia/Taipei");
+    writeTimeZoneOverride(null, storage);
+    expect(readTimeZoneOverride(storage)).toBeNull();
+    expect(() => writeTimeZoneOverride("Mars/Olympus", storage)).toThrow(/Unsupported time zone/u);
+  });
+
+  it("returns null for invalid input instead of inventing a display time", () => {
+    expect(formatTime("not-a-timestamp", { tz: "UTC", style: "time" })).toBeNull();
+  });
+});
 
 describe("system view user-facing detail (archive-line parity)", () => {
   it("formats raw uptime milliseconds into readable durations", () => {

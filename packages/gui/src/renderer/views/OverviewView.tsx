@@ -9,10 +9,10 @@ import { DecisionPreviewDrawer } from "../components/DecisionPreviewDrawer.tsx";
 import { decisionStateLabel } from "../components/badges";
 import { deriveRuntimeHealth, type RuntimeHealthInput } from "../model/runtime-health.ts";
 import { t } from "../i18n/index.tsx";
-import { localTime } from "../model/local-time.ts";
+import { formatTime } from "../model/time.ts";
 import type { WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 
-const timeOf = (iso: string) => localTime(iso) ?? "—";
+const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";
 
 /**
  * 总览 = 四条流(2026-08-21 泽宇反馈重构):

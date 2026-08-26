@@ -6,6 +6,7 @@ import type {
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
 import type { RelationEdge } from "./model/types.ts";
 import { t } from "./i18n/index.tsx";
+import { formatTime } from "./model/time.ts";
 
 /**
  * 会话页的纯数据模型(设计稿 §2–§5):组、轮次行、孤儿会话行全部是 daemon 读面的
@@ -157,5 +158,5 @@ export function relativeTime(iso: string, now = Date.now()): string {
   if (seconds < 3600) return t("agentRuntime.sessionsMinutesAgo", { minutes: Math.floor(seconds / 60) });
   if (seconds < 86_400) return t("agentRuntime.sessionsHoursAgo", { hours: Math.floor(seconds / 3600) });
   if (seconds < 30 * 86_400) return t("agentRuntime.sessionsDaysAgo", { days: Math.floor(seconds / 86_400) });
-  return iso.slice(0, 16).replace("T", " ");
+  return formatTime(iso, { style: "date-time" }) ?? iso;
 }

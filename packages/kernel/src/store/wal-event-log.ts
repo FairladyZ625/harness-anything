@@ -2,6 +2,7 @@ import path from "node:path";
 import {
   parseCanonicalEvent,
   serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
@@ -53,10 +54,7 @@ export interface WalEventLog {
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly checkpoint: (throughRevision: number) => void;
   readonly reseed: (events: readonly CanonicalEventV1[]) => void;
-  readonly audit: (
-    gitEvents: readonly CanonicalEventV1[],
-    gitRevision: number,
-  ) => WalAuditReceipt;
+  readonly audit: (gitEvents: readonly CanonicalEventV1[], gitRevision: number) => WalAuditReceipt;
 }
 
 export interface WalAuditReceipt {
@@ -85,9 +83,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
       return cached;
     }
     const raw = fileSystem.readText(segmentPath);
-    const complete = raw.endsWith("\n")
-      ? raw
-      : raw.slice(0, raw.lastIndexOf("\n") + 1);
+    const complete = raw.endsWith("\n") ? raw : raw.slice(0, raw.lastIndexOf("\n") + 1);
     if (complete !== raw) fileSystem.replace(segmentPath, complete);
     const rows = complete
       .split("\n")
@@ -96,13 +92,8 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     for (let index = 1; index < rows.length; index += 1) {
       const previous = rows[index - 1]!;
       const current = rows[index]!;
-      if (
-        current.revision !== previous.revision + 1 ||
-        current.previousDigest !== previous.eventDigest
-      )
-        throw new Error(
-          `WAL revision or digest chain is not contiguous at revision ${current.revision}`,
-        );
+      if (current.revision !== previous.revision + 1 || current.previousDigest !== previous.eventDigest)
+        throw new Error(`WAL revision or digest chain is not contiguous at revision ${current.revision}`);
     }
     cached = rows;
     return rows;
@@ -130,44 +121,29 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     return cachedHead;
   };
   const writeHead = (head: WalHead): void => {
-    fileSystem.replace(
-      path.join(walRoot, "head.json"),
-      `${stableStringify(head)}\n`,
-    );
+    fileSystem.replace(path.join(walRoot, "head.json"), `${stableStringify(head)}\n`);
     cachedHead = head;
   };
   const append = (input: WalAppendInput): WalEventRecord => {
     ensureRoot();
     const eventBytes = serializeCanonicalEvent(input.event);
-    const existing = readRecords().find(
-      (candidate) => candidate.opId === input.event.opId,
-    );
+    const existing = readRecords().find((candidate) => candidate.opId === input.event.opId);
     if (existing !== undefined) {
       if (existing.eventDigest !== `sha256:${sha256Text(eventBytes)}`)
-        throw new Error(
-          `WAL opId ${input.event.opId} names different event bytes`,
-        );
+        throw new Error(`WAL opId ${input.event.opId} names different event bytes`);
       return existing;
     }
     const previous = readRecords().at(-1);
     const revision = input.event.workspaceRevision;
     if (previous !== undefined && revision !== previous.revision + 1)
-      throw new Error(
-        `WAL revision ${revision} must follow ${previous.revision}`,
-      );
+      throw new Error(`WAL revision ${revision} must follow ${previous.revision}`);
     for (const blob of input.blobs) {
-      if (
-        sha256Text(blob.body) !== blob.sha256 ||
-        Buffer.byteLength(blob.body) !== blob.size
-      )
-        throw new Error(
-          `WAL content object ${blob.sha256} does not match its claim`,
-        );
+      if (sha256Text(blob.body) !== blob.sha256 || Buffer.byteLength(blob.body) !== blob.size)
+        throw new Error(`WAL content object ${blob.sha256} does not match its claim`);
       const target = path.join(objectsRoot, blob.sha256);
       if (fileSystem.exists(target)) {
         const existingBody = fileSystem.readText(target);
-        if (existingBody !== blob.body)
-          throw new Error(`WAL content object ${blob.sha256} is corrupt`);
+        if (existingBody !== blob.body) throw new Error(`WAL content object ${blob.sha256} is corrupt`);
       } else fileSystem.replace(target, blob.body);
     }
     const record: WalEventRecord = {
@@ -184,9 +160,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
       previousDigest: previous?.eventDigest ?? null,
     };
     const body = `${stableStringify(record)}\n`;
-    const current = fileSystem.exists(segmentPath)
-      ? fileSystem.readText(segmentPath)
-      : "";
+    const current = fileSystem.exists(segmentPath) ? fileSystem.readText(segmentPath) : "";
     fileSystem.append(segmentPath, body);
     cached = [...readRecords(), record];
     writeHead({
@@ -199,13 +173,9 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     return record;
   };
   const checkpoint = (throughRevision: number): void => {
-    const remaining = readRecords().filter(
-      (record) => record.revision > throughRevision,
-    );
+    const remaining = readRecords().filter((record) => record.revision > throughRevision);
     if (remaining.length === readRecords().length) return;
-    const body = remaining
-      .map((record) => `${stableStringify(record)}\n`)
-      .join("");
+    const body = remaining.map((record) => `${stableStringify(record)}\n`).join("");
     if (body.length === 0) {
       if (fileSystem.exists(segmentPath)) fileSystem.replace(segmentPath, "");
     } else fileSystem.replace(segmentPath, body);
@@ -228,9 +198,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
             headDigest: last.eventDigest,
           },
     );
-    const referenced = new Set(
-      remaining.flatMap((record) => record.blobs.map((blob) => blob.sha256)),
-    );
+    const referenced = new Set(remaining.flatMap((record) => record.blobs.map((blob) => blob.sha256)));
     if (fileSystem.exists(objectsRoot))
       for (const name of fileSystem.readNames(objectsRoot))
         if (!referenced.has(name)) fileSystem.remove(path.join(objectsRoot, name));
@@ -239,7 +207,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     ensureRoot();
     const records: WalEventRecord[] = [];
     for (const event of events) {
-      const eventBytes = serializeCanonicalEvent(event);
+      const eventBytes = serializePersistedCanonicalEvent(event);
       const previous = records.at(-1);
       records.push({
         schema: WAL_SCHEMA,
@@ -278,8 +246,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     head: readHead,
     records: readRecords,
     append,
-    readEvent: (opId) =>
-      readRecords().find((record) => record.opId === opId)?.event ?? null,
+    readEvent: (opId) => readRecords().find((record) => record.opId === opId)?.event ?? null,
     readContentBlob: (sha256) => {
       const target = path.join(objectsRoot, sha256);
       if (fileSystem.exists(target)) return Buffer.from(fileSystem.readText(target));
@@ -287,8 +254,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     },
     checkpoint,
     reseed,
-    audit: (gitEvents, gitRevision) =>
-      auditRecords(readRecords(), gitEvents, gitRevision),
+    audit: (gitEvents, gitRevision) => auditRecords(readRecords(), gitEvents, gitRevision),
   };
 }
 
@@ -309,22 +275,17 @@ function parseRecord(line: string, index: number): WalEventRecord {
     typeof candidate.opId !== "string" ||
     !Array.isArray(candidate.blobs) ||
     typeof candidate.eventDigest !== "string" ||
-    (candidate.previousDigest !== null &&
-      typeof candidate.previousDigest !== "string")
+    (candidate.previousDigest !== null && typeof candidate.previousDigest !== "string")
   )
     throw new Error(`WAL record ${index} has invalid shape`);
-  const event = parseCanonicalEvent(
-    serializeCanonicalEvent(candidate.event as CanonicalEventV1),
-  );
-  const expected = `sha256:${sha256Text(serializeCanonicalEvent(event))}`;
+  const event = parseCanonicalEvent(serializePersistedCanonicalEvent(candidate.event as CanonicalEventV1));
+  const expected = `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`;
   if (
     candidate.eventDigest !== expected ||
     event.workspaceRevision !== candidate.revision ||
     event.opId !== candidate.opId
   )
-    throw new Error(
-      `WAL record ${index} event digest does not match canonical bytes`,
-    );
+    throw new Error(`WAL record ${index} event digest does not match canonical bytes`);
   return candidate as unknown as WalEventRecord;
 }
 
@@ -337,8 +298,7 @@ function auditRecords(
     const gitEvent = gitEvents[record.revision - 1];
     if (
       gitEvent === undefined ||
-      record.eventDigest !==
-        `sha256:${sha256Text(serializeCanonicalEvent(gitEvent))}`
+      record.eventDigest !== `sha256:${sha256Text(serializePersistedCanonicalEvent(gitEvent))}`
     )
       return {
         status: "diverged",
@@ -355,8 +315,6 @@ function auditRecords(
     walRevision: lastRevision,
     gitRevision,
     compared: records.length,
-    divergence: equivalent
-      ? null
-      : `WAL revision ${lastRevision} does not reach Git revision ${gitRevision}`,
+    divergence: equivalent ? null : `WAL revision ${lastRevision} does not reach Git revision ${gitRevision}`,
   };
 }

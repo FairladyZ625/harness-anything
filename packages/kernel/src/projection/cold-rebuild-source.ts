@@ -1,6 +1,11 @@
 import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
-import { isFactEvent, isMigrationImportEvent, parseCanonicalEvent } from "../domain/doc-sync.contract.ts";
+import {
+  isFactEvent,
+  isMigrationImportEvent,
+  normalizePersistedCanonicalEvent,
+  parseCanonicalEvent,
+} from "../domain/doc-sync.contract.ts";
 import {
   deriveRelationId,
   parseEntityRef,
@@ -30,6 +35,7 @@ import { sourcePath } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 import { coverageOf } from "../domain/decision-coverage.ts";
 import { factLiveness } from "../domain/fact-liveness.ts";
+import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
 
 export interface ColdDecisionProjectionRow {
   readonly decisionId: string;
@@ -310,7 +316,10 @@ function decisionRow(
     chosen = objectList(frontmatter, "chosen"),
     rejected = objectList(frontmatter, "rejected"),
     claimRows = objectList(frontmatter, "claims"),
-    provenance = objectList(frontmatter, "provenance"),
+    provenance = objectList(frontmatter, "provenance").map((entry) => ({
+      ...entry,
+      ...(typeof entry.boundAt === "string" ? { boundAt: canonicalTimestamp(entry.boundAt) } : {}),
+    })),
     legacy = /(?:^|_)E(\d+)(?:_|$)/u.exec(decisionId)?.[1],
     decisionClass = readScalar(frontmatter, "decisionClass").replace("_", "-");
   const chosenRecords = chosen.flatMap((entry) =>
@@ -361,9 +370,9 @@ function decisionRow(
     ...optional("vertical", unquote(readScalar(frontmatter, "vertical"))),
     ...optional("preset", unquote(readScalar(frontmatter, "preset"))),
     ...optional("decisionClass", decisionClass),
-    ...optional("proposedAt", unquote(readScalar(frontmatter, "proposedAt"))),
+    ...optional("proposedAt", canonicalTimestamp(unquote(readScalar(frontmatter, "proposedAt")))),
     ...(provenance.length ? { provenance } : {}),
-    ...optional("decidedAt", unquote(readScalar(frontmatter, "decidedAt"))),
+    ...optional("decidedAt", canonicalTimestamp(unquote(readScalar(frontmatter, "decidedAt")))),
   };
 }
 function decisionAppliesTo(frontmatter: string): {
@@ -466,11 +475,14 @@ function parseLegacyFacts(
         factId,
         statement: coldRebuildScalar(fields.statement),
         source: coldRebuildScalar(fields.source),
-        observedAt: coldRebuildScalar(fields.observedAt),
+        observedAt: canonicalTimestamp(coldRebuildScalar(fields.observedAt)),
         confidence: coldRebuildScalar(fields.confidence) as RelationFactRow["confidence"],
         memoryClass: (coldRebuildScalar(fields.memoryClass) || "episodic") as RelationFactRow["memoryClass"],
         memoryTags: tags,
-        provenance: provenance as RelationFactRow["provenance"],
+        provenance: provenance.map((entry) => ({
+          ...entry,
+          boundAt: canonicalTimestamp(entry.boundAt ?? ""),
+        })) as unknown as RelationFactRow["provenance"],
         liveness: "standing",
       });
       anchors.push({ factRef: ref, taskId, factId, sourcePath: portablePath });
@@ -496,7 +508,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string): AuthoredEven
     if (body === null) continue;
     let event;
     try {
-      event = parseCanonicalEvent(body);
+      event = normalizePersistedCanonicalEvent(parseCanonicalEvent(body));
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       consumeKnownError(error);
@@ -699,6 +711,9 @@ function splitColdRebuildTopLevel(value: string): string[] {
 }
 function coldRebuildScalar(value = ""): string {
   return unquote(value);
+}
+function canonicalTimestamp(value: string): string {
+  return normalizePersistedTimestamp(value) ?? value;
 }
 function stripArray(value = ""): string {
   return value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1).trim() : "";

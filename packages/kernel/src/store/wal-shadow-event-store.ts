@@ -1,4 +1,4 @@
-import { serializeCanonicalEvent } from "../domain/doc-sync.contract.ts";
+import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
 import type { EventHead } from "../domain/write-chain.contract.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
@@ -641,7 +641,7 @@ function pathFor(repoRoot: string, target: string): string {
 }
 
 function walShadowCanonicalBytes(event: CanonicalWriteBundle["event"]): string {
-  return serializeCanonicalEvent(event);
+  return serializePersistedCanonicalEvent(event);
 }
 
 function positive(explicit: number | undefined, envName: string, fallback: number): number {

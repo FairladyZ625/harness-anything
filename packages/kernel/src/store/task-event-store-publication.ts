@@ -1,4 +1,9 @@
-import { isDecisionEvent, isDocEvent, ledgerCommitSha, serializeCanonicalEvent } from "../domain/doc-sync.contract.ts";
+import {
+  isDecisionEvent,
+  isDocEvent,
+  ledgerCommitSha,
+  serializePersistedCanonicalEvent,
+} from "../domain/doc-sync.contract.ts";
 import {
   isLedgerLayoutMigrationEvent,
   ledgerLayoutMigrationWritePlan,
@@ -79,7 +84,7 @@ export function createPublicationApi(runtime: StoreRuntime) {
         : readEventAt(runtime.ledger, parent.sha, event.opId));
     if (existing !== null) {
       runtime.rememberEvents([existing]);
-      if (serializeCanonicalEvent(existing) !== eventBytes)
+      if (serializePersistedCanonicalEvent(existing) !== eventBytes)
         throw new TaskEventStoreError("op_conflict", `opId ${event.opId} already names different event bytes`);
       return receipt(event, parent, started, []);
     }

@@ -14,8 +14,10 @@ export {
   canonicalEventSchemas,
   isDocEvent,
   isTaskEvent,
+  normalizePersistedCanonicalEvent,
   parseCanonicalEvent,
   serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
   validateCurrentCanonicalEvent,
 } from "./doc-sync-canonical-events.ts";
 export {

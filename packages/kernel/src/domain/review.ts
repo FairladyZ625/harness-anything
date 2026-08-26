@@ -5,6 +5,7 @@ import type { ActorAxes, ContractValidationIssue } from "./task.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { timestamp } from "./timestamp.ts";
 export const reviewVerdicts = ["approved", "changes_requested", "dismissed"] as const;
 export type ReviewVerdict = (typeof reviewVerdicts)[number];
 export interface ReviewV1 {
@@ -83,7 +84,7 @@ export function validateReviewV1(value: unknown, allowUnknownFields = false): re
     !isNonEmptyString(value.executionId) ||
     !isNonEmptyString(value.capabilityRef) ||
     !isNonEmptyString(value.reason) ||
-    !isNonEmptyString(value.reviewedAt) ||
+    !timestamp(value.reviewedAt) ||
     !reviewVerdicts.includes(value.verdict as ReviewVerdict)
   )
     issues.push(invalidReviewIssue("review identity, verdict, and reason are required"));
@@ -109,7 +110,8 @@ export function validateReviewConsentV1(
     return [invalidReviewIssue("ReviewConsent/v1 fields are incomplete or unknown")];
   const valid =
     value.schema === "review-consent/v1" &&
-    [value.consentId, value.taskId, value.executionId, value.reviewId, value.consentedAt].every(isNonEmptyString) &&
+    [value.consentId, value.taskId, value.executionId, value.reviewId].every(isNonEmptyString) &&
+    timestamp(value.consentedAt) &&
     digest(value.reviewDigest) &&
     digest(value.contentDigest) &&
     validateActorAxes(value.actor, allowUnknownFields).length === 0 &&

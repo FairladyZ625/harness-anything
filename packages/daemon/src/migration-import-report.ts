@@ -1,6 +1,6 @@
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { type ColdRebuildIssue } from "../../kernel/src/index.ts";
+import { normalizePersistedTimestamp, type ColdRebuildIssue } from "../../kernel/src/index.ts";
 import type {
   AuthoredCoverage,
   Draft,
@@ -167,7 +167,7 @@ export function taskIndexPaths(tasksRoot: string): readonly string[] {
 export function timestamp(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const cleaned = clean(value);
-  return Number.isFinite(Date.parse(cleaned)) ? cleaned : null;
+  return normalizePersistedTimestamp(cleaned);
 }
 
 export function clean(value: string): string {

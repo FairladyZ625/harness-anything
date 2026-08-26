@@ -4,6 +4,7 @@ import { packageDispositions } from "../domain/package-disposition.ts";
 import { priorityTiers, taskWorkKinds } from "../domain/task-metadata.ts";
 import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
 import { LinkKindSchema, ProvenanceEntrySchema } from "./common.ts";
+import { UtcTimestampSchema } from "./utc-timestamp.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
 import { DecisionEventSchema } from "./decision-event.ts";
 import { FactEventSchema } from "./fact-event.ts";
@@ -112,7 +113,7 @@ export const LifecycleBindingSchema = Schema.Struct({
   ref: NullableString,
   titleSnapshot: NullableString,
   url: NullableString,
-  bindingCreatedAt: Schema.String,
+  bindingCreatedAt: UtcTimestampSchema,
   bindingFingerprint: Sha256FingerprintSchema,
 });
 
@@ -147,8 +148,8 @@ export const TaskSnapshotSchema = Schema.Struct({
   canonicalStatus: SnapshotStatusSchema,
   rawStatus: Schema.String,
   freshness: FreshnessSchema,
-  fetchedAt: Schema.String,
-  expiresAt: OptionalString,
+  fetchedAt: UtcTimestampSchema,
+  expiresAt: Schema.optional(UtcTimestampSchema),
   staleReason: OptionalString,
   source: Schema.Literal("local-document", "external-engine", "snapshot-cache"),
   engine: Schema.String,
@@ -261,7 +262,7 @@ export const LegacyIndexEntrySchema = Schema.Struct({
 export const LegacyIndexSchema = Schema.Struct({
   schema: Schema.Literal("legacy-index/v1"),
   legacyRoot: LegacyRootSchema,
-  generatedAt: Schema.String,
+  generatedAt: UtcTimestampSchema,
   sourceRoot: Schema.String,
   entries: Schema.Array(LegacyIndexEntrySchema),
   summary: Schema.Struct({
@@ -291,7 +292,7 @@ const LegacyCollisionEntrySchema = Schema.Struct({
 export const LegacyCollisionReportSchema = Schema.Struct({
   schema: Schema.Literal("legacy-collision-report/v1"),
   legacyRoot: LegacyRootSchema,
-  generatedAt: Schema.String,
+  generatedAt: UtcTimestampSchema,
   policy: Schema.Struct({
     overwriteAllowed: Schema.Literal(false),
     directorySuffixPattern: Schema.Literal("-legacy-import-N"),
@@ -314,7 +315,7 @@ export const SqliteTaskRowSchema = Schema.Struct({
   closeoutReadiness: Schema.Literal("not_required", "missing", "incomplete", "ready", "passed", "failed"),
   lifecycleEngine: Schema.String,
   freshness: FreshnessSchema,
-  updatedAt: Schema.String,
+  updatedAt: UtcTimestampSchema,
   source: Schema.Literal("local-document", "external-engine", "snapshot-cache"),
   sourcePath: Schema.String,
   createdBy: Schema.optional(CreatedBySchema),
@@ -324,7 +325,7 @@ export const DocsReleasePromotionBundleSchema = Schema.Struct({
   schema: Schema.Literal("docs-release-promotion-bundle/v1"),
   projectionVersion: Schema.String,
   sourceTaskId: Schema.String,
-  generatedAt: Schema.String,
+  generatedAt: UtcTimestampSchema,
   publicFiles: Schema.Array(
     Schema.Struct({
       path: Schema.String,

@@ -6,9 +6,9 @@ import { normalizeTaskId } from "../model/triadic.ts";
 import { CloseoutBadge, EngineBadge, FreshnessTag, StatusBadge } from "./badges";
 import { t } from "../i18n/index.tsx";
 import { EntityRefLink } from "./EntityRefLink.tsx";
-import { localMonthDayTime } from "../model/local-time.ts";
+import { formatTime } from "../model/time.ts";
 
-const timeOf = (iso: string) => localMonthDayTime(iso) ?? "—";
+const timeOf = (iso: string) => formatTime(iso, { style: "month-day-time" }) ?? "—";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

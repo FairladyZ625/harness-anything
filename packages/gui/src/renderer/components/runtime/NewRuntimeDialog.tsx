@@ -21,6 +21,7 @@ import {
   type RuntimeKindId,
 } from "../../runtime-provider-planes.ts";
 import { t } from "../../i18n/index.tsx";
+import { formatTime } from "../../model/time.ts";
 import { Badge, Btn, CfgRow, Hint, KindDot, Modal, SegCtl, TextInput, Toggle, WarnBar } from "./parts.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
@@ -145,7 +146,7 @@ export function NewRuntimeDialog({
               <span className="block truncate font-mono text-[10.5px] text-text-muted">{row.installationId}</span>
             </span>
             <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">
-              {row.observedAt.slice(0, 10)}
+              {formatTime(row.observedAt, { style: "date" }) ?? "—"}
             </span>
           </button>
         ))

@@ -161,9 +161,9 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
   if (!(executionV1States as readonly unknown[]).includes(value.state))
     issues.push({ code: "invalid_execution", message: "invalid execution state" });
   if (
-    !isNonEmptyString(value.claimedAt) ||
-    (value.submittedAt !== null && !isNonEmptyString(value.submittedAt)) ||
-    (value.closedAt !== null && !isNonEmptyString(value.closedAt))
+    !timestamp(value.claimedAt) ||
+    (value.submittedAt !== null && !timestamp(value.submittedAt)) ||
+    (value.closedAt !== null && !timestamp(value.closedAt))
   )
     issues.push({ code: "invalid_execution", message: "execution timestamps are invalid" });
   issues.push(...validateActorAxes(value.actor, allowUnknownFields));
@@ -225,7 +225,7 @@ export function validateLeaseV1(value: unknown, allowUnknownFields = false): rea
   if (
     !isNonEmptyString(value.taskId) ||
     !isNonEmptyString(value.executionId) ||
-    !isNonEmptyString(value.expiresAt) ||
+    !timestamp(value.expiresAt) ||
     !Number.isInteger(value.ttlMs) ||
     typeof value.ttlMs !== "number" ||
     value.ttlMs < 1 ||

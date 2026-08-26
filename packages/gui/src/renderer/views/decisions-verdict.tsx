@@ -12,14 +12,14 @@ import {
   type SignalColor,
   type ReadinessSignal,
 } from "../model/readiness-signals";
-import { localDateTime } from "../model/local-time.ts";
+import { formatTime } from "../model/time.ts";
 import { DecisionJudgmentPanel, type JudgmentOpenRequest } from "../components/DecisionJudgmentPanel.tsx";
 import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
 import { t } from "../i18n/index.tsx";
 
 export { computeReadinessSignals, type SignalColor, type ReadinessSignal };
 
-const dateLabel = (iso?: string) => (iso ? (localDateTime(iso) ?? "—") : "—");
+const dateLabel = (iso?: string) => (iso ? (formatTime(iso, { style: "date-time" }) ?? "—") : "—");
 
 /** 单盏灯 */
 function SignalLamp({ signal }: { signal: ReadinessSignal }) {

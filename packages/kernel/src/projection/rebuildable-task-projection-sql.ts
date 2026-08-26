@@ -2,7 +2,11 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import { parseCanonicalEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
+import {
+  normalizePersistedCanonicalEvent,
+  parseCanonicalEvent,
+  type CanonicalEventV1,
+} from "../domain/doc-sync.contract.ts";
 import { canonicalizeContractValue } from "../domain/task.ts";
 
 // SQL execution, projection watermark, canonical serialization, and state digest primitives.
@@ -117,5 +121,5 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalizeContractValue(value));
 }
 export function parseEventJson(value: string): CanonicalEventV1 {
-  return parseCanonicalEvent(`${value}\n`);
+  return normalizePersistedCanonicalEvent(parseCanonicalEvent(`${value}\n`));
 }

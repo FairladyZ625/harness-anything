@@ -10,7 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../badges.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
-import { localDateTime } from "../../model/local-time.ts";
+import { formatTime } from "../../model/time.ts";
 import type { DecisionRow, RelationEdge, TaskRow } from "../../model/types.ts";
 import { t } from "../../i18n/index.tsx";
 import { DecisionBodyPanel } from "./DecisionBodyPanel.tsx";
@@ -217,8 +217,8 @@ export function DecisionDetailView({
             />
             <IdentityItem
               label={t("views.decisionDetailView.identityTimeline")}
-              value={`${localDateTime(decision.proposedAt ?? "") ?? "—"} · ${
-                localDateTime(decision.decidedAt ?? "") ?? "—"
+              value={`${formatTime(decision.proposedAt ?? "", { style: "date-time" }) ?? "—"} · ${
+                formatTime(decision.decidedAt ?? "", { style: "date-time" }) ?? "—"
               }`}
             />
             <IdentityItem

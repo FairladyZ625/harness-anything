@@ -29,6 +29,21 @@ export type JsonRpcResponse<Result = unknown> = JsonRpcSuccessResponse<Result> |
 export function isJsonObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+export function isUtcTimestamp(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/u.exec(value);
+  if (match === null) return false;
+  const date = new Date(value),
+    parts = [
+      date.getUTCFullYear(),
+      date.getUTCMonth() + 1,
+      date.getUTCDate(),
+      date.getUTCHours(),
+      date.getUTCMinutes(),
+      date.getUTCSeconds(),
+    ];
+  return Number.isFinite(date.getTime()) && parts.every((part, index) => part === Number(match[index + 1]));
+}
 export function unknownFieldViolation(
   value: Readonly<Record<string, unknown>>,
   allowedFields: readonly string[],

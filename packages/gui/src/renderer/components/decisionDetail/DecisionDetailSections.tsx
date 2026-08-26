@@ -1,5 +1,5 @@
 import { derivedTasks, supersedeChain } from "../../model/triadic.ts";
-import { localDateTime } from "../../model/local-time.ts";
+import { formatTime } from "../../model/time.ts";
 import type { DecisionRow, RelationEdge, TaskRow } from "../../model/types.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
@@ -97,7 +97,7 @@ export function ClaimsPanel({ decision }: { decision: DecisionRow }) {
           <ul className="mt-1 space-y-1 font-mono text-[11px] text-text-muted">
             {decision.provenance!.map((entry) => (
               <li key={entry.sessionId}>
-                {entry.runtime}:{entry.sessionId} · {localDateTime(entry.boundAt) ?? "—"}
+                {entry.runtime}:{entry.sessionId} · {formatTime(entry.boundAt, { style: "date-time" }) ?? "—"}
               </li>
             ))}
           </ul>

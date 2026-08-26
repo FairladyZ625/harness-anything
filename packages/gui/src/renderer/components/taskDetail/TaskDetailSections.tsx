@@ -19,7 +19,7 @@ import { harnessClient } from "../../api-client.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { useTaskDocumentQuery } from "../../task-data.ts";
 import { buildTriadicRendererData, triadicQueryKeys } from "../../triadic-data.ts";
-import { localDateTime } from "../../model/local-time.ts";
+import { formatTime } from "../../model/time.ts";
 import type { DecisionRow, RelationEdge, TaskRow } from "../../model/types.ts";
 import { normalizeTaskId } from "../../model/triadic.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
@@ -248,8 +248,14 @@ function DispatchChain({
             entityRef={`provider/${row.instanceId}`}
           />
           <MetaLine label="provider session" value={row.providerSessionId ?? "—"} />
-          <MetaLine label="started" value={localDateTime(row.startedAt, true) ?? row.startedAt} />
-          <MetaLine label="ended" value={row.endedAt ? (localDateTime(row.endedAt, true) ?? row.endedAt) : "运行中"} />
+          <MetaLine
+            label="started"
+            value={formatTime(row.startedAt, { style: "date-time-seconds" }) ?? row.startedAt}
+          />
+          <MetaLine
+            label="ended"
+            value={row.endedAt ? (formatTime(row.endedAt, { style: "date-time-seconds" }) ?? row.endedAt) : "运行中"}
+          />
         </ChainStep>
         <ChainStep index="03" title="Report">
           {sessionError ? (
@@ -1001,7 +1007,7 @@ function SectionHeading({
 function Timestamp({ value }: { readonly value: string }) {
   return (
     <time dateTime={value} title={value} className="font-mono text-[10px] text-text-faint">
-      {localDateTime(value, true) ?? value}
+      {formatTime(value, { style: "date-time-seconds" }) ?? value}
     </time>
   );
 }

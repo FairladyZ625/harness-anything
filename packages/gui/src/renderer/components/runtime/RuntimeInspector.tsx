@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import type { AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
+import { formatTime } from "../../model/time.ts";
 import { sessionStatusDot, type SessionStatus } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import {
@@ -146,7 +147,7 @@ function LiveSessionRow({
         <span className="block truncate font-mono text-[10px] text-text-faint">{session.runtimeSessionId}</span>
       </span>
       <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
-        {session.activity.lastObservedAt.slice(11, 16)}
+        {formatTime(session.activity.lastObservedAt, { style: "time" }) ?? session.activity.lastObservedAt}
       </span>
     </button>
   );
@@ -174,7 +175,9 @@ function DispatchSessionRow({
           {row.taskTitle ?? row.runtimeSessionId}
         </span>
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{row.startedAt.slice(11, 16)}</span>
+      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+        {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
+      </span>
     </button>
   );
 }

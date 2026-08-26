@@ -8,13 +8,13 @@ import type { TaskFilters } from "../model/taskFilters";
 import { sortByFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
 import { t } from "../i18n/index.tsx";
-import { localMonthDayTime } from "../model/local-time.ts";
+import { formatTime } from "../model/time.ts";
 
 const PAGE_SIZE_OPTIONS = [8, 15, 30, 60] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 const DEFAULT_PAGE_SIZE: PageSize = 15;
 
-const dateLabel = (iso: string) => localMonthDayTime(iso) ?? "—";
+const dateLabel = (iso: string) => formatTime(iso, { style: "month-day-time" }) ?? "—";
 
 function AuditRow({
   task,

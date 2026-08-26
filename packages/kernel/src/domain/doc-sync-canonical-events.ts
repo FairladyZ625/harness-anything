@@ -17,6 +17,7 @@ import { validateCurrentTaskBootstrapEvent, validateTaskBootstrapEvent } from ".
 import { validateCurrentTaskEvent, validateTaskEvent, type TaskEventV1 } from "./task-lifecycle-event.ts";
 import { validateCurrentTaskProgressEvent, validateTaskProgressEvent } from "./task-progress-event.ts";
 import { canonicalizeWriteValue, isRecord } from "./write-chain.contract.ts";
+import { normalizePersistedTimestamp } from "./timestamp.ts";
 
 interface CanonicalEventSchemaRegistration {
   readonly schema: string;
@@ -98,7 +99,15 @@ export function serializeCanonicalEvent(event: CanonicalEventV1): string {
   const entry = canonicalEventSchemas.find((candidate) => candidate.schema === event.schema);
   const errors = entry?.validate(event) ?? ["canonical event schema is unknown"];
   if (errors.length) throw new Error(errors.join("; "));
-  return `${JSON.stringify(canonicalizeWriteValue(event))}\n`;
+  return canonicalEventBytes(event);
+}
+
+export function serializePersistedCanonicalEvent(event: CanonicalEventV1): string {
+  const normalized = normalizePersistedCanonicalEvent(event),
+    entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
+    errors = entry?.validate(normalized) ?? ["canonical event schema is unknown"];
+  if (errors.length) throw new Error(errors.join("; "));
+  return canonicalEventBytes(event);
 }
 
 export function parseCanonicalEvent(body: string): CanonicalEventV1 {
@@ -109,12 +118,30 @@ export function parseCanonicalEvent(body: string): CanonicalEventV1 {
     throw new Error("canonical event is not JSON");
   }
   if (!isRecord(value)) throw new Error("canonical event is not an object");
-  const entry = canonicalEventSchemas.find((candidate) => candidate.schema === value.schema);
-  const errors = entry?.validate(value) ?? ["canonical event schema is unknown"];
+  const normalized = normalizePersistedCanonicalEvent(value as unknown as CanonicalEventV1),
+    entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
+    errors = entry?.validate(normalized) ?? ["canonical event schema is unknown"];
   if (errors.length) throw new Error(errors.join("; "));
   const event = value as unknown as CanonicalEventV1;
-  if (serializeCanonicalEvent(event) !== body) throw new Error("canonical event bytes are not canonical");
+  if (canonicalEventBytes(event) !== body) throw new Error("canonical event bytes are not canonical");
   return event;
+}
+
+export function normalizePersistedCanonicalEvent(event: CanonicalEventV1): CanonicalEventV1 {
+  return normalizeTimestampFields(event) as CanonicalEventV1;
+}
+
+function normalizeTimestampFields(value: unknown, field = ""): unknown {
+  if (Array.isArray(value)) return value.map((entry) => normalizeTimestampFields(entry));
+  if (!isRecord(value)) {
+    const normalized = /At$/u.test(field) ? normalizePersistedTimestamp(value) : null;
+    return normalized ?? value;
+  }
+  return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, normalizeTimestampFields(nested, key)]));
+}
+
+function canonicalEventBytes(event: CanonicalEventV1): string {
+  return `${JSON.stringify(canonicalizeWriteValue(event))}\n`;
 }
 
 export function isTaskEvent(event: CanonicalEventV1): event is TaskEventV1 {

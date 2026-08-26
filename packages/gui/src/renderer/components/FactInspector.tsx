@@ -7,7 +7,7 @@ import { buildEntityJumpContext } from "../model/copy-context";
 import type { RelationCoverageRow } from "../../api/renderer-dto";
 import { t } from "../i18n/index.tsx";
 import { EntityRefLink } from "./EntityRefLink.tsx";
-import { localDateTime } from "../model/local-time.ts";
+import { formatTime } from "../model/time.ts";
 
 function shortEndpoint(raw: string): string {
   if (raw.startsWith("decision/")) return normalizeDecisionId(raw);
@@ -239,7 +239,8 @@ export function FactInspector({
                 <div className="mt-1 space-y-1">
                   {fact.provenance.map((entry) => (
                     <div key={`${entry.sessionId}-${entry.boundAt}`} className="font-mono text-[11px] text-text-muted">
-                      {entry.runtime}:{entry.sessionId.slice(0, 8)}... · {localDateTime(entry.boundAt) ?? "—"}
+                      {entry.runtime}:{entry.sessionId.slice(0, 8)}... ·{" "}
+                      {formatTime(entry.boundAt, { style: "date-time" }) ?? "—"}
                     </div>
                   ))}
                 </div>

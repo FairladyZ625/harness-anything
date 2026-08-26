@@ -5,6 +5,7 @@ import {
   factMemoryTags,
   factWritePlan,
   sessionProvenance,
+  timestamp,
   type ActorIdentity,
   type CanonicalEventCut,
   type CanonicalEventStore,
@@ -81,13 +82,16 @@ function factEvent(
 ): FactEventDraftV1 {
   const confidence = action.confidence as FactConfidence,
     memoryClass = action.memoryClass as FactMemoryClass,
-    memoryTags = factStringList(action.memoryTags);
+    memoryTags = factStringList(action.memoryTags),
+    observedAt = typeof action.observedAt === "string" ? action.observedAt : occurredAt;
   if (
     !(["low", "medium", "high"] as const).includes(confidence) ||
     !(["semantic", "episodic", "procedural"] as const).includes(memoryClass) ||
     memoryTags.some((tag) => !factMemoryTags.includes(tag as never))
   )
     throw factActionError("invalid_command", "Fact classification is invalid.");
+  if (!timestamp(occurredAt) || !timestamp(observedAt))
+    throw factActionError("invalid_command", "Fact timestamps must be ISO-8601 UTC values ending in Z.");
   if (
     action.supersedes !== undefined &&
     (!action.supersedes ||
@@ -118,7 +122,7 @@ function factEvent(
     payload: {
       statement: requiredFactText(action.statement, "statement"),
       evidenceSource: requiredFactText(action.evidenceSource, "evidenceSource"),
-      observedAt: typeof action.observedAt === "string" ? action.observedAt : occurredAt,
+      observedAt,
       confidence,
       memoryClass,
       memoryTags: memoryTags as FactEventV1["payload"]["memoryTags"],
@@ -246,9 +250,9 @@ function filters(action: Readonly<Record<string, unknown>>): FactSearchFilters {
       !(["semantic", "episodic", "procedural"] as const).includes(memoryClass as FactMemoryClass))
   )
     throw factActionError("invalid_command", "Fact search memory class is invalid.");
-  if (observedAfter !== undefined && !validIsoTimestamp(observedAfter))
+  if (observedAfter !== undefined && !timestamp(observedAfter))
     throw factActionError("invalid_command", "observedAfter must be an ISO-8601 UTC timestamp.");
-  if (observedBefore !== undefined && !validIsoTimestamp(observedBefore))
+  if (observedBefore !== undefined && !timestamp(observedBefore))
     throw factActionError("invalid_command", "observedBefore must be an ISO-8601 UTC timestamp.");
   if (
     typeof observedAfter === "string" &&
@@ -270,13 +274,6 @@ function filters(action: Readonly<Record<string, unknown>>): FactSearchFilters {
     ...(limit !== undefined ? { limit: limit as number } : {}),
     ...(typeof cursor === "string" ? { cursor } : {}),
   };
-}
-function validIsoTimestamp(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(value) &&
-    Number.isFinite(Date.parse(value))
-  );
 }
 export function readReceipt<
   T extends { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number },
