@@ -802,31 +802,41 @@ test("Agent skill is really read by the provider from the absolute path in its f
       },
     });
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`),
-      stream = await eventuallyValue(() => {
-        try {
-          const value = readFileSync(streamPath, "utf8");
-          return value.includes("provider_event") ? value : null;
-        } catch {
-          return null;
-        }
-      }),
-      records = stream
-        .trim()
-        .split(/\r?\n/u)
-        .map((line) => JSON.parse(line) as Record<string, unknown>),
-      witness = records.find(
-        (record) =>
-          record.kind === "provider_event" &&
-          ((record.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined)
-            ?.skill_witness === true,
-      ),
-      item = (witness?.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined;
-    assert.equal(item?.skill_witness, true, stream);
-    assert.match(String(item?.prompt_witness), /^provider-witness: .*\/harness\/skills\/provider-witness\/SKILL\.md$/u);
-    assert.match(stream, /"text":"provider-witness:true"/u);
-    assert.doesNotMatch(stream, /SKILL_PROVIDER_WITNESS/u);
-    context.diagnostic(`FINAL_RUNTIME_PROMPT_BEGIN\n${String(item?.final_prompt)}\nFINAL_RUNTIME_PROMPT_END`);
+    const attached = await host.attach(repoId, String(receipt.runtimeSessionId), "stream:0", auth);
+    try {
+      assert.equal(attached.initial.ok, true, JSON.stringify(attached.initial));
+      const pending = attached.initial.ok ? [...attached.initial.events] : [];
+      for (;;) {
+        const event = pending.shift() ?? (await attached.next());
+        assert.notEqual(event, null, "runtime attach stream closed before the provider witness arrived");
+        if (event?.type === "activity" && event.activity === "message" && event.content === "provider-witness:true")
+          break;
+        assert.notEqual(event?.type, "exit", "runtime exited before the provider witness arrived");
+      }
+      const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`),
+        stream = readFileSync(streamPath, "utf8"),
+        records = stream
+          .trim()
+          .split(/\r?\n/u)
+          .map((line) => JSON.parse(line) as Record<string, unknown>),
+        witness = records.find(
+          (record) =>
+            record.kind === "provider_event" &&
+            ((record.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined)
+              ?.skill_witness === true,
+        ),
+        item = (witness?.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined;
+      assert.equal(item?.skill_witness, true, stream);
+      assert.match(
+        String(item?.prompt_witness),
+        /^provider-witness: .*\/harness\/skills\/provider-witness\/SKILL\.md$/u,
+      );
+      assert.match(stream, /"text":"provider-witness:true"/u);
+      assert.doesNotMatch(stream, /SKILL_PROVIDER_WITNESS/u);
+      context.diagnostic(`FINAL_RUNTIME_PROMPT_BEGIN\n${String(item?.final_prompt)}\nFINAL_RUNTIME_PROMPT_END`);
+    } finally {
+      attached.detach();
+    }
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });
