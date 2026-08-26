@@ -231,6 +231,8 @@ export function createRepoCellApi(context: any): RepoCell {
         projection: context.projection,
       }),
     "repo.squad.runs.list": (payload: Readonly<Record<string, unknown>>) => context.squadCoordinator.list(payload),
+    "repo.squad.run.read": (payload: Readonly<Record<string, unknown>>) =>
+      context.squadCoordinator.read(context.requiredCellText(payload.squadRunId, "squadRunId")),
     "repo.decisions.list": () => {
       const read = context.projection.listDecisions({}),
         source = makeGitReadinessSource(),

@@ -47,6 +47,9 @@ export type SessionGroupsQuery = {
   readonly groupBy?: "task" | "squad" | "agent" | "day";
   readonly since?: string;
   readonly query?: string;
+  /** 精确归属过滤(G12 §4b):按派工行 agentId/squadId 精确匹配,不走子串。 */
+  readonly agentId?: string;
+  readonly squadId?: string;
   readonly limit?: number;
 };
 export const agentRuntimeClient = {

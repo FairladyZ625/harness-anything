@@ -79,6 +79,17 @@ const siblingDispatch = {
   status: "succeeded" as const,
   startedAt: "2026-08-23T01:00:00.000Z",
 } as const;
+// 同任务里别人的轮次:证明 Agent inspector 的相关会话按 agentId 精确过滤(§4b)。
+const foreignDispatch = {
+  ...boundDispatch,
+  dispatchId: "dispatch_foreign",
+  executionId: "execution-3",
+  runtimeSessionId: "runtime-foreign",
+  agentId: "luna",
+  agentName: "luna",
+  status: "succeeded" as const,
+  startedAt: "2026-08-23T01:30:00.000Z",
+} as const;
 const sessionGroups = {
   ok: true,
   status: "ready",
@@ -114,6 +125,65 @@ const emptySquadRuns = {
   runs: [],
   totals: { runs: 0 },
   truncated: false,
+  watermark: 1,
+  sourceRevision: 1,
+};
+const squadRunSummaryRow = {
+  squadRunId: "squad_" + "c".repeat(18),
+  squadId: "core-squad",
+  taskId: "task-bound",
+  mission: "Probe the orchestration flow",
+  phase: "converged" as const,
+  leaderTurnCount: 2,
+  workerAttemptCount: 1,
+  runningCount: 0,
+  latestActivityAt: "2026-08-23T02:00:00.000Z",
+};
+const squadRunsListFixture = {
+  ok: true as const,
+  status: "ready" as const,
+  runs: [squadRunSummaryRow],
+  totals: { runs: 1 },
+  truncated: false,
+  watermark: 1,
+  sourceRevision: 1,
+};
+const squadRunDetailFixture = {
+  ok: true as const,
+  status: "ready" as const,
+  run: {
+    squadRunId: squadRunSummaryRow.squadRunId,
+    squadId: "core-squad",
+    taskId: "task-bound",
+    mission: "Probe the orchestration flow",
+    phase: "converged" as const,
+    error: null,
+    currentLeaderRuntimeSessionId: null,
+    leaderTurns: [
+      {
+        turnId: "leader-1",
+        trigger: { kind: "worker_outcome", runtimeSessionId: "runtime-worker" },
+        dispatchId: "dispatch_000000000000000000000002",
+        runtimeSessionId: "runtime-sibling",
+        decision: { kind: "converged" },
+        status: "succeeded" as const,
+        startedAt: "2026-08-23T01:30:00.000Z",
+        endedAt: "2026-08-23T01:40:00.000Z",
+      },
+    ],
+    workerAttempts: [
+      {
+        attemptId: "worker-1",
+        workerId: "terra",
+        dispatchId: "dispatch_bbb",
+        runtimeSessionId: "runtime-bound",
+        rejection: null,
+        status: "running" as const,
+        startedAt: "2026-08-23T02:00:00.000Z",
+        endedAt: null,
+      },
+    ],
+  },
   watermark: 1,
   sourceRevision: 1,
 };
@@ -272,6 +342,51 @@ describe("runtime entry split (W6 IA)", () => {
     expect(agentRuntimeClient.sessionGroups).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps a dimension switch sticky while a session focus exists (G12 §1a)", async () => {
+    await mountSessions("session/runtime-bound");
+    const agentDimension = [...byTestId("sessions-view").querySelectorAll("button")].find(
+      (button) => button.textContent === "Agent",
+    );
+    expect(agentDimension).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => {
+      agentDimension!.click();
+    });
+    await flushEffects();
+    await flushEffects();
+
+    const calls = vi.mocked(agentRuntimeClient.sessionGroups).mock.calls;
+    expect(calls.at(-1)?.[1]).toMatchObject({ groupBy: "agent" });
+    expect(calls.filter(([, query]) => query?.groupBy === "task").length).toBeGreaterThan(0);
+  });
+
+  it("defaults the squad segment to 30d and opens the flow detail from a run row (G12 §2a/§2b/§2c)", async () => {
+    await mountSessions(null, {}, undefined, sessionGroups, async () => squadRunsListFixture);
+    const squadSegment = [...byTestId("sessions-view").querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Squad orchestration"),
+    );
+    await act(async () => {
+      squadSegment!.click();
+    });
+    await flushEffects();
+
+    const listCalls = vi.mocked(squadRunsClient.list).mock.calls;
+    const squadWindow = listCalls.at(-1)?.[1]?.since;
+    expect(squadWindow).toBeDefined();
+    // 默认 30d:窗口起点在 25~31 天前,不再是把 terminal run 滤空的 24h。
+    const daysAgo = (Date.now() - Date.parse(squadWindow!)) / 86_400_000;
+    expect(daysAgo).toBeGreaterThan(25);
+    expect(daysAgo).toBeLessThan(31);
+
+    expect(squadRunsClient.read).not.toHaveBeenCalled();
+    await click(`squad-run-toggle-${squadRunSummaryRow.squadRunId}`);
+    expect(squadRunsClient.read).toHaveBeenCalledWith("repo-a", squadRunSummaryRow.squadRunId);
+    expect(byTestId("squad-run-detail")).toBeTruthy();
+    expect(byTestId("squad-run-turn-leader-1")).toBeTruthy();
+    expect(byTestId("squad-run-attempt-worker-1")).toBeTruthy();
+    expect(byTestId("squad-run-detail").textContent).toContain("after worker session");
+    expect(byTestId("squad-run-detail").textContent).toContain("declared converged");
+  });
+
   it("opens the bound task detail from the selected session (W5:派工链归 Task 详情)", async () => {
     const onOpenTask = vi.fn(),
       onSelectEntity = vi.fn();
@@ -329,6 +444,30 @@ describe("runtime entry split (W6 IA)", () => {
     // Rail squad row → addressable squad ref (same entry: squads are a facet of this page).
     await click("rail-squad-core-squad");
     expect(onSelectEntity).toHaveBeenCalledWith("squad/core-squad");
+  });
+
+  it("lists every round of the selected agent in the inspector, not only the latest (G12 §4a)", async () => {
+    await mountAgentSquad("agent/terra");
+    const inspector = byTestId("runtime-inspector");
+    const rows = [...inspector.querySelectorAll("button")].map((button) => button.textContent ?? "");
+    // task-bound 的历史轮(terra sibling)与最新轮都在;相关会话按 agentId 精确读。
+    expect(rows.some((text) => text.includes("terra sibling"))).toBe(true);
+    expect(rows.filter((text) => text.includes("Bound task title")).length).toBe(2);
+    expect(agentRuntimeClient.sessionGroups).toHaveBeenCalledWith(
+      "repo-a",
+      expect.objectContaining({ groupBy: "task", agentId: "terra" }),
+    );
+    expect(harnessClient.getTaskDispatches).toHaveBeenCalledWith(
+      expect.objectContaining({ repoId: "repo-a", taskIds: ["task-bound"], limit: 500 }),
+    );
+  });
+
+  it("keeps other agents' rounds and unattributed sessions out of the agent inspector (G12 §4b/§4c)", async () => {
+    await mountAgentSquad("agent/terra");
+    const inspector = byTestId("runtime-inspector");
+    const rows = [...inspector.querySelectorAll("button")].map((button) => button.textContent ?? "");
+    expect(rows.some((text) => text.includes("luna"))).toBe(false);
+    expect(rows.some((text) => text.includes("runtime-foreign"))).toBe(false);
   });
 
   it("routes the provider card's compatible-agent chips to the agent entry", async () => {
@@ -519,6 +658,10 @@ async function mountView(
   attachImpl: (onValue: (value: unknown) => void) => () => void = () => () => undefined,
   sessionGroupsResult = sessionGroups,
   listSquadRuns: () => Promise<Awaited<ReturnType<typeof squadRunsClient.list>>> = async () => emptySquadRuns,
+  readSquadRun: (
+    _repoId: string,
+    _squadRunId: string,
+  ) => Promise<Awaited<ReturnType<typeof squadRunsClient.read>>> = async () => squadRunDetailFixture,
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   seedQueries(client);
@@ -541,19 +684,32 @@ async function mountView(
       ? { ...sessionGroups, sessions: [boundSession, siblingSession] }
       : { ...sessionGroups, sessions: [] },
   );
-  vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(
-    async (payload) =>
-      ({
-        ok: true,
-        status: "ready",
-        taskId: (payload as { readonly taskId: string }).taskId,
-        dispatches:
-          (payload as { readonly taskId: string }).taskId === "task-bound" ? [boundDispatch, siblingDispatch] : [],
-        watermark: 1,
-        sourceRevision: 1,
-      }) as never,
-  );
+  vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (payload) => {
+    const requested =
+        "taskId" in payload ? [payload.taskId as string] : [...(payload as { readonly taskIds: string[] }).taskIds],
+      dispatches = requested.includes("task-bound") ? [boundDispatch, siblingDispatch, foreignDispatch] : [];
+    return "taskId" in payload
+      ? ({
+          ok: true,
+          status: "ready",
+          taskId: (payload as { readonly taskId: string }).taskId,
+          dispatches,
+          watermark: 1,
+          sourceRevision: 1,
+        } as never)
+      : ({
+          ok: true,
+          status: "ready",
+          taskIds: requested,
+          unavailableTaskIds: [],
+          dispatches,
+          page: { limit: 500, cursor: null, nextCursor: null, remainingCount: 0 },
+          watermark: 1,
+          sourceRevision: 1,
+        } as never);
+  });
   vi.spyOn(squadRunsClient, "list").mockImplementation(listSquadRuns);
+  vi.spyOn(squadRunsClient, "read").mockImplementation(readSquadRun);
   const container = document.createElement("div"),
     root = createRoot(container);
   document.body.append(container);

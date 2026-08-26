@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { agentEntityClient } from "../agent-entity-client.ts";
 import { agentRuntimeClient } from "../agent-runtime-client.ts";
@@ -6,8 +6,10 @@ import { harnessClient } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { Badge, Btn, Empty, SegCtl } from "../components/runtime/parts.tsx";
 import { runtimeSelectionFromRef, useSessionsWorkspace } from "../components/runtime/useRuntimeWorkspace.ts";
+import { squadRunsClient } from "../squad-run-client.ts";
 import { SessionGroupList } from "../components/sessions/SessionGroupList.tsx";
 import { SquadRunList } from "../components/sessions/SquadRunList.tsx";
+import { SquadRunDetail } from "../components/sessions/SquadRunDetail.tsx";
 import { SessionInspector } from "../components/sessions/SessionInspector.tsx";
 import { SessionsPanel } from "../components/runtime/SessionsPanel.tsx";
 import type { RelationEdge } from "../model/types.ts";
@@ -31,7 +33,15 @@ import {
 type Segment = "sessions" | "squads";
 type Range = "24h" | "7d" | "30d" | "all";
 const RANGE_SPAN: Readonly<Record<Range, number>> = { "24h": 86_400, "7d": 7 * 86_400, "30d": 30 * 86_400, all: 0 };
+// 两段各自的默认读范围(G12 §2a):单会话段看「最近在干什么」用 24h;小队编排段
+// 的一次 `ha squad run` 是长生命周期单元,terminal run 只靠 latestActivityAt 过窗,
+// 默认 24h 会把已收敛/已失败的编排整段滤成无解释的空列表,默认放宽到 30d。
+const DEFAULT_RANGE: Readonly<Record<Segment, Range>> = { sessions: "24h", squads: "30d" };
 const GROUP_ROWS_PENDING = { rounds: [] as readonly SessionRound[], orphans: [] as readonly SessionOrphan[] };
+const rangeToSince = (range: Range): string => {
+  const span = RANGE_SPAN[range];
+  return new Date(span === 0 ? 0 : Date.now() - span * 1000).toISOString();
+};
 
 export function SessionsView({
   repoId,
@@ -48,11 +58,14 @@ export function SessionsView({
 }) {
   const [segment, setSegment] = useState<Segment>("sessions");
   const [groupBy, setGroupBy] = useState<SessionGroupBy>("task");
-  const [range, setRange] = useState<Range>("24h");
+  const [rangeBySegment, setRangeBySegment] = useState<Readonly<Record<Segment, Range>>>(DEFAULT_RANGE);
+  const range = rangeBySegment[segment],
+    setRange = (value: Range) => setRangeBySegment((current) => ({ ...current, [segment]: value }));
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [inspector, setInspector] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
+  const [selectedSquadRunId, setSelectedSquadRunId] = useState<string | null>(null);
   const [sessionTaskScope, setSessionTaskScope] = useState<{
     readonly runtimeSessionId: string;
     readonly taskId: string;
@@ -80,7 +93,7 @@ export function SessionsView({
     if (focusedEntityRef.startsWith("tasksessions/")) {
       const taskId = focusedEntityRef.slice("tasksessions/".length);
       setGroupBy("task");
-      setRange("all");
+      setRangeBySegment((current) => (current.sessions === "all" ? current : { ...current, sessions: "all" }));
       setSessionTaskScope(null);
       setExpandedGroups((current) => new Set([...current, taskId]));
       return;
@@ -90,10 +103,9 @@ export function SessionsView({
     );
   }, [focusedEntityRef, focusedSessionId]);
 
-  const since = useMemo(() => {
-    const span = RANGE_SPAN[range];
-    return new Date(span === 0 ? 0 : Date.now() - span * 1000).toISOString();
-  }, [range]);
+  // 两段各自的读窗:单会话段与会话分组共用,小队编排段独立(见 DEFAULT_RANGE)。
+  const since = useMemo(() => rangeToSince(rangeBySegment.sessions), [rangeBySegment.sessions]),
+    squadSince = useMemo(() => rangeToSince(rangeBySegment.squads), [rangeBySegment.squads]);
 
   const scopedTaskId =
     taskRouteId ?? (sessionTaskScope?.runtimeSessionId === focusedSessionId ? sessionTaskScope.taskId : undefined);
@@ -101,6 +113,7 @@ export function SessionsView({
     groupBy,
     range,
     since,
+    squadSince,
     query: debouncedSearch,
     ...(scopedTaskId === undefined ? {} : { taskId: scopedTaskId }),
   });
@@ -193,11 +206,21 @@ export function SessionsView({
     enabled: selectedSessionId !== null,
     staleTime: 4_000,
   });
+  // 深链补展开只对该 session 焦点应用一次(G12 §1a):ref 记住已应用的
+  // focusedSessionId,之后的组数据刷新/维度切换不再把 groupBy/range 压回深链值——
+  // 用户切到 Squad/Agent/时间维度时不再被弹回 Task。
+  const appliedFocusRef = useRef<string | null>(null);
   useEffect(() => {
+    if (focusedSessionId === null) {
+      appliedFocusRef.current = null;
+      return;
+    }
     const session = selectedSession.data?.session;
-    if (focusedSessionId === null || session?.runtimeSessionId !== focusedSessionId) return;
+    if (session?.runtimeSessionId !== focusedSessionId) return;
+    if (appliedFocusRef.current === focusedSessionId) return;
     const taskIds = [...new Set(session.associations.map(({ taskId }) => taskId))];
     if (taskIds.length === 0) return;
+    appliedFocusRef.current = focusedSessionId;
     setGroupBy("task");
     setExpandedGroups((current) => {
       const next = new Set(current);
@@ -208,7 +231,7 @@ export function SessionsView({
     // absent deep-link target forced `all` and issued a second sessionGroups read for one click.
     if (workspace.groups.data === undefined) return;
     if (groups.some((group) => group.taskId !== undefined && taskIds.includes(group.taskId))) return;
-    setRange("all");
+    setRangeBySegment((current) => (current.sessions === "all" ? current : { ...current, sessions: "all" }));
     setSessionTaskScope((current) =>
       current?.runtimeSessionId === focusedSessionId && current.taskId === taskIds[0]
         ? current
@@ -233,6 +256,17 @@ export function SessionsView({
     staleTime: 4_000,
   });
   const squadNames = useMemo(() => new Map((squads.data ?? []).map((squad) => [squad.id, squad.name])), [squads.data]);
+
+  // 小队编排详情(G12 §2b/§2c):选中行的 repo.squad.run.read,渲染 leader 轮次 →
+  // worker 派工链;只有显式点击行才读取详情,切换范围后若该 run 不在列表则回到空选中。
+  const selectedSquadRun =
+    selectedSquadRunId === null ? null : (runs.find((run) => run.squadRunId === selectedSquadRunId) ?? null);
+  const squadRunDetail = useQuery({
+    queryKey: ["squad-run-detail", repoId, selectedSquadRun?.squadRunId ?? ""],
+    queryFn: () => squadRunsClient.read(repoId, selectedSquadRun!.squadRunId),
+    enabled: segment === "squads" && selectedSquadRun !== null,
+    staleTime: 4_000,
+  });
 
   const rangeLabel: Record<Range, string> = {
     "24h": "24h",
@@ -400,14 +434,38 @@ export function SessionsView({
           )}
         </div>
       ) : (
-        <SquadRunList
-          runs={runs}
-          truncated={workspace.squadRuns.data?.truncated ?? false}
-          totalRuns={runTotals.runs}
-          squadNames={squadNames}
-          query={debouncedSearch}
-          onOpenTask={onOpenTask}
-        />
+        <div className="flex min-h-0 flex-1">
+          <SquadRunList
+            runs={runs}
+            truncated={workspace.squadRuns.data?.truncated ?? false}
+            totalRuns={runTotals.runs}
+            squadNames={squadNames}
+            query={debouncedSearch}
+            range={rangeLabel[rangeBySegment.squads]}
+            selectedId={selectedSquadRun?.squadRunId ?? null}
+            onSelectRun={setSelectedSquadRunId}
+          />
+          <main className="min-w-0 flex-1 overflow-y-auto">
+            {selectedSquadRun === null ? (
+              <Empty>{t("agentRuntime.squadRunSelectEmpty")}</Empty>
+            ) : (
+              <SquadRunDetail
+                detail={squadRunDetail.data ?? null}
+                squadName={squadNames.get(selectedSquadRun.squadId) ?? null}
+                pending={squadRunDetail.isPending}
+                error={
+                  squadRunDetail.isError
+                    ? squadRunDetail.error instanceof Error
+                      ? squadRunDetail.error.message
+                      : String(squadRunDetail.error)
+                    : null
+                }
+                onOpenTask={onOpenTask}
+                onSelectEntity={onSelectEntity}
+              />
+            )}
+          </main>
+        </div>
       )}
     </section>
   );
