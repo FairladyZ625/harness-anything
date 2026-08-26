@@ -21,6 +21,7 @@ import { policyPredicateNames, POLICY_DECLARATION_V1_SCHEMA } from "./policy.ts"
 import type { PolicyActionRule, PolicyPredicateName } from "./policy.ts";
 import { canonicalRelationDirections } from "./relation-direction.ts";
 import { reviewVerdicts } from "./review.ts";
+import { SCHEDULE_V1_SCHEMA, scheduleEventTypes, scheduleRunOutcomes, scheduleStates } from "./schedule.ts";
 import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
 import {
   dispositionMatrix,
@@ -90,7 +91,13 @@ export interface EntityKindContract<T = unknown> {
     readonly validate?: (value: unknown) => readonly string[];
   } | null;
   readonly authoring: {
-    readonly kind: "generic-entity-store" | "task-lifecycle" | "fact-event" | "decision-event" | "agent-runtime-event";
+    readonly kind:
+      | "generic-entity-store"
+      | "task-lifecycle"
+      | "fact-event"
+      | "decision-event"
+      | "agent-runtime-event"
+      | "schedule-event";
     readonly contractRef: string;
   } | null;
   readonly sdkExposure: EntitySdkExposure;
@@ -180,6 +187,11 @@ const actionCatalog = (
 const genericAuthoring = Object.freeze({ kind: "generic-entity-store" as const, contractRef: "entity-event/v1" });
 const authoredResidency = Object.freeze({ authored: "ledger" as const });
 const authoredLiveResidency = Object.freeze({ authored: "ledger" as const, live: "runtime-local" as const });
+const scheduleResidency = Object.freeze({
+  definition: "ledger" as const,
+  execution: "runtime-local" as const,
+  runView: "projection" as const,
+});
 const genericEntityStore = (pathTemplate: string, validate?: (value: unknown) => readonly string[]) =>
   Object.freeze({ document: declarationDocument(pathTemplate), ...(validate ? { validate } : {}) });
 
@@ -196,6 +208,7 @@ const policyIdentity = deriveEntityKindIdentity("policy");
 const executionIdentity = deriveEntityKindIdentity("execution");
 const reviewIdentity = deriveEntityKindIdentity("review");
 const runtimeSessionIdentity = deriveEntityKindIdentity("runtime-session");
+const scheduleIdentity = deriveEntityKindIdentity("schedule");
 const executionIdPattern = executionIdentity.pattern;
 const reviewIdPattern = reviewIdentity.pattern;
 const lifecycleTaskIdPattern = taskIdentity.pattern;
@@ -620,6 +633,38 @@ export const entityKindContracts = Object.freeze([
     ),
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "schedule",
+    residency: scheduleResidency,
+    schema: SCHEDULE_V1_SCHEMA,
+    id: scheduleIdentity,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: {
+      embeddedEvents: [
+        {
+          schema: "schedule-event/v1",
+          types: scheduleEventTypes,
+          payloadField: "schedule",
+        },
+      ],
+      row: { idField: "scheduleId", ownerField: null },
+    },
+    statusVocabulary: [
+      { field: "state", words: scheduleStates },
+      { field: "status.lastRun.outcome", words: scheduleRunOutcomes },
+    ],
+    actionCatalog: actionCatalog("kernel/schedule-event/v1", "schedule", scheduleIdentity, [
+      "create",
+      "enable",
+      "disable",
+      "run-now",
+      "fire",
+      "settle",
+    ]),
+    entityStore: null,
+    authoring: { kind: "schedule-event", contractRef: "schedule-event/v1" },
     sdkExposure: noSdkExposure,
   },
 ] as const satisfies readonly EntityKindContract[]);

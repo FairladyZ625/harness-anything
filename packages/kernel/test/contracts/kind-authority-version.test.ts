@@ -22,6 +22,7 @@ const expectedKinds = [
   "policy",
   "review",
   "runtime-session",
+  "schedule",
   "squad",
   "task",
 ] as const;
@@ -33,11 +34,12 @@ const expectedResidency = {
   policy: { authored: "ledger" },
   review: { authored: "ledger" },
   "runtime-session": { authored: "ledger", live: "runtime-local" },
+  schedule: { definition: "ledger", execution: "runtime-local", runView: "projection" },
   squad: { authored: "ledger" },
   task: { authored: "ledger" },
 } as const;
 
-test("one named kind-contract authority explains all nine entity kinds with one shape", () => {
+test("one named kind-contract authority explains all ten entity kinds with one shape", () => {
   assert.deepEqual(entityKindContracts.map(({ kind }) => kind).sort(), [...expectedKinds]);
   for (const contract of entityKindContracts)
     assert.deepEqual(contract.residency, expectedResidency[contract.kind], `${contract.kind} residency`);
@@ -50,6 +52,20 @@ test("one named kind-contract authority explains all nine entity kinds with one 
   });
   assert.deepEqual(explanations.find(({ kind }) => kind === "fact")?.sdkExposure.sdk?.target, "FactCapability");
   assert.deepEqual(explanations.find(({ kind }) => kind === "decision")?.sdkExposure.sdk?.target, "DecisionCapability");
+  const schedule = explanations.find(({ kind }) => kind === "schedule");
+  assert.deepEqual(schedule?.residency, {
+    definition: "ledger",
+    execution: "runtime-local",
+    runView: "projection",
+  });
+  assert.deepEqual(
+    schedule?.transitions.actions.map(({ id }) => id),
+    ["create", "enable", "disable", "run-now", "fire", "settle"],
+  );
+  assert.equal(
+    schedule?.transitions.actions.some((action) => Object.hasOwn(action, "admission")),
+    false,
+  );
 });
 
 test("every Action declares version, target, and SDK exposure metadata", () => {
@@ -94,7 +110,7 @@ test("framework registry derives schema and mutability while relation/session st
   assert.equal(getEntityKindContract("session"), undefined);
   assert.equal(requireEntityStoreKindContract("agent").kind, "agent");
   assert.equal(requireEntityStoreKindContract("squad").kind, "squad");
-  for (const kind of ["execution", "review", "runtime-session", "policy"])
+  for (const kind of ["execution", "review", "runtime-session", "schedule", "policy"])
     assert.throws(() => requireEntityStoreKindContract(kind), /no generic entity-store surface/u);
   assert.equal(explainEntityKind("policy").authoring, null);
 });

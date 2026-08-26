@@ -3,6 +3,7 @@ export type StatusEntity =
   | "Decision"
   | "Execution"
   | "Agent"
+  | "Schedule"
   | "Policy"
   | "Lease"
   | "RelationEdge"
