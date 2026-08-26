@@ -15,7 +15,7 @@ import type {
   LedgerIdentity,
 } from "./receipt-domain-registry.ts";
 import type { TaskBootstrapEventV1 } from "./task-bootstrap-event.ts";
-import type { LiveTaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
+import type { TaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
 import type { TaskEventV1 } from "./task-lifecycle.contract.ts";
 import type { TaskProgressEventV1 } from "./task-progress-event.ts";
 import type { ActorIdentity, EventEnvelope, FrozenWritePlan, WriteSource } from "./write-chain.contract.ts";
@@ -205,7 +205,7 @@ export interface DocWriteDecisionInput {
   readonly lease: LeaseV1 | null;
   /** Decision evaluated by the daemon AuthorizationPort for execution-bound writes. */
   readonly authorizationDecision: AuthorizationDecision | null;
-  readonly runtimeBinding?: LiveTaskBoundRuntimeBinding;
+  readonly runtimeBinding?: TaskBoundRuntimeBinding;
   readonly documents: readonly (DocumentState | null)[];
   readonly claims: readonly (Uint8Array | null)[];
   readonly resolvedTaskIds?: readonly (string | null)[];

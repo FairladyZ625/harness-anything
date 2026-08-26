@@ -10,7 +10,7 @@ import {
   type PolicyPredicateExpression,
 } from "../domain/policy.ts";
 import type { AuthorizationDecision, ReceiptJsonValue } from "../domain/receipt-frame.ts";
-import { runtimeSessionIdFromActor, type LiveTaskBoundRuntimeBinding } from "../domain/task-bound-runtime-authority.ts";
+import { runtimeSessionIdFromActor, type TaskBoundRuntimeBinding } from "../domain/task-bound-runtime-authority.ts";
 import { sameWriteSource, type WriteSource } from "../domain/write-chain.contract.ts";
 
 export interface AuthorizationTargetSnapshot {
@@ -19,7 +19,7 @@ export interface AuthorizationTargetSnapshot {
   readonly canonicalExecutionExists?: boolean;
   readonly executionActor?: ActorIdentity | null;
   readonly proposalActor?: ActorIdentity | null;
-  readonly runtimeBinding?: LiveTaskBoundRuntimeBinding | null;
+  readonly runtimeBinding?: TaskBoundRuntimeBinding | null;
 }
 
 /** Volatile bindings are inputs to evaluation, not fields added to ActionEnvelope. */

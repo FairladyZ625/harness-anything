@@ -14,7 +14,7 @@ import {
   resolveDocRoute,
   resolveHarnessLayout,
   resolveLedgerGitLayout,
-  resolveLiveTaskBoundRuntimeBinding,
+  resolveTaskBoundRuntimeBinding,
   resolveRetirableDocument,
   runtimeSessionIdFromActor,
   sha256Bytes,
@@ -110,7 +110,7 @@ export function scanDocCandidates(input: {
     runtimeBinding =
       execution.lease === null
         ? null
-        : resolveLiveTaskBoundRuntimeBinding(runtimeSession, execution.lease.taskId, execution.lease.executionId),
+        : resolveTaskBoundRuntimeBinding(runtimeSession, execution.lease.taskId, execution.lease.executionId),
     authorizationDecision =
       execution.id === null
         ? null
@@ -407,11 +407,11 @@ function executionBinding(
         session?.taskBindings.flatMap((binding) => {
           if (!tasks.has(binding.taskId)) return [];
           const lease = projection.currentLeaseForExecution(binding.executionId, now),
-            live = resolveLiveTaskBoundRuntimeBinding(session, binding.taskId, binding.executionId);
-          if (lease === null || live === null) return [];
+            runtimeBinding = resolveTaskBoundRuntimeBinding(session, binding.taskId, binding.executionId);
+          if (lease === null || runtimeBinding === null) return [];
           const decision = authorizeAction("doc.submit", `execution/${binding.executionId}`, actor, "doc-scan", {
             writeSource: source,
-            target: { lease, runtimeBinding: live },
+            target: { lease, runtimeBinding },
             evaluatedAtCut,
           });
           return decision.outcome === "allowed" ? [{ id: binding.executionId, lease }] : [];

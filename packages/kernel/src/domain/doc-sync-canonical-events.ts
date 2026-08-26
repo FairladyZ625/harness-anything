@@ -18,7 +18,13 @@ import { validateCurrentTaskEvent, validateTaskEvent, type TaskEventV1 } from ".
 import { validateCurrentTaskProgressEvent, validateTaskProgressEvent } from "./task-progress-event.ts";
 import { canonicalizeWriteValue, isRecord } from "./write-chain.contract.ts";
 
-export const canonicalEventSchemas = Object.freeze([
+interface CanonicalEventSchemaRegistration {
+  readonly schema: string;
+  readonly validate: (value: unknown) => readonly string[];
+  readonly validateCurrent?: (value: unknown) => readonly string[];
+}
+
+export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] = Object.freeze([
   {
     schema: "task-event/v1",
     validate: (value: unknown) => validateTaskEvent(value).map((issue) => issue.message),
@@ -57,7 +63,6 @@ export const canonicalEventSchemas = Object.freeze([
   {
     schema: "agent-entity-event/v1",
     validate: validateEntityEvent,
-    validateCurrent: validateCurrentEntityEvent,
   },
   {
     schema: "fact-event/v1",
@@ -86,7 +91,7 @@ import { validateDocEvent } from "./doc-sync-validation.ts";
 export function validateCurrentCanonicalEvent(value: unknown): readonly string[] {
   if (!isRecord(value)) return ["canonical event is not an object"];
   const entry = canonicalEventSchemas.find((candidate) => candidate.schema === value.schema);
-  return entry?.validateCurrent(value) ?? ["canonical event schema is unknown"];
+  return entry?.validateCurrent?.(value) ?? ["canonical event schema is unknown or not current"];
 }
 
 export function serializeCanonicalEvent(event: CanonicalEventV1): string {

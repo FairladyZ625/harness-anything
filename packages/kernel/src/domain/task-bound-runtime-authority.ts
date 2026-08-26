@@ -4,7 +4,7 @@ import { isSamePerson } from "./actor-domain-services.ts";
 import type { LeaseV1 } from "./execution.ts";
 import type { ActorIdentity, WriteSource } from "./write-chain.contract.ts";
 
-export interface LiveTaskBoundRuntimeBinding {
+export interface TaskBoundRuntimeBinding {
   readonly runtimeSessionId: string;
   readonly taskId: string;
   readonly executionId: string;
@@ -28,11 +28,11 @@ export function runtimeSessionExecutesTask(
 }
 
 /** Resolves the canonical runtime-session handoff; callers pair it with the current execution lease. */
-export function resolveLiveTaskBoundRuntimeBinding(
+export function resolveTaskBoundRuntimeBinding(
   session: RuntimeSession | null,
   taskId: string,
   executionId: string,
-): LiveTaskBoundRuntimeBinding | null {
+): TaskBoundRuntimeBinding | null {
   if (!session?.taskBindings.some((binding) => binding.taskId === taskId && binding.executionId === executionId))
     return null;
   return { runtimeSessionId: session.runtimeSessionId, taskId, executionId };
@@ -42,7 +42,7 @@ export function isTaskBoundRuntimeWriter(
   lease: LeaseV1,
   actor: ActorIdentity,
   source: WriteSource,
-  binding: LiveTaskBoundRuntimeBinding,
+  binding: TaskBoundRuntimeBinding,
 ): boolean {
   return (
     lease.taskId === binding.taskId &&

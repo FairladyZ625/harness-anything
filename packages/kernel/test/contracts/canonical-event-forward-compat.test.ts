@@ -4,7 +4,11 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
-import { canonicalEventSchemas, parseCanonicalEvent, validateCurrentCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
+import {
+  canonicalEventSchemas,
+  parseCanonicalEvent,
+  validateCurrentCanonicalEvent,
+} from "../../src/domain/doc-sync.contract.ts";
 import { sameActorIdentity, sameWriteSource, serializeEventEnvelope } from "../../src/domain/write-chain.contract.ts";
 
 const actor = { principal: { personId: "person-fixture" }, executor: { kind: "agent" as const, id: "codex" } };
@@ -30,15 +34,15 @@ const taskCreated = {
       iteration: 0 as const,
       createdBy: actor,
       completionGateIds: ["ci"],
-      presetSnapshotDigest: null
-    }
-  }
+      presetSnapshotDigest: null,
+    },
+  },
 };
 
 test("Task/v1 readers ignore a field that current writers do not know", () => {
   const future = {
     ...taskCreated,
-    payload: { task: { ...taskCreated.payload.task, futureOptionalField: true } }
+    payload: { task: { ...taskCreated.payload.task, futureOptionalField: true } },
   };
   const bytes = serializeEventEnvelope(future);
 
@@ -51,9 +55,29 @@ test("semantic actor and source equality ignores additions but not known-axis ch
   assert.equal(sameActorIdentity({ ...actor, principal: { personId: "someone-else" } }, actor), false);
   // watch_session remains readable only as immutable historical event identity;
   // current command normalization rejects it after automatic ingestion retired.
-  const source = { kind: "watch_session" as const, sessionId: "session-1", path: "context/input.md", fingerprint: "a".repeat(64) };
+  const source = {
+    kind: "watch_session" as const,
+    sessionId: "session-1",
+    path: "context/input.md",
+    fingerprint: "a".repeat(64),
+  };
   assert.equal(sameWriteSource({ ...source, futureOptionalField: true }, source), true);
   assert.equal(sameWriteSource({ ...source, path: "context/other.md" }, source), false);
+});
+
+test("the retired agent entity envelope is parse-only", () => {
+  const pathName = path.resolve(
+      import.meta.dirname,
+      "../../fixtures/canonical-events/agent-entity-event-v1/accepted.json",
+    ),
+    body = readFileSync(pathName, "utf8"),
+    event = JSON.parse(body) as unknown;
+  assert.deepEqual(parseCanonicalEvent(body), event);
+  assert.match(validateCurrentCanonicalEvent(event).join("\n"), /not current/u);
+  assert.equal(
+    Object.hasOwn(canonicalEventSchemas.find(({ schema }) => schema === "agent-entity-event/v1")!, "validateCurrent"),
+    false,
+  );
 });
 
 test("every canonical reader ignores an unknown field at every frozen object boundary", () => {
@@ -89,9 +113,11 @@ function objectAt(value: unknown, objectPath: ObjectPath): Record<string, unknow
   let current = value;
   for (const segment of objectPath) {
     if (Array.isArray(current) && typeof segment === "number") current = current[segment];
-    else if (current !== null && typeof current === "object" && typeof segment === "string") current = (current as Record<string, unknown>)[segment];
+    else if (current !== null && typeof current === "object" && typeof segment === "string")
+      current = (current as Record<string, unknown>)[segment];
     else throw new Error(`fixture path does not resolve to an object: ${objectPath.join(".")}`);
   }
-  if (current === null || typeof current !== "object" || Array.isArray(current)) throw new Error(`fixture path is not an object: ${objectPath.join(".")}`);
+  if (current === null || typeof current !== "object" || Array.isArray(current))
+    throw new Error(`fixture path is not an object: ${objectPath.join(".")}`);
   return current as Record<string, unknown>;
 }

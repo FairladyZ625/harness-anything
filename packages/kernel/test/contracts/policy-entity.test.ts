@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_POLICY } from "../../src/domain/default-policy.ts";
 import { parsePolicyDeclarationV1, validatePolicyDeclarationV1 } from "../../src/domain/policy.ts";
-import { createEntityStore, explainEntityKind } from "../../src/index.ts";
+import { explainEntityKind } from "../../src/index.ts";
 
 test("the built-in v2 policy registers its binding predicates and applicable Actions", () => {
   assert.deepEqual(validatePolicyDeclarationV1(DEFAULT_POLICY), []);
@@ -121,41 +121,5 @@ test("policy schema rejects missing Action coverage and undeclared or unused rul
       predicates: [...DEFAULT_POLICY.predicates, { predicate: "reviewIndependence", level: "L2" }],
     }).join("\n"),
     /must be used/u,
-  );
-});
-
-test("the shared EntityStore accepts policy declarations without a policy-specific store", () => {
-  const events: any[] = [];
-  const blobs = new Map<string, Uint8Array>();
-  const store = createEntityStore({
-    read: () => ({ schema: "canonical-event-stream/v1", revision: events.length, events }),
-    readContentBlob: (sha256) => blobs.get(sha256) ?? null,
-  });
-  const bundle = store.upsert({
-    entityKind: "policy",
-    entity: DEFAULT_POLICY,
-    eventId: "event-policy-default",
-    opId: "op-policy-default",
-    workspaceRevision: 1,
-    actor: { principal: { personId: "policy-test" }, executor: null },
-    source: "local",
-    occurredAt: "2026-08-25T00:00:00.000Z",
-  });
-  events.push(bundle.event);
-  for (const blob of bundle.blobs) blobs.set(blob.sha256, Buffer.from(blob.body));
-  assert.deepEqual(store.get("policy", "default")?.value, DEFAULT_POLICY);
-  assert.throws(
-    () =>
-      store.upsert({
-        entityKind: "policy",
-        entity: { ...DEFAULT_POLICY, actions: [] },
-        eventId: "event-policy-invalid",
-        opId: "op-policy-invalid",
-        workspaceRevision: 2,
-        actor: { principal: { personId: "policy-test" }, executor: null },
-        source: "local",
-        occurredAt: "2026-08-25T00:00:00.000Z",
-      }),
-    /at least 1 item/u,
   );
 });

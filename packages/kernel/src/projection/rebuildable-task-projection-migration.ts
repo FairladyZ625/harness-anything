@@ -2,7 +2,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { emptyTaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
 import { docByteLength, type DocumentState } from "../domain/doc-sync.contract.ts";
-import { requireEntityStoreKindContract } from "../domain/entity-kind-registry.ts";
+import { requireEntityKindContract } from "../domain/entity-kind-registry.ts";
 import { type MigrationDocumentClaim, type MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
@@ -208,7 +208,7 @@ export function projectMigration(
       event.occurredAt,
     );
     refreshTaskRelationProjection(db, value.taskId, next.task, event.workspaceRevision, event.occurredAt);
-    const contract = requireEntityStoreKindContract(entity.kind);
+    const contract = requireEntityKindContract(entity.kind);
     projectInterpretedEntityValue(
       db,
       contract,

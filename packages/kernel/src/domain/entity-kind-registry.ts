@@ -8,16 +8,16 @@ import { decisionEventTypes, decisionStates, policyStates } from "./decision-eve
 import { CONTRACT_VERSION_1_0, type ContractVersion } from "./contract-version.ts";
 import { DEFAULT_POLICY } from "./default-policy.ts";
 import {
-  ENTITY_ID_PATTERN,
   explainEntityJsonSchema,
   type EntityDocumentJsonSchema,
   type EntityJsonObjectSchema,
   type EntityJsonSchemaNode,
 } from "./entity-json-schema.ts";
+import { deriveEntityKindIdentity } from "./entity-ref.ts";
 import type { RelationDirection, RelationType } from "./entity-relation.ts";
 import { executionStates } from "./execution.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
-import { policyPredicateNames, POLICY_DECLARATION_V1_SCHEMA, validatePolicyDeclarationV1 } from "./policy.ts";
+import { policyPredicateNames, POLICY_DECLARATION_V1_SCHEMA } from "./policy.ts";
 import type { PolicyActionRule, PolicyPredicateName } from "./policy.ts";
 import { canonicalRelationDirections } from "./relation-direction.ts";
 import { reviewVerdicts } from "./review.ts";
@@ -88,11 +88,11 @@ export interface EntityKindContract<T = unknown> {
   readonly authoring: {
     readonly kind: "generic-entity-store" | "task-lifecycle" | "fact-event" | "decision-event" | "agent-runtime-event";
     readonly contractRef: string;
-  };
+  } | null;
   readonly sdkExposure: EntitySdkExposure;
   readonly framework?: {
     readonly schemaId: string;
-    readonly mutabilityContractRef: string;
+    readonly mutabilityContract: "entityFieldContracts";
     readonly anchors: EntityAnchorDeclaration;
     readonly dispositionMatrix: EntityDispositionMatrix;
     readonly storageForm: EntityStorageForm;
@@ -145,10 +145,6 @@ export interface EntityKindExplanation {
   } | null;
 }
 
-const declarationId = Object.freeze({
-  field: "id",
-  pattern: ENTITY_ID_PATTERN,
-});
 const declarationDocument = (pathTemplate: string) =>
   Object.freeze({ pathTemplate, mediaType: "application/json" as const, policyId: ENTITY_DOCUMENT_POLICY_ID });
 const noSdkExposure: EntitySdkExposure = Object.freeze({ sdk: null, agentCapability: null });
@@ -159,23 +155,23 @@ const capabilityExposure = (target: string, schemaId: string): EntitySdkExposure
   });
 const entityAction = (
   kind: string,
-  refTemplate: string,
+  identity: EntityKindContract["id"],
   id: string,
   sdkExposure: EntitySdkExposure = noSdkExposure,
 ): EntityActionContract =>
   Object.freeze({
     id,
     version: CONTRACT_VERSION_1_0,
-    target: Object.freeze({ kind, refTemplate }),
+    target: Object.freeze({ kind, refTemplate: identity.refTemplate }),
     sdkExposure,
   });
 const actionCatalog = (
   ref: string,
   kind: string,
-  refTemplate: string,
+  identity: EntityKindContract["id"],
   ids: readonly string[],
   sdkExposure: EntitySdkExposure = noSdkExposure,
-) => Object.freeze({ ref, actions: Object.freeze(ids.map((id) => entityAction(kind, refTemplate, id, sdkExposure))) });
+) => Object.freeze({ ref, actions: Object.freeze(ids.map((id) => entityAction(kind, identity, id, sdkExposure))) });
 const genericAuthoring = Object.freeze({ kind: "generic-entity-store" as const, contractRef: "entity-event/v1" });
 const genericEntityStore = (pathTemplate: string, validate?: (value: unknown) => readonly string[]) =>
   Object.freeze({ document: declarationDocument(pathTemplate), ...(validate ? { validate } : {}) });
@@ -184,9 +180,18 @@ const taskExposure = capabilityExposure("task", "task-frontmatter");
 const factExposure = capabilityExposure("fact", "fact-event");
 const decisionExposure = capabilityExposure("decision", "decision-package");
 
-const executionIdPattern = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
-const reviewIdPattern = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
-const lifecycleTaskIdPattern = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
+const taskIdentity = deriveEntityKindIdentity("task");
+const factIdentity = deriveEntityKindIdentity("fact");
+const decisionIdentity = deriveEntityKindIdentity("decision");
+const agentIdentity = deriveEntityKindIdentity("agent");
+const squadIdentity = deriveEntityKindIdentity("squad");
+const policyIdentity = deriveEntityKindIdentity("policy");
+const executionIdentity = deriveEntityKindIdentity("execution");
+const reviewIdentity = deriveEntityKindIdentity("review");
+const runtimeSessionIdentity = deriveEntityKindIdentity("runtime-session");
+const executionIdPattern = executionIdentity.pattern;
+const reviewIdPattern = reviewIdentity.pattern;
+const lifecycleTaskIdPattern = taskIdentity.pattern;
 const opaqueObject = (): EntityJsonObjectSchema => ({
   type: "object",
   properties: {},
@@ -243,8 +248,8 @@ const factSchema = explainableSchema("fact-event", factEventJsonSchema);
 const decisionSchema = explainableSchema("decision-package", decisionPackageJsonSchema);
 
 const decisionFramework = Object.freeze({
-  schemaId: "DecisionEventSchema",
-  mutabilityContractRef: "decisionFieldContracts",
+  schemaId: "decision-package",
+  mutabilityContract: "entityFieldContracts" as const,
   anchors: {
     entityRef: "decision/{decisionId}",
     anchors: [
@@ -264,8 +269,8 @@ const decisionFramework = Object.freeze({
   storageForm: "lifecycle" as const,
 });
 const taskFramework = Object.freeze({
-  schemaId: "TaskFrontmatterSchema",
-  mutabilityContractRef: "taskFieldContracts",
+  schemaId: "task-frontmatter",
+  mutabilityContract: "entityFieldContracts" as const,
   anchors: { entityRef: "task/{task_id}", anchors: [] },
   dispositionMatrix: dispositionMatrix([
     unsupported("D1", "supersede", "replay/v1 does not expose authored task package disposition writes"),
@@ -278,8 +283,8 @@ const taskFramework = Object.freeze({
   storageForm: "lifecycle" as const,
 });
 const factFramework = Object.freeze({
-  schemaId: "FactEventSchema",
-  mutabilityContractRef: "factFieldContracts",
+  schemaId: "fact-event",
+  mutabilityContract: "entityFieldContracts" as const,
   anchors: { entityRef: "fact/{task_id}/{fact_id}", anchors: [] },
   dispositionMatrix: dispositionMatrix([
     supported("D1", "invalidate", ["fact_recorded"], "fact invalidation is a superseding append-only Fact event"),
@@ -388,14 +393,14 @@ export const entityKindContracts = Object.freeze([
   {
     kind: "task",
     schema: taskSchema,
-    id: { field: "task_id", pattern: lifecycleTaskIdPattern, refTemplate: "task/{id}" },
+    id: taskIdentity,
     relations: relationsFor("task"),
     canonicalProjection: null,
     statusVocabulary: [{ field: "lifecycle.status", words: domainStatuses }],
     actionCatalog: actionCatalog(
       "kernel/task-lifecycle/v1",
       "task",
-      "task/{id}",
+      taskIdentity,
       TASK_LIFECYCLE_TRANSITIONS.map(({ id }) => id),
       taskExposure,
     ),
@@ -407,11 +412,11 @@ export const entityKindContracts = Object.freeze([
   {
     kind: "fact",
     schema: factSchema,
-    id: { field: "factId", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$", refTemplate: "fact/{id}" },
+    id: factIdentity,
     relations: relationsFor("fact"),
     canonicalProjection: null,
     statusVocabulary: [{ field: "state", words: ["standing", "superseded_fact"] }],
-    actionCatalog: actionCatalog("kernel/fact-event/v1", "fact", "fact/{id}", ["record"], factExposure),
+    actionCatalog: actionCatalog("kernel/fact-event/v1", "fact", factIdentity, ["record"], factExposure),
     entityStore: null,
     authoring: { kind: "fact-event", contractRef: "fact-event/v1" },
     sdkExposure: factExposure,
@@ -420,14 +425,14 @@ export const entityKindContracts = Object.freeze([
   {
     kind: "decision",
     schema: decisionSchema,
-    id: { field: "decisionId", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$", refTemplate: "decision/{id}" },
+    id: decisionIdentity,
     relations: relationsFor("decision"),
     canonicalProjection: null,
     statusVocabulary: [{ field: "state", words: decisionStates }],
     actionCatalog: actionCatalog(
       "kernel/decision-event/v1",
       "decision",
-      "decision/{id}",
+      decisionIdentity,
       decisionActionIds,
       decisionExposure,
     ),
@@ -439,11 +444,11 @@ export const entityKindContracts = Object.freeze([
   {
     kind: "agent",
     schema: AGENT_DECLARATION_V1_SCHEMA,
-    id: { ...declarationId, refTemplate: "agent/{id}" },
+    id: agentIdentity,
     relations: { directions: [], edges: [] },
     canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
     statusVocabulary: [{ field: "state", words: agentStates }],
-    actionCatalog: actionCatalog("kernel/agent-declaration/v1", "agent", "agent/{id}", [
+    actionCatalog: actionCatalog("kernel/agent-declaration/v1", "agent", agentIdentity, [
       "configure",
       "activate",
       "retire",
@@ -455,7 +460,7 @@ export const entityKindContracts = Object.freeze([
   {
     kind: "squad",
     schema: SQUAD_DECLARATION_V1_SCHEMA,
-    id: { ...declarationId, refTemplate: "squad/{id}" },
+    id: squadIdentity,
     relations: { directions: [], edges: [] },
     canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
     actionCatalog: null,
@@ -466,13 +471,13 @@ export const entityKindContracts = Object.freeze([
   {
     kind: "policy",
     schema: POLICY_DECLARATION_V1_SCHEMA,
-    id: { ...declarationId, refTemplate: "policy/{id}" },
+    id: policyIdentity,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
     statusVocabulary: [{ field: "state", words: policyStates }],
-    actionCatalog: actionCatalog("kernel/policy/v1", "policy", "policy/{id}", ["draft", "activate", "retire"]),
-    entityStore: genericEntityStore("policies/{id}.json", validatePolicyDeclarationV1),
-    authoring: genericAuthoring,
+    actionCatalog: actionCatalog("kernel/policy/v1", "policy", policyIdentity, ["draft", "activate", "retire"]),
+    entityStore: null,
+    authoring: null,
     sdkExposure: noSdkExposure,
     policy: {
       predicates: policyPredicateNames,
@@ -483,7 +488,7 @@ export const entityKindContracts = Object.freeze([
   {
     kind: "execution",
     schema: executionSchema,
-    id: { field: "executionId", pattern: executionIdPattern, refTemplate: "execution/{id}" },
+    id: executionIdentity,
     relations: {
       directions: ["directed"],
       edges: [
@@ -492,8 +497,8 @@ export const entityKindContracts = Object.freeze([
           sourceKind: "execution",
           targetKind: "task",
           projection: {
-            source: { field: "executionId", refTemplate: "execution/{id}" },
-            target: { field: "taskId", refTemplate: "task/{id}" },
+            source: { field: "executionId", refTemplate: executionIdentity.refTemplate },
+            target: { field: "taskId", refTemplate: taskIdentity.refTemplate },
             direction: "directed",
             strength: "strong",
             origin: "generated",
@@ -525,21 +530,21 @@ export const entityKindContracts = Object.freeze([
       row: { idField: "executionId", ownerField: "taskId" },
     },
     statusVocabulary: [{ field: "state", words: executionStates }],
-    actionCatalog: actionCatalog("kernel/task-lifecycle/v1", "execution", "execution/{id}", [
+    actionCatalog: actionCatalog("kernel/task-lifecycle/v1", "execution", executionIdentity, [
       "start",
       "renew",
       "submit",
       "complete",
       "release",
     ]),
-    entityStore: genericEntityStore("executions/{id}.json"),
+    entityStore: null,
     authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: noSdkExposure,
   },
   {
     kind: "review",
     schema: reviewSchema,
-    id: { field: "reviewId", pattern: reviewIdPattern, refTemplate: "review/{id}" },
+    id: reviewIdentity,
     relations: {
       directions: ["directed"],
       edges: [
@@ -548,8 +553,8 @@ export const entityKindContracts = Object.freeze([
           sourceKind: "review",
           targetKind: "execution",
           projection: {
-            source: { field: "reviewId", refTemplate: "review/{id}" },
-            target: { field: "executionId", refTemplate: "execution/{id}" },
+            source: { field: "reviewId", refTemplate: reviewIdentity.refTemplate },
+            target: { field: "executionId", refTemplate: executionIdentity.refTemplate },
             direction: "directed",
             strength: "strong",
             origin: "generated",
@@ -569,15 +574,15 @@ export const entityKindContracts = Object.freeze([
       row: { idField: "reviewId", ownerField: "taskId" },
     },
     statusVocabulary: [{ field: "verdict", words: reviewVerdicts }],
-    actionCatalog: actionCatalog("kernel/task-lifecycle/v1", "review", "review/{id}", ["record"]),
-    entityStore: genericEntityStore("reviews/{id}.json"),
+    actionCatalog: actionCatalog("kernel/task-lifecycle/v1", "review", reviewIdentity, ["record"]),
+    entityStore: null,
     authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: noSdkExposure,
   },
   {
     kind: "runtime-session",
     schema: runtimeSessionEntityV1Schema,
-    id: { field: "runtimeSessionId", pattern: "^runtime_[a-z0-9]+$", refTemplate: "runtime-session/{id}" },
+    id: runtimeSessionIdentity,
     relations: {
       directions: ["directed"],
       edges: [{ type: "executes", sourceKind: "runtime-session", targetKind: "task" }],
@@ -594,10 +599,10 @@ export const entityKindContracts = Object.freeze([
     actionCatalog: actionCatalog(
       "kernel/agent-runtime-event/v1",
       "runtime-session",
-      "runtime-session/{id}",
+      runtimeSessionIdentity,
       agentRuntimeEventTypes.filter((type) => type.startsWith("runtime_session_")),
     ),
-    entityStore: genericEntityStore("runtime-sessions/{id}.json"),
+    entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,
   },
@@ -620,12 +625,13 @@ export function requireEntityKindContract(kind: string): EntityKindContract {
 
 export type EntityStoreKindContract = EntityKindContract & {
   readonly entityStore: NonNullable<EntityKindContract["entityStore"]>;
+  readonly authoring: { readonly kind: "generic-entity-store"; readonly contractRef: string };
 };
 
 export function requireEntityStoreKindContract(kind: string): EntityStoreKindContract {
   const contract = requireEntityKindContract(kind);
-  if (contract.entityStore === null)
-    throw Object.assign(new Error(`Entity kind ${kind} is authored through ${contract.authoring.contractRef}.`), {
+  if (contract.entityStore === null || contract.authoring?.kind !== "generic-entity-store")
+    throw Object.assign(new Error(`Entity kind ${kind} has no generic entity-store surface.`), {
       code: "entity_kind_has_dedicated_authoring",
     });
   return contract as EntityStoreKindContract;

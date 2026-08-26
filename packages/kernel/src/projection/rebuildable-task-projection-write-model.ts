@@ -2,10 +2,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { docByteLength, verifyDocEventChange, type DocumentState } from "../domain/doc-sync.contract.ts";
 import { type TaskProgressEventV1 } from "../domain/task-progress-event.ts";
-import {
-  isTaskBoundRuntimeWriter,
-  resolveLiveTaskBoundRuntimeBinding,
-} from "../domain/task-bound-runtime-authority.ts";
+import { isTaskBoundRuntimeWriter, resolveTaskBoundRuntimeBinding } from "../domain/task-bound-runtime-authority.ts";
 import { type DecisionEventV1 } from "../domain/decision-event.ts";
 import { type FactEventV1 } from "../domain/fact-event.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
@@ -45,7 +42,7 @@ export function projectProgress(
     runtimeSessionIdValue = event.payload.runtimeSessionId,
     runtime = runtimeSessionIdValue ? readRuntimeSession(db, runtimeSessionIdValue) : null;
   const runtimeBinding =
-      runtime === null ? null : resolveLiveTaskBoundRuntimeBinding(runtime, taskId, event.payload.executionId),
+      runtime === null ? null : resolveTaskBoundRuntimeBinding(runtime, taskId, event.payload.executionId),
     directHolder =
       lease !== null &&
       runtimeSessionIdValue === undefined &&

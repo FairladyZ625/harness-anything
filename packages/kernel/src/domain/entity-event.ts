@@ -75,12 +75,6 @@ export function compileEntityUpsert(input: {
   readonly occurredAt: string;
 }): EntityUpsertBundle {
   const contract = requireEntityStoreKindContract(input.entityKind);
-  if (contract.authoring.kind !== "generic-entity-store") {
-    const message =
-      `Entity kind ${contract.kind} must be authored via lifecycle/runtime events, ` +
-      `not generic upsert (${contract.authoring.contractRef}).`;
-    throw new Error(message);
-  }
   const entity = parseEntityJsonSchema(contract.schema, input.entity, `${input.entityKind} declaration`),
     entityId = isRecord(entity) ? entity[contract.id.field] : undefined;
   const contractErrors = contract.entityStore.validate?.(entity) ?? [];
@@ -135,7 +129,9 @@ function validateEntityEventFields(value: unknown, allowUnknownFields: boolean):
       "occurredAt",
       "payload",
     ]) ||
-    !isEntityEventEnvelope(value.schema, value.type) ||
+    (!allowUnknownFields
+      ? value.schema !== "entity-event/v1" || value.type !== "entity_upserted"
+      : !isEntityEventEnvelope(value.schema, value.type)) ||
     !isRecord(value.payload) ||
     !hasFields(value.payload, ["entityKind", "entityId", "declarationDocumentClaim"])
   )

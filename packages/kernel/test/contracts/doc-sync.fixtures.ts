@@ -11,7 +11,7 @@ import {
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { authorizationPort } from "../../src/ports/authorization-port.ts";
 import type { ActorIdentity, WriteSource } from "../../src/domain/write-chain.contract.ts";
-import type { LiveTaskBoundRuntimeBinding } from "../../src/domain/task-bound-runtime-authority.ts";
+import type { TaskBoundRuntimeBinding } from "../../src/domain/task-bound-runtime-authority.ts";
 import { currentActionEnvelopeVersion } from "../../src/index.ts";
 
 export const actor = {
@@ -41,7 +41,7 @@ export const lease = {
 } as const;
 export function authorizeDocWrite(
   actionActor: ActorIdentity = actor,
-  runtimeBinding: LiveTaskBoundRuntimeBinding | null = null,
+  runtimeBinding: TaskBoundRuntimeBinding | null = null,
   writeSource: WriteSource = "local",
 ) {
   return authorizationPort.authorize(

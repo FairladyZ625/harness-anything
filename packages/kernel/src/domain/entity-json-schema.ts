@@ -25,8 +25,6 @@ export type EntityJsonSchemaNode = (
   | EntityJsonObjectSchema
 ) & { readonly "x-error"?: string; readonly "x-nullable"?: boolean };
 
-export const ENTITY_ID_PATTERN = "^[a-z0-9][a-z0-9-]{0,63}$";
-
 export interface EntityJsonObjectSchema {
   readonly type: "object";
   readonly properties: Readonly<Record<string, EntityJsonSchemaNode>>;
@@ -180,3 +178,4 @@ function stableJson(value: unknown): string {
   );
 }
 import { isRecord } from "./write-chain.contract.ts";
+export { ENTITY_ID_PATTERN } from "./entity-ref.ts";

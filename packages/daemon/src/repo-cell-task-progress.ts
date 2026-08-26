@@ -5,7 +5,7 @@ import {
   completionBlockers,
   consumeKnownError,
   isTaskProgressEvent,
-  resolveLiveTaskBoundRuntimeBinding,
+  resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
   stableStringify,
   taskProgressWritePlan,
@@ -58,7 +58,7 @@ export function appendProgress(
     recoverySnapshot = lease?.phase === "orphaned" ? { ...task.snapshot, lease: null } : task.snapshot,
     runtimeSessionId = runtimeSessionIdFromActor(binding.actor),
     runtimeSession = runtimeSessionId === null ? null : cell.projection.readRuntimeSession(runtimeSessionId),
-    runtimeBinding = resolveLiveTaskBoundRuntimeBinding(runtimeSession, taskId, executionId),
+    runtimeBinding = resolveTaskBoundRuntimeBinding(runtimeSession, taskId, executionId),
     progressPath = `${task.packagePath}/progress.md`,
     document = cell.projection.readDocument(progressPath);
   if (document.watermark < document.sourceRevision)

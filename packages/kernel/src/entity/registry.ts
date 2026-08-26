@@ -1,11 +1,8 @@
 import { getEntityKindContract } from "../domain/entity-kind-registry.ts";
-import { EntityRelationRecordSchema, FactEventSchema, TaskFrontmatterSchema } from "../schemas/registry.ts";
-import { DecisionEventSchema } from "../schemas/decision-event.ts";
+import { EntityRelationRecordSchema, schemaRegistry } from "../schemas/registry.ts";
 import {
-  decisionFieldContracts,
-  factFieldContracts,
+  entityFieldContracts,
   relationFieldContracts,
-  taskFieldContracts,
   type DecisionFieldKey,
   type FactFieldKey,
   type RelationFieldKey,
@@ -49,26 +46,23 @@ export type EntityRegistryShape = {
 
 function derivedFrameworkRegistration<FieldKey extends string>(
   kind: "decision" | "task" | "fact",
-  schema: unknown,
-  mutabilityContract: EntityRegistration<FieldKey>["mutabilityContract"],
 ): EntityRegistration<FieldKey> {
   const framework = getEntityKindContract(kind)?.framework;
   if (!framework) throw new Error(`Entity kind ${kind} has no framework registration contract.`);
+  const schema = schemaRegistry.find(({ id }) => id === framework.schemaId)?.schema;
+  if (!schema) throw new Error(`Entity kind ${kind} names unknown schema ${framework.schemaId}.`);
   return {
     kind,
     schema,
-    mutabilityContract,
+    mutabilityContract: entityFieldContracts[kind] as EntityRegistration<FieldKey>["mutabilityContract"],
     anchors: framework.anchors,
     dispositionMatrix: framework.dispositionMatrix,
     storageForm: framework.storageForm,
   };
 }
 
-/** Compatibility projection. task/fact/decision metadata is derived from entityKindContracts. */
-export const entityRegistry = {
-  decision: derivedFrameworkRegistration("decision", DecisionEventSchema, decisionFieldContracts),
-  task: derivedFrameworkRegistration("task", TaskFrontmatterSchema, taskFieldContracts),
-  fact: derivedFrameworkRegistration("fact", FactEventSchema, factFieldContracts),
+/** relation/session are framework-only hosted boundaries, not members of the nine-kind authoring authority. */
+const frameworkBoundaryRegistrations = {
   relation: {
     kind: "relation",
     schema: EntityRelationRecordSchema,
@@ -90,6 +84,14 @@ export const entityRegistry = {
     storageForm: "host_frontmatter",
   },
   session: sessionEntityRegistration,
+} as const;
+
+/** Compatibility projection. Nine-kind members derive schema, mutability, and metadata from kind authority. */
+export const entityRegistry = {
+  decision: derivedFrameworkRegistration<DecisionFieldKey>("decision"),
+  task: derivedFrameworkRegistration<TaskFieldKey>("task"),
+  fact: derivedFrameworkRegistration<FactFieldKey>("fact"),
+  ...frameworkBoundaryRegistrations,
 } satisfies EntityRegistryShape;
 
 export const entityRegistryKinds = Object.keys(entityRegistry) as ReadonlyArray<KernelEntityKind>;
