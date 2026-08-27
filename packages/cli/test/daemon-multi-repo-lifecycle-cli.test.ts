@@ -291,22 +291,47 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       blockedFile = path.join(fixture.alpha, "harness", blockedPath);
     mkdirSync(path.dirname(blockedFile), { recursive: true });
     writeFileSync(blockedFile, "# Stable\n");
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", blockedPath]).outcome,
-      "applied",
+    // Same background local-repair reconciliation as the notes submit above (repo-cell
+    // settleAuthoredCandidates): it may incorporate this freshly authored doc first, which leaves this
+    // explicit submit nothing to apply. Both outcomes mean the doc reached canonical.
+    const stableSubmit = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", blockedPath]);
+    assert.ok(
+      stableSubmit.outcome === "applied" || stableSubmit.outcome === "no_changes",
+      `submit must reconcile the authored doc (applied or no_changes), saw ${JSON.stringify(stableSubmit)}`,
     );
     writeFileSync(blockedFile, "# Renamed\n");
     writeFileSync(path.join(fixture.alpha, "harness", eligiblePath), "# Eligible\n");
-    const partial = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit"]);
-    assert.equal(partial.outcome, "applied", JSON.stringify(partial));
-    assert.match(
-      String(partial.summary),
-      /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tbase region is missing: "# Stable"/u,
-    );
+    // The background reconciliation issues this exact command — doc-submit over an empty selection.
+    // Whichever sweep runs first applies context/this-session.md and skips the blocked
+    // context/other-session.md; the sweep that runs second has no eligible row left and rejects on the
+    // blocked row alone, which is the decided contract (doc-sync-slice-a-implicit-lease: "a blocked-only
+    // implicit submit must reject without publishing an event"). Asserting one outcome raced that sweep
+    // (flake). What holds either way: the blocked path is reported against its missing base region, the
+    // eligible doc reaches canonical, and the blocked edit does not.
+    const partial = runMaybe(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit"]),
+      blockedTouch = 'context/other-session.md\tbase region is missing: "# Stable"';
+    if (partial.status === 0) {
+      assert.equal(partial.receipt.outcome, "applied", JSON.stringify(partial.receipt));
+      assert.match(
+        String(partial.receipt.summary),
+        /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tbase region is missing: "# Stable"/u,
+      );
+    } else {
+      assert.equal(partial.receipt.outcome, "op_rejected", JSON.stringify(partial.receipt));
+      assert.equal(partial.receipt.code, "preview_blocked", JSON.stringify(partial.receipt));
+      assert.deepEqual(
+        (
+          partial.receipt.detail as { unresolvedTouches?: readonly { path: string; reason: string }[] }
+        ).unresolvedTouches?.map((touch) => `${touch.path}\t${touch.reason}`),
+        [blockedTouch],
+        JSON.stringify(partial.receipt),
+      );
+    }
     assert.equal(
       run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", eligiblePath]).evidence,
       "# Eligible\n",
     );
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", blockedPath]).evidence, "# Stable\n");
     const spoof = await requestLocalDaemonJsonRpc(
       fixture.alpha,
       "repo.task.create",
