@@ -39,15 +39,23 @@ const owner: ActorIdentity = {
   runtimeBinding = { runtimeSessionId: "runtime-1", taskId: "task-1", executionId: "execution-1" } as const;
 
 function commandRoles(actor: ActorIdentity, ...roles: readonly string[]) {
+  return rolesOnTarget(actor, "settings/repository", ...roles);
+}
+
+function rolesOnTarget(
+  actor: ActorIdentity,
+  target: Case["target"] | "settings/repository",
+  ...roles: readonly string[]
+) {
   return {
     roleBindings: roles.map((role) => ({
       actor: { kind: "person" as const, id: actor.principal.personId },
       role,
-      target: "settings/repository" as const,
+      target,
       source: "derived" as const,
       expiresAt: null,
     })),
-    roleBindingTargets: ["settings/repository" as const],
+    roleBindingTargets: [target],
   };
 }
 
@@ -64,33 +72,33 @@ const cases: readonly Case[] = [
   {
     label: "consent owner",
     kind: "task.consent",
-    target: "task/task-1",
-    actor: owner,
-    context: { target: { owner } },
+    target: "execution/execution-1",
+    actor: humanOwner,
+    context: { ...rolesOnTarget(owner, "execution/execution-1", "owner"), target: {} },
     expected: "allowed",
   },
   {
-    label: "consent executor mismatch",
+    label: "consent outsider",
     kind: "task.consent",
-    target: "task/task-1",
-    actor: humanOwner,
-    context: { target: { owner } },
+    target: "execution/execution-1",
+    actor: outsider,
+    context: { ...rolesOnTarget(owner, "execution/execution-1", "owner"), target: {} },
     expected: "denied",
   },
   {
     label: "complete owner",
     kind: "task.complete",
-    target: "task/task-1",
+    target: "execution/execution-1",
     actor: humanOwner,
-    context: { target: { owner } },
+    context: { ...rolesOnTarget(owner, "execution/execution-1", "owner"), target: {} },
     expected: "allowed",
   },
   {
     label: "complete outsider",
     kind: "task.complete",
-    target: "task/task-1",
+    target: "execution/execution-1",
     actor: outsider,
-    context: { target: { owner } },
+    context: { ...rolesOnTarget(owner, "execution/execution-1", "owner"), target: {} },
     expected: "denied",
   },
   {
@@ -266,7 +274,11 @@ const cases: readonly Case[] = [
     kind: "task.closeout",
     target: "task/task-1",
     actor: humanOwner,
-    context: { ruleScope: "owner", target: { owner, lease } },
+    context: {
+      ...rolesOnTarget(owner, "task/task-1", "owner"),
+      ruleScope: "owner",
+      target: { lease },
+    },
     expected: "allowed",
   },
   {
@@ -274,7 +286,11 @@ const cases: readonly Case[] = [
     kind: "task.closeout",
     target: "task/task-1",
     actor: outsider,
-    context: { ruleScope: "owner", target: { owner, lease } },
+    context: {
+      ...rolesOnTarget(owner, "task/task-1", "owner"),
+      ruleScope: "owner",
+      target: { lease },
+    },
     expected: "denied",
   },
   {
@@ -305,7 +321,7 @@ function assertLocationOracles(policy: PolicyDeclarationV1): void {
         kind: row.kind,
         target: row.target,
         actor: row.actor,
-        authorizationRef: "default@2",
+        authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}`,
         idempotencyKey: `mutation-${row.label}`,
       },
       { ...row.context, evaluatedAtCut: "canonical:mutation" },
@@ -318,11 +334,11 @@ function clonePolicy(): PolicyDeclarationV1 {
   return structuredClone(DEFAULT_POLICY);
 }
 
-test("the unmutated v2 Policy satisfies every location oracle", () => {
+test("the unmutated v3 Policy satisfies every location oracle", () => {
   assertLocationOracles(DEFAULT_POLICY);
 });
 
-test("every v2 rule deletion is killed by its location oracle", async (t) => {
+test("every v3 rule deletion is killed by its location oracle", async (t) => {
   for (const [ruleIndex, rule] of (DEFAULT_POLICY.rules ?? []).entries())
     await t.test(`${rule.action}:${rule.scope ?? "default"}`, () => {
       const mutant = clonePolicy(),
@@ -332,7 +348,7 @@ test("every v2 rule deletion is killed by its location oracle", async (t) => {
     });
 });
 
-test("every v2 rule-predicate deletion is killed by its location oracle", async (t) => {
+test("every v3 rule-predicate deletion is killed by its location oracle", async (t) => {
   for (const [ruleIndex, rule] of (DEFAULT_POLICY.rules ?? []).entries())
     for (const [clauseIndex, clause] of rule.anyOf.entries())
       for (const [predicateIndex, predicate] of clause.allOf.entries())

@@ -11,6 +11,14 @@ import { openRepoCell } from "../src/repo-cell.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
+const ownerFromAnotherAgent = {
+    principal: actor.principal,
+    executor: { kind: "agent", id: "other-owner-agent" },
+  } as const,
+  outsider = {
+    principal: { personId: "person-outsider" },
+    executor: { kind: "agent", id: "outsider-agent" },
+  } as const;
 
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");
@@ -82,9 +90,20 @@ test("review-consent derives the recorded Review digests without a packet and st
     assert.match(String(typo.nextAction), /choose one of review-derived/u);
     assert.equal(store().readHead()?.revision, beforeTypo);
 
+    const beforeOutsiderConsent = store().readHead()?.revision,
+      outsiderConsent = (await cell.run(
+        { kind: "task-review-consent", taskId, consentId: "consent-outsider" },
+        { actor: outsider, source: "local" },
+      )) as unknown as Record<string, unknown>;
+    assert.deepEqual(
+      { outcome: outsiderConsent.outcome, code: outsiderConsent.code },
+      { outcome: "op_rejected", code: "actor_unauthorized" },
+    );
+    assert.equal(store().readHead()?.revision, beforeOutsiderConsent);
+
     const consented = (await cell.run(
       { kind: "task-review-consent", taskId, consentId: "consent-derived" },
-      binding,
+      { actor: ownerFromAnotherAgent, source: "local" },
     )) as unknown as Record<string, unknown>;
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
     const consentEvent = store().readEvent(String(consented.opId));
@@ -97,6 +116,27 @@ test("review-consent derives the recorded Review digests without a packet and st
         reviewDigest: reviewDigest(reviewEvent.payload.review),
         contentDigest: reviewEvent.payload.review.contentDigest,
       },
+    );
+    assert.deepEqual(
+      (
+        consented.authorizationDecision as {
+          readonly bindingsUsed: readonly Readonly<Record<string, unknown>>[];
+        }
+      ).bindingsUsed,
+      [
+        {
+          predicate: "hasCommandClass",
+          satisfied: true,
+          role: "owner",
+          matched: {
+            actor: { kind: "person", id: actor.principal.personId },
+            role: "owner",
+            target: `execution/${executionId}`,
+            source: "derived",
+            expiresAt: null,
+          },
+        },
+      ],
     );
 
     // Negative control: an operator-supplied packet with a well-formed but wrong digest must still be rejected.

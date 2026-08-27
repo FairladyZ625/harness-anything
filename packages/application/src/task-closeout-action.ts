@@ -11,6 +11,7 @@ import {
   type LeaseV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
+import { deriveOwnerRoleBinding } from "../../kernel/src/domain/owner-role-binding.ts";
 
 const submissionFields = [
   "completionClaim",
@@ -279,14 +280,14 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     const stopped = await invoke(
       "review-consent",
       { kind: "task-review-consent", taskId, ...selector, reviewId, consentId },
-      task.createdBy,
+      caller,
     );
     if (stopped) return stopped;
   }
   const ciFlag = judgment.completion.ci === "passed" ? { ci: "passed" as const } : {};
   const pathFlag = judgment.completion.codeDocPaths.length ? { paths: judgment.completion.codeDocPaths } : {};
   const completion = { kind: "task-complete", taskId, ...selector, ...ciFlag, ...pathFlag };
-  const stopped = await invoke("complete", completion, task.createdBy);
+  const stopped = await invoke("complete", completion, caller);
   if (stopped) return stopped;
   const { stage: _stage, ...final } = steps.at(-1)!;
   return {
@@ -336,19 +337,21 @@ function authorizeCloseout(
   snapshot: Snapshot,
   opId: string,
 ): AuthorizationDecision {
+  const target = `task/${snapshot.task?.taskId ?? "missing"}` as const;
   return authorizationPort.authorize(
     {
       version: currentActionEnvelopeVersion,
       actionId: `${opId}:${scope}`,
       kind: "task.closeout",
-      target: `task/${snapshot.task?.taskId ?? "missing"}`,
+      target,
       actor,
       authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}`,
       idempotencyKey: `${opId}:${scope}`,
     },
     {
       ruleScope: scope,
-      target: { owner: snapshot.task?.createdBy ?? null, lease: snapshot.lease },
+      roleBindings: snapshot.task ? [deriveOwnerRoleBinding(snapshot.task.createdBy, target)] : [],
+      target: { lease: snapshot.lease },
       evaluatedAtCut: `canonical:${snapshot.revision}`,
     },
   );

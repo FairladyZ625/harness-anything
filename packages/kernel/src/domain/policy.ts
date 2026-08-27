@@ -9,8 +9,6 @@ import {
 import { isRecord } from "./write-chain.contract.ts";
 
 export const policyPredicateNames = Object.freeze([
-  "isOwner",
-  "isSameExecutionOwner",
   "holdsExecutionLease",
   "reclaimsOrphanedLease",
   "dispatchesExecution",
@@ -26,8 +24,6 @@ export const reviewIndependenceLevels = Object.freeze(["L1", "L2"] as const);
 export type ReviewIndependenceLevel = (typeof reviewIndependenceLevels)[number];
 
 type PolicyPredicate =
-  | { readonly predicate: "isOwner" }
-  | { readonly predicate: "isSameExecutionOwner" }
   | { readonly predicate: "holdsExecutionLease" }
   | { readonly predicate: "reclaimsOrphanedLease" }
   | { readonly predicate: "dispatchesExecution" }

@@ -4,14 +4,13 @@ import type { PolicyDeclarationV1 } from "./policy.ts";
 const defaultPolicyDeclaration = {
   schema: "policy/v1",
   id: "default",
-  version: 2,
+  version: 3,
   predicates: Object.freeze([
-    { predicate: "isOwner" },
-    { predicate: "isSameExecutionOwner" },
     { predicate: "holdsExecutionLease" },
     { predicate: "reclaimsOrphanedLease" },
     { predicate: "dispatchesExecution" },
     { predicate: "delegatedByRuntimeSession" },
+    { predicate: "hasCommandClass", commandClass: "owner" },
     { predicate: "hasCommandClass", commandClass: "arbiter" },
     { predicate: "hasCommandClass", commandClass: "repo-write" },
     { predicate: "reviewIndependence", level: "L1" },
@@ -30,8 +29,14 @@ const defaultPolicyDeclaration = {
     "task.closeout",
   ]),
   rules: Object.freeze([
-    { action: "task.consent", anyOf: [{ allOf: [{ predicate: "isSameExecutionOwner" }] }] },
-    { action: "task.complete", anyOf: [{ allOf: [{ predicate: "isOwner" }] }] },
+    {
+      action: "task.consent",
+      anyOf: [{ allOf: [{ predicate: "hasCommandClass", commandClass: "owner" }] }],
+    },
+    {
+      action: "task.complete",
+      anyOf: [{ allOf: [{ predicate: "hasCommandClass", commandClass: "owner" }] }],
+    },
     { action: "execution.start", anyOf: [{ allOf: [{ predicate: "hasCommandClass", commandClass: "repo-write" }] }] },
     {
       action: "execution.review",
@@ -70,7 +75,11 @@ const defaultPolicyDeclaration = {
         { allOf: [{ predicate: "delegatedByRuntimeSession" }, { predicate: "sameWriteSource" }] },
       ],
     },
-    { action: "task.closeout", scope: "owner", anyOf: [{ allOf: [{ predicate: "isOwner" }] }] },
+    {
+      action: "task.closeout",
+      scope: "owner",
+      anyOf: [{ allOf: [{ predicate: "hasCommandClass", commandClass: "owner" }] }],
+    },
     {
       action: "task.closeout",
       scope: "active",

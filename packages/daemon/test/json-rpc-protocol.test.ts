@@ -374,17 +374,17 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     const assertCut = (receipt: Record<string, unknown>, type: string, paths: readonly string[]) => { assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.taskId, taskId); assert.equal(receipt.executionId, executionId); assert.deepEqual(receipt.changedPaths, paths); assert.equal(receipt.worktreeVisible, true); assert.equal(receipt.commitSha, null); assert.equal(typeof receipt.cut, "object"); assert.equal(typeof receipt.transition, "object"); assert.equal(Array.isArray(receipt.next), true); const event = makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readEvent(String(receipt.opId)); assert.equal(event?.type, type); if (event?.schema !== "task-event/v1") throw new Error("lifecycle receipt requires a TaskEvent"); assert.deepEqual(event.payload.documentClaims?.map((claim) => claim.path), paths); for (const target of paths) assert.equal(existsSync(path.join(rootDir, "harness", target)), true, target); };
     const indexPath = `${packagePath}/INDEX.md`, executionPath = `${packagePath}/executions/${executionId}.md`, reviewPath = `${packagePath}/reviews/review-life.md`, codeDocPath = `${packagePath}/code-doc-anchors.json`;
     const started = await cell.run({ kind: "task-start", taskId, executionId }, binding) as unknown as Record<string, unknown>; assertCut(started, "execution_started", [indexPath, executionPath]); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: active/u);
-    assert.equal((started.authorizationDecision as Record<string, unknown>).policyRef, "default@2");
+    assert.equal((started.authorizationDecision as Record<string, unknown>).policyRef, "default@3");
     assert.equal((started.authorizationDecision as Record<string, unknown>).outcome, "allowed");
     const commitSha = git(rootDir, "rev-parse", "HEAD"), beforeInvalidSubmit = makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readHead()?.revision; writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "incomplete", deliverables: [], outputs: [], verificationNotes: [], knownGaps: [], commitSha })); const invalidSubmit = await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding); assert.equal(invalidSubmit.outcome, "op_rejected"); assert.equal(makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readHead()?.revision, beforeInvalidSubmit); assert.equal(git(rootDir, "rev-parse", "HEAD"), commitSha); writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Lifecycle output is ready.", deliverables: ["typed lifecycle"], outputs: ["machine files"], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha }));
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding) as unknown as Record<string, unknown>; assertCut(submitted, "execution_submitted", [indexPath, executionPath]); assert.deepEqual(submitted.transition, { from: "active/implementation", to: "in_review/review" }); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: submitted[\s\S]*Lifecycle output is ready/u);
     writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] })); const reviewBinding = withRoleBinding({ actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } }, source: "local" as const }, "arbiter");
     const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-life", fromFile: "review.json" }, reviewBinding) as unknown as Record<string, unknown>; assertCut(reviewed, "review_recorded", [indexPath, executionPath, reviewPath]); assert.equal(reviewed.reviewId, "review-life"); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Verdict: approved[\s\S]*Consent: pending/u);
-    assert.equal((reviewed.authorizationDecision as Record<string, unknown>).policyRef, "default@2");
+    assert.equal((reviewed.authorizationDecision as Record<string, unknown>).policyRef, "default@3");
     assert.equal((reviewed.authorizationDecision as Record<string, unknown>).outcome, "allowed");
     const reviewEvent = makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readEvent(String(reviewed.opId)); if (reviewEvent?.type !== "review_recorded") throw new Error("review event missing"); assert.equal(reviewed.reviewDigest, reviewDigest(reviewEvent.payload.review)); assert.equal(reviewed.contentDigest, reviewEvent.payload.review.contentDigest); writeFileSync(path.join(rootDir, "consent.json"), JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }));
     const consented = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-life", consentId: "consent-life", fromFile: "consent.json" }, binding) as unknown as Record<string, unknown>; assertCut(consented, "review_consent_recorded", [indexPath, executionPath, reviewPath]); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Consent: consent-life[\s\S]*Consent actor: person-owner/u);
-    assert.equal((consented.authorizationDecision as Record<string, unknown>).policyRef, "default@2");
+    assert.equal((consented.authorizationDecision as Record<string, unknown>).policyRef, "default@3");
     assert.equal((consented.authorizationDecision as Record<string, unknown>).outcome, "allowed");
     const witnessedPath = "README.md", beforeInvalidWitness = makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readHead()?.revision; for (const invalid of [{ commitSha: "f".repeat(40), paths: [witnessedPath] }, { commitSha, paths: ["../escape.md"] }, { commitSha, paths: [`${witnessedPath}.missing`] }]) assert.equal((await cell.run({ kind: "task-code-doc-reconcile", taskId, executionId, iteration: 0, ...invalid }, binding)).outcome, "op_rejected"); assert.equal(makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readHead()?.revision, beforeInvalidWitness); const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath] }, binding) as unknown as Record<string, unknown>; assertCut(reconciled, "code_doc_reconciled", [indexPath, executionPath, codeDocPath]); assert.deepEqual(JSON.parse(readFileSync(path.join(rootDir, "harness", codeDocPath), "utf8")), { schema: "code-doc-witness/v1", witnessId: String((makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { payload: { witness: { witnessId: string } } }).payload.witness.witnessId), taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath], actor, source: "local", reconciledAt: (makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { occurredAt: string }).occurredAt });
     const lookedUp = await cell.run({ kind: "receipt-show", opId: reconciled.opId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ taskId: lookedUp.taskId, executionId: lookedUp.executionId, transition: lookedUp.transition, changedPaths: lookedUp.changedPaths }, { taskId, executionId, transition: reconciled.transition, changedPaths: reconciled.changedPaths });
@@ -503,7 +503,17 @@ test("code-doc repoint appends a replacement witness and rejects stale or unknow
 
 test("milestone-closeout uses the normal completion facade, review, and gates exactly once", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-completion-facade-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  const taskId = "task-complete", executionId = "execution-complete", packagePath = "tasks/task-complete-completion-facade", binding = { actor, source: "local" as const };
+  const taskId = "task-complete",
+    executionId = "execution-complete",
+    packagePath = "tasks/task-complete-completion-facade",
+    binding = { actor, source: "local" as const },
+    ownerFromAnotherAgent = {
+      actor: {
+        principal: actor.principal,
+        executor: { kind: "agent" as const, id: "other-owner-agent" },
+      },
+      source: "local" as const,
+    };
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); const store = () => makeTaskEventStore({ repoId: "completion-facade", rootDir });
     await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "milestone-closeout" }, binding); await cell.run({ kind: "task-start", taskId, executionId }, binding);
@@ -522,12 +532,66 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
     const executionPath = path.join(rootDir, "harness", `${packagePath}/executions/${executionId}.md`); assert.match(readFileSync(executionPath, "utf8"), /Reviews: review-dismissed\/dismissed, review-unselected\/approved, review-complete\/approved[\s\S]*Selected review: pending/u);
     writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "duplicate id", evidenceChecked: ["tests"] })); const duplicateReview = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-complete", fromFile: "review.json" }, reviewBinding("duplicate-reviewer")); assert.equal(duplicateReview.outcome, "op_rejected"); assert.match(String(duplicateReview.nextAction), /append-only Review history requires a new review id/u);
     const missingConsent = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingConsent.outcome, code: missingConsent.code, steps: missingConsent.steps }, { outcome: "op_rejected", code: "consent_missing", steps: [] }); assert.match(String(missingConsent.nextAction), /--review-id <review-id>/u);
-    const consented = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-complete", consentId: "consent-complete" }, binding) as unknown as Record<string, unknown>; assert.equal(consented.outcome, "applied", JSON.stringify(consented)); assert.equal(consented.reviewId, "review-complete");
+    const consented = await cell.run(
+      {
+        kind: "task-review-consent",
+        taskId,
+        executionId,
+        reviewId: "review-complete",
+        consentId: "consent-complete",
+      },
+      ownerFromAnotherAgent,
+    ) as unknown as Record<string, unknown>;
+    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
+    assert.equal(consented.reviewId, "review-complete");
     assert.match(readFileSync(executionPath, "utf8"), /Selected review: review-complete[\s\S]*Consent: consent-complete/u); assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/reviews/review-unselected.md`), "utf8"), /Consent: pending/u); assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/reviews/review-complete.md`), "utf8"), /Consent: consent-complete/u);
     const missingCi = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps }, { outcome: "op_rejected", code: "ci_missing", steps: [] }); const beforeCi = store().read().revision, partial = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: partial.outcome, code: partial.code, stoppedAt: partial.stoppedAt, stepTypes: (partial.steps as { eventId?: string }[]).map((step) => store().readEvent(String(step.opId))?.type) }, { outcome: "op_rejected", code: "code_doc_missing", stoppedAt: "code_doc_missing", stepTypes: ["completion_gate_verified"] }); assert.equal(store().read().revision, beforeCi + 1); assert.equal((await cell.run({ kind: "task-show", taskId }, binding)).evidence.includes('"gateWitnesses"'), true);
-    const beforeDenied = store().read().revision, denied = await cell.run({ kind: "task-complete", taskId, executionId, paths: ["README.md"] }, { ...binding, docWriteAllowed: false }) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: denied.outcome, code: denied.code, stoppedAt: denied.stoppedAt, stepTypes: (denied.steps as { opId: string }[]).map((step) => store().readEvent(step.opId)?.type) }, { outcome: "op_rejected", code: "rbac_forbidden", stoppedAt: "doc-sync-settlement", stepTypes: ["code_doc_reconciled", undefined] }); assert.equal(store().read().revision, beforeDenied + 1); const completed = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.equal(completed.outcome, "applied", JSON.stringify(completed)); assert.equal(completed.reviewId, "review-complete"); assert.equal(completed.stoppedAt, undefined); assert.deepEqual((completed.steps as { opId: string }[]).map((step) => store().readEvent(step.opId)?.type), ["documents_written", "task_completed"]); assert.deepEqual(completed.gateChecks, [{ gate: "ci", status: "pass", witnessRef: (completed.gateChecks as { witnessRef: string }[])[0]!.witnessRef }, { gate: "code-doc-reconciliation", status: "pass", witnessRef: (completed.gateChecks as { witnessRef: string }[])[1]!.witnessRef }]); assert.deepEqual(completed.next, []); assert.equal(readFileSync(path.join(rootDir, "harness", closeoutPath), "utf8").includes("All checks passed"), true); assert.equal(readFileSync(path.join(rootDir, "harness", artifactPath), "utf8").includes("Canonical flow"), true);
-    assert.equal((completed.authorizationDecision as Record<string, unknown>).policyRef, "default@2");
+    const beforeDenied = store().read().revision, denied = await cell.run({ kind: "task-complete", taskId, executionId, paths: ["README.md"] }, { ...binding, docWriteAllowed: false }) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: denied.outcome, code: denied.code, stoppedAt: denied.stoppedAt, stepTypes: (denied.steps as { opId: string }[]).map((step) => store().readEvent(step.opId)?.type) }, { outcome: "op_rejected", code: "rbac_forbidden", stoppedAt: "doc-sync-settlement", stepTypes: ["code_doc_reconciled", undefined] }); assert.equal(store().read().revision, beforeDenied + 1);
+    const completed = await cell.run(
+      { kind: "task-complete", taskId, executionId },
+      ownerFromAnotherAgent,
+    ) as unknown as Record<string, unknown>;
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    assert.equal(completed.reviewId, "review-complete");
+    assert.equal(completed.stoppedAt, undefined);
+    assert.deepEqual(
+      (completed.steps as { opId: string }[]).map((step) => store().readEvent(step.opId)?.type),
+      ["documents_written", "task_completed"],
+    );
+    assert.deepEqual(completed.gateChecks, [
+      {
+        gate: "ci",
+        status: "pass",
+        witnessRef: (completed.gateChecks as { witnessRef: string }[])[0]!.witnessRef,
+      },
+      {
+        gate: "code-doc-reconciliation",
+        status: "pass",
+        witnessRef: (completed.gateChecks as { witnessRef: string }[])[1]!.witnessRef,
+      },
+    ]);
+    assert.deepEqual(completed.next, []);
+    assert.equal(readFileSync(path.join(rootDir, "harness", closeoutPath), "utf8").includes("All checks passed"), true);
+    assert.equal(readFileSync(path.join(rootDir, "harness", artifactPath), "utf8").includes("Canonical flow"), true);
+    assert.equal((completed.authorizationDecision as Record<string, unknown>).policyRef, "default@3");
     assert.equal((completed.authorizationDecision as Record<string, unknown>).outcome, "allowed");
+    assert.deepEqual(
+      (completed.authorizationDecision as { bindingsUsed: readonly Readonly<Record<string, unknown>>[] }).bindingsUsed,
+      [
+        {
+          predicate: "hasCommandClass",
+          satisfied: true,
+          role: "owner",
+          matched: {
+            actor: { kind: "person", id: actor.principal.personId },
+            role: "owner",
+            target: `execution/${executionId}`,
+            source: "derived",
+            expiresAt: null,
+          },
+        },
+      ],
+    );
     const completeEvent = store().readEvent(String(completed.opId)); assert.equal(completeEvent?.type, "task_completed"); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(store().read().events.filter((event) => event.type !== "task_completed").every((event) => event.schema !== "task-event/v1" || event.payload.task.status !== "done"), true); const revision = store().read().revision, repeated = await cell.run({ kind: "task-complete", taskId, executionId }, binding); assert.equal(repeated.opId, completed.opId); assert.equal(store().read().revision, revision);
     await cell.close(); cell = undefined; const rebuilt = makeTaskProjection({ rootDir, eventStore: store() }); rebuilt.close(); rmSync(rebuilt.path, { force: true }); rebuilt.rebuild(); assert.equal(rebuilt.read(taskId).snapshot.task?.status, "done"); assert.equal(rebuilt.read(taskId).snapshot.gateWitnesses.length, 1); rebuilt.close();
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
@@ -602,7 +666,7 @@ test("Decision judgment keeps the transport arbiter gate and returns the embedde
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("decision-consent"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" }); const human = { principal: { personId: "person-ceo" }, executor: null } as const, binding = { actor: human, source: "local" as const }, proposed = await cell.run(decisionProposal("Consent", "May the CEO judge this proposal?"), binding), decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId, before = makeTaskEventStore({ repoId: "decision-consent", rootDir }).readHead()!.revision;
     const denied = await cell.run({ kind: "decision-accept", decisionId, rationale: "CEO approval", judgmentOnlyRationale: "Explicit CEO judgment." }, binding); assert.deepEqual({ outcome: denied.outcome, code: denied.code }, { outcome: "op_rejected", code: "actor_unauthorized" }); assert.equal(makeTaskEventStore({ repoId: "decision-consent", rootDir }).readHead()?.revision, before);
     const accepted = await cell.run({ kind: "decision-accept", decisionId, rationale: "CEO approval", judgmentOnlyRationale: "Explicit CEO judgment." }, withRoleBinding(binding, "arbiter")); assert.equal(accepted.outcome, "applied", JSON.stringify(accepted)); assert.match(String((accepted as Record<string, unknown>).consentId), /^djc_[0-9a-f]{26}$/u); const event = makeTaskEventStore({ repoId: "decision-consent", rootDir }).readEvent(accepted.opId); assert.equal(event?.schema, "decision-event/v1"); if (event?.schema === "decision-event/v1" && event.type === "decision_accepted") assert.equal(event.payload.judgmentConsent.consentId, (accepted as Record<string, unknown>).consentId);
-    assert.equal(accepted.authorizationDecision?.policyRef, "default@2");
+    assert.equal(accepted.authorizationDecision?.policyRef, "default@3");
     assert.equal(accepted.authorizationDecision?.outcome, "allowed");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });

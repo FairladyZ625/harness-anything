@@ -151,7 +151,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@2");
+      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@3");
       assert.equal((receipt.authorizationDecision as { outcome?: string } | null)?.outcome, "allowed");
       assert.equal(launchedEnv?.HARNESS_ACTOR, `agent:runtime-session:${receipt.runtimeSessionId}`);
       assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, userRoot);
@@ -222,7 +222,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@2");
+      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@3");
       assert.equal((receipt.authorizationDecision as { outcome?: string } | null)?.outcome, "allowed");
       const bound = await eventuallyValue(
         async () =>
