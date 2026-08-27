@@ -19,6 +19,7 @@ import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
 import {
+  daemonAgentRuntimeStreamMethods,
   daemonGuiReadMethods,
   daemonGuiStreamFacets,
   jsonRpcMethodContracts,
@@ -56,6 +57,10 @@ test("runtime read facets expose safe overview/session/events through the shared
     );
     assert.deepEqual(
       daemonGuiStreamFacets.filter(({ phase }) => phase === "Runtime-B").map(({ method }) => method),
+      [],
+    );
+    assert.deepEqual(
+      daemonAgentRuntimeStreamMethods.map(({ method }) => method),
       ["repo.agentRuntime.attach"],
     );
     assert.equal(

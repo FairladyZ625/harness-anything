@@ -307,8 +307,5 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
 }
 
 function commandAcceptsAction(entry: (typeof daemonProtocolCommands)[number], kind: string): boolean {
-  return (
-    ("actionKind" in entry ? entry.actionKind : entry.id) === kind ||
-    ("actionAliases" in entry && entry.actionAliases.some((alias) => alias === kind))
-  );
+  return ("actionKind" in entry ? entry.actionKind : entry.id) === kind;
 }

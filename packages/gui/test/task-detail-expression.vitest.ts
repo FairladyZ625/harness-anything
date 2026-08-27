@@ -476,7 +476,6 @@ function installBridge() {
       sourceCursor: "lifecycle:7",
       done: true,
     })),
-    attachAgentRuntime: vi.fn(() => () => undefined),
   };
   vi.stubGlobal("window", { harness: bridge, addEventListener: () => undefined, removeEventListener: () => undefined });
   return bridge;

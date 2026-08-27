@@ -16,7 +16,6 @@ import type {
   AgentRuntimeSessionGroupsResult,
   AgentRuntimeSessionResult,
 } from "../agent-runtime-contract.ts";
-import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import type { SquadRunReadResult, SquadRunsListResult } from "../squad-run-contract.ts";
 import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { taskStatusWords } from "./daemon-protocol-vocabulary.ts";
@@ -128,9 +127,7 @@ export type ObserveTailResult =
 export function validateObserveTailPayload(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return ["observe tail payload must be an object"];
   if (
-    Object.keys(value).some(
-      (key) => key !== "kind" && key !== "direction" && key !== "cursor" && key !== "dispatchId",
-    )
+    Object.keys(value).some((key) => key !== "kind" && key !== "direction" && key !== "cursor" && key !== "dispatchId")
   )
     return ["observe tail payload contains an unknown field"];
   if (!observeTailKinds.includes(value.kind as ObserveTailKind)) return ["observe tail kind is invalid"];
@@ -623,17 +620,12 @@ export type DaemonGuiActionResult = JsonObject & {
 export type DaemonGuiActionMethod = (typeof daemonGuiActionMethods)[number]["method"];
 
 export type DaemonGuiStreamResultMap = {
-  readonly "repo.agentRuntime.attach": AgentRuntimeAttachResult;
   readonly "repo.terminal.attach": JsonObject;
 };
 
 export type DaemonGuiStreamMethod = keyof DaemonGuiStreamResultMap;
 
 export type DaemonGuiStreamPayloadMap = {
-  readonly "repo.agentRuntime.attach": {
-    readonly runtimeSessionId: string;
-    readonly afterCursor: string;
-  };
   readonly "repo.terminal.attach": {
     readonly sessionId: string;
     readonly afterSeq: number;

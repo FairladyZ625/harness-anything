@@ -2,7 +2,6 @@ import type {
   DaemonGuiActionResult,
   DaemonGuiReadPayloadMap,
   DaemonGuiReadResultMap,
-  DaemonGuiStreamPayloadMap,
   GuiSubmissionV1,
 } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 export type {
@@ -35,7 +34,6 @@ export type ObserveTailRead = DaemonGuiReadResultMap["observe.tail"];
 export type AgentRuntimeOverviewPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.overview"];
 export type AgentRuntimeSessionPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"];
 export type AgentRuntimeEventsPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"];
-export type AgentRuntimeAttachPayload = DaemonGuiStreamPayloadMap["repo.agentRuntime.attach"];
 export type GuiActionResult = DaemonGuiActionResult;
 export type GuiBridgeMethod =
   | (typeof import("../../../daemon/src/protocol/daemon-protocol.contract.ts").daemonGuiInvokeFacets)[number]["guiBridgeMethod"]

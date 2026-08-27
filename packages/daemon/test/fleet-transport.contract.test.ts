@@ -263,12 +263,6 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       submission: { completionClaim: "complete", deliverables: [] },
     },
     { kind: "task-release", taskId: "task_abc", reason: "handoff" },
-    {
-      kind: "task-fallback-exhausted",
-      taskId: "task_abc",
-      executionId: "exe_abc",
-      reason: "provider fallback exhausted",
-    },
     { kind: "task-transition", taskId: "task_abc", status: "blocked", reason: "manual review required" },
   ])
     assert.deepEqual(parseFleetFrame({ ...taskCommand, taskId: "task_abc", action }).action, action);
@@ -326,9 +320,17 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     { ...snapshotCurrent, cut: { ...cut, commitSha: "a".repeat(40) } },
     { ...taskCommand, action: { kind: "task-start", taskId: "task_abc", actor: { principal: { personId: "spoof" } } } },
     { ...taskCommand, action: { kind: "host-run", command: "anything" } },
+    {
+      ...taskCommand,
+      action: {
+        kind: "task-fallback-exhausted",
+        taskId: "task_abc",
+        executionId: "exe_abc",
+        reason: "retired action",
+      },
+    },
     { ...taskCommand, action: { kind: "task-create", title: "t", createMode: "admin" } },
     { ...taskCommand, action: { kind: "task-release", taskId: "task_abc", ttlMs: 1 } },
-    { ...taskCommand, action: { kind: "task-fallback-exhausted", taskId: "task_abc", reason: "missing execution" } },
     { ...taskCommand, action: { kind: "task-transition", taskId: "task_abc", status: "cancelled", reason: "no" } },
     { ...taskCommand, action: { kind: "task-start", taskId: "task_abc", ttlMs: "forever" } },
     { ...taskCommand, action: { kind: "task-create", title: "t", riskTier: "critical" } },

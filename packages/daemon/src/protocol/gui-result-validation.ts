@@ -11,11 +11,6 @@ import {
   validateSquadEntityCatalog,
   validateSquadEntityDetail,
 } from "../agent-entities.contract.ts";
-import {
-  validateAgentRuntimeAttach,
-  validateAgentRuntimeAttachEvent,
-  type AgentRuntimeAttachEvent,
-} from "../agent-runtime-stream.ts";
 import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
@@ -130,22 +125,15 @@ export function parseDaemonGuiActionResponse(
   return parseDaemonGuiActionResult(method, value);
 }
 export function parseDaemonGuiStreamResult<M extends DaemonGuiStreamMethod>(
-  method: M,
+  _method: M,
   value: unknown,
 ): DaemonGuiStreamResultMap[M] {
-  const errors =
-    method === "repo.agentRuntime.attach" ? validateAgentRuntimeAttach(value) : validateTerminalAttach(value);
+  const errors = validateTerminalAttach(value);
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
   return value as DaemonGuiStreamResultMap[M];
 }
-export function parseDaemonGuiStreamEvent<M extends DaemonGuiStreamMethod = "repo.agentRuntime.attach">(
-  value: unknown,
-  method: M = "repo.agentRuntime.attach" as M,
-): M extends "repo.agentRuntime.attach" ? AgentRuntimeAttachEvent : import("./json-rpc-types.ts").JsonObject {
-  const errors =
-    method === "repo.agentRuntime.attach" ? validateAgentRuntimeAttachEvent(value) : validateTerminalAttachEvent(value);
+export function parseDaemonGuiStreamEvent(value: unknown): import("./json-rpc-types.ts").JsonObject {
+  const errors = validateTerminalAttachEvent(value);
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
-  return value as M extends "repo.agentRuntime.attach"
-    ? AgentRuntimeAttachEvent
-    : import("./json-rpc-types.ts").JsonObject;
+  return value as import("./json-rpc-types.ts").JsonObject;
 }

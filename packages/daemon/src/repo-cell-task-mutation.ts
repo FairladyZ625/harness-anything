@@ -55,7 +55,7 @@ export function taskMutation(
       amendPatches.every(
         (raw) => raw !== null && typeof raw === "object" && (raw as Record<string, unknown>).field === "pinned",
       );
-  if (action.kind === "task-release" || action.kind === "task-fallback-exhausted") {
+  if (action.kind === "task-release") {
     if (!activeLease)
       throw cell.cellCodedError("lease_not_found", `Start task ${task.taskId} before releasing its lease.`);
     const terminalExecutionId = optionalReleaseText(action.terminalExecutionId),
@@ -70,12 +70,6 @@ export function taskMutation(
         "runtime_terminal_superseded",
         `Runtime terminal settlement belongs to ${terminalExecutionId}; ` +
           `${activeLease.executionId} now holds the lease.`,
-      );
-    if (action.kind === "task-fallback-exhausted" && action.executionId !== activeLease.executionId)
-      throw cell.cellCodedError(
-        "lease_conflict",
-        `Fallback exhaustion belongs to ${String(action.executionId)}, ` +
-          `but ${activeLease.executionId} holds the lease.`,
       );
     const execution = snapshot.executions.find((value) => value.executionId === activeLease.executionId),
       terminalRuntimeBinding =
