@@ -174,22 +174,16 @@ export {
 
 export {
   INITIAL_SETTINGS_V1,
-  SETTINGS_FIELD_OWNERSHIP,
   SETTINGS_LOCAL_PATH,
-  SETTINGS_LOCAL_V1_SCHEMA,
-  SETTINGS_REPOSITORY_V1_SCHEMA,
-  SETTINGS_V1_SCHEMA,
   parseLocalSettings,
   readSettingsFacet,
   repositorySettings,
   serializeLocalSettings,
-  validateLocalSettingsV1,
   validateRepositorySettings,
   validateSettingsV1,
   writeRepositorySettingsFacet,
-  writeSettingsFacet,
 } from "./settings.ts";
-export type { LocalSettingsV1, RepositorySettingsV1, SettingsLocale, SettingsV1 } from "./settings.ts";
+export type { RepositorySettingsV1, SettingsLocale, SettingsV1 } from "./settings.ts";
 export { compileSettingsChangedEvent } from "./settings-event.ts";
 export {
   applyPeopleRosterAction,
