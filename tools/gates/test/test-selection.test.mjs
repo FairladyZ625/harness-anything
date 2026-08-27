@@ -11,17 +11,36 @@ test("G25 maps module-policy production changes to every required tier", () => {
     path: "packages/cli/src/index.ts",
     module: "cli",
     kind: "production",
-    tiers: ["fast", "contract", "integration"]
+    tiers: ["fast", "contract", "integration"],
   });
 });
 
 test("G26 selects the changed test tier and governance mechanism tiers", () => {
   assert.deepEqual(selectTests(["packages/daemon/test/transport.integration.test.ts"]).required, ["integration"]);
-  assert.deepEqual(selectTests(["packages/daemon/test/custom-name.test.ts"], { readTestTier: () => "contract" }).required, ["contract"]);
+  assert.deepEqual(
+    selectTests(["packages/daemon/test/custom-name.test.ts"], { readTestTier: () => "contract" }).required,
+    ["contract"],
+  );
   const governance = selectTests(["tools/gates/evidence-contract.mjs", "tools/gates/test/evidence-contract.test.mjs"]);
   assert.deepEqual(governance.required, ["fast", "contract"]);
   assert.equal(governance.ok, true);
-  assert.match(selectTests(["tools/gates/evidence-contract.mjs"]).errors.join("\n"), /require a tools\/gates\/test data fixture/u);
+  assert.deepEqual(governance.paths[0], {
+    path: "tools/gates/evidence-contract.mjs",
+    module: "tooling",
+    kind: "production",
+    tiers: ["fast", "contract"],
+  });
+  assert.match(
+    selectTests(["tools/gates/evidence-contract.mjs"]).errors.join("\n"),
+    /require a tools\/gates\/test data fixture/u,
+  );
+});
+
+test("G25 does not inherit the tooling production label outside its governance predicate", () => {
+  const result = selectTests(["tools/check-pr-title.mjs"]);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.required, []);
+  assert.match(result.proof.join("\n"), /outside G25 \(tooling\/production\)/u);
 });
 
 test("G25 zero selection is green only with complete non-production proof", () => {

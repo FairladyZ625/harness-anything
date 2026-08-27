@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { evaluateLineBudget, headroomFor, main, mechanicalUpperBoundFor, parseBudgets } from "../line-budget.mjs";
-import { MODULES } from "../module-policy.mjs";
+import { BUDGETED_MODULES } from "../module-policy.mjs";
 import { loadReceipts, signReceipt, verifyReceipt } from "../receipt-verify.mjs";
 import { makeRepo, writeRepoFile } from "./helpers.mjs";
 
@@ -12,7 +12,9 @@ function budgetBody(kernel) {
   return `${JSON.stringify(
     {
       version: 1,
-      ceilings: Object.fromEntries(MODULES.map((moduleName) => [moduleName, moduleName === "kernel" ? kernel : 0])),
+      ceilings: Object.fromEntries(
+        BUDGETED_MODULES.map((moduleName) => [moduleName, moduleName === "kernel" ? kernel : 0]),
+      ),
     },
     null,
     2,
@@ -39,6 +41,15 @@ test("G32 rejects production lines above the ceiling", () => {
   const result = evaluateLineBudget({ rootDir, base });
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /actual 3 exceeds ceiling 2/u);
+});
+
+test("G32 does not measure budget-exempt tooling production", () => {
+  const { rootDir, base } = fixtureRepo();
+  writeRepoFile(rootDir, "tools/gates/new-rule.mjs", "one\ntwo\nthree\n");
+  const result = evaluateLineBudget({ rootDir, base });
+  assert.equal(result.ok, true, result.errors.join("\n"));
+  assert.equal(Object.hasOwn(result.actual, "tooling"), false);
+  assert.equal(result.actual.kernel, 2);
 });
 
 test("G32 reports an over-limit module as advisory without a failing exit code", () => {
@@ -124,10 +135,16 @@ test("G32 accepts a ceiling increase only with a scoped decision receipt", () =>
   assert.equal(result.ok, true, result.errors.join("\n"));
 });
 
-test("current budgets reject the retired Decision/Fact bucket and historical budgets reject arbitrary unknown buckets", () => {
+test("current budgets reject retired buckets while historical budgets accept only named retirements", () => {
   const currentWithRetired = JSON.parse(budgetBody(2));
   currentWithRetired.ceilings["decision-fact"] = 563;
   assert.throws(() => parseBudgets(JSON.stringify(currentWithRetired)), /unknown: decision-fact/u);
+  const historicalWithTestInfra = JSON.parse(budgetBody(2));
+  historicalWithTestInfra.ceilings["test-infra"] = 0;
+  assert.deepEqual(
+    parseBudgets(JSON.stringify(historicalWithTestInfra), "historical", true),
+    JSON.parse(budgetBody(2)).ceilings,
+  );
   const historicalWithUnknown = JSON.parse(budgetBody(2));
   historicalWithUnknown.ceilings.surprise = 1;
   assert.throws(() => parseBudgets(JSON.stringify(historicalWithUnknown), "historical", true), /unknown: surprise/u);
@@ -162,7 +179,7 @@ test("every committed line-budget receipt verifies, active raised ceilings are c
   for (const { filePath, receipt } of receipts) {
     assert.deepEqual(verifyReceipt(receipt, { now }).errors, [], filePath);
     const moduleName = receipt.scope.replace(/^module:/u, "");
-    if (MODULES.includes(moduleName)) continue;
+    if (BUDGETED_MODULES.includes(moduleName)) continue;
     const fileName = path.basename(filePath);
     assert.ok(
       RETIRED_LINE_BUDGET_RECEIPTS[fileName],
@@ -181,7 +198,9 @@ test("every committed line-budget receipt verifies, active raised ceilings are c
   // that a receipt was needed for still has one that reaches it. The module list
   // is derived from what is committed rather than named here, so a module whose
   // receipt is minted below its ceiling fails instead of going unchecked.
-  const activeReceipts = receipts.filter(({ receipt }) => MODULES.includes(receipt.scope.replace(/^module:/u, "")));
+  const activeReceipts = receipts.filter(({ receipt }) =>
+    BUDGETED_MODULES.includes(receipt.scope.replace(/^module:/u, "")),
+  );
   const receiptModules = [...new Set(activeReceipts.map(({ receipt }) => receipt.scope.replace(/^module:/u, "")))];
   for (const moduleName of receiptModules) {
     assert.ok(
@@ -226,7 +245,6 @@ const DECISION_INPUT_LINES = Object.freeze({
   "agent-runtime": 3719,
   decision: 768,
   fact: 1058,
-  "test-infra": 0,
 });
 
 test("the headroom tiers match the decision's table at every boundary", () => {
@@ -243,7 +261,7 @@ test("every committed ceiling is the tier rule applied to the lines it was deriv
   const committed = parseBudgets(readFileSync(path.join(import.meta.dirname, "..", "line-budgets.json"), "utf8"));
   assert.deepEqual(
     Object.keys(DECISION_INPUT_LINES).sort(),
-    [...MODULES].sort(),
+    [...BUDGETED_MODULES].sort(),
     "a module without a recorded line count would skip the tier rule unnoticed",
   );
 

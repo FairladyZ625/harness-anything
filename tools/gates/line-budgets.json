@@ -14,7 +14,6 @@
     "identity-rbac": 1616,
     "agent-runtime": 7719,
     "decision": 1768,
-    "fact": 2058,
-    "test-infra": 0
+    "fact": 2058
   }
 }
