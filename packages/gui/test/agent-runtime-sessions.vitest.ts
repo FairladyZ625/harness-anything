@@ -7,10 +7,7 @@ import { SessionInspector } from "../src/renderer/components/sessions/SessionIns
 import { SquadRunList } from "../src/renderer/components/sessions/SquadRunList.tsx";
 import { SquadRunDetail } from "../src/renderer/components/sessions/SquadRunDetail.tsx";
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
-import {
-  SessionTranscript,
-  SessionTranscriptTurns,
-} from "../src/renderer/components/sessions/SessionTranscript.tsx";
+import { SessionTranscript, SessionTranscriptTurns } from "../src/renderer/components/sessions/SessionTranscript.tsx";
 import {
   sessionDecisionRefs,
   sessionOrphans,
@@ -204,9 +201,7 @@ describe("session transcript replay", () => {
         type: "assistant",
         message: {
           id: "message-one",
-          content: [
-            { type: "tool_use", id: "call-read", name: "Read", input: { file_path: "/fixture/plan" } },
-          ],
+          content: [{ type: "tool_use", id: "call-read", name: "Read", input: { file_path: "/fixture/plan" } }],
         },
       },
     },
@@ -440,6 +435,13 @@ describe("sessions page: squad orchestration", () => {
   });
 });
 
+const leaderReceipt = JSON.stringify({
+  schema: "runtime-batch/v1",
+  dispatches: [
+    { instance: "instance-ontology", to: "terra", prompt: "map the ontology seam" },
+    { instance: "instance-ontology", to: "sol", prompt: "audit the ledger reads" },
+  ],
+});
 const squadRunDetail = {
   ok: true as const,
   status: "ready" as const,
@@ -458,6 +460,7 @@ const squadRunDetail = {
         dispatchId: "dispatch_000000000000000000000001",
         runtimeSessionId: "runtime-leader-1",
         decision: { kind: "plan", dispatchCount: 2 },
+        resultText: leaderReceipt,
         status: "succeeded" as const,
         startedAt: "2026-08-25T18:00:00.000Z",
         endedAt: "2026-08-25T18:04:00.000Z",
@@ -468,6 +471,7 @@ const squadRunDetail = {
         dispatchId: "dispatch_000000000000000000000002",
         runtimeSessionId: "runtime-leader-2",
         decision: null,
+        resultText: null,
         status: "running" as const,
         startedAt: "2026-08-25T18:10:00.000Z",
         endedAt: null,
@@ -477,6 +481,7 @@ const squadRunDetail = {
       {
         attemptId: "worker-1",
         workerId: "terra",
+        leaderTurnId: "leader-1",
         dispatchId: "dispatch_000000000000000000000003",
         runtimeSessionId: "runtime-worker-1",
         rejection: null,
@@ -487,6 +492,7 @@ const squadRunDetail = {
       {
         attemptId: "worker-2",
         workerId: "sol",
+        leaderTurnId: null,
         dispatchId: null,
         runtimeSessionId: null,
         rejection: "Runtime dispatch was rejected.",
@@ -514,7 +520,7 @@ describe("sessions page: squad run detail", () => {
       }),
     );
 
-  it("renders the leader turn timeline with triggers, decisions, and session exits", () => {
+  it("renders the leader-to-worker fan-out tree with the mission verbatim", () => {
     const markup = detailView();
     expect(markup).toContain("Leader turns (2)");
     expect(markup).toContain("leader-1");
@@ -528,17 +534,52 @@ describe("sessions page: squad run detail", () => {
     expect(markup).toMatch(/border-accent\/40/u);
     expect(markup).toContain('title="runtime-leader-2"');
     expect(markup).toContain("runtime-leader-2");
+    expect(markup).toContain("Ship the ontology milestone");
+    // 扇出树:worker-1 挂在 leader-1 节内,且出现在 leader-2 之前(父子序,不是平铺)。
+    const inLeader1 = markup.indexOf('data-testid="squad-run-turn-leader-1"'),
+      attemptAt = markup.indexOf('data-testid="squad-run-attempt-worker-1"'),
+      leader2At = markup.indexOf('data-testid="squad-run-turn-leader-2"');
+    expect(inLeader1).toBeGreaterThan(-1);
+    expect(attemptAt).toBeGreaterThan(inLeader1);
+    expect(attemptAt).toBeLessThan(leader2At);
+    // worker attempt 直达 session 详情。
+    expect(markup).toContain('title="runtime-worker-1"');
   });
 
-  it("renders the worker dispatch chain with rejections and missing-dispatch nulls", () => {
+  it("shows each leader turn's receipt verbatim in a collapsible block", () => {
     const markup = detailView();
-    expect(markup).toContain("Worker attempts (2)");
-    expect(markup).toContain("worker-1");
-    expect(markup).toContain("terra");
+    expect(markup).toMatch(/data-testid="squad-run-receipt-leader-1"/u);
+    expect(markup).toContain("leader receipt (raw)");
+    expect(markup).toContain("map the ontology seam");
+    expect(markup).toContain("audit the ledger reads");
+    // 未结算的轮次诚实呈空,不伪造 receipt。
+    expect(markup).toMatch(/data-testid="squad-run-receipt-leader-2"[^>]*>[^<]*<\/summary>\s*<p[^>]*>no receipt yet/u);
+  });
+
+  it("keeps attempts without turn linkage in their own group with rejections visible", () => {
+    const markup = detailView();
+    expect(markup).toContain("Worker attempts without turn linkage (1)");
+    expect(markup).toMatch(/data-testid="squad-run-unlinked"/u);
     expect(markup).toContain("worker-2");
+    expect(markup).toContain("sol");
     expect(markup).toContain("rejected: Runtime dispatch was rejected.");
     expect(markup).toContain("no dispatch");
     expect(markup).toMatch(/data-testid="squad-run-attempt-worker-2"/u);
+    // 全关联时不再渲染未关联组。
+    const linked = detailView({
+      detail: {
+        ...squadRunDetail,
+        run: {
+          ...squadRunDetail.run,
+          workerAttempts: squadRunDetail.run.workerAttempts.map((attempt) => ({
+            ...attempt,
+            leaderTurnId: "leader-1",
+          })),
+        },
+      },
+    });
+    expect(linked).not.toContain("Worker attempts without turn linkage");
+    expect(linked).not.toMatch(/data-testid="squad-run-unlinked"/u);
   });
 
   it("surfaces the run error line and read failures without inventing flow", () => {
