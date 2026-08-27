@@ -6,7 +6,7 @@ import { LiveDot } from "../runtime/parts.tsx";
 /**
  * 小队编排段:一次 `ha squad run` 一个列表单元。GUI 发起的单次 squad 派工
  * (dispatch 头带 squadId、无 squadRunId)归单会话段,不冒充编排单元。
- * 行整体可点(G12 §2b):选中后右侧详情区渲染 leader 轮次 → worker 派工链
+ * 行整体可点(G12 §2b):选中后右侧详情区渲染 leader→worker 扇出树
  * (repo.squad.run.read)。任务短码是行内文本,正式出口在详情区(EntityRefLink)。
  */
 export function SquadRunList({
