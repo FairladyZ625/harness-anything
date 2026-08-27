@@ -4,6 +4,7 @@ import {
   codeDocRecordId,
   consentedApprovedReview,
   currentCodeDocWitness,
+  deriveOwnerRoleBinding,
   heldLeaseForExecutionActor,
   makeTaskProjection,
   normalizeCommandEnvelope,
@@ -163,28 +164,28 @@ export async function proofFor(
     };
   }
   if (command.type === "RecordReviewConsent") {
-    const authorizationDecision = authorizeAction(
-      "task.consent",
-      `task/${command.taskId}`,
-      command.actor,
-      command.opId,
-      { target: { owner: snapshot.task?.createdBy ?? null }, evaluatedAtCut: `canonical:${snapshot.revision}` },
-    );
+    const executionTarget = `execution/${command.executionId}` as const,
+      ownerRoleBindings = snapshot.task ? [deriveOwnerRoleBinding(snapshot.task.createdBy, executionTarget)] : [];
+    const authorizationDecision = authorizeAction("task.consent", executionTarget, command.actor, command.opId, {
+      roleBindings: ownerRoleBindings,
+      target: {},
+      evaluatedAtCut: `canonical:${snapshot.revision}`,
+    });
     if (authorizationDecision.outcome === "denied")
       throw cellCodedError(
         "actor_unauthorized",
         snapshot.task
           ? [
-              "Review consent requires the Task owner (",
-              `${actorHint(snapshot.task.createdBy)}`,
-              "); retry with that person and executor identity.",
+              "Review consent requires the Execution owner principal (personId=",
+              `${snapshot.task.createdBy.principal.personId}`,
+              ").",
             ].join("")
-          : "Review consent requires an existing Task owner.",
+          : "Review consent requires an existing Execution owner.",
       );
     return {
       actorBinding: command.actor,
       capability: "execution-consent@v1",
-      capabilityRef: `task-owner:${command.actor.principal.personId}`,
+      capabilityRef: `execution-owner:${command.executionId}:${command.actor.principal.personId}`,
       authorizationDecision,
     };
   }
@@ -252,13 +253,19 @@ export function completeProof(
     throw cellCodedError("active_lease", "Complete requires the execution lease to be released.");
   const authorizationDecision = authorizeAction(
     "task.complete",
-    `task/${command.taskId}`,
+    `execution/${command.executionId}`,
     command.actor,
     command.opId,
-    { target: { owner: snapshot.task?.createdBy ?? null }, evaluatedAtCut: `canonical:${snapshot.revision}` },
+    {
+      roleBindings: snapshot.task
+        ? [deriveOwnerRoleBinding(snapshot.task.createdBy, `execution/${command.executionId}`)]
+        : [],
+      target: {},
+      evaluatedAtCut: `canonical:${snapshot.revision}`,
+    },
   );
   if (authorizationDecision.outcome === "denied")
-    throw cellCodedError("actor_unauthorized", "Complete requires the Task owner.");
+    throw cellCodedError("actor_unauthorized", "Complete requires the Execution owner principal.");
   const execution = snapshot.executions.find(
     (candidate) => candidate.executionId === command.executionId && candidate.submission !== null,
   );
@@ -271,7 +278,7 @@ export function completeProof(
     );
   return {
     capability: "task-complete@v1",
-    capabilityRef: `task-created-by:${command.taskId}:${command.actor.principal.personId}`,
+    capabilityRef: `execution-owner:${command.executionId}:${command.actor.principal.personId}`,
     actorRole: "owner",
     noActiveLease: true,
     gateReceipts: supplied,

@@ -147,11 +147,7 @@ function evaluatePredicate(
     terminalRuntimeBinding?.taskId === lease.taskId &&
     terminalRuntimeBinding.executionId === lease.executionId;
   let holds = false;
-  if (expression.predicate === "isOwner")
-    holds = target.owner !== null && target.owner !== undefined && isSamePerson(target.owner, actor);
-  else if (expression.predicate === "isSameExecutionOwner")
-    holds = target.owner !== null && target.owner !== undefined && isSameExecution(target.owner, actor);
-  else if (expression.predicate === "holdsExecutionLease")
+  if (expression.predicate === "holdsExecutionLease")
     holds = leaseTargetsSubject && lease !== null && isSameExecution(lease.actor, actor);
   else if (expression.predicate === "reclaimsOrphanedLease")
     holds =

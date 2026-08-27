@@ -5,9 +5,9 @@ import { DEFAULT_POLICY } from "../../src/domain/default-policy.ts";
 import { parsePolicyDeclarationV1, validatePolicyDeclarationV1 } from "../../src/domain/policy.ts";
 import { explainEntityKind } from "../../src/index.ts";
 
-test("the built-in v2 policy registers its binding predicates and applicable Actions", () => {
+test("the built-in v3 policy registers its binding predicates and applicable Actions", () => {
   assert.deepEqual(validatePolicyDeclarationV1(DEFAULT_POLICY), []);
-  assert.equal(DEFAULT_POLICY.version, 2);
+  assert.equal(DEFAULT_POLICY.version, 3);
   assert.deepEqual(DEFAULT_POLICY.actions, [
     "task.consent",
     "task.complete",
@@ -28,8 +28,6 @@ test("the built-in v2 policy registers its binding predicates and applicable Act
       ),
     ],
     [
-      "isSameExecutionOwner",
-      "isOwner",
       "hasCommandClass",
       "reviewIndependence",
       "isNotProposalAgent",
@@ -53,15 +51,15 @@ test("the built-in v2 policy registers its binding predicates and applicable Act
           .join("|")}`,
     ),
     [
-      'task.consent:-=>{"predicate":"isSameExecutionOwner"}',
-      'task.complete:-=>{"predicate":"isOwner"}',
+      'task.consent:-=>{"predicate":"hasCommandClass","commandClass":"owner"}',
+      'task.complete:-=>{"predicate":"hasCommandClass","commandClass":"owner"}',
       'execution.start:-=>{"predicate":"hasCommandClass","commandClass":"repo-write"}',
       'execution.review:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"reviewIndependence","level":"L1"}',
       'decision.accept:-=>{"predicate":"hasCommandClass","commandClass":"arbiter"}+{"predicate":"isNotProposalAgent"}',
       'execution.release:-=>{"predicate":"holdsExecutionLease"}|{"predicate":"reclaimsOrphanedLease"}',
       'runtime.dispatch:-=>{"predicate":"dispatchesExecution"}|{"predicate":"delegatedByRuntimeSession"}',
       'doc.submit:-=>{"predicate":"holdsExecutionLease"}+{"predicate":"sameWriteSource"}|{"predicate":"delegatedByRuntimeSession"}+{"predicate":"sameWriteSource"}',
-      'task.closeout:owner=>{"predicate":"isOwner"}',
+      'task.closeout:owner=>{"predicate":"hasCommandClass","commandClass":"owner"}',
       'task.closeout:active=>{"predicate":"holdsExecutionLease"}',
     ],
   );
@@ -71,8 +69,6 @@ test("ha entity explain policy exposes the registered predicate vocabulary, Acti
   const explanation = explainEntityKind("policy");
   assert.deepEqual(explanation.policy, {
     predicates: [
-      "isOwner",
-      "isSameExecutionOwner",
       "holdsExecutionLease",
       "reclaimsOrphanedLease",
       "dispatchesExecution",
@@ -94,8 +90,8 @@ test("policy schema rejects a missing version and invalid predicate arguments", 
   const withoutVersion = { ...DEFAULT_POLICY, version: undefined };
   assert.match(validatePolicyDeclarationV1(withoutVersion).join("\n"), /missing required field "version"/u);
   assert.throws(
-    () => parsePolicyDeclarationV1({ ...DEFAULT_POLICY, predicates: [{ predicate: "isOwner", level: "L1" }] }),
-    /isOwner does not accept arguments/u,
+    () => parsePolicyDeclarationV1({ ...DEFAULT_POLICY, predicates: [{ predicate: "sameWriteSource", level: "L1" }] }),
+    /sameWriteSource does not accept arguments/u,
   );
 });
 

@@ -52,7 +52,7 @@ function decide(
       kind,
       target,
       actor,
-      authorizationRef: "default@2",
+      authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}`,
       idempotencyKey: `idempotency-${kind}`,
     },
     { ...context, evaluatedAtCut: "canonical:17" },
@@ -62,29 +62,39 @@ function decide(
 function commandBinding(
   commandClass: string,
   actor: ActorIdentity,
+  target: ActionEnvelope["target"] = "settings/repository",
 ): Pick<AuthorizationContext, "roleBindings" | "roleBindingTargets"> {
   return {
     roleBindings: [
       {
         actor: { kind: "person", id: actor.principal.personId },
         role: commandClass,
-        target: "settings/repository",
+        target,
         source: "derived",
         expiresAt: null,
       },
     ],
-    roleBindingTargets: ["settings/repository"],
+    roleBindingTargets: [target],
   };
 }
 
-test("v2 separates principal ownership from exact execution ownership", () => {
-  assert.equal(decide("task.complete", humanOwner, "task/task-1", { target: { owner } }).outcome, "allowed");
-  assert.equal(decide("task.complete", outsider, "task/task-1", { target: { owner } }).outcome, "denied");
-  assert.equal(decide("task.consent", humanOwner, "task/task-1", { target: { owner } }).outcome, "denied");
-  assert.equal(decide("task.consent", owner, "task/task-1", { target: { owner } }).outcome, "allowed");
+test("v3 uses one Execution owner RoleBinding for consent and completion", () => {
+  const ownerBinding = commandBinding("owner", owner, "execution/execution-1");
+  for (const action of ["task.consent", "task.complete"])
+    assert.equal(
+      decide(action, humanOwner, "execution/execution-1", { ...ownerBinding, target: {} }).outcome,
+      "allowed",
+      action,
+    );
+  for (const action of ["task.consent", "task.complete"])
+    assert.equal(
+      decide(action, outsider, "execution/execution-1", { ...ownerBinding, target: {} }).outcome,
+      "denied",
+      action,
+    );
 });
 
-test("v2 admits execution start only through the server-admitted repo-write command class", () => {
+test("v3 admits execution start only through the server-admitted repo-write command class", () => {
   assert.equal(
     decide("execution.start", owner, "execution/execution-1", {
       ...commandBinding("repo-write", owner),
@@ -95,7 +105,7 @@ test("v2 admits execution start only through the server-admitted repo-write comm
   assert.equal(decide("execution.start", owner, "execution/execution-1", { target: {} }).outcome, "denied");
 });
 
-test("v2 models held and orphaned release bindings without overloading ownership", () => {
+test("v3 models held and orphaned release bindings without overloading ownership", () => {
   assert.equal(
     decide("execution.release", owner, "execution/execution-1", {
       target: { lease, canonicalExecutionExists: true },
@@ -128,7 +138,7 @@ test("v2 models held and orphaned release bindings without overloading ownership
   );
 });
 
-test("v2 limits task-owner reclamation to orphaned leases and terminal Runtime bindings", () => {
+test("v3 limits task-owner reclamation to orphaned leases and terminal Runtime bindings", () => {
   const targetOwner = { principal: taskOwner.principal, executor: { kind: "agent", id: "task-creator" } } as const,
     terminalRuntimeBinding = {
       runtimeSessionId: "runtime-1",
@@ -167,7 +177,7 @@ test("v2 limits task-owner reclamation to orphaned leases and terminal Runtime b
   );
 });
 
-test("v2 preserves same-principal dispatcher and live RuntimeSession handoff behavior", () => {
+test("v3 preserves same-principal dispatcher and live RuntimeSession handoff behavior", () => {
   assert.equal(decide("runtime.dispatch", humanOwner, "task/task-1", { target: { lease } }).outcome, "allowed");
   assert.equal(decide("runtime.dispatch", reviewer, "task/task-1", { target: { lease } }).outcome, "denied");
   assert.equal(
@@ -181,7 +191,7 @@ test("v2 preserves same-principal dispatcher and live RuntimeSession handoff beh
   );
 });
 
-test("v2 requires write-source equality on both direct and delegated document branches", () => {
+test("v3 requires write-source equality on both direct and delegated document branches", () => {
   assert.equal(
     decide("doc.submit", owner, "execution/execution-1", { writeSource: "local", target: { lease } }).outcome,
     "allowed",
@@ -208,7 +218,7 @@ test("v2 requires write-source equality on both direct and delegated document br
   );
 });
 
-test("v2 keeps execution review independent and rejects Decision outcomes from the proposal agent", () => {
+test("v3 keeps execution review independent and rejects Decision outcomes from the proposal agent", () => {
   assert.equal(
     decide("execution.review", reviewer, "execution/execution-1", {
       ...commandBinding("arbiter", reviewer),
@@ -256,7 +266,7 @@ test("the default port keeps broader Decision review independence disabled", () 
           kind: "decision.accept",
           target: "decision/decision-1",
           actor,
-          authorizationRef: "default@2",
+          authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}`,
           idempotencyKey: `gated-decision-${actor.executor?.id ?? "human"}`,
         },
         {
@@ -275,7 +285,7 @@ test("the default port keeps broader Decision review independence disabled", () 
         kind: "decision.accept",
         target: "decision/decision-1",
         actor: humanOwner,
-        authorizationRef: "default@2",
+        authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}`,
         idempotencyKey: "gated-decision-human",
       },
       {
@@ -288,9 +298,14 @@ test("the default port keeps broader Decision review independence disabled", () 
   );
 });
 
-test("v2 closeout selects owner and active-lease rules explicitly", () => {
+test("v3 closeout selects owner and active-lease rules explicitly", () => {
+  const ownerBinding = commandBinding("owner", owner, "task/task-1");
   assert.equal(
-    decide("task.closeout", humanOwner, "task/task-1", { ruleScope: "owner", target: { owner } }).outcome,
+    decide("task.closeout", humanOwner, "task/task-1", {
+      ...ownerBinding,
+      ruleScope: "owner",
+      target: {},
+    }).outcome,
     "allowed",
   );
   assert.equal(
@@ -302,7 +317,11 @@ test("v2 closeout selects owner and active-lease rules explicitly", () => {
     "denied",
   );
   assert.equal(
-    decide("task.closeout", outsider, "task/task-1", { ruleScope: "owner", target: { owner, lease } }).outcome,
+    decide("task.closeout", outsider, "task/task-1", {
+      ...ownerBinding,
+      ruleScope: "owner",
+      target: { lease },
+    }).outcome,
     "denied",
   );
 });
@@ -312,13 +331,13 @@ test("evaluation fails closed for stale policy references and missing action or 
     version: currentActionEnvelopeVersion,
     actionId: "stale",
     kind: "task.complete",
-    target: "task/task-1",
+    target: "execution/execution-1",
     actor: owner,
     authorizationRef: "default@1",
     idempotencyKey: "stale",
   };
   assert.deepEqual(
-    evaluateAuthorization(DEFAULT_POLICY, action, { target: { owner }, evaluatedAtCut: "canonical:17" }).reasonCodes,
+    evaluateAuthorization(DEFAULT_POLICY, action, { target: {}, evaluatedAtCut: "canonical:17" }).reasonCodes,
     ["authorization_ref_mismatch"],
   );
   assert.equal(

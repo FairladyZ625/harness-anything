@@ -231,7 +231,7 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
     );
     assert.equal(consent.code, "actor_unauthorized");
     assert.match(String(consent.nextAction), /personId=0/u);
-    assert.match(String(consent.nextAction), /executor=none/u);
+    assert.doesNotMatch(String(consent.nextAction), /executor=/u);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

@@ -144,12 +144,12 @@ function setup(initial = snapshot(), rejectStage?: CloseoutStep, setupCaller = c
   return { rootDir, calls, run };
 }
 
-test("closeout runs four canonical leaf commands with derived actor postures and no system-known selector", async () => {
+test("closeout runs four canonical leaf commands without impersonating the creator's executor", async () => {
   const value = setup();
   try {
     const receipt = await value.run();
     assert.equal(receipt.outcome, "applied");
-    assert.equal(receipt.authorizationDecision?.policyRef, "default@2");
+    assert.equal(receipt.authorizationDecision?.policyRef, "default@3");
     assert.equal(receipt.authorizationDecision?.outcome, "allowed");
     assert.equal(
       receipt.authorizationDecision?.bindingsUsed.some(
@@ -164,7 +164,7 @@ test("closeout runs four canonical leaf commands with derived actor postures and
     assert.ok(value.calls.every(({ action }) => action.executionId === undefined));
     assert.deepEqual(
       value.calls.map(({ actor }) => actor.executor?.id ?? null),
-      ["worker-agent", null, "owner-agent", "owner-agent"],
+      ["worker-agent", null, "worker-agent", "worker-agent"],
     );
     assert.deepEqual(value.calls.at(-1)?.action.paths, ["packages/application/src/task-closeout-action.ts"]);
   } finally {
