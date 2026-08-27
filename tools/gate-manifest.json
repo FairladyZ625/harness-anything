@@ -1735,17 +1735,16 @@
         ]
       },
       "allowlistPolicy": {
-        "allowed": true,
-        "location": "tools/gate-allowlists/check-write-coordinator-boundary.json",
-        "adrOrDecisionRequired": true,
-        "notes": "Existing hard-delete disposition checks inside WriteCoordinator are explicit F6 debt. New metabolic policy imports or calls fail unless separately governed."
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The checker has no allowlist; retired production paths and new policy imports or calls fail closed."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-write-coordinator-boundary.mjs",
-          "tools/gate-allowlists/check-write-coordinator-boundary.json",
           "package.json:scripts.harness:check-write-coordinator-boundary",
           "tools/gate-manifest.json"
         ]
