@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { INITIAL_SETTINGS_V1, type SettingsV1 } from "../../kernel/src/index.ts";
+import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
 import { makeRepoCellSettingsActions } from "../src/repo-cell-settings-actions.ts";
 
 test("locale updates stay local and do not append a settings event", async () => {

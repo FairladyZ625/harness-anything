@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  consumeKnownError,
   INITIAL_SETTINGS_V1,
   SETTINGS_LOCAL_PATH,
   compileSettingsChangedEvent,
@@ -43,7 +44,8 @@ export function makeRepoCellSettingsActions(cell: any) {
     try {
       const parsed = parseLocalSettings(JSON.parse(readFileSync(localPath, "utf8")));
       if (parsed) return { locale: parsed.locale, valid: true };
-    } catch {
+    } catch (error) {
+      consumeKnownError(error);
       // The read boundary stays available while an invalid local preference is repaired by an update.
     }
     return { locale: INITIAL_SETTINGS_V1.locale, valid: false };
