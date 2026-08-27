@@ -287,7 +287,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-        run: npm ci
+      - run: npm ci
       - name: Run boundary gates
         env:
           GITHUB_TOKEN: ${{ github.token }}
