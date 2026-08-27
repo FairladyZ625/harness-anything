@@ -19,12 +19,14 @@ import { distillPromotionAction, prepareDistillCandidate } from "./distill-actio
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
+import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 
 export async function executeAction(
   cell: any,
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
+  if (action.kind === "ci-observe-pull") return pullAndIngestCiObservations(cell, action, binding);
   if (action.kind.startsWith("schedule-")) return cell.scheduleActions.run(action, binding);
   if (action.kind === "settings-update") return cell.settingsActions.update(action, binding);
   if (

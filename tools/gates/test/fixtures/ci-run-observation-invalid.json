@@ -1,0 +1,1 @@
+{"schema":"ci-run-observation/v1","eventId":"event-invalid","workspaceRevision":1,"opId":"op-invalid","type":"ci_run_observed","actor":{},"source":"local","occurredAt":"2026-08-27T00:00:00.000Z","payload":{"run":{"runId":"","sha":"abc","branch":"main","prNumber":null,"job":"test","wallclockMs":-1,"runner":"ubuntu"},"tests":[],"gates":[]}}

@@ -11,6 +11,7 @@ import {
   DAEMON_AGENT_RUNTIME_SESSION_SCHEMA,
   DAEMON_AGENT_SKILL_CATALOG_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
+  DAEMON_CI_OBSERVATORY_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
   DAEMON_DOCUMENT_READ_SCHEMA,
   DAEMON_OBSERVE_TAIL_SCHEMA,
@@ -38,6 +39,14 @@ import {
 } from "./daemon-protocol-schema-ids.ts";
 
 export const daemonGuiReadSchemas = Object.freeze([
+  {
+    id: DAEMON_CI_OBSERVATORY_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_CI_OBSERVATORY_SCHEMA",
+    parser: "packages/daemon/src/ci-observatory-read.ts#validateCiObservatoryRead",
+    writer: "packages/daemon/src/ci-observatory-read.ts#serializeCiObservatoryRead",
+    error: "packages/daemon/src/ci-observatory-read.ts#CiObservatoryContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-ci-observatory-invalid.json"]),
+  },
   {
     id: GUI_SYSTEM_STATUS_SCHEMA.id,
     schema: "packages/daemon/src/protocol/daemon-protocol.contract.ts#GUI_SYSTEM_STATUS_SCHEMA",

@@ -20,7 +20,8 @@ export type StatusEntity =
   | "VerticalScript"
   | "LegacyFact"
   | "GuiAdapter"
-  | "DaemonWire";
+  | "DaemonWire"
+  | "CiTest";
 
 export type StatusDivergence = "entity-scoped" | "divergent";
 

@@ -193,6 +193,8 @@ export type {
 export { compilePeopleRosterActionEvent } from "./people-event.ts";
 
 export { isEntityEvent } from "./entity-event.ts";
+export type { CiRunObservationEventV1 } from "./ci-run-observation-event.ts";
+export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";
 
 export {
   validateExtensionInputShape,

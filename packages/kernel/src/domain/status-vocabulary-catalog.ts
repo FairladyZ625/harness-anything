@@ -2,6 +2,14 @@ import type { StatusVocabulary } from "./status-vocabulary-types.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
   {
+    id: "ci-test.status",
+    entity: "CiTest",
+    field: "status",
+    module: "packages/kernel/src/domain/ci-run-observation-event.ts",
+    anchor: "#status",
+    words: ["passed", "failed", "skipped"],
+  },
+  {
     id: "task.status",
     entity: "Task",
     field: "status",

@@ -1,6 +1,7 @@
 import type { PortableDocumentPath } from "../layout/portable-path.ts";
 import type { EntityEventV1 } from "./entity-event.ts";
 import type { AgentRuntimeEventV1 } from "./agent-runtime.ts";
+import type { CiRunObservationEventV1 } from "./ci-run-observation-event.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID, type OpaqueTextualMediaType } from "./artifact-text-classification.ts";
 import type { DecisionEventV1 } from "./decision-event.ts";
 import type { LeaseV1 } from "./execution.ts";
@@ -180,7 +181,8 @@ export type CanonicalEventV1 =
   | FactEventV1
   | DecisionEventV1
   | MigrationImportEventV1
-  | LedgerLayoutMigrationEventV1;
+  | LedgerLayoutMigrationEventV1
+  | CiRunObservationEventV1;
 
 export interface DocumentState {
   readonly path: PortableDocumentPath;

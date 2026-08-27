@@ -12,6 +12,10 @@ on:
 
 env:
   MERGIFY_QUEUE_METADATA_EDIT: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/') }}
+  HARNESS_CI_NODE_TEST_RESULTS: tmp/ci-observation/node-tests.json
+  HARNESS_CI_VITEST_RESULTS: tmp/ci-observation/vitest.json
+  HARNESS_CI_GATE_RESULTS: tmp/ci-observation/gates.json
+  HARNESS_CI_OBSERVATION_OUTPUT: tmp/ci-observation/observation.json
 
 # Cancel superseded ordinary PR runs (e.g. after a force-push). Never cancel
 # main/nightly full-check runs or Mergify queue verification PR runs — Mergify
@@ -84,10 +88,20 @@ jobs:
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
           PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
         run: node tools/run-manifest-gates.mjs --workflow-job pr-body-lint --exclude mergify-queue-metadata-edit-noop
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-pr-body-lint
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   full-check:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    env:
+      HARNESS_CI_JOB: full-check (${{ matrix.node-version }})
     strategy:
       fail-fast: false
       matrix:
@@ -106,6 +120,14 @@ jobs:
       - run: npm run check
       - if: github.event_name == 'schedule'
         run: npm run harness:check-enforcement-debt-sunset
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-full-check-${{ matrix.node-version }}
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   typecheck:
     if: github.event_name == 'pull_request'
@@ -130,6 +152,14 @@ jobs:
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job typecheck --exclude mergify-queue-metadata-edit-noop
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-typecheck
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   fast-contract:
     if: github.event_name == 'pull_request'
@@ -152,6 +182,14 @@ jobs:
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job fast-contract --exclude mergify-queue-metadata-edit-noop
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-fast-contract
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   crlf-checkout:
     # Four of the reported Windows defects (#1525, #1526, #1538, #1588) are line-ending defects,
@@ -182,6 +220,14 @@ jobs:
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job crlf-checkout --exclude mergify-queue-metadata-edit-noop
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-crlf-checkout
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   windows-first-run:
     # platform-smoke asserts the CLI boots and refuses on a cold machine -- every command it runs
@@ -213,6 +259,14 @@ jobs:
         run: npm run build -w @harness-anything/cli
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job windows-first-run --exclude mergify-queue-metadata-edit-noop
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-windows-first-run-${{ matrix.os }}
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   integration-shard:
     if: github.event_name == 'pull_request'
@@ -238,6 +292,14 @@ jobs:
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }} --exclude mergify-queue-metadata-edit-noop
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-integration-${{ matrix.shard }}
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   windows-integration-shard:
     # The integration tier is where every POSIX host assumption lives: symlinks, deletable open
@@ -263,6 +325,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job windows-integration-shard --shard ${{ matrix.shard }}
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-windows-integration-${{ matrix.shard }}
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   nightly-daemon-soak:
     # Functional CI starts a small daemon, serves one client for seconds, and stops it. That shape
@@ -321,6 +391,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node tools/run-manifest-gates.mjs --workflow-job boundaries --exclude mergify-queue-metadata-edit-noop
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-boundaries
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   package-policy:
     if: github.event_name == 'pull_request'
@@ -341,6 +419,14 @@ jobs:
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job package-policy --exclude mergify-queue-metadata-edit-noop
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-package-policy
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   supply-chain:
     if: github.event_name == 'pull_request'
@@ -361,6 +447,14 @@ jobs:
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job supply-chain --exclude mergify-queue-metadata-edit-noop
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-supply-chain
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   gui-build:
     if: github.event_name == 'pull_request'
@@ -398,6 +492,14 @@ jobs:
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' && steps.filter.outputs.gui == 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job gui-build --exclude mergify-queue-metadata-edit-noop
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-gui-build
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
   node26-compatibility:
     if: github.event_name == 'pull_request'
     needs: metadata-source-proof
@@ -419,6 +521,14 @@ jobs:
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job node26-compatibility --exclude mergify-queue-metadata-edit-noop
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-node26-compatibility
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   source-validation-proof:
     if: github.event_name == 'pull_request' && needs.metadata-source-proof.outputs.reuse_source != 'true'

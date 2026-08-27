@@ -60,6 +60,8 @@ export function parseRouted(
   if (route.id.startsWith("settings-"))
     return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (route.id.startsWith("people-")) return parsePeople(route, args, rootDir, repoId, json, inputs);
+  if (route.id === "ci-observe-pull")
+    return parseProjected(route.id, args.slice(3), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (route.id === "receipt-show" && nonEmpty(args[2]) && args.length === 3)
     return accepted(rootDir, repoId, json, {
       kind: "receipt-show",

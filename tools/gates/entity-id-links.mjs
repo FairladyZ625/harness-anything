@@ -25,6 +25,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { writeCiGateResult } from "../ci-gate-result.mjs";
 import ts from "typescript";
 import { repoRoot } from "./git.mjs";
 
@@ -51,7 +52,6 @@ function walkRendererFiles(rootDir, dir = RENDERER_ROOT, out = []) {
   }
   return out;
 }
-
 
 /** 祖先优先遍历(typescript 公共 API 只有 forEachChild;descendant 遍历自己写)。 */
 export function forEachDescendant(node, visit) {
@@ -117,7 +117,8 @@ export function staticStringValue(expression, locals, depth = 0) {
 function staticRefHead(expression, locals, depth = 0) {
   const direct = staticStringValue(expression, locals, depth);
   if (direct !== null) return CANONICAL_REF_HEAD.test(direct) ? direct : null;
-  if (ts.isTemplateExpression(expression) && CANONICAL_REF_HEAD.test(expression.head.text)) return `${expression.head.text}…`;
+  if (ts.isTemplateExpression(expression) && CANONICAL_REF_HEAD.test(expression.head.text))
+    return `${expression.head.text}…`;
   if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.PlusToken) {
     const left = staticStringValue(expression.left, locals, depth + 1);
     if (left !== null && CANONICAL_REF_HEAD.test(left)) {
@@ -150,7 +151,13 @@ function collectFileLocals(sourceFile) {
  * 违规按(file, line, rendered)报告,rendered 里动态尾部以 … 截断。
  */
 export function findStaticRefViolations(sourceText, fileName = "inline.tsx") {
-  const sourceFile = ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, true, fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
   const locals = collectFileLocals(sourceFile);
   const violations = [];
   const record = (value, node) => {
@@ -189,7 +196,7 @@ export function auditLinkPrimitive(sourceText, fileName = LINK_PRIMITIVE_PATH) {
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       const tag = ts.isIdentifier(node.tagName) ? node.tagName.text : "";
       const hasHandler = (node.attributes?.properties ?? []).some(
-        (prop) => ts.isJsxAttribute(prop) && ACTIVATABLE_PROPS.has(prop.name.text)
+        (prop) => ts.isJsxAttribute(prop) && ACTIVATABLE_PROPS.has(prop.name.text),
       );
       if (ACTIVATABLE_INTRINSICS.has(tag.toLowerCase()) && hasHandler) {
         interactiveWithHandler = true;
@@ -259,7 +266,7 @@ function explain({ violations, problems }) {
     "不要为了过门把 ID 从页面上藏起来 —— 那是把要求反着实现。",
     "",
     "另一半天在 packages/gui/test/entity-id-links.vitest.ts(渲染 DOM 后扫描,",
-    "经 test:gui 必需检查执行);两层判据互补,单独拆掉任何一层都会让本门变红。"
+    "经 test:gui 必需检查执行);两层判据互补,单独拆掉任何一层都会让本门变红。",
   );
   return lines.join("\n");
 }
@@ -267,7 +274,9 @@ function explain({ violations, problems }) {
 function main() {
   const rootDir = repoRoot();
   const result = scanRendererTree(rootDir);
-  if (result.violations.length > 0 || result.problems.length > 0) {
+  const pass = result.violations.length === 0 && result.problems.length === 0;
+  writeCiGateResult("G37", pass, { violations: result.violations.length, wiringProblems: result.problems.length });
+  if (!pass) {
     console.error(explain(result));
     return 1;
   }

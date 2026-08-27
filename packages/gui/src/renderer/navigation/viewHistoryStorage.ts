@@ -33,6 +33,8 @@ const VIEW_IDS: ReadonlySet<string> = new Set<ViewId>([
   "agentSquad",
   "providers",
   "system",
+  "daemonObserve",
+  "ciObservatory",
   "settings",
 ]);
 

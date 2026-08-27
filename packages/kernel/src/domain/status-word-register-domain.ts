@@ -1,6 +1,28 @@
 import type { StatusWordRegistration } from "./status-vocabulary-types.ts";
 
 export const domainStatusWords: readonly StatusWordRegistration[] = [
+  // ---- CiTest.status (structured CI test observation) ----
+  {
+    word: "passed",
+    entity: "CiTest",
+    field: "status",
+    meaning: "The CI test completed successfully, including a retry that eventually passed.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "failed",
+    entity: "CiTest",
+    field: "status",
+    meaning: "The CI test completed unsuccessfully after its recorded retries.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "skipped",
+    entity: "CiTest",
+    field: "status",
+    meaning: "The CI test was intentionally not executed.",
+    divergence: "entity-scoped",
+  },
   // ---- Agent.state (declaration lifecycle) ----
   {
     word: "configured",

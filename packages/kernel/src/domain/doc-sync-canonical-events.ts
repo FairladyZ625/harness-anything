@@ -1,4 +1,5 @@
 import { validateCurrentEntityEvent, validateEntityEvent } from "./entity-event.ts";
+import { validateCiRunObservationEvent, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";
 import { validateAgentRuntimeEvent, validateCurrentAgentRuntimeEvent } from "./agent-runtime.ts";
 import { validateCurrentDecisionEvent, validateDecisionEvent } from "./decision-event.ts";
 import type { CanonicalEventV1, DocEventV1 } from "./doc-sync-types.ts";
@@ -29,6 +30,11 @@ interface CanonicalEventSchemaRegistration {
 }
 
 export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] = Object.freeze([
+  {
+    schema: "ci-run-observation/v1",
+    validate: validateCiRunObservationEvent,
+    validateCurrent: validateCurrentCiRunObservationEvent,
+  },
   {
     schema: "task-event/v1",
     validate: (value: unknown) => validateTaskEvent(value).map((issue) => issue.message),

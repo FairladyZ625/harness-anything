@@ -60,6 +60,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
     agenda: ["agenda"],
     agent: ["agent-create", "agent-inspect", "agent-install", "agent-list", "agent-validate"],
+    ci: ["ci-observe-pull"],
     daemon: [
       "daemon-fleet-center-start",
       "daemon-fleet-edge-sync",
@@ -370,6 +371,16 @@ test("thin parser derives closed preset and task-create payloads from descriptor
       kind: "preset-upgrade",
       taskId: "task-1",
     });
+});
+
+test("thin parser routes CI observation pulls through the repo task command", () => {
+  const parsed = parseThinCommand(["ci", "observe", "pull", "--limit", "20"]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok) {
+    assert.equal(parsed.command.method, "repo.task.run");
+    assert.deepEqual(parsed.command.action, { kind: "ci-observe-pull", limit: 20 });
+  }
+  assert.equal(parseThinCommand(["ci", "observe", "pull", "--limit", "0"]).ok, false);
 });
 
 test("thin parser validates only the selected command descriptor", () => {
