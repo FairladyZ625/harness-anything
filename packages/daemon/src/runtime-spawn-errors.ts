@@ -75,7 +75,7 @@ export function runtimeErrorCode(error: unknown): string | null {
 }
 
 export function runtimeErrorMessage(error: unknown): string {
-  return scrubProviderValue(error instanceof Error ? error.message : String(error)) as string;
+  return String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 1024);
 }
 
 export function isRuntimeEvent(value: { readonly schema: string }): value is AgentRuntimeEventV1 {

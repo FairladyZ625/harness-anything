@@ -85,6 +85,7 @@ export function makeAgentRuntimeReadModel(input: {
         outcome: session.outcome,
         exitCode: session.exitCode,
         resultRef: session.resultRef,
+        ...(session.reasonCode ? { reasonCode: session.reasonCode } : {}),
       },
     };
   };

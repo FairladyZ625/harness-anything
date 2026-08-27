@@ -6,6 +6,7 @@ export const thinCliLocalErrorCodes = Object.freeze([
   "duplicate_field",
   "invalid_field",
   "missing_field",
+  "runtime_settlement_failed",
   "unknown_field",
   "unsupported_command",
 ]);
