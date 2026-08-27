@@ -183,6 +183,46 @@ test("EntityStore get isolates current-schema rejection to the requested declara
   );
 });
 
+test("EntityStore rejects pre-budget squad declarations at the schema boundary", () => {
+  const stale = {
+      schema: "squad-declaration/v1",
+      id: "core-squad",
+      name: "Core Squad",
+      leader: "terra",
+      workers: ["terra"],
+      roster: "# Core Squad",
+    },
+    body = `${JSON.stringify(stale, null, 2)}\n`,
+    sha256 = createHash("sha256").update(body).digest("hex"),
+    event = {
+      schema: "entity-event/v1",
+      eventId: "event-stale-squad-1",
+      workspaceRevision: 1,
+      opId: "op-stale-squad-1",
+      type: "entity_upserted",
+      actor,
+      source: "local",
+      occurredAt: "2026-08-25T00:00:00.000Z",
+      payload: {
+        entityKind: "squad",
+        entityId: stale.id,
+        declarationDocumentClaim: {
+          path: "squads/core-squad.json",
+          sha256,
+          size: Buffer.byteLength(body),
+          mediaType: "application/json",
+          policyId: "typed-entity/v1",
+        },
+      },
+    } as EntityEventV1,
+    store = createEntityStore({
+      read: () => ({ schema: "canonical-event-stream/v1", revision: 1, events: [event] }),
+      readContentBlob: (candidate) => (candidate === sha256 ? Buffer.from(body) : null),
+    });
+
+  assert.throws(() => store.get("squad", stale.id), /missing required field "leaderTurnBudget"/u);
+});
+
 test("Entity upsert rejects schema-invalid declarations and tampered declaration bundles", () => {
   const store = createEntityStore({
     read: () => ({ schema: "canonical-event-stream/v1", revision: 0, events: [] }),

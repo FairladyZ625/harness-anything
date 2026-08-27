@@ -166,8 +166,8 @@ export function readAgentEntityGuiProjection<
     return {
       schema: "squad-entity-catalog/v1",
       ok: true,
-      squads: entities.map(({ id, value }) =>
-        squadEntityRow({ ...parseStoredSquadDeclaration(value, id), layer: "user", validity: "valid", issues: [] }),
+      squads: entities.map(({ value }) =>
+        squadEntityRow({ ...parseSquadDeclarationV1(value), layer: "user", validity: "valid", issues: [] }),
       ),
     } as never;
   }
@@ -191,7 +191,7 @@ export function readAgentEntityGuiProjection<
       },
     } as never;
   }
-  const squad = parseStoredSquadDeclaration(readyEntityValue(input.projection, "squad", entityId), entityId),
+  const squad = parseSquadDeclarationV1(readyEntityValue(input.projection, "squad", entityId)),
     missing = [squad.leader, ...squad.workers].filter((agentId) => {
       try {
         parseAgentDeclarationV1(readyEntityValue(input.projection, "agent", agentId));
@@ -248,10 +248,7 @@ export function readSquadDeclaration(input: {
   readonly entityStore?: EntityStore;
 }): SquadDeclarationV1 {
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir),
-    squad = parseStoredSquadDeclaration(
-      readStoredDeclaration(input.rootDir, "squad", input.squadId, entityStore),
-      input.squadId,
-    ),
+    squad = parseSquadDeclarationV1(readStoredDeclaration(input.rootDir, "squad", input.squadId, entityStore)),
     missing = [squad.leader, ...squad.workers].filter((id) => {
       try {
         readAgentDeclaration({ rootDir: input.rootDir, agentId: id, entityStore });
@@ -299,7 +296,7 @@ export function resolveSquadDispatch(input: {
     throw entityError("squad_not_found", `A squad id is required to dispatch leader ${input.leaderId}.`);
   const matches: SquadDispatchSelection[] = [];
   for (const { id: squadId, value } of entityStore.list<SquadDeclarationV1>("squad")) {
-    const squad = parseStoredSquadDeclaration(value, squadId);
+    const squad = parseSquadDeclarationV1(value);
     if (squad.leader !== input.leaderId || !squad.workers.includes(input.workerId)) continue;
     const leader = readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader, entityStore }),
       worker = readAgentDeclaration({ rootDir: input.rootDir, agentId: input.workerId, entityStore });
@@ -431,9 +428,9 @@ function listStoredEntities(
 ): readonly (AgentCatalogRow | SquadCatalogRow)[] {
   return entityStore
     .list<AgentDeclarationV1 & SquadDeclarationV1>(kind)
-    .map(({ id, value, documentPath: source }) => {
+    .map(({ value, documentPath: source }) => {
       const declaration = (
-        kind === "squad" ? parseStoredSquadDeclaration(value, id) : parseAgentDeclarationV1(value)
+        kind === "squad" ? parseSquadDeclarationV1(value) : parseAgentDeclarationV1(value)
       ) as AgentDeclarationV1 & SquadDeclarationV1;
       const { instructions: _instructions, roster: _roster, ...row } = declaration;
       return { ...row, layer: "user" as const, source, validity: "valid" as const, issues: [] as const };
@@ -541,22 +538,6 @@ function readStoredDeclaration(rootDir: string, kind: AgentEntityKind, id: strin
   const stored = (entityStore ?? openEntityStore(rootDir)).get(kind, id);
   if (!stored) throw entityError(`${kind}_not_found`, `${id} is not an installed ${kind}.`);
   return stored.value;
-}
-function parseStoredSquadDeclaration(value: unknown, squadId: string): SquadDeclarationV1 {
-  if (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    !Object.hasOwn(value, "leaderTurnBudget") &&
-    validateSquadDeclarationV1({ ...value, leaderTurnBudget: 1 }).length === 0
-  )
-    throw entityError(
-      "squad_declaration_outdated",
-      `Squad ${squadId} was installed without required field "leaderTurnBudget". ` +
-        `Add a positive leaderTurnBudget to its squad.json package ` +
-        `and run ha squad install --source <squad-package-dir>.`,
-    );
-  return parseSquadDeclarationV1(value);
 }
 function entityKind(actionKind: string): AgentEntityKind {
   if (!/^(?:agent|squad)-(?:list|inspect|validate|install)$/u.test(actionKind))
