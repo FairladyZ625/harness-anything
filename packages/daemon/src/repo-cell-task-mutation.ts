@@ -15,7 +15,7 @@ import {
   type TaskV1,
 } from "../../kernel/src/index.ts";
 import { authorizeAction } from "./authorization.ts";
-import { readDispatchStreams } from "./dispatch-stream.ts";
+import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 
 export function taskMutation(
@@ -373,17 +373,18 @@ function terminalExecutionRuntimeBinding(
   const inferredTerminalSessionIds =
     runtimeSessionId === null
       ? new Set(
-          readDispatchStreams(cell.rootDir)
+          readDispatchStreamHeaders(cell.rootDir)
+            .filter((header) => header.taskId === lease.taskId && header.executionId === lease.executionId)
+            .map((header) => readDispatchStreamSummary(cell.rootDir, header.dispatchId))
             .filter(
               (stream) =>
-                stream.header.taskId === lease.taskId &&
-                stream.header.executionId === lease.executionId &&
-                stream.attemptOutcome !== null &&
+                stream?.attemptOutcome !== null &&
+                stream?.attemptOutcome !== undefined &&
                 (stream.attemptOutcome.classification !== "provider_fault" ||
                   stream.header.fallbackAttempt === undefined ||
                   stream.fallbackState === "exhausted"),
             )
-            .map((stream) => stream.header.runtimeSessionId),
+            .map((stream) => stream!.header.runtimeSessionId),
         )
       : null;
   const taskSessions = cell.projection.readRuntimeSessionsForTask(lease.taskId) as readonly RuntimeSession[];

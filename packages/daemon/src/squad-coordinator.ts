@@ -9,7 +9,7 @@ import {
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 import { readSquadDeclaration } from "./agent-entities.ts";
-import { appendRuntimeWorkerRecord, readDispatchStreams } from "./dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStreamSummaries } from "./dispatch-stream.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -623,7 +623,7 @@ export function makeSquadCoordinator(input: {
     const projection = input.projection();
     if (projection.squadRunProjectionReady()) return;
     const states = new Map<string, SquadState>();
-    for (const stream of readDispatchStreams(input.rootDir)) {
+    for (const stream of readDispatchStreamSummaries(input.rootDir)) {
       for (const record of stream.records) {
         if (record.kind !== "squad_run_state") continue;
         const state = squadState(record.state);

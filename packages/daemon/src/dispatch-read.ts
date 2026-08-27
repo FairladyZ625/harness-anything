@@ -8,7 +8,8 @@ import {
   readDispatchLiveIndex,
   readDispatchStream,
   readDispatchStreamHeader,
-  readDispatchStreams,
+  readDispatchStreamSummary,
+  readDispatchStreamHeaders,
   removeDispatchLiveIndexEntries,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
@@ -68,7 +69,9 @@ export function readTaskDispatches(
   }
   const rows = new Map<string, TaskDispatchRow>();
   for (const [dispatchId, candidate] of candidates) {
-    const stream = /^dispatch_[a-f0-9]{24}$/u.test(dispatchId) ? readDispatchStream(input.rootDir, dispatchId) : null,
+    const stream = /^dispatch_[a-f0-9]{24}$/u.test(dispatchId)
+        ? readDispatchStreamSummary(input.rootDir, dispatchId)
+        : null,
       lost =
         stream?.records.some((record) => record.kind === "process_lost") === true ||
         (stream?.process?.exited === false &&
@@ -158,11 +161,18 @@ export function readRuntimeAttemptChain(
   rootDir: string,
   runtimeSessionId: string,
 ): AgentRuntimeAttemptChainDto | undefined {
-  const streams = readDispatchStreams(rootDir),
-    target = streams.find((stream) => stream.header.runtimeSessionId === runtimeSessionId);
+  const headers = readDispatchStreamHeaders(rootDir),
+    targetHeader = headers.find((header) => header.runtimeSessionId === runtimeSessionId);
+  if (!targetHeader) return undefined;
+  const target = readDispatchStreamSummary(rootDir, targetHeader.dispatchId);
   if (!target) return undefined;
   const groupId = attemptGroupId(target),
-    attempts = streams
+    attempts = headers
+      .filter(
+        (header) => header.dispatchId === targetHeader.dispatchId || header.fallbackAttempt?.attemptGroupId === groupId,
+      )
+      .map((header) => readDispatchStreamSummary(rootDir, header.dispatchId))
+      .filter((stream): stream is NonNullable<ReturnType<typeof readDispatchStream>> => stream !== null)
       .filter((stream) => attemptGroupId(stream) === groupId)
       .map((stream) => ({
         dispatchId: stream.header.dispatchId,

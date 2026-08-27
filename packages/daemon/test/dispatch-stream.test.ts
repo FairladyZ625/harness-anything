@@ -10,6 +10,7 @@ import {
   openDispatchStream,
   readDispatchLiveIndex,
   readDispatchStream,
+  readDispatchStreamSummary,
 } from "../src/dispatch-stream.ts";
 
 test("the live index rebuilds exactly from dispatch stream headers", () => {
@@ -62,6 +63,42 @@ test("process lifecycle observations remain in the append-only dispatch stream",
     assert.deepEqual(stream?.process, { pid: 4321, exitCode: null, signal: "SIGKILL", exited: true });
     assert.deepEqual(
       stream?.records.map((record) => record.kind),
+      ["process_started", "process_exit"],
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("dispatch summaries skip provider bodies and refresh when lifecycle records append", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-summary-"));
+  try {
+    const dispatchId = "dispatch_444444444444444444444444";
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-3",
+      executionId: "execution-3",
+      runtimeSessionId: "runtime_444444444444444444444444",
+      instanceId: "instance-1",
+      startedAt: "2026-08-24T00:00:00.000Z",
+      prompt: "p".repeat(64 * 1024),
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 9876 });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "provider_event",
+      event: { text: "x".repeat(512 * 1024) },
+    });
+    const running = readDispatchStreamSummary(rootDir, dispatchId);
+    assert.deepEqual(running?.process, { pid: 9876, exitCode: null, signal: null, exited: false });
+    assert.deepEqual(
+      running?.records.map((record) => record.kind),
+      ["process_started"],
+    );
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 0, signal: null });
+    const exited = readDispatchStreamSummary(rootDir, dispatchId);
+    assert.deepEqual(exited?.process, { pid: 9876, exitCode: 0, signal: null, exited: true });
+    assert.deepEqual(
+      exited?.records.map((record) => record.kind),
       ["process_started", "process_exit"],
     );
   } finally {

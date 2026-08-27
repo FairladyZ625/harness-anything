@@ -1,7 +1,8 @@
 import {
   appendRuntimeWorkerRecord,
   readDispatchStream,
-  readDispatchStreams,
+  readDispatchStreamHeaders,
+  readDispatchStreamSummary,
   reopenDispatchStream,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
@@ -18,13 +19,18 @@ export async function adoptRuntimes(context: any): Promise<void> {
   const byId = new Map(
     sessions.map((session: { readonly runtimeSessionId: string }) => [session.runtimeSessionId, session]),
   );
-  for (const stream of readDispatchStreams(context.input.rootDir)) {
-    context.reconcileFallback(stream);
-    const session = byId.get(stream.header.runtimeSessionId) as
+  for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
+    const fallbackSummary = header.fallbackAttempt
+      ? readDispatchStreamSummary(context.input.rootDir, header.dispatchId)
+      : null;
+    if (fallbackSummary) context.reconcileFallback(fallbackSummary);
+    const session = byId.get(header.runtimeSessionId) as
       | { readonly liveness: string; readonly outcome: string | null }
       | undefined;
-    const metadata = adoptableMetadata(stream.header);
-    if (!session || session.liveness === "exited" || session.outcome !== null || !stream.process || !metadata) continue;
+    const metadata = adoptableMetadata(header);
+    if (!session || session.liveness === "exited" || session.outcome !== null || !metadata) continue;
+    const stream = readDispatchStream(context.input.rootDir, header.dispatchId);
+    if (!stream?.process) continue;
     const runtimeProcess = adoptNativeProcess(
       context.input.rootDir,
       stream.header.dispatchId,
