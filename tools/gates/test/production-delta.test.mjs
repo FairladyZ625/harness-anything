@@ -1,7 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
   computeProductionDelta,
@@ -104,19 +103,6 @@ test("G33 verifies retained production paths against an expiring decision receip
     now: new Date("2026-08-11T00:00:00Z"),
   });
   assert.equal(result.ok, true, result.errors.join("\n"));
-});
-
-test("G33 skips Mergify merge-queue verification PRs by bot author and queue branch", () => {
-  const run = (env) =>
-    spawnSync(process.execPath, [path.resolve("tools/gates/production-delta.mjs"), "--base", "HEAD"], {
-      encoding: "utf8",
-      env: { ...process.env, PR_BODY: "", ...env },
-    });
-  const draft = run({ PR_HEAD_REF: "mergify/merge-queue/e00b463e2d", PR_AUTHOR_LOGIN: "app/mergify" });
-  assert.equal(draft.status, 0, draft.stderr);
-  assert.match(draft.stdout, /skipped for Mergify merge-queue/u);
-  const human = run({ PR_HEAD_REF: "codex/not-a-queue", PR_AUTHOR_LOGIN: "FairladyZ625" });
-  assert.equal(human.status, 1);
 });
 
 test("G33 measures the branch from its merge-base, so the target advancing does not move the number", () => {

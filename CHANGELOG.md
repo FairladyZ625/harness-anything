@@ -112,7 +112,7 @@ auto-update feed, or published release artifact is claimed here.
   scaffolding/rendering. Representative PRs: #18, #33, #34, #60, #61, #161,
   #178, #201, #283, #315, #345.
 - Improved local and CI feedback with tiered test runners, manifest-driven
-  gates, merge-queue hardening, and faster low-risk check paths. Representative
+  gates, and faster low-risk check paths. Representative
   PRs: #51, #79, #95, #197, #221, #302, #408.
 
 ## Earlier source history - 2026-06-11 to 2026-07-04

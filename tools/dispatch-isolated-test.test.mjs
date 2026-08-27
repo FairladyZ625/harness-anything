@@ -5,35 +5,71 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseDispatchArgs, posixTestScript, powerShellTestScript, sourceArchiveArgs, sourceFileList, sourceRootAllowlist, sourceRsyncArgs, testRunnerArgs } from "./dispatch-isolated-test.mjs";
+import {
+  parseDispatchArgs,
+  posixTestScript,
+  powerShellTestScript,
+  sourceArchiveArgs,
+  sourceFileList,
+  sourceRootAllowlist,
+  sourceRsyncArgs,
+  testRunnerArgs,
+} from "./dispatch-isolated-test.mjs";
 
 test("dispatcher defaults to Ubuntu and requires exactly one test selector", () => {
-  assert.deepEqual(parseDispatchArgs(["--tier", "integration"]), { target: "ubuntu", tier: "integration", file: undefined });
+  assert.deepEqual(parseDispatchArgs(["--tier", "integration"]), {
+    target: "ubuntu",
+    tier: "integration",
+    file: undefined,
+  });
   assert.throws(() => parseDispatchArgs([]), /choose exactly one/u);
   assert.throws(() => parseDispatchArgs(["--tier", "fast", "--file", "tools/a.test.mjs"]), /choose exactly one/u);
 });
 
 test("dispatcher accepts all isolated targets and validates exact file paths", () => {
   for (const target of ["ubuntu", "docker", "windows"]) {
-    assert.deepEqual(parseDispatchArgs(["--target", target, "--file", "packages/cli/test/daemon-autostart-cli.test.ts"]), {
-      target,
-      tier: undefined,
-      file: "packages/cli/test/daemon-autostart-cli.test.ts"
-    });
+    assert.deepEqual(
+      parseDispatchArgs(["--target", target, "--file", "packages/cli/test/daemon-autostart-cli.test.ts"]),
+      {
+        target,
+        tier: undefined,
+        file: "packages/cli/test/daemon-autostart-cli.test.ts",
+      },
+    );
   }
   assert.throws(() => parseDispatchArgs(["--target", "windows-vm", "--tier", "integration"]), /unknown target/u);
   assert.throws(() => parseDispatchArgs(["--file", "../outside.test.mjs"]), /repository-relative/u);
 });
 
 test("dispatcher builds runner commands for either supported selector", () => {
-  assert.deepEqual(testRunnerArgs({ tier: "integration", file: undefined }), ["node", "tools/run-node-tests.mjs", "--tier", "integration"]);
-  assert.deepEqual(testRunnerArgs({ tier: undefined, file: "tools/a.test.mjs" }), ["node", "tools/run-node-tests.mjs", "--file", "tools/a.test.mjs"]);
+  assert.deepEqual(testRunnerArgs({ tier: "integration", file: undefined }), [
+    "node",
+    "tools/run-node-tests.mjs",
+    "--tier",
+    "integration",
+  ]);
+  assert.deepEqual(testRunnerArgs({ tier: undefined, file: "tools/a.test.mjs" }), [
+    "node",
+    "tools/run-node-tests.mjs",
+    "--file",
+    "tools/a.test.mjs",
+  ]);
 });
 
 test("source root allowlist contains only current test inputs", () => {
   assert.deepEqual(sourceRootAllowlist, [
-    ".github", ".gitignore", ".mergify.yml", "README.md", "docs-release", "eslint.config.mjs",
-    "package-lock.json", "package.json", "packages", "scripts", "skills", "tools", "tsconfig.json"
+    ".github",
+    ".gitignore",
+    "README.md",
+    "docs-release",
+    "eslint.config.mjs",
+    "package-lock.json",
+    "package.json",
+    "packages",
+    "scripts",
+    "skills",
+    "tools",
+    "tsconfig.json",
   ]);
 });
 
@@ -48,7 +84,10 @@ test("source archives consume a structural NUL file list without exclusion patte
     write(source, "tools/kept.txt");
     const args = sourceArchiveArgs("linux", source);
     assert.deepEqual(args, ["-cf", "-", "-C", source, "--null", "-T", "-"]);
-    assert.equal(args.some((arg) => arg.startsWith("--exclude=")), false);
+    assert.equal(
+      args.some((arg) => arg.startsWith("--exclude=")),
+      false,
+    );
   });
 });
 
@@ -118,9 +157,15 @@ test("remote scripts preflight before executing tests with a dedicated root and 
 
 function withFixture(run) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-sync-"));
-  const source = path.join(root, "source"), destination = path.join(root, "destination");
-  mkdirSync(source); mkdirSync(destination);
-  try { run({ source, destination }); } finally { rmSync(root, { recursive: true, force: true }); }
+  const source = path.join(root, "source"),
+    destination = path.join(root, "destination");
+  mkdirSync(source);
+  mkdirSync(destination);
+  try {
+    run({ source, destination });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 function write(root, relativePath) {
@@ -131,16 +176,26 @@ function write(root, relativePath) {
 
 function seedCompletePolicyFixture(root) {
   for (const entry of [
-    "harness", ".harness", ".harness-private", ".worktrees", "tmp",
-    ".harness-old-generation-20260818", "harness-old-generation-20260818", "future-private"
-  ]) write(root, `${entry}/excluded.txt`);
+    "harness",
+    ".harness",
+    ".harness-private",
+    ".worktrees",
+    "tmp",
+    ".harness-old-generation-20260818",
+    "harness-old-generation-20260818",
+    "future-private",
+  ])
+    write(root, `${entry}/excluded.txt`);
   write(root, "packages/kept.txt");
   write(root, "tools/kept.txt");
 }
 
 function extractArchive(source, destination, allowedRoots) {
   const files = sourceFileList(source, allowedRoots, fixtureFiles(source));
-  const archive = spawnSync("tar", sourceArchiveArgs(process.platform, source), { input: encodeFileList(files), maxBuffer: 10 * 1024 * 1024 });
+  const archive = spawnSync("tar", sourceArchiveArgs(process.platform, source), {
+    input: encodeFileList(files),
+    maxBuffer: 10 * 1024 * 1024,
+  });
   assert.equal(archive.status, 0, archive.stderr.toString());
   const extracted = spawnSync("tar", ["-xf", "-", "-C", destination], { input: archive.stdout });
   assert.equal(extracted.status, 0, extracted.stderr.toString());
@@ -148,7 +203,10 @@ function extractArchive(source, destination, allowedRoots) {
 
 function syncWithRsync(source, destination, allowedRoots) {
   const files = sourceFileList(source, allowedRoots, fixtureFiles(source));
-  const result = spawnSync("rsync", sourceRsyncArgs(source, `${destination}/`), { input: encodeFileList(files), encoding: "utf8" });
+  const result = spawnSync("rsync", sourceRsyncArgs(source, `${destination}/`), {
+    input: encodeFileList(files),
+    encoding: "utf8",
+  });
   assert.equal(result.status, 0, result.stderr);
 }
 

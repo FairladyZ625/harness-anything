@@ -106,20 +106,6 @@ function formatLabels(labels = []) {
   return names.length ? names.join(",") : "-";
 }
 
-function activeDrafts(prs) {
-  return prs.filter((pr) => pr.title.includes("merge queue: checking"));
-}
-
-function summarizeChecks(pr) {
-  const checks = [...latestChecks(pr.statusCheckRollup).values()];
-  if (checks.length === 0) return "no checks";
-  return checks
-    .filter((check) => check.name !== "full-check")
-    .slice(0, 12)
-    .map((check) => `${check.name}:${normalizeCheckState(check)}`)
-    .join(", ");
-}
-
 function githubRulesRequired(repo) {
   const rules = runJson("gh", ["api", `repos/${repo}/rules/branches/main`], []);
   const result = extractGitHubRequiredStatusCheckContexts(rules);
@@ -130,43 +116,6 @@ function githubRulesRequired(repo) {
     throw new Error("GitHub branch rules declare no required status check contexts for main");
   }
   return result.contexts;
-}
-
-function mergifyCheckRuns(repo, sha) {
-  const data = runJson(
-    "gh",
-    ["api", "--method", "GET", `repos/${repo}/commits/${sha}/check-runs`, "-f", "per_page=100"],
-    { check_runs: [] },
-  );
-  return (data.check_runs ?? []).filter(
-    (runEntry) =>
-      /mergify|summary|queue|dequeue/iu.test(runEntry.name ?? "") ||
-      /mergify|dequeue|dequeued/iu.test(runEntry.output?.title ?? "") ||
-      /dequeue|dequeued/iu.test(runEntry.output?.summary ?? ""),
-  );
-}
-
-function recentDequeueEvents(repo, prs) {
-  const seenSha = new Set();
-  const events = [];
-  for (const pr of prs) {
-    if (!pr.headRefOid || seenSha.has(pr.headRefOid)) continue;
-    seenSha.add(pr.headRefOid);
-    let runs;
-    try {
-      runs = mergifyCheckRuns(repo, pr.headRefOid);
-    } catch (error) {
-      events.push(`#${pr.number} ${pr.headRefName}: unable to read check-runs (${error.message})`);
-      continue;
-    }
-    for (const runEntry of runs) {
-      const title = runEntry.output?.title || runEntry.name || "";
-      const summary = runEntry.output?.summary || "";
-      if (!/dequeue|dequeued/iu.test(`${title}\n${summary}\n${runEntry.name ?? ""}`)) continue;
-      events.push(`#${pr.number} ${runEntry.name}: ${title || "no output title"}`);
-    }
-  }
-  return events.slice(0, 12);
 }
 
 function parseWorktrees() {
@@ -246,13 +195,6 @@ function main() {
       return `#${pr.number} ${pr.isDraft ? "draft" : "ready"} labels=${formatLabels(pr.labels)} ${checks.summary}${suffix} - ${pr.title}`;
     }),
   );
-
-  printSection(
-    "Active Mergify Drafts",
-    activeDrafts(prs).map((pr) => `#${pr.number} ${pr.headRefName} - ${pr.title} :: ${summarizeChecks(pr)}`),
-  );
-
-  printSection("Recent Dequeue Events", recentDequeueEvents(repo, prs));
 
   printSection(
     "Local Worktrees",

@@ -74,7 +74,7 @@ export function readCiObservatory(input: {
   if (!Number.isSafeInteger(window) || window < 1 || window > 100)
     throw new Error("CI observatory window must be 1..100");
   const read = input.projection.readCiRunObservations(Math.max(window * 20, 100)),
-    events = selectRunWindow(read.events.filter(mainOrQueue), window),
+    events = selectRunWindow(read.events.filter(mainBranch), window),
     quarantine = new Map(readQuarantine(input.rootDir).map((entry) => [entry.test, entry])),
     now = Date.parse(input.now ?? new Date().toISOString());
   return {
@@ -113,8 +113,8 @@ function selectRunWindow(
   return events.filter((event) => selected.has(event.payload.run.runId));
 }
 
-function mainOrQueue(event: CiRunObservationEventV1): boolean {
-  return event.payload.run.branch === "main" || event.payload.run.branch.startsWith("mergify/merge-queue/");
+function mainBranch(event: CiRunObservationEventV1): boolean {
+  return event.payload.run.branch === "main";
 }
 
 function isL0Job(job: string): boolean {

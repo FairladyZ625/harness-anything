@@ -79,7 +79,6 @@
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
-        "check-mergify-queue-policy",
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
@@ -129,7 +128,6 @@
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
-        "check-mergify-queue-policy",
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
@@ -162,10 +160,7 @@
         "gui-build",
         "node26-compatibility"
       ],
-      "helperJobsNotRegisteredAsGates": [
-        "metadata-source-proof",
-        "source-validation-proof"
-      ],
+      "helperJobsNotRegisteredAsGates": [],
       "nonPullRequestGateJobs": [
         "full-check",
         "windows-integration-shard",
@@ -355,7 +350,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "No human-authored PR allowlist; PR body must satisfy the bilingual template contract. Mergify merge-queue verification PRs are narrowly skipped when authored by a recognized Mergify bot using a mergify/merge-queue/* head ref."
+        "notes": "No human-authored PR allowlist; PR body must satisfy the bilingual template contract."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -363,7 +358,6 @@
         "protectedSurfaces": [
           ".github/pull_request_template.md",
           "tools/check-pr-body-bilingual.mjs",
-          "tools/gates/mergify-queue-draft.mjs",
           "tools/gate-manifest.json"
         ]
       },
@@ -394,8 +388,7 @@
       "positiveControl": {
         "status": "covered",
         "evidence": [
-          "tools/check-pr-body-bilingual.test.mjs",
-          "tools/gates/test/mergify-queue-draft.test.mjs"
+          "tools/check-pr-body-bilingual.test.mjs"
         ]
       }
     },
@@ -481,130 +474,6 @@
         "status": "covered",
         "evidence": [
           "tools/check-pr-governance.test.mjs"
-        ]
-      }
-    },
-    {
-      "id": "mergify-queue-metadata-edit-noop",
-      "command": "echo \"Reusing successful source validation for the same head SHA.\"",
-      "category": "meta-governance",
-      "tier": "pr-required",
-      "tierReason": null,
-      "authoritySource": [
-        ".github/workflows/rewrite-ci.yml",
-        ".github/branch-protection.md",
-        "tools/gate-manifest.json"
-      ],
-      "consumerScope": [
-        "Mergify synthetic merge-queue pull_request edited events for mergify/merge-queue/* branches"
-      ],
-      "githubContext": {
-        "requiredContexts": [
-          "pr-body-lint",
-          "typecheck (24)",
-          "fast-contract",
-          "integration-shard (1)",
-          "integration-shard (2)",
-          "integration-shard (3)",
-          "integration-shard (4)",
-          "integration-shard (5)",
-          "integration-shard (6)",
-          "boundaries",
-          "package-policy",
-          "supply-chain",
-          "gui-build",
-          "node26-compatibility",
-          "crlf-checkout",
-          "windows-first-run (ubuntu-latest)",
-          "windows-first-run (windows-latest)"
-        ],
-        "workflowJobs": [
-          "pr-body-lint",
-          "typecheck",
-          "fast-contract",
-          "crlf-checkout",
-          "windows-first-run",
-          "integration-shard",
-          "boundaries",
-          "package-policy",
-          "supply-chain",
-          "gui-build",
-          "node26-compatibility"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
-      },
-      "allowlistPolicy": {
-        "allowed": true,
-        "location": ".github/workflows/rewrite-ci.yml",
-        "adrOrDecisionRequired": false,
-        "notes": "This is not a human-authored PR bypass. It only lets required jobs complete quickly for Mergify synthetic queue PR body or metadata edits after source checks already ran for the queue head."
-      },
-      "changeControl": {
-        "ordinaryImplementationMayModify": false,
-        "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          ".github/workflows/rewrite-ci.yml",
-          ".github/branch-protection.md",
-          "tools/gate-manifest.json"
-        ]
-      },
-      "bypassFixtureRequired": false,
-      "executionSurfaces": {
-        "packageJson": {
-          "check": false,
-          "checkPr": false,
-          "script": null
-        },
-        "rewriteCi": {
-          "pullRequestJobs": [
-            "pr-body-lint",
-            "typecheck",
-            "fast-contract",
-            "crlf-checkout",
-            "windows-first-run",
-            "integration-shard",
-            "boundaries",
-            "package-policy",
-            "supply-chain",
-            "gui-build",
-            "node26-compatibility"
-          ],
-          "nonPullRequestJobs": []
-        },
-        "branchProtection": {
-          "required": true,
-          "contexts": [
-            "pr-body-lint",
-            "typecheck (24)",
-            "fast-contract",
-            "integration-shard (1)",
-            "integration-shard (2)",
-            "integration-shard (3)",
-            "integration-shard (4)",
-            "integration-shard (5)",
-            "integration-shard (6)",
-            "boundaries",
-            "package-policy",
-            "supply-chain",
-            "gui-build",
-            "node26-compatibility",
-            "crlf-checkout",
-            "windows-first-run (ubuntu-latest)",
-            "windows-first-run (windows-latest)"
-          ]
-        },
-        "classes": [
-          "pr"
-        ]
-      },
-      "deterministic": false,
-      "positiveControl": {
-        "status": "not-applicable",
-        "evidence": [
-          "Control-flow reuse marker; it performs no source validation and may run only with same-SHA proof."
         ]
       }
     },
@@ -1248,7 +1117,7 @@
       "command": "npm run test:gui:e2e",
       "category": "smoke",
       "tier": "manual-only",
-      "tierReason": "decision/dec_mrat10bn: headed GUI E2E tests run only by explicit local invocation; headless GitHub CI has low signal and previously caused merge-queue hangs.",
+      "tierReason": "decision/dec_mrat10bn: headed GUI E2E tests run only by explicit local invocation; headless GitHub CI has low signal.",
       "authoritySource": [
         "task_01KWGEEG8DB00Z6A5BDXR22702 PRE-03",
         "task_01KWY818D8X6V2WC00D9SMN6C0 PRE03-R1",
@@ -2923,82 +2792,6 @@
         "status": "covered",
         "evidence": [
           "tools/check-integration-test-shards.test.mjs"
-        ]
-      }
-    },
-    {
-      "id": "check-mergify-queue-policy",
-      "command": "npm run harness:check-mergify-queue-policy",
-      "category": "meta-governance",
-      "tier": "pr-required",
-      "tierReason": null,
-      "authoritySource": [
-        ".mergify.yml",
-        "tools/gate-manifest.json",
-        "decision:dec_8B16B68483C12901EDCD5C4F68"
-      ],
-      "consumerScope": [
-        "Mergify must derive required checks from GitHub branch protection and automatically requeue dequeued merge-queue PRs only after checks recover, for at most two automatic attempts"
-      ],
-      "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
-      },
-      "allowlistPolicy": {
-        "allowed": false,
-        "location": null,
-        "adrOrDecisionRequired": false,
-        "notes": "Queue policy validation is fail-closed and has no allowlist."
-      },
-      "changeControl": {
-        "ordinaryImplementationMayModify": false,
-        "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          ".mergify.yml",
-          "tools/check-mergify-queue-policy.mjs",
-          "package.json:scripts.harness:check-mergify-queue-policy",
-          "tools/gate-manifest.json"
-        ]
-      },
-      "bypassFixtureRequired": false,
-      "executionSurfaces": {
-        "packageJson": {
-          "check": true,
-          "checkPr": true,
-          "script": "harness:check-mergify-queue-policy"
-        },
-        "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
-        },
-        "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
-        },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
-      },
-      "deterministic": true,
-      "positiveControl": {
-        "status": "covered",
-        "evidence": [
-          "tools/check-mergify-queue-policy.test.mjs"
         ]
       }
     },

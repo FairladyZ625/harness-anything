@@ -5,13 +5,18 @@ import { execFileSync, spawn } from "node:child_process";
 import { lstatSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { dispatchIsolatedTestCommand, parseToolOptions, renderToolHelp, toolOption, toolValue } from "./tool-command-contract.mjs";
+import {
+  dispatchIsolatedTestCommand,
+  parseToolOptions,
+  renderToolHelp,
+  toolOption,
+  toolValue,
+} from "./tool-command-contract.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 export const sourceRootAllowlist = Object.freeze([
   ".github",
   ".gitignore",
-  ".mergify.yml",
   "README.md",
   "docs-release",
   "eslint.config.mjs",
@@ -21,36 +26,47 @@ export const sourceRootAllowlist = Object.freeze([
   "scripts",
   "skills",
   "tools",
-  "tsconfig.json"
+  "tsconfig.json",
 ]);
 
 export function parseDispatchArgs(argv) {
   const parsed = parseToolOptions(dispatchIsolatedTestCommand, argv);
   if (parsed.help) return { help: true };
-  const options = { target: toolValue(parsed, "--target") ?? toolOption(dispatchIsolatedTestCommand, "--target").defaultValue, tier: toolValue(parsed, "--tier"), file: toolValue(parsed, "--file") };
+  const options = {
+    target: toolValue(parsed, "--target") ?? toolOption(dispatchIsolatedTestCommand, "--target").defaultValue,
+    tier: toolValue(parsed, "--tier"),
+    file: toolValue(parsed, "--file"),
+  };
   return options;
 }
 
 export function testRunnerArgs(options) {
-  return ["node", "tools/run-node-tests.mjs", ...(options.tier === undefined ? ["--file", options.file] : ["--tier", options.tier])];
+  return [
+    "node",
+    "tools/run-node-tests.mjs",
+    ...(options.tier === undefined ? ["--file", options.file] : ["--tier", options.tier]),
+  ];
 }
 
 export function sourceArchiveArgs(platform = process.platform, sourceRoot = repoRoot) {
-  return [
-    ...(platform === "darwin" ? ["--no-xattrs"] : []),
-    "-cf", "-", "-C", sourceRoot,
-    "--null", "-T", "-"
-  ];
+  return [...(platform === "darwin" ? ["--no-xattrs"] : []), "-cf", "-", "-C", sourceRoot, "--null", "-T", "-"];
 }
 
 export function sourceRsyncArgs(sourceRoot, destination) {
   return ["-a", "--delete", "--from0", "--files-from=-", `${sourceRoot}/`, destination];
 }
 
-export function sourceFileList(sourceRoot = repoRoot, allowedRoots = sourceRootAllowlist, candidates = gitWorktreeFiles(sourceRoot)) {
+export function sourceFileList(
+  sourceRoot = repoRoot,
+  allowedRoots = sourceRootAllowlist,
+  candidates = gitWorktreeFiles(sourceRoot),
+) {
   const allowed = new Set(allowedRoots);
   return candidates
-    .filter((entry) => entry !== "" && !path.isAbsolute(entry) && entry.split("/")[0] !== ".." && allowed.has(entry.split("/")[0]))
+    .filter(
+      (entry) =>
+        entry !== "" && !path.isAbsolute(entry) && entry.split("/")[0] !== ".." && allowed.has(entry.split("/")[0]),
+    )
     .filter((entry) => pathExists(path.join(sourceRoot, entry)))
     .sort();
 }
@@ -62,7 +78,7 @@ export function posixTestScript(workspaceRoot, stateRoot, options) {
     `cd ${shellQuote(workspaceRoot)}`,
     "npm ci --no-audit --no-fund",
     `node tools/test-hermetic-preflight.mjs --user-root ${shellQuote(stateRoot)}`,
-    `HARNESS_DAEMON_USER_ROOT=${shellQuote(stateRoot)} ${command}`
+    `HARNESS_DAEMON_USER_ROOT=${shellQuote(stateRoot)} ${command}`,
   ].join("\n");
 }
 
@@ -78,7 +94,7 @@ export function powerShellTestScript(workspaceRoot, stateRoot, options) {
     "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
     `$env:HARNESS_DAEMON_USER_ROOT = ${powerShellLiteral(stateRoot)}`,
     `& ${command}`,
-    "exit $LASTEXITCODE"
+    "exit $LASTEXITCODE",
   ].join("\n");
 }
 
@@ -96,12 +112,15 @@ export async function main(argv = process.argv.slice(2)) {
   }
   const runId = `harness-test-isolation-${process.pid}-${randomUUID()}`;
   const startedAt = Date.now();
-  console.log(`[test-isolation] target=${options.target} selection=${options.tier ? `tier:${options.tier}` : `file:${options.file}`} run=${runId}`);
-  const exitCode = options.target === "ubuntu"
-    ? await runUbuntu(options, runId)
-    : options.target === "docker"
-      ? await runDocker(options, runId)
-      : await runWindows(options, runId);
+  console.log(
+    `[test-isolation] target=${options.target} selection=${options.tier ? `tier:${options.tier}` : `file:${options.file}`} run=${runId}`,
+  );
+  const exitCode =
+    options.target === "ubuntu"
+      ? await runUbuntu(options, runId)
+      : options.target === "docker"
+        ? await runDocker(options, runId)
+        : await runWindows(options, runId);
   console.log(`[test-isolation] target=${options.target} exit=${exitCode} duration_ms=${Date.now() - startedAt}`);
   return exitCode;
 }
@@ -113,8 +132,10 @@ async function runUbuntu(options, runId) {
   let exitCode = 1;
   try {
     console.log(`[test-isolation] sync=rsync destination=ubuntu:${workspaceRoot}`);
-    if (await run("ssh", ["ubuntu", `mkdir -p -- ${shellQuote(workspaceRoot)}`]) === 0
-      && await runWithInput("rsync", sourceRsyncArgs(repoRoot, `ubuntu:${workspaceRoot}/`), encodeFileList(files)) === 0) {
+    if (
+      (await run("ssh", ["ubuntu", `mkdir -p -- ${shellQuote(workspaceRoot)}`])) === 0 &&
+      (await runWithInput("rsync", sourceRsyncArgs(repoRoot, `ubuntu:${workspaceRoot}/`), encodeFileList(files))) === 0
+    ) {
       exitCode = await run("ssh", ["ubuntu", posixTestScript(workspaceRoot, stateRoot, options)]);
     }
   } finally {
@@ -131,10 +152,24 @@ async function runDocker(options, runId) {
   let created = false;
   let exitCode = 1;
   try {
-    if (await run("docker", ["create", "--name", container, "--workdir", workspaceRoot, "--entrypoint", "sh", "plt-center-testbed/source:latest", "-lc", posixTestScript(workspaceRoot, stateRoot, options)]) === 0) {
+    if (
+      (await run("docker", [
+        "create",
+        "--name",
+        container,
+        "--workdir",
+        workspaceRoot,
+        "--entrypoint",
+        "sh",
+        "plt-center-testbed/source:latest",
+        "-lc",
+        posixTestScript(workspaceRoot, stateRoot, options),
+      ])) === 0
+    ) {
       created = true;
       console.log(`[test-isolation] sync=tar destination=docker:${container}:${workspaceRoot}`);
-      if (await copyArchive(["docker", "cp", "-", `${container}:${workspaceRoot}`]) === 0) exitCode = await run("docker", ["start", "-a", container]);
+      if ((await copyArchive(["docker", "cp", "-", `${container}:${workspaceRoot}`])) === 0)
+        exitCode = await run("docker", ["start", "-a", container]);
     }
   } finally {
     if (created) {
@@ -154,14 +189,17 @@ async function runWindows(options, runId) {
       "$ProgressPreference = 'SilentlyContinue'",
       `$root = Join-Path $env:TEMP ${powerShellLiteral(runId)}`,
       "New-Item -ItemType Directory -Force -Path $root | Out-Null",
-      "[Console]::Out.Write($root)"
+      "[Console]::Out.Write($root)",
     ].join("\n");
     workspaceRoot = (await runCapture("ssh", powerShellArgs(createScript))).trim();
     if (workspaceRoot) {
       console.log(`[test-isolation] sync=tar destination=windows:${workspaceRoot}`);
       const extractScript = `$ProgressPreference = 'SilentlyContinue'\ntar -xf - -C ${powerShellLiteral(workspaceRoot)}`;
-      if (await copyArchive(["ssh", "windows-vm", ...powerShellArgs(extractScript).slice(1)]) === 0) {
-        exitCode = await run("ssh", powerShellArgs(powerShellTestScript(workspaceRoot, `${workspaceRoot}\\.test-isolation-state`, options)));
+      if ((await copyArchive(["ssh", "windows-vm", ...powerShellArgs(extractScript).slice(1)])) === 0) {
+        exitCode = await run(
+          "ssh",
+          powerShellArgs(powerShellTestScript(workspaceRoot, `${workspaceRoot}\\.test-isolation-state`, options)),
+        );
       }
     }
   } finally {
@@ -175,12 +213,25 @@ async function runWindows(options, runId) {
 }
 
 function powerShellArgs(script) {
-  return ["windows-vm", "powershell", "-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
+  return [
+    "windows-vm",
+    "powershell",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-OutputFormat",
+    "Text",
+    "-EncodedCommand",
+    Buffer.from(script, "utf16le").toString("base64"),
+  ];
 }
 
 async function copyArchive(destinationArgs) {
   const input = encodeFileList(sourceFileList());
-  const archive = spawn("tar", sourceArchiveArgs(), { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, COPYFILE_DISABLE: "1" } });
+  const archive = spawn("tar", sourceArchiveArgs(), {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, COPYFILE_DISABLE: "1" },
+  });
   const destination = spawn(destinationArgs[0], destinationArgs.slice(1), { stdio: ["pipe", "pipe", "pipe"] });
   archive.stdin.end(input);
   archive.stdout.pipe(destination.stdin);
@@ -208,14 +259,19 @@ async function runWithInput(command, args, input) {
 async function runCapture(command, args) {
   const child = spawn(command, args, { stdio: ["ignore", "pipe", "inherit"] });
   let output = "";
-  child.stdout.on("data", (chunk) => { output += chunk; });
+  child.stdout.on("data", (chunk) => {
+    output += chunk;
+  });
   const exitCode = await waitFor(child);
   return exitCode === 0 ? output : "";
 }
 
 function waitFor(child) {
   return new Promise((resolve) => {
-    child.once("error", (error) => { console.error(error.message); resolve(1); });
+    child.once("error", (error) => {
+      console.error(error.message);
+      resolve(1);
+    });
     child.once("close", (code) => resolve(code ?? 1));
   });
 }
@@ -242,7 +298,10 @@ function gitWorktreeFiles(sourceRoot) {
 }
 
 function pathExists(target) {
-  try { lstatSync(target); return true; } catch (error) {
+  try {
+    lstatSync(target);
+    return true;
+  } catch (error) {
     if (error?.code === "ENOENT") return false;
     throw error;
   }
@@ -252,4 +311,5 @@ function encodeFileList(files) {
   return Buffer.from(files.length === 0 ? "" : `${files.join("\0")}\0`);
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = await main();
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href)
+  process.exitCode = await main();

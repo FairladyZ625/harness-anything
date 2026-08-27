@@ -17,7 +17,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { isMergifyQueueDraft } from "./gates/mergify-queue-draft.mjs";
 
 const DEFAULT_ROOT = process.cwd();
 const DEFAULT_MANIFEST = "tools/gate-manifest.json";
@@ -47,7 +46,7 @@ export function deriveProtectedSurfaceRules(manifest) {
         rulesByDisplay.set(display, {
           display,
           manifestSurfaces: [],
-          matcher: makeSurfaceMatcher(display)
+          matcher: makeSurfaceMatcher(display),
         });
       }
       rulesByDisplay.get(display).manifestSurfaces.push(surface);
@@ -66,7 +65,7 @@ export function classifyProtectedChanges(changedFiles, rules) {
     }
     matches.push({
       file,
-      surfaces: matchingRules.map((rule) => rule.display)
+      surfaces: matchingRules.map((rule) => rule.display),
     });
   }
   return matches;
@@ -82,7 +81,7 @@ export function checkPrGovernance({ body, changedFiles, manifest }) {
       skipped: true,
       protectedChanges,
       rules,
-      issues: []
+      issues: [],
     };
   }
 
@@ -91,7 +90,9 @@ export function checkPrGovernance({ body, changedFiles, manifest }) {
   const issues = [];
 
   if (sections.length === 0) {
-    issues.push("Protected-surface change requires a `## Governance Declaration` / `## 治理声明` section in the PR body.");
+    issues.push(
+      "Protected-surface change requires a `## Governance Declaration` / `## 治理声明` section in the PR body.",
+    );
   } else if (!GOVERNANCE_REFERENCE.test(sectionText)) {
     issues.push("Governance declaration must cite at least one ADR, decision, or task reference.");
   }
@@ -99,7 +100,7 @@ export function checkPrGovernance({ body, changedFiles, manifest }) {
   if (BREAK_GLASS_YES.test(sectionText)) {
     for (const field of [
       { label: "break-glass reason", patterns: ["Break-glass reason", "Reason", "Break-glass 原因", "原因"] },
-      { label: "break-glass scope", patterns: ["Break-glass scope", "Scope", "Break-glass 范围", "范围"] }
+      { label: "break-glass scope", patterns: ["Break-glass scope", "Scope", "Break-glass 范围", "范围"] },
     ]) {
       if (!hasLabeledValue(sectionText, field.patterns)) {
         issues.push(`Break-glass declaration must include a non-empty ${field.label}.`);
@@ -116,7 +117,7 @@ export function checkPrGovernance({ body, changedFiles, manifest }) {
     skipped: false,
     protectedChanges,
     rules,
-    issues
+    issues,
   };
 }
 
@@ -192,7 +193,7 @@ function readChangedFiles({ root, changedFilesPath, changedFilesText, base, head
   if (base && head) {
     const result = spawnSync("git", ["diff", "--name-only", base, head, "--"], {
       cwd: root,
-      encoding: "utf8"
+      encoding: "utf8",
     });
     if (result.status !== 0) {
       throw new Error(`git diff --name-only failed: ${(result.stderr || result.stdout).trim()}`);
@@ -203,7 +204,10 @@ function readChangedFiles({ root, changedFilesPath, changedFilesText, base, head
 }
 
 function splitChangedFiles(text) {
-  return text.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  return text
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function readBody({ bodyText, bodyPath, bodyEnv }) {
@@ -214,11 +218,7 @@ function readBody({ bodyText, bodyPath, bodyEnv }) {
 }
 
 function normalizePath(value) {
-  return String(value)
-    .replaceAll("\\", "/")
-    .replace(/^\.\//u, "")
-    .replace(/^\/+/u, "")
-    .trim();
+  return String(value).replaceAll("\\", "/").replace(/^\.\//u, "").replace(/^\/+/u, "").trim();
 }
 
 function escapeRegex(value) {
@@ -239,7 +239,7 @@ function parseArgs(argv) {
     changedFilesText: null,
     changedFilesPath: "",
     base: "",
-    head: ""
+    head: "",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -273,35 +273,43 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  process.stdout.write([
-    "Usage: node tools/check-pr-governance.mjs --body-env PR_BODY --base-env PR_BASE_SHA --head-env PR_HEAD_SHA",
-    "",
-    "Checks whether changed PR paths touch manifest-derived protected surfaces.",
-    "If they do, the PR body must include `## Governance Declaration` / `## 治理声明` with ADR/decision/task evidence.",
-    "Break-glass declarations must include reason, scope, and a follow-up governance task."
-  ].join("\n"));
+  process.stdout.write(
+    [
+      "Usage: node tools/check-pr-governance.mjs --body-env PR_BODY --base-env PR_BASE_SHA --head-env PR_HEAD_SHA",
+      "",
+      "Checks whether changed PR paths touch manifest-derived protected surfaces.",
+      "If they do, the PR body must include `## Governance Declaration` / `## 治理声明` with ADR/decision/task evidence.",
+      "Break-glass declarations must include reason, scope, and a follow-up governance task.",
+    ].join("\n"),
+  );
   process.stdout.write("\n");
 }
 
 function printResult(result) {
   if (result.skipped) {
-    process.stdout.write(`PR governance declaration check skipped: no protected surfaces touched (${result.rules.length} manifest-derived rules).\n`);
+    process.stdout.write(
+      `PR governance declaration check skipped: no protected surfaces touched (${result.rules.length} manifest-derived rules).\n`,
+    );
     return;
   }
   if (result.ok) {
-    process.stdout.write(`PR governance declaration check passed: ${result.protectedChanges.length} protected path(s) declared.\n`);
+    process.stdout.write(
+      `PR governance declaration check passed: ${result.protectedChanges.length} protected path(s) declared.\n`,
+    );
     return;
   }
 
-  process.stderr.write([
-    "PR governance declaration check failed.",
-    "Protected changed paths:",
-    ...result.protectedChanges.map((change) => `- ${change.file} (${change.surfaces.join(", ")})`),
-    "",
-    ...result.issues,
-    "",
-    "How to fix: add `## Governance Declaration` / `## 治理声明` to the PR body, cite the authorizing ADR/decision/task, and fill break-glass fields only when used."
-  ].join("\n"));
+  process.stderr.write(
+    [
+      "PR governance declaration check failed.",
+      "Protected changed paths:",
+      ...result.protectedChanges.map((change) => `- ${change.file} (${change.surfaces.join(", ")})`),
+      "",
+      ...result.issues,
+      "",
+      "How to fix: add `## Governance Declaration` / `## 治理声明` to the PR body, cite the authorizing ADR/decision/task, and fill break-glass fields only when used.",
+    ].join("\n"),
+  );
   process.stderr.write("\n");
 }
 
@@ -309,21 +317,15 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const args = parseArgs(process.argv.slice(2));
     const body = readBody(args);
-    if (isMergifyQueueDraft({
-      headRefName: process.env.PR_HEAD_REF ?? "",
-      authorLogin: process.env.PR_AUTHOR_LOGIN ?? ""
-    })) {
-      process.stdout.write("PR governance declaration check skipped for Mergify merge-queue verification PR.\n");
-      process.exit(0);
-    }
-
     const manifest = readJson(args.manifest);
     const changedFiles = readChangedFiles(args);
     const result = checkPrGovernance({ body, changedFiles, manifest });
     printResult(result);
     process.exitCode = result.ok ? 0 : 1;
   } catch (error) {
-    process.stderr.write(`PR governance declaration check failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(
+      `PR governance declaration check failed: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
     process.exitCode = 1;
   }
 }

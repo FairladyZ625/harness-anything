@@ -57,7 +57,7 @@ export async function pullAndIngestCiObservations(
       duplicate = 0,
       lastRevision = cell.store.readHead()?.revision ?? 0;
     for (const run of runs) {
-      if (run.headBranch !== "main" && !run.headBranch.startsWith("mergify/merge-queue/")) continue;
+      if (run.headBranch !== "main") continue;
       const runRoot = path.join(temporaryRoot, String(run.databaseId));
       try {
         await runGh(
@@ -123,7 +123,7 @@ export async function pullAndIngestCiObservations(
 
 export function selectCiObservationRuns(runs: readonly CiWorkflowRun[], limit: number): readonly CiWorkflowRun[] {
   return runs
-    .filter((run) => run.headBranch === "main" || run.headBranch.startsWith("mergify/merge-queue/"))
+    .filter((run) => run.headBranch === "main")
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.databaseId - left.databaseId)
     .slice(0, limit);
 }
