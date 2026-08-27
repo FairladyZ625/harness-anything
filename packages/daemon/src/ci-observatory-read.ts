@@ -1,5 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { nonEmpty } from "./migration-import-report.ts";
+
+/** Test outcome labels are observation data, not lifecycle state. */
+const outcomeIs = (entry: { readonly status: string }, outcome: string): boolean => entry.status === outcome;
 import path from "node:path";
 import type { CiRunObservationEventV1, TaskProjection } from "../../kernel/src/index.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
@@ -87,7 +90,7 @@ export function readCiObservatory(input: {
       ...event.payload.run,
       occurredAt: event.occurredAt,
       pass:
-        finalTestOutcomes(event).every((entry) => entry.status !== "failed") &&
+        finalTestOutcomes(event).every((entry) => !outcomeIs(entry, "failed")) &&
         event.payload.gates.every((entry) => entry.pass),
       testCount: event.payload.tests.length,
       gateCount: event.payload.gates.length,
@@ -144,12 +147,12 @@ function flakeRows(
   const rows = new Map<string, { file: string; durations: number[]; attempts: number; flakes: number }>();
   for (const event of events)
     for (const observation of finalTestOutcomes(event)) {
-      if (observation.status === "skipped") continue;
+      if (outcomeIs(observation, "skipped")) continue;
       const key = observation.name,
         row = rows.get(key) ?? { file: observation.file, durations: [], attempts: 0, flakes: 0 };
       row.attempts += 1;
       row.durations.push(observation.durationMs);
-      if (observation.status === "passed" && observation.retry > 0) row.flakes += 1;
+      if (outcomeIs(observation, "passed") && observation.retry > 0) row.flakes += 1;
       rows.set(key, row);
     }
   return [...rows]
