@@ -637,6 +637,141 @@ test("attached task runtime settlement releases its execution lease before publi
   }
 });
 
+test("terminal settlement leaves an execution lease generation it never dispatched under held", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-lease-generation-"));
+  let exit: ((code: number | null) => void) | null = null;
+  try {
+    initIngressRepo(root, 4311);
+    const cell = await openRepoCell({
+      repoId: workspaceId("runtime-lease-generation"),
+      rootDir: canonicalRoot(root),
+      ownerId: "lease-generation-test",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "lease-generation-test",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
+      runtimeInstances: () => [
+        {
+          schemaVersion: 2,
+          instanceId: definition.instanceId,
+          name: "Codex Lease Generation",
+          kindId: definition.kindId,
+          installationId: definition.installationId,
+          providerId: definition.providerId,
+          models: [definition.model],
+          defaultModel: definition.model,
+          enabled: true,
+          permissionMode: "workspace-write",
+          codex: {},
+          authMode: definition.authMode,
+          authState: "configured",
+          authReadiness: { status: "ready", code: null, hint: null },
+          isolationState: "enforced",
+        },
+      ],
+      prepareRuntimeLaunch: async (_instanceId, request) => ({
+        definition,
+        installation,
+        executablePath: installation.executablePath,
+        args: ["exec", "--json", "-"],
+        env: process.env,
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: () => ({
+        pid: process.pid,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: (listener) => {
+          exit = listener;
+        },
+        terminate: () => undefined,
+      }),
+    });
+    try {
+      const taskId = "task-runtime-lease-generation",
+        executionId = "execution-runtime-lease-generation",
+        binding = {
+          actor: { principal: { personId: "person-lease-generation" }, executor: null },
+          source: "local" as const,
+        },
+        start = async () =>
+          (
+            await cell.run(
+              { kind: "task-start", taskId, executionId, executor: { kind: "agent", id: "lease-generation-worker" } },
+              binding,
+            )
+          ).outcome;
+      assert.equal(
+        (await cell.run({ kind: "task-create", taskId, title: "Lease generation" }, binding)).outcome,
+        "applied",
+      );
+      assert.equal(await start(), "applied");
+      const receipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Dispatch under the first lease generation",
+          taskId,
+          idempotencyKey: "lease-generation",
+        },
+        binding,
+      );
+      // The holder hands the execution over — release and restart — while the dispatch is still
+      // live. Both generations carry the same executionId, so only the lease version tells them
+      // apart, and the dispatch below belongs to the first one.
+      assert.equal((await cell.run({ kind: "task-release", taskId }, binding)).outcome, "applied");
+      assert.equal(await start(), "applied");
+      appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
+        kind: "provider_event",
+        occurredAt: "2026-08-24T12:00:00.000Z",
+        event: { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
+      });
+      appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
+        kind: "process_exit",
+        occurredAt: "2026-08-24T12:00:01.000Z",
+        exitCode: 0,
+        signal: null,
+      });
+      assert.ok(exit, "runtime exit listener must be attached before the provider exits");
+      exit(0);
+      await eventually(() =>
+        makeTaskEventStore({ repoId: "runtime-lease-generation", rootDir: root })
+          .read()
+          .events.some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === receipt.runtimeSessionId,
+          ),
+      );
+      const projection = makeTaskProjection({
+          rootDir: root,
+          eventStore: makeTaskEventStore({ repoId: "runtime-lease-generation", rootDir: root }),
+        }),
+        lease = projection.read(taskId).snapshot.lease;
+      projection.close();
+      assert.equal(lease?.phase, "held", "a stale dispatch must not release the lease generation that replaced it");
+      assert.equal(lease?.executionId, executionId);
+      const spawned = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Dispatch under the surviving lease generation",
+          taskId,
+          idempotencyKey: "lease-generation-next",
+        },
+        binding,
+      );
+      assert.equal(typeof spawned.dispatchId, "string");
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("repo-cell restart re-adopts a live native runtime and settles an exit recorded while absent", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-re-adopt-")),
     root = path.join(parent, "repo"),
