@@ -50,6 +50,8 @@ type LeaderTurn = {
 type WorkerAttempt = {
   readonly attemptId: string;
   readonly workerId: string;
+  /** 派发该 attempt 的 leader 轮次(扇出树父子边);存量状态缺此字段 → DTO 归一为 null。 */
+  readonly leaderTurnId: string | null;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
   readonly rejection: string | null;
@@ -375,6 +377,7 @@ export function makeSquadCoordinator(input: {
             {
               attemptId,
               workerId: plan.workerId,
+              leaderTurnId,
               dispatchId,
               runtimeSessionId,
               rejection: null,
@@ -391,6 +394,7 @@ export function makeSquadCoordinator(input: {
           {
             attemptId,
             workerId: plan.workerId,
+            leaderTurnId,
             dispatchId: null,
             runtimeSessionId: null,
             rejection: errorText(error),
@@ -542,6 +546,15 @@ export function makeSquadCoordinator(input: {
     return new TextDecoder().decode(blob);
   }
 
+  /** 读面专用:receipt 缺失(未结算/台账缺行/内容包裁剪)呈 null 不抛——fail-closed
+   * 语义由上面的 resultText 独占;解码与控制路径同款,不二次解释字节。 */
+  function receiptText(row: TaskDispatchRow | undefined): string | null {
+    const match = row?.resultRef ? /^artifact:runtime-result\/sha256\/([0-9a-f]{64})$/u.exec(row.resultRef) : null;
+    if (!match) return null;
+    const blob = input.store().readContentBlob(match[1]!);
+    return blob ? new TextDecoder().decode(blob) || null : null;
+  }
+
   function readSquadRunState(squadRunId: string): SquadState | null {
     if (!validSquadRunId(squadRunId)) return null;
     ensureSquadRunProjection();
@@ -651,6 +664,7 @@ export function makeSquadCoordinator(input: {
                 : turn.decision.kind === "converged"
                   ? { kind: "converged" }
                   : { kind: "plan", dispatchCount: turn.decision.dispatches.length },
+            resultText: receiptText(row),
             status: row?.status ?? null,
             startedAt: row?.startedAt ?? null,
             endedAt: row?.endedAt ?? null,
@@ -661,6 +675,7 @@ export function makeSquadCoordinator(input: {
           return {
             attemptId: attempt.attemptId,
             workerId: attempt.workerId,
+            leaderTurnId: attempt.leaderTurnId ?? null,
             dispatchId: attempt.dispatchId,
             runtimeSessionId: attempt.runtimeSessionId,
             rejection: attempt.rejection,
