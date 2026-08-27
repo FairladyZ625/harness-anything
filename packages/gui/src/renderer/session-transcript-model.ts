@@ -82,7 +82,15 @@ export function sessionTranscriptTurns(
         const message = recordOf(event.message),
           messageId = stringOf(message?.id),
           content = Array.isArray(message?.content) ? message.content.map(recordOf).filter(isPresent) : [];
-        if (type === "assistant") current = turn(`message:${messageId ?? turns.length}`, at);
+        if (type === "assistant") {
+          const next = turn(`message:${messageId ?? turns.length}`, at);
+          if (current && current !== next && current.key.startsWith("message:") && current.status === "running") {
+            current.status = "completed";
+            current.endedAt = at;
+          }
+          current = next;
+          if (current.status === "unknown") current.status = "running";
+        }
         for (const part of content) {
           const partType = stringOf(part.type);
           if (partType === "tool_result" || partType === "web_search_tool_result") {

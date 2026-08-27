@@ -236,12 +236,44 @@ describe("session transcript replay", () => {
     const turns = sessionTranscriptTurns(records),
       markup = renderToStaticMarkup(createElement(SessionTranscriptTurns, { turns }));
     expect(turns).toHaveLength(2);
+    expect(turns.map((turn) => turn.status)).toEqual(["completed", "completed"]);
     expect(turns[0]?.items.map((item) => item.type)).toEqual(["thinking", "tool_call", "tool_result"]);
     expect(turns[1]?.items.map((item) => item.type)).toEqual(["thinking", "text"]);
     expect(markup.match(/data-testid="session-transcript-turn"/gu)).toHaveLength(2);
     expect(markup).toContain("Tool call");
     expect(markup).toContain("Tool result");
     expect(markup).toContain("Task complete.");
+  });
+
+  it("completes earlier Claude turns and fails only the turn closed by an error result", () => {
+    const turns = sessionTranscriptTurns([
+      {
+        kind: "provider_event",
+        occurredAt: "2026-08-26T05:02:11.000Z",
+        event: {
+          type: "assistant",
+          message: { id: "message-one", content: [{ type: "text", text: "First response." }] },
+        },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-08-26T05:02:12.000Z",
+        event: {
+          type: "assistant",
+          message: { id: "message-two", content: [{ type: "text", text: "Final response." }] },
+        },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-08-26T05:02:13.000Z",
+        event: { type: "result", is_error: true, result: "Provider failed." },
+      },
+    ]);
+
+    expect(turns.map(({ status, endedAt }) => ({ status, endedAt }))).toEqual([
+      { status: "completed", endedAt: "2026-08-26T05:02:12.000Z" },
+      { status: "failed", endedAt: "2026-08-26T05:02:13.000Z" },
+    ]);
   });
 
   it("states explicitly that a session without a dispatch has no replay record", () => {
