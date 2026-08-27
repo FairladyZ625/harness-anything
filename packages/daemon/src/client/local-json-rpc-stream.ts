@@ -1,19 +1,9 @@
 import net from "node:net";
 import { createInterface } from "node:readline";
 import { consumeKnownError } from "../../../kernel/src/index.ts";
-import {
-  validateAgentRuntimeAttach,
-  validateAgentRuntimeAttachEvent,
-  type AgentRuntimeAttachEvent,
-  type AgentRuntimeAttachResult,
-} from "../agent-runtime-stream.ts";
-import {
-  daemonAgentRuntimeStreamMethods,
-  daemonGuiStreamFacets,
-  DaemonProtocolContractError,
-  type DaemonGuiStreamPayloadMap,
-} from "../protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiStreamEvent, parseDaemonGuiStreamResult } from "../protocol/gui-result-validation.ts";
+import { type AgentRuntimeAttachEvent, type AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
+import { daemonStreamFacets, type DaemonStreamPayloadMap } from "../protocol/daemon-protocol.contract.ts";
+import { parseDaemonStreamEvent, parseDaemonStreamResult } from "../protocol/gui-result-validation.ts";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
 export type AgentRuntimeStreamValue = AgentRuntimeAttachResult | AgentRuntimeAttachEvent;
 // A stream that has attached once survives daemon unavailability by reconnecting — that is what
@@ -33,9 +23,6 @@ export interface DaemonStreamLost {
   readonly attempts: number;
   readonly lastError: string;
 }
-type DaemonStreamPayloadMap = DaemonGuiStreamPayloadMap & {
-  readonly "repo.agentRuntime.attach": { readonly runtimeSessionId: string; readonly afterCursor: string };
-};
 export async function streamAgentRuntimeAt(input: {
   readonly socketPath: string;
   readonly repoId: string;
@@ -68,11 +55,8 @@ export async function streamDaemonFacetAt(input: {
     cursor: string | number =
       input.method === "repo.agentRuntime.attach"
         ? (input.payload as DaemonStreamPayloadMap["repo.agentRuntime.attach"]).afterCursor
-        : (input.payload as DaemonGuiStreamPayloadMap["repo.terminal.attach"]).afterSeq;
-  const facet =
-    input.method === "repo.agentRuntime.attach"
-      ? daemonAgentRuntimeStreamMethods[0]
-      : daemonGuiStreamFacets.find((candidate) => candidate.method === input.method)!;
+        : (input.payload as DaemonStreamPayloadMap["repo.terminal.attach"]).afterSeq;
+  const facet = daemonStreamFacets.find((candidate) => candidate.method === input.method)!;
   const scheduleReconnect = (): void => {
     if (detached) return;
     if (reconnects >= reconnectAttemptLimit) {
@@ -133,10 +117,7 @@ export async function streamDaemonFacetAt(input: {
           };
           if (value.id === 2) {
             if (value.error) throw new Error(value.error.message ?? "daemon stream failed");
-            const initial =
-              input.method === "repo.agentRuntime.attach"
-                ? parseAgentRuntimeStreamValue<AgentRuntimeAttachResult>(value.result, validateAgentRuntimeAttach)
-                : parseDaemonGuiStreamResult(input.method, value.result);
+            const initial = parseDaemonStreamResult(input.method, value.result);
             input.onValue(initial);
             supported = initial.ok === true;
             if (initial.ok) {
@@ -152,10 +133,7 @@ export async function streamDaemonFacetAt(input: {
             resolve();
             if (!supported) next.end();
           } else if (value.method === facet.eventMethod) {
-            const event =
-              input.method === "repo.agentRuntime.attach"
-                ? parseAgentRuntimeStreamValue<AgentRuntimeAttachEvent>(value.params, validateAgentRuntimeAttachEvent)
-                : parseDaemonGuiStreamEvent(value.params);
+            const event = parseDaemonStreamEvent(input.method, value.params);
             cursor =
               input.method === "repo.agentRuntime.attach"
                 ? (event as AgentRuntimeAttachEvent).cursor
@@ -192,9 +170,4 @@ export async function streamDaemonFacetAt(input: {
     if (retry) clearTimeout(retry);
     socket?.end();
   };
-}
-function parseAgentRuntimeStreamValue<T>(value: unknown, validate: (value: unknown) => readonly string[]): T {
-  const errors = validate(value);
-  if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
-  return value as T;
 }

@@ -1,5 +1,5 @@
 import type { TerminalControlReceipt, TerminalSessionRow } from "../../../daemon/src/gui-s3-control.ts";
-import type { DaemonGuiStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { DaemonStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import type { TerminalStreamFrame } from "./terminal-model.ts";
 
@@ -34,7 +34,7 @@ type TerminalBridge = {
   readonly listTerminalSessions: (payload: RepoScope) => Promise<unknown>;
   readonly spawnTerminal: (payload: RepoScope & TerminalSpawnInput) => Promise<unknown>;
   readonly attachTerminal: (
-    payload: DaemonGuiStreamPayloadMap["repo.terminal.attach"] & RepoScope,
+    payload: DaemonStreamPayloadMap["repo.terminal.attach"] & RepoScope,
     onValue: (value: unknown) => void,
   ) => () => void;
   readonly sendTerminalInput: (

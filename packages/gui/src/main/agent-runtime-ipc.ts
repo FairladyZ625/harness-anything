@@ -1,7 +1,7 @@
 import type { IpcMainEvent } from "electron";
 import {
   daemonGuiStreamFacets,
-  type DaemonGuiStreamPayloadMap,
+  type DaemonStreamPayloadMap,
 } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { assertPreloadPayload } from "../preload/allowlist.ts";
@@ -11,6 +11,7 @@ import { isMainProcessRecord } from "./value-validation.ts";
 export interface AgentRuntimeIpcRegistrar {
   readonly on: (channel: string, listener: (event: IpcMainEvent, payload: unknown) => void) => void;
 }
+type GuiStreamMethod = (typeof daemonGuiStreamFacets)[number]["method"];
 export function registerAgentRuntimeIpc(
   registrar: AgentRuntimeIpcRegistrar,
   bridge: GuiServiceBridge,
@@ -57,11 +58,11 @@ export function registerAgentRuntimeIpc(
 }
 function checkedEnvelope(value: unknown): {
   readonly subscriptionId: string;
-  readonly payload: DaemonGuiStreamPayloadMap[keyof DaemonGuiStreamPayloadMap];
+  readonly payload: DaemonStreamPayloadMap[GuiStreamMethod];
 } {
   if (!isMainProcessRecord(value) || typeof value.subscriptionId !== "string" || !isMainProcessRecord(value.payload))
     throw new Error("Stream envelope is invalid.");
-  return value as { subscriptionId: string; payload: DaemonGuiStreamPayloadMap[keyof DaemonGuiStreamPayloadMap] };
+  return value as { subscriptionId: string; payload: DaemonStreamPayloadMap[GuiStreamMethod] };
 }
 function checkedSubscription(value: unknown): string {
   if (!isMainProcessRecord(value) || typeof value.subscriptionId !== "string")

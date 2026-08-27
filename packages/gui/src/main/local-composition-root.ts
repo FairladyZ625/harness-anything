@@ -3,7 +3,7 @@ import {
   daemonProtocolError,
   isDaemonGuiActionMethod,
   isDaemonGuiReadMethod,
-  type DaemonGuiStreamPayloadMap,
+  type DaemonStreamPayloadMap,
 } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import {
   parseDaemonGuiActionResponse,
@@ -56,8 +56,8 @@ export function createLocalGuiServiceBridge(
       return streamDaemonFacetAt({
         socketPath: target.socketPath,
         repoId: target.repoId,
-        method: route.rpcMethod as keyof DaemonGuiStreamPayloadMap,
-        payload: scoped.payload as DaemonGuiStreamPayloadMap[keyof DaemonGuiStreamPayloadMap],
+        method: route.rpcMethod as keyof DaemonStreamPayloadMap,
+        payload: scoped.payload as DaemonStreamPayloadMap[keyof DaemonStreamPayloadMap],
         onValue: emit,
         onClosed: (failure) =>
           emit({

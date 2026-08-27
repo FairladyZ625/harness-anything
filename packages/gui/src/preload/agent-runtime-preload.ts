@@ -1,11 +1,11 @@
 import {
   daemonGuiStreamFacets,
-  type DaemonGuiStreamPayloadMap,
+  type DaemonStreamPayloadMap,
 } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { assertPreloadPayload } from "./allowlist.ts";
 let sequence = 0;
 export type TerminalPreloadStream = (
-  payload: DaemonGuiStreamPayloadMap["repo.terminal.attach"],
+  payload: DaemonStreamPayloadMap["repo.terminal.attach"],
   onValue: (value: unknown) => void,
 ) => () => void;
 interface RendererIpc {

@@ -1,10 +1,10 @@
-import { daemonGuiActionMethods, daemonGuiStreamFacets } from "./daemon-protocol-gui-actions.ts";
+import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import {
   validateObserveTailPayload,
   type DaemonGuiActionMethod,
   type DaemonGuiRpcReadMethod,
-  type DaemonGuiStreamMethod,
+  type DaemonStreamMethod,
   type RpcEnumRule,
   type RpcShape,
 } from "./daemon-protocol-gui-types.ts";
@@ -38,8 +38,8 @@ export function isDaemonGuiActionMethod(method: string): method is DaemonGuiActi
   return daemonGuiActionMethods.some((entry) => entry.method === method);
 }
 
-export function isDaemonGuiStreamMethod(method: string): method is DaemonGuiStreamMethod {
-  return daemonGuiStreamFacets.some((entry) => entry.method === method);
+export function isDaemonStreamMethod(method: string): method is DaemonStreamMethod {
+  return daemonStreamFacets.some((entry) => entry.method === method);
 }
 
 // The executor declaration surface, derived from the same shapes validateDaemonRpcCall enforces — never

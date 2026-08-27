@@ -1,7 +1,7 @@
 import { presetMethods } from "../../../preset/src/preset-command-contract.ts";
 import type { ContractVersion } from "../../../kernel/src/domain/contract-version.ts";
 import { effectiveDaemonOwnedProtocolCommands } from "./daemon-protocol-commands.ts";
-import { daemonGuiActionMethods, daemonGuiStreamFacets } from "./daemon-protocol-gui-actions.ts";
+import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import { optionalEnum, shape } from "./daemon-protocol-gui-types.ts";
 import { daemonGuiActionSchemas, daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
@@ -338,30 +338,15 @@ export const fleetProtocolMethods = Object.freeze([
   },
 ] as const);
 
-export const daemonAgentRuntimeStreamMethods = Object.freeze([
-  {
-    id: "agentRuntime.attach",
-    phase: "Runtime-B",
-    method: "repo.agentRuntime.attach",
-    eventMethod: "repo.agentRuntime.attach.frame",
-    requiresRepo: true,
-    params: shape({
-      repo: shape({ repoId: "string" }),
-      payload: shape({ runtimeSessionId: "string", afterCursor: "string" }),
-    }),
-  },
-] as const);
-
 export const allDaemonProtocolMethods = Object.freeze([
   ...daemonProtocolMethods,
   ...runtimeInstanceMethods,
   ...runtimeInstanceAuthMethods,
   ...fleetProtocolMethods,
-  ...daemonAgentRuntimeStreamMethods,
   ...presetMethods,
   ...daemonGuiReadMethods,
   ...daemonGuiActionMethods,
-  ...daemonGuiStreamFacets,
+  ...daemonStreamFacets,
 ]);
 
 export const DAEMON_RPC_SCHEMA = Object.freeze({
@@ -413,10 +398,9 @@ export default Object.freeze({
     ...runtimeInstanceMethods,
     ...runtimeInstanceAuthMethods,
     ...fleetProtocolMethods,
-    ...daemonAgentRuntimeStreamMethods,
     ...daemonGuiReadMethods,
     ...daemonGuiActionMethods,
-    ...daemonGuiStreamFacets,
+    ...daemonStreamFacets,
   ]),
   gates: Object.freeze([]),
   guards: Object.freeze([]),
@@ -441,7 +425,7 @@ export {
   resolveThinCliCommand,
   thinCliCommands,
 } from "./daemon-protocol-commands.ts";
-export { daemonGuiActionMethods, daemonGuiStreamFacets } from "./daemon-protocol-gui-actions.ts";
+export { daemonGuiActionMethods, daemonGuiStreamFacets, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 export { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 export { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 export type {
@@ -455,9 +439,9 @@ export type {
   DaemonGuiReadPayloadMap,
   DaemonGuiReadResultMap,
   DaemonGuiRpcReadMethod,
-  DaemonGuiStreamMethod,
-  DaemonGuiStreamPayloadMap,
-  DaemonGuiStreamResultMap,
+  DaemonStreamMethod,
+  DaemonStreamPayloadMap,
+  DaemonStreamResultMap,
   DaemonHostOnlyGuiReadMethod,
   DaemonProtocolErrorResult,
   DaemonRelationQueryPayload,
@@ -492,7 +476,7 @@ export {
   DaemonProtocolContractError,
   isDaemonGuiActionMethod,
   isDaemonGuiReadMethod,
-  isDaemonGuiStreamMethod,
+  isDaemonStreamMethod,
   parseDaemonRpcParams,
   serializeDaemonRpcCall,
   validateDaemonRpcCall,

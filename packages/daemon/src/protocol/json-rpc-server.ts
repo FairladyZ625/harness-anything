@@ -5,16 +5,13 @@ import type { FleetEdgeConflictExitRequest, FleetEdgeDocSyncRequest } from "../f
 import type { DaemonRequestLogEntry } from "../request-log.ts";
 import type { DaemonTrafficLogEntry } from "../conn-log.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import { validateAgentRuntimeAttach, type AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import {
   actionForDaemonMethod,
-  daemonAgentRuntimeStreamMethods,
-  daemonGuiStreamFacets,
+  daemonStreamFacets,
   daemonProtocolError,
-  DaemonProtocolContractError,
   isDaemonGuiActionMethod,
   isDaemonGuiReadMethod,
-  isDaemonGuiStreamMethod,
+  isDaemonStreamMethod,
   jsonRpcMethodContracts,
   parseDaemonRpcParams,
   type DaemonSessionEnvironment,
@@ -22,7 +19,7 @@ import {
 import {
   parseDaemonGuiActionResult,
   parseDaemonGuiReadResult,
-  parseDaemonGuiStreamResult,
+  parseDaemonStreamResult,
 } from "./gui-result-validation.ts";
 import {
   isJsonObject,
@@ -392,7 +389,7 @@ export function createJsonRpcProtocolServer(options: {
         );
       }
     }
-    if (request.method === "repo.agentRuntime.attach" || isDaemonGuiStreamMethod(request.method)) {
+    if (isDaemonStreamMethod(request.method)) {
       const repo = (params.repo as JsonObject).repoId as string,
         payload = params.payload as JsonObject;
       try {
@@ -410,16 +407,10 @@ export function createJsonRpcProtocolServer(options: {
                   payload.afterSeq as number,
                   options.authContext,
                 ),
-          initial =
-            request.method === "repo.agentRuntime.attach"
-              ? parseAgentRuntimeStreamResult(subscription.initial)
-              : parseDaemonGuiStreamResult(request.method, subscription.initial);
+          initial = parseDaemonStreamResult(request.method, subscription.initial);
         if (initial.ok) {
           subscriptions.add(subscription);
-          const eventMethod =
-            request.method === "repo.agentRuntime.attach"
-              ? daemonAgentRuntimeStreamMethods[0].eventMethod
-              : daemonGuiStreamFacets.find((facet) => facet.method === request.method)!.eventMethod;
+          const eventMethod = daemonStreamFacets.find((facet) => facet.method === request.method)!.eventMethod;
           setImmediate(() => pump(subscription, eventMethod));
         }
         return reply(initial as unknown as JsonObject);
@@ -609,11 +600,6 @@ export function createJsonRpcProtocolServer(options: {
   }
 }
 
-function parseAgentRuntimeStreamResult(value: unknown): AgentRuntimeAttachResult {
-  const errors = validateAgentRuntimeAttach(value);
-  if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
-  return value as AgentRuntimeAttachResult;
-}
 function repoIdFromParams(params: JsonObject): string {
   const repo = params.repo;
   return isJsonObject(repo) && typeof repo.repoId === "string" ? repo.repoId : "";
