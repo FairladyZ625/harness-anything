@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
+import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 export const cli = path.resolve("packages/cli/src/index.ts");
 export const builtCli = path.resolve("packages/cli/dist/cli/src/index.js");
@@ -124,6 +125,7 @@ export function register(
   repoId: string,
   entry = cli,
 ): void {
+  seedSettingsEvent({ rootDir: root, repoId });
   assert.equal(
     run(
       root,

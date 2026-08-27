@@ -31,7 +31,7 @@ import {
   parseDaemonStreamResult,
 } from "../src/protocol/gui-result-validation.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
@@ -446,7 +446,7 @@ test("task writes keep aggregate CAS after runtime events advance the shared wor
     );
     await cell.close();
     cell = undefined;
-    const runtime = fixtureAtRevision(rootDir, 2);
+    const runtime = fixtureAtRevision(rootDir, makeTaskEventStore({ repoId: "runtime-cas", rootDir }).read().revision + 1);
     for (const event of runtime)
       makeTaskEventStore({ repoId: "runtime-cas", rootDir }).append({
         event,

@@ -9,7 +9,7 @@ import {
   canonicalRoot,
   workspaceId,
 } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../../daemon/src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
 
@@ -138,7 +138,7 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
       rootDir: fixture.alpha,
       repoId: "alpha",
     }).read();
-    assert.equal(materialized.revision, 2);
+    assert.equal(materialized.revision, directReceipt.revision);
     assert.equal(
       materialized.events.some((event) => event.opId === childEvent.opId),
       true,

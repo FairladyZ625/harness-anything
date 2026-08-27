@@ -9,7 +9,6 @@ import {
   decideDocWrite,
   DOC_POLICY_ID,
   parseDocWriteIntent,
-  registerDaemonRepo,
   serializeCanonicalEvent,
   serializeEventHead,
   sha256Bytes,
@@ -21,6 +20,7 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { FleetAssignmentRecord } from "../src/fleet/center.ts";
 import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 test("activation bootstraps one repo cut from the exact L2 manifest and reads content from L1 CAS", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-cut-"));

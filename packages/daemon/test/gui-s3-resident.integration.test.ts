@@ -6,14 +6,16 @@ import net from "node:net";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { registerDaemonRepo } from "../../kernel/src/index.ts";
 import { streamDaemonFacetAt } from "../../gui/src/main/agent-runtime-stream-client.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import {
+  openBootstrappedRepoCell as openRepoCell,
+  registerBootstrappedDaemonRepo as registerDaemonRepo,
+} from "./repo-settings.fixture.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
@@ -68,7 +70,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
       const spawnedRuntime = await rpc("repo.agentRuntime.spawn", { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "resident-codex", model: "runtime-test-model-2", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "resident-runtime" } }); assert.equal(spawnedRuntime.outcome, "applied"); const overview = await rpc("repo.agentRuntime.overview", { repo: { repoId: "alpha" }, payload: {} }), session = (overview.sessions as Array<Record<string, unknown>>).find((candidate) => candidate.runtimeSessionId === spawnedRuntime.runtimeSessionId); assert.equal(session?.instanceId, "resident-codex"); assert.equal((session?.definitionSnapshot as Record<string, unknown>).installationId, "installation-codex"); assert.equal((session?.definitionSnapshot as Record<string, unknown>).model, "runtime-test-model-2"); assert.equal(launched?.executablePath, executablePath); assert.deepEqual(launched?.args, ["exec", "--json", "--sandbox", "danger-full-access", "--model", "runtime-test-model-2", "-"]); assert.match(String((launched?.env as Record<string, unknown>).HOME), /runtime-instances\/resident-codex\/home$/u);
       const secretRejected = await rpc("repo.agentRuntime.spawn", { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "resident-codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "bad", nested: { apiToken: "must-not-cross" } } }); assert.equal(secretRejected.ok, false); assert.equal(secretRejected.code, "invalid_request"); assert.doesNotMatch(JSON.stringify(secretRejected), /must-not-cross/u);
 
-      const terminal = await rpc("repo.terminal.spawn", { repo: { repoId: "alpha" }, payload: { idempotencyKey: "resident-pty", backend: "direct-pty", name: "Resident", cwd: { scope: "repo-root" }, shellProfileId: "default" } }); assert.equal(terminal.outcome, "applied", JSON.stringify(terminal)); const frames: Array<Record<string, unknown>> = []; let attachmentId = "";
+      const terminal = await rpc("repo.terminal.spawn", { repo: { repoId: "alpha" }, payload: { idempotencyKey: "resident-pty", backend: "direct-pty", name: "Resident", cwd: { scope: "repo-root" }, shellProfileId: process.platform === "win32" ? "powershell" : "sh" } }); assert.equal(terminal.outcome, "applied", JSON.stringify(terminal)); const frames: Array<Record<string, unknown>> = []; let attachmentId = "";
       const detachStream = await streamDaemonFacetAt({ socketPath: endpoint, repoId: "alpha", method: "repo.terminal.attach", payload: { sessionId: terminal.sessionId as string, afterSeq: 0 }, timeoutMs: 2_000, onValue: (value) => { const frame = value as Record<string, unknown>; if (frame.schema === "terminal-attach/v1") attachmentId = String(frame.attachmentId); else frames.push(frame); } });
       assert.equal((await rpc("repo.terminal.resize", { repo: { repoId: "alpha" }, payload: { sessionId: terminal.sessionId, cols: 101, rows: 32 } })).state, "running");
       // `echo` is a shell builtin in both the POSIX profiles and PowerShell, so this

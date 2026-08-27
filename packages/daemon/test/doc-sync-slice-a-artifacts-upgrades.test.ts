@@ -21,7 +21,7 @@ import {
   canonicalRoot,
   workspaceId,
 } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import {
   actor,
@@ -227,6 +227,7 @@ test("artifact unknown settlement returns the canonical DocEvent receipt id with
       "applied",
     );
     writeFileSync(path.join(rootDir, "unknown.md"), "# Unknown\n");
+    const revisionBeforeArtifact = makeTaskEventStore({ repoId: "artifact-unknown", rootDir }).read().revision;
     armed = true;
     const unknown = await cell.run(
       {
@@ -247,7 +248,7 @@ test("artifact unknown settlement returns the canonical DocEvent receipt id with
     assert.equal(
       makeTaskEventStore({ repoId: "artifact-unknown", rootDir }).read()
         .revision,
-      2,
+      revisionBeforeArtifact + 1,
     );
     await cell.close();
     cell = await openRepoCell({

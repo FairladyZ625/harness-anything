@@ -36,8 +36,8 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 const DOC_POLICY_ID = "markdown-body-replaceable/v1";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;

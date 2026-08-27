@@ -14,7 +14,7 @@ import {
   canonicalRoot,
   workspaceId,
 } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 test("task read surfaces, dry-runs, idempotency, structured input, and supersede facade stay closed", async () => {

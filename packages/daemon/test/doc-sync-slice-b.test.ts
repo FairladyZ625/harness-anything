@@ -10,7 +10,8 @@ import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { DOC_COMMAND_FRAME_MAX_BYTES } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell, type RepoCellBinding } from "../src/repo-cell.ts";
+import { type RepoCellBinding } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
 
 const policyId = "markdown-body-replaceable/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -232,6 +233,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
       unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" },
     }) as const;
   try {
+    seedSettingsEvent({ rootDir: fixture.rootDir, repoId: "rbac" });
     await host.admin({ kind: "register", rootDir: fixture.rootDir, repoId: "rbac" }, auth(fixture.ids.admin));
     assert.equal(
       (await host.run("rbac", { kind: "task-create", taskId: "task-doc", title: "Docs" }, auth(fixture.ids.writer)))

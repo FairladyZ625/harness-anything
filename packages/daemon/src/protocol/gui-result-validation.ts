@@ -9,7 +9,7 @@ import {
   validateAgentRuntimeSessionGroups,
   validateAgentRuntimeSession,
 } from "../agent-runtime-contract.ts";
-import { validateSettingsV1 } from "../../../kernel/src/domain/settings.ts";
+import { validateSettingsV1 } from "../../../kernel/src/index.ts";
 import {
   validateAgentEntityCatalog,
   validateAgentEntityDetail,

@@ -8,6 +8,7 @@ import test from "node:test";
 import { daemonSingletonLockPath } from "../../daemon/src/daemon-singleton.ts";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { daemonPidPath, readDaemonPid } from "../../daemon/src/runtime.ts";
+import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -144,7 +145,7 @@ function legacyFixture(root: string, taskCount: number): void {
   git(root, "init", "--quiet"); git(root, "config", "user.name", "Legacy Fixture"); git(root, "config", "user.email", "legacy@example.test");
   git(root, "add", "."); git(root, "commit", "--quiet", "-m", "legacy bulk fixture");
 }
-function register(root: string, userRoot: string, repoId: string): void { assert.equal(run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]).ok, true); }
+function register(root: string, userRoot: string, repoId: string): void { seedSettingsEvent({ rootDir: root, repoId }); assert.equal(run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]).ok, true); }
 function run(root: string, userRoot: string, args: readonly string[]): Record<string, unknown> {
   const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], { encoding: "utf8", env: cliEnv(root, userRoot) });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`); return JSON.parse(result.stdout) as Record<string, unknown>; }
