@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import { actor, git, initRepo, opaqueTextualMediaType, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 test("status, dry-run, and submit share the repeatable-path scanner and automatic base", async () => {

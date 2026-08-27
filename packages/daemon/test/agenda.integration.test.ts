@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { canonicalRoot, workspaceId, type DaemonAgendaResult } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const actor = { principal: { personId: "person-agenda" }, executor: { kind: "agent", id: "codex-sol" } } as const;
 const binding = { actor, source: "local" as const };

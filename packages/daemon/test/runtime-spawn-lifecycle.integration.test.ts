@@ -14,7 +14,7 @@ import {
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { launchExitNotification } from "../src/runtime-spawn.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
@@ -195,8 +195,8 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         observed?.type === "runtime_installation_observed" && observed.payload.version,
         installation.version,
       );
-      assert.equal(events.indexOf(observed!), 0);
-      assert.equal(events.indexOf(dispatch!), 1);
+      assert.ok(events.indexOf(observed!) < events.indexOf(dispatch!));
+      assert.ok(events.indexOf(dispatch!) < events.indexOf(started!));
       assert.equal(
         dispatch?.type === "runtime_dispatch_requested" && dispatch.payload.instanceId,
         definition.instanceId,
@@ -507,9 +507,11 @@ test("attached task runtime settlement releases its execution lease before publi
         ),
         projection = makeTaskProjection({
           rootDir: root,
+          projectionPath: path.join(root, ".harness/cache/runtime-attached-tail-observer.sqlite"),
           eventStore: makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }),
-        }),
-        settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!,
+        });
+      projection.list();
+      const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!,
         taskSnapshot = projection.read(taskId).snapshot;
       projection.close();
       assert.deepEqual(
@@ -746,10 +748,12 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         ),
     );
     const projection = makeTaskProjection({
-        rootDir: root,
-        eventStore: makeTaskEventStore({ repoId, rootDir: root }),
-      }),
-      settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!;
+      rootDir: root,
+      projectionPath: path.join(parent, "runtime-re-adopt-live-observer.sqlite"),
+      eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+    });
+    projection.list();
+    const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!;
     projection.close();
     assert.deepEqual(
       {
@@ -811,10 +815,12 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         ),
     );
     const reopenedProjection = makeTaskProjection({
-        rootDir: root,
-        eventStore: makeTaskEventStore({ repoId, rootDir: root }),
-      }),
-      daemonlessSettlement = reopenedProjection.readRuntimeSession(String(absentReceipt.runtimeSessionId))!;
+      rootDir: root,
+      projectionPath: path.join(parent, "runtime-re-adopt-dead-observer.sqlite"),
+      eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+    });
+    reopenedProjection.list();
+    const daemonlessSettlement = reopenedProjection.readRuntimeSession(String(absentReceipt.runtimeSessionId))!;
     reopenedProjection.close();
     assert.deepEqual(
       {
@@ -831,7 +837,8 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         actor: { principal: { personId: "owner" }, executor: null },
         source: "local" as const,
       };
-    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Runtime Lost" }, binding)).outcome, "applied");
+    const taskCreateReceipt = await cell.run({ kind: "task-create", taskId, title: "Runtime Lost" }, binding);
+    assert.equal(taskCreateReceipt.outcome, "applied", JSON.stringify(taskCreateReceipt));
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
     rmSync(release, { force: true });
     const lostReceipt = await cell.spawnRuntime(

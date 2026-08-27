@@ -9,7 +9,7 @@ import test from "node:test";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
 

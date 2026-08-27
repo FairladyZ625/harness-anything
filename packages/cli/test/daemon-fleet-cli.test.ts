@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts"), quotaBytes = 64 * 1024 * 1024;
 
@@ -82,7 +83,7 @@ function setup(): { root: string; repo: string; edgeRepo: string; centerUser: st
   const badRoster = path.join(root, "bad-roster.json"); writeFileSync(badRoster, JSON.stringify({ schema: "fleet-roster/v1", nodes: [], assignments: [] }), "utf8");
   return { root, repo, edgeRepo, centerUser, edgeUser, viewRoot, key: path.join(tls, "server.key"), cert: path.join(tls, "server.pem"), ca: path.join(tls, "ca.pem"), roster, badRoster };
 }
-function register(fixture: ReturnType<typeof setup>): void { assert.equal(run(fixture, "center", ["daemon", "repo", "register", "--repo-id", "fleet-demo", "--root", fixture.repo]).ok, true); }
+function register(fixture: ReturnType<typeof setup>): void { seedSettingsEvent({ rootDir: fixture.repo, repoId: "fleet-demo" }); assert.equal(run(fixture, "center", ["daemon", "repo", "register", "--repo-id", "fleet-demo", "--root", fixture.repo]).ok, true); }
 function run(fixture: ReturnType<typeof setup>, machine: "center" | "edge", args: readonly string[]): Record<string, unknown> { const result = maybeRun(fixture, machine, args); assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`); return result.receipt; }
 function maybeRun(fixture: ReturnType<typeof setup>, machine: "center" | "edge", args: readonly string[]): { status: number | null; receipt: Record<string, unknown>; stderr: string } {
   const userRoot = machine === "center" ? fixture.centerUser : fixture.edgeUser, home = path.join(userRoot, "home");
