@@ -359,6 +359,7 @@
   "agentRuntime.squadRunNoDispatch": "无派工",
   "agentRuntime.squadRunRejection": "被拒:{reason}",
   "agentRuntime.squadRunTriggerInitial": "初始任务",
+  "agentRuntime.squadRunTriggerLeaderRetry": "leader 轮次 {ref} 后重试",
   "agentRuntime.squadRunTriggerWorkerOutcome": "worker 会话 {ref} 结算后",
   "agentRuntime.squadRunTriggerWorkerRejected": "尝试 {ref} 被拒后",
   "agentRuntime.squadRunDecisionPending": "决策待解析",

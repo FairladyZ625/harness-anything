@@ -22,9 +22,10 @@ export type SquadRunsListResult = {
   readonly sourceRevision: number;
 };
 
-/** 一个 leader 轮次的触发(G12 §2c 读面):initial / worker 会话结算回调 / worker 派工被拒。 */
+/** 一个 leader 轮次的触发(G12 §2c 读面):initial / leader 恢复重试 / worker 结算或派工被拒。 */
 export type SquadRunTriggerDto =
   | { readonly kind: "initial" }
+  | { readonly kind: "leader_retry"; readonly turnId: string; readonly reason: string }
   | { readonly kind: "worker_outcome"; readonly runtimeSessionId: string }
   | { readonly kind: "worker_rejected"; readonly attemptId: string };
 /** leader 轮次已解析的决策:派工计划(含派工数)或收敛。null = 决策尚未解析。 */
@@ -187,6 +188,12 @@ function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAtte
 function validSquadRunTrigger(value: unknown): value is SquadRunTriggerDto {
   if (!squadRunRecord(value) || typeof value.kind !== "string") return false;
   if (value.kind === "initial") return exactSquadRunFields(value, ["kind"]);
+  if (value.kind === "leader_retry")
+    return (
+      exactSquadRunFields(value, ["kind", "turnId", "reason"]) &&
+      squadRunText(value.turnId) &&
+      squadRunText(value.reason)
+    );
   if (value.kind === "worker_outcome")
     return exactSquadRunFields(value, ["kind", "runtimeSessionId"]) && squadRunText(value.runtimeSessionId);
   return (

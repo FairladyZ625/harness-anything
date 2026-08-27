@@ -31,6 +31,11 @@ type LeaderDecision =
 type LeaderTrigger =
   | { readonly kind: "initial" }
   | {
+      readonly kind: "leader_retry";
+      readonly turnId: string;
+      readonly reason: string;
+    }
+  | {
       readonly kind: "worker_outcome";
       readonly runtimeSessionId: string;
     }
@@ -236,8 +241,9 @@ export function makeSquadCoordinator(input: {
       const discovered = discoverWorkerCallbacks(state);
       if (discovered !== state) {
         writeState(discovered);
-        if (!discovered.currentLeaderRuntimeSessionId) await spawnPendingLeader(discovered);
       }
+      if (!discovered.currentLeaderRuntimeSessionId && discovered.pendingLeaderTriggers.length)
+        await spawnPendingLeader(discovered);
     }
   };
 
@@ -273,14 +279,13 @@ export function makeSquadCoordinator(input: {
       turn = state.leaderTurns.find((candidate) => candidate.runtimeSessionId === runtimeSessionId);
     if (!turn) return;
     if (!row || row.outcome !== "succeeded") {
-      writeState(
-        revise(state, {
-          phase: "failed",
-          currentLeaderRuntimeSessionId: null,
-          error: row
-            ? `Leader turn ${turn.turnId} ended with ${row.outcome ?? row.status}.`
-            : `Leader turn ${turn.turnId} has no TaskDispatchRow.`,
-        }),
+      await retryLeader(
+        state,
+        turn,
+        row
+          ? `Leader turn ${turn.turnId} ended with ${row.outcome ?? row.status}.`
+          : `Leader turn ${turn.turnId} has no TaskDispatchRow.`,
+        row,
       );
       return;
     }
@@ -289,13 +294,7 @@ export function makeSquadCoordinator(input: {
       decision = parseLeaderDecision(resultText(row.resultRef), state.runtimeInstanceId, state.workers);
     } catch (error) {
       consumeKnownError(error);
-      writeState(
-        revise(state, {
-          phase: "failed",
-          currentLeaderRuntimeSessionId: null,
-          error: errorText(error),
-        }),
-      );
+      await retryLeader(state, turn, errorText(error), row);
       return;
     }
     let updated = revise(state, {
@@ -311,20 +310,11 @@ export function makeSquadCoordinator(input: {
     if (decision.kind === "plan") {
       const activeWorkerIds = new Set(
         workerRows(updated)
-          .filter((worker) => worker.row?.outcome === null)
+          .filter((worker) => !worker.row || worker.row.outcome === null)
           .map((worker) => worker.attempt.workerId),
       );
-      const overlapping = decision.dispatches.find((dispatch) => activeWorkerIds.has(dispatch.workerId));
-      if (overlapping) {
-        writeState(
-          revise(updated, {
-            phase: "failed",
-            error: `Leader tried to redispatch active worker ${overlapping.workerId}.`,
-          }),
-        );
-        return;
-      }
-      for (const plan of decision.dispatches) updated = await spawnWorker(updated, plan, turn.turnId);
+      for (const plan of decision.dispatches.filter((dispatch) => !activeWorkerIds.has(dispatch.workerId)))
+        updated = await spawnWorker(updated, plan, turn.turnId);
     }
 
     updated = discoverWorkerCallbacks(updated);
@@ -343,12 +333,28 @@ export function makeSquadCoordinator(input: {
       );
       return;
     }
-    writeState(
-      revise(updated, {
-        phase: running ? "workers_running" : "failed",
-        error: running ? null : "Leader returned no work and did not declare convergence.",
-      }),
-    );
+    if (running) {
+      writeState(revise(updated, { phase: "workers_running", error: null }));
+      return;
+    }
+    await retryLeader(updated, turn, "Leader returned no work and did not declare convergence.");
+  }
+
+  async function retryLeader(
+    state: SquadState,
+    turn: LeaderTurn,
+    reason: string,
+    row?: TaskDispatchRow,
+  ): Promise<void> {
+    const retrying = revise(state, {
+      leaderProviderSessionId: row?.providerSessionId ?? state.leaderProviderSessionId,
+      currentLeaderRuntimeSessionId: null,
+      pendingLeaderTriggers: [{ kind: "leader_retry", turnId: turn.turnId, reason }, ...state.pendingLeaderTriggers],
+      phase: "planning",
+      error: reason,
+    });
+    writeState(retrying);
+    await spawnPendingLeader(retrying);
   }
 
   async function spawnWorker(state: SquadState, plan: WorkerPlan, leaderTurnId: string): Promise<SquadState> {
@@ -749,12 +755,15 @@ function initialLeaderPrompt(state: SquadState): string {
 function callbackLeaderPrompt(state: SquadState, trigger: LeaderTrigger, rows: readonly TaskDispatchRow[]): string {
   const statusRows = statusRowsForPrompt(state, rows);
   return [
-    "# Squad worker callback",
+    trigger.kind === "leader_retry" ? "# Squad leader retry" : "# Squad worker callback",
     `Trigger: ${JSON.stringify(trigger)}`,
+    ...(trigger.kind === "leader_retry" ? [`Previous turn could not advance: ${trigger.reason}`] : []),
     "Review the durable TaskDispatchRow receipts below. " +
       "Return runtime-batch/v1 to reassign or add work. " +
       "Return an empty dispatches array to accept this callback while other work runs. " +
-      'Return {"schema":"squad-decision/v1","action":"converged"} only when no worker is running.',
+      'Return {"schema":"squad-decision/v1","action":"converged"} only when no worker is running. ' +
+      "Return exactly one JSON object and no Markdown. " +
+      "Do not redispatch a worker whose receipt is still running; omit it and wait for its callback.",
     ...statusRows,
     `# Original mission\n${state.mission}`,
   ].join("\n\n");
@@ -870,6 +879,7 @@ function cwdPayload(rootDir: string, cwd: string): JsonObject {
 }
 
 function triggerKey(trigger: Exclude<LeaderTrigger, { readonly kind: "initial" }>): string {
+  if (trigger.kind === "leader_retry") return `retry:${trigger.turnId}`;
   return trigger.kind === "worker_outcome" ? `outcome:${trigger.runtimeSessionId}` : `rejected:${trigger.attemptId}`;
 }
 

@@ -556,6 +556,30 @@ describe("sessions page: squad run detail", () => {
     expect(markup).toMatch(/data-testid="squad-run-receipt-leader-2"[^>]*>[^<]*<\/summary>\s*<p[^>]*>no receipt yet/u);
   });
 
+  it("labels a leader recovery turn from its durable retry trigger", () => {
+    const retry = detailView({
+      detail: {
+        ...squadRunDetail,
+        run: {
+          ...squadRunDetail.run,
+          leaderTurns: squadRunDetail.run.leaderTurns.map((turn) =>
+            turn.turnId === "leader-2"
+              ? {
+                  ...turn,
+                  trigger: {
+                    kind: "leader_retry" as const,
+                    turnId: "leader-1",
+                    reason: "Leader result was not JSON.",
+                  },
+                }
+              : turn,
+          ),
+        },
+      },
+    });
+    expect(retry).toContain("retry after leader turn leader-1");
+  });
+
   it("keeps attempts without turn linkage in their own group with rejections visible", () => {
     const markup = detailView();
     expect(markup).toContain("Worker attempts without turn linkage (1)");

@@ -359,6 +359,7 @@
   "agentRuntime.squadRunNoDispatch": "no dispatch",
   "agentRuntime.squadRunRejection": "rejected: {reason}",
   "agentRuntime.squadRunTriggerInitial": "initial mission",
+  "agentRuntime.squadRunTriggerLeaderRetry": "retry after leader turn {ref}",
   "agentRuntime.squadRunTriggerWorkerOutcome": "after worker session {ref}",
   "agentRuntime.squadRunTriggerWorkerRejected": "after rejected attempt {ref}",
   "agentRuntime.squadRunDecisionPending": "decision pending",

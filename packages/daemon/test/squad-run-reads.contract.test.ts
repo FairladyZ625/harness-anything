@@ -64,6 +64,20 @@ const detail = {
         startedAt: null,
         endedAt: null,
       },
+      {
+        turnId: "leader-3",
+        trigger: {
+          kind: "leader_retry",
+          turnId: "leader-2",
+          reason: "Leader result was not JSON.",
+        },
+        dispatchId: "dispatch_000000000000000000000004",
+        runtimeSessionId: "runtime-leader-retry",
+        decision: null,
+        status: "running" as const,
+        startedAt: "2026-08-26T00:10:00.000Z",
+        endedAt: null,
+      },
     ],
     workerAttempts: [
       {
@@ -195,6 +209,19 @@ test("squad run read validator locks the orchestration-flow wire shape", () => {
           const { leaderTurnId, ...rest } = attempt;
           return leaderTurnId === null ? rest : { ...rest, leaderTurnId: 7 };
         }),
+      },
+    }),
+    [],
+  );
+  assert.notDeepEqual(
+    validateSquadRunRead({
+      ...detail,
+      run: {
+        ...detail.run,
+        leaderTurns: detail.run.leaderTurns.map((turn: { readonly trigger: { readonly kind: string } }) => ({
+          ...turn,
+          trigger: turn.trigger.kind === "leader_retry" ? { kind: "leader_retry", turnId: "leader-2" } : turn.trigger,
+        })),
       },
     }),
     [],

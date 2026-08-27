@@ -247,6 +247,7 @@ function StatusWord({ status }: { readonly status: SessionStatus | null }) {
 
 function triggerLabel(trigger: SquadRunLeaderTurnDto["trigger"]): string {
   if (trigger.kind === "initial") return t("agentRuntime.squadRunTriggerInitial");
+  if (trigger.kind === "leader_retry") return t("agentRuntime.squadRunTriggerLeaderRetry", { ref: trigger.turnId });
   return trigger.kind === "worker_outcome"
     ? t("agentRuntime.squadRunTriggerWorkerOutcome", { ref: shortRef(trigger.runtimeSessionId, 10) })
     : t("agentRuntime.squadRunTriggerWorkerRejected", { ref: trigger.attemptId });
