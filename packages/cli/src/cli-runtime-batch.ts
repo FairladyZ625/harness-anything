@@ -5,6 +5,7 @@ import { runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
 import type { RuntimeBatchDeclaration, RuntimeBatchEntry, RuntimeBatchResult } from "./cli-types.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import { consumeKnownError, runCommandThroughDaemon } from "./daemon/client.ts";
+import { randomUUID } from "node:crypto";
 
 export async function runRuntimeBatch(
   command: ThinCommand,
@@ -31,26 +32,32 @@ export async function runRuntimeBatchDeclaration(
 ): Promise<JsonObject> {
   const results: RuntimeBatchResult[] = [];
   let next = 0;
-  const releasedTaskIds = new Set<string>();
-  const reacquisitions = new Map<string, Promise<JsonObject>>();
-  const reacquireReleasedTask = async (taskId: string): Promise<JsonObject | null> => {
-    if (!releasedTaskIds.has(taskId)) return null;
-    let pending = reacquisitions.get(taskId);
-    if (!pending) {
-      pending = runCommandThroughDaemon({
+  const spawn = (entry: RuntimeBatchEntry, idempotencyKey: string): Promise<JsonObject> =>
+    runRuntimeFacadeCommand(
+      {
         ...command,
-        method: "repo.task.run",
-        action: { kind: "task-start", taskId },
-      });
-      reacquisitions.set(taskId, pending);
-    }
-    const receipt = await pending;
-    if (reacquisitions.get(taskId) === pending) reacquisitions.delete(taskId);
-    if (receipt.ok === true && receipt.outcome === "applied") {
-      releasedTaskIds.delete(taskId);
-      return null;
-    }
-    return receipt;
+        method: "repo.agentRuntime.spawn",
+        action: { ...runtimeBatchSpawnAction(entry), idempotencyKey },
+      },
+      writeActivity,
+    );
+  // Concurrent task-bound entries share one execution lease, and the first of them to reach a
+  // terminal dispatch state releases it. The batch cannot predict when that lands, so a dispatch
+  // spawns first and only a runtime_task_lease_required rejection reacquires the lease and
+  // resubmits once under the same idempotency key — the rejected spawn wrote no ledger event, so
+  // the resubmit is not a duplicate dispatch. The resubmit, not the reacquisition receipt, decides
+  // the entry: a lease a sibling worker just reacquired is already the lease this spawn needs, and
+  // a lease that stayed out of reach rejects again naming the holder that has to release it.
+  const leaseAwareSpawn = async (entry: RuntimeBatchEntry): Promise<JsonObject> => {
+    const idempotencyKey = `runtime-batch-${randomUUID()}`,
+      first = await spawn(entry, idempotencyKey);
+    if (!entry.task || !rejectedWith(first, "runtime_task_lease_required")) return first;
+    await runCommandThroughDaemon({
+      ...command,
+      method: "repo.task.run",
+      action: { kind: "task-start", taskId: entry.task },
+    });
+    return spawn(entry, idempotencyKey);
   };
   const worker = async (): Promise<void> => {
     while (true) {
@@ -59,17 +66,7 @@ export async function runRuntimeBatchDeclaration(
       const entry = declaration.dispatches[index]!;
       let receipt: JsonObject;
       try {
-        const reacquireFailure = entry.task ? await reacquireReleasedTask(entry.task) : null;
-        receipt =
-          reacquireFailure ??
-          (await runRuntimeFacadeCommand(
-            {
-              ...command,
-              method: "repo.agentRuntime.spawn",
-              action: runtimeBatchSpawnAction(entry),
-            },
-            writeActivity,
-          ));
+        receipt = await leaseAwareSpawn(entry);
       } catch (error) {
         consumeKnownError(error);
         receipt = runtimeRejected(
@@ -79,7 +76,6 @@ export async function runRuntimeBatchDeclaration(
         );
       }
       results[index] = runtimeBatchResult(index, entry, receipt);
-      if (entry.task && runtimeBatchTaskDispatchSettled(receipt)) releasedTaskIds.add(entry.task);
     }
   };
   await Promise.all(
@@ -100,27 +96,9 @@ export async function runRuntimeBatchDeclaration(
   };
 }
 
-export function runtimeBatchTaskDispatchSettled(receipt: JsonObject): boolean {
-  if (
-    receipt.ok !== true ||
-    !["succeeded", "failed", "unknown", "cancelled"].includes(String(receipt.outcome)) ||
-    typeof receipt.runtimeSessionId !== "string"
-  )
-    return false;
-  const session = receipt.session;
-  if (!session || typeof session !== "object" || Array.isArray(session)) return true;
-  const attemptChain = (session as Record<string, unknown>).attemptChain;
-  if (!attemptChain || typeof attemptChain !== "object" || Array.isArray(attemptChain)) return true;
-  const attempts = (attemptChain as Record<string, unknown>).attempts;
-  if (!Array.isArray(attempts)) return true;
-  const attempt = attempts.find(
-    (candidate) =>
-      candidate !== null &&
-      typeof candidate === "object" &&
-      !Array.isArray(candidate) &&
-      (candidate as Record<string, unknown>).runtimeSessionId === receipt.runtimeSessionId,
-  ) as Record<string, unknown> | undefined;
-  return attempt?.fallbackState !== "scheduled" && attempt?.fallbackState !== "dispatched";
+export function rejectedWith(receipt: JsonObject, code: string): boolean {
+  const error = receipt.error && typeof receipt.error === "object" ? (receipt.error as Record<string, unknown>) : null;
+  return receipt.ok !== true && (receipt.code === code || error?.code === code);
 }
 
 export function runtimeBatchSpawnAction(entry: RuntimeBatchEntry): ThinCommand["action"] {

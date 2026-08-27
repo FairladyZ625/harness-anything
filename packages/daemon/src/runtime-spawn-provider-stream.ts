@@ -207,7 +207,8 @@ export async function bindProvider(context: any, active: ActiveRuntime, identity
       "runtime_session_task_bound",
       {
         runtimeSessionId: active.runtimeSessionId,
-        ...active.task,
+        taskId: active.task.taskId,
+        executionId: active.task.executionId,
         providerSessionId,
         transcriptRef,
       },
