@@ -272,6 +272,9 @@ function archiveRow(
         }
       : {}),
     ...(typeof value.squadId === "string" ? { squadId: value.squadId } : {}),
+    ...(typeof value.parentRuntimeSessionId === "string"
+      ? { parentRuntimeSessionId: value.parentRuntimeSessionId }
+      : {}),
     providerSessionId:
       typeof value.providerSessionId === "string" ? value.providerSessionId : (session?.providerSessionId ?? null),
     eventStreamRef: typeof value.eventStreamRef === "string" ? value.eventStreamRef : null,
@@ -320,6 +323,7 @@ function liveRow(
         }
       : {}),
     ...(header.squadId ? { squadId: header.squadId } : {}),
+    ...(header.parentRuntimeSessionId ? { parentRuntimeSessionId: header.parentRuntimeSessionId } : {}),
     providerSessionId: providerSessionId ?? session?.providerSessionId ?? null,
     eventStreamRef: header.eventStreamRef,
     startedAt: header.startedAt,

@@ -98,6 +98,7 @@ export type ActiveRuntime = {
   readonly agent: Pick<RuntimeAgent, "id" | "name"> | null;
   readonly delegatedBy: Pick<RuntimeAgent, "id" | "name"> | null;
   readonly squadId: string | null;
+  readonly parentRuntimeSessionId: string | null;
   readonly binding: RuntimeBinding;
   readonly task: RuntimeLeaseScope | null;
   readonly schedule: TrustedScheduleRuntime | null;

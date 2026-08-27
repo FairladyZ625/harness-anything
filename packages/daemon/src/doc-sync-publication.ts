@@ -38,6 +38,7 @@ export interface RuntimeDispatchArchive {
   readonly delegatedByAgentId?: string;
   readonly delegatedByAgentName?: string;
   readonly squadId?: string;
+  readonly parentRuntimeSessionId?: string;
   readonly instanceId: string;
   readonly model: string;
   readonly reasoningEffort: string | null;
@@ -80,9 +81,10 @@ export function archiveRuntimeDispatch(
         ? {
             delegatedByAgentId: value.delegatedByAgentId,
             delegatedByAgentName: value.delegatedByAgentName,
-            squadId: value.squadId,
           }
         : {}),
+      ...(value.squadId ? { squadId: value.squadId } : {}),
+      ...(value.parentRuntimeSessionId ? { parentRuntimeSessionId: value.parentRuntimeSessionId } : {}),
       instanceId: value.instanceId,
       model: value.model,
       reasoningEffort: value.reasoningEffort,

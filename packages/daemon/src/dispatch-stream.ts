@@ -49,6 +49,7 @@ export interface DispatchStreamHeader {
   readonly delegatedByAgentId?: string;
   readonly delegatedByAgentName?: string;
   readonly squadId?: string;
+  readonly parentRuntimeSessionId?: string;
   readonly onExitCommand?: string;
   readonly dispatchOpId?: string;
   readonly kindId?: "claude" | "codex" | "agy";

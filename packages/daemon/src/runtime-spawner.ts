@@ -186,6 +186,7 @@ export function makeRuntimeSpawner(input: {
         "agentId",
         "targetAgentId",
         "squadId",
+        "parentRuntimeSessionId",
         "model",
         "effort",
         "permissionMode",
@@ -219,6 +220,13 @@ export function makeRuntimeSpawner(input: {
           ? undefined
           : requiredRuntimeSpawnText(payload.targetAgentId, "targetAgentId"),
       squadId = payload.squadId === undefined ? undefined : requiredRuntimeSpawnText(payload.squadId, "squadId"),
+      // Delegation provenance: which already-running runtime session invoked this spawn.
+      // Explicit input serves routes whose binding carries no executor (fleet edge); the
+      // local CLI route already declares the caller runtime session in binding.actor.
+      parentRuntimeSessionId =
+        payload.parentRuntimeSessionId === undefined
+          ? runtimeSessionIdFromActor(binding.actor)
+          : requiredRuntimeSpawnText(payload.parentRuntimeSessionId, "parentRuntimeSessionId"),
       model = payload.model === undefined ? undefined : requiredRuntimeSpawnText(payload.model, "model"),
       effort = payload.effort === undefined ? undefined : requiredRuntimeSpawnText(payload.effort, "effort"),
       permissionMode =
@@ -504,6 +512,7 @@ export function makeRuntimeSpawner(input: {
         ...(onExitCommand ? { onExitCommand } : {}),
         ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
         ...(squad ? { squadId: squad.squadId } : {}),
+        ...(parentRuntimeSessionId ? { parentRuntimeSessionId } : {}),
         ...(delegatedBy
           ? {
               delegatedByAgentId: delegatedBy.id,
@@ -615,6 +624,7 @@ export function makeRuntimeSpawner(input: {
       agent,
       delegatedBy,
       squadId: squad?.squadId ?? null,
+      parentRuntimeSessionId: parentRuntimeSessionId ?? null,
       binding,
       task: taskBinding,
       schedule: trustedSchedule ?? null,
@@ -818,6 +828,7 @@ export function makeRuntimeSpawner(input: {
                   ? { agentId: header.agentId }
                   : {}),
               ...(header.squadId ? { squadId: header.squadId } : {}),
+              ...(header.parentRuntimeSessionId ? { parentRuntimeSessionId: header.parentRuntimeSessionId } : {}),
               ...(next.model ? { model: next.model } : {}),
               ...(header.reasoningEffort ? { effort: header.reasoningEffort } : {}),
               ...(header.permissionMode ? { permissionMode: header.permissionMode } : {}),

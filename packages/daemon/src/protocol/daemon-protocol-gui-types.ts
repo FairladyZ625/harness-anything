@@ -502,6 +502,7 @@ export interface TaskDispatchRow {
   readonly delegatedByAgentId?: string;
   readonly delegatedByAgentName?: string;
   readonly squadId?: string;
+  readonly parentRuntimeSessionId?: string;
   readonly providerSessionId: string | null;
   readonly eventStreamRef: string | null;
   readonly startedAt: string;
