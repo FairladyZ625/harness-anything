@@ -14,6 +14,7 @@ import { runtimeFleetProtocolCommands, scheduleProtocolCommands } from "./daemon
 import { taskSurfaceProtocolCommands } from "./daemon-protocol-commands-task-surface.ts";
 import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.ts";
 import { peopleProtocolCommands } from "./daemon-protocol-commands-people.ts";
+import { ciObservationProtocolCommands } from "./daemon-protocol-commands-ci.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
 
@@ -73,33 +74,6 @@ const settingsWriteTopology = {
           code: "invalid_field",
           nextAction: "Use one stable non-empty idempotency key, or omit it for automatic allocation.",
         }),
-      ],
-      ...settingsWriteTopology,
-    }),
-  ]),
-  ciObservationProtocolCommands = Object.freeze([
-    defineCliCommand({
-      id: "ci-observe-pull",
-      actionKind: "ci-observe-pull",
-      phase: "PLT-TestEng-W1",
-      path: ["ci", "observe", "pull"],
-      summary: "Pull structured GitHub Actions observations and append canonical CI events.",
-      method: "repo.task.run",
-      inputs: [
-        cliInput(
-          "--limit",
-          "single",
-          false,
-          {
-            code: "invalid_field",
-            nextAction: "Use --limit with an integer from 1 to 100.",
-          },
-          {
-            regex: "^(?:[1-9]|[1-9][0-9]|100)$",
-            jsonFields: ["limit"],
-            jsonAllowedFields: ["limit"],
-          },
-        ),
       ],
       ...settingsWriteTopology,
     }),
@@ -280,13 +254,7 @@ export const daemonProtocolCommands = Object.freeze([
 ]);
 
 export const thinCliCommands = Object.freeze(
-  daemonProtocolCommands
-    .filter((command) => !("internal" in command && command.internal))
-    .map(({ usage, summary, help }) => ({
-      usage,
-      summary,
-      help,
-    })),
+  daemonProtocolCommands.filter((command) => !("internal" in command && command.internal)).map((command) => command),
 );
 
 export function resolveThinCliCommand(args: readonly string[]): (typeof daemonProtocolCommands)[number] | undefined {

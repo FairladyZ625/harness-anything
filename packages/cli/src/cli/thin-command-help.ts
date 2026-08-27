@@ -1,4 +1,4 @@
-import { daemonProtocolCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonProtocolCommands, thinCliCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 
 export type ThinHelpCatalogEntry = {
   readonly id: string;
@@ -8,7 +8,7 @@ export type ThinHelpCatalogEntry = {
   readonly errorCode?: string;
 };
 
-const publicCommands = () => daemonProtocolCommands.filter((command) => !("internal" in command && command.internal));
+const publicCommands = () => thinCliCommands;
 
 function commandDirectory(
   commands: ReadonlyArray<{ readonly id: string; readonly path: readonly string[] }>,
