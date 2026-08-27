@@ -137,6 +137,14 @@ function TreeNodeView({
           {t("components.docTree.missing")}
         </span>
       )}
+      {doc.uncommitted && (
+        <span
+          data-testid={`doc-uncommitted-${doc.path}`}
+          className="shrink-0 rounded border border-status-blocked/50 px-1 font-mono text-[9px] text-status-blocked"
+        >
+          {t("components.docTree.uncommitted")}
+        </span>
+      )}
     </button>
   );
 }

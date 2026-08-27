@@ -52,7 +52,19 @@ export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({
   }),
   DAEMON_DOCUMENT_READ_SCHEMA = Object.freeze({
     id: "daemon.document-read/v1",
-    required: Object.freeze(["ok", "status", "taskId", "path", "body", "blobSha256", "watermark", "sourceRevision"]),
+    required: Object.freeze([
+      "ok",
+      "status",
+      "taskId",
+      "path",
+      "body",
+      "blobSha256",
+      "worktreeBody",
+      "worktreeBlobSha256",
+      "uncommitted",
+      "watermark",
+      "sourceRevision",
+    ]),
   }),
   DAEMON_TASK_DOCUMENT_LIST_SCHEMA = Object.freeze({
     id: "daemon.task-document-list/v1",

@@ -444,7 +444,8 @@ function readTaskDocumentListResult(value: unknown): TaskDocumentListProjectionR
         typeof doc.path !== "string" ||
         typeof doc.blobSha256 !== "string" ||
         !Number.isInteger(doc.size) ||
-        typeof doc.mediaType !== "string",
+        typeof doc.mediaType !== "string" ||
+        typeof doc.uncommitted !== "boolean",
     ) ||
     !Number.isInteger(result.watermark) ||
     !Number.isInteger(result.sourceRevision)
@@ -534,6 +535,9 @@ function readTaskDocumentResult(value: unknown): TaskDocumentProjectionRead {
     typeof result.taskId !== "string" ||
     typeof result.path !== "string" ||
     typeof result.body !== "string" ||
+    (result.worktreeBody !== null && typeof result.worktreeBody !== "string") ||
+    (result.worktreeBlobSha256 !== null && typeof result.worktreeBlobSha256 !== "string") ||
+    typeof result.uncommitted !== "boolean" ||
     !Number.isInteger(result.watermark) ||
     !Number.isInteger(result.sourceRevision)
   )

@@ -14,13 +14,24 @@ interface TaskDocumentSidebarProps {
   readonly onOpenDoc: (path: string) => void;
 }
 
-export function TaskDocumentSidebar({ task, activeDoc, onActiveDocChange, onOpenDoc }: TaskDocumentSidebarProps) {
+export function TaskDocumentSidebar(props: TaskDocumentSidebarProps) {
+  const task = props.task;
+  const activeDoc = props.activeDoc;
+  const onActiveDocChange = props.onActiveDocChange;
+  const onOpenDoc = props.onOpenDoc;
   const documentList = useTaskDocumentListQuery(task.projectId, task.taskId);
-  const documents = useMemo(() => {
-    const projected =
-      documentList.data?.status === "ready" ? documentList.data.documents.map((document) => document.path) : [];
-    return projectedDocuments(projected);
-  }, [documentList.data]);
+  const documents = useMemo(
+    () =>
+      projectedDocuments(
+        documentList.data?.status === "ready"
+          ? documentList.data.documents.map((document) => ({
+              path: document.path,
+              ...(document.uncommitted ? { uncommitted: true } : {}),
+            }))
+          : [],
+      ),
+    [documentList.data],
+  );
   const tree = useMemo(() => buildDocTree(documents), [documents]);
 
   useEffect(() => {
@@ -81,17 +92,33 @@ function TaskFileBody({ repoId, taskId, path }: TaskFileBodyProps) {
   if (document.isPending) return <FileEmpty text="正在读取文档投影…" />;
   if (document.isError) return <p className="text-[12px] text-danger">文档读取失败：{document.error.message}</p>;
   if (document.data.status !== "ready") return <FileEmpty text="文档投影尚未追平。" />;
-  if (document.data.blobSha256 === null) return <FileEmpty text="该文件尚未物化。" />;
+  // 工作树实时内容优先(task_e5defe69):未提交的编辑是真实工作,必须可见并被标注,
+  // 而不是把读者留在已提交的旧文里;文件只在投影里(磁盘上已删)时如实回落到投影文。
+  const uncommitted = document.data.uncommitted,
+    body = uncommitted && document.data.worktreeBody !== null ? document.data.worktreeBody : document.data.body;
+  if (document.data.blobSha256 === null && document.data.worktreeBody === null)
+    return <FileEmpty text="该文件尚未物化。" />;
   const content = isHtmlDocument(path) ? (
-    <HtmlArtifactPreview content={document.data.body} path={path} />
+    <HtmlArtifactPreview content={body} path={path} />
   ) : (
-    <DocReader content={document.data.body} />
+    <DocReader content={body} />
   );
   return (
     <>
       <span data-testid="task-document-status" className="mb-3 block font-mono text-[10px] text-text-faint">
-        L2 · {document.data.status}
+        {uncommitted ? "L2 · 工作树未提交" : `L2 · ${document.data.status}`}
       </span>
+      {uncommitted && (
+        <p
+          data-testid="task-document-uncommitted"
+          className={[
+            "mb-3 border border-status-blocked/40 bg-status-blocked/10",
+            "px-2.5 py-1.5 text-[11px] text-status-blocked",
+          ].join(" ")}
+        >
+          工作树内容尚未提交:以下为磁盘当前内容,与已提交投影不同。
+        </p>
+      )}
       {content}
     </>
   );

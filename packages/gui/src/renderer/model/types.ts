@@ -29,6 +29,8 @@ export interface DocEntry {
   present: boolean;
   /** 未完成文档 read 时不能把 absent 当 missing。 */
   presence?: "present" | "missing" | "unknown";
+  /** 工作树内容与已提交投影不同(或仅存在于工作树):树节点上标注「未提交」。 */
+  uncommitted?: boolean;
 }
 
 /** materialization gate / check 结果——任务详情收口区的"原因"维度 */
