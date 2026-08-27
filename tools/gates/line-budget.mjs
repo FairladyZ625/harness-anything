@@ -3,6 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { git, pathExistsAt, repoRoot } from "./git.mjs";
 import * as modulePolicy from "./module-policy.mjs";
+import { resolveDeltaBase } from "./production-delta.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
 import { writeCiGateResult } from "../ci-gate-result.mjs";
 
@@ -148,9 +149,10 @@ export function evaluateLineBudget({
 }) {
   const relativeBudgetPath = path.relative(rootDir, budgetPath).replaceAll("\\", "/");
   const ceilings = parseBudgets(readFileSync(budgetPath, "utf8"), relativeBudgetPath);
-  const baseCeilings = readBaseBudgets(rootDir, base, relativeBudgetPath);
+  const deltaBase = resolveDeltaBase(rootDir, base);
+  const baseCeilings = readBaseBudgets(rootDir, deltaBase, relativeBudgetPath);
   const current = measureProductionLines({ rootDir });
-  const before = measureProductionLines({ rootDir, revision: base });
+  const before = measureProductionLines({ rootDir, revision: deltaBase });
   const receipts = loadReceipts(receiptsDir);
   const errors = [];
 

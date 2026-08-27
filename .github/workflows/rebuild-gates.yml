@@ -109,13 +109,9 @@ jobs:
         with:
           node-version: 24
       - name: Derive required test tiers
-        env:
-          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{tree}" 2>/dev/null; then
-            BASE_SHA=$(git rev-parse origin/main)
-          fi
-          node tools/gates/test-selection.mjs --base "$BASE_SHA"
+          git fetch --no-tags origin main
+          node tools/gates/test-selection.mjs --base origin/main
 
   clean-build:
     if: github.event_name != 'pull_request_target'
@@ -156,13 +152,9 @@ jobs:
       - name: Start structured CI observation timer
         run: echo "HARNESS_CI_JOB_STARTED_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
       - name: Enforce module line ceilings
-        env:
-          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{tree}" 2>/dev/null; then
-            BASE_SHA=$(git rev-parse origin/main)
-          fi
-          node tools/gates/line-budget.mjs --base "$BASE_SHA"
+          git fetch --no-tags origin main
+          node tools/gates/line-budget.mjs --base origin/main
       - name: Finalize structured CI observation artifact
         if: always()
         run: node tools/write-ci-observation.mjs
@@ -186,13 +178,9 @@ jobs:
         with:
           node-version: 24
       - name: Reject line shaving in added production code
-        env:
-          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{tree}" 2>/dev/null; then
-            BASE_SHA=$(git rev-parse origin/main)
-          fi
-          node tools/gates/line-density.mjs --base "$BASE_SHA"
+          git fetch --no-tags origin main
+          node tools/gates/line-density.mjs --base origin/main
 
   cost-budget:
     if: github.event_name != 'pull_request_target'

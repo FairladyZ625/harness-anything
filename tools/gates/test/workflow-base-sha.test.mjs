@@ -20,22 +20,30 @@ test("push trigger covers only trunk branches — feature branches gate through 
   const pushBlock = workflow.match(/\n {2}push:\n {4}branches:\n((?: {6}- .*\n)+)/u);
   assert.ok(pushBlock, "rebuild-gates must keep an explicit push trigger for post-merge trunk gating");
   assert.deepEqual(
-    pushBlock[1].trim().split("\n").map((line) => line.trim()),
+    pushBlock[1]
+      .trim()
+      .split("\n")
+      .map((line) => line.trim()),
     TRUNK_BRANCHES,
-    "push trigger must list exactly the trunk branch names, never a wildcard or a feature branch"
+    "push trigger must list exactly the trunk branch names, never a wildcard or a feature branch",
   );
 });
 
-test("diff-based gates guard BASE_SHA against the zero SHA of a first branch push", () => {
+test("diff-based gates fetch canonical main and resolve their base from origin/main", () => {
   const workflow = readWorkflow();
-  for (const gate of ["tools/gates/test-selection.mjs", "tools/gates/line-budget.mjs"]) {
-    const invocation = workflow.indexOf(`node ${gate} --base "$BASE_SHA"`);
-    assert.notEqual(invocation, -1, `${gate} must be invoked with --base "$BASE_SHA"`);
-    const runBlock = workflow.slice(Math.max(0, invocation - 400), invocation);
+  for (const gate of [
+    "tools/gates/test-selection.mjs",
+    "tools/gates/line-budget.mjs",
+    "tools/gates/line-density.mjs",
+  ]) {
+    const invocation = workflow.indexOf(`node ${gate} --base origin/main`);
+    assert.notEqual(invocation, -1, `${gate} must be invoked with --base origin/main`);
+    const runBlock = workflow.slice(Math.max(0, invocation - 260), invocation);
     assert.match(
       runBlock,
-      /git cat-file -e "\$BASE_SHA\^\{tree\}"[\s\S]*git rev-parse origin\/main/u,
-      `${gate} must fall back to origin/main when BASE_SHA is unresolvable (github.event.before is the zero SHA on a first branch push)`
+      /git fetch --no-tags origin main/u,
+      `${gate} must fetch canonical main before resolving its base`,
     );
+    assert.doesNotMatch(runBlock, /github\.event\.pull_request\.base\.sha|\$BASE_SHA|git cat-file -e/u);
   }
 });
