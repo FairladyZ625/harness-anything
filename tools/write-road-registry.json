@@ -32,6 +32,7 @@
   "physicalWriteFiles": [
     "packages/daemon/src/agent-runtime-instance-storage.ts",
     "packages/daemon/src/agent-runtime-instance-store.ts",
+    "packages/daemon/src/ci-observation-actions.ts",
     "packages/daemon/src/daemon-singleton.ts",
     "packages/daemon/src/dispatch-stream.ts",
     "packages/daemon/src/doc-sync-details.ts",

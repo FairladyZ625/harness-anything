@@ -10,8 +10,8 @@ const localSource = "local" as const;
 const assignmentSource = { kind: "assignment", nodeId: "edge-one", assignmentId: "assignment-one" } as const;
 const admissionRoutes = new Set(["direct", "via-assignment", "via-center-forward", "rejected"]);
 
-test("all 132 daemon commands close every repo-mode admission cell", () => {
-  assert.equal(daemonProtocolCommands.length, 132);
+test("all 133 daemon commands close every repo-mode admission cell", () => {
+  assert.equal(daemonProtocolCommands.length, 133);
   let cells = 0;
   for (const command of daemonProtocolCommands) {
     assert.deepEqual(Object.keys(command.admission).sort(), [...daemonRepoModeWords].sort(), command.id);
@@ -35,7 +35,7 @@ test("all 132 daemon commands close every repo-mode admission cell", () => {
       }
     }
   }
-  assert.equal(cells, 132 * 3);
+  assert.equal(cells, 133 * 3);
 });
 
 test("observe.tail declares direct admission and named source residency for every tail kind", () => {
