@@ -1,9 +1,0 @@
-[
-  { "path": "packages/daemon/src/fleet/center.ts", "module": "fleet" },
-  { "path": "packages/daemon/src/fleet/contract.ts", "module": "fleet" },
-  { "path": "packages/daemon/src/fleet/edge.ts", "module": "fleet" },
-  { "path": "packages/daemon/src/fleet/replica-ack-store.ts", "module": "fleet" },
-  { "path": "packages/daemon/src/fleet/replica-cut-store.ts", "module": "fleet" },
-  { "path": "packages/daemon/src/index.ts", "module": "daemon" },
-  { "path": "packages/daemon/src/repo-cell.ts", "module": "daemon" }
-]
