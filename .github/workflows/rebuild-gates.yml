@@ -175,6 +175,19 @@ jobs:
           fi
           node tools/gates/line-density.mjs --base "$BASE_SHA"
 
+  cost-budget:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Reject deterministic cost regressions (G37)
+        run: node tools/gates/cost-budget.mjs
+
   production-delta:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
