@@ -55,6 +55,7 @@ export async function adoptRuntimes(context: any): Promise<void> {
           }
         : null,
       squadId: stream.header.squadId ?? null,
+      parentRuntimeSessionId: stream.header.parentRuntimeSessionId ?? null,
       binding: metadata.binding,
       task:
         stream.header.taskId && stream.header.executionId

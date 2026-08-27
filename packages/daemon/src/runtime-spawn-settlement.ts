@@ -66,6 +66,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
             executionId: active.task.executionId,
             ...(active.agent ? { agentId: active.agent.id, agentName: active.agent.name } : {}),
             ...(active.squadId ? { squadId: active.squadId } : {}),
+            ...(active.parentRuntimeSessionId ? { parentRuntimeSessionId: active.parentRuntimeSessionId } : {}),
             ...(active.delegatedBy
               ? {
                   delegatedByAgentId: active.delegatedBy.id,

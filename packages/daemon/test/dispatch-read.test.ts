@@ -158,6 +158,83 @@ test("a projected task binding removes the live index entry", () => {
   }
 });
 
+test("live and archived rows carry the parent runtime session edge only when present", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-parent-session-"));
+  try {
+    const parentRuntimeSessionId = "runtime_0123456789abcdef01234567";
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId,
+      executionId: "execution-1",
+      runtimeSessionId,
+      instanceId: "instance-1",
+      startedAt: "2026-08-28T00:00:00.000Z",
+      delegatedByAgentId: "parent-leader",
+      delegatedByAgentName: "Parent Leader",
+      squadId: "parent-squad",
+      parentRuntimeSessionId,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 12345 });
+    const live = readTaskDispatches({ rootDir, projection: projectionFor(session("live", null)), taskId });
+    const liveRow = live.dispatches.find((row) => row.dispatchId === dispatchId);
+    assert.equal(liveRow?.parentRuntimeSessionId, parentRuntimeSessionId);
+    assert.equal(liveRow?.delegatedByAgentId, "parent-leader");
+    assert.equal(liveRow?.squadId, "parent-squad");
+
+    const archived = {
+      schema: "runtime-dispatch/v1",
+      dispatchId,
+      taskId,
+      executionId: "execution-1",
+      runtimeSessionId,
+      instanceId: "instance-1",
+      delegatedByAgentId: "parent-leader",
+      delegatedByAgentName: "Parent Leader",
+      squadId: "parent-squad",
+      parentRuntimeSessionId,
+      providerSessionId: "provider-1",
+      startedAt: "2026-08-28T00:00:00.000Z",
+      endedAt: "2026-08-28T00:01:00.000Z",
+      outcome: "succeeded",
+      exitCode: 0,
+      resultRef: "artifact:runtime-result/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    };
+    const projection = {
+      readTaskRuntimeBatch: () => ({
+        status: "ready",
+        taskIds: [taskId],
+        rows: [{ taskId, packagePath: "tasks/task-1", sessions: [session("exited", "succeeded")] }],
+        watermark: 1,
+        sourceRevision: 1,
+      }),
+      readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+      readDocument: () => ({ document: { body: JSON.stringify(archived) } }),
+      readReplicaBasis: () => {
+        throw new Error("dispatch reads must not enumerate the replica document basis");
+      },
+    } as unknown as TaskProjection;
+    const settled = readTaskDispatches({ rootDir, projection, taskId });
+    const settledRow = settled.dispatches.find((row) => row.dispatchId === dispatchId);
+    assert.equal(settledRow?.parentRuntimeSessionId, parentRuntimeSessionId);
+    assert.equal(settledRow?.squadId, "parent-squad");
+
+    // Historical archives predate the edge: the row must simply not carry the key.
+    const legacy = { ...archived } as Record<string, unknown>;
+    delete legacy.parentRuntimeSessionId;
+    const legacyProjection = {
+      ...projection,
+      readDocument: () => ({ document: { body: JSON.stringify(legacy) } }),
+    } as unknown as TaskProjection;
+    const legacyRow = readTaskDispatches({ rootDir, projection: legacyProjection, taskId }).dispatches.find(
+      (row) => row.dispatchId === dispatchId,
+    );
+    assert.equal(Object.hasOwn(legacyRow ?? {}, "parentRuntimeSessionId"), false);
+    assert.equal(legacyRow?.squadId, "parent-squad");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("archived dispatch rows expose terminal result and task artifact references", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-archive-"));
   try {

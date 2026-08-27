@@ -126,6 +126,7 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
       (row.delegatedByAgentId !== undefined && !nonEmpty(row.delegatedByAgentId)) ||
       (row.delegatedByAgentName !== undefined && !nonEmpty(row.delegatedByAgentName)) ||
       (row.squadId !== undefined && !nonEmpty(row.squadId)) ||
+      (row.parentRuntimeSessionId !== undefined && !nonEmpty(row.parentRuntimeSessionId)) ||
       (row.providerSessionId !== null && !nonEmpty(row.providerSessionId)) ||
       (row.eventStreamRef !== null && !nonEmpty(row.eventStreamRef)) ||
       !nonEmpty(row.startedAt) ||
