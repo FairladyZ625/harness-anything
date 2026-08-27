@@ -553,7 +553,8 @@ function parseStoredSquadDeclaration(value: unknown, squadId: string): SquadDecl
     throw entityError(
       "squad_declaration_outdated",
       `Squad ${squadId} was installed without required field "leaderTurnBudget". ` +
-        `Add a positive leaderTurnBudget to its squad.json package and run ha squad install --source <squad-package-dir>.`,
+        `Add a positive leaderTurnBudget to its squad.json package ` +
+        `and run ha squad install --source <squad-package-dir>.`,
     );
   return parseSquadDeclarationV1(value);
 }
