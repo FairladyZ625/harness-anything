@@ -36,8 +36,7 @@ export function parseTask(
   }
   const taskId = args[id === "task-code-doc-reconcile" || id === "task-code-doc-repoint" ? 3 : 2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
-  if (id === "task-start") return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, { taskId });
-  if (id === "task-release" || id === "task-reopen" || id === "task-review")
+  if (id === "task-start" || id === "task-release" || id === "task-reopen" || id === "task-review")
     return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
       taskId,
     });
