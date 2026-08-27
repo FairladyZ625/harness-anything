@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { nonEmpty } from "./migration-import-report.ts";
 import path from "node:path";
 import type { CiRunObservationEventV1, TaskProjection } from "../../kernel/src/index.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
@@ -345,10 +346,6 @@ function safeNonNegativeInteger(value: unknown): value is number {
 
 function finiteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
-}
-
-function nonEmpty(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
 }
 
 function isUtcLike(value: unknown): boolean {
