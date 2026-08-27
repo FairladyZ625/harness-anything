@@ -4,11 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventStore,
-  makeTaskProjection,
-  type FactEventDraftV1,
-} from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection, type FactEventDraftV1 } from "../../kernel/src/index.ts";
 import { makeFactService } from "../src/index.ts";
 
 import {
@@ -74,14 +70,8 @@ test("recorded Fact is durable and immediately searchable through the canonical 
     assert.deepEqual(recorded.fact.memoryTags, event.event.payload.memoryTags);
     assert.deepEqual(recorded.fact.provenance, event.event.payload.provenance);
     assert.equal(store.readEvent(event.event.opId)?.schema, "fact-event/v1");
-    assert.deepEqual(
-      service.search({ query: "SQLite", taskId: "task-fact" }).facts,
-      [recorded.fact],
-    );
-    assert.deepEqual(
-      service.show("task-fact", "F-ABCDEFGH").fact,
-      recorded.fact,
-    );
+    assert.deepEqual(service.search({ query: "SQLite", taskId: "task-fact" }).facts, [recorded.fact]);
+    assert.deepEqual(service.show("F-ABCDEFGH").fact, recorded.fact);
   } finally {
     projection?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -105,30 +95,27 @@ test("Fact opId replay is byte-idempotent and conflicts on different bytes", () 
   });
 });
 
-test("Fact identity is task-local and supersedes only a known live Fact", () => {
+test("Fact identity is global and supersedes only a known live Fact", () => {
   withFixture(({ service, projection }) => {
     recordFact(service, projection, factEvent(1, "task-a", "F-ABCDEFGH"));
-    recordFact(service, projection, factEvent(2, "task-b", "F-ABCDEFGH"));
+    recordFact(service, projection, factEvent(2, "task-b", "F-BCDEFGHJ"));
     const correction = recordFact(
       service,
       projection,
-      factEvent(3, "task-a", "F-BCDEFGHJ", {
-        factRef: "fact/task-a/F-ABCDEFGH",
+      factEvent(3, "task-a", "F-CDEFGHJK", {
+        factRef: "fact/F-ABCDEFGH",
         rationale: "Corrects the original observation.",
       }),
     );
-    assert.equal(
-      service.show("task-a", "F-ABCDEFGH").fact.state,
-      "superseded_fact",
-    );
+    assert.equal(service.show("F-ABCDEFGH").fact.state, "superseded_fact");
     assert.equal(correction.fact.state, "standing");
     assert.throws(
       () =>
         recordFact(
           service,
           projection,
-          factEvent(4, "task-a", "F-CDEFGHJK", {
-            factRef: "fact/task-a/F-ABCDEFGH",
+          factEvent(4, "task-a", "F-DEFGHJKM", {
+            factRef: "fact/F-ABCDEFGH",
             rationale: "Cannot retire twice.",
           }),
         ),
@@ -140,18 +127,17 @@ test("Fact identity is task-local and supersedes only a known live Fact", () => 
           service,
           projection,
           factEvent(4, "task-a", "F-DEFGHJKM", {
-            factRef: "fact/task-a/F-12345678",
+            factRef: "fact/F-12345678",
             rationale: "Missing target.",
           }),
         ),
       (error: unknown) => code(error) === "entity_not_found",
     );
     assert.throws(
-      () =>
-        recordFact(service, projection, factEvent(4, "task-a", "F-BCDEFGHJ")),
+      () => recordFact(service, projection, factEvent(4, "task-a", "F-BCDEFGHJ")),
       (error: unknown) => code(error) === "invalid_transition",
     );
-    const factsPath = "tasks/task-a-fixture/facts.md",
+    const factsPath = "facts/F-CDEFGHJK.md",
       before = {
         facts: service.search({ taskId: "task-a" }).facts,
         document: projection.readDocument(factsPath).document,
@@ -171,16 +157,13 @@ test("Fact identity is task-local and supersedes only a known live Fact", () => 
 
 test("search catches up a Fact committed to L1 before the projection transaction", () => {
   withFixture(({ store, projection, service }) => {
-    const original = compile(
-      projection,
-      factEvent(1, "task-fact", "F-ABCDEFGH"),
-    );
+    const original = compile(projection, factEvent(1, "task-fact", "F-ABCDEFGH"));
     store.append(original);
     projection.apply(original.event, original.plan);
     const correction = compile(
       projection,
       factEvent(2, "task-fact", "F-BCDEFGHJ", {
-        factRef: "fact/task-fact/F-ABCDEFGH",
+        factRef: "fact/F-ABCDEFGH",
         rationale: "New observation.",
       }),
     );
@@ -188,15 +171,13 @@ test("search catches up a Fact committed to L1 before the projection transaction
     const search = service.search({ query: "Fact", taskId: "task-fact" });
     assert.equal(search.status, "ready");
     assert.equal(search.watermark, 2);
-    assert.equal(
-      service.show("task-fact", "F-ABCDEFGH").fact.state,
-      "superseded_fact",
-    );
+    assert.equal(service.show("F-ABCDEFGH").fact.state, "superseded_fact");
     assert.deepEqual(
       projection
         .readFactGraph()
-        .edges.map((edge) => [edge.sourceRef, edge.targetRef, edge.state]),
-      [["fact/task-fact/F-BCDEFGHJ", "fact/task-fact/F-ABCDEFGH", "active"]],
+        .edges.filter((edge) => edge.relationType === "supersedes-fact")
+        .map((edge) => [edge.sourceRef, edge.targetRef, edge.state]),
+      [["fact/F-BCDEFGHJ", "fact/F-ABCDEFGH", "active"]],
     );
   });
 });
@@ -212,24 +193,13 @@ test("Fact admission never appends against a projection more than one catch-up r
     const collision = factEvent(4098, "task-backlog", "F-00000065"),
       first = projection.searchFacts({ taskId: "task-backlog" });
     assert.equal(first.status, "pending");
-    assert.equal(
-      store.readHead()?.revision,
-      4097,
-      "pending admission must not append",
-    );
-    assert.equal(
-      service.show("task-backlog", "F-00000065").fact.factId,
-      "F-00000065",
-    );
+    assert.equal(store.readHead()?.revision, 4097, "pending admission must not append");
+    assert.equal(service.show("F-00000065").fact.factId, "F-00000065");
     assert.throws(
       () => service.record(compile(projection, collision)),
       (error: unknown) => code(error) === "invalid_transition",
     );
-    assert.equal(
-      store.readHead()?.revision,
-      4097,
-      "collision must be found before append",
-    );
+    assert.equal(store.readHead()?.revision, 4097, "collision must be found before append");
   } finally {
     projection?.close();
     rmSync(rootDir, { recursive: true, force: true });

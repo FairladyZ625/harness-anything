@@ -21,7 +21,7 @@ export const entityKindRefAuthorities = Object.freeze([
     kind: "fact",
     field: "factId",
     pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-    refTemplate: "fact/{task}/{id}",
+    refTemplate: "fact/{id}",
     refPattern: "^F-[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
   },
   {
@@ -70,7 +70,6 @@ export interface ParsedEntityRef {
   readonly kind: EntityRefKind;
   readonly id: string;
   readonly anchor?: string;
-  readonly ownerTaskId?: string;
   readonly ownerExecutionId?: string;
   readonly harnessAlias?: string;
   readonly externalHarness: boolean;
@@ -115,7 +114,6 @@ export function parseEntityRef(value: string): ParsedEntityRef | null {
       kind: contract.kind as Exclude<EntityRefKind, "relation">,
       id,
       ...(match.groups?.anchor ? { anchor: match.groups.anchor } : {}),
-      ...(match.groups?.task ? { ownerTaskId: match.groups.task } : {}),
       ...(match.groups?.execution ? { ownerExecutionId: match.groups.execution } : {}),
       ...(harnessAlias ? { harnessAlias } : {}),
       externalHarness: Boolean(harnessAlias),

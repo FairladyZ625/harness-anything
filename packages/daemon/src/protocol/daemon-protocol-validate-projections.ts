@@ -136,8 +136,9 @@ export function validateDaemonRelationGraph(value: unknown): readonly string[] {
     !Array.isArray(value.factAnchors) ||
     value.factAnchors.some(
       (row) =>
-        !recordWith(row, ["factRef", "taskId", "factId", "sourcePath"]) ||
-        ["factRef", "taskId", "factId", "sourcePath"].some((field) => !nonEmpty(row[field])),
+        !recordWith(row, ["factRef", "factId", "sourcePath"]) ||
+        ["factRef", "factId", "sourcePath"].some((field) => !nonEmpty(row[field])) ||
+        (row.taskId !== undefined && !nonEmpty(row.taskId)),
     ) ||
     !Array.isArray(value.facts) ||
     value.facts.some(
@@ -145,7 +146,6 @@ export function validateDaemonRelationGraph(value: unknown): readonly string[] {
         !recordWith(row, [
           "schema",
           "ref",
-          "taskId",
           "factId",
           "statement",
           "source",
@@ -169,7 +169,8 @@ export function validateDaemonRelationGraph(value: unknown): readonly string[] {
             !nonEmpty(entry.sessionId) ||
             !nonEmpty(entry.boundAt),
         ) ||
-        ["ref", "taskId", "factId", "statement", "source", "observedAt"].some((field) => !nonEmpty(row[field])),
+        ["ref", "factId", "statement", "source", "observedAt"].some((field) => !nonEmpty(row[field])) ||
+        (row.taskId !== undefined && !nonEmpty(row.taskId)),
     )
   )
     return ["daemon relation graph is invalid"];

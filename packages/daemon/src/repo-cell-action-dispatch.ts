@@ -180,7 +180,7 @@ export async function executeAction(
         action,
         binding,
         cell.input.repoId,
-        action.kind === "fact-record" && typeof action.taskId === "string"
+        action.kind === "fact-record" && typeof action.taskId === "string" && action.taskId.trim().length > 0
           ? cell.projection.read(action.taskId).snapshot.revision
           : (cell.store.readHead()?.revision ?? 0),
       ),

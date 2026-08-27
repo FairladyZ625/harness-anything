@@ -58,13 +58,11 @@ test("all twelve bundled packages resolve through one valid catalog", async () =
     assert.equal(milestone.ok, true);
     if (!standard.ok || !milestone.ok) return;
     assert.deepEqual(
-      standard.snapshot.templates.map(
-        ({ slot, path: target, templateRef }) => ({
-          slot,
-          target,
-          templateRef,
-        }),
-      ),
+      standard.snapshot.templates.map(({ slot, path: target, templateRef }) => ({
+        slot,
+        target,
+        templateRef,
+      })),
       [
         {
           slot: "task.plan",
@@ -84,13 +82,11 @@ test("all twelve bundled packages resolve through one valid catalog", async () =
       ],
     );
     assert.deepEqual(
-      milestone.snapshot.templates.map(
-        ({ slot, path: target, templateRef }) => ({
-          slot,
-          target,
-          templateRef,
-        }),
-      ),
+      milestone.snapshot.templates.map(({ slot, path: target, templateRef }) => ({
+        slot,
+        target,
+        templateRef,
+      })),
       [
         {
           slot: "task.plan",
@@ -124,23 +120,11 @@ test("all twelve bundled packages resolve through one valid catalog", async () =
             locale,
             presetId,
           }),
-          template = resolved.snapshot.templates.find(
-            ({ slot }) => slot === "task.plan",
-          ),
-          plan =
-            resolved.documents.find(({ slot }) => slot === "task.plan")?.body ??
-            "";
+          template = resolved.snapshot.templates.find(({ slot }) => slot === "task.plan"),
+          plan = resolved.documents.find(({ slot }) => slot === "task.plan")?.body ?? "";
         for (const anchor of skeletonAnchors) {
-          assert.equal(
-            template?.requiredAnchors.includes(anchor),
-            true,
-            `${presetId}:${locale}:${anchor}:contract`,
-          );
-          assert.match(
-            plan,
-            new RegExp(anchor, "u"),
-            `${presetId}:${locale}:${anchor}:body`,
-          );
+          assert.equal(template?.requiredAnchors.includes(anchor), true, `${presetId}:${locale}:${anchor}:contract`);
+          assert.match(plan, new RegExp(anchor, "u"), `${presetId}:${locale}:${anchor}:body`);
         }
       }
     const matrix = [
@@ -150,40 +134,20 @@ test("all twelve bundled packages resolve through one valid catalog", async () =
         ["ci", "code-doc-reconciliation"],
         ["task.plan", "task.closeout", "task.artifacts.keep"],
       ],
-      [
-        "docs-task",
-        "task-package-artifact",
-        [],
-        ["task.plan", "task.closeout", "task.artifacts.keep"],
-      ],
+      ["docs-task", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
       [
         "code-impact-analysis",
         "task-package-artifact",
         [],
-        [
-          "task.plan",
-          "task.closeout",
-          "task.artifacts.keep",
-          "task.code.impact.analysis",
-        ],
+        ["task.plan", "task.closeout", "task.artifacts.keep", "task.code.impact.analysis"],
       ],
       [
         "worker-dispatch",
         "repository-diff",
         ["ci", "code-doc-reconciliation"],
-        [
-          "task.plan",
-          "task.closeout",
-          "task.artifacts.keep",
-          "task.worker.flow",
-        ],
+        ["task.plan", "task.closeout", "task.artifacts.keep", "task.worker.flow"],
       ],
-      [
-        "architecture-rot-audit",
-        "task-package-artifact",
-        [],
-        ["task.plan", "task.closeout", "task.artifacts.keep"],
-      ],
+      ["architecture-rot-audit", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
       [
         "github-issue-repair",
         "repository-diff",
@@ -218,21 +182,9 @@ test("all twelve bundled packages resolve through one valid catalog", async () =
         "module",
         "repository-diff",
         ["ci", "code-doc-reconciliation"],
-        [
-          "task.plan",
-          "task.closeout",
-          "task.artifacts.keep",
-          "module.plan",
-          "module.brief",
-          "module.session.prompt",
-        ],
+        ["task.plan", "task.closeout", "task.artifacts.keep", "module.plan", "module.brief", "module.session.prompt"],
       ],
-      [
-        "subtask-expansion",
-        "task-package-artifact",
-        [],
-        ["task.plan", "task.closeout", "task.artifacts.keep"],
-      ],
+      ["subtask-expansion", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
     ] as const;
     for (const [presetId, outputShape, completionGateIds, slots] of matrix) {
       const result = await resolver.resolve({ ...common, presetId });
@@ -252,24 +204,8 @@ test("all twelve bundled packages resolve through one valid catalog", async () =
       const result = await resolver.resolve({ ...common, presetId });
       assert.equal(result.ok, true, presetId);
     }
-    assert.equal(
-      existsSync(
-        new URL(
-          "../assets/software-coding/presets/reference-task/",
-          import.meta.url,
-        ),
-      ),
-      false,
-    );
-    assert.equal(
-      existsSync(
-        new URL(
-          "../assets/software-coding/presets/long-running-task/",
-          import.meta.url,
-        ),
-      ),
-      false,
-    );
+    assert.equal(existsSync(new URL("../assets/software-coding/presets/reference-task/", import.meta.url)), false);
+    assert.equal(existsSync(new URL("../assets/software-coding/presets/long-running-task/", import.meta.url)), false);
     const noEntrypoint = await resolver.resolve({
       presetId: "create-milestone",
       verticalId: "software/coding",
@@ -278,8 +214,7 @@ test("all twelve bundled packages resolve through one valid catalog", async () =
       entrypoint: "run",
     });
     assert.equal(noEntrypoint.ok, false);
-    if (!noEntrypoint.ok)
-      assert.equal(noEntrypoint.error.code, "entrypoint_not_found");
+    if (!noEntrypoint.ok) assert.equal(noEntrypoint.error.code, "entrypoint_not_found");
     const auditEntrypoint = await resolver.resolve({
       presetId: "architecture-rot-audit",
       verticalId: "software/coding",
@@ -288,8 +223,7 @@ test("all twelve bundled packages resolve through one valid catalog", async () =
       entrypoint: "run",
     });
     assert.equal(auditEntrypoint.ok, false);
-    if (!auditEntrypoint.ok)
-      assert.equal(auditEntrypoint.error.code, "entrypoint_not_found");
+    if (!auditEntrypoint.ok) assert.equal(auditEntrypoint.error.code, "entrypoint_not_found");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -337,9 +271,7 @@ for (const sample of [
   },
 ] as const)
   test(`${sample.presetId} dry-run claims equal canonical materialization`, () => {
-    const rootDir = mkdtempSync(
-        path.join(tmpdir(), `ha-preset-${sample.presetId}-`),
-      ),
+    const rootDir = mkdtempSync(path.join(tmpdir(), `ha-preset-${sample.presetId}-`)),
       userRoot = path.join(rootDir, ".harness/presets");
     try {
       git(rootDir, "init", "-q");
@@ -363,20 +295,13 @@ for (const sample of [
         opId: `op-${sample.presetId}`,
       });
       const dryRunPaths = preview.documents.map(({ path: target }) => target),
-        claimPaths = preview.event.payload.initialDocumentClaims.map(
-          ({ path: target }) => target,
-        );
+        claimPaths = preview.event.payload.initialDocumentClaims.map(({ path: target }) => target);
       assert.deepEqual(claimPaths, dryRunPaths);
-      assert.deepEqual(
-        preview.snapshot.profile.completionGateIds,
-        sample.gates,
-      );
+      assert.deepEqual(preview.snapshot.profile.completionGateIds, sample.gates);
       assert.equal(
         sample.addedPath === null
-          ? preview.documents.length === 6
-          : preview.documents.some(
-              ({ relativePath }) => relativePath === sample.addedPath,
-            ),
+          ? preview.documents.length === 5
+          : preview.documents.some(({ relativePath }) => relativePath === sample.addedPath),
         true,
       );
       const store = makeTaskEventStore({
@@ -389,10 +314,7 @@ for (const sample of [
         blobs: preview.blobs,
       });
       for (const document of preview.documents)
-        assert.equal(
-          readFileSync(path.join(rootDir, "harness", document.path), "utf8"),
-          document.body,
-        );
+        assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body);
       rmSync(path.join(rootDir, "harness", preview.packagePath), {
         recursive: true,
         force: true,
@@ -403,10 +325,7 @@ for (const sample of [
         [...dryRunPaths].sort((left, right) => left.localeCompare(right)),
       );
       for (const document of preview.documents)
-        assert.equal(
-          readFileSync(path.join(rootDir, "harness", document.path), "utf8"),
-          document.body,
-        );
+        assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }
@@ -432,22 +351,15 @@ test("module locale, required anchors, and body digests close through the canoni
           locale,
           purpose: "task-create",
         }),
-        increments = resolved.snapshot.templates.filter(({ slot }) =>
-          slot.startsWith("module."),
-        );
+        increments = resolved.snapshot.templates.filter(({ slot }) => slot.startsWith("module."));
       assert.equal(increments.length, 3);
       for (const template of increments) {
-        const document = resolved.documents.find(
-          ({ slot }) => slot === template.slot,
-        );
+        const document = resolved.documents.find(({ slot }) => slot === template.slot);
         assert.equal(template.locale, locale);
         assert.ok(template.requiredAnchors.length >= 2);
         assert.equal(template.content.sha256, sha256Text(document?.body ?? ""));
         for (const anchor of template.requiredAnchors)
-          assert.match(
-            document?.body ?? "",
-            new RegExp(anchor.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"),
-          );
+          assert.match(document?.body ?? "", new RegExp(anchor.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
       }
     }
   } finally {

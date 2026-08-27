@@ -278,6 +278,23 @@ test("a reviewed bare-invocation execution can declare its executor and complete
     git(rootDir, "commit", "--quiet", "-m", "fixture output");
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "review-bare-reviewed" });
     assert.equal((await cell.run({ kind: "task-create", taskId, title: "Bare reviewed" }, bare)).outcome, "applied");
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "fact-record",
+            taskId,
+            statement: "The reviewed executor repair fixture was observed.",
+            evidenceSource: "daemon integration",
+            confidence: "high",
+            memoryClass: "semantic",
+            memoryTags: [],
+          },
+          bare,
+        )
+      ).outcome,
+      "applied",
+    );
     const packagePath = "tasks/task-bare-reviewed-bare-reviewed",
       closeoutPath = path.join(rootDir, "harness", packagePath, "closeout.md"),
       commitSha = git(rootDir, "rev-parse", "HEAD"),

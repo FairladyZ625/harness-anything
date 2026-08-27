@@ -31,6 +31,7 @@ import {
   decisionPassesStateFilter,
 } from "../graph/entityStatusFilter";
 import { focusHistoryReducer, EMPTY_HISTORY, canBack, canForward } from "../navigation/focusHistory";
+import { activeProducesFactRefs } from "../model/triadic";
 
 export type ViewMode = "territory" | "spotlight";
 
@@ -190,9 +191,17 @@ function GraphViewInner({
     const visibleTasks = tasks.filter(taskVisible);
     const moduleByTaskId = new Map(tasks.map((task) => [task.taskId, task.module] as const));
     // fact 跟随宿主 task 的 module 可见性;无宿主(未知/外部)不因 module 筛选隐藏。
-    const factVisible = (fact: FactRef) =>
-      territoryTypes.has("fact") &&
-      (moduleByTaskId.get(fact.taskId) ? filters.modules.has(moduleByTaskId.get(fact.taskId)!) : true);
+    const ownerTaskForFact = (fact: FactRef) => {
+      const ref = fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`;
+      return activeProducesFactRefs(relations)
+        .find((edge) => edge.targetRef === ref)
+        ?.sourceRef.slice("task/".length);
+    };
+    const factVisible = (fact: FactRef) => {
+      const ownerTaskId = ownerTaskForFact(fact),
+        ownerModule = ownerTaskId ? moduleByTaskId.get(ownerTaskId) : undefined;
+      return territoryTypes.has("fact") && (ownerModule === undefined || filters.modules.has(ownerModule));
+    };
     return partitionForSkel(
       skel,
       visibleTasks,

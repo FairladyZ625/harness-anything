@@ -25,7 +25,7 @@ const stateDigestTables = [
   ["edge", "task_id, edge_id, iteration"],
   ["lease_cas", "task_id"],
   ["lease_interval", "task_id, execution_id, acquired_revision"],
-  ["fact", "task_id, fact_id"],
+  ["fact", "fact_id"],
   ["relation_edge", "relation_id"],
   ["decision", "decision_id"],
   ["decision_option", "decision_id, kind, option_id"],

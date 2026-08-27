@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
  * 实体互链不变量(清册 G-10)的唯一被批准渲染出口。
  *
  * 不变量:页面显示的实体 ID 必须是通往该实体的可激活路径。凡要把一个实体
- * 引用(task/<id>、decision/<id>、fact/<task>/<anchor>、agent/<id>、squad/<id>、
+ * 引用(task/<id>、decision/<id>、fact/<id>、agent/<id>、squad/<id>、
  * provider/<id>、session/<id>)渲染到页面上,一律走本组件;onNavigate 必填 ——
  * 没有回调就没有「路」,本组件不允许退化成死文本(由 G37 entity-id-links 审计)。
  *
@@ -40,11 +40,13 @@ export function EntityRefLink({
   );
 }
 
-/** kind + 裸 ID(+ fact 锚)→ canonical 引用;与 entityRoutes 的可寻址七类一致。 */
+/** kind + 裸 ID(+ decision anchor)→ canonical 引用。Facts use their own ID and never take an owner segment. */
+export function entityRefOf(kind: "fact", id: string): string;
 export function entityRefOf(
-  kind: "task" | "decision" | "fact" | "agent" | "squad" | "provider" | "session",
+  kind: "task" | "decision" | "agent" | "squad" | "provider" | "session",
   id: string,
   anchor?: string,
-): string {
+): string;
+export function entityRefOf(kind: string, id: string, anchor?: string): string {
   return anchor === undefined ? `${kind}/${id}` : `${kind}/${id}/${anchor}`;
 }

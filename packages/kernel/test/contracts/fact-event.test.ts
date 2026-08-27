@@ -19,14 +19,8 @@ import {
   type DecisionDocumentState,
 } from "../../src/domain/decision-event.ts";
 import { DecisionEventSchema } from "../../src/schemas/decision-event.ts";
-import {
-  validateCurrentDecisionEvent,
-  validateDecisionEvent,
-} from "../../src/domain/decision-event.ts";
-import {
-  validateCurrentFactEvent,
-  validateFactEvent,
-} from "../../src/domain/fact-event.ts";
+import { validateCurrentDecisionEvent, validateDecisionEvent } from "../../src/domain/decision-event.ts";
+import { validateCurrentFactEvent, validateFactEvent } from "../../src/domain/fact-event.ts";
 
 const draft: FactEventDraftV1 = {
     schema: "fact-event/v1",
@@ -73,19 +67,13 @@ test("Fact event reader ignores unknown fields while the current writer stays st
       ...event,
       payload: {
         ...event.payload,
-        provenance: [
-          { ...event.payload.provenance[0]!, token: "future field" },
-        ],
+        provenance: [{ ...event.payload.provenance[0]!, token: "future field" }],
       },
     },
   ];
   for (const future of additive) {
     assert.deepEqual(validateFactEvent(future), [], JSON.stringify(future));
-    assert.notDeepEqual(
-      validateCurrentFactEvent(future),
-      [],
-      JSON.stringify(future),
-    );
+    assert.notDeepEqual(validateCurrentFactEvent(future), [], JSON.stringify(future));
   }
   for (const invalid of [
     { ...event, factId: "F-bad" },
@@ -115,32 +103,19 @@ test("Fact event reader ignores unknown fields while the current writer stays st
       payload: {
         ...event.payload,
         supersedes: {
-          factRef: "fact/task-contract/F-12345678",
+          factRef: "fact/F-12345678",
           rationale: "x".repeat(200),
         },
       },
     },
   ]) {
-    assert.notDeepEqual(
-      validateFactEvent(invalid),
-      [],
-      JSON.stringify(invalid),
-    );
-    assert.throws(
-      () => Schema.decodeUnknownSync(FactEventSchema)(invalid),
-      JSON.stringify(invalid),
-    );
+    assert.notDeepEqual(validateFactEvent(invalid), [], JSON.stringify(invalid));
+    assert.throws(() => Schema.decodeUnknownSync(FactEventSchema)(invalid), JSON.stringify(invalid));
   }
-  assert.throws(
-    () =>
-      parseCanonicalEvent(
-        `${JSON.stringify({ ...event, schema: "unknown-event/v1" })}\n`,
-      ),
-    /unknown/u,
-  );
+  assert.throws(() => parseCanonicalEvent(`${JSON.stringify({ ...event, schema: "unknown-event/v1" })}\n`), /unknown/u);
 });
 
-test("Fact compiler renders the exact machine-owned file and retires superseded history", () => {
+test("Fact compiler renders one exact machine-owned document per fact", () => {
   const first = compileFactWrite({
     event: draft,
     packagePath: "tasks/task-contract-contract",
@@ -160,7 +135,7 @@ test("Fact compiler renders the exact machine-owned file and retires superseded 
         ...draft.payload,
         statement: "Corrected payload",
         supersedes: {
-          factRef: "fact/task-contract/F-ABCDEFGH",
+          factRef: "fact/F-ABCDEFGH",
           rationale: "New evidence",
         },
       },
@@ -180,10 +155,8 @@ test("Fact compiler renders the exact machine-owned file and retires superseded 
         },
       ],
     });
-  assert.match(
-    second.body,
-    /### F-ABCDEFGH[\s\S]*State: superseded_fact[\s\S]*### F-BCDEFGHJ[\s\S]*State: standing/u,
-  );
+  assert.doesNotMatch(second.body, /### F-ABCDEFGH/u);
+  assert.match(second.body, /### F-BCDEFGHJ[\s\S]*State: standing/u);
 });
 
 const initialRelationIdentity = {
@@ -236,14 +209,8 @@ const decisionDraft: DecisionEventDraftV1 = {
 
 test("Decision event reader ignores additions while the current writer requires its exact authored mutation claim", () => {
   assert.deepEqual(validateDecisionEvent(decision.event), []);
-  assert.deepEqual(
-    Schema.decodeUnknownSync(DecisionEventSchema)(decision.event),
-    decision.event,
-  );
-  assert.deepEqual(
-    parseCanonicalEvent(serializeCanonicalEvent(decision.event)),
-    decision.event,
-  );
+  assert.deepEqual(Schema.decodeUnknownSync(DecisionEventSchema)(decision.event), decision.event);
+  assert.deepEqual(parseCanonicalEvent(serializeCanonicalEvent(decision.event)), decision.event);
   for (const future of [
     { ...decision.event, unexpected: true },
     {
@@ -252,11 +219,7 @@ test("Decision event reader ignores additions while the current writer requires 
     },
   ]) {
     assert.deepEqual(validateDecisionEvent(future), [], JSON.stringify(future));
-    assert.notDeepEqual(
-      validateCurrentDecisionEvent(future),
-      [],
-      JSON.stringify(future),
-    );
+    assert.notDeepEqual(validateCurrentDecisionEvent(future), [], JSON.stringify(future));
   }
   for (const invalid of [
     decisionDraft,
@@ -288,15 +251,8 @@ test("Decision event reader ignores additions while the current writer requires 
       },
     },
   ]) {
-    assert.notDeepEqual(
-      validateDecisionEvent(invalid),
-      [],
-      JSON.stringify(invalid),
-    );
-    assert.throws(
-      () => Schema.decodeUnknownSync(DecisionEventSchema)(invalid),
-      JSON.stringify(invalid),
-    );
+    assert.notDeepEqual(validateDecisionEvent(invalid), [], JSON.stringify(invalid));
+    assert.throws(() => Schema.decodeUnknownSync(DecisionEventSchema)(invalid), JSON.stringify(invalid));
   }
 });
 
@@ -330,14 +286,8 @@ test("Decision compiler renders the exact single-file package and frozen write p
     ),
     true,
   );
-  assert.match(
-    decision.body,
-    new RegExp(`relations: .*${initialRelation.relation_id}`, "u"),
-  );
-  assert.equal(
-    decision.body.endsWith("---\n# Canonical Decision\n\n初始正文。\n"),
-    true,
-  );
+  assert.match(decision.body, new RegExp(`relations: .*${initialRelation.relation_id}`, "u"));
+  assert.equal(decision.body.endsWith("---\n# Canonical Decision\n\n初始正文。\n"), true);
   assert.throws(
     () =>
       compileDecisionWrite({
@@ -419,16 +369,10 @@ test("Decision outcome embeds an independently verifiable machine-content consen
       consentedAt: outcome.occurredAt,
     },
   );
-  assert.equal(
-    consent.machineDigest,
-    decisionMachineDigest({ ...current, relations: [] }),
-  );
+  assert.equal(consent.machineDigest, decisionMachineDigest({ ...current, relations: [] }));
   assert.match(consent.consentId, /^djc_[0-9a-f]{26}$/u);
   assert.deepEqual(validateDecisionEvent(accepted.event), []);
-  assert.match(
-    accepted.body,
-    new RegExp(`judgmentConsents: .*${consent.consentId}`, "u"),
-  );
+  assert.match(accepted.body, new RegExp(`judgmentConsents: .*${consent.consentId}`, "u"));
   const nestedFuture = {
     ...accepted.event,
     payload: {
@@ -447,10 +391,7 @@ test("Decision outcome embeds an independently verifiable machine-content consen
     currentRelations: [],
     currentDocument: {
       blobSha256: decision.event.payload.decisionDocumentClaim.sha256,
-      body: decision.body.replace(
-        "# Canonical Decision",
-        "# Hand-edited prose",
-      ),
+      body: decision.body.replace("# Canonical Decision", "# Hand-edited prose"),
     },
   });
   assert.equal(
@@ -480,18 +421,11 @@ test("Decision outcome embeds an independently verifiable machine-content consen
     },
   };
   assert.throws(
-    () =>
-      assertDecisionJudgmentConsent(
-        { ...current, relations: [] },
-        digestTampered,
-      ),
+    () => assertDecisionJudgmentConsent({ ...current, relations: [] }, digestTampered),
     /machine content cut/u,
   );
   const { judgmentConsent: _consent, ...legacy } = accepted.event.payload;
-  assert.notDeepEqual(
-    validateDecisionEvent({ ...accepted.event, payload: legacy }),
-    [],
-  );
+  assert.notDeepEqual(validateDecisionEvent({ ...accepted.event, payload: legacy }), []);
   assert.notDeepEqual(
     validateDecisionEvent({
       ...accepted.event,
@@ -517,52 +451,23 @@ test("#1546: a rejected Decision proposal names every field that is actually wro
     [{ riskTier: "urgent" }, /^riskTier must be low, medium, or high$/u],
     [{ urgency: "someday" }, /^urgency must be low, medium, or high$/u],
     [{ vertical: "" }, /^vertical must be a non-empty string$/u],
-    [
-      { decisionClass: "informal" },
-      /^decisionClass must be ordinary or standing_policy$/u,
-    ],
-    [
-      { appliesTo: { modules: ["kernel", "kernel"], productLines: [] } },
-      /^appliesTo must carry exactly/u,
-    ],
+    [{ decisionClass: "informal" }, /^decisionClass must be ordinary or standing_policy$/u],
+    [{ appliesTo: { modules: ["kernel", "kernel"], productLines: [] } }, /^appliesTo must carry exactly/u],
     [{ body: 7 }, /^body must be a string$/u],
     [{ chosen: [] }, /^chosen must be a non-empty array$/u],
     [{ claims: "none" }, /^claims must be an array$/u],
-    [
-      { chosen: [{ id: "XX1", text: "Wrong prefix" }] },
-      /^every chosen entry needs a CH id/u,
-    ],
-    [
-      { rejected: [{ id: "RJ1", text: "No reason given", whyNot: "" }] },
-      /^every rejected entry needs an RJ id/u,
-    ],
-    [
-      { claims: [{ id: "C1", text: "Bad flag", loadBearing: "yes" }] },
-      /^every claim needs a C id/u,
-    ],
-    [
-      { fulfillments: [{ claimId: "C1", mode: "wished" }] },
-      /^every fulfillment needs a claimId and a mode of/u,
-    ],
-    [
-      { fulfillments: [{ claimId: "C9", mode: "evidenced" }] },
-      /^every fulfillment must name a distinct claim/u,
-    ],
+    [{ chosen: [{ id: "XX1", text: "Wrong prefix" }] }, /^every chosen entry needs a CH id/u],
+    [{ rejected: [{ id: "RJ1", text: "No reason given", whyNot: "" }] }, /^every rejected entry needs an RJ id/u],
+    [{ claims: [{ id: "C1", text: "Bad flag", loadBearing: "yes" }] }, /^every claim needs a C id/u],
+    [{ fulfillments: [{ claimId: "C1", mode: "wished" }] }, /^every fulfillment needs a claimId and a mode of/u],
+    [{ fulfillments: [{ claimId: "C9", mode: "evidenced" }] }, /^every fulfillment must name a distinct claim/u],
   ] as const) {
-    const issues = validateDecisionEvent(
-      event(next as Record<string, unknown>),
-    );
-    assert.equal(
-      issues.length,
-      1,
-      `${JSON.stringify(next)} -> ${JSON.stringify(issues)}`,
-    );
+    const issues = validateDecisionEvent(event(next as Record<string, unknown>));
+    assert.equal(issues.length, 1, `${JSON.stringify(next)} -> ${JSON.stringify(issues)}`);
     assert.match(issues[0]!, pattern, JSON.stringify(next));
   }
   // Several wrong fields at once are all reported, not just the first one the old chain hit.
-  const many = validateDecisionEvent(
-    event({ title: "", riskTier: "urgent", body: 7 }),
-  );
+  const many = validateDecisionEvent(event({ title: "", riskTier: "urgent", body: 7 }));
   assert.equal(many.length, 3, JSON.stringify(many));
   assert.deepEqual([...many].sort(), [
     "body must be a string",
@@ -571,10 +476,7 @@ test("#1546: a rejected Decision proposal names every field that is actually wro
   ]);
   // A wrong field SET still fails closed as one message naming the exact contract.
   const { relations: _relations, ...missing } = payload;
-  assert.deepEqual(
-    validateDecisionEvent({ ...decision.event, payload: missing }),
-    [
-      "decision proposal requires exactly: title, question, riskTier, urgency, vertical, preset, appliesTo, decisionClass, chosen, rejected, body, claims, fulfillments, relations, provenance",
-    ],
-  );
+  assert.deepEqual(validateDecisionEvent({ ...decision.event, payload: missing }), [
+    "decision proposal requires exactly: title, question, riskTier, urgency, vertical, preset, appliesTo, decisionClass, chosen, rejected, body, claims, fulfillments, relations, provenance",
+  ]);
 });

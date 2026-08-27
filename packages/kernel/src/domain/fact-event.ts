@@ -72,7 +72,8 @@ export interface FactEventPayload {
 }
 
 export type FactEventV1 = EventEnvelope<"fact-event/v1", "fact_recorded", ActorIdentity, FactEventPayload> & {
-  readonly taskId: string;
+  /** Optional provenance owner. It is not part of fact identity. */
+  readonly taskId?: string;
   readonly factId: string;
 };
 export type FactEventDraftV1 = Omit<FactEventV1, "payload"> & {
@@ -86,15 +87,10 @@ export interface CompiledFactWrite {
   readonly body: string;
 }
 
-export function compileFactWrite(input: {
-  readonly event: FactEventDraftV1;
-  readonly packagePath: string;
-  readonly currentFacts: readonly FactDocumentRecord[];
-}): CompiledFactWrite {
-  const path = `${input.packagePath}/facts.md`;
+export function compileFactWrite(input: { readonly event: FactEventDraftV1 }): CompiledFactWrite {
+  const path = `facts/${input.event.factId}.md`;
   try {
-    if (normalizeRelativeDocumentPath(path) !== path || !input.packagePath.startsWith(`tasks/${input.event.taskId}-`))
-      throw new Error();
+    if (normalizeRelativeDocumentPath(path) !== path) throw new Error();
   } catch {
     throw new Error("facts package path is invalid");
   }
@@ -107,16 +103,7 @@ export function compileFactWrite(input: {
       state: "standing",
       workspaceRevision: input.event.workspaceRevision,
     },
-    target = input.event.payload.supersedes?.factRef;
-  const records = [
-      ...input.currentFacts.map((fact) =>
-        target?.endsWith(`/${fact.factId}`) ? { ...fact, state: "superseded_fact" as const } : fact,
-      ),
-      next,
-    ].sort(
-      (left, right) => left.workspaceRevision - right.workspaceRevision || left.factId.localeCompare(right.factId),
-    ),
-    body = renderFactsDocument(records),
+    body = renderFactsDocument([next]),
     claim: FactsDocumentClaim = {
       path,
       sha256: sha256Text(body),
@@ -156,7 +143,7 @@ export function factWritePlan(event: FactEventV1): FrozenWritePlan<"FactRecord">
         mediaType: claim.mediaType,
       },
       { kind: "content_blob", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
-      { kind: "projection_invalidation", projection: "fact/v1", key: event.taskId },
+      { kind: "projection_invalidation", projection: "fact/v1", key: event.factId },
       { kind: "projection_invalidation", projection: "document/v1", key: claim.path },
     ];
   return freezeDeclaredWritePlan({ commandType: "FactRecord", targets }, ["FactRecord"]);
@@ -171,8 +158,8 @@ export function assertFactWritePlan(event: FactEventV1, plan: FrozenWritePlan | 
 export function isFactId(value: string): boolean {
   return /^F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value);
 }
-export function factRef(taskId: string, factId: string): string {
-  return `fact/${taskId}/${factId}`;
+export function factRef(factId: string): string {
+  return `fact/${factId}`;
 }
 export function isFactEvent(event: { readonly schema: string }): event is FactEventV1 {
   return event.schema === "fact-event/v1";
@@ -192,26 +179,10 @@ export function validateCurrentFactEvent(value: unknown): readonly string[] {
 function validateFactEventFields(value: unknown, allowUnknownFields: boolean): readonly string[] {
   if (
     !isRecord(value) ||
-    !matchesFields(
-      value,
-      [
-        "schema",
-        "eventId",
-        "workspaceRevision",
-        "opId",
-        "taskId",
-        "factId",
-        "type",
-        "actor",
-        "source",
-        "occurredAt",
-        "payload",
-      ],
-      allowUnknownFields,
-    ) ||
+    !factEventFields(value, allowUnknownFields) ||
     value.schema !== "fact-event/v1" ||
     value.type !== "fact_recorded" ||
-    !safeId(value.taskId) ||
+    (value.taskId !== undefined && !safeId(value.taskId)) ||
     typeof value.factId !== "string" ||
     !isFactId(value.factId) ||
     !timestamp(value.occurredAt) ||
@@ -250,13 +221,50 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
     payload.provenance.some((entry) => !provenance(entry, allowUnknownFields)) ||
     !uniqueProvenance(payload.provenance) ||
     (payload.supersedes !== undefined && !supersedes(payload.supersedes, allowUnknownFields)) ||
-    !validFactsClaim(payload.factsDocumentClaim, value.taskId, allowUnknownFields)
+    !validFactsClaim(payload.factsDocumentClaim, value.factId, value.taskId, allowUnknownFields)
   )
     return ["fact event payload is invalid"];
   return [];
 }
 
-function validFactsClaim(value: unknown, taskId: unknown, allowUnknownFields: boolean): value is FactsDocumentClaim {
+function factEventFields(value: Readonly<Record<string, unknown>>, allowUnknownFields: boolean): boolean {
+  const required = [
+    "schema",
+    "eventId",
+    "workspaceRevision",
+    "opId",
+    "factId",
+    "type",
+    "actor",
+    "source",
+    "occurredAt",
+    "payload",
+  ];
+  if (allowUnknownFields) return required.every((field) => Object.hasOwn(value, field));
+  return (
+    Object.keys(value).every((field) => required.includes(field) || field === "taskId") &&
+    required.every((field) => Object.hasOwn(value, field))
+  );
+}
+
+function validFactsClaim(
+  value: unknown,
+  factId: unknown,
+  taskId: unknown,
+  allowUnknownFields: boolean,
+): value is FactsDocumentClaim {
+  const pathIsCanonical =
+    typeof factId === "string" && String(value && isRecord(value) ? value.path : "") === `facts/${factId}.md`;
+  const pathIsHistoricalTaskLocal =
+    allowUnknownFields &&
+    typeof taskId === "string" &&
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as Record<string, unknown>).path === "string" &&
+    new RegExp(`^tasks/${escapeRegExp(taskId)}-[^/]+/facts\\.md$`, "u").test(
+      (value as Record<string, unknown>).path as string,
+    );
   if (
     !isRecord(value) ||
     !matchesFields(value, ["path", "sha256", "size", "mediaType", "policyId"], allowUnknownFields) ||
@@ -265,9 +273,8 @@ function validFactsClaim(value: unknown, taskId: unknown, allowUnknownFields: bo
     (value.size as number) < 0 ||
     value.mediaType !== "text/markdown" ||
     value.policyId !== FACT_DOCUMENT_POLICY_ID ||
-    typeof taskId !== "string" ||
-    !String(value.path).startsWith(`tasks/${taskId}-`) ||
-    !String(value.path).endsWith("/facts.md")
+    typeof factId !== "string" ||
+    (!pathIsCanonical && !pathIsHistoricalTaskLocal)
   )
     return false;
   try {
@@ -275,6 +282,10 @@ function validFactsClaim(value: unknown, taskId: unknown, allowUnknownFields: bo
   } catch {
     return false;
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 function escapeFactDocumentScalar(value: string): string {
   return JSON.stringify(value).slice(1, -1);
@@ -304,7 +315,7 @@ function supersedes(value: unknown, allowUnknownFields: boolean): boolean {
     isRecord(value) &&
     matchesFields(value, ["factRef", "rationale"], allowUnknownFields) &&
     typeof value.factRef === "string" &&
-    /^fact\/[^/]+\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value.factRef) &&
+    /^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value.factRef) &&
     codePoints(value.rationale, 1, 199)
   );
 }

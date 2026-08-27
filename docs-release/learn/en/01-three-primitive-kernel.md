@@ -53,7 +53,7 @@ and never consumed — the pond turns green. Without tasks, decisions can't turn
 into work. Without facts, decisions have no evidence and can't be honestly
 reviewed. The three interlock; only together are they self-consistent.
 
-## Asymmetric storage: don't move the fact, move the reference
+## Asymmetric storage: task ownership is an edge
 
 Here's the part that's easy to get wrong. Three primitives does **not** mean
 three symmetric top-level folders.
@@ -62,28 +62,24 @@ three symmetric top-level folders.
   is meant to watch. So they live together, in `decisions/`.
 - **Tasks are containers.** Each task is a package with its own working
   documents.
-- **Facts are embedded** in the task package that produced them. A fact never
-  gets its own folder.
+- **Facts are independent records.** Each one lives at `facts/F-<id>.md` and is
+  identified by `fact/F-<id>`. When a task produces it, an active
+  `task/<id> -> fact/F-<id>` `produces` edge carries that ownership.
 
-Why embed facts instead of collecting them centrally? Because a fact without its
-task is untrustworthy. Take `redis p99 = 50ms at 10k QPS` out of the task that
-produced it and you've stripped its provenance: under what load, at which commit,
-measured by whom. The task *is* the fact's context. Lift it out and it becomes a
-free-floating claim no one can verify.
+Independence does not discard provenance. A fact still records its observation
+source and provenance, while the optional `produces` edge says which task owns it
+for completion and navigation. A standalone fact is valid and can later be
+related to decisions without inventing a task owner.
 
-So how does a buried observation ever gain cross-task significance? Not by moving
-— by **being referenced**. A fact earns first-class relevance when a decision
-points a typed relation at it (promote-by-reference), not by relocating into some
-shared drawer. Until it's referenced, it's just one of thousands of sleeping
-observations, and that's fine.
+Facts gain cross-task significance by **being referenced**. A decision can point
+to any canonical fact reference, whether or not that fact has a task owner.
 
-The slogan is **"don't move it, reference it."** The decision never relocates
-either — it stays in `decisions/` and is pulled in by whatever depends on it.
-Facts are its mirror image: they stay where they were born and are pulled into
-relevance by decisions. Nothing migrates; only references do.
+The invariant is **"identity is independent; ownership is a relation."** The
+decision stays in `decisions/`, facts stay in `facts/`, and the graph carries
+cross-entity context.
 
-Three primitives, but only two storage sites and one reference bus. Why cut it
-this way? Two properties fall out for free:
+Three primitives have clear storage sites, with the relation graph as their
+reference bus. Two properties fall out for free:
 
 - **Auditability** — a fact stays welded to the exact circumstances that make it
   meaningful, so its provenance can never drift.

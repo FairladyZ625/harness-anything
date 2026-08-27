@@ -235,10 +235,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     );
     assert.equal(promoted.outcome, "applied", JSON.stringify(promoted));
     assert.equal((promoted as Record<string, unknown>).factId, "F-DEADBEEF");
-    assert.match(
-      readFileSync(path.join(rootDir, "harness/tasks/task-evidence-decision-evidence/facts.md"), "utf8"),
-      /### F-DEADBEEF/u,
-    );
+    assert.match(readFileSync(path.join(rootDir, "harness/facts/F-DEADBEEF.md"), "utf8"), /### F-DEADBEEF/u);
     const events = makeTaskEventStore({ repoId: "decision-surface", rootDir })
       .read()
       .events.filter((event) => event.schema === "decision-event/v1");

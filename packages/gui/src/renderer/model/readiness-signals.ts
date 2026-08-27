@@ -12,7 +12,7 @@ export interface ReadinessSignal {
 
 type GraphState = "ready" | "loading" | "error";
 
-const factAnchor = (ref: string) => ref.replace(/^fact\//u, "");
+const factRefOf = (ref: string) => (ref.startsWith("fact/") ? ref : `fact/${ref}`);
 
 export function computeReadinessSignals(
   decision: DecisionRow,
@@ -110,7 +110,10 @@ function evidenceLiveness(
       color: "na",
       summary: `N/A · coverageRows 无 covering/refuting fact · ${basis}。`,
     };
-  const resolved = refs.map((ref) => ({ ref, fact: facts.find((item) => item.anchor === factAnchor(ref)) }));
+  const resolved = refs.map((ref) => ({
+    ref,
+    fact: facts.find((item) => factRefOf(item.anchor) === factRefOf(ref)),
+  }));
   const missing = resolved.filter((item) => !item.fact).map((item) => item.ref);
   if (missing.length)
     return {

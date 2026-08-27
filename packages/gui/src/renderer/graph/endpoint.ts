@@ -19,7 +19,7 @@ export interface NodePos {
  * 解析 endpoint 字符串 → 归一 id + entity。
  * 支持三种形式：
  *   decision/<id>        → { id: "decision/<id>", entity: "decision" }
- *   fact/<task>/<anchor> → { id: "fact/<task>/<anchor>", entity: "fact" }
+ *   fact/<anchor> → { id: "fact/<anchor>", entity: "fact" }
  *   task/<id>            → { id: "<id>", entity: "task" }
  */
 export function parseEndpoint(raw: string): { id: string; entity: EntityKind } | null {
@@ -48,19 +48,16 @@ export function endpointToNodeId(raw: string): string {
 }
 
 /** 沿边方向做闭包；dir=out 沿 from→to 扩散，dir=in 反向。用于 focus 链路。 */
-export function collectClosure(
-  edges: RelationEdge[],
-  start: string,
-  dir: "out" | "in",
-): Set<string> {
+export function collectClosure(edges: RelationEdge[], start: string, dir: "out" | "in"): Set<string> {
   const seen = new Set([start]);
   let changed = true;
   while (changed) {
     changed = false;
     for (const e of edges) {
-      const [src, dst] = dir === "out"
-        ? [endpointToNodeId(e.from), endpointToNodeId(e.to)]
-        : [endpointToNodeId(e.to), endpointToNodeId(e.from)];
+      const [src, dst] =
+        dir === "out"
+          ? [endpointToNodeId(e.from), endpointToNodeId(e.to)]
+          : [endpointToNodeId(e.to), endpointToNodeId(e.from)];
       if (seen.has(src) && !seen.has(dst)) {
         seen.add(dst);
         changed = true;

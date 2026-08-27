@@ -15,24 +15,28 @@ test("quickstart demo runs daemon init to task to event-backed Fact search/show"
     const stdout = execFileSync(process.execPath, [demoScript, "--cli", cliEntry, "--root", rootDir], {
       cwd: repoRoot,
       encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024
+      maxBuffer: 64 * 1024 * 1024,
     });
     const result = JSON.parse(stdout);
 
     assert.equal(result.ok, true);
     assert.equal(result.schema, "quickstart-demo/v1");
     assert.match(result.taskId, /^task_[0-9a-f]{26}$/u);
-    assert.match(result.factRef, new RegExp(`^fact/${result.taskId}/F-[0-9A-HJKMNP-TV-Z]{8}$`, "u"));
+    assert.match(result.factRef, /^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u);
   });
 });
 
 test("quickstart demo fails closed when a middle step is deliberately broken", () => {
   withTempRoot((rootDir) => {
-    const result = spawnSync(process.execPath, [demoScript, "--cli", cliEntry, "--root", rootDir, "--break-step", "fact-record"], {
-      cwd: repoRoot,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024
-    });
+    const result = spawnSync(
+      process.execPath,
+      [demoScript, "--cli", cliEntry, "--root", rootDir, "--break-step", "fact-record"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    );
 
     assert.notEqual(result.status, 0);
     const failure = parseLastJsonObject(result.stderr);

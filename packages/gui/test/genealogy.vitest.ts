@@ -44,7 +44,7 @@ describe("genealogy edge building", () => {
       edge("decision/dec_a", "decision/dec_b", "refines"),
       edge("decision/dec_a", "decision/dec_c", "supports"),
       edge("decision/dec_a", "task/task_x", "derives"),
-      edge("decision/dec_a/CH1", "fact/task_x/F-1", "evidenced-by"),
+      edge("decision/dec_a/CH1", "fact/F-1", "evidenced-by"),
     ];
     const geo = buildGenealogyEdges(relations, byId);
     expect(geo).toHaveLength(2);

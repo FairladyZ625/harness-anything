@@ -13,7 +13,7 @@
 | `ha task transition <id> <state>` | 把任务移到新的生命周期状态。 |
 | `ha decision propose --title <t> ...` | 提议一个决策（问题、已选、已拒、为何不）。 |
 | `ha decision accept <id>` | 裁决一个提议的决策——证据检查点。 |
-| `ha fact record --task <id> --statement <text>` | 记录一个只增不改的事实锚定到任务。 |
+| `ha fact record --statement <text> --source <text> [--task <id>]` | 记录一个只增不改的事实；可选关联到任务。 |
 | `ha status` | 总结 harness 状态。 |
 | `ha check` | 运行 harness 健康检查。 |
 | `ha graph` | 把关系图渲染成自包含 HTML 全景。 |
@@ -36,7 +36,7 @@ ha decision list --state active
 
 **事实**
 ```bash
-ha fact record --task <id> --statement "..." --source "..." --confidence high
+ha fact record --statement "..." --source "..." --confidence high [--task <id>]
 ```
 
 **检查和导航**

@@ -64,7 +64,10 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
     .sort(compareRows);
   const rowsHash = hashExactRows(rows);
   const sourceHash = projectionSourceHash(source.hash, runtimeContext);
-  const cold = readColdRebuildSource(runtimeContext),
+  // The canonical ledger may still contain task-local fact references until the
+  // one-time genesis migration runs. Reuse the migration reader's normalizer
+  // so a resident daemon never rebuilds a partial relation graph in that window.
+  const cold = readColdRebuildSource(runtimeContext, { includeLegacyTaskFacts: true }),
     graphBase = buildRelationGraphProjection(runtimeContext, cold.truth),
     graph = { ...graphBase, coverageRows: buildColdCoverage(cold, graphBase.edges) };
   writeProjectionDatabase(

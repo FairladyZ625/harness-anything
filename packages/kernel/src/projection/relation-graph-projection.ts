@@ -41,14 +41,14 @@ export interface RelationCoverageRow {
 }
 export interface FactAnchorRow {
   readonly factRef: string;
-  readonly taskId: string;
+  readonly taskId?: string;
   readonly factId: string;
   readonly sourcePath: string;
 }
 export interface RelationFactRow {
   readonly schema: "task-fact-row/v1";
   readonly ref: string;
-  readonly taskId: string;
+  readonly taskId?: string;
   readonly factId: string;
   readonly statement: string;
   readonly source: string;

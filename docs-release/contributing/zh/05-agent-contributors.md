@@ -45,7 +45,7 @@ agent 不得：
 ```bash
 ha task create --title "<title>" --vertical software/coding --preset standard-task
 ha task progress append <task-id> --text "<progress>"
-ha fact record --task <task-id> --statement "<observed fact>" --source "<source>" --confidence high
+ha fact record --statement "<observed fact>" --source "<source>" --confidence high [--task <task-id>]
 ```
 
 不要手工 scaffold task 目录。如果 CLI 不能创建或更新 task package，停下来报告 blocker。

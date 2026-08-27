@@ -321,6 +321,23 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
   const taskId = "task-complete";
   try {
     assert.equal((await cell.run({ kind: "task-create", taskId, title: "Complete" }, binding)).outcome, "applied");
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "fact-record",
+            taskId,
+            statement: "The opaque artifact was generated and reviewed.",
+            evidenceSource: "test:artifact-complete",
+            confidence: "high",
+            memoryClass: "episodic",
+            memoryTags: [],
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
     writeFileSync(path.join(rootDir, "gen.mjs"), "export const generated = true;\n");
     const added = (await cell.run(
       { kind: "task-artifact-add", taskId, source: "gen.mjs", destination: "scripts/gen.mjs" },

@@ -453,7 +453,7 @@ function assertDecisionEvidenceFloor(
 }
 function isDecisionEvidenceTarget(value: string): boolean {
   return (
-    /^(?:fact\/[^/]+\/F-[0-9A-HJKMNP-TV-Z]{8}|task\/[^/]+)$/u.test(value) ||
+    /^(?:fact\/F-[0-9A-HJKMNP-TV-Z]{8}|task\/[^/]+)$/u.test(value) ||
     /^decision\/dec_[A-Za-z0-9_-]+(?:\/[A-Za-z][A-Za-z0-9_-]*)?$/u.test(value)
   );
 }

@@ -43,6 +43,18 @@ async function reachGreenInReview(
 ): Promise<string> {
   const binding = { actor, source: "local" as const };
   await cell.run({ kind: "task-create", taskId, title, ...(taskClass === "milestone" ? { taskClass } : {}) }, binding);
+  await cell.run(
+    {
+      kind: "fact-record",
+      taskId,
+      statement: `${title} has completion evidence.`,
+      evidenceSource: "test:milestone-lineage",
+      confidence: "high",
+      memoryClass: "episodic",
+      memoryTags: [],
+    },
+    binding,
+  );
   await cell.run({ kind: "task-start", taskId, executionId }, binding);
   const packagePath = `tasks/${taskId}-${title
       .toLocaleLowerCase("en-US")

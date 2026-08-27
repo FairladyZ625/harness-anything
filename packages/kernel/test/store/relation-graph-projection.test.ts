@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   checkTaskProjection,
+  readColdRebuildSource,
   readRelationGraphProjection,
   rebuildTaskProjection,
 } from "../../src/index.ts";
@@ -22,6 +23,7 @@ import {
   seedRelationProjection,
   writeColdHistory,
   writeFactEvent,
+  writeLegacyFactEvent,
   writeMigrationEvent,
   writeTask,
 } from "./relation-graph-projection.fixtures.ts";
@@ -68,10 +70,7 @@ test("real post-merge entry resolves event-backed Decision anchors and rejects u
 
 test("GUI graph reads task and relation truth from one read-only L2 database", () => {
   withTempStore((rootDir) => {
-    const projectionPath = path.join(
-      rootDir,
-      ".harness/cache/projections.sqlite",
-    );
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     seedRelationProjection(projectionPath);
     const before = readFileSync(projectionPath),
       graph = readRelationGraphProjection({ rootDir });
@@ -84,27 +83,17 @@ test("GUI graph reads task and relation truth from one read-only L2 database", (
       ["task-positive"],
     );
     assert.equal(graph.facts[0]?.schema, "task-fact-row/v1");
-    assert.deepEqual(
-      readFileSync(projectionPath),
-      before,
-      "read path must not rebuild or mutate canonical L2",
-    );
+    assert.deepEqual(readFileSync(projectionPath), before, "read path must not rebuild or mutate canonical L2");
   });
 });
 
 test("GUI graph distinguishes unavailable truth from an empty relation set without creating a cache", () => {
   withTempStore((rootDir) => {
-    const projectionPath = path.join(
-        rootDir,
-        ".harness/cache/projections.sqlite",
-      ),
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite"),
       graph = readRelationGraphProjection({ rootDir });
     assert.deepEqual(graph.edges, []);
     assert.equal(
-      graph.warnings.some(
-        ({ code, severity }) =>
-          code === "relation_truth_unavailable" && severity === "hard-fail",
-      ),
+      graph.warnings.some(({ code, severity }) => code === "relation_truth_unavailable" && severity === "hard-fail"),
       true,
     );
     assert.equal(existsSync(projectionPath), false);
@@ -113,18 +102,13 @@ test("GUI graph distinguishes unavailable truth from an empty relation set witho
 
 test("GUI graph rejects structurally complete relation tables without a truth-source marker", () => {
   withTempStore((rootDir) => {
-    const projectionPath = path.join(
-      rootDir,
-      ".harness/cache/projections.sqlite",
-    );
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     seedRelationProjection(projectionPath, false);
     const graph = readRelationGraphProjection({ rootDir });
     assert.deepEqual(graph.edges, []);
     assert.equal(
       graph.warnings.some(
-        ({ code, message }) =>
-          code === "relation_truth_unavailable" &&
-          message.includes("truth source"),
+        ({ code, message }) => code === "relation_truth_unavailable" && message.includes("truth source"),
       ),
       true,
     );
@@ -133,8 +117,8 @@ test("GUI graph rejects structurally complete relation tables without a truth-so
 
 test("explicit cold rebuild derives Decision, relation, coverage, and Fact truth from authored L1", () => {
   withTempStore((rootDir) => {
-    const factRef = "fact/task-cold/F-DEADBEEF",
-      migratedRef = "fact/task-cold/F-ABCDEFGH",
+    const factRef = "fact/F-DEADBEEF",
+      migratedRef = "fact/F-ABCDEFGH",
       evidenced = relation({
         source: "decision/dec_COLD/C1",
         target: factRef,
@@ -151,30 +135,26 @@ test("explicit cold rebuild derives Decision, relation, coverage, and Fact truth
         type: "supersedes-fact",
       });
     writeColdHistory(rootDir, evidenced, derived, superseded);
-    const projectionPath = path.join(
-      rootDir,
-      ".harness/cache/projections.sqlite",
-    );
-    assert.equal(
-      existsSync(path.join(rootDir, ".harness/cache/task.sqlite")),
-      false,
-    );
+    writeFactEvent(rootDir, {
+      ...fact(1),
+      taskId: "task-cold",
+      factId: "F-DEADBEEF",
+      payload: {
+        ...fact(1).payload,
+        supersedes: { factRef: migratedRef, rationale: "Replaces the historical observation." },
+      },
+    });
+    writeFactEvent(rootDir, { ...fact(2), taskId: "task-cold", factId: "F-ABCDEFGH" });
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    assert.equal(existsSync(path.join(rootDir, ".harness/cache/task.sqlite")), false);
     rebuildTaskProjection({ rootDir, projectionPath });
     const graph = readRelationGraphProjection({ rootDir, projectionPath }),
       db = new DatabaseSync(projectionPath, { readOnly: true });
     try {
-      assert.equal(
-        db.prepare("SELECT count(*) AS count FROM decision_projection").get()!
-          .count,
-        1,
-      );
+      assert.equal(db.prepare("SELECT count(*) AS count FROM decision_projection").get()!.count, 1);
       assert.deepEqual(
         {
-          ...db
-            .prepare(
-              "SELECT decision_id, state, title FROM decision_projection",
-            )
-            .get()!,
+          ...db.prepare("SELECT decision_id, state, title FROM decision_projection").get()!,
         },
         { decision_id: "dec_COLD", state: "active", title: "Cold truth" },
       );
@@ -187,25 +167,28 @@ test("explicit cold rebuild derives Decision, relation, coverage, and Fact truth
         derived.relation_id,
         evidenced.relation_id,
         superseded.relation_id,
+        relation({ source: "task/task-cold", target: factRef, type: "produces" }).relation_id,
+        relation({ source: "task/task-cold", target: migratedRef, type: "produces" }).relation_id,
       ].sort(),
     );
     assert.deepEqual(
       graph.facts.map(({ ref, statement }) => ({ ref, statement })),
-      [{ ref: factRef, statement: "Cold rebuild evidence" }],
+      [
+        { ref: migratedRef, statement: "Event-backed evidence" },
+        { ref: factRef, statement: "Event-backed evidence" },
+      ],
     );
     assert.deepEqual(
       graph.factAnchors.map(({ factRef: ref }) => ref),
-      [factRef],
+      [migratedRef, factRef],
     );
     assert.deepEqual(
-      graph.coverageRows.map(
-        ({ claimRef, status, fulfillment, coveringFactRef }) => ({
-          claimRef,
-          status,
-          fulfillment,
-          coveringFactRef,
-        }),
-      ),
+      graph.coverageRows.map(({ claimRef, status, fulfillment, coveringFactRef }) => ({
+        claimRef,
+        status,
+        fulfillment,
+        coveringFactRef,
+      })),
       [
         {
           claimRef: "decision/dec_COLD/C1",
@@ -219,10 +202,68 @@ test("explicit cold rebuild derives Decision, relation, coverage, and Fact truth
   });
 });
 
+test("equal legacy Fact ids in documents and events both reach deterministic migration re-keying", () => {
+  withTempStore((rootDir) => {
+    const factRef = "fact/F-DEADBEEF",
+      migratedRef = "fact/F-ABCDEFGH";
+    writeColdHistory(
+      rootDir,
+      relation({ source: "decision/dec_COLD/C1", target: factRef, type: "evidenced-by" }),
+      relation({ source: "decision/dec_COLD/CH1", target: "task/task-cold", type: "derives" }),
+      relation({ source: factRef, target: migratedRef, type: "supersedes-fact" }),
+    );
+    const firstTaskRoot = path.join(rootDir, "harness/tasks/task-cold"),
+      secondTaskRoot = path.join(rootDir, "harness/tasks/task-second");
+    mkdirSync(secondTaskRoot, { recursive: true });
+    writeFileSync(
+      path.join(secondTaskRoot, "INDEX.md"),
+      readFileSync(path.join(firstTaskRoot, "INDEX.md"), "utf8").replaceAll("task-cold", "task-second"),
+    );
+    writeFileSync(
+      path.join(secondTaskRoot, "facts.md"),
+      readFileSync(path.join(firstTaskRoot, "facts.md"), "utf8").replace(
+        "Cold rebuild evidence",
+        "Second source observation",
+      ),
+    );
+    for (const [revision, taskId] of [
+      [20, "task-cold"],
+      [21, "task-second"],
+    ] as const)
+      writeLegacyFactEvent(rootDir, {
+        ...fact(revision),
+        eventId: `event-collision-${taskId}`,
+        opId: `op-collision-${taskId}`,
+        taskId,
+        factId: "F-C0FFEE00",
+        payload: {
+          ...fact(revision).payload,
+          statement: `${taskId} event observation`,
+        },
+      });
+
+    const source = readColdRebuildSource(rootDir, { includeLegacyTaskFacts: true });
+    assert.deepEqual(
+      source.facts
+        .filter(({ factId }) => factId === "F-DEADBEEF")
+        .map(({ taskId }) => taskId)
+        .sort(),
+      ["task-cold", "task-second"],
+    );
+    assert.deepEqual(
+      source.facts
+        .filter(({ factId }) => factId === "F-C0FFEE00")
+        .map(({ taskId }) => taskId)
+        .sort(),
+      ["task-cold", "task-second"],
+    );
+  });
+});
+
 test("cold rebuild replays migrated Fact and relation truth from canonical L1 events", () => {
   withTempStore((rootDir) => {
-    const existingFact = "fact/task-cold/F-DEADBEEF",
-      migratedFact = "fact/task-cold/F-3VSTHPDM",
+    const existingFact = "fact/F-DEADBEEF",
+      migratedFact = "fact/F-3VSTHPDM",
       existingEdge = relation({
         source: "decision/dec_COLD/C1",
         target: existingFact,
@@ -243,36 +284,33 @@ test("cold rebuild replays migrated Fact and relation truth from canonical L1 ev
       }),
       relation({
         source: existingFact,
-        target: "fact/task-cold/F-ABCDEFGH",
+        target: "fact/F-ABCDEFGH",
         type: "supersedes-fact",
       }),
     );
+    writeFactEvent(rootDir, {
+      ...fact(1),
+      eventId: "event-existing-fact",
+      opId: "op-existing-fact",
+      taskId: "task-cold",
+      factId: "F-DEADBEEF",
+    });
     writeMigrationEvent(rootDir, migrationFactEvent(1));
     writeMigrationEvent(rootDir, migrationRelationEvent(2, migratedEdge));
     writeMigrationEvent(rootDir, migrationRelationEvent(3, existingEdge));
-    const projectionPath = path.join(
-      rootDir,
-      ".harness/cache/projections.sqlite",
-    );
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     rebuildTaskProjection({ rootDir, projectionPath });
     const graph = readRelationGraphProjection({ rootDir, projectionPath });
     assert.equal(
-      graph.facts.some(
-        ({ ref, statement }) =>
-          ref === migratedFact && statement === "Migrated event fact",
-      ),
+      graph.facts.some(({ ref, statement }) => ref === migratedFact && statement === "Migrated event fact"),
       true,
     );
     assert.equal(
-      graph.edges.some(
-        ({ relationId }) => relationId === migratedEdge.relation_id,
-      ),
+      graph.edges.some(({ relationId }) => relationId === migratedEdge.relation_id),
       true,
     );
     assert.equal(
-      graph.edges.find(
-        ({ relationId }) => relationId === existingEdge.relation_id,
-      )?.origin,
+      graph.edges.find(({ relationId }) => relationId === existingEdge.relation_id)?.origin,
       "imported_snapshot",
       "canonical event fields win over a duplicated Markdown snapshot",
     );
@@ -282,8 +320,8 @@ test("cold rebuild replays migrated Fact and relation truth from canonical L1 ev
 
 test("cold rebuild derives supersedes-fact edges from native Fact events", () => {
   withTempStore((rootDir) => {
-    const target = "fact/task-cold/F-DEADBEEF",
-      replacement = "fact/task-cold/F-BCDEFGHJ",
+    const target = "fact/F-DEADBEEF",
+      replacement = "fact/F-BCDEFGHJ",
       edge = relation({ source: replacement, target, type: "supersedes-fact" });
     writeColdHistory(
       rootDir,
@@ -299,24 +337,25 @@ test("cold rebuild derives supersedes-fact edges from native Fact events", () =>
       }),
       relation({
         source: target,
-        target: "fact/task-cold/F-ABCDEFGH",
+        target: "fact/F-ABCDEFGH",
         type: "supersedes-fact",
       }),
     );
+    writeFactEvent(rootDir, { ...fact(1), taskId: "task-cold", factId: "F-DEADBEEF" });
     writeFactEvent(rootDir, {
       ...fact(1),
       taskId: "task-cold",
       factId: "F-BCDEFGHJ",
+      eventId: "event-2",
+      opId: "op-2",
+      workspaceRevision: 2,
       payload: {
         ...fact(1).payload,
         statement: "Replacement fact",
         supersedes: { factRef: target, rationale: edge.rationale },
       },
     });
-    const projectionPath = path.join(
-      rootDir,
-      ".harness/cache/projections.sqlite",
-    );
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     rebuildTaskProjection({ rootDir, projectionPath });
     const graph = readRelationGraphProjection({ rootDir, projectionPath });
     assert.equal(
@@ -337,7 +376,7 @@ test("cold rebuild marks structurally present relation truth unavailable when an
   withTempStore((rootDir) => {
     const evidenced = relation({
         source: "decision/dec_COLD/C1",
-        target: "fact/task-cold/F-DEADBEEF",
+        target: "fact/F-DEADBEEF",
         type: "evidenced-by",
       }),
       derived = relation({
@@ -346,45 +385,26 @@ test("cold rebuild marks structurally present relation truth unavailable when an
         type: "derives",
       }),
       superseded = relation({
-        source: "fact/task-cold/F-DEADBEEF",
-        target: "fact/task-cold/F-ABCDEFGH",
+        source: "fact/F-DEADBEEF",
+        target: "fact/F-ABCDEFGH",
         type: "supersedes-fact",
       });
     writeColdHistory(rootDir, evidenced, derived, superseded);
     const factsPath = path.join(rootDir, "harness/tasks/task-cold/facts.md"),
       projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
-    writeFileSync(
-      factsPath,
-      readFileSync(factsPath, "utf8").replace(
-        "confidence: high",
-        "confidence: invalid",
-      ),
-    );
+    writeFileSync(factsPath, readFileSync(factsPath, "utf8").replace("confidence: high", "confidence: invalid"));
     rebuildTaskProjection({ rootDir, projectionPath });
     const db = new DatabaseSync(projectionPath, { readOnly: true });
     try {
-      assert.equal(
-        db.prepare("SELECT count(*) AS count FROM relation_edges").get()!.count,
-        1,
-      );
-      assert.equal(
-        db
-          .prepare(
-            "SELECT value FROM projection_meta WHERE key = 'relationTruthSource'",
-          )
-          .get(),
-        undefined,
-      );
+      assert.equal(db.prepare("SELECT count(*) AS count FROM relation_edges").get()!.count, 1);
+      assert.equal(db.prepare("SELECT value FROM projection_meta WHERE key = 'relationTruthSource'").get(), undefined);
     } finally {
       db.close();
     }
     const graph = readRelationGraphProjection({ rootDir, projectionPath });
     assert.deepEqual(graph.edges, []);
     assert.equal(
-      graph.warnings.some(
-        ({ code, severity }) =>
-          code === "relation_truth_unavailable" && severity === "hard-fail",
-      ),
+      graph.warnings.some(({ code, severity }) => code === "relation_truth_unavailable" && severity === "hard-fail"),
       true,
     );
   });

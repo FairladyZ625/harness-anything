@@ -134,8 +134,8 @@ export interface RelationEdge {
   relationId?: string;
   /**
    * from/to 形如 <entity>/<id>[/anchor]，实体 ∈ task|decision|fact。
-   * 例：task/task_x、decision/dec_y、fact/task_x/F-a3f2、decision/dec_y/C1（锚到 claim）。
-   * 语义：from --kind--> to（如 decision/dec_y/C1 evidenced-by fact/task_x/F-a3f2）。
+   * 例：task/task_x、decision/dec_y、fact/F-a3f2、decision/dec_y/C1（锚到 claim）。
+   * 语义：from --kind--> to（如 decision/dec_y/C1 evidenced-by fact/F-a3f2）。
    */
   from: string;
   to: string;
@@ -175,7 +175,7 @@ export interface DecisionClaim {
   text: string;
   /** chosen option rationale; rejected options use whyNot. */
   rationale?: string;
-  /** 沿 relation 可达的支撑 fact 锚（fact/<task>/<id>）。空数组 → 覆盖度不足，风化候选 */
+  /** 沿 relation 可达的支撑 fact 锚（fact/<id>）。空数组 → 覆盖度不足，风化候选 */
   evidence: string[];
   /** rejected 项必填：为何否决（why_not）。chosen 项可空 */
   whyNot?: string;
@@ -247,13 +247,13 @@ export interface DecisionRow {
 // ============ 三元语：fact（is，内嵌 task、无状态机）============
 
 /**
- * fact 是不可变观察，内嵌产出它的 task，不搬家。
- * 稳定短锚形如 task_x/F-a3f2（禁行号）。
+ * fact 是不可变观察；可选 task 归属由 produces 边表达。
+ * 稳定引用形如 fact/F-a3f2（禁行号）。
  * 失效不靠状态，靠 relation 边（规范方向：fact --supersedes-fact--> fact，仅 target 失效）。
  */
 export interface FactRef {
-  anchor: string; // task_x/F-a3f2
-  taskId: string;
+  anchor: string; // fact/F-a3f2
+  taskId?: string;
   category: "finding" | "progress" | "lesson";
   text: string;
   at: string;

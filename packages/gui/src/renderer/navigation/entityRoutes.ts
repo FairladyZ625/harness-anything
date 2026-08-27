@@ -19,7 +19,7 @@ export interface EntityDetailTarget {
   focusedEntityRef: string;
 }
 
-/** decision/<id> → 决策详情页;fact/<taskId>/<anchor> → 事实详情页;其余 → null。 */
+/** decision/<id> → 决策详情页;fact/<anchor> → 事实详情页;其余 → null。 */
 export function entityDetailTargetOf(ref: string): EntityDetailTarget | null {
   if (ref.startsWith("decision/")) {
     const decisionId = ref.split("/")[1];

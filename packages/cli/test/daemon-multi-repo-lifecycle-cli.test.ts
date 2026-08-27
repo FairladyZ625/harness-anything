@@ -125,9 +125,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       [fact.factId],
     );
     const factShow = JSON.parse(
-      String(
-        run(fixture.alpha, fixture.userRoot, ["fact", "show", "--task", "task-alpha", "--id", fact.factId]).evidence,
-      ),
+      String(run(fixture.alpha, fixture.userRoot, ["fact", "show", "--id", fact.factId]).evidence),
     ) as { fact: { statement: string } };
     assert.equal(factShow.fact.statement, "Canonical Fact from CLI");
     const decisionPacket = JSON.stringify({

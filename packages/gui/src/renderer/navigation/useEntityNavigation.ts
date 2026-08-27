@@ -9,7 +9,7 @@ import type { AppLocation } from "./viewHistory.ts";
  * 路由表(可寻址):
  *   task/<id>            → selectedId(TaskDetailView 既有路由)
  *   decision/<id>        → decisionDetail 详情页(不落决策池)
- *   fact/<task>/<anchor> → factDetail 详情页(W5 起事实分诊列表页已撤销)
+ *   fact/<anchor> → factDetail 详情页(W5 起事实分诊列表页已撤销)
  *   repo/<repoId>/<ref>  → 先切仓再导航(仓未启用 → 回 home 开项目切换器)
  * 显式「在决策池中查看」走 openDecisionInPool,落列表页并带焦点。
  *

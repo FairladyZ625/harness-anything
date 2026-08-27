@@ -171,12 +171,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
         "invalid_scaffold",
         `Preset script ${script.relativePath} collides with a scaffold document path.`,
       );
-  const facts = machine(
-      "task.facts",
-      "facts.md",
-      "# Facts\n\nManaged by `ha fact record`; hand edits are rejected.\n\n## Records\n\n",
-    ),
-    moduleDocument = metadata.moduleKey
+  const moduleDocument = metadata.moduleKey
       ? machine(
           "task.module",
           "module.md",
@@ -198,7 +193,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       descriptorStub("task.index", "INDEX.md", "machine"),
       descriptorStub("task.contract", "task-contract.json", "machine"),
       descriptor(orderedProse[0]!),
-      descriptor(facts),
       descriptor(orderedProse[1]!),
       descriptor(orderedProse[2]!),
       ...(moduleDocument ? [descriptor(moduleDocument)] : []),
@@ -241,7 +235,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       index,
       contract,
       orderedProse[0]!,
-      facts,
       orderedProse[1]!,
       orderedProse[2]!,
       ...(moduleDocument ? [moduleDocument] : []),

@@ -10,7 +10,7 @@
       "strength": "strong",
       "direction": "directed",
       "origin": "declared",
-      "rationale": "A bare fact ref is invalid because facts are owner-qualified.",
+      "rationale": "The supports direction is not a canonical decision-to-fact relation.",
       "state": "active"
     }
   ]

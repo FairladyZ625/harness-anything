@@ -43,7 +43,7 @@
 | `decision_projection` | `decision_id` | 每个 decision 一行:`state`、`title`、`question`、`chosen_json`、`rejected_json`、`module_keys_json`、`product_line_keys_json`、`decided_at`… |
 | `relation_edges` | `relation_id` | 每条类型化关系一行:`source_ref`、`target_ref`、`relation_type`、`direction`、`state`,以及完整的 `row_json` |
 | `relation_coverage` | `claim_ref` | 哪些 decision claim 被覆盖:`decision_ref`、`status`(`covered`/`uncovered`)、`covering_fact_ref` |
-| `task_fact_anchors` | `fact_ref` | 每个 fact 落在哪里:`task_id`、`fact_id`、`source_path` |
+| `task_fact_anchors` | `fact_ref` | fact 锚点:可选 `task_id`、`fact_id` 与 `source_path` |
 | `session_projection` | `session_id` | Session lifecycle、runtime、archive status 与 snapshot 元数据 |
 | `execution_projection` | `execution_id` | Task/executor、状态、带 capture range 的 Session bindings、Submission Packet 与 OutputEvidence |
 | `review_projection` | `review_id` | 被审 Execution、reviewer、`evidence_checked`、rationale、findings 与 verdict |
@@ -72,7 +72,8 @@
 
 - **edges**——每条类型化关系作为一行,以确定性的 `relation_id` 为键,带 `source_ref`、`target_ref`、`relation_type`、`direction`;
 - **coverage**——对每个 decision claim,是否有 fact 覆盖它(`covered`/`uncovered`),以及是哪个 fact 覆盖的;
-- **fact anchors**——每条 fact 记录实际落在哪个 task、哪个文件里。
+- **fact anchors**——每条 fact 记录及其可选 task 宿主;归属由 active 的
+  `produces` 边表达,不再编码进 fact 引用。
 
 那些指向不存在实体、构成环、或过不了记录级规则的关系,都会在这里被抓出来并作为硬失败暴露——这张图永远只会用真实存在的端点来构建。
 

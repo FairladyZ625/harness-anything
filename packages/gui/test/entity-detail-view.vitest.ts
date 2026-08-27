@@ -52,7 +52,7 @@ function decision(): DecisionRow {
 
 const facts: FactRef[] = [
   {
-    anchor: "task_a/F-001",
+    anchor: "fact/F-001",
     taskId: "task_a",
     category: "finding",
     text: "GUI 收到了事件派生的三元行。",
@@ -62,8 +62,8 @@ const facts: FactRef[] = [
 
 const relations: RelationEdge[] = [
   { from: "decision/dec_1", to: "task/task_a", kind: "derives", provenance: "local-document" },
-  { from: "decision/dec_1/CH1", to: "fact/task_a/F-001", kind: "evidenced-by", provenance: "local-document" },
-  { from: "task/task_a", to: "fact/task_a/F-001", kind: "produces", provenance: "local-document" },
+  { from: "decision/dec_1/CH1", to: "fact/F-001", kind: "evidenced-by", provenance: "local-document" },
+  { from: "task/task_a", to: "fact/F-001", kind: "produces", provenance: "local-document" },
 ];
 
 async function mountView(element: ReturnType<typeof createElement>) {
@@ -85,7 +85,7 @@ describe("FactDetailView", () => {
   it("renders the fact inspector beside a neighborhood centered on the fact", async () => {
     const { div, root } = await mountView(
       createElement(FactDetailView, {
-        factRef: "fact/task_a/F-001",
+        factRef: "fact/F-001",
         facts,
         tasks: [task("task_a", "任务A")],
         decisions: [decision()],
@@ -105,7 +105,7 @@ describe("FactDetailView", () => {
     const onNavigateEntity = vi.fn();
     const { div, root } = await mountView(
       createElement(FactDetailView, {
-        factRef: "fact/task_a/F-001",
+        factRef: "fact/F-001",
         facts,
         tasks: [task("task_a", "任务A")],
         decisions: [decision()],
@@ -128,12 +128,12 @@ describe("FactDetailView", () => {
   it("anchor-only facts (no body in the projection) still show a neighborhood", async () => {
     const { div, root } = await mountView(
       createElement(FactDetailView, {
-        factRef: "fact/task_b/F-002",
+        factRef: "fact/F-002",
         facts: [],
         tasks: [task("task_b", "任务B")],
         decisions: [],
         relations: [],
-        factAnchors: [{ factRef: "fact/task_b/F-002", taskId: "task_b", factId: "F-002" }],
+        factAnchors: [{ factRef: "fact/F-002", taskId: "task_b", factId: "F-002" }],
         loading: false,
       }),
     );
@@ -148,7 +148,7 @@ describe("FactDetailView", () => {
   it("W5 后不再有「在分诊中查看」出口(事实分诊页已撤销,详情页即终点)", async () => {
     const { div, root } = await mountView(
       createElement(FactDetailView, {
-        factRef: "fact/task_a/F-001",
+        factRef: "fact/F-001",
         facts,
         tasks: [task("task_a", "任务A")],
         decisions: [decision()],
@@ -166,7 +166,7 @@ describe("FactDetailView", () => {
   it("missing fact while loading shows loading; after load shows not-in-projection", async () => {
     const loadingView = await mountView(
       createElement(FactDetailView, {
-        factRef: "fact/task_c/F-404",
+        factRef: "fact/F-404",
         facts,
         tasks: [],
         decisions: [],
@@ -181,7 +181,7 @@ describe("FactDetailView", () => {
     });
     const missingView = await mountView(
       createElement(FactDetailView, {
-        factRef: "fact/task_c/F-404",
+        factRef: "fact/F-404",
         facts,
         tasks: [],
         decisions: [],
@@ -470,7 +470,7 @@ describe("DecisionDetailView", () => {
     await clickTab("关系");
     const relationsText = div.querySelector("[data-testid='decision-panel-relations']")?.textContent ?? "";
     expect(relationsText).toContain("task/task_a");
-    expect(relationsText).toContain("fact/task_a/F-001");
+    expect(relationsText).toContain("fact/F-001");
   });
 });
 

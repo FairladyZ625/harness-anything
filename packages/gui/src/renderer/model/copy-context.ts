@@ -48,7 +48,11 @@ export function buildFactTriageContext(
   lines.push("");
 
   // --- 来源 task ---
-  const sourceTask = tasks.find((t) => t.taskId === fact.taskId);
+  const fullRef = fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`;
+  const ownerTaskId = relations
+    .find((edge) => edge.kind === "produces" && edge.to === fullRef)
+    ?.from.replace(/^task\//, "");
+  const sourceTask = tasks.find((t) => t.taskId === ownerTaskId);
   lines.push(`### 来源 task`);
   if (sourceTask) {
     lines.push(`- **id**: \`${sourceTask.taskId}\``);
@@ -61,12 +65,15 @@ export function buildFactTriageContext(
       lines.push(`- **failed gates**: ${failedGates.map((g) => g.name).join(", ")}`);
     }
   } else {
-    lines.push(`- **id**: \`${fact.taskId}\` (宿主 task 不在当前投影)`);
+    lines.push(
+      ownerTaskId
+        ? `- **id**: \`${ownerTaskId}\` (宿主 task 不在当前投影)`
+        : "- **id**: (standalone fact; no host task)",
+    );
   }
   lines.push("");
 
   // --- 相关 decision ---
-  const fullRef = `fact/${fact.anchor}`;
   const citingDecisions = decisions.filter((d) => citingDecisionIds.includes(d.decisionId));
   lines.push(`### 相关 decision (${citingDecisions.length})`);
   if (citingDecisions.length === 0) {
@@ -136,7 +143,7 @@ export function buildEntityJumpContext(
     }
   } else if (ref.startsWith("fact/")) {
     const anchor = ref.replace(/^fact\//, "");
-    const fact = facts.find((f) => f.anchor === anchor);
+    const fact = facts.find((f) => f.anchor === ref);
     lines.push(`### Fact`);
     if (fact) {
       lines.push(`- **anchor**: \`${fact.anchor}\``);
@@ -144,8 +151,15 @@ export function buildEntityJumpContext(
       lines.push(`- **category**: ${fact.category}`);
       lines.push(`- **confidence**: ${fact.confidence}`);
       lines.push(`- **invalidated**: ${fact.invalidated ? "是" : "否"}`);
-      const hostTask = tasks.find((candidate) => candidate.taskId === fact.taskId);
-      lines.push(`- **宿主 task**: \`${fact.taskId}\`${hostTask ? ` — ${hostTask.title}` : " (不在当前 task 投影)"}`);
+      const ownerTaskId = relations
+        .find((edge) => edge.kind === "produces" && edge.to === ref)
+        ?.from.replace(/^task\//, "");
+      const hostTask = tasks.find((candidate) => candidate.taskId === ownerTaskId);
+      lines.push(
+        ownerTaskId
+          ? `- **宿主 task**: \`${ownerTaskId}\`${hostTask ? ` — ${hostTask.title}` : " (不在当前 task 投影)"}`
+          : "- **宿主 task**: (standalone fact)",
+      );
     } else {
       lines.push(`- \`${anchor}\` 不在当前投影`);
     }
@@ -203,8 +217,7 @@ function entitySummary(ref: string, decisions: DecisionRow[], facts: FactRef[], 
       : `\`${ref}\` — decision 不在当前投影`;
   }
   if (ref.startsWith("fact/")) {
-    const anchor = ref.replace(/^fact\//, "");
-    const fact = facts.find((candidate) => candidate.anchor === anchor);
+    const fact = facts.find((candidate) => candidate.anchor === ref);
     return fact ? `\`${ref}\` — ${fact.text} [fact:${fact.confidence}]` : `\`${ref}\` — fact 不在当前投影`;
   }
   const taskId = ref.replace(/^task\//, "").split("/")[0];

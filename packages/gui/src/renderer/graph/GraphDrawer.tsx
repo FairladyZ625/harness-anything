@@ -235,19 +235,21 @@ export function GraphDrawer({
                       {t("graph.graphDrawer.anchorDetails")}
                     </span>
                     <div className="flex flex-col gap-0.5 font-mono text-[11px] text-text-muted">
-                      <div className="flex min-w-0 flex-wrap items-center gap-1">
-                        <span className="text-text-faint">{t("graph.graphDrawer.anchorTaskLabel")}</span>{" "}
-                        <EntityRefLink
-                          entityRef={`task/${fact.taskId}`}
-                          onNavigate={onNavigateEntity ?? (() => onFocus(focusId))}
-                          title={fact.taskId}
-                          className="text-accent hover:underline"
-                        />
-                      </div>
+                      {fact.taskId && (
+                        <div className="flex min-w-0 flex-wrap items-center gap-1">
+                          <span className="text-text-faint">{t("graph.graphDrawer.anchorTaskLabel")}</span>{" "}
+                          <EntityRefLink
+                            entityRef={`task/${fact.taskId}`}
+                            onNavigate={onNavigateEntity ?? (() => onFocus(focusId))}
+                            title={fact.taskId}
+                            className="text-accent hover:underline"
+                          />
+                        </div>
+                      )}
                       <div className="flex min-w-0 flex-wrap items-center gap-1">
                         <span className="text-text-faint">{t("graph.graphDrawer.anchorLabel")}</span>{" "}
                         <EntityRefLink
-                          entityRef={`fact/${fact.taskId}/${fact.anchor.split("/")[1] ?? ""}`}
+                          entityRef={fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`}
                           onNavigate={onNavigateEntity ?? (() => onFocus(focusId))}
                           title={fact.anchor}
                           className="break-all text-accent hover:underline"

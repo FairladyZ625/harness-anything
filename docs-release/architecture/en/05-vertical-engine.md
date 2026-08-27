@@ -93,7 +93,7 @@ the policy; the catalog holds the actual localized text. If the preferred locale
 has no body, the fallback is materialized rather than a broken document.
 
 In the `software/coding` vertical, the `task` package scaffold lists six
-selections — `task_plan.md`, `progress.md`, `facts.md`, `review.md`,
+selections — `task_plan.md`, `progress.md`, `review.md`,
 `closeout.md`, and a `.gitkeep` slot for the `artifacts/` directory — each
 preferring the project locale and falling back to `en-US`. References are
 opt-in: the `reference-task` preset adds the existing localized

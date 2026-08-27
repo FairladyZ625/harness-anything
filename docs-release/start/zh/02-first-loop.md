@@ -71,13 +71,13 @@ ok command="task transition" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=active
 
 ## 4. 记录一个事实，然后一个决策
 
-事实是只增不改的观察，锚定到产生它们的任务：
+事实是只增不改的观察。若要把观察归属到 task 并生成 `produces` 边，加上 `--task`：
 
 ```bash
 $ ha --actor human:you fact record --task task_01KWPP52D062Q7BWTD8BCNDRWF \
     --statement "Redirect loops when the session cookie is missing" \
     --source "manual repro" --confidence high
-ok command="fact record" task=task_01KWPP52D062Q7BWTD8BCNDRWF path=facts.md
+ok command="fact record" fact=F-7K3M2Q9R path=facts/F-7K3M2Q9R.md
 ```
 
 现在提议一个决策——为什么——并裁决它：

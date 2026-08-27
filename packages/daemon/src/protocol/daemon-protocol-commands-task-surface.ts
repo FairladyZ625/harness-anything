@@ -320,7 +320,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--entity", "single", false, {
         code: "invalid_field",
-        nextAction: "Use task/<id>, decision/<id>, or fact/<task>/<id>.",
+        nextAction: "Use task/<id>, decision/<id>, or fact/<id>.",
       }),
       cliInput("--source", "single", false, {
         code: "invalid_field",

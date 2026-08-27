@@ -229,8 +229,8 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     const graphEdges = JSON.parse(graphBytes).edges as { relationId: string; relationType: string }[];
     assert.deepEqual(
       graphEdges.map((edge) => edge.relationType).sort(),
-      ["depends-on", "depends-on", "derives", "executes", "executes"],
-      "fixture carries two depends-on task edges, one Decision derives edge, and two execution→task executes edges",
+      ["depends-on", "depends-on", "derives", "executes", "executes", "produces"],
+      "fixture carries two depends-on task edges, one Decision derives edge, two execution→task executes edges, and one task→fact produces edge",
     );
     assert.equal(graphPage.edges.length, 1);
     assert.equal(graphPage.page?.limit, 1);

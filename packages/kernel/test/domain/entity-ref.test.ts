@@ -37,15 +37,15 @@ test("EntityRef parser accepts M3 decision and fact endpoints", () => {
     anchor: "C1",
     externalHarness: false,
   });
-  assert.deepEqual(parseEntityRef("fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/F-a3f2"), {
-    raw: "fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/F-a3f2",
+  assert.deepEqual(parseEntityRef("fact/F-a3f2"), {
+    raw: "fact/F-a3f2",
     kind: "fact",
     id: "F-a3f2",
-    ownerTaskId: "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q",
     externalHarness: false,
   });
+  assert.equal(parseEntityRef("fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/F-a3f2"), null);
   assert.equal(parseEntityRef("decision/doc"), null);
-  assert.equal(parseEntityRef("fact/F-a3f2"), null);
+  assert.equal(parseEntityRef("fact/not-a-fact"), null);
   assert.equal(parseEntityRef("fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/not-a-fact"), null);
 });
 
@@ -95,13 +95,13 @@ test("EntityRef scanner ignores task-like prose, package markers, and paths", ()
       "Task Contract: harness-task/v1",
       "workspace has task/doc/terminal panes",
       "path scripts/domain/task/task-subjects.mts",
-      "real refs task/local-task, decision/decision-local/C1, and fact/task_local/F-a3f2 remain",
+      "real refs task/local-task, decision/decision-local/C1, and fact/F-a3f2 remain",
     ].join("\n"),
   );
 
   assert.deepEqual(
     refs.map((ref) => ref.raw),
-    ["task/local-task", "decision/decision-local/C1", "fact/task_local/F-a3f2"],
+    ["task/local-task", "decision/decision-local/C1", "fact/F-a3f2"],
   );
 });
 
@@ -114,7 +114,7 @@ test("relation ids are deterministic and ignore mutable relation attributes", ()
     state: "retired",
   } satisfies EntityRelationRecord;
 
-  assert.equal(deriveRelationId(base), "rel_472c68c5d5dff1ed");
+  assert.equal(deriveRelationId(base), "rel_9801931d9d252ac8");
   assert.equal(deriveRelationId(base), deriveRelationId(variant));
 });
 
@@ -143,7 +143,7 @@ test("relation validator rejects host drift, duplicates, missing rationale, and 
     ["relation_rationale_missing"],
   );
   assert.deepEqual(
-    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [{ ...base, target: "fact/F-a3f2" }]).map(
+    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [{ ...base, target: "fact/not-a-fact" }]).map(
       (issue) => issue.code,
     ),
     ["invalid_relation_endpoint"],
@@ -204,16 +204,16 @@ test("relation flow formatter emits one flow-style line per record", () => {
   const line = formatRelationFlowRecord(relationRecord());
 
   assert.equal(line.includes("\n"), false);
-  assert.equal(line.startsWith("- {relation_id: rel_472c68c5d5dff1ed,"), true);
+  assert.equal(line.startsWith("- {relation_id: rel_9801931d9d252ac8,"), true);
   assert.equal(line.endsWith("state: active}"), true);
   assert.match(line, /rationale: "C1 is supported by the measured finding F-a3f2\."/u);
 });
 
 function relationRecord(): EntityRelationRecord {
   return {
-    relation_id: "rel_472c68c5d5dff1ed",
+    relation_id: "rel_9801931d9d252ac8",
     source: "decision/dec_01K7ZTRIADIC/C1",
-    target: "fact/task_01KV5TBASE/F-a3f2",
+    target: "fact/F-a3f2",
     type: "evidenced-by",
     strength: "strong",
     direction: "directed",

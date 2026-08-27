@@ -247,16 +247,16 @@ function writeRelationProjection(
   return Effect.gen(function* () {
     yield* sql`CREATE TABLE relation_edges (relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL, direction TEXT NOT NULL, strength TEXT NOT NULL, origin TEXT NOT NULL, state TEXT NOT NULL, rationale TEXT NOT NULL, owner_ref TEXT NOT NULL, source_path TEXT NOT NULL, record_index INTEGER NOT NULL)`;
     yield* sql`CREATE TABLE relation_coverage (claim_ref TEXT PRIMARY KEY, decision_ref TEXT NOT NULL, status TEXT NOT NULL, fulfillment TEXT, covering_fact_ref TEXT, refuting_fact_refs_json TEXT, relation_path_json TEXT NOT NULL)`;
-    yield* sql`CREATE TABLE task_fact_anchors (fact_ref TEXT PRIMARY KEY, task_id TEXT NOT NULL, fact_id TEXT NOT NULL, source_path TEXT NOT NULL)`;
-    yield* sql`CREATE TABLE task_fact_projection (fact_ref TEXT PRIMARY KEY, task_id TEXT NOT NULL, fact_id TEXT NOT NULL, schema_name TEXT NOT NULL, statement TEXT NOT NULL, source TEXT NOT NULL, observed_at TEXT NOT NULL, confidence TEXT NOT NULL, memory_class TEXT NOT NULL, memory_tags_json TEXT NOT NULL, provenance_json TEXT NOT NULL, liveness TEXT NOT NULL)`;
+    yield* sql`CREATE TABLE task_fact_anchors (fact_ref TEXT PRIMARY KEY, task_id TEXT, fact_id TEXT NOT NULL, source_path TEXT NOT NULL)`;
+    yield* sql`CREATE TABLE task_fact_projection (fact_ref TEXT PRIMARY KEY, task_id TEXT, fact_id TEXT NOT NULL, schema_name TEXT NOT NULL, statement TEXT NOT NULL, source TEXT NOT NULL, observed_at TEXT NOT NULL, confidence TEXT NOT NULL, memory_class TEXT NOT NULL, memory_tags_json TEXT NOT NULL, provenance_json TEXT NOT NULL, liveness TEXT NOT NULL)`;
     for (const row of input.edges)
       yield* sql`INSERT INTO relation_edges VALUES (${row.relationId}, ${row.sourceRef}, ${row.targetRef}, ${row.relationType}, ${row.direction}, ${row.strength}, ${row.origin}, ${row.state}, ${row.rationale}, ${row.ownerRef}, ${row.sourcePath}, ${row.recordIndex})`;
     for (const row of input.coverageRows)
       yield* sql`INSERT INTO relation_coverage VALUES (${row.claimRef}, ${row.decisionRef}, ${row.status}, ${row.fulfillment}, ${row.coveringFactRef ?? null}, ${row.refutingFactRefs ? JSON.stringify(row.refutingFactRefs) : null}, ${JSON.stringify(row.relationPath)})`;
     for (const row of input.factAnchors)
-      yield* sql`INSERT INTO task_fact_anchors VALUES (${row.factRef}, ${row.taskId}, ${row.factId}, ${row.sourcePath})`;
+      yield* sql`INSERT INTO task_fact_anchors VALUES (${row.factRef}, ${row.taskId ?? null}, ${row.factId}, ${row.sourcePath})`;
     for (const row of input.facts)
-      yield* sql`INSERT INTO task_fact_projection VALUES (${row.ref}, ${row.taskId}, ${row.factId}, ${row.schema}, ${row.statement}, ${row.source}, ${row.observedAt}, ${row.confidence}, ${row.memoryClass}, ${JSON.stringify(row.memoryTags)}, ${JSON.stringify(row.provenance)}, ${row.liveness})`;
+      yield* sql`INSERT INTO task_fact_projection VALUES (${row.ref}, ${row.taskId ?? null}, ${row.factId}, ${row.schema}, ${row.statement}, ${row.source}, ${row.observedAt}, ${row.confidence}, ${row.memoryClass}, ${JSON.stringify(row.memoryTags)}, ${JSON.stringify(row.provenance)}, ${row.liveness})`;
     yield* sql`CREATE INDEX relation_edges_source_ref ON relation_edges(source_ref)`;
     yield* sql`CREATE INDEX relation_edges_target_ref ON relation_edges(target_ref)`;
     yield* sql`CREATE INDEX relation_coverage_decision_ref ON relation_coverage(decision_ref)`;

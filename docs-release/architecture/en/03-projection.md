@@ -61,7 +61,7 @@ derived tables for authored Session, Execution, and Review records:
 | `decision_projection` | `decision_id` | One row per decision: `state`, `title`, `question`, `chosen_json`, `rejected_json`, `module_keys_json`, `product_line_keys_json`, `decided_at`, … |
 | `relation_edges` | `relation_id` | One row per typed relation: `source_ref`, `target_ref`, `relation_type`, `direction`, `state`, and the full `row_json` |
 | `relation_coverage` | `claim_ref` | Which decision claims are covered: `decision_ref`, `status` (`covered`/`uncovered`), `covering_fact_ref` |
-| `task_fact_anchors` | `fact_ref` | Where each fact lives: `task_id`, `fact_id`, `source_path` |
+| `task_fact_anchors` | `fact_ref` | Fact anchors: optional `task_id`, `fact_id`, and `source_path` |
 | `session_projection` | `session_id` | Session lifecycle, runtime, archive status, and snapshot metadata |
 | `execution_projection` | `execution_id` | Task/executor identity, state, Session bindings with capture ranges, Submission Packet, and OutputEvidence |
 | `review_projection` | `review_id` | Reviewed Execution, reviewer, `evidence_checked`, rationale, findings, and verdict |
@@ -114,7 +114,8 @@ known set of tasks, decisions, and facts, and materializes:
   `direction`;
 - **coverage** — for each decision claim, whether a fact covers it
   (`covered`/`uncovered`) and which fact does;
-- **fact anchors** — the task and file where each fact record physically lives.
+- **fact anchors** — each fact record and its optional task owner; ownership is
+  represented by an active `produces` edge, not by the fact reference.
 
 Relations that point at a non-existent entity, form a cycle, or fail their
 record-level rules are caught here and surfaced as hard failures — the graph is

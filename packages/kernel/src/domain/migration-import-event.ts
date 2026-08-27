@@ -58,7 +58,7 @@ export interface MigrationDestinationPreimage {
   readonly size: number;
 }
 export interface MigrationFact {
-  readonly taskId: string;
+  readonly taskId?: string;
   readonly factId: string;
   readonly statement: string;
   readonly evidenceSource: string;
@@ -255,7 +255,7 @@ function validFactEntity(value: Readonly<Record<string, unknown>>, allowUnknownF
     return false;
   const fact = value.fact;
   return (
-    isNonEmptyString(fact.taskId) &&
+    (fact.taskId === undefined || isNonEmptyString(fact.taskId)) &&
     /^F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(String(fact.factId)) &&
     isNonEmptyString(fact.statement) &&
     isNonEmptyString(fact.evidenceSource) &&

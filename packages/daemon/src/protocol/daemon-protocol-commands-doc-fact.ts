@@ -133,17 +133,17 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Record an immutable Fact event.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "single", true, {
+      cliInput("--task", "single", false, {
         code: "missing_field",
-        nextAction: "Fact record requires --task, --statement, and --source.",
+        nextAction: "Use --statement and --source; optionally add --task to associate the fact with a task.",
       }),
       cliInput("--statement", "single", true, {
         code: "missing_field",
-        nextAction: "Fact record requires --task, --statement, and --source.",
+        nextAction: "Use --statement and --source; optionally add --task to associate the fact with a task.",
       }),
       cliInput("--source", "single", true, {
         code: "missing_field",
-        nextAction: "Fact record requires --task, --statement, and --source.",
+        nextAction: "Use --task to associate the fact with a task; --statement and --source are required.",
       }),
       cliInput(
         "--observed-at",
@@ -237,10 +237,6 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Show one projected Fact.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "single", true, {
-        code: "missing_field",
-        nextAction: "Fact show requires --task and --id.",
-      }),
       cliInput(
         "--id",
         "single",

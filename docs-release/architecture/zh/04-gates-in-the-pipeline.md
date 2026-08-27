@@ -25,15 +25,14 @@ done  (终态——写入经由唯一的写协调器)
 
 像 `done` 这样的终态,永远不是你可以直接设置的状态。编排器会拒绝对终态的直接写入,转而让它走完成路径,于是整个门栈无法靠"直接改字段"绕过。
 
-## Fact 晋升不是 completion 门
+## Fact 归属是 completion 门
 
-依据 `dec_mrg3z1we/CH4`，一个 task 可以有 `0..N` 条 Fact。Fact 是对承重观察的
-显式、append-only 晋升；submit、review 和 complete 都不会自动生成 Fact。交付证据
-属于 Execution outputs 与 Submission packet，不能为了凑数量而复制进 Fact。
+依据 `dec_22E7895EB4642798B70ADFAC79`，task 完成前必须至少有一条 active 的
+`task/<id> -> fact/F-<id>` `produces` 边。Fact 仍是显式、append-only 的观察；
+submit 与 review 都不会自动生成 Fact。独立 fact 合法,但不满足 task 的完成门。
 
-因此，`facts.md` 缺失、为空或没有解析出任何 `F-` 记录，都不会阻止 review 或
-completion。承重观察需要供未来 decision 或跨任务推理使用时，仍可显式记录为 Fact；
-它不再是通用的 task completion 数量门。
+Fact 以单独的 `facts/F-<id>.md` 文档存储。交付证据仍属于 Execution outputs 与
+Submission packet，不能为了凑数量而复制进 Fact。
 
 ## Submission 与 Evidence 检查
 

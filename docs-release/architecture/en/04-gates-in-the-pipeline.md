@@ -42,17 +42,16 @@ orchestrator refuses a direct write to a terminal status and routes it through
 the completion path instead, so the gate stack cannot be bypassed by "just
 setting the field."
 
-## Fact promotion is not a completion gate
+## Fact ownership is a completion gate
 
-Under `dec_mrg3z1we/CH4`, a task may have `0..N` Facts. A Fact is an explicit,
-append-only promotion of a load-bearing observation; submit, review, and complete
-do not synthesize one. Evidence for a delivery belongs to Execution outputs and
-the Submission packet rather than being copied into Facts to satisfy a count.
+Under `dec_22E7895EB4642798B70ADFAC79`, a task must have at least one active
+`task/<id> -> fact/F-<id>` `produces` edge before completion. A Fact is still an
+explicit, append-only observation; submit and review do not synthesize one.
+Standalone facts are valid, but they do not satisfy a task's completion gate.
 
-Consequently, a missing `facts.md`, an empty file, or a file with zero parsed
-`F-` records does not block review or completion. Fact recording remains
-available when an observation is worth promoting for later decisions or
-cross-task reasoning; it is not a universal task-completion quantity gate.
+Facts are stored as individual `facts/F-<id>.md` documents. Evidence for a
+delivery still belongs to Execution outputs and the Submission packet rather
+than being copied into Facts to satisfy a count.
 
 ## Submission and Evidence checks
 

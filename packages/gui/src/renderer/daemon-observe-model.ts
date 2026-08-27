@@ -307,7 +307,7 @@ function eventRefs(input: {
     chips: ObserveRefChip[] = [];
   if (taskId) chips.push({ ref: `task/${taskId}`, kind: "task", label: taskId });
   if (decisionId) chips.push({ ref: `decision/${decisionId}`, kind: "decision", label: decisionId });
-  if (factId && taskId) chips.push({ ref: `fact/${taskId}/${factId}`, kind: "fact", label: factId });
+  if (factId) chips.push({ ref: `fact/${factId}`, kind: "fact", label: factId });
   if (runtimeSessionId) chips.push({ ref: `session/${runtimeSessionId}`, kind: "session", label: runtimeSessionId });
   if (instanceId) chips.push({ ref: `provider/${instanceId}`, kind: "provider", label: instanceId });
   if ((entityKind === "agent" || entityKind === "squad") && entityId)

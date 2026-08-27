@@ -326,11 +326,12 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         { sourceRef: "decision/dec_gui_smoke", targetRef: "task/task-gui-smoke", relationType: "derives" },
         {
           sourceRef: "decision/dec_gui_smoke/C1",
-          targetRef: "fact/task-gui-smoke/F-ABCDEFGH",
+          targetRef: "fact/F-ABCDEFGH",
           relationType: "evidenced-by",
         },
         { sourceRef: "execution/execution-gui-bridge", targetRef: "task/task-gui-smoke", relationType: "executes" },
         { sourceRef: "runtime-session/runtime-gui", targetRef: "task/task-gui", relationType: "executes" },
+        { sourceRef: "task/task-gui-smoke", targetRef: "fact/F-ABCDEFGH", relationType: "produces" },
       ],
       "the execution and the runtime session each carry a distinct executes edge to their task",
     );

@@ -21,7 +21,7 @@ import { useTaskDocumentQuery } from "../../task-data.ts";
 import { buildTriadicRendererData, triadicQueryKeys } from "../../triadic-data.ts";
 import { formatTime } from "../../model/time.ts";
 import type { DecisionRow, RelationEdge, TaskRow } from "../../model/types.ts";
-import { normalizeTaskId } from "../../model/triadic.ts";
+import { activeProducesFactRefs, normalizeTaskId } from "../../model/triadic.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { buildFactTriage, SIGNAL_LABEL, type FactTriageItem } from "../../model/fact-triage.ts";
 import { buildFactTriageContext } from "../../model/copy-context.ts";
@@ -319,18 +319,23 @@ export function TaskEvidenceTab({
     queryFn: () => harnessClient.getRelationGraph({ repoId: task.projectId }),
     staleTime: 10_000,
   });
-  const facts = (graph.data?.facts ?? []).filter((fact) => fact.taskId === task.taskId);
+  const ownedFactRefs = new Set(
+    activeProducesFactRefs(graph.data?.edges ?? [], `task/${task.taskId}`).map((edge) => edge.targetRef),
+  );
+  const facts = (graph.data?.facts ?? []).filter((fact) => ownedFactRefs.has(fact.ref));
   const triageByAnchor = useMemo(() => {
     if (!graph.data) return new Map<string, FactTriageItem>();
     const projected = buildTriadicRendererData({ graph: graph.data, decisions: EMPTY_DECISION_LIST });
     return new Map(
       buildFactTriage(projected.facts, projected.relations, projected.coverageRows, projected.factAnchors)
-        .filter((item) => item.fact.taskId === task.taskId)
+        .filter((item) =>
+          ownedFactRefs.has(item.fact.anchor.startsWith("fact/") ? item.fact.anchor : `fact/${item.fact.anchor}`),
+        )
         .map((item) => [item.fact.anchor, item]),
     );
   }, [graph.data, task.taskId]);
   const orderedFacts = useMemo(() => {
-    const anchorOf = (fact: RelationFactRow) => `${fact.taskId}/${fact.factId}`;
+    const anchorOf = (fact: RelationFactRow) => fact.ref;
     const byAnchor = new Map(facts.map((fact) => [anchorOf(fact), fact]));
     const triaged = [...triageByAnchor.values()]
       .map((item) => ({ fact: byAnchor.get(item.fact.anchor), item }))
@@ -435,7 +440,7 @@ function FactRow({
           <button
             type="button"
             data-testid={`task-fact-detail-${fact.factId}`}
-            onClick={() => onNavigateEntity(`fact/${fact.taskId}/${fact.factId}`)}
+            onClick={() => onNavigateEntity(`fact/${fact.factId}`)}
             className="mt-2 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
           >
             <ArrowSquareOut weight="bold" className="text-[11px]" />

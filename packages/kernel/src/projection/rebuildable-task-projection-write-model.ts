@@ -129,12 +129,10 @@ export function projectFact(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
-  const packagePath = queryRows(db, "SELECT package_path FROM task_package WHERE task_id = ?", event.taskId)[0]
-      ?.package_path,
-    claim = event.payload.factsDocumentClaim,
+  const claim = event.payload.factsDocumentClaim,
     bytes = readBlob(claim.sha256);
-  if ((packagePath && claim.path !== `${packagePath}/facts.md`) || !bytes || bytes.byteLength !== claim.size)
-    throw new Error(`fact document path or blob mismatch for task ${event.taskId}`);
+  if (claim.path !== `facts/${event.factId}.md` || !bytes || bytes.byteLength !== claim.size)
+    throw new Error(`fact document path or blob mismatch for ${event.factId}`);
   reduceFactEvent(db, event);
   const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   if (sha256Text(body) !== claim.sha256) throw new Error(`fact document projection mismatch for task ${event.taskId}`);
@@ -152,7 +150,7 @@ export function projectFact(
     "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
     event.opId,
     event.workspaceRevision,
-    event.taskId,
+    event.taskId ?? null,
     eventJson,
   );
   runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
