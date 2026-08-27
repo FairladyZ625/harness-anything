@@ -7,6 +7,7 @@ import type { LeaseV1 } from "./execution.ts";
 import type { FactEventV1 } from "./fact-event.ts";
 import type { LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-event.ts";
 import type { MigrationDocumentClaim, MigrationImportEventV1 } from "./migration-import-event.ts";
+import type { PeopleEventV1 } from "./people-event.ts";
 import type { PresetSnapshotUpgradeEventV1 } from "./preset-snapshot-upgrade-event.ts";
 import type { ScheduleEventV1 } from "./schedule-event.ts";
 import type { SettingsEventV1 } from "./settings-event.ts";
@@ -171,6 +172,7 @@ export type CanonicalEventV1 =
   | AgentRuntimeEventV1
   | ScheduleEventV1
   | SettingsEventV1
+  | PeopleEventV1
   | EntityEventV1
   | TaskBootstrapEventV1
   | TaskProgressEventV1

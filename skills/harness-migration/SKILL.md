@@ -423,29 +423,17 @@ So present **one table** and ask for **one confirmation**:
 Say plainly: this is the default, and they can override any row to `source` if
 they want the old file kept verbatim. One answer covers the whole table.
 
-**`people.yaml` is the exception and must be asked.** It is the person roster,
-and unlike every other row it is a genuine either/or where both answers lose
-something. `destination` leaves the migrated history referencing people absent
-from the new roster; `source` replaces the roster the new repository was
-initialized with. Keep it as its own question inside the same message; do not
-fold it into the default.
+**`people.yaml` is normally automatic.** Compatible rosters are unioned through
+the same People Action transition and published as `people-event/v1`; the
+destination owner binding remains and source-only people, roles, credentials,
+and non-conflicting scalar details carry forward. No question or hand edit is
+needed.
 
-**Do not merge it, and do not hand-edit it either.** There is no write road for
-this file. `doc sync` refuses it — the path is registered to `people-registry`,
-so every submission comes back `blocked: path is owned by people-registry` — and
-the owning command surface does not exist: `ha people --help` prints a heading
-and **zero commands**, and `ha capabilities` has no `people` domain at all. A
-hand-merged roster therefore can never be committed, and it leaves the ledger's
-own working tree permanently dirty, which fails the landing check in step 9 and
-the "Done when" list below. An operator who tries this loses the time twice:
-once merging, once reverting.
-
-So when the two rosters genuinely conflict: **pick one side with the flag**,
-write the losing side's entries into your hand-over report so the information is
-not lost, and tell the user they remain recoverable verbatim from the step 2
-archive (`tar -xOf "$LEDGER_ARCHIVE" harness/people.yaml`). Reconciling the two
-rosters is a task for the user, later, through whatever road exists by then —
-not part of this migration.
+Only a genuine scalar or role-authority contradiction produces a `required`
+row. For that row, ask which side to retain with the explicit flag and record
+the losing declaration in the hand-over. After migration, reconcile individual
+entries only through `ha people add`, `ha people set-role`, and
+`ha people remove`; never commit a manual edit to the ledger.
 
 **Do the merge edits after the final apply in step 8, not now.** Step 8
 recreates the destination from scratch, which would discard anything edited
@@ -907,7 +895,8 @@ Then sort the list by what each file can actually do:
   cure is worse than the disease.
 - **Route blocked** (`people.yaml`, `harness.yaml`, anything under `events/` or
   `objects/`, task-package files) — the block reason names the owning command.
-  For `people.yaml` that command does not exist yet; step 5 says what to do.
+  For `people.yaml`, use `ha people add|set-role|remove`; step 5 covers migration
+  conflicts.
 
 So keep the step 5 merge column to prose files wherever you have the choice. A
 non-prose file in that column is content the migration cannot land.
@@ -1058,11 +1047,12 @@ success and failure paths.
   discriminates is whether `--version` is *accepted* at all: the previous
   generation rejects it with `unknown_option` and a nonzero exit. Never compare
   version numbers to decide which build you are talking to.
-- **`ha people` has no commands.** `ha people --help` prints a heading and an
-  empty list, and `ha capabilities` has no `people` domain, so `harness/people.yaml`
-  has no write road at all — `doc sync` refuses it as owned by `people-registry`,
-  and nothing else claims it. Roster conflicts are resolved by picking a side in
-  step 5, not by merging.
+- **`ha people` is the only roster write road.** `ha people add`,
+  `ha people set-role`, and `ha people remove` publish canonical People Actions.
+  `doc sync` still refuses `harness/people.yaml` because the path is owned by
+  `people-registry`; compatible migration rosters are unioned through that same
+  Action contract, while genuine contradictions use the explicit choice in
+  step 5.
 - **`doc status` and `doc sync --dry-run` under-report dirty files.** With no
   `--path` they list only prose files and route-blocked paths, so a dirty
   non-prose authored file is silently absent. Take the list from

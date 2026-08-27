@@ -13,6 +13,7 @@ const allowedStaticGraph = new Set([
   "packages/daemon/src/protocol/daemon-protocol-commands-decision-lifecycle.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands-decision-relations.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands-doc-fact.ts",
+  "packages/daemon/src/protocol/daemon-protocol-commands-people.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands-runtime-config.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands-runtime-fleet.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts",
@@ -30,7 +31,7 @@ const allowedStaticGraph = new Set([
   "packages/daemon/src/protocol/daemon-protocol-validate-task.ts",
   "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
   "packages/daemon/src/protocol/json-rpc-types.ts",
-  "packages/preset/src/preset-command-contract.ts"
+  "packages/preset/src/preset-command-contract.ts",
 ]);
 
 checkFileLines(cliFiles, 700, "CLI source file");
@@ -51,12 +52,18 @@ function checkThinCliSurface() {
   if (packageJson.bin?.ha !== entry || packageJson.bin?.["harness-anything"] !== entry) {
     violations.push(`packages/cli/package.json: both bins must use the thin dist entry ${entry}`);
   }
-  const entrySource = parseTypeScript("packages/cli/src/index.ts"), imports = runtimeImports(entrySource);
+  const entrySource = parseTypeScript("packages/cli/src/index.ts"),
+    imports = runtimeImports(entrySource);
   const direct = new Set(imports.static.map((candidate) => candidate.specifier));
   for (const required of ["./cli/thin-command.ts", "./daemon/client.ts"]) {
-    if (!direct.has(required)) violations.push(`packages/cli/src/index.ts: thin entry must directly import ${required}`);
+    if (!direct.has(required))
+      violations.push(`packages/cli/src/index.ts: thin entry must directly import ${required}`);
   }
-  if (![...entrySource.statements].some((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "emit")) {
+  if (
+    ![...entrySource.statements].some(
+      (statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "emit",
+    )
+  ) {
     violations.push("packages/cli/src/index.ts: thin entry must own the render function emit");
   }
   const dynamic = imports.dynamic.map((candidate) => candidate.specifier);
@@ -66,13 +73,19 @@ function checkThinCliSurface() {
 }
 
 function checkDistStaticImportGraph() {
-  const pending = ["packages/cli/src/index.ts"], visited = new Set();
+  const pending = ["packages/cli/src/index.ts"],
+    visited = new Set();
   while (pending.length > 0) {
     const file = pending.shift();
     if (!file || visited.has(file)) continue;
     visited.add(file);
     if (!isCliProductionFile(file) && !allowedStaticGraph.has(file)) {
-      const detail = file === "packages/kernel/src/index.ts" ? "kernel public barrel" : file.startsWith("packages/kernel/src/domain/") ? "kernel domain module" : "module is outside the thin CLI cross-package graph boundary";
+      const detail =
+        file === "packages/kernel/src/index.ts"
+          ? "kernel public barrel"
+          : file.startsWith("packages/kernel/src/domain/")
+            ? "kernel domain module"
+            : "module is outside the thin CLI cross-package graph boundary";
       violations.push(`dist static import graph reached ${detail}: ${file}`);
       continue;
     }
@@ -83,7 +96,8 @@ function checkDistStaticImportGraph() {
         continue;
       }
       const resolved = resolveSourceImport(file, candidate.specifier);
-      if (resolved === null) violations.push(`dist static import graph cannot resolve ${candidate.specifier} from ${file}`);
+      if (resolved === null)
+        violations.push(`dist static import graph cannot resolve ${candidate.specifier} from ${file}`);
       else pending.push(resolved);
     }
   }
@@ -115,6 +129,7 @@ function checkDaemonTransportImportGraph() {
     "packages/daemon/src/protocol/daemon-protocol-commands-decision-lifecycle.ts",
     "packages/daemon/src/protocol/daemon-protocol-commands-decision-relations.ts",
     "packages/daemon/src/protocol/daemon-protocol-commands-doc-fact.ts",
+    "packages/daemon/src/protocol/daemon-protocol-commands-people.ts",
     "packages/daemon/src/protocol/daemon-protocol-commands-runtime-config.ts",
     "packages/daemon/src/protocol/daemon-protocol-commands-runtime-fleet.ts",
     "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts",
@@ -131,19 +146,23 @@ function checkDaemonTransportImportGraph() {
     "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
     "packages/daemon/src/protocol/daemon-protocol-validate-task.ts",
     "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
-    "packages/preset/src/preset-command-contract.ts"
+    "packages/preset/src/preset-command-contract.ts",
   ]);
   // Reduced fixture trees (tools/gates/test/cli-structure.test.mjs) may not carry the daemon
   // package's line client at all; absent means not under test, not a violation — a real tree
   // always has it, and renaming it breaks typecheck before this check could say anything useful.
   if (!existsSync(path.join(root, "packages/daemon/src/client/local-json-rpc-client.ts"))) return;
-  const pending = ["packages/daemon/src/client/local-json-rpc-client.ts"], visited = new Set();
+  const pending = ["packages/daemon/src/client/local-json-rpc-client.ts"],
+    visited = new Set();
   while (pending.length > 0) {
     const file = pending.shift();
     if (!file || visited.has(file)) continue;
     visited.add(file);
     if (!allowed.has(file)) {
-      const detail = file === "packages/kernel/src/index.ts" ? "kernel public barrel" : "module is outside the daemon transport allowlist";
+      const detail =
+        file === "packages/kernel/src/index.ts"
+          ? "kernel public barrel"
+          : "module is outside the daemon transport allowlist";
       violations.push(`daemon transport import graph reached ${detail}: ${file}`);
       continue;
     }
@@ -154,7 +173,8 @@ function checkDaemonTransportImportGraph() {
         continue;
       }
       const resolved = resolveSourceImport(file, candidate.specifier);
-      if (resolved === null) violations.push(`daemon transport import graph cannot resolve ${candidate.specifier} from ${file}`);
+      if (resolved === null)
+        violations.push(`daemon transport import graph cannot resolve ${candidate.specifier} from ${file}`);
       else pending.push(resolved);
     }
   }
@@ -170,7 +190,12 @@ function runtimeImports(sourceFile) {
     }
   }
   function visit(node) {
-    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0])) {
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteral(node.arguments[0])
+    ) {
       result.dynamic.push({ specifier: node.arguments[0].text });
     }
     ts.forEachChild(node, visit);
@@ -183,7 +208,11 @@ function runtimeImportDeclaration(statement) {
   const clause = statement.importClause;
   if (!clause || clause.isTypeOnly) return clause === undefined;
   if (clause.name) return true;
-  return !clause.namedBindings || !ts.isNamedImports(clause.namedBindings) || clause.namedBindings.elements.some((element) => !element.isTypeOnly);
+  return (
+    !clause.namedBindings ||
+    !ts.isNamedImports(clause.namedBindings) ||
+    clause.namedBindings.elements.some((element) => !element.isTypeOnly)
+  );
 }
 
 function resolveSourceImport(fromFile, specifier) {
@@ -196,11 +225,13 @@ function resolveSourceImport(fromFile, specifier) {
 function listTsFilesRecursive(relativeDir) {
   const absolute = path.join(root, relativeDir);
   if (!existsSync(absolute)) return [];
-  return readdirSync(absolute, { withFileTypes: true }).flatMap((entry) => {
-    const relativePath = `${relativeDir}/${entry.name}`;
-    if (entry.isDirectory()) return listTsFilesRecursive(relativePath);
-    return entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts") ? [relativePath] : [];
-  }).sort();
+  return readdirSync(absolute, { withFileTypes: true })
+    .flatMap((entry) => {
+      const relativePath = `${relativeDir}/${entry.name}`;
+      if (entry.isDirectory()) return listTsFilesRecursive(relativePath);
+      return entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts") ? [relativePath] : [];
+    })
+    .sort();
 }
 
 function checkFileLines(files, limit, label) {
@@ -218,9 +249,14 @@ function checkFunctions(files, limits) {
       if (name) {
         const start = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
         const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
-        const lines = end - start + 1, branches = countBranches(node.getText(sourceFile));
-        if (lines > limits.maxLines) violations.push(`${file}:${start}: function ${name} has ${lines} lines; max ${limits.maxLines}`);
-        if (branches > limits.maxBranches) violations.push(`${file}:${start}: function ${name} has ${branches} branch markers; max ${limits.maxBranches}`);
+        const lines = end - start + 1,
+          branches = countBranches(node.getText(sourceFile));
+        if (lines > limits.maxLines)
+          violations.push(`${file}:${start}: function ${name} has ${lines} lines; max ${limits.maxLines}`);
+        if (branches > limits.maxBranches)
+          violations.push(
+            `${file}:${start}: function ${name} has ${branches} branch markers; max ${limits.maxBranches}`,
+          );
       }
       ts.forEachChild(node, visit);
     }
@@ -230,7 +266,12 @@ function checkFunctions(files, limits) {
 
 function functionName(node) {
   if (ts.isFunctionDeclaration(node) && node.name) return node.name.text;
-  if ((ts.isFunctionExpression(node) || ts.isArrowFunction(node)) && ts.isVariableDeclaration(node.parent) && ts.isIdentifier(node.parent.name)) return node.parent.name.text;
+  if (
+    (ts.isFunctionExpression(node) || ts.isArrowFunction(node)) &&
+    ts.isVariableDeclaration(node.parent) &&
+    ts.isIdentifier(node.parent.name)
+  )
+    return node.parent.name.text;
   if (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name)) return node.name.text;
   return undefined;
 }
@@ -238,6 +279,12 @@ function functionName(node) {
 function countBranches(body) {
   return (body.match(/\b(?:if|for|while|case|catch|switch)\b/gu)?.length ?? 0) + (body.match(/\?/gu)?.length ?? 0);
 }
-function parseTypeScript(file) { return ts.createSourceFile(file, readSource(file), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS); }
-function readSource(file) { return readFileSync(path.join(root, file), "utf8"); }
-function relative(file) { return path.relative(root, file).split(path.sep).join("/"); }
+function parseTypeScript(file) {
+  return ts.createSourceFile(file, readSource(file), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+}
+function readSource(file) {
+  return readFileSync(path.join(root, file), "utf8");
+}
+function relative(file) {
+  return path.relative(root, file).split(path.sep).join("/");
+}

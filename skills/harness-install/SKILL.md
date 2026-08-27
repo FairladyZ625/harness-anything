@@ -223,16 +223,16 @@ If the variable is already exported in your environment, unset it now:
 unset HARNESS_DAEMON_USER_ROOT
 ```
 
-## 2. Settle identity before writing it, because there is no write road back
+## 2. Settle the bootstrap owner identity before initialization
 
 `ha init` writes `harness/people.yaml` with the person id, display name, and a
-credential binding. **That file has no write road.** `ha people --help` prints a
-heading and zero commands, `ha capabilities` has no `people` domain at all, and
-`doc sync` refuses the path as owned by `people-registry`. A hand-edit can never
-be committed and leaves the ledger's working tree permanently dirty.
+credential binding. Later roster changes must use `ha people add`,
+`ha people set-role`, or `ha people remove`; `doc sync` refuses the path because
+generic document writes may not bypass `people-registry`. Never hand-edit it.
 
-So the person id is effectively permanent from the moment step 3 runs. **Ask for
-it, show the user what you are about to write, and get an answer** — do not
+The bootstrap owner remains a load-bearing identity even though the roster now
+has an Action write road. **Ask for the person id, show the user what you are
+about to write, and get an answer** — do not
 derive it from `git config user.name` and proceed. This is a stop-and-ask point.
 
 What gets written, so you can show it:
@@ -715,6 +715,7 @@ Tell the user, in their own terms:
   `closeout_placeholder` and a `nextAction` telling you to edit the file. It does
   not tell you the edit must then go through `ha doc sync --submit --path`, which
   it must.
-- **`harness/people.yaml` has no write road.** `ha people` has no commands,
-  `ha capabilities` has no `people` domain, and `doc sync` refuses the path as
-  owned by `people-registry`. Get the person id right at `init` time.
+- **`harness/people.yaml` is owned by the People Action road.** Use
+  `ha people add`, `ha people set-role`, or `ha people remove`; `doc sync`
+  correctly refuses the path because generic document writes may not bypass
+  the roster contract.

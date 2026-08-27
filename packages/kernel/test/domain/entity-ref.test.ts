@@ -59,7 +59,7 @@ test("EntityRef parser accepts hosted relation entity refs", () => {
   assert.equal(parseEntityRef("relation/not-a-relation"), null);
 });
 
-test("EntityRef parser derives the eleven canonical kind grammars from authority", () => {
+test("EntityRef parser derives the twelve canonical kind grammars from authority", () => {
   for (const [kind, ref] of [
     ["execution", "execution/exe-1"],
     ["review", "review/rev-1"],
@@ -69,6 +69,7 @@ test("EntityRef parser derives the eleven canonical kind grammars from authority
     ["policy", "policy/policy-1"],
     ["schedule", "schedule/schedule-heartbeat"],
     ["settings", "settings/repository"],
+    ["person", "person/person_alice"],
   ] as const) {
     assert.equal(parseEntityRef(ref)?.kind, kind);
   }

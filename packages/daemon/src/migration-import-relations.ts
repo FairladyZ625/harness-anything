@@ -1,6 +1,7 @@
 import {
   buildColdCoverage,
   deriveRelationId,
+  isMigrationImportEvent,
   type ActorIdentity,
   type MigrationImportEventV1,
   type RelationGraphEdgeRow,
@@ -181,8 +182,9 @@ export function sourceCounts(context: any): ImportCounts {
 
 export function preparedCounts(context: any): ImportCounts {
   const kind = (name: keyof typeof context.alreadyImported): number =>
-    context.prepared.filter(({ event }: Prepared) => event.payload.entity.kind === name).length +
-    context.alreadyImported[name];
+    context.prepared.filter(
+      ({ event }: Prepared) => isMigrationImportEvent(event) && event.payload.entity.kind === name,
+    ).length + context.alreadyImported[name];
   return {
     task: kind("task"),
     decision: kind("decision"),

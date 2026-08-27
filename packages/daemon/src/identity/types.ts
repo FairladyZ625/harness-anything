@@ -1,41 +1,21 @@
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
+import type {
+  CredentialKind as KernelCredentialKind,
+  CredentialRef as KernelCredentialRef,
+  PeopleCommandClass,
+  PersonProfile as KernelPersonProfile,
+  RolePolicy as KernelRolePolicy,
+} from "../../../kernel/src/index.ts";
 
 export type PersonId = string;
 export type RoleId = string;
 
-export type CredentialKind =
-  | "unix-socket-owner-boundary"
-  | "windows-named-pipe-client"
-  | "ssh-username"
-  | "ssh-forced-command-person"
-  | "ssh-tunnel-token-subject"
-  | "email-address"
-  | "password-account"
-  | "oauth-subject"
-  | "api-token";
-
-export type DaemonCommandClass = "admin" | "repo-write" | "repo-read" | "arbiter";
-
-export interface CredentialRef {
-  readonly kind: CredentialKind;
-  readonly issuer: string;
-  readonly subject: string;
-}
-
-export interface PersonProfile {
-  readonly personId: PersonId;
-  readonly displayName: string;
-  readonly primaryEmail?: string;
-  readonly roles: ReadonlyArray<RoleId>;
-  readonly credentials: ReadonlyArray<CredentialRef>;
-  readonly disabled?: boolean;
-}
-
-export interface RolePolicy {
-  readonly roleId: RoleId;
-  readonly commandClasses: ReadonlyArray<DaemonCommandClass>;
-}
+export type CredentialKind = KernelCredentialKind;
+export type DaemonCommandClass = PeopleCommandClass;
+export type CredentialRef = KernelCredentialRef;
+export type PersonProfile = KernelPersonProfile;
+export type RolePolicy = KernelRolePolicy;
 
 export interface PeopleRoster {
   readonly schema: "harness-people/v1";

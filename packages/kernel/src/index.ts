@@ -126,6 +126,8 @@ export {
   parseCanonicalEvent,
   serializeCanonicalEvent,
   serializePersistedCanonicalEvent,
+  validateCurrentCanonicalEvent,
+  isMigrationImportEvent,
 } from "./domain/doc-sync.contract.ts";
 export type {
   CanonicalEventV1,

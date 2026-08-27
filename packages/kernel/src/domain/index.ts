@@ -164,6 +164,23 @@ export { compileScheduleDefinitionEvent, compileScheduleRunEvent, isScheduleEven
 export { INITIAL_SETTINGS_V1, readSettingsFacet, validateSettingsV1, writeSettingsFacet } from "./settings.ts";
 export type { SettingsV1 } from "./settings.ts";
 export { compileSettingsChangedEvent } from "./settings-event.ts";
+export {
+  applyPeopleRosterAction,
+  credentialKinds,
+  mergePeopleRosterDocuments,
+  parsePeopleRosterDocument,
+  PEOPLE_ROSTER_PATH,
+  peopleCommandClasses,
+} from "./people-roster.ts";
+export type {
+  CredentialKind,
+  CredentialRef,
+  PeopleCommandClass,
+  PeopleRosterAction,
+  PersonProfile,
+  RolePolicy,
+} from "./people-roster.ts";
+export { compilePeopleRosterActionEvent } from "./people-event.ts";
 
 export { isEntityEvent } from "./entity-event.ts";
 

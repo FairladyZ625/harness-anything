@@ -20,6 +20,7 @@ import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.t
 import { assertEntityUpsertWritePlan, isEntityEvent } from "../domain/entity-event.ts";
 import { assertScheduleEventWritePlan, isScheduleEvent } from "../domain/schedule-event.ts";
 import { assertSettingsEventWritePlan, isSettingsEvent } from "../domain/settings-event.ts";
+import { assertPeopleEventWritePlan, isPeopleEvent } from "../domain/people-event.ts";
 import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
 import { assertTaskProgressWritePlan, isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import {
@@ -111,6 +112,7 @@ export function makeTaskProjection(options: {
       if (isEntityEvent(event)) assertEntityUpsertWritePlan(event, plan as FrozenWritePlan<"EntityUpsert">);
       if (isScheduleEvent(event)) assertScheduleEventWritePlan(event, plan);
       if (isSettingsEvent(event)) assertSettingsEventWritePlan(event, plan);
+      if (isPeopleEvent(event)) assertPeopleEventWritePlan(event, plan);
       if (
         isTaskEvent(event) &&
         ((event.payload.documentClaims?.length ?? 0) > 0 || (event.payload.carriedDocumentClaims?.length ?? 0) > 0)
