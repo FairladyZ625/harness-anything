@@ -160,6 +160,26 @@ test("manual runs do not move automatic cadence and enabling skips the paused wi
   scheduler.close();
 });
 
+test("a deleted Schedule disappears from scheduler refreshes and is never fired", async () => {
+  const clock = fakeClock("2026-08-27T10:00:00.000Z"),
+    rows = [schedule("retired")],
+    repo = fixtureRepo("deleted", "local", rows),
+    scheduler = makeScheduleScheduler({
+      cells: new Map([[repo.repoId, repo.cell]]),
+      now: clock.now,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+  await scheduler.start();
+  assert.equal(clock.liveTimers().length, 1);
+  rows.splice(0, rows.length);
+  await scheduler.refresh();
+  assert.equal(clock.liveTimers().length, 0);
+  clock.value = "2026-08-27T10:30:00.000Z";
+  assert.deepEqual(repo.fired, []);
+  scheduler.close();
+});
+
 function schedule(scheduleId: string): MutableSchedule {
   return createScheduleV1({
     scheduleId,

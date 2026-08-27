@@ -10,13 +10,24 @@ type RepoScope = { readonly repoId: string };
 // receipts; enablement comes from the DTO facets, not from local mode branching.
 type SchedulesBridge = {
   readonly listSchedules: (payload: DaemonGuiReadPayloadMap["repo.schedules.list"]) => Promise<unknown>;
+  readonly createSchedule: (payload: unknown) => Promise<unknown>;
+  readonly updateSchedule: (payload: unknown) => Promise<unknown>;
+  readonly deleteSchedule: (payload: unknown) => Promise<unknown>;
   readonly enableSchedule: (payload: unknown) => Promise<unknown>;
   readonly disableSchedule: (payload: unknown) => Promise<unknown>;
   readonly runScheduleNow: (payload: unknown) => Promise<unknown>;
 };
 const bridge = (): SchedulesBridge => {
   const value = window.harness as unknown as Partial<SchedulesBridge> | undefined;
-  if (!value?.listSchedules || !value.enableSchedule || !value.disableSchedule || !value.runScheduleNow)
+  if (
+    !value?.listSchedules ||
+    !value.createSchedule ||
+    !value.updateSchedule ||
+    !value.deleteSchedule ||
+    !value.enableSchedule ||
+    !value.disableSchedule ||
+    !value.runScheduleNow
+  )
     throw new Error("Schedules bridge is unavailable.");
   return value as SchedulesBridge;
 };
@@ -29,6 +40,18 @@ export interface ScheduleActionReceipt {
   readonly code: string | null;
   readonly nextAction: string | null;
   readonly scheduleId: string | null;
+}
+
+export interface ScheduleDefinitionInput {
+  readonly scheduleId: string;
+  readonly name: string;
+  readonly everyMs: number;
+  readonly agentId: string;
+  readonly runtimeInstanceId: string;
+  readonly mission: string;
+  readonly model?: string | null;
+  readonly reasoningEffort?: string | null;
+  readonly cwd?: string | null;
 }
 
 export const schedulesClient = {
@@ -45,6 +68,17 @@ export const schedulesClient = {
       throw new Error(rendererErrorHint(value, "Schedules list bridge returned an invalid result."));
     return value as unknown as SchedulesListResult;
   },
+  create: (repoId: string, input: ScheduleDefinitionInput, idempotencyKey: string): Promise<ScheduleActionReceipt> =>
+    invokeSchedule("createSchedule", { repoId, ...input, idempotencyKey }),
+  update: (repoId: string, input: ScheduleDefinitionInput, idempotencyKey: string): Promise<ScheduleActionReceipt> =>
+    invokeSchedule("updateSchedule", { repoId, ...input, idempotencyKey }),
+  delete: (
+    repoId: string,
+    scheduleId: string,
+    idempotencyKey: string,
+    reason?: string,
+  ): Promise<ScheduleActionReceipt> =>
+    invokeSchedule("deleteSchedule", { repoId, scheduleId, ...(reason ? { reason } : {}), idempotencyKey }),
   enable: (repoId: string, scheduleId: string, idempotencyKey: string): Promise<ScheduleActionReceipt> =>
     scheduleAction("enableSchedule", repoId, scheduleId, idempotencyKey),
   disable: (repoId: string, scheduleId: string, idempotencyKey: string): Promise<ScheduleActionReceipt> =>
@@ -59,7 +93,20 @@ async function scheduleAction(
   scheduleId: string,
   idempotencyKey: string,
 ): Promise<ScheduleActionReceipt> {
-  const value = await bridge()[method]({ repoId, scheduleId, idempotencyKey });
+  return invokeSchedule(method, { repoId, scheduleId, idempotencyKey });
+}
+
+async function invokeSchedule(
+  method:
+    | "createSchedule"
+    | "updateSchedule"
+    | "deleteSchedule"
+    | "enableSchedule"
+    | "disableSchedule"
+    | "runScheduleNow",
+  payload: Readonly<Record<string, unknown>>,
+): Promise<ScheduleActionReceipt> {
+  const value = await bridge()[method](payload);
   if (
     !isRendererRecord(value) ||
     typeof value.command !== "string" ||

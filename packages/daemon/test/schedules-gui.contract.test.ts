@@ -88,11 +88,14 @@ test("the schedules list read facet is registered and payload-closed", () => {
   );
 });
 
-test("the three schedule GUI actions reuse the S3 action kinds", () => {
+test("the six schedule GUI actions reuse the canonical action kinds", () => {
   const methods = daemonGuiActionMethods
     .filter(({ method }) => method.startsWith("repo.schedule."))
     .map(({ method, actionKind, guiBridgeMethod }) => ({ method, actionKind, guiBridgeMethod }));
   assert.deepEqual(methods, [
+    { method: "repo.schedule.create", actionKind: "schedule-create", guiBridgeMethod: "createSchedule" },
+    { method: "repo.schedule.update", actionKind: "schedule-update", guiBridgeMethod: "updateSchedule" },
+    { method: "repo.schedule.delete", actionKind: "schedule-delete", guiBridgeMethod: "deleteSchedule" },
     { method: "repo.schedule.enable", actionKind: "schedule-enable", guiBridgeMethod: "enableSchedule" },
     { method: "repo.schedule.disable", actionKind: "schedule-disable", guiBridgeMethod: "disableSchedule" },
     { method: "repo.schedule.runNow", actionKind: "schedule-run-now", guiBridgeMethod: "runScheduleNow" },
@@ -105,6 +108,28 @@ test("the three schedule GUI actions reuse the S3 action kinds", () => {
     assert.notDeepEqual(validate(method, { scheduleId: "heartbeat-probe", idempotencyKey: 7 }), []);
     assert.notDeepEqual(validate(method, { scheduleId: "heartbeat-probe", idempotencyKey: "k", extra: true }), []);
   }
+  const definition = {
+    scheduleId: "heartbeat-probe",
+    name: "Heartbeat probe",
+    everyMs: 300_000,
+    agentId: "probe-agent",
+    runtimeInstanceId: "codex-schedule",
+    mission: "Run the probe.",
+    idempotencyKey: "retry-1",
+  };
+  assert.deepEqual(validate("repo.schedule.create", definition), []);
+  assert.deepEqual(validate("repo.schedule.update", { ...definition, model: null, cwd: null }), []);
+  assert.deepEqual(
+    validate("repo.schedule.delete", {
+      scheduleId: "heartbeat-probe",
+      reason: "retired",
+      idempotencyKey: "retry-1",
+    }),
+    [],
+  );
+  const { mission: _mission, ...missingMission } = definition;
+  assert.notDeepEqual(validate("repo.schedule.create", missingMission), []);
+  assert.notDeepEqual(validate("repo.schedule.delete", { scheduleId: "heartbeat-probe" }), []);
 });
 
 test("the schedules list validator locks the joined wire shape", () => {
@@ -122,8 +147,12 @@ test("the schedules list validator locks the joined wire shape", () => {
   assert.deepEqual(row.claim, { nodeId: null, assignmentId: null });
   assert.equal(row.nextRunAt, "2026-08-27T08:30:00.000Z");
   assert.equal(row.actions.runNow.available, true);
+  assert.equal(row.actions.edit.available, true);
+  assert.equal(row.actions.delete.available, true);
   assert.equal(row.actions.enable.available, false);
   assert.equal(row.actions.enable.code, "no_changes");
+  assert.equal(result.actions.create.available, true);
+  assert.deepEqual(result.options, { agents: [], instances: [], cwd: ["."] });
   assert.equal(row.watermarkParent, undefined);
   for (const mutation of [
     (value: SchedulesListResult) => ({ ...value, repoMode: "fleet" }),
@@ -182,7 +211,7 @@ test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass 
   const result = readSchedulesGui(
     guiContext({
       projection: {
-        listEntities: () => [{ value: claimed, workspaceRevision: 2 }],
+        listEntities: (kind) => (kind === "schedule" ? [{ value: claimed, workspaceRevision: 2 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
       },
     }),
@@ -222,7 +251,7 @@ test("a trigger outside the kernel interval contract is refused, never recast", 
       readSchedulesGui(
         guiContext({
           projection: {
-            listEntities: () => [{ value: malformed, workspaceRevision: 1 }],
+            listEntities: (kind) => (kind === "schedule" ? [{ value: malformed, workspaceRevision: 1 }] : []),
             readTaskStatuses: guiContext().projection.readTaskStatuses,
           },
         }),
@@ -444,7 +473,7 @@ test("paused and single-flight states produce precise run-now blockers", () => {
   const paused = readSchedulesGui(
     guiContext({
       projection: {
-        listEntities: () => [{ value: pausedSchedule, workspaceRevision: 1 }],
+        listEntities: (kind) => (kind === "schedule" ? [{ value: pausedSchedule, workspaceRevision: 1 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
       },
     }),
@@ -456,7 +485,7 @@ test("paused and single-flight states produce precise run-now blockers", () => {
   const claimed = readSchedulesGui(
     guiContext({
       projection: {
-        listEntities: () => [{ value: singleFlight, workspaceRevision: 1 }],
+        listEntities: (kind) => (kind === "schedule" ? [{ value: singleFlight, workspaceRevision: 1 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
       },
     }),

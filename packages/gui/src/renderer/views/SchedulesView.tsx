@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock, Play, Power, Stop } from "@phosphor-icons/react";
+import { Clock, PencilSimple, Play, Plus, Power, Stop, Trash } from "@phosphor-icons/react";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
 import {
   Badge,
@@ -19,6 +19,7 @@ import {
   RoleTag,
   Sect,
 } from "../components/runtime/parts.tsx";
+import { ScheduleFormDialog } from "../components/ScheduleFormDialog.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
@@ -28,6 +29,7 @@ import {
   scheduleRowById,
   schedulesClient,
   type ScheduleActionReceipt,
+  type ScheduleDefinitionInput,
 } from "../schedules-client.ts";
 
 // Schedules plane (S4): one `repo.schedules.list` read paints the whole page. The DTO
@@ -151,6 +153,8 @@ export function ScheduleWorkspace({
   const [busy, setBusy] = useState(false);
   const [receipt, setReceipt] = useState<ScheduleActionReceipt | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<ScheduleGuiRowDto | "create" | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const runAction = async (kind: "enable" | "disable" | "runNow", schedule: ScheduleGuiRowDto): Promise<void> => {
     setBusy(true);
     setActionError(null);
@@ -173,87 +177,176 @@ export function ScheduleWorkspace({
       setBusy(false);
     }
   };
+  const saveDefinition = async (input: ScheduleDefinitionInput): Promise<void> => {
+    setBusy(true);
+    setActionError(null);
+    setReceipt(null);
+    try {
+      const kind = dialog === "create" ? "create" : "update";
+      const idempotencyKey = `gui:schedule-${kind}:${input.scheduleId}:${Date.now().toString(36)}`;
+      const next =
+        kind === "create"
+          ? await schedulesClient.create(repoId, input, idempotencyKey)
+          : await schedulesClient.update(repoId, input, idempotencyKey);
+      setReceipt(next);
+      setDialog(null);
+      await queryClient.invalidateQueries({ queryKey: ["schedules", repoId] });
+      onFocusSchedule(scheduleRef(input.scheduleId));
+      onMutated?.();
+    } catch (error) {
+      consumeKnownError(error);
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const deleteSchedule = async (schedule: ScheduleGuiRowDto): Promise<void> => {
+    setBusy(true);
+    setActionError(null);
+    setReceipt(null);
+    try {
+      const idempotencyKey = `gui:schedule-delete:${schedule.scheduleId}:${Date.now().toString(36)}`;
+      const next = await schedulesClient.delete(
+        repoId,
+        schedule.scheduleId,
+        idempotencyKey,
+        "Deleted from the Schedules GUI.",
+      );
+      setReceipt(next);
+      setConfirmDelete(false);
+      onFocusSchedule(null);
+      await queryClient.invalidateQueries({ queryKey: ["schedules", repoId] });
+      onMutated?.();
+    } catch (error) {
+      consumeKnownError(error);
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6" data-testid="schedules-list">
-        {pending ? (
-          <Empty>{t("schedules.loading")}</Empty>
-        ) : rows.length === 0 ? (
-          <Empty>{t("schedules.empty")}</Empty>
-        ) : (
-          rows.map((row) => {
-            const stateMeta = STATE_META[row.state];
-            return (
-              <Card key={row.scheduleId} testId={`schedule-row-${row.scheduleId}`}>
-                <CardHead>
-                  <button
-                    type="button"
-                    onClick={() => onFocusSchedule(scheduleRef(row.scheduleId))}
-                    className="min-w-0 truncate text-left text-[12.5px] font-medium hover:text-accent"
-                    data-testid={`schedule-focus-${row.scheduleId}`}
-                  >
-                    {row.name}
-                  </button>
-                  <RoleTag tone={stateMeta.tone}>{t(stateMeta.key)}</RoleTag>
-                  {row.activeRun !== null && <RoleTag tone="active">{t("schedules.activeRun")}</RoleTag>}
-                  <Right>
-                    <Hint>{row.scheduleId}</Hint>
-                  </Right>
-                </CardHead>
-                <CardBody>
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
-                    <Chip tone="mono" tip={t("schedules.triggerTip")}>
-                      <Clock weight="bold" />
-                      {row.trigger.summary}
-                    </Chip>
-                    <Chip tip={t(AVAILABILITY_META[row.executionAvailability])}>
-                      {t(AVAILABILITY_META[row.executionAvailability])}
-                    </Chip>
-                    <span className="font-mono text-[10.5px] text-text-faint">
-                      {t("schedules.nextRun")}: {time(row.nextRunAt)}
-                    </span>
-                    {row.claim.nodeId !== null && (
-                      <span className="font-mono text-[10.5px] text-text-faint">
-                        {t("schedules.claimNode")}: {row.claim.nodeId}
-                      </span>
-                    )}
-                    {row.missed.count > 0 && (
-                      <span className="font-mono text-[10.5px] text-text-faint">
-                        {t("schedules.missedCount", { count: row.missed.count })}
-                      </span>
-                    )}
-                    {row.lastRun !== null && (
-                      <span className="font-mono text-[10.5px] text-text-faint">
-                        {t("schedules.lastOutcome")}: {t(OUTCOME_META[row.lastRun.outcome])}
-                      </span>
-                    )}
-                  </div>
-                </CardBody>
-              </Card>
-            );
-          })
-        )}
-      </div>
-      <aside
-        className="hidden w-[420px] shrink-0 overflow-y-auto border-l border-border md:block"
-        data-testid="schedules-inspector"
-      >
-        {selected === null ? (
-          <div className="px-3.5 py-3">
-            <Empty>{pending ? t("schedules.loading") : t("schedules.empty")}</Empty>
+    <>
+      <div className="flex min-h-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6" data-testid="schedules-list">
+          <div className="mb-3 flex justify-end">
+            <Btn
+              size="sm"
+              variant="primary"
+              testId="schedule-action-create"
+              disabled={busy || data === null || !data.actions.create.available}
+              tip={
+                data?.actions.create.available === false
+                  ? (data.actions.create.nextAction ?? data.actions.create.code ?? undefined)
+                  : undefined
+              }
+              onClick={() => {
+                setActionError(null);
+                setDialog("create");
+              }}
+            >
+              <Plus weight="bold" />
+              {t("schedules.action.new")}
+            </Btn>
           </div>
-        ) : (
-          <ScheduleInspector
-            row={selected}
-            busy={busy}
-            receipt={receipt}
-            actionError={actionError}
-            onAction={(kind) => void runAction(kind, selected)}
-            onSelectEntity={onSelectEntity}
-          />
-        )}
-      </aside>
-    </div>
+          {pending ? (
+            <Empty>{t("schedules.loading")}</Empty>
+          ) : rows.length === 0 ? (
+            <Empty>{t("schedules.empty")}</Empty>
+          ) : (
+            rows.map((row) => {
+              const stateMeta = STATE_META[row.state];
+              return (
+                <Card key={row.scheduleId} testId={`schedule-row-${row.scheduleId}`}>
+                  <CardHead>
+                    <button
+                      type="button"
+                      onClick={() => onFocusSchedule(scheduleRef(row.scheduleId))}
+                      className="min-w-0 truncate text-left text-[12.5px] font-medium hover:text-accent"
+                      data-testid={`schedule-focus-${row.scheduleId}`}
+                    >
+                      {row.name}
+                    </button>
+                    <RoleTag tone={stateMeta.tone}>{t(stateMeta.key)}</RoleTag>
+                    {row.activeRun !== null && <RoleTag tone="active">{t("schedules.activeRun")}</RoleTag>}
+                    <Right>
+                      <Hint>{row.scheduleId}</Hint>
+                    </Right>
+                  </CardHead>
+                  <CardBody>
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+                      <Chip tone="mono" tip={t("schedules.triggerTip")}>
+                        <Clock weight="bold" />
+                        {row.trigger.summary}
+                      </Chip>
+                      <Chip tip={t(AVAILABILITY_META[row.executionAvailability])}>
+                        {t(AVAILABILITY_META[row.executionAvailability])}
+                      </Chip>
+                      <span className="font-mono text-[10.5px] text-text-faint">
+                        {t("schedules.nextRun")}: {time(row.nextRunAt)}
+                      </span>
+                      {row.claim.nodeId !== null && (
+                        <span className="font-mono text-[10.5px] text-text-faint">
+                          {t("schedules.claimNode")}: {row.claim.nodeId}
+                        </span>
+                      )}
+                      {row.missed.count > 0 && (
+                        <span className="font-mono text-[10.5px] text-text-faint">
+                          {t("schedules.missedCount", { count: row.missed.count })}
+                        </span>
+                      )}
+                      {row.lastRun !== null && (
+                        <span className="font-mono text-[10.5px] text-text-faint">
+                          {t("schedules.lastOutcome")}: {t(OUTCOME_META[row.lastRun.outcome])}
+                        </span>
+                      )}
+                    </div>
+                  </CardBody>
+                </Card>
+              );
+            })
+          )}
+        </div>
+        <aside
+          className="hidden w-[420px] shrink-0 overflow-y-auto border-l border-border md:block"
+          data-testid="schedules-inspector"
+        >
+          {selected === null ? (
+            <div className="px-3.5 py-3">
+              <Empty>{pending ? t("schedules.loading") : t("schedules.empty")}</Empty>
+            </div>
+          ) : (
+            <ScheduleInspector
+              row={selected}
+              busy={busy}
+              receipt={receipt}
+              actionError={actionError}
+              confirmDelete={confirmDelete}
+              onAction={(kind) => void runAction(kind, selected)}
+              onEdit={() => {
+                setActionError(null);
+                setConfirmDelete(false);
+                setDialog(selected);
+              }}
+              onDelete={() => void deleteSchedule(selected)}
+              onConfirmDelete={setConfirmDelete}
+              onSelectEntity={onSelectEntity}
+            />
+          )}
+        </aside>
+      </div>
+      {dialog !== null && data !== null && (
+        <ScheduleFormDialog
+          key={dialog === "create" ? "create" : `edit:${dialog.scheduleId}`}
+          options={data.options}
+          scheduleIds={rows.map((row) => row.scheduleId)}
+          initial={dialog === "create" ? null : dialog}
+          busy={busy}
+          error={actionError}
+          onCancel={() => setDialog(null)}
+          onSubmit={(input) => void saveDefinition(input)}
+        />
+      )}
+    </>
   );
 }
 
@@ -262,14 +355,22 @@ function ScheduleInspector({
   busy,
   receipt,
   actionError,
+  confirmDelete,
   onAction,
+  onEdit,
+  onDelete,
+  onConfirmDelete,
   onSelectEntity,
 }: {
   readonly row: ScheduleGuiRowDto;
   readonly busy: boolean;
   readonly receipt: ScheduleActionReceipt | null;
   readonly actionError: string | null;
+  readonly confirmDelete: boolean;
   readonly onAction: (kind: "enable" | "disable" | "runNow") => void;
+  readonly onEdit: () => void;
+  readonly onDelete: () => void;
+  readonly onConfirmDelete: (value: boolean) => void;
   readonly onSelectEntity: (ref: string) => void;
 }) {
   const stateMeta = STATE_META[row.state],
@@ -416,6 +517,44 @@ function ScheduleInspector({
             onAction={onAction}
             icon={<Play weight="bold" />}
           />
+          <Btn
+            size="sm"
+            testId="schedule-action-edit"
+            disabled={busy || !row.actions.edit.available}
+            tip={row.actions.edit.nextAction ?? row.actions.edit.code ?? undefined}
+            onClick={onEdit}
+          >
+            <PencilSimple weight="bold" />
+            {t("schedules.action.edit")}
+          </Btn>
+          {!confirmDelete ? (
+            <Btn
+              size="sm"
+              testId="schedule-action-delete"
+              disabled={busy || !row.actions.delete.available}
+              tip={row.actions.delete.nextAction ?? row.actions.delete.code ?? undefined}
+              onClick={() => onConfirmDelete(true)}
+            >
+              <Trash weight="bold" />
+              {t("schedules.action.delete")}
+            </Btn>
+          ) : (
+            <span className="flex flex-wrap items-center gap-2" data-testid="schedule-delete-confirmation">
+              <span className="text-[11px] text-status-blocked">{t("schedules.deletePrompt")}</span>
+              <Btn size="sm" disabled={busy} onClick={() => onConfirmDelete(false)}>
+                {t("schedules.action.cancelDelete")}
+              </Btn>
+              <Btn
+                size="sm"
+                variant="primary"
+                testId="schedule-action-confirm-delete"
+                disabled={busy}
+                onClick={onDelete}
+              >
+                {t("schedules.action.confirmDelete")}
+              </Btn>
+            </span>
+          )}
         </div>
         {actionError !== null && (
           <p

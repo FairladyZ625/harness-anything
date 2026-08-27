@@ -8,11 +8,13 @@ import { timestamp } from "./timestamp.ts";
 import {
   SCHEDULE_DEFINITION_V1_SCHEMA,
   scheduleDefinition,
+  scheduleDeletionEventTypes,
   scheduleDefinitionEventTypes,
   scheduleEventTypes,
   scheduleMissedReasons,
   validateScheduleDefinitionV1,
   validateScheduleV1,
+  type ScheduleDeletionEventType,
   type ScheduleDefinitionEventType,
   type ScheduleEventType,
   type ScheduleMissedReason,
@@ -53,6 +55,22 @@ export type ScheduleDefinitionEventV1 = EventEnvelope<
   { readonly schedule: ScheduleV1; readonly declarationDocumentClaim: EntityDeclarationClaim }
 > & { readonly entity: ScheduleEntityIdentity };
 
+export interface ScheduleDocumentRetirementV1 {
+  readonly path: string;
+  readonly baseBlobSha256: string;
+}
+
+export type ScheduleDeletedEventV1 = EventEnvelope<
+  "schedule-event/v1",
+  ScheduleDeletionEventType,
+  ActorIdentity,
+  {
+    readonly schedule: ScheduleV1;
+    readonly declarationDocumentRetirement: ScheduleDocumentRetirementV1;
+    readonly reason?: string;
+  }
+> & { readonly entity: ScheduleEntityIdentity };
+
 export type ScheduleRunEventV1 = EventEnvelope<
   "schedule-event/v1",
   ScheduleRunEventType,
@@ -60,7 +78,7 @@ export type ScheduleRunEventV1 = EventEnvelope<
   { readonly schedule: ScheduleV1; readonly missed?: ScheduleMissedEvidenceV1 }
 > & { readonly entity: ScheduleEntityIdentity };
 
-export type ScheduleEventV1 = ScheduleDefinitionEventV1 | ScheduleRunEventV1;
+export type ScheduleEventV1 = ScheduleDefinitionEventV1 | ScheduleDeletedEventV1 | ScheduleRunEventV1;
 
 export interface ScheduleDefinitionEventBundle {
   readonly event: ScheduleDefinitionEventV1;
@@ -73,6 +91,12 @@ export interface ScheduleDefinitionEventBundle {
 export interface ScheduleRunEventBundle {
   readonly event: ScheduleRunEventV1;
   readonly plan: FrozenWritePlan<ScheduleRunEventType>;
+  readonly blobs: readonly [];
+}
+
+export interface ScheduleDeletedEventBundle {
+  readonly event: ScheduleDeletedEventV1;
+  readonly plan: FrozenWritePlan<ScheduleDeletionEventType>;
   readonly blobs: readonly [];
 }
 
@@ -121,6 +145,37 @@ export function compileScheduleDefinitionEvent(
     plan: scheduleEventWritePlan(event),
     blobs: [{ sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body }],
   };
+}
+
+export function compileScheduleDeletedEvent(
+  input: ScheduleEventInput<ScheduleDeletionEventType> & {
+    readonly baseBlobSha256: string;
+    readonly reason?: string;
+  },
+): ScheduleDeletedEventBundle {
+  const retirement: ScheduleDocumentRetirementV1 = {
+      path: normalizeRelativeDocumentPath(`schedules/${input.schedule.scheduleId}.json`),
+      baseBlobSha256: input.baseBlobSha256,
+    },
+    event: ScheduleDeletedEventV1 = {
+      schema: "schedule-event/v1",
+      eventId: input.eventId,
+      workspaceRevision: input.workspaceRevision,
+      opId: input.opId,
+      entity: { kind: "schedule", id: input.schedule.scheduleId },
+      type: input.type,
+      actor: input.actor,
+      source: input.source,
+      occurredAt: input.occurredAt,
+      payload: {
+        schedule: input.schedule,
+        declarationDocumentRetirement: retirement,
+        ...(input.reason === undefined ? {} : { reason: input.reason.trim() }),
+      },
+    };
+  const errors = validateCurrentScheduleEvent(event);
+  if (errors.length) throw new Error(errors.join("; "));
+  return { event, plan: scheduleEventWritePlan(event), blobs: [] };
 }
 
 export function compileScheduleRunEvent(
@@ -178,8 +233,13 @@ function validateScheduleEventFields(value: unknown, allowUnknownFields: boolean
     return ["schedule event envelope or entity identity is invalid"];
   const payload = value.payload,
     definitionEvent = scheduleDefinitionEventTypes.includes(value.type as ScheduleDefinitionEventType),
-    payloadFields = definitionEvent ? ["schedule", "declarationDocumentClaim"] : ["schedule"],
-    optionalPayloadFields = value.type === "schedule_occurrences_missed" ? ["missed"] : [];
+    deletionEvent = scheduleDeletionEventTypes.includes(value.type as ScheduleDeletionEventType),
+    payloadFields = definitionEvent
+      ? ["schedule", "declarationDocumentClaim"]
+      : deletionEvent
+        ? ["schedule", "declarationDocumentRetirement"]
+        : ["schedule"],
+    optionalPayloadFields = value.type === "schedule_occurrences_missed" ? ["missed"] : deletionEvent ? ["reason"] : [];
   if (
     !payloadFields.every((field) => Object.hasOwn(payload, field)) ||
     (!allowUnknownFields &&
@@ -197,6 +257,8 @@ function validateScheduleEventFields(value: unknown, allowUnknownFields: boolean
       (value.type === "schedule_disabled" && payload.schedule.state !== "paused")
     )
       return ["schedule definition event state is invalid"];
+  } else if (deletionEvent) {
+    if (!validDeletion(payload, value.entity.id, allowUnknownFields)) return ["schedule deletion evidence is invalid"];
   } else if (!validRunEventState(value.type as ScheduleRunEventType, payload, allowUnknownFields)) {
     return ["schedule run evidence is invalid"];
   }
@@ -217,6 +279,7 @@ export function serializeScheduleEvent(event: ScheduleEventV1): string {
 
 export function scheduleEventWritePlan<T extends ScheduleEventV1>(event: T): FrozenWritePlan<T["type"]> {
   const claim = isDefinitionEvent(event) ? event.payload.declarationDocumentClaim : null,
+    retirement = isDeletionEvent(event) ? event.payload.declarationDocumentRetirement : null,
     targets: WriteTarget[] = [
       { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
       { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
@@ -239,6 +302,17 @@ export function scheduleEventWritePlan<T extends ScheduleEventV1>(event: T): Fro
             },
             { kind: "projection_invalidation" as const, projection: "document/v1", key: claim.path },
           ]),
+      ...(retirement === null
+        ? []
+        : [
+            {
+              kind: "authored_file_delete" as const,
+              path: retirement.path,
+              operation: "delete" as const,
+              baseSha256: retirement.baseBlobSha256,
+            },
+            { kind: "projection_invalidation" as const, projection: "document/v1", key: retirement.path },
+          ]),
       {
         kind: "projection_invalidation",
         projection: "entity/v1",
@@ -260,7 +334,7 @@ export function assertScheduleEventInputs(
 ): void {
   assertScheduleEventWritePlan(event, plan);
   if (!isDefinitionEvent(event)) {
-    if (blobs.length !== 0) throw new Error("schedule run event cannot carry definition content");
+    if (blobs.length !== 0) throw new Error("schedule deletion or run event cannot carry definition content");
     return;
   }
   const claim = event.payload.declarationDocumentClaim,
@@ -291,6 +365,10 @@ function isDefinitionEvent(event: ScheduleEventV1): event is ScheduleDefinitionE
   return scheduleDefinitionEventTypes.includes(event.type as ScheduleDefinitionEventType);
 }
 
+function isDeletionEvent(event: ScheduleEventV1): event is ScheduleDeletedEventV1 {
+  return scheduleDeletionEventTypes.includes(event.type as ScheduleDeletionEventType);
+}
+
 function validDefinitionClaim(value: unknown, scheduleId: string, allowUnknownFields: boolean): boolean {
   return (
     isRecord(value) &&
@@ -301,6 +379,21 @@ function validDefinitionClaim(value: unknown, scheduleId: string, allowUnknownFi
     Number(value.size) >= 0 &&
     value.mediaType === "application/json" &&
     value.policyId === ENTITY_DOCUMENT_POLICY_ID
+  );
+}
+
+function validDeletion(
+  payload: Readonly<Record<string, unknown>>,
+  scheduleId: string,
+  allowUnknownFields: boolean,
+): boolean {
+  const retirement = payload.declarationDocumentRetirement;
+  return (
+    isRecord(retirement) &&
+    hasContractFields(retirement, ["path", "baseBlobSha256"], allowUnknownFields) &&
+    retirement.path === `schedules/${scheduleId}.json` &&
+    /^[0-9a-f]{64}$/u.test(String(retirement.baseBlobSha256)) &&
+    (payload.reason === undefined || isNonEmptyString(payload.reason))
   );
 }
 

@@ -159,10 +159,16 @@ export {
   nextScheduleOccurrence,
   scheduleMissedReasons,
   scheduleRunOutcomes,
+  updateScheduleV1,
   validateScheduleV1,
 } from "./schedule.ts";
 export type { ScheduleMissedReason, ScheduleRunOutcome, ScheduleV1 } from "./schedule.ts";
-export { compileScheduleDefinitionEvent, compileScheduleRunEvent, isScheduleEvent } from "./schedule-event.ts";
+export {
+  compileScheduleDefinitionEvent,
+  compileScheduleDeletedEvent,
+  compileScheduleRunEvent,
+  isScheduleEvent,
+} from "./schedule-event.ts";
 
 export { INITIAL_SETTINGS_V1, readSettingsFacet, validateSettingsV1, writeSettingsFacet } from "./settings.ts";
 export type { SettingsV1 } from "./settings.ts";

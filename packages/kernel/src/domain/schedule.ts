@@ -8,7 +8,13 @@ import { hasContractFields, isNonEmptyString, isRecord } from "./write-chain.con
 export const scheduleStates = ["armed", "paused"] as const;
 export const scheduleMissedReasons = ["scheduler_unavailable", "single_flight"] as const;
 export const scheduleRunOutcomes = ["succeeded", "failed", "unknown", "cancelled"] as const;
-export const scheduleDefinitionEventTypes = ["schedule_created", "schedule_enabled", "schedule_disabled"] as const;
+export const scheduleDefinitionEventTypes = [
+  "schedule_created",
+  "schedule_updated",
+  "schedule_enabled",
+  "schedule_disabled",
+] as const;
+export const scheduleDeletionEventTypes = ["schedule_deleted"] as const;
 export const scheduleRunEventTypes = [
   "schedule_occurrence_claimed",
   "schedule_occurrence_dispatched",
@@ -16,11 +22,16 @@ export const scheduleRunEventTypes = [
   "schedule_dispatch_failed",
   "schedule_run_settled",
 ] as const;
-export const scheduleEventTypes = [...scheduleDefinitionEventTypes, ...scheduleRunEventTypes] as const;
+export const scheduleEventTypes = [
+  ...scheduleDefinitionEventTypes,
+  ...scheduleDeletionEventTypes,
+  ...scheduleRunEventTypes,
+] as const;
 export type ScheduleState = (typeof scheduleStates)[number];
 export type ScheduleMissedReason = (typeof scheduleMissedReasons)[number];
 export type ScheduleRunOutcome = (typeof scheduleRunOutcomes)[number];
 export type ScheduleDefinitionEventType = (typeof scheduleDefinitionEventTypes)[number];
+export type ScheduleDeletionEventType = (typeof scheduleDeletionEventTypes)[number];
 export type ScheduleRunEventType = (typeof scheduleRunEventTypes)[number];
 export type ScheduleEventType = (typeof scheduleEventTypes)[number];
 
@@ -200,6 +211,23 @@ export function createScheduleV1(input: {
       lastMissedAt: null,
       lastMissedReason: null,
     },
+  };
+  const errors = validateScheduleV1(schedule);
+  if (errors.length) throw new Error(errors.join("; "));
+  return schedule;
+}
+
+export function updateScheduleV1(input: {
+  readonly schedule: ScheduleV1;
+  readonly name: string;
+  readonly spec: ScheduleDefinitionV1["spec"];
+  readonly occurredAt: string;
+}): ScheduleV1 {
+  const schedule: ScheduleV1 = {
+    ...input.schedule,
+    name: input.name.trim(),
+    spec: { ...input.spec, mission: input.spec.mission.trim() },
+    updatedAt: input.occurredAt,
   };
   const errors = validateScheduleV1(schedule);
   if (errors.length) throw new Error(errors.join("; "));

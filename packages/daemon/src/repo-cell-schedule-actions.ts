@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  compileScheduleDeletedEvent,
   compileScheduleDefinitionEvent,
   compileScheduleRunEvent,
   createScheduleV1,
@@ -8,12 +9,22 @@ import {
   scheduleMissedReasons,
   scheduleRunOutcomes,
   timestamp,
+  updateScheduleV1,
   validateScheduleV1,
   type ScheduleMissedReason,
   type ScheduleRunOutcome,
   type ScheduleV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
+import {
+  scheduleDeleteJsonAllowedFields,
+  scheduleDeleteJsonFields,
+  scheduleShowJsonAllowedFields,
+  scheduleShowJsonFields,
+  scheduleUpdateJsonAllowedFields,
+  scheduleUpdateJsonFields,
+} from "./protocol/daemon-protocol-commands-runtime-fleet.ts";
+import { workspaceText } from "./repo-cell-packets.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TrustedScheduleSpawn } from "./runtime-spawn.ts";
 
@@ -33,6 +44,45 @@ type ScheduleSpawnReceipt = {
   readonly dispatchId?: string;
   readonly runtimeSessionId?: string;
 };
+
+const schedulePacketContracts: Readonly<
+  Record<string, { readonly required: readonly string[]; readonly allowed: readonly string[] }>
+> = Object.freeze({
+  "schedule-show": { required: scheduleShowJsonFields, allowed: scheduleShowJsonAllowedFields },
+  "schedule-update": { required: scheduleUpdateJsonFields, allowed: scheduleUpdateJsonAllowedFields },
+  "schedule-delete": { required: scheduleDeleteJsonFields, allowed: scheduleDeleteJsonAllowedFields },
+});
+
+function resolveScheduleAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {
+  const contract = schedulePacketContracts[action.kind];
+  if (!contract) return action;
+  const fromFile = typeof action.fromFile === "string",
+    actionAllowed = new Set(["kind", ...(fromFile ? ["fromFile"] : contract.allowed)]),
+    unsupportedActionFields = Object.keys(action).filter((field) => !actionAllowed.has(field));
+  if (unsupportedActionFields.length)
+    throw invalidSchedulePacket(`Remove unsupported Schedule action fields: ${unsupportedActionFields.join(", ")}`);
+  if (!fromFile) return action;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(workspaceText(rootDir, action.fromFile, "fromFile"));
+  } catch (error) {
+    if (error instanceof SyntaxError)
+      throw invalidSchedulePacket("Schedule input must be one UTF-8 JSON object; repair the JSON and retry");
+    throw error;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw invalidSchedulePacket("Schedule input must be one JSON object");
+  const packet = parsed as Record<string, unknown>,
+    unknown = Object.keys(packet).filter((field) => !contract.allowed.includes(field)),
+    missing = contract.required.filter((field) => !Object.hasOwn(packet, field));
+  if (unknown.length) throw invalidSchedulePacket(`Remove unsupported Schedule input fields: ${unknown.join(", ")}`);
+  if (missing.length) throw invalidSchedulePacket(`Add required Schedule input fields: ${missing.join(", ")}`);
+  return { kind: action.kind, ...packet };
+}
+
+function invalidSchedulePacket(message: string): Error {
+  return Object.assign(new Error(message), { code: "invalid_command" });
+}
 
 export async function dispatchClaimedSchedule<TReceipt>(input: {
   readonly schedule: ScheduleV1;
@@ -118,6 +168,8 @@ export function makeRepoCellScheduleActions(cell: any) {
     schedule: ScheduleV1,
     type:
       | "schedule_created"
+      | "schedule_updated"
+      | "schedule_deleted"
       | "schedule_enabled"
       | "schedule_disabled"
       | "schedule_occurrence_claimed"
@@ -133,6 +185,8 @@ export function makeRepoCellScheduleActions(cell: any) {
         readonly count: number;
         readonly reason: ScheduleMissedReason;
       };
+      readonly deletionReason?: string;
+      readonly deletionBaseBlobSha256?: string;
     },
   ): WriteReceipt => {
     const stableRevision = typeof action.idempotencyKey === "string" ? 0 : options.expectedRevision,
@@ -150,13 +204,23 @@ export function makeRepoCellScheduleActions(cell: any) {
         occurredAt: cell.now(),
       },
       compiled =
-        type === "schedule_created" || type === "schedule_enabled" || type === "schedule_disabled"
-          ? compileScheduleDefinitionEvent({ ...common, type })
-          : compileScheduleRunEvent({
+        type === "schedule_deleted"
+          ? compileScheduleDeletedEvent({
               ...common,
               type,
-              ...(options.missed ? { missed: options.missed } : {}),
-            }),
+              baseBlobSha256: requiredDeletionBase(options.deletionBaseBlobSha256),
+              ...(options.deletionReason ? { reason: options.deletionReason } : {}),
+            })
+          : type === "schedule_created" ||
+              type === "schedule_updated" ||
+              type === "schedule_enabled" ||
+              type === "schedule_disabled"
+            ? compileScheduleDefinitionEvent({ ...common, type })
+            : compileScheduleRunEvent({
+                ...common,
+                type,
+                ...(options.missed ? { missed: options.missed } : {}),
+              }),
       appended = cell.store.append(compiled),
       publication = cell.publicPublication(appended);
     cell.projection.apply(compiled.event, compiled.plan);
@@ -176,7 +240,15 @@ export function makeRepoCellScheduleActions(cell: any) {
           appliedCut: applied?.watermark ?? 0,
           durable: true,
           canonicalVisible,
-          worktreeVisible: ["schedule_created", "schedule_enabled", "schedule_disabled"].includes(type) ? true : null,
+          worktreeVisible: [
+            "schedule_created",
+            "schedule_updated",
+            "schedule_deleted",
+            "schedule_enabled",
+            "schedule_disabled",
+          ].includes(type)
+            ? true
+            : null,
         },
         ...publication,
         schedule,
@@ -422,7 +494,8 @@ export function makeRepoCellScheduleActions(cell: any) {
   };
 
   return {
-    run: async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
+    run: async (rawAction: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
+      const action = resolveScheduleAction(cell.rootDir, rawAction);
       if (action.kind === "schedule-list") {
         const revision = cell.store.readHead()?.revision ?? 0,
           assignmentScheduleId =
@@ -462,6 +535,20 @@ export function makeRepoCellScheduleActions(cell: any) {
           typeof action.idempotencyKey === "string" && action.idempotencyKey.trim()
             ? action.idempotencyKey
             : `${action.kind}:${scheduleId}:${cell.store.readHead()?.revision ?? 0}`;
+      if (action.kind === "schedule-show") {
+        const { schedule, revision } = read(scheduleId);
+        return {
+          outcome: "applied",
+          opId: cell.operationId(action, binding, cell.input.repoId, revision),
+          revision,
+          evidence: `schedule:${scheduleId}:${revision}`,
+          schedule,
+          scheduleId,
+          definitionRevision: revision,
+          nextRunAt: schedule.state === "armed" ? nextScheduleOccurrence(schedule.spec.trigger, cell.now()) : null,
+          summary: `Schedule ${scheduleId}`,
+        } as WriteReceipt;
+      }
       if (action.kind === "schedule-create") {
         const createAction = { ...action, idempotencyKey },
           replayed = replay(createAction, binding);
@@ -489,6 +576,91 @@ export function makeRepoCellScheduleActions(cell: any) {
             occurredAt,
           });
         return publish(createAction, binding, schedule, "schedule_created", { expectedRevision: 0 });
+      }
+      if (action.kind === "schedule-update") {
+        const updateAction = { ...action, idempotencyKey },
+          replayed = replay(updateAction, binding);
+        if (replayed) return replayed;
+        const fields = [
+          "name",
+          "everyMs",
+          "agentId",
+          "runtimeInstanceId",
+          "mission",
+          "model",
+          "reasoningEffort",
+          "cwd",
+        ];
+        if (!fields.some((field) => Object.hasOwn(action, field)))
+          throw cell.cellCodedError("invalid_command", "Schedule update requires at least one definition field.");
+        const { schedule, revision } = read(scheduleId),
+          occurredAt = cell.now(),
+          everyMs = Object.hasOwn(action, "everyMs") ? Number(action.everyMs) : schedule.spec.trigger.everyMs,
+          optionalTarget = (field: "model" | "reasoningEffort" | "cwd"): string | undefined =>
+            Object.hasOwn(action, field)
+              ? action[field] === null
+                ? undefined
+                : cell.requiredCellText(action[field], field)
+              : schedule.spec.target[field],
+          spec = {
+            trigger: {
+              kind: "interval" as const,
+              everyMs,
+              anchorAt: everyMs === schedule.spec.trigger.everyMs ? schedule.spec.trigger.anchorAt : occurredAt,
+            },
+            target: {
+              kind: "agent" as const,
+              agentId: Object.hasOwn(action, "agentId")
+                ? cell.requiredCellText(action.agentId, "agentId")
+                : schedule.spec.target.agentId,
+              runtimeInstanceId: Object.hasOwn(action, "runtimeInstanceId")
+                ? cell.requiredCellText(action.runtimeInstanceId, "runtimeInstanceId")
+                : schedule.spec.target.runtimeInstanceId,
+              ...(optionalTarget("model") ? { model: optionalTarget("model") } : {}),
+              ...(optionalTarget("reasoningEffort") ? { reasoningEffort: optionalTarget("reasoningEffort") } : {}),
+              ...(optionalTarget("cwd") ? { cwd: optionalTarget("cwd") } : {}),
+            },
+            mission: Object.hasOwn(action, "mission")
+              ? cell.requiredCellText(action.mission, "mission")
+              : schedule.spec.mission,
+          },
+          name = Object.hasOwn(action, "name") ? cell.requiredCellText(action.name, "name") : schedule.name;
+        if (JSON.stringify({ name, spec }) === JSON.stringify({ name: schedule.name, spec: schedule.spec }))
+          return {
+            outcome: "no_changes",
+            opId: cell.operationId(updateAction, binding, cell.input.repoId, 0),
+            revision,
+            evidence: `schedule:${scheduleId}:unchanged`,
+            schedule,
+            scheduleId,
+          } as WriteReceipt;
+        return publish(
+          updateAction,
+          binding,
+          updateScheduleV1({ schedule, name, spec, occurredAt }),
+          "schedule_updated",
+          { expectedRevision: revision },
+        );
+      }
+      if (action.kind === "schedule-delete") {
+        const deleteAction = { ...action, idempotencyKey },
+          replayed = replay(deleteAction, binding);
+        if (replayed) return replayed;
+        const { schedule, revision } = read(scheduleId);
+        if (schedule.status.activeRun)
+          throw cell.cellCodedError(
+            "schedule_single_flight_active",
+            `Schedule ${scheduleId} has an active occurrence; settle it before deletion.`,
+          );
+        const reason = action.reason === undefined ? undefined : cell.requiredCellText(action.reason, "reason"),
+          document = cell.projection.readDocument(`schedules/${scheduleId}.json`).document;
+        if (document === null)
+          throw cell.cellCodedError("invalid_store", `Schedule ${scheduleId} has no projected declaration document.`);
+        return publish(deleteAction, binding, schedule, "schedule_deleted", {
+          expectedRevision: revision,
+          deletionBaseBlobSha256: document.blobSha256,
+          ...(reason ? { deletionReason: reason } : {}),
+        });
       }
       if (action.kind === "schedule-enable" || action.kind === "schedule-disable") {
         const stateAction = { ...action, idempotencyKey },
@@ -586,4 +758,9 @@ export function makeRepoCellScheduleActions(cell: any) {
     recordMissed,
     settle,
   };
+}
+
+function requiredDeletionBase(value: string | undefined): string {
+  if (typeof value === "string" && /^[0-9a-f]{64}$/u.test(value)) return value;
+  throw new Error("Schedule deletion requires the current declaration document hash.");
 }

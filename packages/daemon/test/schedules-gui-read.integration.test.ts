@@ -187,6 +187,14 @@ test(
         assert.equal(initial.repoMode, "local");
         assert.equal(initial.viewerNodeId, "local");
         assert.equal(initial.schedules.length, 1);
+        assert.deepEqual(initial.actions.create, { available: true, code: null, nextAction: null });
+        assert.deepEqual(initial.options.agents, [
+          { agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" },
+        ]);
+        assert.equal(initial.options.instances[0]?.instanceId, definition.instanceId);
+        assert.deepEqual(initial.options.instances[0]?.models, [definition.model]);
+        assert.deepEqual(initial.options.instances[0]?.efforts, ["minimal", "low", "medium", "high", "xhigh"]);
+        assert.equal(initial.options.cwd[0], ".");
         const created = initial.schedules[0] as ScheduleGuiRowDto;
         assert.equal(created.state, "armed");
         assert.equal(created.definitionResidency, "ledger");
@@ -261,6 +269,46 @@ test(
         assert.equal(paused.actions.runNow.available, false);
         assert.equal(paused.actions.runNow.code, "schedule_paused");
         assert.equal(paused.actions.enable.available, true);
+        assert.equal(
+          (
+            await cell.run(
+              {
+                kind: "schedule-update",
+                scheduleId: "heartbeat-probe",
+                name: "Edited heartbeat",
+                everyMs: 600_000,
+                agentId: "probe-agent",
+                runtimeInstanceId: definition.instanceId,
+                mission: "Inspect the edited schedule.",
+                model: definition.model,
+                reasoningEffort: "high",
+                cwd: null,
+                idempotencyKey: "gui-update-1",
+              },
+              actor,
+            )
+          ).outcome,
+          "applied",
+        );
+        const edited = (await list()).schedules[0] as ScheduleGuiRowDto;
+        assert.equal(edited.name, "Edited heartbeat");
+        assert.equal(edited.trigger.everyMs, 600_000);
+        assert.equal(edited.mission, "Inspect the edited schedule.");
+        assert.equal(
+          (
+            await cell.run(
+              {
+                kind: "schedule-delete",
+                scheduleId: "heartbeat-probe",
+                reason: "GUI integration retirement",
+                idempotencyKey: "gui-delete-1",
+              },
+              actor,
+            )
+          ).outcome,
+          "applied",
+        );
+        assert.equal((await list()).schedules.length, 0);
       } finally {
         await cell.close();
       }
