@@ -35,6 +35,7 @@ import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./re
 import { operationId } from "./repo-cell-proof.ts";
 import { makeRepoCellScheduleActions } from "./repo-cell-schedule-actions.ts";
 import { makeRepoCellSettingsActions } from "./repo-cell-settings-actions.ts";
+import { makeRepoCellPeopleActions } from "./repo-cell-people-actions.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   PublicPublication,
@@ -434,7 +435,8 @@ export async function openRepoCell(input: {
   });
   const scheduleActions = makeRepoCellScheduleActions(extracted);
   const settingsActions = makeRepoCellSettingsActions(extracted);
-  Object.assign(extracted, { mode, runtimeSpawner, scheduleActions, settingsActions });
+  const peopleActions = makeRepoCellPeopleActions(extracted);
+  Object.assign(extracted, { mode, runtimeSpawner, scheduleActions, settingsActions, peopleActions });
   readSettings = settingsActions.read;
   settleScheduledOutcome = async (terminal) => {
     const scheduled = terminal.schedule,
@@ -574,6 +576,7 @@ export async function openRepoCell(input: {
     runtimeSpawner,
     scheduleActions,
     settingsActions,
+    peopleActions,
     appendRuntimeIngress: extracted.appendRuntimeIngress,
     get bootstrapReceipt() {
       return bootstrapReceipt;

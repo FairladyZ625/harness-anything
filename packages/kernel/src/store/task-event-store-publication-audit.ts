@@ -8,6 +8,8 @@ import {
 } from "../domain/doc-sync.contract.ts";
 import { isLedgerLayoutMigrationEvent } from "../domain/ledger-layout-migration-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
+import { isPeopleEvent } from "../domain/people-event.ts";
+import { parsePeopleRosterDocument, serializePeopleRosterDocument } from "../domain/people-roster.ts";
 import { writeSettingsFacet } from "../domain/settings.ts";
 import { serializeEventHead, type EventHead } from "../domain/write-chain.contract.ts";
 import { ledgerGitPath, type LedgerGitLayout } from "./ledger-git-layout.ts";
@@ -176,6 +178,21 @@ export function assertAuthorizedReplacement(
         "invalid_write_plan",
         "Settings may change only their owned harness.yaml facet fields",
       );
+    return;
+  }
+  if (isPeopleEvent(event)) {
+    const target = ledgerGitPath(ledger, event.payload.peopleDocumentClaim.path),
+      committed = showText(ledger.rootDir, parent, target),
+      committedSha = committed === null ? null : createHash("sha256").update(committed).digest("hex");
+    if (committedSha !== event.payload.baseDocumentSha256)
+      throw new TaskEventStoreError("revision_conflict", "people.yaml changed before the People write committed");
+    if (candidateBody === undefined)
+      throw new TaskEventStoreError("invalid_write_plan", "People replacement authorization requires candidate bytes");
+    if (
+      candidateBody !== serializePeopleRosterDocument(event.payload.roster) ||
+      serializePeopleRosterDocument(parsePeopleRosterDocument(candidateBody)) !== candidateBody
+    )
+      throw new TaskEventStoreError("invalid_write_plan", "People may replace only the canonical people roster");
     return;
   }
   if (isDocEvent(event)) {

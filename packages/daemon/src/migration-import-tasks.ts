@@ -249,10 +249,45 @@ export function addRepoDocuments(context: any): void {
         (source.symlink
           ? context.symlinkTarget(context.sourceLayout.authoredRoot, source.path)!
           : context.utf8File(context.sourceLayout.authoredRoot, source.path)!),
-      references = source.symlink ? { blobs: [] } : context.referencedContent(context.sourceLayout.authoredRoot, body);
+      occurredAt = lstatSync(path.join(context.sourceLayout.authoredRoot, source.path)).mtime.toISOString();
+    if (classification.surface === context.PEOPLE_REGISTRY_SURFACE) {
+      const currentBody = context.readFileSync(
+          path.join(context.destinationLayout.authoredRoot, context.PEOPLE_ROSTER_PATH),
+          "utf8",
+        ),
+        migrationAction =
+          classification.resolution === "source"
+            ? { kind: "people-replace" as const, sourceBody: body }
+            : {
+                kind: "people-reconcile" as const,
+                sourceBody: context.utf8File(context.sourceLayout.authoredRoot, source.path)!,
+              },
+        opId = context.migrationOperationId(context.sourceKey, "people", source.path);
+      context.packageDrafts.push({
+        migratedFrom: source.path,
+        occurredAt,
+        build: (workspaceRevision: number) => {
+          const compiled = context.compilePeopleRosterActionEvent({
+            currentBody,
+            action: migrationAction,
+            eventId: `event-${sha256Text(opId)}`,
+            opId,
+            workspaceRevision,
+            actor: context.actorFor(`person/${source.path}`),
+            source: context.MIGRATION_IMPORT_SOURCE,
+            occurredAt,
+          });
+          if (compiled.bundle === null) throw new Error("people migration classification produced no change");
+          return compiled.bundle;
+        },
+      });
+      continue;
+    }
+    const references = source.symlink
+      ? { blobs: [] }
+      : context.referencedContent(context.sourceLayout.authoredRoot, body);
     if ("error" in references) continue;
-    const occurredAt = lstatSync(path.join(context.sourceLayout.authoredRoot, source.path)).mtime.toISOString(),
-      type = source.symlink ? "application/vnd.harness.symbolic-link" : context.mediaType(source.path),
+    const type = source.symlink ? "application/vnd.harness.symbolic-link" : context.mediaType(source.path),
       documentHash = sha256Text(body),
       referenced = references.blobs.filter(({ sha256 }: { readonly sha256: string }) => sha256 !== documentHash);
     context.packageDrafts.push({

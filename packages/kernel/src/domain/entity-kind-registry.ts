@@ -23,6 +23,7 @@ import { canonicalRelationDirections } from "./relation-direction.ts";
 import { reviewVerdicts } from "./review.ts";
 import { SCHEDULE_V1_SCHEMA, scheduleEventTypes, scheduleRunOutcomes, scheduleStates } from "./schedule.ts";
 import { SETTINGS_V1_SCHEMA } from "./settings.ts";
+import { PERSON_V1_SCHEMA } from "./people-roster.ts";
 import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
 import {
   dispositionMatrix,
@@ -99,7 +100,8 @@ export interface EntityKindContract<T = unknown> {
       | "decision-event"
       | "agent-runtime-event"
       | "schedule-event"
-      | "settings-event";
+      | "settings-event"
+      | "people-event";
     readonly contractRef: string;
   } | null;
   readonly sdkExposure: EntitySdkExposure;
@@ -212,6 +214,7 @@ const reviewIdentity = deriveEntityKindIdentity("review");
 const runtimeSessionIdentity = deriveEntityKindIdentity("runtime-session");
 const scheduleIdentity = deriveEntityKindIdentity("schedule");
 const settingsIdentity = deriveEntityKindIdentity("settings");
+const personIdentity = deriveEntityKindIdentity("person");
 const executionIdPattern = executionIdentity.pattern;
 const reviewIdPattern = reviewIdentity.pattern;
 const lifecycleTaskIdPattern = taskIdentity.pattern;
@@ -685,6 +688,18 @@ export const entityKindContracts = Object.freeze([
     authoring: { kind: "settings-event", contractRef: "settings-event/v1" },
     sdkExposure: noSdkExposure,
   },
+  {
+    kind: "person",
+    residency: authoredResidency,
+    schema: PERSON_V1_SCHEMA,
+    id: personIdentity,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    actionCatalog: actionCatalog("kernel/people-event/v1", "person", personIdentity, ["add", "set-role", "remove"]),
+    entityStore: null,
+    authoring: { kind: "people-event", contractRef: "people-event/v1" },
+    sdkExposure: noSdkExposure,
+  },
 ] as const satisfies readonly EntityKindContract[]);
 
 const entityKindContractByKind = new Map<string, EntityKindContract>(
@@ -748,14 +763,16 @@ export function entityDocumentPath(contract: EntityStoreKindContract, id: string
 export function createEntityKindRegistry(vertical: VerticalDefinition): EntityKindRegistry {
   const packageScaffolds = new Map(vertical.packageScaffolds.map((scaffold) => [scaffold.entityKind, scaffold]));
   const repositoryRoots = new Map(vertical.repositoryScaffold.entityRoots.map((root) => [root.entityKind, root]));
-  const entries = vertical.entityKinds.map((entity): EntityKindRegistration => ({
-    id: entity.id,
-    entityType: entity.entityType,
-    contractEntity: entity.contractEntity,
-    ...(entity.entityType === "lifecycle" ? { packageKind: entity.packageKind } : { schemaRef: entity.schemaRef }),
-    ...(packageScaffolds.get(entity.id) ? { packageScaffold: packageScaffolds.get(entity.id) } : {}),
-    ...(repositoryRoots.get(entity.id) ? { repositoryRoot: repositoryRoots.get(entity.id) } : {}),
-  }));
+  const entries = vertical.entityKinds.map(
+    (entity): EntityKindRegistration => ({
+      id: entity.id,
+      entityType: entity.entityType,
+      contractEntity: entity.contractEntity,
+      ...(entity.entityType === "lifecycle" ? { packageKind: entity.packageKind } : { schemaRef: entity.schemaRef }),
+      ...(packageScaffolds.get(entity.id) ? { packageScaffold: packageScaffolds.get(entity.id) } : {}),
+      ...(repositoryRoots.get(entity.id) ? { repositoryRoot: repositoryRoots.get(entity.id) } : {}),
+    }),
+  );
   return {
     ids: entries.map((entry) => entry.id),
     entries,

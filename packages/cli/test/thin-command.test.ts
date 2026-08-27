@@ -8,7 +8,7 @@ import { emit, main, resolveCliVersion } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 124);
+  assert.equal(thinCliCommands.length, 127);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))]
     .filter((value): value is string => value !== undefined)
     .sort())
@@ -138,6 +138,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     schedule: ["schedule-create", "schedule-disable", "schedule-enable", "schedule-list", "schedule-run-now"],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
     settings: ["settings-read", "settings-update"],
+    people: ["people-add", "people-remove", "people-set-role"],
     squad: ["squad-inspect", "squad-install", "squad-list", "squad-run", "squad-status", "squad-validate"],
     task: [
       "task-amend",

@@ -1,27 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventStore,
-  makeTaskProjection,
-  sha256Text,
-  stableStringify,
-} from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection, sha256Text, stableStringify } from "../../kernel/src/index.ts";
 import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
 import {
@@ -60,43 +46,27 @@ test("a destination roster and a source roster both survive the migration withou
       String(result.summary),
       /\| people-registry \| migrated \| 1 \| PASS \| unioned both rosters into the destination: 2 people \(1 carried from the source: person_dingwen, 1 enriched in place: person_zeyu\), 1 roles \(0 carried from the source\) \|/u,
     );
-    const roster = peopleRosterFromDocument(
-      readFileSync(path.join(destination, "harness/people.yaml"), "utf8"),
-    );
+    const roster = peopleRosterFromDocument(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"));
     assert.deepEqual(
       roster.people.map(({ personId }) => personId),
       ["person_zeyu", "person_dingwen"],
     );
     assert.equal(roster.people[0]!.primaryEmail, "lizeyu990625@gmail.com");
-    assert.deepEqual(
-      [...roster.people[0]!.credentials],
-      [...bootstrapPerson.credentials],
-    );
+    assert.deepEqual([...roster.people[0]!.credentials], [...bootstrapPerson.credentials]);
     await cell.close();
     cell = undefined;
-    assert.equal(
-      git(destination, "status", "--porcelain", "--", "harness"),
-      "",
-    );
+    assert.equal(git(destination, "status", "--porcelain", "--", "harness"), "");
     const event = makeTaskEventStore({
       repoId: "migration-people-union",
       rootDir: destination,
     })
       .read()
-      .events.find(
-        (candidate) =>
-          candidate.schema === "migration-import-event/v1" &&
-          candidate.payload.migratedFrom === "people.yaml",
-      )!;
-    assert.deepEqual(
-      (event.payload.entity as { readonly destinationPreimage?: unknown })
-        .destinationPreimage,
-      {
-        nodeKind: "file",
-        sha256: sha256Text(bootstrapRoster()),
-        size: Buffer.byteLength(bootstrapRoster()),
-      },
-    );
+      .events.find((candidate) => candidate.schema === "people-event/v1")!;
+    assert.equal(event.schema, "people-event/v1");
+    if (event.schema === "people-event/v1") {
+      assert.equal(event.payload.action, "people-reconcile");
+      assert.equal(event.payload.baseDocumentSha256, sha256Text(bootstrapRoster()));
+    }
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
@@ -104,18 +74,13 @@ test("a destination roster and a source roster both survive the migration withou
 });
 
 test("a roster the destination already covers is reported as covered rather than rewritten", async () => {
-  const scratch = mkdtempSync(
-      path.join(tmpdir(), "ha-migrate-people-covered-"),
-    ),
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-covered-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     unfamiliarDocumentFixture(source);
-    writeFileSync(
-      path.join(source, "harness/people.yaml"),
-      legacyRoster.replace(/^ +primaryEmail:.*\n/mu, ""),
-    );
+    writeFileSync(path.join(source, "harness/people.yaml"), legacyRoster.replace(/^ +primaryEmail:.*\n/mu, ""));
     initRepo(
       destination,
       bootstrapRoster([
@@ -134,10 +99,7 @@ test("a roster the destination already covers is reported as covered rather than
         },
       ]),
     );
-    const before = readFileSync(
-      path.join(destination, "harness/people.yaml"),
-      "utf8",
-    );
+    const before = readFileSync(path.join(destination, "harness/people.yaml"), "utf8");
     cell = await openRepoCell({
       repoId: workspaceId("migration-people-covered"),
       rootDir: canonicalRoot(destination),
@@ -153,21 +115,14 @@ test("a roster the destination already covers is reported as covered rather than
       String(result.summary),
       /\| people-registry \| excluded \| 1 \| PASS \| the destination roster already contains every source entry/u,
     );
-    assert.equal(
-      readFileSync(path.join(destination, "harness/people.yaml"), "utf8"),
-      before,
-    );
+    assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), before);
     assert.equal(
       makeTaskEventStore({
         repoId: "migration-people-covered",
         rootDir: destination,
       })
         .read()
-        .events.some(
-          (event) =>
-            event.schema === "migration-import-event/v1" &&
-            event.payload.migratedFrom === "people.yaml",
-        ),
+        .events.some((event) => event.schema === "people-event/v1"),
       false,
     );
   } finally {
@@ -177,9 +132,7 @@ test("a roster the destination already covers is reported as covered rather than
 });
 
 test("rosters that genuinely contradict still stop, name the contradiction, and keep the explicit resolution", async () => {
-  const scratch = mkdtempSync(
-      path.join(tmpdir(), "ha-migrate-people-contradiction-"),
-    ),
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-contradiction-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -187,10 +140,7 @@ test("rosters that genuinely contradict still stop, name the contradiction, and 
     unfamiliarDocumentFixture(source);
     writeFileSync(
       path.join(source, "harness/people.yaml"),
-      legacyRoster.replace(
-        'displayName: "Zeyu Li"\n    primaryEmail',
-        'displayName: "Li Zeyu"\n    primaryEmail',
-      ),
+      legacyRoster.replace('displayName: "Zeyu Li"\n    primaryEmail', 'displayName: "Li Zeyu"\n    primaryEmail'),
     );
     initRepo(destination);
     cell = await openRepoCell({
@@ -218,10 +168,7 @@ test("rosters that genuinely contradict still stop, name the contradiction, and 
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(resolved.exitCode, 0, JSON.stringify(resolved));
-    assert.equal(
-      readFileSync(path.join(destination, "harness/people.yaml"), "utf8"),
-      bootstrapRoster(),
-    );
+    assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), bootstrapRoster());
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
@@ -252,18 +199,9 @@ test("two independent Git sources merge incrementally with explicit id remaps an
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
-    assert.match(
-      String(result.summary),
-      /Migration import batch \(2\/2 sources processed\)/u,
-    );
-    assert.match(
-      String(result.summary),
-      /REMAP task task_shared -> task_shared__[0-9a-f]{10}/u,
-    );
-    assert.match(
-      String(result.summary),
-      /REMAP decision dec_SHARED -> dec_SHARED__[0-9a-f]{10}/u,
-    );
+    assert.match(String(result.summary), /Migration import batch \(2\/2 sources processed\)/u);
+    assert.match(String(result.summary), /REMAP task task_shared -> task_shared__[0-9a-f]{10}/u);
+    assert.match(String(result.summary), /REMAP decision dec_SHARED -> dec_SHARED__[0-9a-f]{10}/u);
     const events = makeTaskEventStore({
         repoId: "migration-multi-source-target",
         rootDir: destination,
@@ -271,33 +209,19 @@ test("two independent Git sources merge incrementally with explicit id remaps an
         .read()
         .events.filter((event) => event.schema === "migration-import-event/v1"),
       tasks = events.filter(
-        (event) =>
-          event.payload.entity.kind === "task" &&
-          event.payload.migratedFrom === "task_shared",
+        (event) => event.payload.entity.kind === "task" && event.payload.migratedFrom === "task_shared",
       ),
       decisions = events.filter(
-        (event) =>
-          event.payload.entity.kind === "decision" &&
-          event.payload.migratedFrom === "dec_SHARED",
+        (event) => event.payload.entity.kind === "decision" && event.payload.migratedFrom === "dec_SHARED",
       );
     assert.equal(tasks.length, 2);
     assert.equal(new Set(tasks.map(({ opId }) => opId)).size, 2);
     assert.deepEqual(
-      tasks
-        .map((event) =>
-          event.payload.entity.kind === "task"
-            ? event.payload.entity.task.taskId
-            : "",
-        )
-        .sort(),
+      tasks.map((event) => (event.payload.entity.kind === "task" ? event.payload.entity.task.taskId : "")).sort(),
       [
         "task_shared",
         tasks
-          .map((event) =>
-            event.payload.entity.kind === "task"
-              ? event.payload.entity.task.taskId
-              : "",
-          )
+          .map((event) => (event.payload.entity.kind === "task" ? event.payload.entity.task.taskId : ""))
           .find((taskId) => taskId.startsWith("task_shared__"))!,
       ].sort(),
     );
@@ -309,12 +233,7 @@ test("two independent Git sources merge incrementally with explicit id remaps an
       .filter((entry) => String(entry).endsWith("id-map.json"))
       .map(
         (entry) =>
-          JSON.parse(
-            readFileSync(
-              path.join(destination, "harness/migrations", String(entry)),
-              "utf8",
-            ),
-          ) as {
+          JSON.parse(readFileSync(path.join(destination, "harness/migrations", String(entry)), "utf8")) as {
             readonly sourceGit: { readonly rootCommit: string };
             readonly remappings: readonly {
               readonly entityType: string;
@@ -324,27 +243,29 @@ test("two independent Git sources merge incrementally with explicit id remaps an
           },
       );
     assert.equal(maps.length, 2);
-    assert.equal(
-      new Set(maps.map(({ sourceGit }) => sourceGit.rootCommit)).size,
-      2,
-    );
+    assert.equal(new Set(maps.map(({ sourceGit }) => sourceGit.rootCommit)).size, 2);
     assert.equal(
       maps
         .flatMap(({ remappings }) => remappings)
         .some(
           ({ entityType, sourceId, targetId }) =>
-            entityType === "task" &&
-            sourceId === "task_shared" &&
-            targetId.startsWith("task_shared__"),
+            entityType === "task" && sourceId === "task_shared" && targetId.startsWith("task_shared__"),
         ),
       true,
     );
-    const roster = peopleRosterFromDocument(
-      readFileSync(path.join(destination, "harness/people.yaml"), "utf8"),
-    );
+    const roster = peopleRosterFromDocument(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"));
     assert.deepEqual(
       roster.people.map(({ personId }) => personId),
       ["person_zeyu", "person_alpha", "person_beta"],
+    );
+    assert.equal(
+      makeTaskEventStore({
+        repoId: "migration-multi-source-target",
+        rootDir: destination,
+      })
+        .read()
+        .events.filter((event) => event.schema === "people-event/v1").length,
+      2,
     );
     const revision = result.revision,
       repeated = (await cell.run(
@@ -384,10 +305,7 @@ test("two independent Git sources merge incrementally with explicit id remaps an
           projection.close();
         }
       };
-    assert.equal(
-      digest(path.join(scratch, "cold-one.sqlite")),
-      digest(path.join(scratch, "cold-two.sqlite")),
-    );
+    assert.equal(digest(path.join(scratch, "cold-one.sqlite")), digest(path.join(scratch, "cold-two.sqlite")));
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
@@ -395,9 +313,7 @@ test("two independent Git sources merge incrementally with explicit id remaps an
 });
 
 test("migration rejects dirty, shallow, and multi-root Git sources before any event write", async () => {
-  const scratch = mkdtempSync(
-      path.join(tmpdir(), "ha-migrate-git-validation-"),
-    ),
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-git-validation-")),
     source = path.join(scratch, "source"),
     shallow = path.join(scratch, "shallow"),
     destination = path.join(scratch, "center");
@@ -412,14 +328,8 @@ test("migration rejects dirty, shallow, and multi-root Git sources before any ev
       ownerId: "migration-daemon",
       now: () => "2026-08-19T00:00:00.000Z",
     });
-    writeFileSync(
-      path.join(source, "uncommitted.txt"),
-      "not part of the source cut\n",
-    );
-    const dirty = await cell.run(
-      { kind: "migrate-import", sourceRoots: [source] },
-      { actor, source: "local" },
-    );
+    writeFileSync(path.join(source, "uncommitted.txt"), "not part of the source cut\n");
+    const dirty = await cell.run({ kind: "migrate-import", sourceRoots: [source] }, { actor, source: "local" });
     assert.equal(dirty.outcome, "op_rejected");
     assert.equal(dirty.code, "invalid_migration_source_git");
     assert.match(
@@ -434,50 +344,17 @@ test("migration rejects dirty, shallow, and multi-root Git sources before any ev
       0,
     );
     rmSync(path.join(source, "uncommitted.txt"));
-    execFileSync("git", [
-      "clone",
-      "-q",
-      "--depth",
-      "1",
-      `file://${source}`,
-      shallow,
-    ]);
-    const rejected = await cell.run(
-      { kind: "migrate-import", sourceRoots: [shallow] },
-      { actor, source: "local" },
-    );
+    execFileSync("git", ["clone", "-q", "--depth", "1", `file://${source}`, shallow]);
+    const rejected = await cell.run({ kind: "migrate-import", sourceRoots: [shallow] }, { actor, source: "local" });
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "invalid_migration_source_git");
-    assert.match(
-      String(rejected.nextAction),
-      /shallow authored Git repository.*Fetch complete history/u,
-    );
-    const unrelatedRoot = git(
-      source,
-      "commit-tree",
-      git(source, "rev-parse", "HEAD^{tree}"),
-      "-m",
-      "unrelated root",
-    );
-    git(
-      source,
-      "merge",
-      "-q",
-      "--allow-unrelated-histories",
-      unrelatedRoot,
-      "-m",
-      "merge unrelated root",
-    );
-    const split = await cell.run(
-      { kind: "migrate-import", sourceRoots: [source] },
-      { actor, source: "local" },
-    );
+    assert.match(String(rejected.nextAction), /shallow authored Git repository.*Fetch complete history/u);
+    const unrelatedRoot = git(source, "commit-tree", git(source, "rev-parse", "HEAD^{tree}"), "-m", "unrelated root");
+    git(source, "merge", "-q", "--allow-unrelated-histories", unrelatedRoot, "-m", "merge unrelated root");
+    const split = await cell.run({ kind: "migrate-import", sourceRoots: [source] }, { actor, source: "local" });
     assert.equal(split.outcome, "op_rejected");
     assert.equal(split.code, "invalid_migration_source_git");
-    assert.match(
-      String(split.nextAction),
-      /2 authored Git root commits.*split unrelated histories/u,
-    );
+    assert.match(String(split.nextAction), /2 authored Git root commits.*split unrelated histories/u);
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });

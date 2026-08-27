@@ -10,8 +10,8 @@ const localSource = "local" as const;
 const assignmentSource = { kind: "assignment", nodeId: "edge-one", assignmentId: "assignment-one" } as const;
 const admissionRoutes = new Set(["direct", "via-assignment", "via-center-forward", "rejected"]);
 
-test("all 125 daemon commands close every repo-mode admission cell", () => {
-  assert.equal(daemonProtocolCommands.length, 125);
+test("all 128 daemon commands close every repo-mode admission cell", () => {
+  assert.equal(daemonProtocolCommands.length, 128);
   let cells = 0;
   for (const command of daemonProtocolCommands) {
     assert.deepEqual(Object.keys(command.admission).sort(), [...daemonRepoModeWords].sort(), command.id);
@@ -35,7 +35,7 @@ test("all 125 daemon commands close every repo-mode admission cell", () => {
       }
     }
   }
-  assert.equal(cells, 125 * 3);
+  assert.equal(cells, 128 * 3);
 });
 
 test("observe.tail declares direct admission and named source residency for every tail kind", () => {
@@ -91,4 +91,16 @@ test("Settings CLI read uses the common read topology while update forwards from
   });
   assert.equal(byId.get("settings-read")?.commandClass, "repo-read");
   assert.equal(byId.get("settings-update")?.commandClass, "repo-write");
+});
+
+test("People mutations are admin Actions and forward from an edge", () => {
+  const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
+  for (const id of ["people-add", "people-set-role", "people-remove"]) {
+    assert.deepEqual(byId.get(id)?.admission, {
+      local: "direct",
+      "remote-center": "direct",
+      "remote-edge": "via-center-forward",
+    });
+    assert.equal(byId.get(id)?.commandClass, "admin");
+  }
 });

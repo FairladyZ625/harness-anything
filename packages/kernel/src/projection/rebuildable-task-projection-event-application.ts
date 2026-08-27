@@ -28,6 +28,8 @@ import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { readSettingsFacet } from "../domain/settings.ts";
+import { isPeopleEvent } from "../domain/people-event.ts";
+import { parsePeopleRosterDocument } from "../domain/people-roster.ts";
 import { scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
@@ -226,6 +228,38 @@ export function applyEvent(
     projectEmbeddedCanonicalEntities(db, event);
     return;
   }
+  if (isPeopleEvent(event)) {
+    const claim = event.payload.peopleDocumentClaim,
+      bytes = readBlob(claim.sha256);
+    if (!bytes || bytes.byteLength !== claim.size) throw new Error(`people.yaml blob ${claim.sha256} is unavailable`);
+    let body: string;
+    try {
+      body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      throw new Error(`people.yaml blob ${claim.sha256} is not UTF-8`);
+    }
+    if (sha256Text(body) !== claim.sha256) throw new Error(`people.yaml blob ${claim.sha256} hash mismatch`);
+    if (canonicalJson(parsePeopleRosterDocument(body)) !== canonicalJson(event.payload.roster))
+      throw new Error(`people.yaml blob ${claim.sha256} does not match the event roster snapshot`);
+    const document: DocumentState = {
+      path: claim.path as DocumentState["path"],
+      blobSha256: claim.sha256,
+      body,
+      size: docByteLength(claim.size),
+      mediaType: claim.mediaType,
+      policyId: claim.policyId,
+      workspaceRevision: event.workspaceRevision,
+    };
+    runSql(
+      db,
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+      event.opId,
+      event.workspaceRevision,
+      eventJson,
+    );
+    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    return;
+  }
   if (isFactEvent(event)) {
     projectFact(db, event, eventJson, readBlob);
     return;
@@ -315,7 +349,8 @@ export function applyEvent(
       const previous =
           /* @gate-identity check-bypass-write-boundary/bypass-write-011 */
           db.prepare("SELECT value_json FROM document WHERE path = ?").get(change.path) as
-            { readonly value_json: string } | undefined,
+            | { readonly value_json: string }
+            | undefined,
         base = previous ? (JSON.parse(previous.value_json) as DocumentState) : null;
       if (change.candidate === null) {
         if (

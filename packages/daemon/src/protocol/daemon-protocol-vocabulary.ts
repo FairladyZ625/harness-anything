@@ -1,4 +1,4 @@
-import type { DaemonRepoMode } from "../../../kernel/src/index.ts";
+import type { CredentialKind, DaemonRepoMode, PeopleCommandClass } from "../../../kernel/src/index.ts";
 
 export const taskStatusWords = ["planned", "active", "blocked", "in_review", "done", "cancelled"] as const;
 
@@ -32,5 +32,35 @@ export const daemonRepoModeWords = Object.freeze([
 ] as const satisfies readonly DaemonRepoMode[]);
 
 export const daemonRepoModeWordsAreExact: [DaemonRepoMode] extends [(typeof daemonRepoModeWords)[number]]
+  ? true
+  : never = true;
+
+// Transport vocabulary mirrors stay dependency-free on the thin CLI path. The
+// bidirectional type checks keep the kernel's people registry types authoritative
+// without loading its runtime barrel (and Effect) in dependency-free contract jobs.
+export const peopleCommandClassWords = Object.freeze([
+  "admin",
+  "repo-write",
+  "repo-read",
+  "arbiter",
+] as const satisfies readonly PeopleCommandClass[]);
+
+export const peopleCommandClassWordsAreExact: [PeopleCommandClass] extends [(typeof peopleCommandClassWords)[number]]
+  ? true
+  : never = true;
+
+export const credentialKindWords = Object.freeze([
+  "unix-socket-owner-boundary",
+  "windows-named-pipe-client",
+  "ssh-username",
+  "ssh-forced-command-person",
+  "ssh-tunnel-token-subject",
+  "email-address",
+  "password-account",
+  "oauth-subject",
+  "api-token",
+] as const satisfies readonly CredentialKind[]);
+
+export const credentialKindWordsAreExact: [CredentialKind] extends [(typeof credentialKindWords)[number]]
   ? true
   : never = true;
