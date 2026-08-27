@@ -112,6 +112,30 @@ export interface DispatchLiveIndex {
   readonly entries: readonly DispatchLiveIndexEntry[];
 }
 
+/** Metadata needed by daemon hot paths without retaining provider event bodies. */
+export type DispatchStreamSummary = Omit<NonNullable<ReturnType<typeof readDispatchStream>>, "records"> & {
+  readonly records: readonly DispatchStreamRecord[];
+};
+
+type SummaryCacheEntry = {
+  readonly mtimeMs: number;
+  readonly size: number;
+  readonly value: DispatchStreamSummary | null;
+};
+
+const summaryCache = new Map<string, SummaryCacheEntry>();
+const summaryHeadBytes = 16 * 1024;
+const summaryTailBytes = 128 * 1024;
+const summaryKinds = new Set([
+  "provider_binding",
+  "process_started",
+  "process_exit",
+  "process_lost",
+  "attempt_outcome",
+  "fallback_state",
+  "squad_run_state",
+]);
+
 export function openDispatchStream(
   rootDir: string,
   header: Omit<DispatchStreamHeader, "schema" | "kind" | "eventStreamRef">,
@@ -163,6 +187,7 @@ export function reopenDispatchStream(rootDir: string, header: DispatchStreamHead
 export function removeDispatchStream(rootDir: string, dispatchId: string): void {
   const target = dispatchStreamPath(rootDir, dispatchId),
     header = readDispatchStreamHeader(rootDir, dispatchId);
+  summaryCache.delete(target);
   if (existsSync(target)) unlinkSync(target);
   if (header?.taskId)
     removeDispatchLiveIndexEntries(rootDir, [
@@ -239,6 +264,59 @@ export function readDispatchStreamHeader(rootDir: string, dispatchId: string): D
   return isHeader(first) && first.dispatchId === dispatchId ? first : null;
 }
 
+/**
+ * Read lifecycle metadata without loading provider output. Lifecycle records are
+ * written at the head or tail of a stream; the bounded windows keep daemon
+ * scans proportional to stream count rather than provider transcript size.
+ */
+export function readDispatchStreamSummary(rootDir: string, dispatchId: string): DispatchStreamSummary | null {
+  const target = dispatchStreamPath(rootDir, dispatchId);
+  if (!existsSync(target) || !statSync(target).isFile()) {
+    summaryCache.delete(target);
+    return null;
+  }
+  const stat = statSync(target),
+    cached = summaryCache.get(target);
+  if (cached?.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.value;
+  const header = readDispatchStreamHeader(rootDir, dispatchId);
+  if (!header) {
+    summaryCache.set(target, { mtimeMs: stat.mtimeMs, size: stat.size, value: null });
+    return null;
+  }
+  const headerEnd = firstLineEndOffset(target, stat.size);
+  const chunks = readBoundedStreamWindows(target, stat.size, headerEnd),
+    records: DispatchStreamRecord[] = [];
+  const seenOffsets = new Set<number>();
+  for (const chunk of chunks) {
+    for (const line of completeLines(chunk.text, chunk.offset, stat.size)) {
+      if (line.offset === 0 || seenOffsets.has(line.offset)) continue;
+      seenOffsets.add(line.offset);
+      const kind = lineKind(line.value);
+      if (!kind || !summaryKinds.has(kind)) continue;
+      const record = parseRecord(line.value);
+      if (record) records.push(record);
+    }
+  }
+  const value = summarizeDispatch(header, records);
+  summaryCache.set(target, { mtimeMs: stat.mtimeMs, size: stat.size, value });
+  return value;
+}
+
+export function readDispatchStreamHeaders(rootDir: string): readonly DispatchStreamHeader[] {
+  const root = dispatchStreamRoot(rootDir);
+  if (!existsSync(root) || !statSync(root).isDirectory()) return [];
+  return readdirSync(root)
+    .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
+    .map((name) => readDispatchStreamHeader(rootDir, name.slice(0, -6)))
+    .filter((header): header is DispatchStreamHeader => header !== null);
+}
+
+export function readDispatchStreamSummaries(rootDir: string): readonly DispatchStreamSummary[] {
+  return readDispatchStreamHeaders(rootDir)
+    .map((header) => readDispatchStreamSummary(rootDir, header.dispatchId))
+    .filter((stream): stream is DispatchStreamSummary => stream !== null);
+}
+
 export function readDispatchStream(
   rootDir: string,
   dispatchId: string,
@@ -260,54 +338,13 @@ export function readDispatchStream(
   const lines = readFileSync(target, "utf8").split(/\r?\n/u).filter(Boolean),
     first = parseRecord(lines[0]);
   if (!isHeader(first) || first.dispatchId !== dispatchId) return null;
-  let providerSessionId: string | null = null,
-    processState: DispatchProcessState | null = null,
-    attemptOutcome: RuntimeAttemptOutcome | null = null,
-    fallbackState: "scheduled" | "dispatched" | "exhausted" | null = null,
-    fallbackSchedule: {
-      readonly notBeforeAt: string;
-      readonly nextProvider: { readonly instance: string; readonly model?: string };
-    } | null = null,
-    nextDispatchId: string | null = null;
   const records = lines
     .slice(1)
     .map(parseRecord)
     .filter((record): record is DispatchStreamRecord => record !== null);
-  for (const record of records) {
-    if (record.kind === "provider_binding" && typeof record.providerSessionId === "string") {
-      providerSessionId = record.providerSessionId;
-    }
-    if (record.kind === "process_started" && Number.isInteger(record.pid) && Number(record.pid) > 0) {
-      processState = { pid: Number(record.pid), exitCode: null, signal: null, exited: false };
-    }
-    if (record.kind === "process_exit" && processState) {
-      processState = {
-        ...processState,
-        exitCode: Number.isInteger(record.exitCode) ? Number(record.exitCode) : null,
-        signal: typeof record.signal === "string" ? record.signal : null,
-        exited: true,
-      };
-    }
-    if (record.kind === "attempt_outcome" && isRuntimeAttemptOutcome(record)) attemptOutcome = record;
-    if (record.kind === "fallback_state" && ["scheduled", "dispatched", "exhausted"].includes(String(record.state))) {
-      fallbackState = record.state as typeof fallbackState;
-      fallbackSchedule =
-        record.state === "scheduled" &&
-        typeof record.notBeforeAt === "string" &&
-        isFallbackProvider(record.nextProvider)
-          ? { notBeforeAt: record.notBeforeAt, nextProvider: record.nextProvider }
-          : null;
-      nextDispatchId = typeof record.nextDispatchId === "string" ? record.nextDispatchId : nextDispatchId;
-    }
-  }
+  const summary = summarizeDispatch(first, records);
   return {
-    header: first,
-    providerSessionId,
-    process: processState,
-    attemptOutcome,
-    fallbackState,
-    fallbackSchedule,
-    nextDispatchId,
+    ...summary,
     records,
   };
 }
@@ -436,12 +473,123 @@ function readStoredDispatchLiveIndex(target: string, taskId: string): DispatchLi
   }
 }
 function appendJsonl(target: string, value: unknown): void {
+  summaryCache.delete(target);
   const descriptor = openSync(target, fsConstants.O_APPEND | fsConstants.O_WRONLY);
   try {
     writeFileSync(descriptor, `${JSON.stringify(scrubProviderValue(value))}\n`, "utf8");
   } finally {
     closeSync(descriptor);
   }
+}
+
+function summarizeDispatch(
+  header: DispatchStreamHeader,
+  records: readonly DispatchStreamRecord[],
+): DispatchStreamSummary {
+  let providerSessionId: string | null = null,
+    processState: DispatchProcessState | null = null,
+    attemptOutcome: RuntimeAttemptOutcome | null = null,
+    fallbackState: "scheduled" | "dispatched" | "exhausted" | null = null,
+    fallbackSchedule: DispatchStreamSummary["fallbackSchedule"] = null,
+    nextDispatchId: string | null = null;
+  for (const record of records) {
+    if (record.kind === "provider_binding" && typeof record.providerSessionId === "string")
+      providerSessionId = record.providerSessionId;
+    if (record.kind === "process_started" && Number.isInteger(record.pid) && Number(record.pid) > 0)
+      processState = { pid: Number(record.pid), exitCode: null, signal: null, exited: false };
+    if (record.kind === "process_exit" && processState)
+      processState = {
+        ...processState,
+        exitCode: Number.isInteger(record.exitCode) ? Number(record.exitCode) : null,
+        signal: typeof record.signal === "string" ? record.signal : null,
+        exited: true,
+      };
+    if (record.kind === "attempt_outcome" && isRuntimeAttemptOutcome(record)) attemptOutcome = record;
+    if (record.kind === "fallback_state" && ["scheduled", "dispatched", "exhausted"].includes(String(record.state))) {
+      fallbackState = record.state as typeof fallbackState;
+      fallbackSchedule =
+        record.state === "scheduled" &&
+        typeof record.notBeforeAt === "string" &&
+        isFallbackProvider(record.nextProvider)
+          ? { notBeforeAt: record.notBeforeAt, nextProvider: record.nextProvider }
+          : null;
+      nextDispatchId = typeof record.nextDispatchId === "string" ? record.nextDispatchId : nextDispatchId;
+    }
+  }
+  return {
+    header,
+    providerSessionId,
+    process: processState,
+    attemptOutcome,
+    fallbackState,
+    fallbackSchedule,
+    nextDispatchId,
+    records,
+  };
+}
+
+function readBoundedStreamWindows(
+  target: string,
+  size: number,
+  headerEnd: number,
+): readonly { offset: number; text: string }[] {
+  const descriptor = openSync(target, fsConstants.O_RDONLY);
+  try {
+    const windows = [
+      { offset: 0, length: Math.min(size, summaryHeadBytes) },
+      ...(headerEnd < size ? [{ offset: headerEnd, length: Math.min(size - headerEnd, summaryHeadBytes) }] : []),
+    ];
+    if (size > summaryHeadBytes)
+      windows.push({ offset: Math.max(0, size - summaryTailBytes), length: Math.min(size, summaryTailBytes) });
+    return windows.map(({ offset, length }) => {
+      const bytes = Buffer.alloc(length),
+        read = readSync(descriptor, bytes, 0, length, offset);
+      return { offset, text: bytes.subarray(0, read).toString("utf8") };
+    });
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function firstLineEndOffset(target: string, size: number): number {
+  const descriptor = openSync(target, fsConstants.O_RDONLY);
+  try {
+    let offset = 0;
+    while (offset < size) {
+      const bytes = Buffer.alloc(Math.min(4096, size - offset));
+      const read = readSync(descriptor, bytes, 0, bytes.length, offset);
+      if (read === 0) return size;
+      const newline = bytes.subarray(0, read).indexOf(10);
+      if (newline !== -1) return offset + newline + 1;
+      offset += read;
+    }
+    return size;
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function completeLines(text: string, offset: number, size: number): readonly { offset: number; value: string }[] {
+  const lines = text.split(/\r?\n/u),
+    result: { offset: number; value: string }[] = [];
+  let cursor = offset;
+  for (let index = 0; index < lines.length; index += 1) {
+    const value = lines[index]!;
+    const end = cursor + Buffer.byteLength(value) + 1;
+    if (index > 0 && cursor === offset) {
+      cursor = end;
+      continue;
+    }
+    if (end > size && index === lines.length - 1) break;
+    if (value.trim()) result.push({ offset: cursor, value });
+    cursor = end;
+  }
+  return result;
+}
+
+function lineKind(value: string): string | null {
+  const match = /"kind"\s*:\s*"([^"\\]+)"/u.exec(value);
+  return match?.[1] ?? null;
 }
 function parseRecord(value: string | undefined): Record<string, unknown> | null {
   if (!value) return null;
