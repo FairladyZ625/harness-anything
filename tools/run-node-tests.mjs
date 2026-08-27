@@ -6,9 +6,18 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
-import { collectSlowTests, filterTestFilesByNames, filterTestFilesByPrefixes, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
+import {
+  collectSlowTests,
+  filterTestFilesByNames,
+  filterTestFilesByPrefixes,
+  formatSlowTestSummary,
+  parseRunnerArgs,
+  resolveTestConcurrency,
+  selectTestFiles,
+} from "./node-test-runner-lib.mjs";
 import { discoverTestTierManifest } from "./test-tier-manifest.mjs";
 import { renderToolHelp, runNodeTestsCommand } from "./tool-command-contract.mjs";
+import { readTestQuarantine } from "./test-quarantine.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const DEFAULT_TEST_FILE_TIMEOUT_MS = 900_000;
@@ -35,8 +44,11 @@ if (options.help) {
   console.log(renderToolHelp(runNodeTestsCommand));
   process.exit(0);
 }
+process.env.HARNESS_TEST_TIER = options.tier;
+if (options.shard !== undefined) process.env.HARNESS_TEST_SHARD = String(options.shard);
 
 const testTierManifest = discoverTestTierManifest(repoRoot);
+process.env.HARNESS_TEST_TIER_MANIFEST = JSON.stringify(testTierManifest);
 const testFiles = Object.values(testTierManifest).flat().sort();
 const selection = selectTestFiles(testFiles, testTierManifest, options.tier);
 
@@ -59,14 +71,14 @@ selection.files = filterTestFilesByNames(selection.files, options.files);
 // would report "ran clean" for a run that executed no assertions at all.
 if (options.prefixes.length > 0 && selection.files.length === 0) {
   console.error(
-    `No test file in tier ${options.tier} starts with any of: ${options.prefixes.join(", ")} (${beforePrefixes} files were available before filtering).`
+    `No test file in tier ${options.tier} starts with any of: ${options.prefixes.join(", ")} (${beforePrefixes} files were available before filtering).`,
   );
   process.exit(1);
 }
 
 if (options.files.length > 0 && selection.files.length === 0) {
   console.error(
-    `No selected test file belongs to tier ${options.tier}: ${options.files.join(", ")} (${beforeFiles} files were available before exact-file filtering).`
+    `No selected test file belongs to tier ${options.tier}: ${options.files.join(", ")} (${beforeFiles} files were available before exact-file filtering).`,
   );
   process.exit(1);
 }
@@ -89,7 +101,7 @@ if (options.list) {
 const concurrency = resolveTestConcurrency({
   flagConcurrency: options.concurrency,
   envConcurrency: process.env.HARNESS_TEST_CONCURRENCY,
-  isCi: Boolean(process.env.CI)
+  isCi: Boolean(process.env.CI),
 });
 const concurrencyArgs =
   concurrency && Number.isInteger(concurrency) && concurrency > 0 ? [`--test-concurrency=${concurrency}`] : [];
@@ -97,27 +109,40 @@ const fileTimeoutMs = positiveIntegerOrDefault(process.env.HARNESS_TEST_FILE_TIM
 const activityRoot = mkdtempSync(join(tmpdir(), "ha-node-test-watchdog-"));
 const activityPath = join(activityRoot, "activity.jsonl");
 const reporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-file-activity-reporter.mjs")).href;
+const observationReporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-observation-reporter.mjs")).href;
+const quarantinePattern =
+  process.env.HARNESS_TEST_QUARANTINE === "skip"
+    ? exactNamePattern(readTestQuarantine(repoRoot).map((entry) => entry.test))
+    : null;
 // Arm the stall report inside each test child before the watchdog kills it from outside. The
 // watchdog can say which test never returned; only the child itself can say which handle it is
 // still holding, and a remote runner offers no second chance to ask.
 const stallReportUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-stall-report.mjs")).href;
 const stallReportMs = Math.max(1_000, Math.floor(fileTimeoutMs * 0.9));
-const child = spawn(process.execPath, [
-  "--test",
-  "--test-reporter=spec",
-  "--test-reporter-destination=stdout",
-  `--test-reporter=${reporterUrl}`,
-  `--test-reporter-destination=${activityPath}`,
-  `--import=${stallReportUrl}`,
-  ...concurrencyArgs,
-  ...selection.files
-], {
-  cwd: repoRoot,
-  env: { ...process.env, HARNESS_TEST_STALL_REPORT_MS: String(stallReportMs) },
-  detached: process.platform !== "win32",
-  stdio: ["inherit", "pipe", "pipe"],
-  windowsHide: true
-});
+const child = spawn(
+  process.execPath,
+  [
+    "--test",
+    "--test-reporter=spec",
+    "--test-reporter-destination=stdout",
+    `--test-reporter=${reporterUrl}`,
+    `--test-reporter-destination=${activityPath}`,
+    ...(process.env.HARNESS_CI_NODE_TEST_RESULTS || process.env.HARNESS_CI_OBSERVATION_RAW
+      ? [`--test-reporter=${observationReporterUrl}`, "--test-reporter-destination=stdout"]
+      : []),
+    `--import=${stallReportUrl}`,
+    ...(quarantinePattern ? [`--test-skip-pattern=${quarantinePattern}`] : []),
+    ...concurrencyArgs,
+    ...selection.files,
+  ],
+  {
+    cwd: repoRoot,
+    env: { ...process.env, HARNESS_TEST_STALL_REPORT_MS: String(stallReportMs) },
+    detached: process.platform !== "win32",
+    stdio: ["inherit", "pipe", "pipe"],
+    windowsHide: true,
+  },
+);
 
 let output = "";
 let activityOffset = 0;
@@ -128,16 +153,21 @@ let timedOutFiles = [];
 let termination = Promise.resolve();
 const activeFiles = new Map();
 const removeSignalForwarding = installSignalForwarding(child);
-const watchdog = setInterval(() => {
-  refreshActivity();
-  if (timedOutFiles.length > 0) return;
-  const now = Date.now();
-  const overdue = [...activeFiles].filter(([, startedAt]) => now - startedAt >= fileTimeoutMs).map(([file]) => file);
-  if (overdue.length === 0) return;
-  timedOutFiles = overdue;
-  console.error(`[node-test-watchdog] test file exceeded ${fileTimeoutMs}ms: ${overdue.map(stalledFileReport).join(", ")}`);
-  termination = terminateProcessTree(child);
-}, Math.min(1_000, Math.max(25, Math.floor(fileTimeoutMs / 4))));
+const watchdog = setInterval(
+  () => {
+    refreshActivity();
+    if (timedOutFiles.length > 0) return;
+    const now = Date.now();
+    const overdue = [...activeFiles].filter(([, startedAt]) => now - startedAt >= fileTimeoutMs).map(([file]) => file);
+    if (overdue.length === 0) return;
+    timedOutFiles = overdue;
+    console.error(
+      `[node-test-watchdog] test file exceeded ${fileTimeoutMs}ms: ${overdue.map(stalledFileReport).join(", ")}`,
+    );
+    termination = terminateProcessTree(child);
+  },
+  Math.min(1_000, Math.max(25, Math.floor(fileTimeoutMs / 4))),
+);
 
 child.stdout.on("data", (chunk) => {
   const text = chunk.toString();
@@ -168,12 +198,17 @@ const exitCode = await new Promise((resolveRun) => {
   });
   child.once("close", (code, signal) => {
     if (signal !== null && timedOutFiles.length === 0) console.error(`node --test terminated by signal ${signal}`);
-    finish(timedOutFiles.length > 0 || signal !== null ? 1 : code ?? 1);
+    finish(timedOutFiles.length > 0 || signal !== null ? 1 : (code ?? 1));
   });
 });
 const slowTests = collectSlowTests(output, options.slowThresholdMs);
 console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
 process.exit(exitCode);
+
+function exactNamePattern(names) {
+  if (names.length === 0) return null;
+  return `^(?:${names.map((name) => name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|")})$`;
+}
 
 function positiveIntegerOrDefault(value, fallback) {
   const parsed = Number(value);
@@ -212,7 +247,8 @@ function refreshActivity() {
   for (const line of lines) {
     if (!line) continue;
     const event = JSON.parse(line);
-    if (event.state === "started" && typeof event.file === "string" && Number.isFinite(event.at)) activeFiles.set(event.file, event.at);
+    if (event.state === "started" && typeof event.file === "string" && Number.isFinite(event.at))
+      activeFiles.set(event.file, event.at);
     if (event.state === "progress" && typeof event.file === "string" && typeof event.name === "string") {
       const owner = repoRelativeTestFile(event.file);
       lastTestByFile.set(owner, event.name);
@@ -222,7 +258,11 @@ function refreshActivity() {
       const owner = repoRelativeTestFile(event.file);
       openTestsByFile.set(owner, (openTestsByFile.get(owner) ?? 0) - 1);
     }
-    if (event.state === "finished" && typeof event.file === "string") { activeFiles.delete(event.file); lastTestByFile.delete(event.file); openTestsByFile.delete(event.file); }
+    if (event.state === "finished" && typeof event.file === "string") {
+      activeFiles.delete(event.file);
+      lastTestByFile.delete(event.file);
+      openTestsByFile.delete(event.file);
+    }
   }
 }
 

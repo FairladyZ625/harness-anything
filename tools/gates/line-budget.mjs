@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { git, pathExistsAt, repoRoot } from "./git.mjs";
 import * as modulePolicy from "./module-policy.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
+import { writeCiGateResult } from "../ci-gate-result.mjs";
 
 export function countLines(body) {
   if (body.length === 0) return 0;
@@ -199,6 +200,13 @@ export function main(argv = process.argv.slice(2), rootDir = repoRoot()) {
   try {
     const { base } = parseArgs(argv);
     const result = evaluateLineBudget({ rootDir, base });
+    const total = (values) => Object.values(values).reduce((sum, value) => sum + value, 0);
+    writeCiGateResult("G32", true, {
+      actualLines: total(result.actual),
+      baseLines: total(result.baseActual),
+      ceilingLines: total(result.ceilings),
+      advisoryCount: result.errors.length,
+    });
     for (const moduleName of modulePolicy.BUDGETED_MODULES) {
       console.log(`${moduleName}: ${result.actual[moduleName]}/${result.ceilings[moduleName]}`);
     }
@@ -210,6 +218,7 @@ export function main(argv = process.argv.slice(2), rootDir = repoRoot()) {
     console.log("G32 line-budget-ratchet: pass");
     return 0;
   } catch (error) {
+    writeCiGateResult("G32", false, {});
     console.error(`G32 line-budget-ratchet: ${error.message}`);
     return 1;
   }

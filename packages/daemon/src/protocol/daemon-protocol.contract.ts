@@ -392,6 +392,7 @@ export default Object.freeze({
     "Settings-Kind",
     "Schedule-S4",
     "Persons-Registry",
+    "PLT-TestEng-W1",
   ]),
   commands: effectiveDaemonOwnedProtocolCommands,
   methods: Object.freeze([
@@ -495,6 +496,7 @@ export {
   DAEMON_AGENT_RUNTIME_SESSION_SCHEMA,
   DAEMON_AGENT_SKILL_CATALOG_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
+  DAEMON_CI_OBSERVATORY_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
   DAEMON_DOCUMENT_READ_SCHEMA,
   DAEMON_OBSERVE_TAIL_SCHEMA,

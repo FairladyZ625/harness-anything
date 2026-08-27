@@ -14,6 +14,7 @@ import { runtimeFleetProtocolCommands, scheduleProtocolCommands } from "./daemon
 import { taskSurfaceProtocolCommands } from "./daemon-protocol-commands-task-surface.ts";
 import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.ts";
 import { peopleProtocolCommands } from "./daemon-protocol-commands-people.ts";
+import { ciObservationProtocolCommands } from "./daemon-protocol-commands-ci.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
 
@@ -90,6 +91,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...scheduleProtocolCommands,
   ...settingsProtocolCommands,
   ...peopleProtocolCommands,
+  ...ciObservationProtocolCommands,
 ] as const);
 
 export const runtimePromptInputs = daemonOwnedProtocolCommands
@@ -252,13 +254,7 @@ export const daemonProtocolCommands = Object.freeze([
 ]);
 
 export const thinCliCommands = Object.freeze(
-  daemonProtocolCommands
-    .filter((command) => !("internal" in command && command.internal))
-    .map(({ usage, summary, help }) => ({
-      usage,
-      summary,
-      help,
-    })),
+  daemonProtocolCommands.filter((command) => !("internal" in command && command.internal)).map((command) => command),
 );
 
 export function resolveThinCliCommand(args: readonly string[]): (typeof daemonProtocolCommands)[number] | undefined {

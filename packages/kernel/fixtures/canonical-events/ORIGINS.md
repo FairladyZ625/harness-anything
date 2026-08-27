@@ -17,5 +17,6 @@ The ledger-derived events below were de-identified and then reserialized with th
 | `entity-event/v1` | `packages/kernel/fixtures/canonical-events/entity-event-v1/accepted.json` | `compileEntityUpsert production compiler (no canonical event existed yet)` | N/A (compiler-generated) |
 | `schedule-event/v1` | `packages/kernel/fixtures/canonical-events/schedule-event-v1/accepted.json` | `compileScheduleDefinitionEvent` production compiler (no canonical event existed yet) | N/A (compiler-generated) |
 | `settings-event/v1` | `packages/kernel/fixtures/canonical-events/settings-event-v1/accepted.json` | `compileSettingsChangedEvent` production compiler (no canonical event existed yet) | N/A (compiler-generated) |
+| `ci-run-observation/v1` | `packages/kernel/fixtures/canonical-events/ci-run-observation-v1/accepted.json` | `CI artifact ingestion contract fixture` | N/A (fixture-generated) |
 
 - `agent-entity-event-v1/accepted.json`: historical ledger event `op_ecb4101d…` (2026-08-21 agent install written before the generic entity store; principal redacted). The envelope was retired by 1.1 but the ledger is append-only, so readers must keep accepting it.

@@ -24,6 +24,7 @@ export type {
 export type RelationCoverageRow = DaemonGuiReadResultMap["repo.triadic.relationGraph"]["coverageRows"][number];
 export type TaskSnapshotProjectionRow = DaemonGuiReadResultMap["repo.tasks.list"]["rows"][number];
 export type SettingsRead = DaemonGuiReadResultMap["repo.settings.read"];
+export type CiObservatoryRead = DaemonGuiReadResultMap["repo.ci.observatory.read"];
 export type WorkspaceSummaryRead = DaemonGuiReadResultMap["repo.workspace.summary.read"];
 export type TaskDocumentProjectionRead = DaemonGuiReadResultMap["repo.tasks.document.read"];
 export type TaskDocumentListProjectionRead = DaemonGuiReadResultMap["repo.tasks.documents.list"];

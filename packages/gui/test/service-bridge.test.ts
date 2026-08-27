@@ -128,9 +128,11 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                           ? { ...scope, squadId: "core-squad" }
                           : contract.id === "squad.run.read"
                             ? { ...scope, squadRunId: seededSquadRun }
-                            : contract.id === "gui.catalog.preset.read"
-                              ? { ...scope, presetId: catalog.defaults.presetId }
-                              : scope;
+                            : contract.id === "ci.observatory.read"
+                              ? { ...scope, window: 10 }
+                              : contract.id === "gui.catalog.preset.read"
+                                ? { ...scope, presetId: catalog.defaults.presetId }
+                                : scope;
       const result = await bridge.invoke(contract.guiBridgeMethod, payload);
       const parsed =
         contract.id === "gui.control.receipt"

@@ -28,6 +28,7 @@ import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { chainRepoCellWrite, repoCellTaskQueryJudgments } from "./repo-cell.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
+import { readCiObservatory } from "./ci-observatory-read.ts";
 
 export function createRepoCellApi(context: any): RepoCell {
   const run = (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
@@ -194,6 +195,12 @@ export function createRepoCellApi(context: any): RepoCell {
         : reject("unsupported_command", "Use repo.preset.run.start or repo.preset.run.status.");
   };
   const readHandlers = {
+    "repo.ci.observatory.read": (payload: Readonly<Record<string, unknown>>) =>
+      readCiObservatory({
+        rootDir: context.rootDir,
+        projection: context.projection,
+        ...(payload.window === undefined ? {} : { window: Number(payload.window) }),
+      }),
     "repo.settings.read": () => ({
       schema: "daemon.settings-read/v1" as const,
       ok: true as const,

@@ -111,6 +111,12 @@ export interface TaskProjection {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
+  readonly readCiRunObservations: (limit: number) => {
+    readonly status: "ready" | "pending";
+    readonly events: readonly import("../domain/ci-run-observation-event.ts").CiRunObservationEventV1[];
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  };
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
   readonly admitFact: (event: FactEventV1) => void;

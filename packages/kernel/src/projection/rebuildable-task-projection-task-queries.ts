@@ -54,6 +54,11 @@ const CANONICAL_EVENTS_SQL = [
   "SELECT event_json FROM event_index WHERE workspace_revision > ?",
   "ORDER BY workspace_revision LIMIT ?",
 ].join(" ");
+const CI_RUN_OBSERVATIONS_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE json_extract(event_json, '$.schema') = 'ci-run-observation/v1'",
+  "ORDER BY workspace_revision DESC LIMIT ?",
+].join(" ");
 const REPLICA_EVENTS_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE workspace_revision > ? AND workspace_revision <= ?",
@@ -91,6 +96,7 @@ export function taskQueryApi(
   | "readRuntimeDispatches"
   | "readRuntimeSessionEvents"
   | "readCanonicalEvents"
+  | "readCiRunObservations"
   | "readDocument"
   | "readReplicaBasis"
   | "taskIdForDocumentPath"
@@ -262,6 +268,21 @@ export function taskQueryApi(
           events: queryRows(db, CANONICAL_EVENTS_SQL, afterRevision, pageLimit).map((row) =>
             parseEventJson(String(row.event_json)),
           ),
+          watermark: current,
+          sourceRevision: round.sourceRevision,
+        };
+      }),
+    readCiRunObservations: (pageLimit) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > 2_000)
+          throw new Error("ci run observation page requires a limit from 1 to 2000");
+        const round = catchUpRound(db, eventStore, limit),
+          current = watermark(db);
+        return {
+          status: current === round.sourceRevision ? "ready" : "pending",
+          events: queryRows(db, CI_RUN_OBSERVATIONS_SQL, pageLimit)
+            .map((row) => parseEventJson(String(row.event_json)))
+            .filter((event) => event.schema === "ci-run-observation/v1"),
           watermark: current,
           sourceRevision: round.sourceRevision,
         };

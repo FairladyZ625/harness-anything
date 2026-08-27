@@ -29,6 +29,7 @@ import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { readSettingsFacet } from "../domain/settings.ts";
 import { isPeopleEvent } from "../domain/people-event.ts";
+import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { parsePeopleRosterDocument } from "../domain/people-roster.ts";
 import { scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
@@ -92,6 +93,16 @@ export function applyEvent(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
+  if (isCiRunObservationEvent(event)) {
+    runSql(
+      db,
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+      event.opId,
+      event.workspaceRevision,
+      eventJson,
+    );
+    return;
+  }
   if (isLedgerLayoutMigrationEvent(event)) {
     runSql(
       db,

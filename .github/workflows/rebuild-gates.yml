@@ -16,6 +16,11 @@ on:
 permissions:
   contents: read
 
+env:
+  HARNESS_CI_GATE_RESULTS: tmp/ci-observation/gates.json
+  HARNESS_CI_OBSERVATION_OUTPUT: tmp/ci-observation/observation.json
+  HARNESS_CI_JOB: ${{ github.job }}
+
 jobs:
   gate-contract-tests:
     if: github.event_name != 'pull_request_target'
@@ -147,6 +152,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Start structured CI observation timer
+        run: echo "HARNESS_CI_JOB_STARTED_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
       - name: Enforce module line ceilings
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
@@ -155,6 +162,17 @@ jobs:
             BASE_SHA=$(git rev-parse origin/main)
           fi
           node tools/gates/line-budget.mjs --base "$BASE_SHA"
+      - name: Finalize structured CI observation artifact
+        if: always()
+        run: node tools/write-ci-observation.mjs
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-G32
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: error
+          retention-days: 14
 
   line-density:
     if: github.event_name != 'pull_request_target'
@@ -201,6 +219,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Start structured CI observation timer
+        run: echo "HARNESS_CI_JOB_STARTED_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
       - name: Verify declared production delta
         env:
           GH_TOKEN: ${{ github.token }}
@@ -211,6 +231,17 @@ jobs:
           git fetch --no-tags origin main
           gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
           node tools/gates/production-delta.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"
+      - name: Finalize structured CI observation artifact
+        if: always()
+        run: node tools/write-ci-observation.mjs
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-G33
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: error
+          retention-days: 14
 
   lint:
     if: github.event_name != 'pull_request_target'
@@ -234,4 +265,17 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Start structured CI observation timer
+        run: echo "HARNESS_CI_JOB_STARTED_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
       - run: node tools/gates/entity-id-links.mjs
+      - name: Finalize structured CI observation artifact
+        if: always()
+        run: node tools/write-ci-observation.mjs
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-G37
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: error
+          retention-days: 14

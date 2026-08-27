@@ -10,6 +10,10 @@ export const DAEMON_SETTINGS_READ_SCHEMA = Object.freeze({
   required: Object.freeze(["schema", "ok", "settings"]),
 });
 
+export const DAEMON_CI_OBSERVATORY_SCHEMA = Object.freeze({
+  id: "daemon.ci-observatory/v1",
+});
+
 export const DAEMON_OBSERVE_TAIL_SCHEMA = Object.freeze({
   id: "daemon.observe-tail/v3",
 });

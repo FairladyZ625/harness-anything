@@ -21,6 +21,7 @@ import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 import { validateSchedulesList } from "./schedules-gui-contract.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
+import { validateCiObservatoryRead } from "../ci-observatory-read.ts";
 import {
   validateCatalogPreset,
   validateCatalogRereadReceipt,
@@ -70,6 +71,7 @@ const resultValidators = {
   "observe.tail": validateObserveTailResult,
   "repo.tasks.list": validateDaemonTaskSnapshotList,
   "repo.settings.read": validateDaemonSettingsRead,
+  "repo.ci.observatory.read": validateCiObservatoryRead,
   "repo.workspace.summary.read": validateDaemonWorkspaceSummary,
   "repo.agenda.read": validateDaemonAgenda,
   "repo.triadic.relationGraph": validateDaemonRelationGraph,

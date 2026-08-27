@@ -277,6 +277,7 @@ export type DaemonGuiReadResultMap = {
     readonly ok: true;
     readonly settings: SettingsV1;
   };
+  readonly "repo.ci.observatory.read": import("../ci-observatory-read.ts").CiObservatoryRead;
   readonly "repo.workspace.summary.read": DaemonWorkspaceSummaryResult;
   readonly "repo.agenda.read": DaemonAgendaResult;
   readonly "repo.triadic.relationGraph": { readonly ok: true } & Omit<
@@ -336,6 +337,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "observe.tail": ObserveTailPayload;
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
   readonly "repo.settings.read": Readonly<Record<string, never>>;
+  readonly "repo.ci.observatory.read": { readonly window?: number };
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;
   readonly "repo.agenda.read": DaemonAgendaPayload;
   readonly "repo.triadic.relationGraph": DaemonRelationQueryPayload;
