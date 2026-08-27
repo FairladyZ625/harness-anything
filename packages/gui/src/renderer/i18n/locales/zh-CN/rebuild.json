@@ -24,5 +24,6 @@
   "shell.nav.factDetail": "事实详情",
   "shell.nav.sessions": "会话",
   "shell.nav.agentSquad": "Agent · 含 Squad",
-  "shell.nav.providers": "Provider"
+  "shell.nav.providers": "Provider",
+  "shell.nav.schedules": "定时计划"
 }

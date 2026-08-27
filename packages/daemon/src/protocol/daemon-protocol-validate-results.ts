@@ -247,6 +247,9 @@ export const writeReceiptFields = [
     "receiptId",
     "runtimeSessionId",
     "dispatchId",
+    "scheduleId",
+    "schedule",
+    "claimFence",
   ];
 
 export function writeReceipt(value: JsonObject): string[] {

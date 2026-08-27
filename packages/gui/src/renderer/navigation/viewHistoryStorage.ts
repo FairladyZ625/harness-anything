@@ -29,6 +29,7 @@ const VIEW_IDS: ReadonlySet<string> = new Set<ViewId>([
   "presets",
   "adapters",
   "sessions",
+  "schedules",
   "agentSquad",
   "providers",
   "system",

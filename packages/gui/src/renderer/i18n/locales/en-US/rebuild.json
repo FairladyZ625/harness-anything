@@ -24,5 +24,6 @@
   "shell.nav.factDetail": "Fact Detail",
   "shell.nav.sessions": "Sessions",
   "shell.nav.agentSquad": "Agents · Squads",
-  "shell.nav.providers": "Providers"
+  "shell.nav.providers": "Providers",
+  "shell.nav.schedules": "Schedules"
 }

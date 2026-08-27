@@ -30,6 +30,7 @@ import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
 import { SessionsView } from "./views/SessionsView.tsx";
+import { SchedulesView } from "./views/SchedulesView.tsx";
 import { AgentSquadView } from "./views/AgentSquadView.tsx";
 import { ProvidersView } from "./views/ProvidersView.tsx";
 import { useTaskActions } from "./task-actions.ts";
@@ -580,6 +581,13 @@ function AppShell() {
                 onSelectEntity={selectRuntimeEntity}
                 // W5:「编排」段随入口撤销;session → task 的出口改指 Task 详情(派工链所在)。
                 onOpenTask={navigateToTask}
+              />
+            ) : view === "schedules" ? (
+              <SchedulesView
+                repoId={projectId}
+                focusedEntityRef={focusedEntityRef}
+                onSelectEntity={selectRuntimeEntity}
+                onFocusSchedule={(ref) => updateLocation({ focusedEntityRef: ref })}
               />
             ) : view === "agentSquad" ? (
               <AgentSquadView

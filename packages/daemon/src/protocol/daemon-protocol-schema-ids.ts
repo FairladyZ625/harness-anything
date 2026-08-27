@@ -115,6 +115,20 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
   }),
   DAEMON_SQUAD_RUN_READ_SCHEMA = Object.freeze({
     id: "daemon.squad-run-read/v1",
+  }),
+  DAEMON_SCHEDULES_LIST_SCHEMA = Object.freeze({
+    id: "daemon.schedules-list/v1",
+    required: Object.freeze([
+      "ok",
+      "status",
+      "repoId",
+      "repoMode",
+      "viewerNodeId",
+      "assignmentResolution",
+      "schedules",
+      "watermark",
+      "sourceRevision",
+    ]),
   });
 
 export const GUI_SYSTEM_STATUS_SCHEMA = Object.freeze({

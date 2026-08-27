@@ -405,6 +405,7 @@ export default Object.freeze({
     "G8",
     "Schedule-S3",
     "Settings-Kind",
+    "Schedule-S4",
   ]),
   commands: effectiveDaemonOwnedProtocolCommands,
   methods: Object.freeze([

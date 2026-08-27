@@ -28,6 +28,7 @@ export type ViewId =
   | "presets"
   | "adapters"
   | "sessions"
+  | "schedules"
   | "agentSquad"
   | "providers"
   | "system"

@@ -15,6 +15,7 @@ import { readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts"
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
+import type { FleetRoster } from "./fleet-center-admission.ts";
 import { commandClassForAction, type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
@@ -123,6 +124,8 @@ export async function openRepoCell(input: {
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
+  /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
+  readonly fleetRoster?: () => FleetRoster | null;
 }): Promise<RepoCell> {
   const rootDir = input.rootDir,
     mode = input.mode ?? "local",
@@ -478,6 +481,11 @@ export async function openRepoCell(input: {
   const apiContext = {
     extracted,
     mode,
+    // Resolved per read so the schedule GUI join sees the host's current admission
+    // snapshot even when this cell attached before the fleet center started.
+    get fleetRoster() {
+      return input.fleetRoster?.() ?? null;
+    },
     input,
     rejected,
     operationId,
