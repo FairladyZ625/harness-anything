@@ -191,6 +191,9 @@ jobs:
   production-delta:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -200,11 +203,14 @@ jobs:
           node-version: 24
       - name: Verify declared production delta
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
           PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
-        run: node tools/gates/production-delta.mjs --base "$BASE_SHA"
+        run: |
+          git fetch --no-tags origin main
+          gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
+          node tools/gates/production-delta.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"
 
   lint:
     if: github.event_name != 'pull_request_target'
