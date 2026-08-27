@@ -1,5 +1,5 @@
 import {
-  migrationImportWritePlan,
+  type CanonicalWriteBundle,
   type MigrationDestinationPreimage,
   type MigrationImportEventV1,
   type WriteReceipt,
@@ -22,16 +22,7 @@ export interface Draft {
   readonly build: (revision: number) => Prepared;
 }
 
-export interface Prepared {
-  readonly event: MigrationImportEventV1;
-  readonly plan: ReturnType<typeof migrationImportWritePlan>;
-  readonly blobs: readonly {
-    readonly sha256: string;
-    readonly size: number;
-    readonly mediaType: string;
-    readonly body: string;
-  }[];
-}
+export type Prepared = CanonicalWriteBundle;
 
 export interface PackageDraft {
   readonly migratedFrom: string;

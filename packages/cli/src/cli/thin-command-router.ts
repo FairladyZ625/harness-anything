@@ -59,6 +59,19 @@ export function parseRouted(
   if (route.id.startsWith("schedule-")) return parseSchedule(route, args, rootDir, repoId, json, inputs);
   if (route.id.startsWith("settings-"))
     return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
+  if (route.id.startsWith("people-")) {
+    const projected = parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
+    if (route.id !== "people-add" || !projected.ok) return projected;
+    const action = projected.command.action,
+      credentials = [action.credentialKind, action.credentialIssuer, action.credentialSubject];
+    return credentials.some((value) => value !== undefined) && credentials.some((value) => value === undefined)
+      ? rejected(
+          "invalid_field",
+          "Credential kind, issuer, and subject must be supplied together, or all three must be omitted.",
+          json,
+        )
+      : projected;
+  }
   if (route.id === "receipt-show" && nonEmpty(args[2]) && args.length === 3)
     return accepted(rootDir, repoId, json, {
       kind: "receipt-show",

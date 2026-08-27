@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   readColdRebuildSource,
@@ -8,6 +8,10 @@ import {
   stableStringify,
   taskEntryToRow,
   validateMigrationImportEvent,
+  validateCurrentCanonicalEvent,
+  compilePeopleRosterActionEvent,
+  MIGRATION_IMPORT_SOURCE,
+  PEOPLE_ROSTER_PATH,
   type ActorIdentity,
   type CanonicalEventStore,
   type ColdDecisionProjectionRow,
@@ -19,7 +23,12 @@ import {
 } from "../../kernel/src/index.ts";
 import { auditAuthoredCoverage, authoredPaths, parseResolutions } from "./migration-import-authored-audit.ts";
 import { classifyAuthored, referencedContent } from "./migration-import-authored-classification.ts";
-import { mediaType, portableMigrationPath, resolveAuthoredConflict } from "./migration-import-conflicts.ts";
+import {
+  mediaType,
+  PEOPLE_REGISTRY_SURFACE,
+  portableMigrationPath,
+  resolveAuthoredConflict,
+} from "./migration-import-conflicts.ts";
 import { addDecision as addDecisionImpl } from "./migration-import-entities.ts";
 import {
   blob,
@@ -87,9 +96,6 @@ import type {
 } from "./migration-import-types.ts";
 import { yieldToEventLoop } from "./process-port.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell.ts";
-
-export const PEOPLE_ROSTER_PATH = "people.yaml",
-  PEOPLE_REGISTRY_SURFACE = "people-registry";
 
 export interface MigrationImportRunInput {
   readonly action: RepoTaskAction;
@@ -249,6 +255,10 @@ export async function runSingleMigrationImport(
     attribution,
     attributionUse,
     migrationOperationId,
+    compilePeopleRosterActionEvent,
+    MIGRATION_IMPORT_SOURCE,
+    PEOPLE_ROSTER_PATH,
+    readFileSync,
     migrationImportError,
     taskRead,
     get prepared() {
@@ -326,7 +336,7 @@ export async function runSingleMigrationImport(
     (a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt) || a.migratedFrom.localeCompare(b.migratedFrom),
   )) {
     const next = draft.build(revision + 1),
-      errors = validateMigrationImportEvent(next.event);
+      errors = validateCurrentCanonicalEvent(next.event);
     if (errors.length)
       throw migrationImportError("invalid_migration_source", `${draft.migratedFrom}: ${errors.join("; ")}`);
     if (input.store.readEvent(next.event.opId) === null) {

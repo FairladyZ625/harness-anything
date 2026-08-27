@@ -28,6 +28,7 @@ import {
 import { assertTaskProgressWritePlan, isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { assertScheduleEventInputs, isScheduleEvent } from "../domain/schedule-event.ts";
 import { assertSettingsEventInputs, isSettingsEvent } from "../domain/settings-event.ts";
+import { assertPeopleEventInputs, isPeopleEvent } from "../domain/people-event.ts";
 import { assertSnapshotUpgradeInputs, isSnapshotUpgradeEvent } from "../domain/task-snapshot-upgrade-store-seam.ts";
 import {
   isFrozenWritePlan,
@@ -91,6 +92,15 @@ export function assertBundle(bundle: CanonicalWriteBundle): void {
       throw new TaskEventStoreError(
         "invalid_write_plan",
         "settings event must carry an exact harness.yaml claim and write plan",
+      );
+    }
+  if (isPeopleEvent(event))
+    try {
+      assertPeopleEventInputs(event, plan, blobs);
+    } catch {
+      throw new TaskEventStoreError(
+        "invalid_write_plan",
+        "people event must carry an exact people.yaml claim and write plan",
       );
     }
   if (isTaskEvent(event))

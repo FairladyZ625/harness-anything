@@ -5,6 +5,7 @@ import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import {
   assertCurrentWriter,
+  applyPeopleRosterAction,
   configureLedgerMaintenance,
   DEFAULT_TASK_WIP_LIMIT,
   INITIAL_SETTINGS_V1,
@@ -111,7 +112,22 @@ export function resolveRepoBootstrap(
       `    repository: ${INITIAL_SETTINGS_V1.scaffolds.repository}`,
       "",
     ].join("\n"),
-    people = `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: request.personId, displayName: request.displayName, roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${os.hostname()}`, subject: String(uid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
+    people = applyPeopleRosterAction(null, {
+      kind: "people-add",
+      person: {
+        personId: request.personId,
+        displayName: request.displayName,
+        roles: ["owner"],
+        credentials: [
+          {
+            kind: "unix-socket-owner-boundary",
+            issuer: `host:${os.hostname()}`,
+            subject: String(uid),
+          },
+        ],
+      },
+      rolePolicy: { roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] },
+    }).body,
     harnessDocument = machineDocument(rootDir, "harness/harness.yaml", config, request.name),
     identityDocuments = [harnessDocument, machineDocument(rootDir, "harness/people.yaml", people)],
     initialized = identityDocuments.every(({ existingSha256 }) => existingSha256 !== null);

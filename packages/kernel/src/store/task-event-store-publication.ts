@@ -11,6 +11,7 @@ import {
 } from "../domain/ledger-layout-migration-event.ts";
 import { serializeEventHead } from "../domain/write-chain.contract.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
+import { isPeopleEvent } from "../domain/people-event.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { type LedgerObjectLayout } from "../layout/ledger-object-layout.ts";
 import { ledgerGitPath } from "./ledger-git-layout.ts";
@@ -104,10 +105,15 @@ export function createPublicationApi(runtime: StoreRuntime) {
         "revision_conflict",
         `workspace revision ${event.workspaceRevision} must follow ${previousHead?.revision ?? 0}`,
       );
-    const settingsCandidate = isSettingsEvent(event)
-      ? blobs.find((blob) => blob.sha256 === event.payload.harnessDocumentClaim.sha256)?.body
-      : undefined;
-    assertAuthorizedReplacement(runtime.ledger, parent.sha, event, false, settingsCandidate);
+    const replacementClaim = isSettingsEvent(event)
+        ? event.payload.harnessDocumentClaim
+        : isPeopleEvent(event)
+          ? event.payload.peopleDocumentClaim
+          : null,
+      replacementCandidate = replacementClaim
+        ? blobs.find((blob) => blob.sha256 === replacementClaim.sha256)?.body
+        : undefined;
+    assertAuthorizedReplacement(runtime.ledger, parent.sha, event, false, replacementCandidate);
     if (
       isDocEvent(event) &&
       stableStringify(event.payload.baseLedgerSha) !== stableStringify(canonicalLedgerCut(runtime.repoId, previousHead))
@@ -177,7 +183,7 @@ export function createPublicationApi(runtime: StoreRuntime) {
       nodeSyncs = settleFiles(runtime.repoRoot, preparedSha, files, runtime.options.killpoint, () => {
         const finalize = () => {
           runtime.options.beforeAppend?.();
-          assertAuthorizedReplacement(runtime.ledger, parent.sha, event, false, settingsCandidate);
+          assertAuthorizedReplacement(runtime.ledger, parent.sha, event, false, replacementCandidate);
           try {
             finalizeRefs(runtime.repoRoot, runtime.authoredRef, preparedSha, parent.sha);
           } catch (error) {
@@ -388,11 +394,16 @@ export function createPublicationApi(runtime: StoreRuntime) {
           changed.parent,
           changed.event,
           true,
-          isSettingsEvent(changed.event)
+          isSettingsEvent(changed.event) || isPeopleEvent(changed.event)
             ? (showText(
                 runtime.repoRoot,
                 sha,
-                ledgerGitPath(runtime.ledger, changed.event.payload.harnessDocumentClaim.path),
+                ledgerGitPath(
+                  runtime.ledger,
+                  isSettingsEvent(changed.event)
+                    ? changed.event.payload.harnessDocumentClaim.path
+                    : changed.event.payload.peopleDocumentClaim.path,
+                ),
               ) ?? undefined)
             : undefined,
         );
@@ -412,11 +423,16 @@ export function createPublicationApi(runtime: StoreRuntime) {
           changed.parent,
           changed.event,
           false,
-          isSettingsEvent(changed.event)
+          isSettingsEvent(changed.event) || isPeopleEvent(changed.event)
             ? (showText(
                 runtime.repoRoot,
                 sha,
-                ledgerGitPath(runtime.ledger, changed.event.payload.harnessDocumentClaim.path),
+                ledgerGitPath(
+                  runtime.ledger,
+                  isSettingsEvent(changed.event)
+                    ? changed.event.payload.harnessDocumentClaim.path
+                    : changed.event.payload.peopleDocumentClaim.path,
+                ),
               ) ?? undefined)
             : undefined,
         );

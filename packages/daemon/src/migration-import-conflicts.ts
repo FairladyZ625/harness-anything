@@ -1,10 +1,10 @@
 import path from "node:path";
-import { sha256Text } from "../../kernel/src/index.ts";
-import { mergePeopleRosterDocuments } from "./identity/people-roster.ts";
+import { mergePeopleRosterDocuments, PEOPLE_ROSTER_PATH, sha256Text } from "../../kernel/src/index.ts";
 import { authoredNode, destinationNode, nodeSummary, symlinkTarget, utf8File } from "./migration-import-legacy.ts";
 import { migrationImportError } from "./migration-import-report.ts";
-import { PEOPLE_REGISTRY_SURFACE, PEOPLE_ROSTER_PATH } from "./migration-import-run.ts";
 import type { AuthoredClassification, AuthoredNode, ResolutionChoice } from "./migration-import-types.ts";
+
+export const PEOPLE_REGISTRY_SURFACE = "people-registry";
 
 export function resolveAuthoredConflict(
   base: AuthoredClassification,
@@ -82,7 +82,7 @@ export function resolveAuthoredConflict(
     );
   const { linkTarget: _target, ...destinationPreimage } = destination;
   return {
-    surface: "repo-document",
+    surface: sourcePath === PEOPLE_ROSTER_PATH ? PEOPLE_REGISTRY_SURFACE : "repo-document",
     disposition: "migrated",
     targetConflict: true,
     resolution: choice,

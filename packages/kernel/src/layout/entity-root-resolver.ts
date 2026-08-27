@@ -54,6 +54,7 @@ export function resolveEntityRootForLayout(
     case "runtime-session":
     case "schedule":
     case "settings":
+    case "person":
     case "policy":
       throw new Error(`Phase 1 relation endpoint has no authored layout root: ${entityRef.raw}`);
   }
