@@ -56,12 +56,6 @@ export function createRepoCellApi(context: any): RepoCell {
           context.latched(),
         ),
       );
-    if (context.state === "attached" && commandClass !== "repo-read")
-      try {
-        context.recheckRuntime();
-      } catch (error) {
-        return Promise.resolve(context.failed(context.operationId(action, binding, context.input.repoId, 0), error));
-      }
     const failAction = (error: unknown): WriteReceipt => {
       if (context.fatalCellError(error)) context.latchWith(error);
       return context.failed(
@@ -80,7 +74,6 @@ export function createRepoCellApi(context: any): RepoCell {
             "repo_unavailable",
             "RepoCell closed or changed state before this queued command could execute.",
           );
-        if (context.state === "attached" && commandClass !== "repo-read") context.recheckRuntime();
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
         context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
@@ -160,12 +153,6 @@ export function createRepoCellApi(context: any): RepoCell {
     if (!admission.ok) return reject(admission.code, admission.nextAction);
     if (context.state !== "attached") context.attemptRecovery();
     if (context.state !== "attached") return reject("repo_unavailable", context.latched());
-    if (commandClass === "repo-write")
-      try {
-        context.recheckRuntime();
-      } catch (error) {
-        return reject(context.cellErrorCode(error), context.cellErrorMessage(error));
-      }
     const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
     if (!queuedAdmission.ok) return reject(queuedAdmission.code, queuedAdmission.nextAction);
     return action.kind === "preset-run-status"
@@ -439,7 +426,6 @@ export function createRepoCellApi(context: any): RepoCell {
       const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
       if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-      context.recheckRuntime();
       assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
       return context.runtimeSpawner.spawn(payload, binding) as Promise<JsonObject>;
     });
@@ -464,7 +450,6 @@ export function createRepoCellApi(context: any): RepoCell {
       const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
       if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-      context.recheckRuntime();
       assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
       return context.runtimeSpawner.cancel(payload, binding) as Promise<JsonObject>;
     });
@@ -487,7 +472,6 @@ export function createRepoCellApi(context: any): RepoCell {
       context.queueDepth -= 1;
       if (context.state !== "attached") context.attemptRecovery();
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-      context.recheckRuntime();
       assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
       binding.assertWriterEpoch?.();
       return context.appendRuntimeIngress(action, binding);
@@ -517,7 +501,6 @@ export function createRepoCellApi(context: any): RepoCell {
       const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
       if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-      context.recheckRuntime();
       assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
       context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
       context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;

@@ -48,7 +48,6 @@ import type {
   Snapshot,
 } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
-import { makeDaemonRuntimeAdmissionGuard } from "./runtime-admission.ts";
 import {
   makeRuntimeSpawner,
   type RuntimeAttemptTerminal,
@@ -132,14 +131,10 @@ export async function openRepoCell(input: {
 }): Promise<RepoCell> {
   const rootDir = input.rootDir,
     mode = input.mode ?? "local",
-    now = input.now ?? (() => new Date().toISOString()),
-    runtimeAdmission = makeDaemonRuntimeAdmissionGuard({
-      nowMs: () => Date.parse(now()),
-    });
+    now = input.now ?? (() => new Date().toISOString());
   let readSettings = (): SettingsV1 => {
     throw cellCodedError("projection_pending", "Settings projection is unavailable while the RepoCell is opening.");
   };
-  assertRuntimeAdmission(true);
   const lock = await acquireWorkspaceLock(rootDir),
     generation = Date.now() * 1_000 + (process.pid % 1_000);
   const activeWriter: WriterGeneration = {
@@ -251,14 +246,6 @@ export async function openRepoCell(input: {
     causeClass = causeClassOf(error);
     recoveryProbe.latch();
   };
-  const recheckRuntime = (): void => {
-    try {
-      assertRuntimeAdmission();
-    } catch (error) {
-      latchWith(error);
-      throw error;
-    }
-  };
   // Latch self-heal: while unavailable, the next command replays the failed judgment against a
   // freshly built ledger view (publication refs re-read from Git, recovery replayed, projection
   // catch-up replayed). Pass -> rebind the core and return to attached; fail -> stay unavailable
@@ -270,7 +257,6 @@ export async function openRepoCell(input: {
     let candidate: ReturnType<typeof initialize> | undefined;
     try {
       candidate = initialize();
-      assertRuntimeAdmission(true);
       const probeIndeterminate = candidate.recovery.status === "indeterminate";
       if (probeIndeterminate)
         throw cellCodedError(
@@ -371,9 +357,6 @@ export async function openRepoCell(input: {
     },
     runtimeSpawner: () => runtimeSpawner,
   });
-  function assertRuntimeAdmission(force = false): void {
-    runtimeAdmission.assert(rootDir, force);
-  }
   const catalog = openGuiCatalog({ repoId: input.repoId, rootDir, readSettings: () => readSettings(), now }),
     terminalHost = openTerminalHost({
       repoId: input.repoId,
@@ -386,7 +369,6 @@ export async function openRepoCell(input: {
     if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction);
     if (state !== "attached") attemptRecovery();
     if (state !== "attached") throw cellCodedError("repo_unavailable", latched());
-    recheckRuntime();
   };
   const terminal: RepoCellTerminal = {
     list: terminalHost.list,
@@ -526,7 +508,6 @@ export async function openRepoCell(input: {
       causeClass = value;
     },
     latched,
-    recheckRuntime,
     latchWith,
     get queueDepth() {
       return queueDepth;
