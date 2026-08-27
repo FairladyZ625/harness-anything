@@ -35,11 +35,17 @@ export function resolvePacketAction(
   const fromFile = typeof action.fromFile === "string",
     jsonInput = typeof action.jsonInput === "string",
     hasSource = contract.source === "from-file" ? fromFile : fromFile || jsonInput,
-    actionAllowed = new Set([
-      "kind",
-      ...(fromFile ? ["fromFile"] : jsonInput ? ["jsonInput"] : contract.allowed),
-      ...(contract.actionOverrides ?? []),
-    ]),
+    sourceFields =
+      contract.source === "from-file"
+        ? fromFile
+          ? ["fromFile"]
+          : contract.allowed
+        : fromFile
+          ? ["fromFile"]
+          : jsonInput
+            ? ["jsonInput"]
+            : contract.allowed,
+    actionAllowed = new Set(["kind", ...sourceFields, ...(contract.actionOverrides ?? [])]),
     unsupportedActionFields = Object.keys(action).filter((field) => !actionAllowed.has(field));
   if (unsupportedActionFields.length)
     throw contract.invalid(contract.messages.unsupportedAction(unsupportedActionFields));
