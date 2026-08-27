@@ -50,6 +50,7 @@ export function seedSettingsEvent(input: {
       occurredAt: "2026-08-27T00:00:00.000Z",
     }),
   );
+  void store.drain();
   seededSettings.add(fixtureKey);
 }
 
