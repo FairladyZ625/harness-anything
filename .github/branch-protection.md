@@ -78,27 +78,17 @@ The Mergify GitHub App must be installed from
 https://github.com/marketplace/mergify before maintainers rely on the queue.
 The queue rules live in `.mergify.yml`.
 
-Mergify queue rules track the same required contexts as GitHub branch
-protection. `merge_conditions` stays empty so Mergify can run in-place checks
-against the queued pull request's predicted merge state.
+Mergify sets `branch_protection_injection_mode: queue`, so GitHub branch
+protection supplies the required check conditions for both queue admission and
+merge. `.mergify.yml` therefore contains no duplicated list of check names.
+Its local queue conditions reject any failed check, while `merge_conditions`
+stays empty so Mergify can run in-place checks against the queued pull request's
+predicted merge state.
 
-- boundaries
-- package-policy
-- typecheck (24)
-- fast-contract
-- integration-shard (1)
-- integration-shard (2)
-- integration-shard (3)
-- integration-shard (4)
-- integration-shard (5)
-- integration-shard (6)
-- supply-chain
-- gui-build
-- node26-compatibility
-- pr-body-lint
-- crlf-checkout
-- windows-first-run (ubuntu-latest)
-- windows-first-run (windows-latest)
+When Mergify removes a `merge-queue` pull request and applies the `dequeued`
+label, the workflow rule waits until no check is failed or pending, queues the
+pull request again, and removes `dequeued`. A maintainer does not need to cycle
+the `merge-queue` label after a transient queue failure.
 
 The `pr-body-lint` job checks human-authored pull request bodies against the
 repository template. It narrowly skips Mergify synthetic queue verification pull

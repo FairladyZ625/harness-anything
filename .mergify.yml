@@ -1,28 +1,13 @@
 queue_rules:
   - name: default
     merge_method: merge
+    branch_protection_injection_mode: queue
     queue_conditions:
       - base = main
       - label = merge-queue
       - "-draft"
       - "-conflict"
-      - check-success = boundaries
-      - check-success = package-policy
-      - check-success = "typecheck (24)"
-      - check-success = fast-contract
-      - check-success = "integration-shard (1)"
-      - check-success = "integration-shard (2)"
-      - check-success = "integration-shard (3)"
-      - check-success = "integration-shard (4)"
-      - check-success = "integration-shard (5)"
-      - check-success = "integration-shard (6)"
-      - check-success = supply-chain
-      - check-success = gui-build
-      - check-success = node26-compatibility
-      - check-success = pr-body-lint
-      - check-success = crlf-checkout
-      - check-success = "windows-first-run (ubuntu-latest)"
-      - check-success = "windows-first-run (windows-latest)"
+      - "#check-failure = 0"
     merge_conditions: []
 
 pull_request_rules:
@@ -33,3 +18,64 @@ pull_request_rules:
     actions:
       queue:
         name: default
+
+  - name: requeue dequeued pull requests after checks recover attempt 1
+    conditions:
+      - base = main
+      - label = merge-queue
+      - label = dequeued
+      - "-label = merge-queue-requeue-1"
+      - "-label = merge-queue-requeue-2"
+      - "#check-failure = 0"
+      - "#check-pending = 0"
+    actions:
+      label:
+        add:
+          - merge-queue-requeue-1
+        remove:
+          - dequeued
+      queue:
+        name: default
+
+  - name: requeue dequeued pull requests after checks recover attempt 2
+    conditions:
+      - base = main
+      - label = merge-queue
+      - label = dequeued
+      - label = merge-queue-requeue-1
+      - "-label = merge-queue-requeue-2"
+      - "#check-failure = 0"
+      - "#check-pending = 0"
+    actions:
+      label:
+        add:
+          - merge-queue-requeue-2
+        remove:
+          - dequeued
+      queue:
+        name: default
+
+  - name: clear requeue attempts after merge
+    conditions:
+      - base = main
+      - merged
+      - or:
+          - label = merge-queue-requeue-1
+          - label = merge-queue-requeue-2
+    actions:
+      label:
+        remove:
+          - merge-queue-requeue-1
+          - merge-queue-requeue-2
+
+  - name: clear requeue attempts after leaving the queue
+    conditions:
+      - "-label = merge-queue"
+      - or:
+          - label = merge-queue-requeue-1
+          - label = merge-queue-requeue-2
+    actions:
+      label:
+        remove:
+          - merge-queue-requeue-1
+          - merge-queue-requeue-2
