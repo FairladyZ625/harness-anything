@@ -8,7 +8,6 @@ import test from "node:test";
 import {
   makeTaskEventStore,
   makeTaskProjection,
-  registerDaemonRepo,
   type AgentDefinitionSnapshot,
 } from "../../kernel/src/index.ts";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
@@ -18,6 +17,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 const definition: AgentDefinitionSnapshot = {

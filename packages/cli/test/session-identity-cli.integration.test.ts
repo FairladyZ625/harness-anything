@@ -12,6 +12,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
+import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 const claudeIdentity = {
@@ -26,6 +27,7 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
       CLAUDE_CODE_SESSION_ID: claudeIdentity.sessionId,
       CLAUDE_CODE_HOST_SESSION_ID: "local-must-not-be-forwarded",
     };
+  seedSettingsEvent({ rootDir: fixture.root, repoId: "interactive-session" });
   try {
     assert.equal(run(fixture, ["daemon", "start", "--service"]).ok, true);
     assert.equal(

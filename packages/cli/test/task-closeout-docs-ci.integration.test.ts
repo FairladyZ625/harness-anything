@@ -20,6 +20,7 @@ import {
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 const createFields = [
@@ -51,6 +52,7 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
     taskId = "task-closeout-docs-ci",
     executionId = "execution-closeout-docs-ci";
   initialize(root);
+  seedSettingsEvent({ rootDir: root, repoId: "closeout-docs-ci" });
   try {
     startDaemon(root, userRoot);
     run(root, userRoot, [

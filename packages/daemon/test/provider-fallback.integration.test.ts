@@ -10,7 +10,7 @@ import type { RuntimeInstanceSummary, RuntimeInstallationWitness } from "../src/
 import { readDispatchStreams } from "../src/dispatch-stream.ts";
 import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 

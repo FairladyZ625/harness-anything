@@ -1,33 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  createWriteReceipt,
-  registerDaemonRepo,
-  sha256Bytes,
-} from "../../kernel/src/index.ts";
+import { createWriteReceipt, sha256Bytes } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import {
-  listenFleetTls,
-  type FleetAssignmentRecord,
-} from "../src/fleet/center.ts";
-import {
-  FleetRemoteError,
-  runFleetReplicaPullClient,
-  runFleetWriteClient,
-} from "../src/fleet/edge.ts";
+import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
+import { FleetRemoteError, runFleetReplicaPullClient, runFleetWriteClient } from "../src/fleet/edge.ts";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 test(
   "independent pull atomically switches a quota-bounded view and exact ACK derives durable replica receipts",
@@ -89,18 +71,9 @@ test(
       assert.equal(applied.proof?.ackCut, write.center.revision);
       assert.doesNotThrow(() => createWriteReceipt(pending));
       assert.doesNotThrow(() => createWriteReceipt(applied));
-      const viewPath = path.join(
-          edgeRoot,
-          "repos",
-          fixture.assignment.repoId,
-          "views",
-          fixture.assignment.viewId,
-        ),
+      const viewPath = path.join(edgeRoot, "repos", fixture.assignment.repoId, "views", fixture.assignment.viewId),
         currentPath = path.join(viewPath, "current.json"),
-        current = JSON.parse(readFileSync(currentPath, "utf8")) as Record<
-          string,
-          unknown
-        >;
+        current = JSON.parse(readFileSync(currentPath, "utf8")) as Record<string, unknown>;
       assert.equal("transferId" in current, false);
       assert.equal(
         existsSync(
@@ -152,9 +125,7 @@ test(
       await center.close();
       center = await fixture.center(quota);
       assert.equal(
-        center
-          .status()
-          .replicas.some((row) => row.viewId === fixture.assignment.viewId),
+        center.status().replicas.some((row) => row.viewId === fixture.assignment.viewId),
         true,
       );
       assert.equal(
@@ -196,9 +167,7 @@ test(
         ).outcome,
         "op_rejected",
       );
-      const status = center
-        .status()
-        .replicas.find((row) => row.viewId === fixture.assignment.viewId)!;
+      const status = center.status().replicas.find((row) => row.viewId === fixture.assignment.viewId)!;
       assert.equal(status.lagRevisions, 0);
       assert.equal(status.lagMs, 0);
       assert.match(status.centerEventAt!, /^2026|^20/u);
@@ -206,16 +175,8 @@ test(
       assert.equal(status.sendWindowBytes, 256 * 1024);
       assert.equal(status.sendQuotaBytes, 512 * 1024);
       assert.ok(
-        readdirSync(
-          path.join(
-            edgeRoot,
-            "repos",
-            fixture.assignment.repoId,
-            "views",
-            fixture.assignment.viewId,
-            "cuts",
-          ),
-        ).length <= 2,
+        readdirSync(path.join(edgeRoot, "repos", fixture.assignment.repoId, "views", fixture.assignment.viewId, "cuts"))
+          .length <= 2,
       );
       await center.close();
       center = await fixture.center(undefined);
@@ -225,9 +186,7 @@ test(
           viewRoot: edgeRoot,
           diskQuotaBytes: quota,
         }),
-        (error: unknown) =>
-          error instanceof FleetRemoteError &&
-          error.code === "replica_quota_required",
+        (error: unknown) => error instanceof FleetRemoteError && error.code === "replica_quota_required",
       );
     } finally {
       await center.close().catch(() => undefined);
@@ -352,10 +311,8 @@ async function replicaFixture() {
         key,
         cert,
         replicaDiskQuotaBytes,
-        authenticate: (nodeId, credential) =>
-          nodeId === assignment.nodeId && credential === "machine-secret",
-        resolveAssignment: (assignmentId) =>
-          assignments.get(assignmentId) ?? null,
+        authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
+        resolveAssignment: (assignmentId) => assignments.get(assignmentId) ?? null,
       }),
     close: async () => {
       await host.close();

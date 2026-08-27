@@ -11,7 +11,7 @@ import { validateObserveTailResult } from "../src/protocol/daemon-protocol-gui-t
 import { validateDaemonRpcCall } from "../src/protocol/daemon-protocol-rpc-validation.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { daemonRequestLogPath, openDaemonRequestLog } from "../src/request-log.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const actor = { principal: { personId: "person-observer" }, executor: null };
 const binding = { actor, source: "local" };

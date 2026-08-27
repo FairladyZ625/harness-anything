@@ -8,13 +8,13 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   makeTaskEventStore,
-  registerDaemonRepo,
   taskProjectionSchemaVersion,
   type AgentDefinitionSnapshot,
 } from "../../kernel/src/index.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",

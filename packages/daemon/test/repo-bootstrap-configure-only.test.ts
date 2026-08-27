@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { bindWriterGenerationToken } from "../../kernel/src/index.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { bootstrapRepo, resolveRepoBootstrap, type RepoBootstrapReceipt, type RepoBootstrapRequest } from "../src/repo-bootstrap.ts";
+import { openRepoCell } from "../src/repo-cell.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
 const repoId = "configure-only";
@@ -18,12 +20,22 @@ function init(rootDir: string, configureOnly: boolean): RepoBootstrapReceipt {
   return bootstrapRepo(resolveRepoBootstrap(request, auth), writer, bindWriterGenerationToken(writer));
 }
 
-test("init --configure-only reapplies ledger maintenance without writing the workspace", () => {
+test("init --configure-only reapplies ledger maintenance without writing the workspace", async () => {
   const rootDir = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-configure-only-")));
   try {
     git(rootDir, "init", "-q");
     assert.equal(init(rootDir, false).publication.ok, true);
     const ledgerRoot = path.join(rootDir, "harness"), head = git(ledgerRoot, "rev-parse", "HEAD");
+    const unprojected = await openRepoCell({
+      rootDir: canonicalRoot(rootDir),
+      repoId: workspaceId(repoId),
+      ownerId: "configure-only-test",
+    });
+    await assert.rejects(
+      unprojected.read("repo.settings.read"),
+      (error: Error & { code?: string }) => error.code === "projection_pending",
+    );
+    await unprojected.close();
     // Drop the pinned key so the reapply has something to do: an unconditional noop would pass the
     // no-write assertions below without ever proving that configuration is still applied.
     git(ledgerRoot, "config", "--unset", "maintenance.autoDetach");

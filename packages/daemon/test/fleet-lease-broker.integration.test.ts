@@ -5,7 +5,6 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { registerDaemonRepo } from "../../kernel/src/index.ts";
 import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
@@ -13,6 +12,7 @@ import { runFleetTaskCommandClient, runFleetUploadClient } from "../src/fleet/ed
 import { fleetLeaseTimers } from "../src/lease-broker.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { randomUUID } from "node:crypto";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 const replicaQuota = 64 * 1024 * 1024;
 

@@ -13,13 +13,14 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { registerDaemonRepo, sha256Bytes } from "../../kernel/src/index.ts";
+import { sha256Bytes } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { runFleetEdgeConflictExit, runFleetEdgeDocSync, settlePushRejection } from "../src/fleet-edge-doc-sync.ts";
 import { locateFleetMirrorView, readFleetUnresolvedConflicts } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetWriteClient } from "../src/fleet/edge.ts";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 const replicaQuota = 64 * 1024 * 1024, nodes = ["node-one", "node-two"] as const;
 type NodeId = typeof nodes[number];
