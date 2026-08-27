@@ -16,6 +16,7 @@ import type {
   AgentRuntimeSessionGroupsResult,
   AgentRuntimeSessionResult,
 } from "../agent-runtime-contract.ts";
+import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import type { SquadRunReadResult, SquadRunsListResult } from "../squad-run-contract.ts";
 import type { SchedulesListResult } from "./schedules-gui-contract.ts";
 import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
@@ -622,13 +623,18 @@ export type DaemonGuiActionResult = JsonObject & {
 
 export type DaemonGuiActionMethod = (typeof daemonGuiActionMethods)[number]["method"];
 
-export type DaemonGuiStreamResultMap = {
+export type DaemonStreamResultMap = {
+  readonly "repo.agentRuntime.attach": AgentRuntimeAttachResult;
   readonly "repo.terminal.attach": JsonObject;
 };
 
-export type DaemonGuiStreamMethod = keyof DaemonGuiStreamResultMap;
+export type DaemonStreamMethod = keyof DaemonStreamResultMap;
 
-export type DaemonGuiStreamPayloadMap = {
+export type DaemonStreamPayloadMap = {
+  readonly "repo.agentRuntime.attach": {
+    readonly runtimeSessionId: string;
+    readonly afterCursor: string;
+  };
   readonly "repo.terminal.attach": {
     readonly sessionId: string;
     readonly afterSeq: number;

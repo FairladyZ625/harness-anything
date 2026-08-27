@@ -6,7 +6,6 @@ import {
   daemonGuiStreamFacets,
   type DaemonGuiActionMethod,
   type DaemonGuiRpcReadMethod,
-  type DaemonGuiStreamMethod,
 } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS" | "STREAM";
@@ -16,6 +15,7 @@ export type ApiServiceMethod =
   | (typeof daemonGuiReadMethods)[number]["serviceMethod"]
   | (typeof daemonGuiActionMethods)[number]["serviceMethod"]
   | (typeof daemonGuiStreamFacets)[number]["serviceMethod"];
+type DaemonGuiStreamMethod = (typeof daemonGuiStreamFacets)[number]["method"];
 
 export interface ApiRouteContract {
   readonly id: string;

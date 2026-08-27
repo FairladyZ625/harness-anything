@@ -1,4 +1,9 @@
 import {
+  validateAgentRuntimeAttach,
+  validateAgentRuntimeAttachEvent,
+  type AgentRuntimeAttachEvent,
+} from "../agent-runtime-stream.ts";
+import {
   validateAgentRuntimeEvents,
   validateAgentRuntimeOverview,
   validateAgentRuntimeSessionGroups,
@@ -46,8 +51,8 @@ import {
   type DaemonGuiActionResult,
   type DaemonGuiReadResultMap,
   type DaemonGuiRpcReadMethod,
-  type DaemonGuiStreamMethod,
-  type DaemonGuiStreamResultMap,
+  type DaemonStreamMethod,
+  type DaemonStreamResultMap,
   type DaemonProtocolErrorResult,
 } from "./daemon-protocol.contract.ts";
 type ResultValidator = (value: unknown) => readonly string[];
@@ -126,16 +131,21 @@ export function parseDaemonGuiActionResponse(
   }
   return parseDaemonGuiActionResult(method, value);
 }
-export function parseDaemonGuiStreamResult<M extends DaemonGuiStreamMethod>(
-  _method: M,
+export function parseDaemonStreamResult<M extends DaemonStreamMethod>(
+  method: M,
   value: unknown,
-): DaemonGuiStreamResultMap[M] {
-  const errors = validateTerminalAttach(value);
+): DaemonStreamResultMap[M] {
+  const errors =
+    method === "repo.agentRuntime.attach" ? validateAgentRuntimeAttach(value) : validateTerminalAttach(value);
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
-  return value as DaemonGuiStreamResultMap[M];
+  return value as DaemonStreamResultMap[M];
 }
-export function parseDaemonGuiStreamEvent(value: unknown): import("./json-rpc-types.ts").JsonObject {
-  const errors = validateTerminalAttachEvent(value);
+export function parseDaemonStreamEvent(
+  method: DaemonStreamMethod,
+  value: unknown,
+): AgentRuntimeAttachEvent | import("./json-rpc-types.ts").JsonObject {
+  const errors =
+    method === "repo.agentRuntime.attach" ? validateAgentRuntimeAttachEvent(value) : validateTerminalAttachEvent(value);
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
-  return value as import("./json-rpc-types.ts").JsonObject;
+  return value as AgentRuntimeAttachEvent | import("./json-rpc-types.ts").JsonObject;
 }

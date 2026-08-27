@@ -392,7 +392,18 @@ export const daemonGuiActionMethods = Object.freeze([
   ),
 ] as const);
 
-export const daemonGuiStreamFacets = Object.freeze([
+export const daemonStreamFacets = Object.freeze([
+  {
+    id: "agentRuntime.attach",
+    phase: "Runtime-B",
+    method: "repo.agentRuntime.attach",
+    eventMethod: "repo.agentRuntime.attach.frame",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ runtimeSessionId: "string", afterCursor: "string" }),
+    }),
+  },
   {
     id: "terminal.attach",
     phase: "W5-GUI-S3",
@@ -415,3 +426,9 @@ export const daemonGuiStreamFacets = Object.freeze([
     commandClass: "repo-read",
   },
 ] as const);
+
+type DaemonGuiStreamFacet = Extract<(typeof daemonStreamFacets)[number], { readonly guiBridgeMethod: string }>;
+// The GUI routes are a projection; daemonStreamFacets is the only stream descriptor registry.
+export const daemonGuiStreamFacets = Object.freeze(
+  daemonStreamFacets.filter((facet): facet is DaemonGuiStreamFacet => "guiBridgeMethod" in facet),
+);

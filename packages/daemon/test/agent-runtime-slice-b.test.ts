@@ -19,14 +19,17 @@ import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
 import {
-  daemonAgentRuntimeStreamMethods,
   daemonGuiReadMethods,
-  daemonGuiStreamFacets,
+  daemonStreamFacets,
   jsonRpcMethodContracts,
   validateDaemonRpcCall,
   validateDaemonTaskDispatches,
 } from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import {
+  parseDaemonGuiReadResult,
+  parseDaemonStreamEvent,
+  parseDaemonStreamResult,
+} from "../src/protocol/gui-result-validation.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -56,12 +59,14 @@ test("runtime read facets expose safe overview/session/events through the shared
       ],
     );
     assert.deepEqual(
-      daemonGuiStreamFacets.filter(({ phase }) => phase === "Runtime-B").map(({ method }) => method),
-      [],
-    );
-    assert.deepEqual(
-      daemonAgentRuntimeStreamMethods.map(({ method }) => method),
+      daemonStreamFacets.filter(({ phase }) => phase === "Runtime-B").map(({ method }) => method),
       ["repo.agentRuntime.attach"],
+    );
+    assert.equal(
+      ["repo.agentRuntime.attach", "repo.terminal.attach"].every((method) =>
+        daemonStreamFacets.some((facet) => facet.method === method),
+      ),
+      true,
     );
     assert.equal(
       jsonRpcMethodContracts.some(({ method }) => method === "repo.agentRuntime.attach"),
@@ -101,6 +106,54 @@ test("runtime read facets expose safe overview/session/events through the shared
       0,
     );
   }));
+
+test("one stream parser validates agent-runtime and terminal facets by method", () => {
+  const agentInitial = {
+      ok: true,
+      status: "attached",
+      runtimeSessionId: "runtime-shared-parser",
+      cursor: "stream:0",
+      events: [],
+    },
+    agentEvent = {
+      schema: "agent-runtime-attach-event/v1",
+      type: "heartbeat",
+      runtimeSessionId: "runtime-shared-parser",
+      cursor: "stream:1",
+      occurredAt: "2026-08-27T00:00:00.000Z",
+    },
+    terminalInitial = {
+      schema: "terminal-attach/v1",
+      ok: true,
+      sessionId: "terminal-shared-parser",
+      attachmentId: "attachment-shared-parser",
+      daemonGeneration: 1,
+      status: "attached",
+      replayFromSeq: 0,
+      outputSeq: 0,
+    },
+    terminalEvent = {
+      schema: "terminal-attach-event/v1",
+      sessionId: "terminal-shared-parser",
+      seq: 1,
+      kind: "output",
+      utf8: "ready\n",
+      droppedThrough: null,
+      occurredAt: "2026-08-27T00:00:00.000Z",
+    };
+  assert.equal(parseDaemonStreamResult("repo.agentRuntime.attach", agentInitial), agentInitial);
+  assert.equal(parseDaemonStreamEvent("repo.agentRuntime.attach", agentEvent), agentEvent);
+  assert.equal(parseDaemonStreamResult("repo.terminal.attach", terminalInitial), terminalInitial);
+  assert.equal(parseDaemonStreamEvent("repo.terminal.attach", terminalEvent), terminalEvent);
+  assert.throws(
+    () => parseDaemonStreamResult("repo.terminal.attach", agentInitial),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_result",
+  );
+  assert.throws(
+    () => parseDaemonStreamEvent("repo.agentRuntime.attach", terminalEvent),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_result",
+  );
+});
 
 test("runtime overview batches definitions while a single-session read selects one dispatch", () =>
   withRuntime(({ store, projection, stream }) => {
