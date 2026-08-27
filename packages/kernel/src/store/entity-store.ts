@@ -30,19 +30,27 @@ export interface EntityStore {
 type EntityEventSource = Pick<CanonicalEventStore, "read" | "readContentBlob">;
 
 export function createEntityStore(source: EntityEventSource): EntityStore {
-  const records = (kind: string): readonly StoredEntity[] => {
+  const latestEvents = (kind: string): ReadonlyMap<string, StoredEntityEventV1> => {
     const contract = requireEntityStoreKindContract(kind),
-      latest = new Map<string, ReturnType<typeof entityEventRecord>>();
+      latest = new Map<string, StoredEntityEventV1>();
     for (const event of source.read().events) {
-      if (isEntityEvent(event) && event.payload.entityKind === contract.kind)
-        latest.set(event.payload.entityId, entityEventRecord(event, source, contract));
+      if (isEntityEvent(event) && event.payload.entityKind === contract.kind) latest.set(event.payload.entityId, event);
     }
-    return [...latest.values()].sort((left, right) => left.id.localeCompare(right.id));
+    return latest;
+  };
+  const records = (kind: string): readonly StoredEntity[] => {
+    const contract = requireEntityStoreKindContract(kind);
+    return [...latestEvents(kind).values()]
+      .map((event) => entityEventRecord(event, source, contract))
+      .sort((left, right) => left.id.localeCompare(right.id));
   };
   return {
     upsert: compileEntityUpsert,
-    get: <T>(kind: string, id: string) =>
-      (records(kind).find((record) => record.id === id) as StoredEntity<T> | undefined) ?? null,
+    get: <T>(kind: string, id: string) => {
+      const contract = requireEntityStoreKindContract(kind),
+        event = latestEvents(kind).get(id);
+      return event === undefined ? null : (entityEventRecord(event, source, contract) as StoredEntity<T>);
+    },
     list: <T>(kind: string) => records(kind) as readonly StoredEntity<T>[],
   };
 }
