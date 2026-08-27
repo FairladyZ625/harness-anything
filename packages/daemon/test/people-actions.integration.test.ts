@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -177,6 +177,55 @@ test("People Action commands create people.yaml through the null roster transiti
       roster.people.map(({ personId }) => personId),
       ["person_recovery_owner"],
     );
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("People Action commands hydrate closed from-file packets inside the workspace", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-people-packets-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(root);
+    cell = await openRepoCell({
+      repoId: workspaceId("people-packets"),
+      rootDir: canonicalRoot(root),
+      ownerId: "people-daemon",
+      now: () => "2026-08-27T02:30:00.000Z",
+    });
+    const binding = { actor, source: "local" as const };
+    writeFileSync(
+      path.join(root, "people-add.json"),
+      JSON.stringify({
+        personId: "person_alice",
+        displayName: "Alice",
+        role: "dispatcher",
+        commandClass: ["repo-write"],
+      }),
+    );
+    assert.equal((await cell.run({ kind: "people-add", fromFile: "people-add.json" }, binding)).outcome, "applied");
+    writeFileSync(
+      path.join(root, "people-role.json"),
+      JSON.stringify({ personId: "person_alice", role: "reviewer", commandClass: ["repo-read"] }),
+    );
+    assert.equal(
+      (await cell.run({ kind: "people-set-role", fromFile: "people-role.json" }, binding)).outcome,
+      "applied",
+    );
+    writeFileSync(path.join(root, "people-remove.json"), JSON.stringify({ personId: "person_alice" }));
+    assert.equal(
+      (await cell.run({ kind: "people-remove", fromFile: "people-remove.json" }, binding)).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(root, "people-invalid.json"),
+      JSON.stringify({ personId: "person_bob", unsupported: true }),
+    );
+    const rejected = await cell.run({ kind: "people-remove", fromFile: "people-invalid.json" }, binding);
+    assert.equal(rejected.outcome, "op_rejected");
+    assert.equal(rejected.code, "invalid_command");
+    assert.match(rejected.nextAction ?? "", /unsupported people input fields/u);
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

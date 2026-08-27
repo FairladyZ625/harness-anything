@@ -77,3 +77,26 @@ test("People CLI enforces complete credentials and command class vocabulary", ()
     false,
   );
 });
+
+test("People CLI exposes one closed structured packet facet per public command", () => {
+  for (const [argv, action] of [
+    [["people", "add", "--from-file", "people-add.json"], { kind: "people-add", fromFile: "people-add.json" }],
+    [
+      ["people", "set-role", "--from-file", "people-role.json"],
+      { kind: "people-set-role", fromFile: "people-role.json" },
+    ],
+    [
+      ["people", "remove", "--from-file", "people-remove.json"],
+      { kind: "people-remove", fromFile: "people-remove.json" },
+    ],
+  ] as const) {
+    const parsed = parseThinCommand(argv);
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) assert.deepEqual(parsed.command.action, action);
+  }
+  assert.equal(parseThinCommand(["people", "add", "--person-id", "person_alice"]).ok, false);
+  assert.equal(
+    parseThinCommand(["people", "remove", "--from-file", "people-remove.json", "--person-id", "person_alice"]).ok,
+    false,
+  );
+});

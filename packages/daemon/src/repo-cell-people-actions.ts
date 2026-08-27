@@ -11,15 +11,30 @@ import {
   type PeopleRosterAction,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
+import {
+  peopleAddJsonAllowedFields,
+  peopleAddJsonFields,
+  peopleRemoveJsonAllowedFields,
+  peopleRemoveJsonFields,
+  peopleSetRoleJsonAllowedFields,
+  peopleSetRoleJsonFields,
+} from "./protocol/daemon-protocol-commands-people.ts";
+import { workspaceText } from "./repo-cell-packets.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export function makeRepoCellPeopleActions(cell: any) {
   const run = (action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt => {
-    const domainAction = parsePeopleAction(action),
+    const resolvedAction = resolvePeopleAction(cell.rootDir, action),
+      domainAction = parsePeopleAction(resolvedAction),
       peoplePath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "people.yaml"),
       currentBody = existsSync(peoplePath) ? readFileSync(peoplePath, "utf8") : null,
       revision = cell.store.readHead()?.revision ?? 0,
-      opId = cell.operationId(action, binding, cell.input.repoId, text(action.idempotencyKey) ? 0 : revision),
+      opId = cell.operationId(
+        resolvedAction,
+        binding,
+        cell.input.repoId,
+        peopleText(resolvedAction.idempotencyKey) ? 0 : revision,
+      ),
       compiled = compilePeopleRosterActionEvent({
         currentBody,
         action: domainAction,
@@ -63,19 +78,62 @@ export function makeRepoCellPeopleActions(cell: any) {
   return { run };
 }
 
+const peoplePacketContracts: Readonly<
+  Record<string, { readonly required: readonly string[]; readonly allowed: readonly string[] }>
+> = Object.freeze({
+  "people-add": { required: peopleAddJsonFields, allowed: peopleAddJsonAllowedFields },
+  "people-set-role": { required: peopleSetRoleJsonFields, allowed: peopleSetRoleJsonAllowedFields },
+  "people-remove": { required: peopleRemoveJsonFields, allowed: peopleRemoveJsonAllowedFields },
+});
+
+function resolvePeopleAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {
+  const contract = peoplePacketContracts[action.kind];
+  if (!contract) throw invalidPeopleCommand(`Unknown people action: ${action.kind}`);
+  const fromFile = typeof action.fromFile === "string",
+    actionAllowed = new Set(["kind", ...(fromFile ? ["fromFile"] : contract.allowed)]),
+    unsupportedActionFields = Object.keys(action).filter((field) => !actionAllowed.has(field));
+  if (unsupportedActionFields.length)
+    throw invalidPeopleCommand(`Remove unsupported people action fields: ${unsupportedActionFields.join(", ")}`);
+  if (!fromFile) return action;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(workspaceText(rootDir, action.fromFile, "fromFile"));
+  } catch (error) {
+    if (error instanceof SyntaxError)
+      throw invalidPeopleCommand("People input must be one UTF-8 JSON object; repair the JSON and retry");
+    throw error;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw invalidPeopleCommand("People input must be one JSON object");
+  const packet = parsed as Record<string, unknown>,
+    unknown = Object.keys(packet).filter((field) => !contract.allowed.includes(field)),
+    missing = contract.required.filter((field) => !Object.hasOwn(packet, field));
+  if (unknown.length) throw invalidPeopleCommand(`Remove unsupported people input fields: ${unknown.join(", ")}`);
+  if (missing.length) throw invalidPeopleCommand(`Add required people input fields: ${missing.join(", ")}`);
+  for (const [field, value] of Object.entries(packet)) {
+    if (field === "commandClass") {
+      if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry.trim()))
+        throw invalidPeopleCommand("commandClass must be a non-empty array of non-empty strings");
+    } else if (typeof value !== "string" || !value.trim()) {
+      throw invalidPeopleCommand(`${field} must be a non-empty string`);
+    }
+  }
+  return { kind: action.kind, ...packet };
+}
+
 function parsePeopleAction(action: RepoTaskAction): PeopleRosterAction {
-  const personId = requiredText(action.personId, "person-id");
+  const personId = requiredPeopleText(action.personId, "person-id");
   if (action.kind === "people-remove") return { kind: action.kind, personId };
-  const roleId = requiredText(action.role, "role"),
+  const roleId = requiredPeopleText(action.role, "role"),
     commandClasses = requiredCommandClasses(action.commandClass),
     rolePolicy = { roleId, commandClasses };
   if (action.kind === "people-set-role") return { kind: action.kind, personId, rolePolicy };
   if (action.kind !== "people-add") throw invalidPeopleCommand(`Unknown people action: ${action.kind}`);
-  const displayName = requiredText(action.displayName, "display-name"),
-    primaryEmail = text(action.primaryEmail),
-    credentialKind = text(action.credentialKind),
-    credentialIssuer = text(action.credentialIssuer),
-    credentialSubject = text(action.credentialSubject),
+  const displayName = requiredPeopleText(action.displayName, "display-name"),
+    primaryEmail = peopleText(action.primaryEmail),
+    credentialKind = peopleText(action.credentialKind),
+    credentialIssuer = peopleText(action.credentialIssuer),
+    credentialSubject = peopleText(action.credentialSubject),
     credentialFields = [credentialKind, credentialIssuer, credentialSubject];
   if (credentialFields.some(Boolean) && !credentialFields.every(Boolean))
     throw invalidPeopleCommand("credential-kind, credential-issuer, and credential-subject must be supplied together");
@@ -104,7 +162,9 @@ function parsePeopleAction(action: RepoTaskAction): PeopleRosterAction {
 }
 
 function requiredCommandClasses(value: unknown): readonly PeopleCommandClass[] {
-  const values = (Array.isArray(value) ? value : [value]).map(text).filter((entry): entry is string => Boolean(entry));
+  const values = (Array.isArray(value) ? value : [value])
+    .map(peopleText)
+    .filter((entry): entry is string => Boolean(entry));
   if (values.length === 0) throw invalidPeopleCommand("At least one --command-class is required");
   for (const value of values)
     if (!(peopleCommandClasses as readonly string[]).includes(value))
@@ -112,12 +172,12 @@ function requiredCommandClasses(value: unknown): readonly PeopleCommandClass[] {
   return values as readonly PeopleCommandClass[];
 }
 
-function text(value: unknown): string | undefined {
+function peopleText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function requiredText(value: unknown, flag: string): string {
-  const held = text(value);
+function requiredPeopleText(value: unknown, flag: string): string {
+  const held = peopleText(value);
   if (!held) throw invalidPeopleCommand(`--${flag} is required`);
   return held;
 }

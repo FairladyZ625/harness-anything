@@ -20,10 +20,7 @@ import docSyncContract, {
   validateDocEvent,
   validateDocWriteIntent,
 } from "../../src/domain/doc-sync.contract.ts";
-import {
-  validateWriteReceipt,
-  validateWriteSource,
-} from "../../src/domain/write-chain.contract.ts";
+import { validateWriteReceipt, validateWriteSource } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { validateCanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 
@@ -39,12 +36,10 @@ import {
 test("derived doc-sync contract closes intent and event schemas", () => {
   assert.deepEqual(
     docSyncContract.schemas.map((schema) => schema.id),
-    ["doc-write-intent/v1", "doc-event/v1"],
+    ["doc-write-intent/v1", "doc-event/v1", "people-event/v1"],
   );
   assert.equal(
-    docSyncContract.schemas.every(
-      (schema) => schema.negativeFixtures.length > 0,
-    ),
+    docSyncContract.schemas.every((schema) => schema.negativeFixtures.length > 0),
     true,
   );
   const parsed = parseDocWriteIntent(
@@ -63,10 +58,7 @@ test("derived doc-sync contract closes intent and event schemas", () => {
     },
     "docs",
   );
-  assert.deepEqual(
-    JSON.parse(serializeDocWriteIntent(parsed)).baseLedgerSha,
-    baseLedgerSha,
-  );
+  assert.deepEqual(JSON.parse(serializeDocWriteIntent(parsed)).baseLedgerSha, baseLedgerSha);
   const historicalWatcherSource = {
     kind: "watch_session",
     sessionId: "watch-one",
@@ -74,10 +66,7 @@ test("derived doc-sync contract closes intent and event schemas", () => {
     fingerprint: "a".repeat(64),
   };
   assert.deepEqual(validateWriteSource(historicalWatcherSource, true), []);
-  assert.match(
-    validateWriteSource(historicalWatcherSource).join("\n"),
-    /assignment identity/u,
-  );
+  assert.match(validateWriteSource(historicalWatcherSource).join("\n"), /assignment identity/u);
 });
 
 test("canonical reader accepts the historical doc-event ledger identity bytes", () => {
@@ -277,11 +266,7 @@ test("doc content claims accept only the supported opaque textual media types", 
       },
     ],
   };
-  for (const mediaType of [
-    "application/json",
-    "text/markdown",
-    "text/plain",
-  ] as const)
+  for (const mediaType of ["application/json", "text/markdown", "text/plain"] as const)
     assert.deepEqual(
       validateDocWriteIntent({
         ...base,

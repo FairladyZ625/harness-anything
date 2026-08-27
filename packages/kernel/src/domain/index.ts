@@ -170,30 +170,17 @@ export {
   mergePeopleRosterDocuments,
   parsePeopleRosterDocument,
   PEOPLE_ROSTER_PATH,
-  PEOPLE_ROSTER_SCHEMA,
   peopleCommandClasses,
-  PERSON_V1_SCHEMA,
-  serializePeopleRosterDocument,
-  validatePeopleRoster,
 } from "./people-roster.ts";
 export type {
   CredentialKind,
   CredentialRef,
   PeopleCommandClass,
   PeopleRosterAction,
-  PeopleRosterDocumentV1,
   PersonProfile,
   RolePolicy,
 } from "./people-roster.ts";
-export {
-  assertPeopleEventInputs,
-  assertPeopleEventWritePlan,
-  compilePeopleRosterActionEvent,
-  isPeopleEvent,
-  PEOPLE_REGISTRY_POLICY_ID,
-  peopleEventWritePlan,
-} from "./people-event.ts";
-export type { PeopleEventBundle, PeopleEventV1 } from "./people-event.ts";
+export { compilePeopleRosterActionEvent } from "./people-event.ts";
 
 export { isEntityEvent } from "./entity-event.ts";
 

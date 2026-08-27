@@ -25,6 +25,30 @@ import {
 
 export const PEOPLE_REGISTRY_POLICY_ID = "people-registry/v1";
 
+export const PEOPLE_EVENT_SCHEMA = Object.freeze({
+  id: "people-event/v1",
+  required: Object.freeze([
+    "schema",
+    "eventId",
+    "workspaceRevision",
+    "opId",
+    "type",
+    "actor",
+    "source",
+    "occurredAt",
+    "payload",
+  ]),
+});
+
+export class PeopleEventContractError extends Error {
+  readonly code = "invalid_contract";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "PeopleEventContractError";
+  }
+}
+
 export interface PeopleDocumentClaim {
   readonly path: typeof PEOPLE_ROSTER_PATH;
   readonly sha256: string;
@@ -144,8 +168,8 @@ function validatePeopleEventFields(value: unknown, allowUnknownFields: boolean):
     ) ||
     !peopleActions.includes(String(value.payload.action) as PeopleRosterAction["kind"]) ||
     !(value.payload.targetPersonId === null || typeof value.payload.targetPersonId === "string") ||
-    !validRoster(value.payload.roster) ||
-    !validClaim(value.payload.peopleDocumentClaim, allowUnknownFields) ||
+    !validRoster(value.payload.roster, allowUnknownFields) ||
+    !validPeopleClaim(value.payload.peopleDocumentClaim, allowUnknownFields) ||
     !(value.payload.baseDocumentSha256 === null || /^[0-9a-f]{64}$/u.test(String(value.payload.baseDocumentSha256)))
   )
     return ["people event envelope or payload is invalid"];
@@ -162,18 +186,17 @@ const peopleActions: readonly PeopleRosterAction["kind"][] = Object.freeze([
   "people-replace",
 ]);
 
-function validRoster(value: unknown): value is PeopleRosterDocumentV1 {
+function validRoster(value: unknown, allowUnknownFields: boolean): value is PeopleRosterDocumentV1 {
   try {
     const roster = value as PeopleRosterDocumentV1;
-    return (
-      stableStringify(parsePeopleRosterDocument(serializePeopleRosterDocument(roster))) === stableStringify(roster)
-    );
+    const normalized = parsePeopleRosterDocument(serializePeopleRosterDocument(roster));
+    return allowUnknownFields || stableStringify(normalized) === stableStringify(roster);
   } catch {
     return false;
   }
 }
 
-function validClaim(value: unknown, allowUnknownFields: boolean): boolean {
+function validPeopleClaim(value: unknown, allowUnknownFields: boolean): boolean {
   return (
     isRecord(value) &&
     hasContractFields(value, ["path", "sha256", "size", "mediaType", "policyId"], allowUnknownFields) &&
@@ -192,7 +215,7 @@ export function isPeopleEvent(event: { readonly schema: string }): event is Peop
 
 export function serializePeopleEvent(event: PeopleEventV1): string {
   const errors = validateCurrentPeopleEvent(event);
-  if (errors.length) throw new Error(errors.join("; "));
+  if (errors.length) throw new PeopleEventContractError(errors.join("; "));
   return serializeEventEnvelope(event);
 }
 

@@ -2,7 +2,7 @@ import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.cont
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
-import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
+import { accepted, nonEmpty, readFlags, rejected, rejectInput } from "./thin-command-flags.ts";
 import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
 import { parseRuntimeInstance } from "./thin-command-runtime-instance.ts";
@@ -59,19 +59,7 @@ export function parseRouted(
   if (route.id.startsWith("schedule-")) return parseSchedule(route, args, rootDir, repoId, json, inputs);
   if (route.id.startsWith("settings-"))
     return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
-  if (route.id.startsWith("people-")) {
-    const projected = parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
-    if (route.id !== "people-add" || !projected.ok) return projected;
-    const action = projected.command.action,
-      credentials = [action.credentialKind, action.credentialIssuer, action.credentialSubject];
-    return credentials.some((value) => value !== undefined) && credentials.some((value) => value === undefined)
-      ? rejected(
-          "invalid_field",
-          "Credential kind, issuer, and subject must be supplied together, or all three must be omitted.",
-          json,
-        )
-      : projected;
-  }
+  if (route.id.startsWith("people-")) return parsePeople(route, args, rootDir, repoId, json, inputs);
   if (route.id === "receipt-show" && nonEmpty(args[2]) && args.length === 3)
     return accepted(rootDir, repoId, json, {
       kind: "receipt-show",
@@ -107,4 +95,46 @@ export function parseRouted(
   if (route.phase.startsWith("Preset-") || /^(?:agent|squad)-/u.test(route.id))
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
+}
+
+const peopleRequiredInputs: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  "people-add": ["--person-id", "--display-name", "--role", "--command-class"],
+  "people-set-role": ["--person-id", "--role", "--command-class"],
+  "people-remove": ["--person-id"],
+});
+
+function parsePeople(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const projected = parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
+  if (!projected.ok) return projected;
+  const action = projected.command.action,
+    fromFile = typeof action.fromFile === "string",
+    directFields = Object.keys(action).filter((field) => field !== "kind" && field !== "fromFile");
+  if (fromFile)
+    return directFields.length === 0
+      ? projected
+      : rejected(
+          "invalid_field",
+          "Use --from-file <packet.json> by itself, or provide the complete direct flag set.",
+          json,
+        );
+  for (const input of peopleRequiredInputs[route.id] ?? []) {
+    const field = input.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase());
+    if (!Object.hasOwn(action, field)) return rejectInput(inputs, route.id, input, json);
+  }
+  if (route.id !== "people-add") return projected;
+  const credentials = [action.credentialKind, action.credentialIssuer, action.credentialSubject];
+  return credentials.some((value) => value !== undefined) && credentials.some((value) => value === undefined)
+    ? rejected(
+        "invalid_field",
+        "Credential kind, issuer, and subject must be supplied together, or all three must be omitted.",
+        json,
+      )
+    : projected;
 }

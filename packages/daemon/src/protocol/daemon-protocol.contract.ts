@@ -391,6 +391,7 @@ export default Object.freeze({
     "Schedule-S3",
     "Settings-Kind",
     "Schedule-S4",
+    "Persons-Registry",
   ]),
   commands: effectiveDaemonOwnedProtocolCommands,
   methods: Object.freeze([
