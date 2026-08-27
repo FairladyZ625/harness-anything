@@ -49,7 +49,7 @@ export default Object.freeze({
       id: "G33",
       phase: "P2",
       job: "production-delta",
-      command: 'node tools/gates/production-delta.mjs --base "$BASE_SHA"',
+      command: 'node tools/gates/production-delta.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"',
     },
     { id: "G34", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     {
