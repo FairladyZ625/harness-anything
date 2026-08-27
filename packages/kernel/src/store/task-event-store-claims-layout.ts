@@ -77,6 +77,8 @@ export function canonicalDocumentClaims(event: CanonicalEventV1): readonly {
 export function canonicalDocumentRetirements(
   event: CanonicalEventV1,
 ): readonly { readonly path: string; readonly baseBlobSha256: string }[] {
+  if (isScheduleEvent(event) && "declarationDocumentRetirement" in event.payload)
+    return [event.payload.declarationDocumentRetirement];
   return isDocEvent(event)
     ? event.payload.changes.flatMap(({ path: target, baseBlobSha256, candidate }) =>
         candidate === null && baseBlobSha256 !== null ? [{ path: target, baseBlobSha256 }] : [],

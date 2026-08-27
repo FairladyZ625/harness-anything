@@ -89,6 +89,10 @@ export function getEntityProjectionRow(
   return row === undefined ? null : entityProjectionRow(row);
 }
 
+export function deleteEntityProjectionRow(db: DatabaseSync, entityKind: string, entityId: string): void {
+  runSql(db, "DELETE FROM entity_projection WHERE entity_kind = ? AND entity_id = ?", entityKind, entityId);
+}
+
 function entityProjectionRow(row: Readonly<Record<string, unknown>>): EntityProjectionRow {
   const value = JSON.parse(String(row.value_json)) as unknown;
   if (typeof value !== "object" || value === null || Array.isArray(value))

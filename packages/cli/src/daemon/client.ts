@@ -371,7 +371,11 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
 }
 
 function materializeScheduleMission(command: ThinCommand): ThinCommand {
-  if (command.action.kind !== "schedule-create" || typeof command.action.missionFile !== "string") return command;
+  if (
+    !["schedule-create", "schedule-update"].includes(command.action.kind) ||
+    typeof command.action.missionFile !== "string"
+  )
+    return command;
   const missionPath = path.resolve(command.rootDir, command.action.missionFile),
     relative = path.relative(command.rootDir, missionPath);
   if (relative.startsWith("..") || path.isAbsolute(relative))
@@ -607,16 +611,15 @@ export async function fleetTaskRoute(
     }
     if (packet === null || typeof packet !== "object" || Array.isArray(packet))
       throw Object.assign(new Error(`${source} must contain one JSON object.`), { code: "invalid_field" });
-    if (command.action.kind === "task-create") {
+    if (command.action.kind === "task-create" || command.action.kind.startsWith("schedule-")) {
       const fields = packet as Record<string, unknown>;
       const unsupported = Object.keys(fields).filter((field) =>
         ["fromFile", "jsonInput", "kind", "createMode", "fromLegacyId"].includes(field),
       );
       if (unsupported.length)
-        throw Object.assign(
-          new Error(`--from-file for task create cannot carry ${unsupported.join(", ")} over the fleet channel.`),
-          { code: "invalid_field" },
-        );
+        throw Object.assign(new Error(`--from-file cannot carry ${unsupported.join(", ")} over the fleet channel.`), {
+          code: "invalid_field",
+        });
       payload.action = { ...fields, ...action };
     } else payload.action = { ...action, submission: packet };
   }

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assertScheduleEventInputs,
+  compileScheduleDeletedEvent,
   compileScheduleDefinitionEvent,
   compileScheduleRunEvent,
   scheduleEventWritePlan,
@@ -12,7 +13,11 @@ import {
 import { createScheduleV1, type ScheduleV1 } from "../../src/domain/schedule.ts";
 import { parseCanonicalEvent, serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
-import { canonicalDocumentClaims, canonicalEventContentClaims } from "../../src/store/task-event-store.ts";
+import {
+  canonicalDocumentClaims,
+  canonicalDocumentRetirements,
+  canonicalEventContentClaims,
+} from "../../src/store/task-event-store.ts";
 
 const actor = { principal: { personId: "person-schedule" }, executor: null } as const;
 
@@ -22,6 +27,7 @@ test("all Schedule definition and run events round-trip through the canonical pa
     events.map(({ type }) => type),
     [
       "schedule_created",
+      "schedule_updated",
       "schedule_enabled",
       "schedule_disabled",
       "schedule_occurrence_claimed",
@@ -29,6 +35,7 @@ test("all Schedule definition and run events round-trip through the canonical pa
       "schedule_occurrences_missed",
       "schedule_dispatch_failed",
       "schedule_run_settled",
+      "schedule_deleted",
     ],
   );
   for (const event of events) {
@@ -40,9 +47,12 @@ test("all Schedule definition and run events round-trip through the canonical pa
 test("definition events declare one document claim while run evidence declares none", () => {
   const events = fixtureEvents();
   for (const event of events) {
-    const definitionEvent = ["schedule_created", "schedule_enabled", "schedule_disabled"].includes(event.type);
+    const definitionEvent = ["schedule_created", "schedule_updated", "schedule_enabled", "schedule_disabled"].includes(
+      event.type,
+    );
     assert.equal(canonicalDocumentClaims(event).length, definitionEvent ? 1 : 0, event.type);
     assert.equal(canonicalEventContentClaims(event).length, definitionEvent ? 1 : 0, event.type);
+    assert.equal(canonicalDocumentRetirements(event).length, event.type === "schedule_deleted" ? 1 : 0, event.type);
   }
 
   const created = compileScheduleDefinitionEvent(input(1, "schedule_created", baseSchedule()));
@@ -77,6 +87,24 @@ test("definition transition events must carry the state required by the named tr
   assert.throws(() => compileScheduleDefinitionEvent(input(1, "schedule_enabled", paused)), /definition event state/u);
 });
 
+test("deletion evidence is bound to the exact declaration snapshot it retires", () => {
+  const schedule = baseSchedule(),
+    definition = compileScheduleDefinitionEvent(input(1, "schedule_created", schedule)),
+    deleted = compileScheduleDeletedEvent({
+      ...input(2, "schedule_deleted", schedule),
+      baseBlobSha256: definition.blobs[0].sha256,
+      reason: "retired",
+    }).event;
+  assert.equal(
+    deleted.payload.declarationDocumentRetirement.baseBlobSha256,
+    definition.event.payload.declarationDocumentClaim.sha256,
+  );
+  assert.throws(
+    () => compileScheduleDeletedEvent({ ...input(2, "schedule_deleted", schedule), baseBlobSha256: "invalid" }),
+    /deletion evidence/u,
+  );
+});
+
 function fixtureEvents(): readonly ScheduleEventV1[] {
   const base = baseSchedule(),
     active = {
@@ -101,22 +129,25 @@ function fixtureEvents(): readonly ScheduleEventV1[] {
       dispatchId: "dispatch-1",
       runtimeSessionId: "runtime-session-1",
     },
-    definitionEvents = [
-      compileScheduleDefinitionEvent(input(1, "schedule_created", base)).event,
-      compileScheduleDefinitionEvent(input(2, "schedule_enabled", base)).event,
+    definitionBundles = [
+      compileScheduleDefinitionEvent(input(1, "schedule_created", base)),
       compileScheduleDefinitionEvent(
-        input(3, "schedule_disabled", { ...base, state: "paused", updatedAt: "2026-08-26T10:20:00.000Z" }),
-      ).event,
+        input(2, "schedule_updated", { ...base, name: "Updated heartbeat", updatedAt: "2026-08-26T10:02:00.000Z" }),
+      ),
+      compileScheduleDefinitionEvent(input(3, "schedule_enabled", base)),
+      compileScheduleDefinitionEvent(
+        input(4, "schedule_disabled", { ...base, state: "paused", updatedAt: "2026-08-26T10:20:00.000Z" }),
+      ),
     ],
     runEvents = [
       compileScheduleRunEvent(
-        input(4, "schedule_occurrence_claimed", {
+        input(5, "schedule_occurrence_claimed", {
           ...base,
           status: { ...base.status, automaticEvaluatedThrough: active.scheduledFor, activeRun: active },
         }),
       ).event,
       compileScheduleRunEvent(
-        input(5, "schedule_occurrence_dispatched", {
+        input(6, "schedule_occurrence_dispatched", {
           ...base,
           status: {
             ...base.status,
@@ -126,7 +157,7 @@ function fixtureEvents(): readonly ScheduleEventV1[] {
         }),
       ).event,
       compileScheduleRunEvent({
-        ...input(6, "schedule_occurrences_missed", {
+        ...input(7, "schedule_occurrences_missed", {
           ...base,
           status: {
             ...base.status,
@@ -144,7 +175,7 @@ function fixtureEvents(): readonly ScheduleEventV1[] {
         },
       }).event,
       compileScheduleRunEvent(
-        input(7, "schedule_dispatch_failed", {
+        input(8, "schedule_dispatch_failed", {
           ...base,
           status: {
             ...base.status,
@@ -155,13 +186,18 @@ function fixtureEvents(): readonly ScheduleEventV1[] {
         }),
       ).event,
       compileScheduleRunEvent(
-        input(8, "schedule_run_settled", {
+        input(9, "schedule_run_settled", {
           ...base,
           status: { ...base.status, automaticEvaluatedThrough: active.scheduledFor, activeRun: null, lastRun: last },
         }),
       ).event,
     ];
-  return [...definitionEvents, ...runEvents];
+  const deleted = compileScheduleDeletedEvent({
+    ...input(10, "schedule_deleted", base),
+    baseBlobSha256: definitionBundles[0].blobs[0].sha256,
+    reason: "retired by operator",
+  }).event;
+  return [...definitionBundles.map(({ event }) => event), ...runEvents, deleted];
 }
 
 function baseSchedule(): ScheduleV1 {

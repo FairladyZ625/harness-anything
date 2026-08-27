@@ -23,6 +23,23 @@ export interface ScheduleGuiActionFacet {
   readonly nextAction: string | null;
 }
 
+export interface ScheduleGuiOptionsDto {
+  readonly agents: readonly {
+    readonly agentId: string;
+    readonly name: string;
+    readonly runtimeType: string;
+  }[];
+  readonly instances: readonly {
+    readonly instanceId: string;
+    readonly name: string;
+    readonly kindId: "claude" | "codex" | "agy";
+    readonly models: readonly string[];
+    readonly efforts: readonly string[];
+  }[];
+  /** `.` is the repository root; all other values are repository-relative directories. */
+  readonly cwd: readonly string[];
+}
+
 export interface ScheduleGuiRowDto {
   readonly scheduleId: string;
   readonly name: string;
@@ -42,6 +59,8 @@ export interface ScheduleGuiRowDto {
   readonly claim: { readonly nodeId: string | null; readonly assignmentId: string | null };
   readonly nextRunAt: string | null;
   readonly actions: {
+    readonly edit: ScheduleGuiActionFacet;
+    readonly delete: ScheduleGuiActionFacet;
     readonly enable: ScheduleGuiActionFacet;
     readonly disable: ScheduleGuiActionFacet;
     readonly runNow: ScheduleGuiActionFacet;
@@ -84,6 +103,8 @@ export interface SchedulesListResult {
   readonly repoId: string;
   readonly repoMode: "local" | "remote-center" | "remote-edge";
   readonly viewerNodeId: string | null;
+  readonly actions: { readonly create: ScheduleGuiActionFacet };
+  readonly options: ScheduleGuiOptionsDto;
   readonly schedules: readonly ScheduleGuiRowDto[];
   readonly watermark: number;
   readonly sourceRevision: number;
@@ -207,6 +228,8 @@ const schedulesListFields = [
   "repoId",
   "repoMode",
   "viewerNodeId",
+  "actions",
+  "options",
   "schedules",
   "watermark",
   "sourceRevision",
@@ -221,6 +244,8 @@ export function validateSchedulesList(value: unknown): readonly string[] {
     !scheduleNonEmptyText(value.repoId) ||
     !["local", "remote-center", "remote-edge"].includes(String(value.repoMode)) ||
     !nullableNonEmpty(value.viewerNodeId) ||
+    !validRootActions(value.actions) ||
+    !validOptions(value.options) ||
     !Array.isArray(value.schedules) ||
     !Number.isSafeInteger(value.watermark) ||
     !Number.isSafeInteger(value.sourceRevision)
@@ -256,7 +281,9 @@ export function validateSchedulesList(value: unknown): readonly string[] {
       !nullableNonEmpty(row.claim.assignmentId) ||
       !utcTimestamp(row.nextRunAt, true) ||
       !isJsonObject(row.actions) ||
-      Object.keys(row.actions).length !== 3 ||
+      Object.keys(row.actions).length !== 5 ||
+      !validActionFacet(row.actions.edit) ||
+      !validActionFacet(row.actions.delete) ||
       !validActionFacet(row.actions.enable) ||
       !validActionFacet(row.actions.disable) ||
       !validActionFacet(row.actions.runNow) ||
@@ -277,6 +304,46 @@ export function validateSchedulesList(value: unknown): readonly string[] {
       return ["schedule row is invalid"];
   }
   return [];
+}
+
+function validRootActions(value: unknown): boolean {
+  return isJsonObject(value) && Object.keys(value).length === 1 && validActionFacet(value.create);
+}
+
+function validOptions(value: unknown): boolean {
+  if (
+    !isJsonObject(value) ||
+    Object.keys(value).length !== 3 ||
+    !Array.isArray(value.agents) ||
+    !Array.isArray(value.instances) ||
+    !Array.isArray(value.cwd)
+  )
+    return false;
+  return (
+    value.agents.every(
+      (agent) =>
+        isJsonObject(agent) &&
+        Object.keys(agent).length === 3 &&
+        scheduleNonEmptyText(agent.agentId) &&
+        scheduleNonEmptyText(agent.name) &&
+        scheduleNonEmptyText(agent.runtimeType),
+    ) &&
+    value.instances.every(
+      (instance) =>
+        isJsonObject(instance) &&
+        Object.keys(instance).length === 5 &&
+        scheduleNonEmptyText(instance.instanceId) &&
+        scheduleNonEmptyText(instance.name) &&
+        ["claude", "codex", "agy"].includes(String(instance.kindId)) &&
+        Array.isArray(instance.models) &&
+        instance.models.every(scheduleNonEmptyText) &&
+        Array.isArray(instance.efforts) &&
+        instance.efforts.every(scheduleNonEmptyText),
+    ) &&
+    value.cwd.length > 0 &&
+    value.cwd[0] === "." &&
+    value.cwd.every(scheduleNonEmptyText)
+  );
 }
 
 export const serializeSchedulesList = (value: unknown): string => {

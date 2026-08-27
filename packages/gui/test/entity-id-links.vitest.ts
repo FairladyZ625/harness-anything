@@ -375,6 +375,20 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
     repoId: REPO_ID,
     repoMode: "local",
     viewerNodeId: "local",
+    actions: { create: { available: true, code: null, nextAction: null } },
+    options: {
+      agents: [{ agentId: AGENT_ID, name: "Probe Agent", runtimeType: "codex" }],
+      instances: [
+        {
+          instanceId: PROVIDER_ID,
+          name: "Probe Runtime",
+          kindId: "codex",
+          models: [],
+          efforts: ["low", "medium", "high"],
+        },
+      ],
+      cwd: ["."],
+    },
     schedules: [
       {
         scheduleId: "heartbeat-probe",
@@ -395,6 +409,8 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
         claim: { nodeId: null, assignmentId: null },
         nextRunAt: AT,
         actions: {
+          edit: { available: true, code: null, nextAction: null },
+          delete: { available: true, code: null, nextAction: null },
           enable: { available: false, code: "no_changes", nextAction: "The Schedule is already armed." },
           disable: { available: true, code: null, nextAction: null },
           runNow: { available: true, code: null, nextAction: null },

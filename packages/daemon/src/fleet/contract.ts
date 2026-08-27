@@ -445,6 +445,32 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
       "scheduleId",
     ]),
     "schedule-list": optionalShape({ kind: one("schedule-list"), scheduleId: id }, ["kind", "scheduleId"]),
+    "schedule-show": optionalShape({ kind: one("schedule-show"), scheduleId: id }, ["kind", "scheduleId"]),
+    "schedule-update": (value) =>
+      optionalShape(
+        {
+          kind: one("schedule-update"),
+          scheduleId: id,
+          name: text,
+          everyMs: (item) => positiveInt(item) && Number(item) >= 60_000,
+          agentId: id,
+          runtimeInstanceId: id,
+          mission: scheduleMission,
+          model: nullable(text),
+          reasoningEffort: nullable(one("minimal", "low", "medium", "high", "xhigh")),
+          cwd: nullable(logicalPath),
+          idempotencyKey: text,
+        },
+        ["kind", "scheduleId"],
+      )(value) &&
+      record(value) &&
+      ["name", "everyMs", "agentId", "runtimeInstanceId", "mission", "model", "reasoningEffort", "cwd"].some((field) =>
+        Object.hasOwn(value, field),
+      ),
+    "schedule-delete": optionalShape(
+      { kind: one("schedule-delete"), scheduleId: id, reason: text, idempotencyKey: text },
+      ["kind", "scheduleId"],
+    ),
     "schedule-disable": optionalShape({ kind: one("schedule-disable"), scheduleId: id, idempotencyKey: text }, [
       "kind",
       "scheduleId",

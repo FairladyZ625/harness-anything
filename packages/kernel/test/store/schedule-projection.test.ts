@@ -2,7 +2,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
-import { compileScheduleDefinitionEvent, compileScheduleRunEvent } from "../../src/domain/schedule-event.ts";
+import {
+  compileScheduleDefinitionEvent,
+  compileScheduleDeletedEvent,
+  compileScheduleRunEvent,
+} from "../../src/domain/schedule-event.ts";
 import { createScheduleV1, type ScheduleV1 } from "../../src/domain/schedule.ts";
 import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
@@ -95,6 +99,30 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
     assert.deepEqual(projection.getEntity("schedule", "schedule-heartbeat"), row);
     assert.equal(projection.readStateDigest(), digest);
     assert.equal(eventStore.read().revision, 4);
+
+    const deleted = compileScheduleDeletedEvent({
+      ...input(5, "schedule_deleted", settledSchedule),
+      baseBlobSha256: created.blobs[0].sha256,
+      reason: "No longer required",
+    });
+    eventStore.append(deleted);
+    projection.apply(deleted.event, deleted.plan);
+    assert.equal(projection.readDocument("schedules/schedule-heartbeat.json").document, null);
+    assert.equal(projection.getEntity("schedule", "schedule-heartbeat"), null);
+    assert.deepEqual(
+      eventStore.read().events.map(({ type }) => type),
+      [
+        "schedule_created",
+        "schedule_occurrence_claimed",
+        "schedule_occurrence_dispatched",
+        "schedule_run_settled",
+        "schedule_deleted",
+      ],
+    );
+    const rebuiltAfterDelete = projection.rebuild();
+    assert.equal(rebuiltAfterDelete.watermark, 5);
+    assert.equal(projection.readDocument("schedules/schedule-heartbeat.json").document, null);
+    assert.equal(projection.getEntity("schedule", "schedule-heartbeat"), null);
   });
 });
 

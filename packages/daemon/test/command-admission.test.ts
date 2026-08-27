@@ -10,8 +10,8 @@ const localSource = "local" as const;
 const assignmentSource = { kind: "assignment", nodeId: "edge-one", assignmentId: "assignment-one" } as const;
 const admissionRoutes = new Set(["direct", "via-assignment", "via-center-forward", "rejected"]);
 
-test("all 129 daemon commands close every repo-mode admission cell", () => {
-  assert.equal(daemonProtocolCommands.length, 129);
+test("all 132 daemon commands close every repo-mode admission cell", () => {
+  assert.equal(daemonProtocolCommands.length, 132);
   let cells = 0;
   for (const command of daemonProtocolCommands) {
     assert.deepEqual(Object.keys(command.admission).sort(), [...daemonRepoModeWords].sort(), command.id);
@@ -35,7 +35,7 @@ test("all 129 daemon commands close every repo-mode admission cell", () => {
       }
     }
   }
-  assert.equal(cells, 129 * 3);
+  assert.equal(cells, 132 * 3);
 });
 
 test("observe.tail declares direct admission and named source residency for every tail kind", () => {
@@ -57,17 +57,18 @@ test("observe.tail declares direct admission and named source residency for ever
 
 test("Schedule descriptors derive all three mode routes without a CLI mode branch", () => {
   const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
-  for (const id of ["schedule-create", "schedule-enable", "schedule-disable"])
+  for (const id of ["schedule-create", "schedule-update", "schedule-delete", "schedule-enable", "schedule-disable"])
     assert.deepEqual(byId.get(id)?.admission, {
       local: "direct",
       "remote-center": "via-assignment",
       "remote-edge": "via-center-forward",
     });
-  assert.deepEqual(byId.get("schedule-list")?.admission, {
-    local: "direct",
-    "remote-center": "direct",
-    "remote-edge": "via-center-forward",
-  });
+  for (const id of ["schedule-list", "schedule-show"])
+    assert.deepEqual(byId.get(id)?.admission, {
+      local: "direct",
+      "remote-center": "direct",
+      "remote-edge": "via-center-forward",
+    });
   assert.deepEqual(byId.get("schedule-run-now")?.admission, {
     local: "direct",
     "remote-center": "via-assignment",

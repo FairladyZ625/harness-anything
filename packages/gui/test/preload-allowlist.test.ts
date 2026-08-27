@@ -147,7 +147,7 @@ test("preload exposes only the approved API methods", () => {
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
   assert.equal(getPreloadApiCapability("getTasks").status, "shipped");
-  assert.equal(daemonGuiActionMethods.length, 25);
+  assert.equal(daemonGuiActionMethods.length, 28);
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"),
     false,
@@ -211,6 +211,33 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
       /invalid/u,
     );
   }
+  const definition = {
+    repoId: "repo-a",
+    scheduleId: "heartbeat-probe",
+    name: "Heartbeat probe",
+    everyMs: 300_000,
+    agentId: "probe-agent",
+    runtimeInstanceId: "codex-schedule",
+    mission: "Run the probe.",
+    idempotencyKey: "retry-1",
+  };
+  assert.equal(assertPreloadPayload("createSchedule", definition), true);
+  assert.equal(assertPreloadPayload("updateSchedule", { ...definition, model: null, cwd: null }), true);
+  assert.equal(
+    assertPreloadPayload("deleteSchedule", {
+      repoId: "repo-a",
+      scheduleId: "heartbeat-probe",
+      reason: "retired",
+      idempotencyKey: "retry-1",
+    }),
+    true,
+  );
+  assert.throws(() => assertPreloadPayload("createSchedule", { ...definition, everyMs: 30_000 }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("updateSchedule", { ...definition, mission: "", extra: true }), /invalid/u);
+  assert.throws(
+    () => assertPreloadPayload("deleteSchedule", { repoId: "repo-a", scheduleId: "heartbeat-probe" }),
+    /invalid/u,
+  );
 });
 
 // The Agent/Squad detail reads are contract-derived with their own input schema:
