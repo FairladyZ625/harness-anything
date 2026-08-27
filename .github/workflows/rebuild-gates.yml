@@ -83,6 +83,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - run: npm ci
       - run: node tools/gates/schema-closure.mjs --check
 
   canonical-event-compat:
