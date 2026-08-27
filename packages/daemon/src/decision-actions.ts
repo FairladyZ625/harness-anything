@@ -21,6 +21,7 @@ import {
   type WriteSource,
 } from "../../kernel/src/index.ts";
 import { authorizeAction } from "./authorization.ts";
+import { roleBindingAuthorizationContext } from "./repo-cell-role-bindings.ts";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import {
   compileFact,
@@ -136,7 +137,7 @@ export function makeDecisionActions(input: {
             binding.actor,
             opId,
             {
-              commandClasses: binding.roles?.map((role) => role.replace(/^\$/u, "")) ?? [],
+              ...roleBindingAuthorizationContext(binding),
               target: {
                 proposalActor:
                   input.projection.readDecision(requiredFactText(action.decisionId, "decisionId")).decision?.proposer ??
@@ -159,7 +160,7 @@ export function makeDecisionActions(input: {
           ? "An agent cannot judge its own Decision proposal; use an independent reviewer."
           : reviewIndependenceFailed
             ? "Decision outcome requires a reviewer independent from the proposal actor."
-            : "Decision outcome requires a transport-bound $arbiter.",
+            : "Decision outcome requires an active arbiter RoleBinding.",
       );
     }
     const normalized =

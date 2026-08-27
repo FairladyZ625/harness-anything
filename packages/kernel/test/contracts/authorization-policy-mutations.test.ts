@@ -38,6 +38,19 @@ const owner: ActorIdentity = {
   },
   runtimeBinding = { runtimeSessionId: "runtime-1", taskId: "task-1", executionId: "execution-1" } as const;
 
+function commandRoles(actor: ActorIdentity, ...roles: readonly string[]) {
+  return {
+    roleBindings: roles.map((role) => ({
+      actor: { kind: "person" as const, id: actor.principal.personId },
+      role,
+      target: "settings/repository" as const,
+      source: "derived" as const,
+      expiresAt: null,
+    })),
+    roleBindingTargets: ["settings/repository" as const],
+  };
+}
+
 type Case = {
   readonly label: string;
   readonly kind: string;
@@ -85,7 +98,7 @@ const cases: readonly Case[] = [
     kind: "execution.start",
     target: "execution/execution-1",
     actor: owner,
-    context: { commandClasses: ["repo-write"], target: {} },
+    context: { ...commandRoles(owner, "repo-write"), target: {} },
     expected: "allowed",
   },
   {
@@ -93,7 +106,7 @@ const cases: readonly Case[] = [
     kind: "execution.start",
     target: "execution/execution-1",
     actor: owner,
-    context: { commandClasses: [], target: {} },
+    context: { ...commandRoles(owner), target: {} },
     expected: "denied",
   },
   {
@@ -101,7 +114,7 @@ const cases: readonly Case[] = [
     kind: "execution.review",
     target: "execution/execution-1",
     actor: reviewer,
-    context: { commandClasses: ["arbiter"], target: { executionActor: owner, runtimeBinding: null } },
+    context: { ...commandRoles(reviewer, "arbiter"), target: { executionActor: owner, runtimeBinding: null } },
     expected: "allowed",
   },
   {
@@ -109,7 +122,7 @@ const cases: readonly Case[] = [
     kind: "execution.review",
     target: "execution/execution-1",
     actor: reviewer,
-    context: { commandClasses: [], target: { executionActor: owner, runtimeBinding: null } },
+    context: { ...commandRoles(reviewer), target: { executionActor: owner, runtimeBinding: null } },
     expected: "denied",
   },
   {
@@ -117,7 +130,7 @@ const cases: readonly Case[] = [
     kind: "execution.review",
     target: "execution/execution-1",
     actor: owner,
-    context: { commandClasses: ["arbiter"], target: { executionActor: owner, runtimeBinding: null } },
+    context: { ...commandRoles(owner, "arbiter"), target: { executionActor: owner, runtimeBinding: null } },
     expected: "denied",
   },
   {
@@ -125,7 +138,7 @@ const cases: readonly Case[] = [
     kind: "decision.accept",
     target: "decision/decision-1",
     actor: reviewer,
-    context: { commandClasses: ["arbiter"], target: { proposalActor: owner } },
+    context: { ...commandRoles(reviewer, "arbiter"), target: { proposalActor: owner } },
     expected: "allowed",
   },
   {
@@ -133,7 +146,7 @@ const cases: readonly Case[] = [
     kind: "decision.accept",
     target: "decision/decision-1",
     actor: owner,
-    context: { commandClasses: ["arbiter"], target: { proposalActor: owner } },
+    context: { ...commandRoles(owner, "arbiter"), target: { proposalActor: owner } },
     expected: "denied",
   },
   {
@@ -141,7 +154,7 @@ const cases: readonly Case[] = [
     kind: "decision.accept",
     target: "decision/decision-1",
     actor: humanOwner,
-    context: { commandClasses: ["arbiter"], target: { proposalActor: humanOwner } },
+    context: { ...commandRoles(humanOwner, "arbiter"), target: { proposalActor: humanOwner } },
     expected: "allowed",
   },
   {
@@ -149,7 +162,7 @@ const cases: readonly Case[] = [
     kind: "decision.accept",
     target: "decision/decision-1",
     actor: reviewer,
-    context: { commandClasses: [], target: { proposalActor: owner } },
+    context: { ...commandRoles(reviewer), target: { proposalActor: owner } },
     expected: "denied",
   },
   {
@@ -304,6 +317,10 @@ function assertLocationOracles(policy: PolicyDeclarationV1): void {
 function clonePolicy(): PolicyDeclarationV1 {
   return structuredClone(DEFAULT_POLICY);
 }
+
+test("the unmutated v2 Policy satisfies every location oracle", () => {
+  assertLocationOracles(DEFAULT_POLICY);
+});
 
 test("every v2 rule deletion is killed by its location oracle", async (t) => {
   for (const [ruleIndex, rule] of (DEFAULT_POLICY.rules ?? []).entries())

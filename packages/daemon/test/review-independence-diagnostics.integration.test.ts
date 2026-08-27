@@ -8,6 +8,7 @@ import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 
 const git = (rootDir: string, ...args: readonly string[]): string =>
   execFileSync("git", args, { cwd: rootDir, encoding: "utf8", windowsHide: true }).trim();
@@ -39,8 +40,8 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     const collapsed = { personId: "0" } as const;
     const agentActor = { principal: collapsed, executor: { kind: "agent" as const, id: "windows-tester" } };
     const humanActor = { principal: collapsed, executor: null };
-    const agent = { actor: agentActor, source: "local" as const, roles: ["$arbiter"] };
-    const human = { actor: humanActor, source: "local" as const, roles: ["$arbiter"] };
+    const agent = withRoleBinding({ actor: agentActor, source: "local" as const }, "arbiter");
+    const human = withRoleBinding({ actor: humanActor, source: "local" as const }, "arbiter");
     const taskId = "task-review-axis",
       executionId = "exec-1";
     assert.equal((await cell.run({ kind: "task-create", taskId, title: "Review axis" }, agent)).outcome, "applied");
@@ -80,13 +81,13 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
       JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
     );
 
-    // Missing the arbiter command class is a role problem, not an independence problem.
+    // Missing the arbiter RoleBinding is a role problem, not an independence problem.
     const withoutRole = await cell.run(
       { kind: "task-review-execution", taskId, executionId, reviewId: "r1", fromFile: "review.json" },
-      { ...human, roles: [] },
+      { ...human, roleBindings: [] },
     );
     assert.equal(withoutRole.code, "actor_unauthorized");
-    assert.match(String(withoutRole.nextAction), /arbiter command class/u);
+    assert.match(String(withoutRole.nextAction), /arbiter RoleBinding/u);
 
     // The submitting executor reviewing itself is the one genuinely dependent case.
     const selfReview = await cell.run(
@@ -122,11 +123,13 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
       rootDir: canonicalRoot(rootDir),
       ownerId: "daemon-test",
     });
-    const bare = {
-      actor: { principal: { personId: "0" }, executor: null },
-      source: "local" as const,
-      roles: ["$arbiter"],
-    };
+    const bare = withRoleBinding(
+      {
+        actor: { principal: { personId: "0" }, executor: null },
+        source: "local" as const,
+      },
+      "arbiter",
+    );
     const taskId = "task-bare-axis",
       executionId = "exec-bare";
     assert.equal((await cell.run({ kind: "task-create", taskId, title: "Bare axis" }, bare)).outcome, "applied");
@@ -139,11 +142,13 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
         .outcome,
       "applied",
     );
-    const agent = {
-      actor: { principal: { personId: "0" }, executor: { kind: "agent" as const, id: "recovering-agent" } },
-      source: "local" as const,
-      roles: ["$arbiter"],
-    };
+    const agent = withRoleBinding(
+      {
+        actor: { principal: { personId: "0" }, executor: { kind: "agent" as const, id: "recovering-agent" } },
+        source: "local" as const,
+      },
+      "arbiter",
+    );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, agent)).outcome, "applied");
     writeFileSync(
       path.join(rootDir, "submission.json"),
@@ -174,11 +179,13 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
     assert.match(String(refused.nextAction), /declared no executor/u);
     assert.match(String(refused.nextAction), /original start/u);
 
-    const wrongPrincipal = {
-      actor: { principal: { personId: "1" }, executor: { kind: "agent" as const, id: "recovering-agent" } },
-      source: "local" as const,
-      roles: ["$arbiter"],
-    };
+    const wrongPrincipal = withRoleBinding(
+      {
+        actor: { principal: { personId: "1" }, executor: { kind: "agent" as const, id: "recovering-agent" } },
+        source: "local" as const,
+      },
+      "arbiter",
+    );
     const denied = await cell.run(
       { kind: "task-declare-executor", taskId, executionId, reason: "Claim from another principal." },
       wrongPrincipal,
@@ -237,27 +244,33 @@ test("a reviewed bare-invocation execution can declare its executor and complete
   const repoId = workspaceId("review-bare-reviewed"),
     taskId = "task-bare-reviewed",
     executionId = "exec-bare-reviewed",
-    bare = {
-      actor: { principal: { personId: "person-owner" }, executor: null },
-      source: "local" as const,
-      roles: ["$arbiter"],
-    },
-    agent = {
-      actor: {
-        principal: { personId: "person-owner" },
-        executor: { kind: "agent" as const, id: "recovering-agent" },
+    bare = withRoleBinding(
+      {
+        actor: { principal: { personId: "person-owner" }, executor: null },
+        source: "local" as const,
       },
-      source: "local" as const,
-      roles: ["$arbiter"],
-    },
-    wrongPrincipal = {
-      actor: {
-        principal: { personId: "person-outsider" },
-        executor: { kind: "agent" as const, id: "recovering-agent" },
+      "arbiter",
+    ),
+    agent = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-owner" },
+          executor: { kind: "agent" as const, id: "recovering-agent" },
+        },
+        source: "local" as const,
       },
-      source: "local" as const,
-      roles: ["$arbiter"],
-    };
+      "arbiter",
+    ),
+    wrongPrincipal = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-outsider" },
+          executor: { kind: "agent" as const, id: "recovering-agent" },
+        },
+        source: "local" as const,
+      },
+      "arbiter",
+    );
   try {
     initRepo(rootDir);
     writeFileSync(path.join(rootDir, "README.md"), "# Reviewed executor repair fixture\n");
@@ -295,14 +308,16 @@ test("a reviewed bare-invocation execution can declare its executor and complete
         evidenceChecked: ["daemon integration"],
       }),
     );
-    const reviewer = {
-      actor: {
-        principal: { personId: "person-reviewer" },
-        executor: { kind: "agent" as const, id: "reviewer-agent" },
+    const reviewer = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-reviewer" },
+          executor: { kind: "agent" as const, id: "reviewer-agent" },
+        },
+        source: "local" as const,
       },
-      source: "local" as const,
-      roles: ["$arbiter"],
-    };
+      "arbiter",
+    );
     assert.equal(
       (
         await cell.run(
@@ -501,11 +516,14 @@ test("task-bound runtime sessions cannot review their own execution across exit 
         actor: { principal, executor: { kind: "agent" as const, id: "implementer" } },
         source: "local" as const,
       },
-      arbiter = (id: string) => ({
-        actor: { principal, executor: { kind: "agent" as const, id } },
-        source: "local" as const,
-        roles: ["$arbiter"],
-      });
+      arbiter = (id: string) =>
+        withRoleBinding(
+          {
+            actor: { principal, executor: { kind: "agent" as const, id } },
+            source: "local" as const,
+          },
+          "arbiter",
+        );
     const taskId = "task-runtime-bound",
       executionId = "execution-runtime-bound";
     assert.equal(

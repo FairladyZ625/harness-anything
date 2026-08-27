@@ -12,6 +12,8 @@ export const peopleAddJsonFields = Object.freeze(["personId", "displayName", "ro
   ] as const),
   peopleSetRoleJsonFields = Object.freeze(["personId", "role", "commandClass"] as const),
   peopleSetRoleJsonAllowedFields = Object.freeze([...peopleSetRoleJsonFields, "idempotencyKey"] as const),
+  peopleBindJsonFields = Object.freeze(["actor", "role", "target"] as const),
+  peopleBindJsonAllowedFields = Object.freeze([...peopleBindJsonFields, "expiresAt", "idempotencyKey"] as const),
   peopleRemoveJsonFields = Object.freeze(["personId"] as const),
   peopleRemoveJsonAllowedFields = Object.freeze([...peopleRemoveJsonFields, "idempotencyKey"] as const);
 
@@ -54,6 +56,20 @@ const peopleWriteTopology = {
       false,
       { code: "missing_field", nextAction: "Use --role with one non-empty role identifier, or use --from-file." },
       { minLength: 1, conflictsWith: ["--from-file"] },
+    ),
+  actorInput = () =>
+    cliInput(
+      "--actor",
+      "single",
+      false,
+      {
+        code: "missing_field",
+        nextAction: "Use --actor person:<id> or executor:<id>, or use --from-file.",
+      },
+      {
+        regex: "^(?:person|executor):[A-Za-z0-9][A-Za-z0-9._:-]*$",
+        conflictsWith: ["--from-file"],
+      },
     ),
   commandClassInput = () =>
     cliInput(
@@ -118,6 +134,23 @@ export const peopleProtocolCommands = Object.freeze([
       ),
       credentialInput("--credential-issuer"),
       credentialInput("--credential-subject"),
+      idempotencyInput(),
+    ],
+    ...peopleWriteTopology,
+  }),
+  defineCliCommand({
+    id: "people-bind",
+    actionKind: "people-bind",
+    phase: "Persons-Registry",
+    path: ["people", "bind"],
+    summary: "Declare one Actor role on one EntityRef through the canonical Action writer.",
+    method: "repo.task.run",
+    inputs: [
+      fromFileInput(peopleBindJsonFields, peopleBindJsonAllowedFields),
+      actorInput(),
+      roleInput(),
+      textInput("--target", false, "Use --target with one EntityRef, or use --from-file."),
+      textInput("--expires-at", false, "Use an ISO-8601 UTC timestamp ending in Z, or omit it."),
       idempotencyInput(),
     ],
     ...peopleWriteTopology,

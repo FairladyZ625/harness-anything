@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergePeopleRosterDocuments } from "../../kernel/src/index.ts";
+import { deriveRoleBindings, mergePeopleRosterDocuments } from "../../kernel/src/index.ts";
 import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
 
 const legacyRoster = `schema: harness-people/v1
@@ -93,8 +93,16 @@ roles:
     roster.roles.map(({ roleId }) => roleId),
     ["owner", "reviewer"],
   );
-  assert.equal(roster.roleAllows("reviewer", "repo-read"), true);
-  assert.equal(roster.roleAllows("reviewer", "admin"), false);
+  const reviewer = roster.people.find(({ personId }) => personId === "person_dingwen")!;
+  assert.deepEqual(
+    deriveRoleBindings({
+      actor: { principal: { personId: reviewer.personId }, executor: null },
+      roleIds: reviewer.roles,
+      roleDeclarations: roster.roles,
+      target: "settings/repository",
+    }).map(({ role }) => role),
+    ["repo-read"],
+  );
 });
 
 test("a union that adds nothing reproduces the destination bytes exactly, so a rerun is a no-op", () => {
@@ -102,6 +110,27 @@ test("a union that adds nothing reproduces the destination bytes exactly, so a r
   assert.equal(merged(destination, destination).body, destination);
   const withoutEmail = legacyRoster.replace(/^ +primaryEmail:.*\n/mu, "");
   assert.equal(merged(withoutEmail, destination).body, destination);
+});
+
+test("declared RoleBindings union by identity and conflicting validity refuses", () => {
+  const declared = {
+      actor: { kind: "person", id: "person_zeyu" },
+      role: "arbiter",
+      target: "settings/repository",
+      source: "declared",
+      expiresAt: null,
+    },
+    source = JSON.parse(bootstrapRoster([bootstrapPerson])) as Record<string, unknown>,
+    destination = bootstrapRoster([bootstrapPerson]);
+  source.bindings = [declared];
+  const mergedRoster = peopleRosterFromDocument(merged(`${JSON.stringify(source, null, 2)}\n`, destination).body);
+  assert.deepEqual(mergedRoster.bindings, [declared]);
+
+  const conflict = { ...source, bindings: [{ ...declared, expiresAt: "2027-01-01T00:00:00.000Z" }] };
+  assert.match(
+    refusal(`${JSON.stringify(source, null, 2)}\n`, `${JSON.stringify(conflict, null, 2)}\n`),
+    /has different validity on each side/u,
+  );
 });
 
 test("a person's own roles union but a role's authority definition must agree on both sides", () => {

@@ -4,6 +4,7 @@ import {
   type AgentRuntimeEventV1,
   type CanonicalEventCut,
   type DaemonRepoMode,
+  type RoleBinding,
   type WriteReceipt,
   type WriteSource,
 } from "../../kernel/src/index.ts";
@@ -30,8 +31,7 @@ export interface RepoCellBinding {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly sessionEnvironment?: Readonly<Record<string, string | undefined>>;
-  readonly roles?: readonly string[];
-  readonly commandClasses?: readonly string[];
+  readonly roleBindings?: readonly RoleBinding[];
   readonly docWriteAllowed?: boolean;
   readonly assignmentScope?: FleetAssignmentScope;
   readonly writerEpoch?: number;

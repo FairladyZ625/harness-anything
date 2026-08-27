@@ -21,6 +21,7 @@ import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { submitLeaseRequiredMessage } from "./repo-cell-execution-selection.ts";
 import { authorizeAction } from "./authorization.ts";
 import { resolveLifecycleTransition } from "./repo-cell-lifecycle-action.ts";
+import { roleBindingAuthorizationContext } from "./repo-cell-role-bindings.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
 
@@ -46,7 +47,7 @@ export async function proofFor(
       command.actor,
       `authorization:${command.eventId}`,
       {
-        commandClasses: binding.commandClasses ?? [],
+        ...roleBindingAuthorizationContext(binding),
         target: {},
         evaluatedAtCut: `canonical:${snapshot.revision}`,
       },
@@ -102,7 +103,7 @@ export async function proofFor(
         command.actor,
         command.opId,
         {
-          commandClasses: binding.roles?.map((role) => role.replace(/^\$/u, "")) ?? [],
+          ...roleBindingAuthorizationContext(binding),
           target: { executionActor: execution?.actor ?? null, runtimeBinding },
           evaluatedAtCut: `canonical:${snapshot.revision}`,
         },
@@ -133,8 +134,8 @@ export async function proofFor(
         throw cellCodedError(
           "actor_unauthorized",
           [
-            "Execution Review requires the arbiter command class; give the reviewing ",
-            "person a role that carries it in harness/people.yaml.",
+            "Execution Review requires an active arbiter RoleBinding; run ha people bind ",
+            "for the reviewing actor and repository target.",
           ].join(""),
         );
       const undeclared = execution?.actor.executor === null && command.actor.executor === null;

@@ -1,28 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
 
-import {
-  cli,
-  git,
-  register,
-  run,
-  setup,
-  setupEmpty,
-  stop,
-} from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
+import { cli, git, register, run, setup, setupEmpty, stop } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority parity, fixed receipt, and phantom-free Configure-Verify", () => {
   const fixture = setupEmpty();
   try {
@@ -39,10 +24,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       "Owner",
       "--add-npm-scripts",
     ]);
-    assert.ok(
-      readDaemonPid(fixture.userRoot, "default"),
-      "init must leave an auto-started resident daemon pid",
-    );
+    assert.ok(readDaemonPid(fixture.userRoot, "default"), "init must leave an auto-started resident daemon pid");
     assert.equal(initialized.ok, true);
     assert.equal(initialized.repoId, "fresh");
     assert.equal(initialized.outcome, "applied");
@@ -93,18 +75,9 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     for (const target of initialized.created as string[])
       assert.equal(existsSync(path.join(fixture.repo, target)), true, target);
     const ledgerRoot = path.join(fixture.repo, "harness"),
-      defaultConfig = readFileSync(
-        path.join(fixture.repo, "harness/harness.yaml"),
-        "utf8",
-      ),
-      people = readFileSync(
-        path.join(fixture.repo, "harness/people.yaml"),
-        "utf8",
-      ),
-      architecture = readFileSync(
-        path.join(fixture.repo, "harness/context/architecture/README.md"),
-        "utf8",
-      );
+      defaultConfig = readFileSync(path.join(fixture.repo, "harness/harness.yaml"), "utf8"),
+      people = readFileSync(path.join(fixture.repo, "harness/people.yaml"), "utf8"),
+      architecture = readFileSync(path.join(fixture.repo, "harness/context/architecture/README.md"), "utf8");
     assert.match(
       defaultConfig,
       /contextRoot: harness\/context\n  governanceRoot: harness\/governance\n  adrRoot: harness\/adr\n  milestonesRoot: harness\/milestones/u,
@@ -117,81 +90,43 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       architecture,
       /Opt-in Boundary[\s\S]*does not create or enable an architecture manifest, model, or generated view/iu,
     );
-    assert.equal(
-      existsSync(
-        path.join(fixture.repo, "harness/context/architecture/manifest.json"),
-      ),
-      false,
-    );
-    assert.equal(
-      existsSync(path.join(fixture.repo, "harness/context/architecture/model")),
-      false,
-    );
+    assert.equal(existsSync(path.join(fixture.repo, "harness/context/architecture/manifest.json")), false);
+    assert.equal(existsSync(path.join(fixture.repo, "harness/context/architecture/model")), false);
+    assert.match(readFileSync(path.join(fixture.repo, "harness/adr/README.md"), "utf8"), /decision.*projection/isu);
     assert.match(
-      readFileSync(path.join(fixture.repo, "harness/adr/README.md"), "utf8"),
-      /decision.*projection/isu,
-    );
-    assert.match(
-      readFileSync(
-        path.join(fixture.repo, "harness/milestones/README.md"),
-        "utf8",
-      ),
+      readFileSync(path.join(fixture.repo, "harness/milestones/README.md"), "utf8"),
       /does not create.*status/isu,
     );
     assert.match(
       readFileSync(path.join(fixture.repo, "AGENTS.md"), "utf8"),
       /harness\/governance\/standards\/repository-governance\.md/u,
     );
-    assert.match(
-      readFileSync(path.join(fixture.repo, "CLAUDE.md"), "utf8"),
-      /harness\/context\/README\.md/u,
-    );
+    assert.match(readFileSync(path.join(fixture.repo, "CLAUDE.md"), "utf8"), /harness\/context\/README\.md/u);
     assert.equal(
       readFileSync(path.join(fixture.repo, "package.json"), "utf8"),
       `${JSON.stringify({ private: true, scripts: { "harness-anything": "harness-anything", ha: "ha", "harness-anything:check": "harness-anything check" } }, null, 2)}\n`,
     );
-    assert.equal(
-      existsSync(path.join(fixture.repo, "harness/persons.yaml")),
-      false,
-    );
-    assert.equal(
-      git(ledgerRoot, "show", `${String(initialized.commit)}:people.yaml`),
-      people.trim(),
-    );
-    assert.equal(
-      initialized.summary,
-      "initialized harness at harness/harness.yaml",
-    );
-    assert.deepEqual(
-      (initialized.configureVerify as { ok: boolean; steps: string[] }).steps,
-      [
-        "publication-readback",
-        "canonical-layout",
-        "daemon-l2-readiness",
-        "task-bootstrap-dry-run",
-      ],
-    );
+    assert.equal(existsSync(path.join(fixture.repo, "harness/persons.yaml")), false);
+    assert.equal(git(ledgerRoot, "show", `${String(initialized.commit)}:people.yaml`), people.trim());
+    assert.equal(initialized.summary, "initialized harness at harness/harness.yaml");
+    assert.deepEqual((initialized.configureVerify as { ok: boolean; steps: string[] }).steps, [
+      "publication-readback",
+      "canonical-layout",
+      "daemon-l2-readiness",
+      "task-bootstrap-dry-run",
+    ]);
     assert.equal((initialized.configureVerify as { ok: boolean }).ok, true);
     assert.deepEqual(
       (initialized.publication as { changedPaths: string[] }).changedPaths,
-      (initialized.created as string[]).filter((target) =>
-        target.startsWith("harness/"),
-      ),
+      (initialized.created as string[]).filter((target) => target.startsWith("harness/")),
     );
     assert.equal(
       git(ledgerRoot, "ls-tree", "-r", "--name-only", "HEAD")
         .split("\n")
-        .some(
-          (target) =>
-            target.startsWith("tasks/") || target.startsWith("events/"),
-        ),
+        .some((target) => target.startsWith("tasks/") || target.startsWith("events/")),
       false,
     );
-    assert.equal(
-      makeTaskEventStore({ rootDir: fixture.repo, repoId: "fresh" }).read()
-        .revision,
-      0,
-    );
+    assert.equal(makeTaskEventStore({ rootDir: fixture.repo, repoId: "fresh" }).read().revision, 0);
     const repeated = run(fixture.repo, fixture.userRoot, [
       "init",
       "--repo-id",
@@ -208,24 +143,14 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.deepEqual(repeated.updated, []);
     assert.deepEqual(repeated.preserved, initialized.created);
     assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "1");
-    const walls = spawnSync(
-      process.execPath,
-      [path.join(fixture.repo, "harness/governance/walls/run-walls.mjs")],
-      { cwd: fixture.repo, encoding: "utf8" },
-    );
+    const walls = spawnSync(process.execPath, [path.join(fixture.repo, "harness/governance/walls/run-walls.mjs")], {
+      cwd: fixture.repo,
+      encoding: "utf8",
+    });
     assert.equal(walls.status, 0, walls.stderr);
-    assert.match(
-      walls.stdout,
-      /WALLS pass=0 red=0 expected=0 notice=0 info=0 total=0/u,
-    );
-    assert.equal(
-      existsSync(path.join(fixture.repo, "harness/governance/walls/reports")),
-      false,
-    );
-    const wallsPath = path.join(
-      fixture.repo,
-      "harness/governance/walls/walls.json",
-    );
+    assert.match(walls.stdout, /WALLS pass=0 red=0 expected=0 notice=0 info=0 total=0/u);
+    assert.equal(existsSync(path.join(fixture.repo, "harness/governance/walls/reports")), false);
+    const wallsPath = path.join(fixture.repo, "harness/governance/walls/walls.json");
     writeFileSync(
       wallsPath,
       JSON.stringify(
@@ -258,15 +183,9 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.equal(actionableWalls.status, 1, actionableWalls.stderr);
     assert.match(actionableWalls.stdout, /RED\s+red/u);
     assert.match(actionableWalls.stdout, /NOTICE\s+notice/u);
-    assert.match(
-      actionableWalls.stdout,
-      /WALLS pass=0 red=1 expected=0 notice=1 info=0 total=2/u,
-    );
+    assert.match(actionableWalls.stdout, /WALLS pass=0 red=1 expected=0 notice=1 info=0 total=2/u);
     assert.match(actionableWalls.stdout, /report: .*[/\\]reports[/\\]walls-/u);
-    const reportsRoot = path.join(
-      fixture.repo,
-      "harness/governance/walls/reports",
-    );
+    const reportsRoot = path.join(fixture.repo, "harness/governance/walls/reports");
     assert.equal(existsSync(reportsRoot), true);
     const reports = readdirSync(reportsRoot, { withFileTypes: true });
     assert.equal(reports.length, 1);
@@ -308,15 +227,8 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     );
     assert.match(textReceipt.stdout, /daemon status/u);
     assert.equal(
-      run(fixture.repo, fixture.userRoot, [
-        "task",
-        "create",
-        "--id",
-        "task-first",
-        "--admin",
-        "--title",
-        "First task",
-      ]).outcome,
+      run(fixture.repo, fixture.userRoot, ["task", "create", "--id", "task-first", "--admin", "--title", "First task"])
+        .outcome,
       "applied",
     );
   } finally {
@@ -333,14 +245,8 @@ test("local init isolates the ledger from later project commits and removes trac
     git(fixture.repo, "config", "user.email", "project@example.test");
     mkdirSync(path.join(fixture.repo, "harness"), { recursive: true });
     mkdirSync(path.join(fixture.repo, ".harness/cache"), { recursive: true });
-    writeFileSync(
-      path.join(fixture.repo, "harness/previous.txt"),
-      "tracked by the project\n",
-    );
-    writeFileSync(
-      path.join(fixture.repo, ".harness/cache/previous.txt"),
-      "tracked runtime state\n",
-    );
+    writeFileSync(path.join(fixture.repo, "harness/previous.txt"), "tracked by the project\n");
+    writeFileSync(path.join(fixture.repo, ".harness/cache/previous.txt"), "tracked runtime state\n");
     git(fixture.repo, "add", ".");
     git(fixture.repo, "commit", "--quiet", "-m", "project base");
     const initialized = run(fixture.repo, fixture.userRoot, [
@@ -363,10 +269,7 @@ test("local init isolates the ledger from later project commits and removes trac
     assert.equal(runtimeIgnored, ".harness");
     assert.equal(harnessTracked, "");
     assert.equal(runtimeTracked, "");
-    writeFileSync(
-      path.join(fixture.repo, "project.txt"),
-      "ordinary project change\n",
-    );
+    writeFileSync(path.join(fixture.repo, "project.txt"), "ordinary project change\n");
     git(fixture.repo, "add", ".");
     git(fixture.repo, "commit", "--quiet", "-m", "advance project head");
     const projectHead = git(fixture.repo, "rev-parse", "HEAD"),
@@ -389,16 +292,9 @@ test("local init isolates the ledger from later project commits and removes trac
     stop(fixture.repo, fixture.userRoot);
     const ledgerAfter = git(ledgerRoot, "rev-parse", "HEAD");
     assert.notEqual(ledgerAfter, ledgerHead);
+    assert.equal(git(ledgerRoot, "rev-parse", "refs/ha/canonical"), ledgerAfter);
     assert.equal(
-      git(ledgerRoot, "rev-parse", "refs/ha/canonical"),
-      ledgerAfter,
-    );
-    assert.equal(
-      spawnSync(
-        "git",
-        ["-C", fixture.repo, "rev-parse", "--verify", "refs/ha/canonical"],
-        { encoding: "utf8" },
-      ).status,
+      spawnSync("git", ["-C", fixture.repo, "rev-parse", "--verify", "refs/ha/canonical"], { encoding: "utf8" }).status,
       128,
     );
     context.diagnostic(
@@ -414,10 +310,7 @@ test("center registration keeps an external ledger repository readable and writa
   const fixture = setup();
   try {
     assert.equal(existsSync(path.join(fixture.alpha, "harness/.git")), false);
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok,
-      true,
-    );
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     register(fixture.alpha, fixture.userRoot, "center");
     const before = git(fixture.alpha, "rev-parse", "HEAD"),
       written = run(fixture.alpha, fixture.userRoot, [
@@ -434,10 +327,7 @@ test("center registration keeps an external ledger repository readable and writa
     assert.ok(written.cut);
     assert.equal(git(fixture.alpha, "rev-parse", "HEAD"), before);
     assert.match(
-      String(
-        run(fixture.alpha, fixture.userRoot, ["task", "show", "task-center"])
-          .evidence,
-      ),
+      String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-center"]).evidence),
       /Center ledger/u,
     );
     stop(fixture.alpha, fixture.userRoot);
@@ -468,10 +358,7 @@ test("REQ-CLI-016 adds only missing npm script keys while preserving existing pa
     writeFileSync(packagePath, original);
     git(fixture.alpha, "add", "package.json");
     git(fixture.alpha, "commit", "--quiet", "-m", "project package");
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok,
-      true,
-    );
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     const receipt = run(fixture.alpha, fixture.userRoot, [
         "init",
         "--repo-id",
@@ -485,10 +372,7 @@ test("REQ-CLI-016 adds only missing npm script keys while preserving existing pa
       expected =
         '{\n\t"name": "project-owned",\n\t"scripts": {\n\t\t"test": "node --test",\n\t\t"ha": "project-ha",\n\t\t"harness-anything": "harness-anything",\n\t\t"harness-anything:check": "harness-anything check"\n\t},\n\t"marker": "keep exactly"\n}\n';
     assert.equal(readFileSync(packagePath, "utf8"), expected);
-    assert.equal(
-      (receipt.updated as string[]).includes("package.json#scripts"),
-      true,
-    );
+    assert.equal((receipt.updated as string[]).includes("package.json#scripts"), true);
     assert.equal((receipt.created as string[]).includes("package.json"), false);
     const repeated = run(fixture.alpha, fixture.userRoot, [
       "init",
@@ -501,10 +385,7 @@ test("REQ-CLI-016 adds only missing npm script keys while preserving existing pa
       "--add-npm-scripts",
     ]);
     assert.equal(repeated.outcome, "noop");
-    assert.equal(
-      (repeated.preserved as string[]).includes("package.json"),
-      true,
-    );
+    assert.equal((repeated.preserved as string[]).includes("package.json"), true);
     assert.equal(readFileSync(packagePath, "utf8"), expected);
   } finally {
     stop(fixture.alpha, fixture.userRoot);

@@ -75,7 +75,7 @@ test("one named kind-contract authority explains all twelve entity kinds with on
   assert.deepEqual(settings?.statusVocabulary, []);
   assert.deepEqual(settings?.transitions.available, ["read", "update"]);
   const person = explanations.find(({ kind }) => kind === "person");
-  assert.deepEqual(person?.transitions.available, ["add", "set-role", "remove"]);
+  assert.deepEqual(person?.transitions.available, ["add", "set-role", "bind", "remove"]);
   assert.deepEqual(person?.authoring, { kind: "people-event", contractRef: "people-event/v1" });
 });
 

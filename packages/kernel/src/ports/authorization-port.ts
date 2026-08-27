@@ -2,6 +2,7 @@ import { validateActionEnvelope, type ActionEnvelope } from "../domain/action-en
 import type { ActorIdentity } from "../domain/actor-identity.ts";
 import { isIndependentFrom, isSameExecution, isSamePerson } from "../domain/actor-domain-services.ts";
 import { DEFAULT_POLICY } from "../domain/default-policy.ts";
+import type { EntityRef } from "../domain/entity-ref.ts";
 import type { LeaseV1 } from "../domain/execution.ts";
 import {
   validatePolicyDeclarationV1,
@@ -10,6 +11,7 @@ import {
   type PolicyPredicateExpression,
 } from "../domain/policy.ts";
 import type { AuthorizationDecision, ReceiptJsonValue } from "../domain/receipt-frame.ts";
+import { roleBindingApplies, type RoleBinding } from "../domain/role-binding.ts";
 import { runtimeSessionIdFromActor, type TaskBoundRuntimeBinding } from "../domain/task-bound-runtime-authority.ts";
 import { sameWriteSource, type WriteSource } from "../domain/write-chain.contract.ts";
 
@@ -26,7 +28,9 @@ export interface AuthorizationTargetSnapshot {
 /** Volatile bindings are inputs to evaluation, not fields added to ActionEnvelope. */
 export interface AuthorizationContext {
   readonly ruleScope?: string;
-  readonly commandClasses?: readonly string[];
+  readonly roleBindings?: readonly RoleBinding[];
+  readonly roleBindingTargets?: readonly EntityRef[];
+  readonly evaluatedAt?: string;
   readonly writeSource?: WriteSource;
   readonly target: AuthorizationTargetSnapshot;
   readonly evaluatedAtCut: string;
@@ -166,16 +170,29 @@ function evaluatePredicate(
       isSamePerson(lease.actor, actor) &&
       (actor.executor === null || isSameExecution(lease.actor, actor));
   else if (expression.predicate === "delegatedByRuntimeSession") holds = runtimeDelegation;
-  else if (expression.predicate === "hasCommandClass")
-    holds = (context.commandClasses ?? []).includes(expression.commandClass);
-  else if (expression.predicate === "reviewIndependence")
+  else if (expression.predicate === "hasCommandClass") {
+    const targets = [action.target, ...(context.roleBindingTargets ?? [])],
+      matched = (context.roleBindings ?? []).find((binding) =>
+        roleBindingApplies(binding, actor, expression.commandClass, targets, context.evaluatedAt),
+      );
+    holds = matched !== undefined;
+    return {
+      holds,
+      binding: Object.freeze({
+        predicate: expression.predicate,
+        satisfied: holds,
+        role: expression.commandClass,
+        matched: matched ? receiptRoleBinding(matched) : null,
+      }),
+    };
+  } else if (expression.predicate === "reviewIndependence") {
+    const author = target.executionActor ?? target.proposalActor ?? null,
+      executorIndependent = author !== null && isIndependentFrom(author, actor);
     holds =
-      (target.executionActor !== null && target.executionActor !== undefined
-        ? isIndependentFrom(target.executionActor, actor)
-        : target.proposalActor !== null &&
-          target.proposalActor !== undefined &&
-          isIndependentFrom(target.proposalActor, actor)) && runtimeBinding === null;
-  else if (expression.predicate === "isNotProposalAgent")
+      executorIndependent &&
+      runtimeBinding === null &&
+      (expression.level === "L1" || (author !== null && !isSamePerson(author, actor)));
+  } else if (expression.predicate === "isNotProposalAgent")
     holds =
       target.proposalActor !== null &&
       target.proposalActor !== undefined &&
@@ -185,6 +202,16 @@ function evaluatePredicate(
   return {
     holds,
     binding: Object.freeze({ predicate: expression.predicate, satisfied: holds }),
+  };
+}
+
+function receiptRoleBinding(binding: RoleBinding): ReceiptJsonValue {
+  return {
+    actor: { kind: binding.actor.kind, id: binding.actor.id },
+    role: binding.role,
+    target: binding.target,
+    source: binding.source,
+    expiresAt: binding.expiresAt,
   };
 }
 

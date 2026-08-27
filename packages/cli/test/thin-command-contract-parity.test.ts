@@ -42,7 +42,7 @@ const frozenMutations = Object.freeze([
 ] as const);
 
 test("all public commands expose the canonical structured input facet", () => {
-  assert.equal(daemonProtocolCommands.length, 128);
+  assert.equal(daemonProtocolCommands.length, 129);
   for (const command of daemonProtocolCommands) {
     assert.equal(Object.hasOwn(command, "inputs"), true, `${command.id}: explicit inputs`);
     assert.deepEqual(deriveThinCliInputs(command), command.inputs, command.id);
@@ -74,7 +74,7 @@ test("all public commands expose the canonical structured input facet", () => {
     "daemon-stop",
   );
   assert.match(daemonStop?.usage ?? "", /daemon stop \[--force\]/u, "daemon-stop");
-  for (const id of ["people-add", "people-set-role", "people-remove"]) {
+  for (const id of ["people-add", "people-set-role", "people-bind", "people-remove"]) {
     const fromFile = daemonProtocolCommands
       .find((command) => command.id === id)
       ?.inputs.find((input) => input.name === "--from-file");

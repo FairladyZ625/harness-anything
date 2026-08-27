@@ -36,6 +36,7 @@ import { operationId } from "./repo-cell-proof.ts";
 import { makeRepoCellScheduleActions } from "./repo-cell-schedule-actions.ts";
 import { makeRepoCellSettingsActions } from "./repo-cell-settings-actions.ts";
 import { makeRepoCellPeopleActions } from "./repo-cell-people-actions.ts";
+import { withDerivedCommandClass } from "./repo-cell-role-bindings.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   PublicPublication,
@@ -363,7 +364,7 @@ export async function openRepoCell(input: {
         start: (executionId) =>
           extracted.lifecycleAction(
             { kind: "task-start", taskId, executionId },
-            { ...binding, commandClasses: [commandClassForAction("task-start")] },
+            withDerivedCommandClass(binding, commandClassForAction("task-start")),
           ),
       });
     },

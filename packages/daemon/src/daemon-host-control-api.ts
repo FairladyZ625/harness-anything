@@ -3,6 +3,7 @@ import { readDaemonRegistry } from "../../kernel/src/index.ts";
 import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
+import { bindingHasRole } from "./repo-cell-role-bindings.ts";
 
 export function createDaemonHostControlApi(
   context: any,
@@ -122,7 +123,7 @@ export function createDaemonHostControlApi(
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
         serverBinding = await context.binding(cell.status().rootDir, auth, "repo-write");
-      if (serverBinding.roles?.some((role: string) => role === "$admin" || role === "$arbiter"))
+      if (bindingHasRole(serverBinding, "admin") || bindingHasRole(serverBinding, "arbiter"))
         throw context.hostCodedError("rbac_forbidden", "Admin and arbiter identities cannot become runtime witnesses.");
       return cell.runtime.issueWitnessToken(runtimeSessionId, {
         principalId: serverBinding.actor.principal.personId,

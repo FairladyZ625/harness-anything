@@ -5,6 +5,7 @@ import type {
   CredentialRef as KernelCredentialRef,
   PeopleCommandClass,
   PersonProfile as KernelPersonProfile,
+  RoleBinding,
   RolePolicy as KernelRolePolicy,
 } from "../../../kernel/src/index.ts";
 
@@ -21,11 +22,11 @@ export interface PeopleRoster {
   readonly schema: "harness-people/v1";
   readonly people: ReadonlyArray<PersonProfile>;
   readonly roles: ReadonlyArray<RolePolicy>;
+  readonly bindings: ReadonlyArray<RoleBinding>;
   readonly resolveCredential: (
     credential: CredentialRef,
     providerId: string,
   ) => IdentityProviderSuccess | IdentityProviderFailure;
-  readonly roleAllows: (roleId: RoleId, commandClass: DaemonCommandClass) => boolean;
 }
 
 export interface AuthenticatedActor {
