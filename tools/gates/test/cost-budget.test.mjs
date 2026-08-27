@@ -29,14 +29,14 @@ function setup() {
   return rootDir;
 }
 
-test("G37 measures the production rebuild counter and fixed first-screen reads", async () => {
+test("G38 measures the production rebuild counter and fixed first-screen reads", async () => {
   assert.deepEqual(await measureCosts(readCostFixture(path.join(setup(), "fixture.json"))), {
     projectionRebuildGitProcesses: 4,
     firstScreenReadRpcs: 7,
   });
 });
 
-test("G37 passes at the committed ceiling and rejects a first-screen read regression", async () => {
+test("G38 passes at the committed ceiling and rejects a first-screen read regression", async () => {
   const rootDir = setup();
   assert.equal((await evaluateCostBudget({ rootDir })).ok, true);
   const changed = fixture();
@@ -47,7 +47,7 @@ test("G37 passes at the committed ceiling and rejects a first-screen read regres
   assert.match(result.errors.join("\n"), /firstScreenReadRpcs: measured 8 exceeds budget 7/u);
 });
 
-test("G37 requires a signed receipt for a budget increase", async () => {
+test("G38 requires a signed receipt for a budget increase", async () => {
   const rootDir = setup();
   const budgetPath = path.join(rootDir, "tools/gates/cost-budget.json");
   const budget = JSON.parse(readFileSync(budgetPath, "utf8"));
@@ -68,7 +68,7 @@ test("G37 requires a signed receipt for a budget increase", async () => {
   assert.equal((await evaluateCostBudget({ rootDir })).ok, true);
 });
 
-test("G37 rejects lowering the baseline without lowering the active ceiling", async () => {
+test("G38 rejects lowering the baseline without lowering the active ceiling", async () => {
   const rootDir = setup();
   const budgetPath = path.join(rootDir, "tools/gates/cost-budget.json");
   const budget = JSON.parse(readFileSync(budgetPath, "utf8"));

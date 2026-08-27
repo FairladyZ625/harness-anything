@@ -66,7 +66,7 @@ async function measureProjectionRebuild(fixture) {
     git(rootDir, "init", "-q");
     mkdirSync(path.join(rootDir, "harness"), { recursive: true });
     writeFileSync(path.join(rootDir, "harness/.gitattributes"), "* -text\n");
-    git(rootDir, "config", "user.name", "G37 Cost Fixture");
+    git(rootDir, "config", "user.name", "G38 Cost Fixture");
     git(rootDir, "config", "user.email", "g37@example.invalid");
     git(rootDir, "config", "gc.auto", "0");
     git(rootDir, "config", "maintenance.auto", "false");
@@ -179,13 +179,13 @@ export async function main(argv = process.argv.slice(2), defaultRoot = repoRoot(
     const result = await evaluateCostBudget({ rootDir: options.rootDir ?? defaultRoot, ...options });
     for (const metric of METRICS) console.log(`${metric}: ${result.actual[metric]}/${result.budgets[metric]}`);
     if (!result.ok) {
-      for (const error of result.errors) console.error(`G37 cost-budget: ${error}`);
+      for (const error of result.errors) console.error(`G38 cost-budget: ${error}`);
       return 1;
     }
-    console.log("G37 cost-budget: pass");
+    console.log("G38 cost-budget: pass");
     return 0;
   } catch (error) {
-    console.error(`G37 cost-budget: ${error.message}`);
+    console.error(`G38 cost-budget: ${error.message}`);
     return 1;
   }
 }
