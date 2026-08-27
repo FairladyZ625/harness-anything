@@ -82,7 +82,6 @@ export async function executeAction(
         };
   }
   if (action.kind === "ledger-migrate") {
-    cell.settingsActions.initializeFromAuthoredDocument(binding);
     const appended = cell.store.migrateLayout({
       actor: binding.actor,
       source: binding.source,
