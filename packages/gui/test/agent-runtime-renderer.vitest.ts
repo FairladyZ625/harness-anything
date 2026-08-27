@@ -549,7 +549,6 @@ describe("agent runtime renderer", () => {
         agents: agentRows as never,
         busy: false,
         onSave: noop,
-        onLaunch: noop,
         onSelectAgent: noop,
       }),
     );
@@ -560,13 +559,13 @@ describe("agent runtime renderer", () => {
       "Worker #1",
       "4 members",
       "Leader turn budget",
-      "Dispatch to one worker",
-      "ha squad run",
+      "One launch starts the Commander session",
     ])
       expect(squad).toContain(text);
     expect(squad).toContain('data-testid="squad-leader-turn-budget"');
     expect(squad).toContain('value="8"');
-    expect(squad).not.toContain("Launch squad");
+    // 启动入口已搬到 SquadCockpit(一次只派 Commander);声明卡不再带派发动作。
+    expect(squad).not.toContain("Launch Commander");
   });
   it("round-trips skill paths and exposes searchable Skill and Preset selectors", () => {
     const withSkills = renderToStaticMarkup(

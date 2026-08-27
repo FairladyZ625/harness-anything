@@ -7,6 +7,8 @@ import type { RuntimeSpawnInput } from "./runtime-control.ts";
 // tests pin it, and no renderer code decides outcomes: the daemon's outcome judgment is
 // consumed one-to-one. W5:mission/dispatch/report 工件的编排列(原 OrchestrationCard)
 // 随「编排」入口撤销,task 派工链改由 Task 详情「派工」页签读结构化读面呈现。
+// dec_AB0672F220EE630C0A06C575B8:一个小队只派 Commander 一个会话(带 squadId 归属),
+// 下级由 Commander 在自己的会话里自主派出;界面不再构造 worker 清单或 worker 路由。
 export type RuntimeKindWord = "claude" | "codex" | "agy";
 export interface DispatchAgentRef {
   readonly agentId: string;
@@ -20,12 +22,10 @@ export type DispatchSubject =
       readonly squadId: string;
       readonly squadName: string;
       readonly leader: DispatchAgentRef;
-      readonly workers: readonly DispatchAgentRef[];
     };
 export type DispatchCwd = { readonly scope: "repo-root" } | { readonly scope: "repo-relative"; readonly path: string };
 export interface DispatchRequest {
   readonly subject: DispatchSubject;
-  readonly workerId?: string;
   readonly runtimeInstanceId?: string;
   readonly mission: string;
   readonly cwd: DispatchCwd;
@@ -34,12 +34,8 @@ export interface DispatchRequest {
   readonly effort?: string;
   readonly idempotencyKey: string;
 }
-export const dispatchExecutorRef = (
-  request: Pick<DispatchRequest, "subject" | "workerId">,
-): DispatchAgentRef | undefined =>
-  request.subject.kind === "agent"
-    ? request.subject.agent
-    : request.subject.workers.find((worker) => worker.agentId === request.workerId);
+export const dispatchExecutorRef = (request: Pick<DispatchRequest, "subject">): DispatchAgentRef | undefined =>
+  request.subject.kind === "agent" ? request.subject.agent : request.subject.leader;
 export const dispatchRuntimeType = (request: DispatchRequest): string =>
   dispatchExecutorRef(request)?.runtimeType ?? "";
 export function compatibleDispatchInstances(
@@ -52,7 +48,7 @@ export function compatibleDispatchModels(instances: readonly AgentRuntimeInstanc
   return [...new Set(instances.flatMap((instance) => instance.models))].sort();
 }
 export function requireCompatibleDispatchInstance(
-  request: Pick<DispatchRequest, "subject" | "workerId" | "runtimeInstanceId">,
+  request: Pick<DispatchRequest, "subject" | "runtimeInstanceId">,
   instances: readonly AgentRuntimeInstanceDto[],
 ): AgentRuntimeInstanceDto {
   const executor = dispatchExecutorRef(request),
@@ -70,9 +66,12 @@ export function buildDispatchSpawnInput(
   if (!executor) throw new Error("dispatch_executor_missing");
   if (request.runtimeInstanceId)
     requireCompatibleDispatchInstance(request as DispatchRequest & { readonly runtimeInstanceId: string }, instances);
+  // Squad dispatch is leader-only: agentId names the Commander, squadId carries the squad
+  // attribution the daemon stamps onto the dispatch, and no targetAgentId is ever set —
+  // subordinates are the Commander's own decisions, recorded under its parent session edge.
   const squadRouting =
     request.subject.kind === "squad"
-      ? { agentId: request.subject.leader.agentId, targetAgentId: executor.agentId }
+      ? { agentId: request.subject.leader.agentId, squadId: request.subject.squadId }
       : { agentId: executor.agentId };
   return {
     ...(request.runtimeInstanceId ? { runtimeInstanceId: request.runtimeInstanceId } : {}),
