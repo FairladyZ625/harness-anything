@@ -33,12 +33,23 @@ propose ──▶ accept / reject / defer
    └──▶ (once active) supersede · amend · retire
 ```
 
-- **propose** —— 起草这个选择。提议时**必须**建立证据边,把 decision 的主张和支撑它们的 task、fact 连接起来。
+- **propose** —— 起草这个选择。应当建立证据边，把 decision 的主张和支撑它们的 task、fact 连接起来；即使 proposal 没有指向 `fact/F-*` 的 `evidenced-by` 边也会成功，但回执会告诉你如何补上这段回环。
 - **accept / reject / defer** —— 对提议的裁定(这就是那道门)。
 - **supersede** —— 一个新 decision 推翻旧的;旧的被 retire,而不是删除,历史因此得以保留。
 - **amend** —— 修改推理过程,但不改变结论。
 - **retire** —— 前提已经不成立的 decision 下线。
 - **relate** —— 在 decision 与 task 或 fact 之间建一条类型化的边;证据就是这样被挂上去的。
+
+## Fact 到 decision 的交接
+
+下面这些命令把证据路径写清楚：
+
+1. `ha fact record --statement "<observation>" --source "<source>" --confidence high` 记录一条可以支撑主张的不可变观察。
+2. `ha decision propose --json-input '<decision-packet.json contents>'` 打开 proposal 并返回回执；如果还没有 fact evidence，回执会指向接下来的两条命令，而不会拒绝 proposal。
+3. `ha decision relate <decision-id> --anchor <claim-id> --type evidenced-by --target fact/F-XXXXXXXX --rationale "<why this fact supports the claim>"` 把已记录的 fact 作为类型化证据边挂到主张上。
+4. `ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/<task-id> --rationale "<why this task follows>"` 记录 decision 衍生出的可执行 task。
+5. `ha decision accept <decision-id> --rationale "<review>"` 在证据和衍生路径准备好后裁决 proposal。
+6. `ha decision reckon <decision-id> --task <task-id>` 根据 task 当前的 facts 检查主张覆盖，并记录收口观察。
 
 ## 证据是边,不是嵌入的数组
 

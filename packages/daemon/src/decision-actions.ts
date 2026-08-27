@@ -521,6 +521,7 @@ function decisionReceipt(
       event.type === "decision_relation_replaced"
         ? { retiredRelationId: event.payload.relationId, replacementRelationId: event.payload.replacement.relation_id }
         : null,
+    proposalFactHint = missingProposalFactEvidenceHint(event),
     canonicalVisible =
       result.cut.opId === event.opId &&
       result.cut.revision === result.revision &&
@@ -555,13 +556,30 @@ function decisionReceipt(
       authorizationDecision,
     };
   return canonicalVisible
-    ? { outcome: "applied", ...base }
+    ? { outcome: "applied", ...base, ...(proposalFactHint ? { nextAction: proposalFactHint } : {}) }
     : {
         outcome: "pending",
         ...base,
-        nextAction: `Query receipt ${event.opId}; its canonical publication cut is not exact.`,
+        nextAction: [`Query receipt ${event.opId}; its canonical publication cut is not exact.`, proposalFactHint]
+          .filter((value): value is string => value !== null)
+          .join(" "),
       };
 }
+
+function missingProposalFactEvidenceHint(event: DecisionEventV1): string | null {
+  if (event.type !== "decision_proposed") return null;
+  const claimRefs = new Set(event.payload.claims.map((claim) => `decision/${event.decisionId}/${claim.id}`));
+  const hasFactEvidence = event.payload.relations.some(
+    (relation) =>
+      relation.type === "evidenced-by" &&
+      claimRefs.has(relation.source) &&
+      /^fact\/F-[A-Za-z0-9_-]+$/u.test(relation.target),
+  );
+  return hasFactEvidence
+    ? null
+    : "First run `ha fact record`, then `ha decision relate --type evidenced-by` to attach a fact evidence edge to a claim before accepting this Decision.";
+}
+
 function decisionPreview(event: DecisionEventV1, revision: number): WriteReceipt {
   return {
     outcome: "pending",

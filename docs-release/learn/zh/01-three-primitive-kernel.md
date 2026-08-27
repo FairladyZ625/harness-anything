@@ -12,7 +12,7 @@
 |---|---|---|---|---|---|
 | **Decision** | WHY / 应该 | 选择(与时间无关) | 一个可推翻的、有承载力的选择 | `proposed → accepted → active → retired / rejected / deferred` | 集中式,在顶级 `decisions/` 目录 |
 | **Task** | WHAT / 进度如何 | 进行中(现在) | 一个状态机工作单元 | 6 个状态 + 9 个操作 | 在自己的任务容器内 |
-| **Fact** | IS / 已经这样 | 完成(过去) | 一个不可变、仅追加的观察 | 无生命周期——只有 `record` / `invalidate` | 嵌入产生它的 task 包中 |
+| **Fact** | IS / 已经这样 | 完成(过去) | 一个不可变、仅追加的观察 | 无生命周期——只有 `record` / `invalidate` | `facts/` 中的独立记录，可选用关系边归属 task |
 
 按列读这张表,设计意图就浮现出来了。**decision** 是一个"为什么",被冻结成一个你日后可以推翻的承诺。**task** 是一个"做什么"在流转中,拥有真实的状态——planned(规划中)、active(进行中)、blocked(阻塞)、in-review(评审中)、done(完成)、cancelled(取消)——以及在这些状态之间移动的操作。**fact** 是一个"是":生来不可变,永远不会再改。如果现实变了,你不会去改旧的事实,而是记录一个新的,需要的话再让旧的失效。
 
@@ -23,16 +23,27 @@
 这三者不只是共存,它们在一个循环里彼此供给:
 
 ```text
-   decision ──derives──▶ task ──executes──▶ fact
-       ▲                                      │
-       └──────────────  referenced by  ───────┘
+   fact ──evidences──▶ decision ──derives──▶ task
+    ▲                                      │
+    └───────────────  produces  ───────────┘
 ```
 
-- 一个 **decision**("我们应该做 X")衍生出一个 **task**。
-- **task** 执行后,产生 **fact**——带着出处的观察。
-- 这些 **fact** 又被 decision 反过来引用,作为支撑这个选择的证据。
+- 先从现实中记录一个 **fact**（“这是我们观察到的情况”）。
+- **decision**（“我们应该做 X”）把这个 fact 作为证据，并衍生出一个 **task**。
+- **task** 执行后产生下一个 **fact**——带着出处的观察；它收口这一轮，并喂给下一轮 decision。
 
 去掉任何一环,循环都闭合不了。没有 decision,fact 产生了却无人消费——池塘照样变绿。没有 task,decision 就落不了地变成工作。没有 fact,decision 就没有证据,没法被如实地评审。三者相互咬合,只有放在一起才自洽。
+
+## 走一遍回环
+
+按下面的顺序使用规范命令。每条命令都会写入图上的一部分，最后一条 fact 会成为下一轮的输入：
+
+1. `ha fact record --statement "<observation>" --source "<source>" --confidence high` 记录初始的不可变观察。
+2. `ha decision propose --json-input '<decision-packet.json contents>'` 创建 decision，让其中的主张可以由这条观察支撑。
+3. `ha decision relate <decision-id> --anchor <claim-id> --type evidenced-by --target fact/F-XXXXXXXX --rationale "<why this fact supports the claim>"` 把 fact 挂到 decision 的主张上。
+4. `ha task create --title "<work selected by the decision>"` 创建由 decision 选定的可执行任务包。
+5. `ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/<task-id> --rationale "<why this task follows>"` 记录 decision 到 task 的衍生关系边。
+6. `ha fact record --task <task-id> --statement "<result>" --source "<verification>" --confidence high` 记录任务结果并闭合回环。
 
 ## 不对称的存储:task 归属由边表达
 

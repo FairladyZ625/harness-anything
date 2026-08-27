@@ -90,6 +90,8 @@ Task Contract: harness-task v1
 
 写明使用证明、阴性对照、变异检查与 reviewer 拒收条件；不得用汇总性的「已通过」代替实际 runner 输出和消费证据。
 
+在 milestone 收口前闭合回环：至少用 `ha fact record --task <task-id> ...` 记录一条观察，并把回执保存在 Execution outputs 中。Fact 是 decision 的 evidence 输入，因此在接受或 reckon 该 decision 前，用 `ha decision relate <decision-id> --anchor <claim-id> --type evidenced-by --target fact/F-XXXXXXXX --rationale "<why>"` 把它挂到对应主张上。如果 proposal 还没有 fact evidence，`ha decision propose` 仍会成功，但回执会指向这两个命令。
+
 ## Verification
 
 - milestone 文件面通过相关仓库检查与人工对账。

@@ -52,6 +52,11 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
       },
       oldRelationId = deriveRelationId(oldIdentity);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    assert.match(
+      proposed.nextAction ?? "",
+      /First run `ha fact record`, then `ha decision relate --type evidenced-by`/u,
+      JSON.stringify(proposed),
+    );
     const amended = await cell.run(
       {
         kind: "decision-amend",

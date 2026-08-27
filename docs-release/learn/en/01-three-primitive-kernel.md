@@ -19,7 +19,7 @@ different place.
 |---|---|---|---|---|---|
 | **Decision** | WHY / *ought* | choosing (timeless) | an overturnable, load-bearing choice | `proposed → accepted → active → retired / rejected / deferred` | centralized, in a top-level `decisions/` directory |
 | **Task** | WHAT / *how far* | in-progress (now) | a state-machine work unit | 6 states + 9 ops | inside its own task container |
-| **Fact** | IS / *already so* | completed (past) | an immutable, append-only observation | no lifecycle — only `record` / `invalidate` | embedded in the task package that produced it |
+| **Fact** | IS / *already so* | completed (past) | an immutable, append-only observation | no lifecycle — only `record` / `invalidate` | independent record in `facts/`, optionally owned by a task edge |
 
 Read the table by column and the design starts to speak. A **decision** is a
 *why* frozen into a commitment you can later reverse. A **task** is a *what* in
@@ -38,20 +38,33 @@ fact is the immutable *substrate* they operate over.
 The three don't just coexist; they feed each other in a cycle:
 
 ```text
-   decision ──derives──▶ task ──executes──▶ fact
-       ▲                                      │
-       └──────────────  referenced by  ───────┘
+   fact ──evidences──▶ decision ──derives──▶ task
+    ▲                                      │
+    └───────────────  produces  ───────────┘
 ```
 
-- A **decision** ("we should do X") derives a **task**.
-- The **task**, when executed, produces **facts** — observations with provenance.
-- Those **facts** are referenced back by decisions, as the evidence a choice
-  stands on.
+- Start with a **fact** ("this is what we observed") recorded from reality.
+- A **decision** ("we should do X") references that fact as evidence and derives a
+  **task**.
+- The **task**, when executed, produces the next **fact** — an observation with
+  provenance that closes this pass and feeds the next decision.
 
 Remove any one and the loop can't close. Without decisions, facts are produced
 and never consumed — the pond turns green. Without tasks, decisions can't turn
 into work. Without facts, decisions have no evidence and can't be honestly
 reviewed. The three interlock; only together are they self-consistent.
+
+## One pass through the loop
+
+Use the canonical commands in this order. Each command writes one part of the
+graph, and the final fact is the input to the next pass:
+
+1. `ha fact record --statement "<observation>" --source "<source>" --confidence high` records the initial immutable observation.
+2. `ha decision propose --json-input '<decision-packet.json contents>'` creates a decision whose claims can be supported by that observation.
+3. `ha decision relate <decision-id> --anchor <claim-id> --type evidenced-by --target fact/F-XXXXXXXX --rationale "<why this fact supports the claim>"` attaches the fact to a decision claim.
+4. `ha task create --title "<work selected by the decision>"` creates the executable work package selected by the decision.
+5. `ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/<task-id> --rationale "<why this task follows>"` records the decision-to-task derivation edge.
+6. `ha fact record --task <task-id> --statement "<result>" --source "<verification>" --confidence high` records the task result and closes the loop.
 
 ## Asymmetric storage: task ownership is an edge
 
