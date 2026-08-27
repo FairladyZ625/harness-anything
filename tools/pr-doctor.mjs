@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { extractGitHubRequiredStatusCheckContexts } from "./check-github-required-contexts.mjs";
-import { parseMergifyQueueCheckSuccessContexts } from "./check-mergify-queue-contexts.mjs";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    ...options
+    ...options,
   });
   if (result.error) {
     throw new Error(`${command} failed to launch: ${result.error.message}`);
@@ -64,7 +62,7 @@ function latestChecks(statusCheckRollup = []) {
 function checkTime(check) {
   const completed = Date.parse(check.completedAt ?? "");
   const started = Date.parse(check.startedAt ?? "");
-  return Number.isFinite(completed) ? completed : (Number.isFinite(started) ? started : 0);
+  return Number.isFinite(completed) ? completed : Number.isFinite(started) ? started : 0;
 }
 
 function normalizeCheckState(check) {
@@ -95,11 +93,11 @@ function summarizeRequiredChecks(pr, requiredChecks) {
     `${counts.success}/${requiredChecks.length} success`,
     counts.pending ? `${counts.pending} pending` : null,
     counts.failed ? `${counts.failed} failed` : null,
-    counts.missing ? `${counts.missing} missing` : null
+    counts.missing ? `${counts.missing} missing` : null,
   ].filter(Boolean);
   return {
     summary: parts.join(", "),
-    failed
+    failed,
   };
 }
 
@@ -123,10 +121,7 @@ function summarizeChecks(pr) {
 }
 
 function githubRulesRequired(repo) {
-  const rules = runJson("gh", [
-    "api",
-    `repos/${repo}/rules/branches/main`
-  ], []);
+  const rules = runJson("gh", ["api", `repos/${repo}/rules/branches/main`], []);
   const result = extractGitHubRequiredStatusCheckContexts(rules);
   if (!result.hasRequiredStatusCheckRule) {
     throw new Error("GitHub branch rules include no required_status_checks rule for main");
@@ -137,28 +132,18 @@ function githubRulesRequired(repo) {
   return result.contexts;
 }
 
-function mergifyQueueConditions() {
-  return parseMergifyQueueCheckSuccessContexts(readFileSync(".mergify.yml", "utf8"));
-}
-
-function diffSets(left, right) {
-  const rightSet = new Set(right);
-  return left.filter((entry) => !rightSet.has(entry));
-}
-
 function mergifyCheckRuns(repo, sha) {
-  const data = runJson("gh", [
-    "api",
-    "--method",
-    "GET",
-    `repos/${repo}/commits/${sha}/check-runs`,
-    "-f",
-    "per_page=100"
-  ], { check_runs: [] });
-  return (data.check_runs ?? [])
-    .filter((runEntry) => /mergify|summary|queue|dequeue/iu.test(runEntry.name ?? "")
-      || /mergify|dequeue|dequeued/iu.test(runEntry.output?.title ?? "")
-      || /dequeue|dequeued/iu.test(runEntry.output?.summary ?? ""));
+  const data = runJson(
+    "gh",
+    ["api", "--method", "GET", `repos/${repo}/commits/${sha}/check-runs`, "-f", "per_page=100"],
+    { check_runs: [] },
+  );
+  return (data.check_runs ?? []).filter(
+    (runEntry) =>
+      /mergify|summary|queue|dequeue/iu.test(runEntry.name ?? "") ||
+      /mergify|dequeue|dequeued/iu.test(runEntry.output?.title ?? "") ||
+      /dequeue|dequeued/iu.test(runEntry.output?.summary ?? ""),
+  );
 }
 
 function recentDequeueEvents(repo, prs) {
@@ -202,18 +187,22 @@ function parseWorktrees() {
 function prForBranch(branch) {
   if (!branch) return [];
   try {
-    return runJson("gh", [
-      "pr",
-      "list",
-      "--head",
-      branch,
-      "--state",
-      "all",
-      "--json",
-      "number,state,title,isDraft,url,headRefName",
-      "--limit",
-      "5"
-    ], []);
+    return runJson(
+      "gh",
+      [
+        "pr",
+        "list",
+        "--head",
+        branch,
+        "--state",
+        "all",
+        "--json",
+        "number,state,title,isDraft,url,headRefName",
+        "--limit",
+        "5",
+      ],
+      [],
+    );
   } catch (error) {
     return [{ state: "UNKNOWN", title: error.message, isDraft: false }];
   }
@@ -231,51 +220,58 @@ function printSection(title, lines) {
 function main() {
   const repo = repoNameWithOwner();
   const requiredChecks = githubRulesRequired(repo);
-  const prs = runJson("gh", [
-    "pr",
-    "list",
-    "--state",
-    "open",
-    "--json",
-    "number,title,isDraft,labels,headRefName,headRefOid,url,statusCheckRollup",
-    "--limit",
-    "100"
-  ], []);
+  const prs = runJson(
+    "gh",
+    [
+      "pr",
+      "list",
+      "--state",
+      "open",
+      "--json",
+      "number,title,isDraft,labels,headRefName,headRefOid,url,statusCheckRollup",
+      "--limit",
+      "100",
+    ],
+    [],
+  );
 
   console.log(`PR Doctor for ${repo}`);
   console.log(`Required contexts (${requiredChecks.length}): ${requiredChecks.join(", ")}`);
 
-  printSection("Open PRs", prs.map((pr) => {
-    const checks = summarizeRequiredChecks(pr, requiredChecks);
-    const suffix = checks.failed.length ? ` [${checks.failed.join("; ")}]` : "";
-    return `#${pr.number} ${pr.isDraft ? "draft" : "ready"} labels=${formatLabels(pr.labels)} ${checks.summary}${suffix} - ${pr.title}`;
-  }));
+  printSection(
+    "Open PRs",
+    prs.map((pr) => {
+      const checks = summarizeRequiredChecks(pr, requiredChecks);
+      const suffix = checks.failed.length ? ` [${checks.failed.join("; ")}]` : "";
+      return `#${pr.number} ${pr.isDraft ? "draft" : "ready"} labels=${formatLabels(pr.labels)} ${checks.summary}${suffix} - ${pr.title}`;
+    }),
+  );
 
-  printSection("Active Mergify Drafts", activeDrafts(prs).map((pr) => (
-    `#${pr.number} ${pr.headRefName} - ${pr.title} :: ${summarizeChecks(pr)}`
-  )));
+  printSection(
+    "Active Mergify Drafts",
+    activeDrafts(prs).map((pr) => `#${pr.number} ${pr.headRefName} - ${pr.title} :: ${summarizeChecks(pr)}`),
+  );
 
   printSection("Recent Dequeue Events", recentDequeueEvents(repo, prs));
 
-  const mergifyChecks = mergifyQueueConditions();
-  printSection("GitHub Branch Rules vs Mergify", [
-    `required-only: ${diffSets(requiredChecks, mergifyChecks).join(", ") || "none"}`,
-    `mergify-only: ${diffSets(mergifyChecks, requiredChecks).join(", ") || "none"}`
-  ]);
-
-  printSection("Local Worktrees", parseWorktrees().map((worktree) => {
-    const prsForBranch = prForBranch(worktree.branch);
-    if (prsForBranch.length === 0) {
-      return `${worktree.branch ?? "(detached)"} ${worktree.path} PR=none`;
-    }
-    return prsForBranch.map((pr) => {
-      if (pr.state === "UNKNOWN") {
-        return `${worktree.branch} ${worktree.path} PR=unknown - ${pr.title}`;
+  printSection(
+    "Local Worktrees",
+    parseWorktrees().map((worktree) => {
+      const prsForBranch = prForBranch(worktree.branch);
+      if (prsForBranch.length === 0) {
+        return `${worktree.branch ?? "(detached)"} ${worktree.path} PR=none`;
       }
-      const stale = pr.state === "MERGED" ? " STALE-MERGED-WORKTREE" : "";
-      return `${worktree.branch} ${worktree.path} PR=#${pr.number} ${pr.state}${pr.isDraft ? " draft" : ""}${stale} - ${pr.title}`;
-    }).join("; ");
-  }));
+      return prsForBranch
+        .map((pr) => {
+          if (pr.state === "UNKNOWN") {
+            return `${worktree.branch} ${worktree.path} PR=unknown - ${pr.title}`;
+          }
+          const stale = pr.state === "MERGED" ? " STALE-MERGED-WORKTREE" : "";
+          return `${worktree.branch} ${worktree.path} PR=#${pr.number} ${pr.state}${pr.isDraft ? " draft" : ""}${stale} - ${pr.title}`;
+        })
+        .join("; ");
+    }),
+  );
 }
 
 try {
