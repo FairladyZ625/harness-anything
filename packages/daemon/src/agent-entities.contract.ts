@@ -1,12 +1,8 @@
-import {
-  entityNonEmpty,
-  entitySlug,
-  type AgentEntityKind,
-  type AgentFallbackDeclarationV1,
-  type AgentSkillDeclarationV1,
-} from "../../kernel/src/domain/agent-squad-schema.ts";
-import { EntitySchemaContractError } from "../../kernel/src/domain/entity-json-schema.ts";
-import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../kernel/src/domain/agent-squad-schema.ts";
+import { entityNonEmpty, entitySlug } from "../../kernel/src/index.ts";
+import { EntitySchemaContractError } from "../../kernel/src/index.ts";
+import type { AgentSkillDeclarationV1 } from "../../kernel/src/index.ts";
+
+export type { AgentDeclarationV1, SquadDeclarationV1 } from "../../kernel/src/index.ts";
 
 function isEntityRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

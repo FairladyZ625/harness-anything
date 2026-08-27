@@ -202,6 +202,24 @@ export type {
 } from "./people-roster.ts";
 export { compilePeopleRosterActionEvent } from "./people-event.ts";
 
+export {
+  entityNonEmpty,
+  entitySlug,
+  parseAgentDeclarationV1,
+  parseSquadDeclarationV1,
+  validateAgentDeclarationV1,
+  validateSquadDeclarationV1,
+} from "./agent-squad-schema.ts";
+export type {
+  AgentDeclarationV1,
+  AgentEntityKind,
+  AgentFallbackDeclarationV1,
+  AgentRole,
+  AgentSkillDeclarationV1,
+  SquadDeclarationV1,
+} from "./agent-squad-schema.ts";
+export { EntitySchemaContractError } from "./entity-json-schema.ts";
+
 export { isEntityEvent } from "./entity-event.ts";
 export type { CiRunObservationEventV1 } from "./ci-run-observation-event.ts";
 export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";

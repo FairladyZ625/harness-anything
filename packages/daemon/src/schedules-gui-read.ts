@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { nextScheduleOccurrence, type DaemonRepoMode, type ScheduleV1 } from "../../kernel/src/index.ts";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
-import { parseAgentDeclarationV1 } from "../../kernel/src/domain/agent-squad-schema.ts";
+import { parseAgentDeclarationV1 } from "../../kernel/src/index.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { parseFleetRoster, type FleetRoster } from "./fleet-center-admission.ts";
 import { scheduleReasoningEfforts } from "./protocol/daemon-protocol-commands-runtime-fleet.ts";

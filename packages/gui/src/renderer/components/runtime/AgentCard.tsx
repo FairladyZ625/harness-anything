@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentDeclarationV1 } from "../../../../../kernel/src/domain/agent-squad-schema.ts";
+import type { AgentDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentEntityDetail, AgentEntityRow, AgentSkillRow, SquadEntityRow } from "../../agent-entity-client.ts";

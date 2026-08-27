@@ -139,7 +139,6 @@ export function createRepoCellApi(context: any): RepoCell {
   };
   const presetRun: RepoCell["presetRun"] = async (action, binding) => {
     const command = commandDescriptorForAction(action.kind),
-      commandClass = command.commandClass,
       reject = (code: string, nextAction: string): PresetRunReceiptV1 => ({
         schema: "preset-run-receipt/v1",
         runId: typeof action.runId === "string" ? action.runId : "run_invalid",

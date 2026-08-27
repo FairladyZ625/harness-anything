@@ -10,7 +10,7 @@ import {
   type ScheduleV1,
 } from "../../kernel/src/index.ts";
 import { readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
-import { parseAgentDeclarationV1 } from "../../kernel/src/domain/agent-squad-schema.ts";
+import { parseAgentDeclarationV1 } from "../../kernel/src/index.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import {
   readFleetAssignmentClient,

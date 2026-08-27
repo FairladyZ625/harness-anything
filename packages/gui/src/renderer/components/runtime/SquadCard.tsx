@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SquadDeclarationV1 } from "../../../../../kernel/src/domain/agent-squad-schema.ts";
+import type { SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
 import type { AgentEntityRow, SquadEntityDetail, SquadEntityRow } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";

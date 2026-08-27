@@ -1,4 +1,4 @@
-import type { AgentRole } from "../../kernel/src/domain/agent-squad-schema.ts";
+import type { AgentRole } from "../../kernel/src/index.ts";
 
 const sharedExecutionDiscipline = `# Harness Execution Discipline
 

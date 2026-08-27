@@ -1,6 +1,12 @@
 import path from "node:path";
 import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
-import { blockingOf, closeoutReadiness, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import {
+  blockingOf,
+  closeoutReadiness,
+  consumeKnownError,
+  makeTaskEventStore,
+  makeTaskProjection,
+} from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
 import { localSystemBinding } from "./daemon-host-binding.ts";
@@ -41,6 +47,7 @@ export function initializeRepoCell(context: any): any {
     try {
       binding = localSystemBinding(context.rootDir, "repo-write");
     } catch (error) {
+      consumeKnownError(error);
       console.warn(
         `[wal-materializer] local identity unavailable; authored doc scan deferred: ${error instanceof Error ? error.message : String(error)}`,
       );

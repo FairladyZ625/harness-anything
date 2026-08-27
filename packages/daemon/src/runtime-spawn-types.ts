@@ -5,11 +5,7 @@ import type {
   SessionIdentity,
   WriteSource,
 } from "../../kernel/src/index.ts";
-import type {
-  AgentFallbackDeclarationV1,
-  AgentRole,
-  AgentSkillDeclarationV1,
-} from "../../kernel/src/domain/agent-squad-schema.ts";
+import type { AgentFallbackDeclarationV1, AgentRole, AgentSkillDeclarationV1 } from "../../kernel/src/index.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { type DispatchStreamWriter } from "./dispatch-stream.ts";
