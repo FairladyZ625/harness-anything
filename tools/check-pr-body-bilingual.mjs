@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import process from "node:process";
-import { isMergifyQueueDraft } from "./gates/mergify-queue-draft.mjs";
 import { parseProductionDeclaration } from "./gates/production-delta.mjs";
 
 export const defaultThresholds = Object.freeze({
@@ -257,16 +256,6 @@ function readBodyFromArgs(argv) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const body = readBodyFromArgs(process.argv.slice(2));
-    if (
-      isMergifyQueueDraft({
-        headRefName: process.env.PR_HEAD_REF ?? "",
-        authorLogin: process.env.PR_AUTHOR_LOGIN ?? "",
-      })
-    ) {
-      process.stdout.write("PR body bilingual block check skipped for Mergify merge-queue verification PR.\n");
-      process.exit(0);
-    }
-
     const result = checkPrBodyBilingual(body);
     if (result.ok) {
       process.stdout.write(

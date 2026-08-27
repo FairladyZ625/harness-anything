@@ -2,7 +2,6 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { changedFiles, repoRoot } from "./git.mjs";
-import { isMergifyQueueDraft } from "./mergify-queue-draft.mjs";
 
 const DEPENDENCY_SECTIONS = Object.freeze([
   "dependencies",
@@ -73,15 +72,9 @@ export function validateDependencyDeclaration(paths, prBody, declarationRequired
 }
 
 export function eventContext(event) {
-  if (event?.pull_request === undefined)
-    return { declarationRequired: false, mergifyQueueDraft: false, base: null, body: "" };
-  const mergifyQueueDraft = isMergifyQueueDraft({
-    headRefName: event.pull_request.head?.ref ?? "",
-    authorLogin: event.pull_request.user?.login ?? "",
-  });
+  if (event?.pull_request === undefined) return { declarationRequired: false, base: null, body: "" };
   return {
-    declarationRequired: !mergifyQueueDraft,
-    mergifyQueueDraft,
+    declarationRequired: true,
     base: event.pull_request.base?.sha ?? null,
     body: event.pull_request.body ?? "",
   };
@@ -102,10 +95,6 @@ export function main(argv = process.argv.slice(2)) {
     ...validateDependencyDeclaration(paths, context.body, context.declarationRequired),
   ];
   console.log("dependency-policy: online advisory lookup skipped (non-required; deterministic gate is offline)");
-  if (context.mergifyQueueDraft)
-    console.log(
-      "dependency-policy: declaration skipped for Mergify merge-queue verification PR (the queued PR carries the declaration).",
-    );
   if (argv.includes("--sbom"))
     console.log("dependency-policy: SBOM reporting is not required by the P2 mission contract");
   if (errors.length > 0) for (const error of errors) console.error(`G31 dependency-policy: ${error}`);

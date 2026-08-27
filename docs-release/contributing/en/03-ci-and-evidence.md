@@ -63,21 +63,16 @@ failure when the PR lanes passed by design.
 
 ## Merge discipline
 
-`main` only advances through the merge queue. Do not merge a pull request into
-`main` outside the queue, even when the branch is green locally or in CI.
+`main` advances through GitHub's protected merge path. Do not merge a pull request into
+`main` before the required checks and reviews pass.
 
 If an emergency direct merge is explicitly approved, the person performing it is
 responsible for immediately rebasing every pull request already in the queue and
 rerunning the required gates. The emergency merge is not complete until queued
 work has a fresh base.
 
-Mergify marks a pull request removed after a queue failure with `dequeued`. If
-the pull request still has `merge-queue`, it is requeued automatically after no
-check is failed or pending, for at most two automatic recovery attempts. After
-two unsuccessful attempts, the pull request remains `dequeued` for manual
-diagnosis. To intentionally leave the queue at any time, remove the
-`merge-queue` label; the attempt count is cleared so a later opt-in starts
-fresh.
+After approval and passing required checks, enable GitHub auto-merge. GitHub
+will merge the pull request when the protected branch rules are satisfied.
 
 ## Evidence in the PR
 

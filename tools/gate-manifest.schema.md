@@ -190,8 +190,4 @@ The registry records:
 
 Workflow helper jobs listed under
 `surfaces.rewriteCi.helperJobsNotRegisteredAsGates` are intentionally not
-registered as gates. `metadata-source-proof` looks up the latest successful
-`rewrite-ci/source-validation` commit status on the exact PR head SHA and fails
-closed to full execution on absence or API error. `source-validation-proof`
-records that status only after all source-validation jobs succeed; reuse runs do
-not record a new proof.
+registered as gates.

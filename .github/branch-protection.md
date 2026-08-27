@@ -6,12 +6,10 @@ This repository accepts work through pull requests against `main`.
 
 1. Create a `codex/` branch from the latest `origin/main`.
 2. Keep public implementation and private planning evidence separated.
-3. Open a pull request with the full repository PR template. Mergify-generated
-   merge-queue verification pull requests are synthetic CI artifacts and do not
-   replace the original pull request body.
+3. Open a pull request with the full repository PR template.
 4. Wait for the required `rewrite-ci` pull request contexts to pass.
 5. Resolve or explicitly route open P0/P1/P2 findings before merge.
-6. Let Mergify merge through the queue, then delete the merged PR branch.
+6. After approval and passing required checks, enable GitHub auto-merge, then delete the merged PR branch.
 
 ## Required Checks
 
@@ -51,8 +49,8 @@ The active GitHub repository ruleset is the sole enforcement surface for
 `main`. It requires pull requests, the `rewrite-ci` status checks, deletion
 blocking, and non-fast-forward/force-push blocking with no bypass actors. The
 `check-github-required-contexts` gate verifies the hosted branch rules against
-the structured gate manifest. Mergify owns the up-to-date guarantee by testing
-queued pull requests against the predicted merge state.
+the structured gate manifest. GitHub auto-merge waits for the required checks
+and merges the pull request when the rules are satisfied.
 
 The active GitHub ruleset enforcement for `main` requires these status contexts:
 
@@ -73,40 +71,6 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - crlf-checkout
 - windows-first-run (ubuntu-latest)
 - windows-first-run (windows-latest)
-
-The Mergify GitHub App must be installed from
-https://github.com/marketplace/mergify before maintainers rely on the queue.
-The queue rules live in `.mergify.yml`.
-
-Mergify sets `branch_protection_injection_mode: queue`, so GitHub branch
-protection supplies the required check conditions for both queue admission and
-merge. `.mergify.yml` therefore contains no duplicated list of check names.
-Its local queue conditions reject any failed check, while `merge_conditions`
-stays empty so Mergify can run in-place checks against the queued pull request's
-predicted merge state.
-
-When Mergify removes a `merge-queue` pull request and applies the `dequeued`
-label, the workflow rule waits until no check is failed or pending, queues the
-pull request again, and removes `dequeued`. A maintainer does not need to cycle
-the `merge-queue` label after a transient queue failure.
-
-The `pr-body-lint` job checks human-authored pull request bodies against the
-repository template. It narrowly skips Mergify synthetic queue verification pull
-requests only when the pull request is authored by `mergify[bot]`, uses a
-`mergify/merge-queue/*` head branch, and carries the Mergify queue payload
-marker.
-
-The `rewrite-ci` workflow may cancel superseded ordinary pull request runs, but
-must not cancel `mergify/merge-queue/*` pull request runs. Mergify can emit
-multiple queue-verification pull request events for the same synthetic branch,
-and cancelled replacement races can make the queue treat otherwise passing
-checks as failed.
-
-When Mergify edits only the metadata body of a synthetic
-`mergify/merge-queue/*` pull request, required jobs should complete with a
-fast no-op success. That keeps queue bookkeeping edits from launching another
-full CI pass while preserving normal `edited` body validation for
-human-authored pull requests.
 
 Integration tests are required through the six `integration-shard (N)`
 contexts, not through a slower aggregate `integration` context.

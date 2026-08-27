@@ -57,15 +57,12 @@ job 按设计 skipped 时，不要把它当失败。
 
 ## 合并纪律
 
-`main` 只通过 merge queue 前进。不要在队列外把 pull request 手动合进 `main`，即使本地或 CI 已经是绿色。
+`main` 通过 GitHub 保护的合并路径前进。required checks 和 review 通过前不要把 pull request 合进 `main`。
 
 如果紧急情况被明确批准为直接合并，执行者负责立即 rebase 队列里已有的所有 pull request，并重新运行 required
 gates。队内工作重新基于最新 `main` 之前，这次紧急合并不算收尾完成。
 
-Mergify 会给因队列失败而移出的 pull request 加上 `dequeued`。如果 pull request 仍有
-`merge-queue`，在没有 failed 或 pending check 后最多自动重新入队两次。两次都未成功后，pull
-request 会保留 `dequeued`，等待人工排查。若要随时人工退出队列，应摘掉 `merge-queue` 标签；
-尝试次数会随之清零，之后再次主动加标签时会从头开始。
+review 和 required checks 通过后启用 GitHub auto-merge。保护分支规则满足时，GitHub 会自动合并 pull request。
 
 ## PR 里的证据
 

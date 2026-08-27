@@ -57,18 +57,12 @@ test("manifest gate runner rejects --shard for non-shardable gates", () => {
   );
 });
 
-test("test quarantine skips only ordinary pull-request L0 jobs", () => {
+test("test quarantine skips pull-request L0 jobs", () => {
   assert.equal(
     shouldSkipTestQuarantine("integration-shard", { GITHUB_EVENT_NAME: "pull_request", GITHUB_HEAD_REF: "feature/x" }),
     true,
   );
-  assert.equal(
-    shouldSkipTestQuarantine("integration-shard", {
-      GITHUB_EVENT_NAME: "pull_request",
-      GITHUB_HEAD_REF: "mergify/merge-queue/main/pr-1",
-    }),
-    false,
-  );
+  assert.equal(shouldSkipTestQuarantine("integration-shard", { GITHUB_EVENT_NAME: "pull_request" }), true);
   assert.equal(shouldSkipTestQuarantine("integration-shard", { GITHUB_EVENT_NAME: "schedule" }), false);
   assert.equal(
     shouldSkipTestQuarantine("windows-integration-shard", {

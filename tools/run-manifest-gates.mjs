@@ -286,12 +286,7 @@ const l0WorkflowJobs = new Set([
 ]);
 
 export function shouldSkipTestQuarantine(workflowJob, env) {
-  return Boolean(
-    workflowJob &&
-      l0WorkflowJobs.has(workflowJob) &&
-      env.GITHUB_EVENT_NAME === "pull_request" &&
-      !String(env.GITHUB_HEAD_REF ?? "").startsWith("mergify/merge-queue/"),
-  );
+  return Boolean(workflowJob && l0WorkflowJobs.has(workflowJob) && env.GITHUB_EVENT_NAME === "pull_request");
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {

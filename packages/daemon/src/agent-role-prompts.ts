@@ -15,7 +15,6 @@ const frameworkExecutionDiscipline = [
     "treat it as read-only and make code changes only in the worker repository root.",
   ].join(""),
   "- Before handoff, rebase onto the latest origin/main and rerun the evidence commands.",
-  ["- Run local integration shards with ", "`--exclude mergify-queue-metadata-edit-noop`."].join(""),
   [
     "- Submit receipts only through ",
     "`ha doc sync --submit --path tasks/<pkg>/artifacts/reports/<file>.md`; ",

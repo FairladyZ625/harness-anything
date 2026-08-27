@@ -41,9 +41,13 @@ test("buildSteps appends integration and gui lanes only in the full tier", () =>
       const surfaces = gate.executionSurfaces ?? {};
       const jobs = surfaces.rewriteCi?.pullRequestJobs ?? [];
       const pkg = surfaces.packageJson ?? {};
-      return jobs.some((job) => job === "boundaries" || job === "package-policy")
-        && !excluded.has(gate.id)
-        && typeof pkg.script === "string" && pkg.checkPr === true && gate.deterministic === true;
+      return (
+        jobs.some((job) => job === "boundaries" || job === "package-policy") &&
+        !excluded.has(gate.id) &&
+        typeof pkg.script === "string" &&
+        pkg.checkPr === true &&
+        gate.deterministic === true
+      );
     })
     .map((gate) => gate.executionSurfaces.packageJson.script);
   for (const script of expectedScripts) {
@@ -56,7 +60,7 @@ test("buildSteps appends integration and gui lanes only in the full tier", () =>
   // CI's boundaries exclusions must be honored locally too — and only those. The
   // rebuild lane used to exclude check-duplicate-definitions here; with all 50 groups
   // cleared the gate is back in CI, so it has to be back in the local set as well.
-  assert.deepEqual([...excluded], ["mergify-queue-metadata-edit-noop"]);
+  assert.deepEqual([...excluded], []);
   assert.ok(fastScripts.includes("harness:check-duplicate-definitions"));
   assert.deepEqual(fastScripts.slice(-2), ["check:local:derived-contracts", "check:local:schema-closure"]);
 });
@@ -67,26 +71,18 @@ test("the local line-budget step resolves to an executable package script", () =
 });
 
 test("selectQosPrefix wraps with taskpolicy on darwin when available", () => {
-  assert.deepEqual(
-    selectQosPrefix({ platform: "darwin", hasTaskpolicy: true, hasNice: true }),
-    ["taskpolicy", "-c", "utility"]
-  );
+  assert.deepEqual(selectQosPrefix({ platform: "darwin", hasTaskpolicy: true, hasNice: true }), [
+    "taskpolicy",
+    "-c",
+    "utility",
+  ]);
 });
 
 test("selectQosPrefix falls back to nice off darwin or without taskpolicy", () => {
-  assert.deepEqual(
-    selectQosPrefix({ platform: "linux", hasTaskpolicy: false, hasNice: true }),
-    ["nice", "-n", "10"]
-  );
-  assert.deepEqual(
-    selectQosPrefix({ platform: "darwin", hasTaskpolicy: false, hasNice: true }),
-    ["nice", "-n", "10"]
-  );
+  assert.deepEqual(selectQosPrefix({ platform: "linux", hasTaskpolicy: false, hasNice: true }), ["nice", "-n", "10"]);
+  assert.deepEqual(selectQosPrefix({ platform: "darwin", hasTaskpolicy: false, hasNice: true }), ["nice", "-n", "10"]);
 });
 
 test("selectQosPrefix runs bare when no QoS tool is available", () => {
-  assert.deepEqual(
-    selectQosPrefix({ platform: "linux", hasTaskpolicy: false, hasNice: false }),
-    []
-  );
+  assert.deepEqual(selectQosPrefix({ platform: "linux", hasTaskpolicy: false, hasNice: false }), []);
 });

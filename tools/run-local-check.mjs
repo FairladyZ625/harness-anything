@@ -53,11 +53,13 @@ const LOCAL_MANIFEST_JOBS = new Set(["boundaries", "package-policy"]);
 // would have to pick one and be silently wrong on the other.
 export function excludedBoundaryGateIds() {
   const workflow = readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8");
-  const commands = [...workflow.matchAll(/--workflow-job boundaries\s+--exclude\s+(\S+)/gu)];
+  const commands = [...workflow.matchAll(/--workflow-job boundaries(?:\s+--exclude\s+(\S+))?/gu)];
   if (commands.length !== 1) {
-    throw new Error(`run-local-check: expected exactly one boundaries gate command in rewrite-ci.yml, found ${commands.length}`);
+    throw new Error(
+      `run-local-check: expected exactly one boundaries gate command in rewrite-ci.yml, found ${commands.length}`,
+    );
   }
-  return new Set(commands[0][1].split(","));
+  return new Set(commands[0][1] ? commands[0][1].split(",") : []);
 }
 
 function manifestDerivedSteps() {
@@ -68,15 +70,17 @@ function manifestDerivedSteps() {
       const surfaces = gate.executionSurfaces ?? {};
       const jobs = surfaces.rewriteCi?.pullRequestJobs ?? [];
       const pkg = surfaces.packageJson ?? {};
-      return jobs.some((job) => LOCAL_MANIFEST_JOBS.has(job))
-        && !excluded.has(gate.id)
-        && typeof pkg.script === "string"
-        && pkg.checkPr === true
-        && gate.deterministic === true;
+      return (
+        jobs.some((job) => LOCAL_MANIFEST_JOBS.has(job)) &&
+        !excluded.has(gate.id) &&
+        typeof pkg.script === "string" &&
+        pkg.checkPr === true &&
+        gate.deterministic === true
+      );
     })
     .map((gate) => [
-      `${(gate.executionSurfaces.rewriteCi.pullRequestJobs.find((job) => LOCAL_MANIFEST_JOBS.has(job)))}: ${gate.id}`,
-      gate.executionSurfaces.packageJson.script
+      `${gate.executionSurfaces.rewriteCi.pullRequestJobs.find((job) => LOCAL_MANIFEST_JOBS.has(job))}: ${gate.id}`,
+      gate.executionSurfaces.packageJson.script,
     ]);
 }
 
@@ -90,13 +94,13 @@ const FAST_STEPS = [
   ["test:contract", "test:contract"],
   ...manifestDerivedSteps(),
   ["contracts: derived-contracts", "check:local:derived-contracts"],
-  ["contracts: schema-closure", "check:local:schema-closure"]
+  ["contracts: schema-closure", "check:local:schema-closure"],
 ];
 
 const FULL_EXTRA_STEPS = [
   ["test:integration", "test:integration"],
   ["test:gui", "test:gui"],
-  ["test:gui:e2e", "test:gui:e2e"]
+  ["test:gui:e2e", "test:gui:e2e"],
 ];
 
 export function parseLocalCheckArgs(args) {
@@ -228,7 +232,7 @@ function runStep(label, scriptName, qosPrefix) {
   const result = spawnSync(command, rest, {
     cwd: repoRoot,
     stdio: "inherit",
-    env: process.env
+    env: process.env,
   });
   const elapsedS = ((Date.now() - started) / 1000).toFixed(1);
   if (result.error) {
@@ -256,7 +260,7 @@ async function main(argv) {
   const qosPrefix = selectQosPrefix({
     platform: process.platform,
     hasTaskpolicy: process.platform === "darwin" && binaryExists("taskpolicy"),
-    hasNice: binaryExists("nice")
+    hasNice: binaryExists("nice"),
   });
 
   let release;
@@ -277,7 +281,7 @@ async function main(argv) {
   console.log(
     `Local check (${options.full ? "full" : "fast"} tier): ${steps.length} steps, ` +
       `QoS wrapper: ${qosLabel}, cores: ${cores}. ` +
-      `Cloud CI enforces the required checks on pull requests.`
+      `Cloud CI enforces the required checks on pull requests.`,
   );
 
   const totalStart = Date.now();
@@ -298,9 +302,9 @@ async function main(argv) {
   console.log(`\nLocal check passed (${options.full ? "full" : "fast"} tier) in ${totalS}s.`);
   if (!options.full) {
     console.log(
-      "Note: this tier did not run test:integration or test:gui. Cloud CI runs the integration shards on every "
-        + "pull request; the GUI job runs only when the pull request touches packages/gui or the root "
-        + "package/tsconfig manifests. Run `npm run check:local -- --full` to cover both here."
+      "Note: this tier did not run test:integration or test:gui. Cloud CI runs the integration shards on every " +
+        "pull request; the GUI job runs only when the pull request touches packages/gui or the root " +
+        "package/tsconfig manifests. Run `npm run check:local -- --full` to cover both here.",
     );
   }
 }

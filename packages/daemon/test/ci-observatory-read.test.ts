@@ -54,7 +54,7 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
   const observations = [
     event(
       3,
-      { runId: "run-2", branch: "mergify/merge-queue/main/pr-3", job: "typecheck", wallclockMs: 500 },
+      { runId: "run-2", branch: "main", job: "typecheck", wallclockMs: 500 },
       [
         {
           file: "suite.ts",
@@ -171,19 +171,19 @@ test("CI observatory fails closed on malformed quarantine ownership", () => {
   }
 });
 
-test("CI observation pull selects the newest main and merge-queue runs globally", () => {
+test("CI observation pull selects the newest main and main runs globally", () => {
   assert.deepEqual(
     selectCiObservationRuns(
       [
         { databaseId: 1, headBranch: "feature/ignored", createdAt: "2026-08-27T03:00:00Z" },
         { databaseId: 2, headBranch: "main", createdAt: "2026-08-27T01:00:00Z" },
-        { databaseId: 3, headBranch: "mergify/merge-queue/main/pr-4", createdAt: "2026-08-27T02:00:00Z" },
+        { databaseId: 3, headBranch: "main", createdAt: "2026-08-27T02:00:00Z" },
         { databaseId: 4, headBranch: "main", createdAt: "2026-08-27T00:00:00Z" },
       ],
       2,
     ),
     [
-      { databaseId: 3, headBranch: "mergify/merge-queue/main/pr-4", createdAt: "2026-08-27T02:00:00Z" },
+      { databaseId: 3, headBranch: "main", createdAt: "2026-08-27T02:00:00Z" },
       { databaseId: 2, headBranch: "main", createdAt: "2026-08-27T01:00:00Z" },
     ],
   );
@@ -250,7 +250,7 @@ test("CI observation pull writes canonical events once per run and job", async (
       return JSON.stringify(
         workflow === "rewrite-ci.yml"
           ? [{ databaseId: 101, headBranch: "main", createdAt: "2026-08-27T03:00:00Z" }]
-          : [{ databaseId: 102, headBranch: "mergify/merge-queue/main/pr-2", createdAt: "2026-08-27T02:00:00Z" }],
+          : [{ databaseId: 102, headBranch: "main", createdAt: "2026-08-27T02:00:00Z" }],
       );
     }
     const runId = String(args[2]),
@@ -263,7 +263,7 @@ test("CI observation pull writes canonical events once per run and job", async (
         run: {
           runId,
           sha: `sha-${runId}`,
-          branch: runId === "101" ? "main" : "mergify/merge-queue/main/pr-2",
+          branch: runId === "101" ? "main" : "main",
           prNumber: null,
           job: `job-${runId}`,
           wallclockMs: 20,

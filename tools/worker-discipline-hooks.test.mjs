@@ -147,13 +147,11 @@ test("worker handoff templates carry framework-owned publication rules", () => {
   for (const relativePath of templatePaths) {
     const body = readFileSync(path.join(repositoryRoot, relativePath), "utf8");
     assert.match(body, /origin\/main/u);
-    assert.match(body, /mergify-queue-metadata-edit-noop/u);
     assert.match(body, /ha doc sync --submit --path tasks\/<pkg>\/artifacts\/reports\/<file>\.md/u);
     assert.doesNotMatch(body, /Do not push|不要 push/u);
   }
   const prompt = readFileSync(path.join(repositoryRoot, "packages/daemon/src/agent-role-prompts.ts"), "utf8");
   assert.match(prompt, /canonical repository root/u);
-  assert.match(prompt, /mergify-queue-metadata-edit-noop/u);
   assert.match(prompt, /ha doc sync --submit --path tasks/u);
 });
 
