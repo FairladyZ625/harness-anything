@@ -263,9 +263,9 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         { automaticEvaluatedThrough: missedAt, missedCount: 1 },
       );
 
-      const updated = await cell.run(
-        {
-          kind: "schedule-update",
+      writeFileSync(
+        path.join(root, "schedule-update.json"),
+        JSON.stringify({
           scheduleId: "e2e-probe",
           name: "Updated E2E probe",
           everyMs: 600_000,
@@ -274,11 +274,12 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           reasoningEffort: "high",
           cwd: null,
           idempotencyKey: "update-e2e-probe",
-        },
-        actor,
+        }),
       );
+      const updated = await cell.run({ kind: "schedule-update", fromFile: "schedule-update.json" }, actor);
       assert.equal(updated.outcome, "applied", JSON.stringify(updated));
-      const shown = (await cell.run({ kind: "schedule-show", scheduleId: "e2e-probe" }, actor)) as unknown as {
+      writeFileSync(path.join(root, "schedule-show.json"), JSON.stringify({ scheduleId: "e2e-probe" }));
+      const shown = (await cell.run({ kind: "schedule-show", fromFile: "schedule-show.json" }, actor)) as unknown as {
         readonly schedule: {
           readonly name: string;
           readonly spec: { readonly trigger: { readonly everyMs: number }; readonly mission: string };
@@ -292,15 +293,15 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       assert.notEqual(shown.schedule.status.lastRun, null);
       const authoredSchedulePath = path.join(resolveHarnessLayout(root).authoredRoot, "schedules/e2e-probe.json");
       assert.equal(existsSync(authoredSchedulePath), true);
-      const deleted = await cell.run(
-        {
-          kind: "schedule-delete",
+      writeFileSync(
+        path.join(root, "schedule-delete.json"),
+        JSON.stringify({
           scheduleId: "e2e-probe",
           reason: "Retired after integration verification",
           idempotencyKey: "delete-e2e-probe",
-        },
-        actor,
+        }),
       );
+      const deleted = await cell.run({ kind: "schedule-delete", fromFile: "schedule-delete.json" }, actor);
       assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
       assert.equal(existsSync(authoredSchedulePath), false);
       const afterDelete = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {

@@ -16,6 +16,15 @@ import {
   type ScheduleV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
+import {
+  scheduleDeleteJsonAllowedFields,
+  scheduleDeleteJsonFields,
+  scheduleShowJsonAllowedFields,
+  scheduleShowJsonFields,
+  scheduleUpdateJsonAllowedFields,
+  scheduleUpdateJsonFields,
+} from "./protocol/daemon-protocol-commands-runtime-fleet.ts";
+import { workspaceText } from "./repo-cell-packets.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TrustedScheduleSpawn } from "./runtime-spawn.ts";
 
@@ -35,6 +44,45 @@ type ScheduleSpawnReceipt = {
   readonly dispatchId?: string;
   readonly runtimeSessionId?: string;
 };
+
+const schedulePacketContracts: Readonly<
+  Record<string, { readonly required: readonly string[]; readonly allowed: readonly string[] }>
+> = Object.freeze({
+  "schedule-show": { required: scheduleShowJsonFields, allowed: scheduleShowJsonAllowedFields },
+  "schedule-update": { required: scheduleUpdateJsonFields, allowed: scheduleUpdateJsonAllowedFields },
+  "schedule-delete": { required: scheduleDeleteJsonFields, allowed: scheduleDeleteJsonAllowedFields },
+});
+
+function resolveScheduleAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {
+  const contract = schedulePacketContracts[action.kind];
+  if (!contract) return action;
+  const fromFile = typeof action.fromFile === "string",
+    actionAllowed = new Set(["kind", ...(fromFile ? ["fromFile"] : contract.allowed)]),
+    unsupportedActionFields = Object.keys(action).filter((field) => !actionAllowed.has(field));
+  if (unsupportedActionFields.length)
+    throw invalidSchedulePacket(`Remove unsupported Schedule action fields: ${unsupportedActionFields.join(", ")}`);
+  if (!fromFile) return action;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(workspaceText(rootDir, action.fromFile, "fromFile"));
+  } catch (error) {
+    if (error instanceof SyntaxError)
+      throw invalidSchedulePacket("Schedule input must be one UTF-8 JSON object; repair the JSON and retry");
+    throw error;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw invalidSchedulePacket("Schedule input must be one JSON object");
+  const packet = parsed as Record<string, unknown>,
+    unknown = Object.keys(packet).filter((field) => !contract.allowed.includes(field)),
+    missing = contract.required.filter((field) => !Object.hasOwn(packet, field));
+  if (unknown.length) throw invalidSchedulePacket(`Remove unsupported Schedule input fields: ${unknown.join(", ")}`);
+  if (missing.length) throw invalidSchedulePacket(`Add required Schedule input fields: ${missing.join(", ")}`);
+  return { kind: action.kind, ...packet };
+}
+
+function invalidSchedulePacket(message: string): Error {
+  return Object.assign(new Error(message), { code: "invalid_command" });
+}
 
 export async function dispatchClaimedSchedule<TReceipt>(input: {
   readonly schedule: ScheduleV1;
@@ -446,7 +494,8 @@ export function makeRepoCellScheduleActions(cell: any) {
   };
 
   return {
-    run: async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
+    run: async (rawAction: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
+      const action = resolveScheduleAction(cell.rootDir, rawAction);
       if (action.kind === "schedule-list") {
         const revision = cell.store.readHead()?.revision ?? 0,
           assignmentScheduleId =

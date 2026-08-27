@@ -235,7 +235,10 @@ export function ScheduleFormDialog({
         <textarea
           aria-label={t("schedules.form.mission")}
           data-testid="schedule-form-mission"
-          className="min-h-28 w-full rounded border border-border-strong bg-surface px-2 py-1.5 text-[12px] outline-none focus-visible:border-accent"
+          className={
+            "min-h-28 w-full rounded border border-border-strong bg-surface px-2 py-1.5 text-[12px] " +
+            "outline-none focus-visible:border-accent"
+          }
           value={mission}
           onChange={(event) => setMission(event.target.value)}
         />

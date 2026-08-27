@@ -128,6 +128,23 @@ test("Schedule CLI rejects cron, sub-minute intervals, and ambiguous missions", 
   );
 });
 
+test("Schedule show, update, and delete expose closed structured packet inputs", () => {
+  for (const [verb, packet] of [
+    ["show", "show.json"],
+    ["update", "update.json"],
+    ["delete", "delete.json"],
+  ] as const) {
+    const parsed = parseThinCommand(["schedule", verb, "--from-file", packet]);
+    assert.equal(parsed.ok, true, verb);
+    if (parsed.ok)
+      assert.deepEqual(parsed.command.action, {
+        kind: `schedule-${verb}`,
+        fromFile: packet,
+      });
+  }
+  assert.equal(parseThinCommand(["schedule", "update", "probe", "--from-file", "update.json"]).ok, false);
+});
+
 test("Schedule show human renderer returns the complete schedule snapshot", () => {
   assert.equal(
     renderScheduleShow({ command: "schedule-show", schedule: { scheduleId: "probe", state: "armed" } }),

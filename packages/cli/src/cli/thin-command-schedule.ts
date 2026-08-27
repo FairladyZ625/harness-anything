@@ -16,11 +16,21 @@ export function parseSchedule(
     return args.length === 2
       ? accepted(rootDir, repoId, json, { kind: "schedule-list" })
       : rejected("unknown_field", "ha schedule list takes no options or positional arguments.", json);
-  const scheduleId = args[2];
+  const packetOnly = args[2] === "--from-file" || args[2]?.startsWith("--from-file=") === true,
+    scheduleId = packetOnly ? undefined : args[2],
+    flags = readFlags(route.id, args.slice(packetOnly ? 2 : 3), inputs);
+  if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+  const fromFile = flags.one.get("--from-file");
+  if (fromFile)
+    return scheduleId === undefined && flags.one.size === 1
+      ? accepted(rootDir, repoId, json, { kind: route.id, fromFile })
+      : rejected(
+          "invalid_field",
+          "Use --from-file <packet.json> by itself, or provide the direct Schedule arguments.",
+          json,
+        );
   if (!nonEmpty(scheduleId))
     return rejected("missing_field", `Use ha schedule ${args[1] ?? "<command>"} <schedule-id>.`, json);
-  const flags = readFlags(route.id, args.slice(3), inputs);
-  if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
   const idempotencyKey = flags.one.get("--idempotency-key"),
     retry = idempotencyKey ? { idempotencyKey } : {};
   if (route.id === "schedule-delete")

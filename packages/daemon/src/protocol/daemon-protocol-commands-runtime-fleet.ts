@@ -320,7 +320,36 @@ const scheduleIdInput = (verb: string) =>
     nextAction: `Use one stable non-empty --idempotency-key when retrying schedule ${verb}.`,
   });
 
-export const scheduleReasoningEfforts = ["minimal", "low", "medium", "high", "xhigh"] as const;
+export const scheduleShowJsonFields = Object.freeze(["scheduleId"] as const),
+  scheduleShowJsonAllowedFields = scheduleShowJsonFields,
+  scheduleUpdateJsonFields = Object.freeze(["scheduleId"] as const),
+  scheduleUpdateJsonAllowedFields = Object.freeze([
+    ...scheduleUpdateJsonFields,
+    "name",
+    "everyMs",
+    "agentId",
+    "runtimeInstanceId",
+    "mission",
+    "model",
+    "reasoningEffort",
+    "cwd",
+    "idempotencyKey",
+  ] as const),
+  scheduleDeleteJsonFields = Object.freeze(["scheduleId"] as const),
+  scheduleDeleteJsonAllowedFields = Object.freeze([...scheduleDeleteJsonFields, "reason", "idempotencyKey"] as const),
+  scheduleReasoningEfforts = ["minimal", "low", "medium", "high", "xhigh"] as const;
+
+const scheduleFromFileInput = (requiredFields: readonly string[], allowedFields: readonly string[]) =>
+  cliInput(
+    "--from-file",
+    "single",
+    false,
+    {
+      code: "invalid_field",
+      nextAction: "Use --from-file <packet.json> by itself, or provide the direct Schedule arguments.",
+    },
+    { jsonFields: requiredFields, jsonAllowedFields: allowedFields },
+  );
 
 export const scheduleProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
@@ -395,7 +424,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Show one canonical Schedule definition and projected run state.",
     method: "repo.task.run",
     positional: "scheduleId",
-    inputs: [],
+    inputs: [scheduleFromFileInput(scheduleShowJsonFields, scheduleShowJsonAllowedFields)],
   }),
   defineCenterForwardWriteCommand({
     id: "schedule-update",
@@ -405,6 +434,7 @@ export const scheduleProtocolCommands = Object.freeze([
     method: "repo.task.run",
     positional: "scheduleId",
     inputs: [
+      scheduleFromFileInput(scheduleUpdateJsonFields, scheduleUpdateJsonAllowedFields),
       cliInput("--name", "single", false, {
         code: "invalid_field",
         nextAction: "Use one non-empty Schedule name.",
@@ -458,6 +488,7 @@ export const scheduleProtocolCommands = Object.freeze([
     method: "repo.task.run",
     positional: "scheduleId",
     inputs: [
+      scheduleFromFileInput(scheduleDeleteJsonFields, scheduleDeleteJsonAllowedFields),
       cliInput("--reason", "single", false, {
         code: "invalid_field",
         nextAction: "Use one non-empty deletion reason, or omit --reason.",
