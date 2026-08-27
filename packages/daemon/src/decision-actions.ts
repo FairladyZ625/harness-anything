@@ -577,7 +577,8 @@ function missingProposalFactEvidenceHint(event: DecisionEventV1): string | null 
   );
   return hasFactEvidence
     ? null
-    : "First run `ha fact record`, then `ha decision relate --type evidenced-by` to attach a fact evidence edge to a claim before accepting this Decision.";
+    : "First run `ha fact record`, then `ha decision relate --type evidenced-by` " +
+        "to attach a fact evidence edge to a claim before accepting this Decision.";
 }
 
 function decisionPreview(event: DecisionEventV1, revision: number): WriteReceipt {
