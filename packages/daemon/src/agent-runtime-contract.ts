@@ -90,6 +90,7 @@ export interface AgentRuntimeSessionDto {
     readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
     readonly exitCode: number | null;
     readonly resultRef: string | null;
+    readonly reasonCode?: string;
   };
 }
 export interface AgentRuntimeLifecycleDto {
@@ -421,13 +422,19 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     value.associations.every(validAssociation) &&
     (value.attemptChain === undefined || validAttemptChain(value.attemptChain)) &&
     isAgentRuntimeContractRecord(value.activity) &&
-    hasExactAgentRuntimeContractFields(value.activity, ["lastObservedAt", "outcome", "exitCode", "resultRef"]) &&
+    hasAgentRuntimeContractFields(
+      value.activity,
+      ["lastObservedAt", "outcome", "exitCode", "resultRef"],
+      ["reasonCode"],
+    ) &&
     typeof value.activity.lastObservedAt === "string" &&
     (value.activity.outcome === null ||
       ["succeeded", "failed", "unknown", "cancelled"].includes(String(value.activity.outcome))) &&
     (value.activity.exitCode === null ||
       (Number.isInteger(value.activity.exitCode) && (value.activity.exitCode as number) >= 0)) &&
-    (value.activity.resultRef === null || typeof value.activity.resultRef === "string")
+    (value.activity.resultRef === null || typeof value.activity.resultRef === "string") &&
+    (value.activity.reasonCode === undefined ||
+      (typeof value.activity.reasonCode === "string" && value.activity.reasonCode.length > 0))
   );
 }
 function validAttemptChain(value: unknown): value is AgentRuntimeAttemptChainDto {

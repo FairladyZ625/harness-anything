@@ -102,6 +102,7 @@ export interface RuntimeSession {
   readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
   readonly exitCode: number | null;
   readonly resultRef: string | null;
+  readonly reasonCode?: string;
   readonly lastObservedAt: string;
 }
 export type RuntimeSessionSemanticState =
@@ -248,6 +249,7 @@ interface RuntimePayloads {
     readonly exitCode: number | null;
     readonly resultRef: string;
     readonly result: RuntimeResultClaim;
+    readonly reasonCode?: string;
   };
   readonly runtime_dispatch_outcome_unknown: { readonly dispatchId: string; readonly runtimeSessionId: string };
 }
@@ -310,7 +312,13 @@ function validateAgentRuntimePayloadFields(
   value: unknown,
   allowUnknownFields: boolean,
 ): readonly string[] {
-  if (!isRecord(value) || !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, payloadFields[type]))
+  const optionalFields = type === "runtime_session_outcome_observed" ? ["reasonCode"] : [];
+  if (
+    !isRecord(value) ||
+    !hasRequiredFields(value, payloadFields[type]) ||
+    (!allowUnknownFields &&
+      Object.keys(value).some((field) => !payloadFields[type].includes(field) && !optionalFields.includes(field)))
+  )
     return ["agent runtime payload fields are incomplete or unknown"];
   const ids = payloadFields[type].filter((field) => /(?:Id|Key)$/u.test(field));
   if (ids.some((field) => !isNonEmptyString(value[field]))) return ["agent runtime payload identity is invalid"];
@@ -351,6 +359,7 @@ function validateAgentRuntimePayloadFields(
     type === "runtime_session_outcome_observed" &&
     (!["succeeded", "failed", "unknown", "cancelled"].includes(String(value.outcome)) ||
       (value.exitCode !== null && (!Number.isInteger(value.exitCode) || (value.exitCode as number) < 0)) ||
+      (value.reasonCode !== undefined && !isNonEmptyString(value.reasonCode)) ||
       !validResult(value.resultRef, value.result, allowUnknownFields))
   )
     return ["runtime outcome observation is invalid"];
@@ -502,6 +511,7 @@ export function reduceRuntimeSession(
       outcome: event.payload.outcome,
       exitCode: event.payload.exitCode,
       resultRef: event.payload.resultRef,
+      ...(event.payload.reasonCode ? { reasonCode: event.payload.reasonCode } : {}),
       lastObservedAt: event.occurredAt,
     };
   return current;

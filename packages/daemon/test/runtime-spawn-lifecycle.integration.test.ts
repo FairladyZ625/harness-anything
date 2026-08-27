@@ -590,6 +590,11 @@ test("attached task runtime settlement releases its execution lease before publi
             event.type === "runtime_session_outcome_observed" &&
             event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
         ),
+        failedOutcome = failedEvents.find(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
+        ),
         failedStatus = await cell.read("repo.agentRuntime.sessions.read", {
           runtimeSessionId: failedReceipt.runtimeSessionId,
         });
@@ -603,6 +608,11 @@ test("attached task runtime settlement releases its execution lease before publi
         1,
       );
       assert.equal(failedStatus.session.activity.outcome, "unknown");
+      assert.equal(
+        failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.reasonCode,
+        "runtime_lease_release_failed",
+      );
+      assert.equal(failedStatus.session.activity.reasonCode, "runtime_lease_release_failed");
       assert.match(failedStatus.result?.text ?? "", /runtime_lease_release_failed/u);
       failSettlement = false;
       assert.equal(

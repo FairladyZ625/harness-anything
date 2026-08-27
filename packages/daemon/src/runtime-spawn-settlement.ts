@@ -50,7 +50,8 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
         body = `${body}\n\nWorker branch push failed (no retry): ${detail || "GitHub credential resolution failed."}`;
       }
     }
-    let sha256 = createHash("sha256").update(body).digest("hex"),
+    let reasonCode: string | null = null,
+      sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
         sha256,
         size: Buffer.byteLength(body),
@@ -116,19 +117,20 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
         console.warn(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
       }
-    if (cancelled)
+    if (cancelled) {
       await context.publishRuntimeEvent(
         "runtime_session_cancelled",
         { runtimeSessionId: active.runtimeSessionId },
         active.cancelOpId ?? `${active.dispatchOpId}-cancelled`,
         eventBinding,
       );
-    await context.publishRuntimeEvent(
-      "runtime_session_exited",
-      { runtimeSessionId: active.runtimeSessionId },
-      `${active.dispatchOpId}-exited`,
-      eventBinding,
-    );
+      await context.publishRuntimeEvent(
+        "runtime_session_exited",
+        { runtimeSessionId: active.runtimeSessionId },
+        `${active.dispatchOpId}-exited`,
+        eventBinding,
+      );
+    }
     context.processes.delete(active.runtimeSessionId);
     active.process.release?.();
     await context
@@ -145,13 +147,21 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
       })
       .catch((error: unknown) => {
         consumeKnownError(error);
-        const settlementCode = runtimeErrorCode(error) ?? "runtime_settlement_failed";
+        const settlementCode = runtimeErrorCode(error) || "runtime_settlement_failed";
+        reasonCode = settlementCode;
         outcome = "unknown";
         body = `Runtime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
         sha256 = createHash("sha256").update(body).digest("hex");
         result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
         resultRef = `artifact:runtime-result/sha256/${sha256}`;
       });
+    if (!cancelled)
+      await context.publishRuntimeEvent(
+        "runtime_session_exited",
+        { runtimeSessionId: active.runtimeSessionId },
+        `${active.dispatchOpId}-exited`,
+        eventBinding,
+      );
     context.input.recordLifecycle?.({
       event: "runtime_exit",
       runtimeSessionId: active.runtimeSessionId,
@@ -170,6 +180,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
         exitCode: cancelled ? null : code,
         resultRef,
         result,
+        ...(reasonCode ? { reasonCode } : {}),
       },
       `${active.dispatchOpId}-outcome`,
       eventBinding,

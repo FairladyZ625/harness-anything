@@ -585,6 +585,8 @@ test(
   async (t) => {
     const fixture = await fleetFixture(["tasks/task-fleet-fleet"]);
     t.after(() => fixture.close());
+    const taskReleaseBarrier = fixture.blockTaskRelease();
+    t.after(taskReleaseBarrier.release);
     const center = await fixture.center(),
       edgeRoot = path.join(fixture.root, "runtime-edge"),
       edgeUserRoot = path.join(fixture.root, "runtime-edge-user"),
@@ -745,6 +747,17 @@ test(
     assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, edgeUserRoot);
     assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "fleet-runtime-edge");
     assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, fixture.assignment.repoId);
+    await taskReleaseBarrier.started;
+    await delay(5_100);
+    const settlingEvents = makeTaskEventStore({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+      .read()
+      .events.filter(
+        (event) =>
+          (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+          event.payload.runtimeSessionId === receipt.runtimeSessionId,
+      );
+    assert.deepEqual(settlingEvents, [], "edge must not publish exited while center settlement is pending");
+    taskReleaseBarrier.release();
     const waitForOutcome = async (runtimeSessionId: unknown) => {
       const deadline = Date.now() + 20_000;
       let status: Awaited<ReturnType<typeof fixture.host.read>> | null = null;
@@ -765,6 +778,24 @@ test(
       return status;
     };
     assert.equal((await waitForOutcome(receipt.runtimeSessionId))?.session.activity.outcome, "succeeded");
+    const settledEvents = makeTaskEventStore({ repoId: fixture.assignment.repoId, rootDir: fixture.repo }).read()
+        .events,
+      leaseReleaseIndex = settledEvents.findIndex(
+        (event) => event.type === "lease_released" && event.taskId === fixture.assignment.taskId,
+      ),
+      runtimeExitIndex = settledEvents.findIndex(
+        (event) =>
+          event.type === "runtime_session_exited" && event.payload.runtimeSessionId === receipt.runtimeSessionId,
+      ),
+      runtimeOutcomeIndex = settledEvents.findIndex(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" &&
+          event.payload.runtimeSessionId === receipt.runtimeSessionId,
+      );
+    assert.ok(
+      leaseReleaseIndex < runtimeExitIndex && runtimeExitIndex < runtimeOutcomeIndex,
+      "center settlement must precede the adjacent edge exit and outcome events",
+    );
     const after = await fixture.host.read(fixture.assignment.repoId, "repo.tasks.list", {}, fixture.auth);
     assert.ok(after.sourceRevision > before.sourceRevision);
     await t.test("provider session resume keeps the center-observed runtime instance", async () => {
@@ -1259,7 +1290,8 @@ async function fleetFixture(paths: readonly string[] = ["tasks/task-fleet-fleet/
     owned = reclaimer();
   let nodeActive = true,
     expiresAt = "2099-01-01T00:00:00.000Z",
-    assignmentDelayMs = 0;
+    assignmentDelayMs = 0,
+    taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   mkdirSync(emptyPath);
   initRepo(repo);
@@ -1347,11 +1379,33 @@ async function fleetFixture(paths: readonly string[] = ["tasks/task-fleet-fleet/
     setAssignmentDelay: (value: number) => {
       assignmentDelayMs = value;
     },
+    blockTaskRelease: () => {
+      let started!: () => void, release!: () => void;
+      const startedPromise = new Promise<void>((resolve) => {
+          started = resolve;
+        }),
+        wait = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      taskReleaseBarrier = { started, wait };
+      return { started: startedPromise, release };
+    },
     commitCount: () => Number(git(repo, "rev-list", "--count", "refs/ha/canonical")),
     center: () =>
       owned.hold(
         listenFleetTls({
-          host,
+          host: {
+            ...host,
+            run: async (...args: Parameters<typeof host.run>) => {
+              const barrier = taskReleaseBarrier;
+              if (args[1].kind === "task-release" && barrier) {
+                barrier.started();
+                await barrier.wait;
+                if (taskReleaseBarrier === barrier) taskReleaseBarrier = null;
+              }
+              return host.run(...args);
+            },
+          },
           stateRoot,
           key,
           cert,

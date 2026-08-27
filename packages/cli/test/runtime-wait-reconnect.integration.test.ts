@@ -142,6 +142,27 @@ test("runtime status --wait surfaces a canonical settlement failure diagnostic",
   }
 });
 
+test("runtime status --wait does not infer settlement failure from an unknown outcome's text", async () => {
+  const fixture = await openFixtureDaemon("unknown-outcome");
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    reply(socket, request.id, runtimeStatus(false, true, false, true));
+  };
+  const invocation = runWait(fixture);
+  try {
+    const result = await invocation.result(2_000);
+    assert.equal(result.code, 1, result.stderr);
+    assert.equal(result.receipt.code, "provider_exit");
+    assert.equal(result.receipt.outcome, "unknown");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
 test("task dispatch wait classifies an ENOENT reconnect as daemon_gone and retains the last-known rows", async () => {
   const fixture = await openFixtureDaemon("task-daemon-gone"),
     taskId = "task-runtime-wait",
@@ -315,7 +336,12 @@ function reply(socket: net.Socket, id: number, result: Record<string, unknown>):
   socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
 }
 
-function runtimeStatus(terminal: boolean, exited = terminal, settlementFailed = false): Record<string, unknown> {
+function runtimeStatus(
+  terminal: boolean,
+  exited = terminal,
+  settlementFailed = false,
+  unknownOutcome = false,
+): Record<string, unknown> {
   return {
     ok: true,
     status: "ready",
@@ -340,21 +366,24 @@ function runtimeStatus(terminal: boolean, exited = terminal, settlementFailed = 
       ],
       activity: {
         lastObservedAt: "2026-08-27T00:00:00.000Z",
-        outcome: terminal ? "succeeded" : settlementFailed ? "unknown" : null,
+        outcome: terminal ? "succeeded" : settlementFailed || unknownOutcome ? "unknown" : null,
         exitCode: exited ? 0 : null,
-        resultRef: terminal || settlementFailed ? "result:fixture" : null,
+        resultRef: terminal || settlementFailed || unknownOutcome ? "result:fixture" : null,
+        ...(settlementFailed ? { reasonCode: "runtime_lease_release_failed" } : {}),
       },
     },
     result: settlementFailed
       ? {
           ref: "result:fixture",
-          text: "Runtime terminal settlement failed (runtime_lease_release_failed): injected failure",
+          text: "injected failure: runtime_lease_release_failed",
         }
-      : terminal
-        ? { ref: "result:fixture", text: "settled after reconnect" }
-        : null,
-    watermark: terminal || settlementFailed ? 2 : 1,
-    sourceRevision: terminal || settlementFailed ? 2 : 1,
+      : unknownOutcome
+        ? { ref: "result:fixture", text: "Runtime terminal settlement failed (provider-authored diagnostic)" }
+        : terminal
+          ? { ref: "result:fixture", text: "settled after reconnect" }
+          : null,
+    watermark: terminal || settlementFailed || unknownOutcome ? 2 : 1,
+    sourceRevision: terminal || settlementFailed || unknownOutcome ? 2 : 1,
   };
 }
 
