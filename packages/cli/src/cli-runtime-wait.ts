@@ -9,13 +9,7 @@ import {
   streamRuntimeThroughDaemon,
 } from "./daemon/client.ts";
 
-const reconnectBaseDelayMs = 250,
-  reconnectMaxDelayMs = 5_000;
-
-interface DaemonGone {
-  readonly kind: "daemon-gone";
-  readonly cause: string;
-}
+type DaemonGone = { readonly kind: "daemon-gone"; readonly cause: string };
 
 export async function waitForRuntime(
   command: ThinCommand,
@@ -30,7 +24,7 @@ export async function waitForRuntime(
     detach: (() => void) | undefined,
     streamStarted = false;
   try {
-    for (;;) {
+    for (let exitedPolls = 0; ; ) {
       const next = await readDaemonSubscription(
         command,
         async () => {
@@ -66,7 +60,8 @@ export async function waitForRuntime(
           writeActivity(`[stream] ${error instanceof Error ? error.message : String(error)}\n`);
         }
       }
-      if ((current as unknown as AgentRuntimeSessionResult).session.activity.outcome !== null) break;
+      const session = (current as unknown as AgentRuntimeSessionResult).session;
+      if (session.activity.outcome !== null || (session.liveness === "exited" && ++exitedPolls >= 20)) break;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   } finally {
@@ -74,24 +69,30 @@ export async function waitForRuntime(
     detach?.();
   }
   const result = current as unknown as AgentRuntimeSessionResult,
-    outcome = result.session.activity.outcome!,
     text = result.result?.text ?? "",
+    outcome = result.session.activity.outcome ?? "unknown",
+    settlementFailed =
+      result.session.activity.outcome === null ||
+      (outcome === "unknown" && result.session.activity.reasonCode !== undefined),
     commandName = spawned ? "runtime-run" : "runtime-status",
     providerExit = Number.isInteger(result.session.activity.exitCode),
+    failureCode = settlementFailed ? "runtime_settlement_failed" : providerExit ? "provider_exit" : "runtime_failed",
     reason =
       outcome === "succeeded"
         ? null
         : text ||
-          (providerExit
-            ? `Provider exited with code ${String(result.session.activity.exitCode)} without a diagnostic.`
-            : `${commandName}: ${outcome}`);
+          (settlementFailed
+            ? "runtime_settlement_failed: daemon reported the runtime exited but no terminal outcome became visible."
+            : providerExit
+              ? `Provider exited with code ${String(result.session.activity.exitCode)} without a diagnostic.`
+              : `${commandName}: ${outcome}`);
   return {
     ...current,
     command: commandName,
     outcome,
     runtimeSessionId,
     ...(spawned ? { spawn: spawned } : {}),
-    ...(reason ? { code: providerExit ? "provider_exit" : "runtime_failed", reason } : {}),
+    ...(reason ? { code: failureCode, reason } : {}),
     summary: text || reason || `${commandName}: ${outcome}`,
     exitCode: outcome === "succeeded" ? 0 : 1,
   };
@@ -176,13 +177,9 @@ async function readDaemonSubscription(
       if (!recoverableSubscriptionFailure(error)) throw error;
       if (await daemonGone(command))
         return { kind: "daemon-gone", cause: error instanceof Error ? error.message : String(error) };
-      await new Promise((resolve) => setTimeout(resolve, reconnectDelayMs(attempt++)));
+      await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** attempt++, 5_000)));
     }
   }
-}
-
-function reconnectDelayMs(attempt: number): number {
-  return Math.min(reconnectBaseDelayMs * 2 ** attempt, reconnectMaxDelayMs);
 }
 
 function recoverableSubscriptionFailure(error: unknown): boolean {
