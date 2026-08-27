@@ -18,6 +18,7 @@ import { prepareAgentEntityInstall, runAgentEntityAction } from "./agent-entitie
 import { distillPromotionAction, prepareDistillCandidate } from "./distill-actions.ts";
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
+import { runFactRekey } from "./fact-rekey.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 
@@ -47,6 +48,15 @@ export async function executeAction(
       projection: cell.projection,
       now: cell.now,
       ...(cell.input.shouldStop ? { shouldStop: cell.input.shouldStop } : {}),
+    });
+  if (action.kind === "fact-rekey")
+    return runFactRekey({
+      action,
+      binding,
+      rootDir: cell.rootDir,
+      store: cell.store,
+      projection: cell.projection,
+      now: cell.now,
     });
   if (action.kind === "projection-rebuild") {
     cell.settingsActions.initializeFromAuthoredDocument(binding);

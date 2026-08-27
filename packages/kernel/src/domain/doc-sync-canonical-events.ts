@@ -129,7 +129,9 @@ export function serializeCanonicalEvent(event: CanonicalEventV1): string {
 export function serializePersistedCanonicalEvent(event: CanonicalEventV1): string {
   const normalized = normalizePersistedCanonicalEvent(event),
     entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
-    errors = entry?.validate(normalized) ?? ["canonical event schema is unknown"];
+    candidate =
+      entry?.schema === "fact-event/v1" ? (normalizeHistoricalFactEvent(normalized) ?? normalized) : normalized,
+    errors = entry?.validate(candidate) ?? ["canonical event schema is unknown"];
   if (errors.length) throw new Error(errors.join("; "));
   return canonicalEventBytes(event);
 }
@@ -144,11 +146,33 @@ export function parseCanonicalEvent(body: string): CanonicalEventV1 {
   if (!isRecord(value)) throw new Error("canonical event is not an object");
   const normalized = normalizePersistedCanonicalEvent(value as unknown as CanonicalEventV1),
     entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
-    errors = entry?.validate(normalized) ?? ["canonical event schema is unknown"];
+    historical = entry?.schema === "fact-event/v1" ? normalizeHistoricalFactEvent(normalized) : null,
+    candidate = historical ?? normalized,
+    errors = entry?.validate(candidate) ?? ["canonical event schema is unknown"];
   if (errors.length) throw new Error(errors.join("; "));
-  const event = value as unknown as CanonicalEventV1;
-  if (canonicalEventBytes(event) !== body) throw new Error("canonical event bytes are not canonical");
-  return event;
+  if (canonicalEventBytes(value as unknown as CanonicalEventV1) !== body)
+    throw new Error("canonical event bytes are not canonical");
+  return value as unknown as CanonicalEventV1;
+}
+
+/**
+ * Pre-fact-first-class events used task-scoped supersedes refs. Keep this
+ * normalization in the immutable historical reader so current validation and
+ * writers remain canonical-only; migration can then replay and rewrite those
+ * events without widening the fact contract.
+ */
+function normalizeHistoricalFactEvent(value: CanonicalEventV1): CanonicalEventV1 | null {
+  if (value.schema !== "fact-event/v1" || !isRecord(value.payload) || !isRecord(value.payload.supersedes)) return null;
+  const superseded = /^fact\/[^/]+\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(value.payload.supersedes.factRef);
+  return superseded
+    ? ({
+        ...value,
+        payload: {
+          ...value.payload,
+          supersedes: { ...value.payload.supersedes, factRef: `fact/${superseded[1]}` },
+        },
+      } as CanonicalEventV1)
+    : null;
 }
 
 export function normalizePersistedCanonicalEvent(event: CanonicalEventV1): CanonicalEventV1 {

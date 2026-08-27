@@ -1,19 +1,33 @@
 # 台账迁移：创世重放
 
-状态：所有台账格式早于当前代际的仓库都必须走这条路径。没有原地升级。
+状态：台账格式早于当前代际的仓库必须走创世重放；已经 canonical、仅遗留
+task-local fact 的仓库走单独的原地 fact rekey。
 
 ## 变更了什么
 
-台账格式发生了代差变更。上一代写入的记录不满足当前 schema，而本项目的工程原则是不保留向后兼容：不加兼容层、不加运行时回退、不做双读。因此老仓库不能被原地升级。
+台账格式发生了代差变更。上一代写入的记录不满足当前 schema，因此老仓库
+不能整体原地转换。已经 canonical 的仓库可能还留有迁移过渡期的
+task-local fact 形态，这部分由下方唯一的 fact rekey 命令处理。
 
-唯一受支持的路径是**创世重放**：把老仓归档成只读底稿，新建一个空仓，再把老语料作为 canonical migration 事件按原始顺序重放进新仓。
+对老仓而言，唯一受支持的路径是**创世重放**：把老仓归档成只读底稿，
+新建一个空仓，再把老语料作为 canonical migration 事件按原始顺序重放进新仓。
 
-入口只有一个命令：
+创世重放入口是：
 
 ```
 ha migrate import --source <source> [--resolve <仓库相对路径>=destination|source]... [--dry-run]
     Import a legacy Harness repository; resolve reported destination conflicts with repeated --resolve path=destination|source.
 ```
+
+两类输入各有且只有一条命令：
+
+| 输入                                | 命令                                  | 前置                                                                     | 验收                                                                                                                   |
+| ----------------------------------- | ------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| 早于当前代际的老仓                  | `ha migrate import --source <source>` | 冻结写入、停止源 daemon，源必须是 committed snapshot；先跑 `--dry-run`。 | 五类对账 old == new、`skipped=0`、无 authored `required`、PASS。                                                       |
+| 已 canonical 但有 `fact/<task>/F-*` | `ha migrate rekey-facts`              | 停止该仓 daemon/写入者，在 committed canonical cut 上先跑 `--dry-run`。  | id-map 中 fact 与 `produces` 数量一致；SQLite fact/relation 计数稳定；`ha fact search` 与 `ha fact show <F-id>` 成功。 |
+
+fact-only 路径只在 fleet center 执行一次。边缘节点通过正常的 canonical
+cut 重放、projection rebuild 消费新 ref，不再次 rekey，也不自行生成替代 ref。
 
 本页之外的内容，运行 `ha migrate --help` 查看权威描述。
 
@@ -121,6 +135,26 @@ skip 时退出 3；只有全量对账通过才退出 0。
 - 回退动作是丢掉新仓、重做迁移，不需要撤销别的东西。
 
 这是创世重放相对原地升级的主要优势：不存在能把源数据改坏的半迁移状态。
+
+## 仅 fact 原地 rekey
+
+已 canonical 的仓库不要使用 genesis import。停止 daemon 和所有写入者，确认
+canonical cut 已提交后，先预演再执行：
+
+```bash
+ha migrate rekey-facts --dry-run --json
+ha migrate rekey-facts --json
+sqlite3 .harness/cache/projections.sqlite \
+  'select count(*) from fact; select count(*) from relation;'
+ha fact search
+ha fact show <F-id>
+```
+
+dry-run 回执中的 id-map 和计数是预期值。正式执行会把旧 ref 改成
+`fact/F-*`，写入 `harness/facts/F-*.md`，重写 relation endpoint，为可确定的
+owner task 写 `produces` 边，并删除 task-local `facts.md`。重复执行必须返回
+no-op。无法确定 owner 的 fact 不伪造归属，会无 task 边 rekey 并列清单供后续
+回填。
 
 ## FAQ
 

@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   checkTaskProjection,
-  readColdRebuildSource,
+  readLegacyMigrationSource,
   readRelationGraphProjection,
   rebuildTaskProjection,
 } from "../../src/index.ts";
@@ -242,7 +242,7 @@ test("equal legacy Fact ids in documents and events both reach deterministic mig
         },
       });
 
-    const source = readColdRebuildSource(rootDir, { includeLegacyTaskFacts: true });
+    const source = readLegacyMigrationSource(rootDir);
     assert.deepEqual(
       source.facts
         .filter(({ factId }) => factId === "F-DEADBEEF")

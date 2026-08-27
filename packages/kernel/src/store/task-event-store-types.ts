@@ -123,7 +123,10 @@ export interface CanonicalEventStore {
   readonly readBatch: (cursor: string | null, maxItems: number) => EventFileBatch;
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly layout: () => LedgerLayoutState;
-  readonly append: (bundle: CanonicalWriteBundle) => CanonicalEventAppendReceipt;
+  readonly append: (
+    bundle: CanonicalWriteBundle,
+    additionalFiles?: readonly PublicationFile[],
+  ) => CanonicalEventAppendReceipt;
   readonly migrateLayout: (input: {
     readonly actor: ActorIdentity;
     readonly source: WriteSource;

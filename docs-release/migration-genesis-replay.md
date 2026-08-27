@@ -1,25 +1,38 @@
 # Ledger Migration: Genesis Replay
 
-Status: required path for every repository whose ledger predates the current
-generation of the Harness Anything record format. There is no in-place upgrade.
+Status: required path for repositories whose ledger predates the current
+generation of the Harness Anything record format. A separate in-place fact
+rekey is available for repositories that are already canonical.
 
 ## What changed
 
 The ledger format has changed by a generation. Records written by the previous
-generation do not satisfy the current schema, and this project does not keep
-backward compatibility: no compatibility layer, no runtime fallback, no dual
-read. An old repository therefore cannot be upgraded in place.
+generation do not satisfy the current schema, and a legacy repository therefore
+cannot be converted wholesale in place. Canonical repositories can still carry
+the older task-local fact shape from the fact transition; that narrow backlog is
+handled by the one-shot fact rekey command below.
 
 The only supported path is **genesis replay**: archive the old repository as a
 read-only reference, create a new empty repository, and replay the old corpus
 into it as canonical migration events, in original `occurredAt` order.
 
-The entry point is a single command:
+The genesis-replay entry point is:
 
 ```
 ha migrate import --source <source> [--resolve <repo-relative-path>=destination|source]... [--dry-run]
     Import a legacy Harness repository; resolve reported destination conflicts with repeated --resolve path=destination|source.
 ```
+
+There are two migration inputs and exactly one command for each:
+
+| Input                                                                  | Command                               | Preconditions                                                                                          | Acceptance                                                                                                                                                |
+| ---------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Legacy repository whose ledger predates the current generation         | `ha migrate import --source <source>` | Freeze writers, stop the source daemon, and use a committed source snapshot. Run `--dry-run` first.    | Five-category reconciliation has old == new, `skipped=0`, no authored `required` rows, and PASS.                                                          |
+| Already-canonical repository with task-local `fact/<task>/F-*` records | `ha migrate rekey-facts`              | Stop the repository daemon/writers and run against the committed canonical cut. Run `--dry-run` first. | Re-keyed facts and `produces` edges match the dry-run id-map; SQLite fact/relation counts are stable; `ha fact search` and `ha fact show <F-id>` succeed. |
+
+Run the fact-only path once at the fleet center. Edge nodes consume the new
+canonical cut through their normal event replay/projection rebuild; they do not
+run a second rekey or invent replacement refs.
 
 For anything beyond what this page states, run `ha migrate --help`.
 
@@ -164,6 +177,27 @@ The failure model is simple because the old repository is read-only throughout:
 
 This is the main advantage of genesis replay over an in-place upgrade: there is
 no half-migrated state that can corrupt source data.
+
+## Fact-only rekey procedure
+
+For an already-canonical repository, do not use genesis import. Stop its daemon
+and all writers at a committed cut, then preview and apply the fact-only command:
+
+```bash
+ha migrate rekey-facts --dry-run --json
+ha migrate rekey-facts --json
+sqlite3 .harness/cache/projections.sqlite \
+  'select count(*) from fact; select count(*) from relation;'
+ha fact search
+ha fact show <F-id>
+```
+
+The dry-run receipt is the id-map and expected count. The apply receipt records
+the same map in the canonical event ledger, rewrites relation endpoints, adds a
+`produces` edge for each known task owner, and removes task-local `facts.md`
+files. Repeat apply is a no-op. If a legacy fact has no determinable owner, it
+is rekeyed without a task edge and listed for later attribution; ownership is
+never guessed.
 
 ## FAQ
 

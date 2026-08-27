@@ -8,7 +8,7 @@ import { emit, main, resolveCliVersion } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 134);
+  assert.equal(thinCliCommands.length, 135);
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))]
     .filter((value): value is string => value !== undefined)
     .sort())
@@ -54,6 +54,7 @@ test("an unknown command domain reports unknown with the available set instead o
   }
   assert.equal(logs.length, 1);
   assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate import/u);
+  assert.match(logs[0] ?? "", /ha migrate rekey-facts(?: --dry-run)?/u);
 });
 
 test("capabilities is an exact-set projection of the command contract", () => {
@@ -107,7 +108,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     entity: ["entity-explain", "entity-get", "entity-list"],
     fact: ["fact-record", "fact-search", "fact-show"],
     init: ["repo-bootstrap"],
-    migrate: ["ledger-migrate", "migrate-import"],
+    migrate: ["fact-rekey", "ledger-migrate", "migrate-import"],
     preset: [
       "preset-audit",
       "preset-check",

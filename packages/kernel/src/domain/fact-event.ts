@@ -311,19 +311,13 @@ function uniqueProvenance(values: readonly unknown[]): boolean {
   return new Set(keys).size === keys.length;
 }
 function supersedes(value: unknown, allowUnknownFields: boolean): boolean {
-  if (
-    !isRecord(value) ||
-    !matchesFields(value, ["factRef", "rationale"], allowUnknownFields) ||
-    typeof value.factRef !== "string" ||
-    !codePoints(value.rationale, 1, 199)
-  ) {
-    return false;
-  }
-  // Pre-fact-first-class events recorded supersedes against the task-scoped
-  // identity `fact/<owning-task-id>/F-<id>`; readers accept it until the
-  // ledger is rekeyed, the current writer stays canonical-only.
-  const historicalTaskScoped = allowUnknownFields && /^fact\/[^/]+\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value.factRef);
-  return /^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value.factRef) || historicalTaskScoped;
+  return (
+    isRecord(value) &&
+    matchesFields(value, ["factRef", "rationale"], allowUnknownFields) &&
+    typeof value.factRef === "string" &&
+    /^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value.factRef) &&
+    codePoints(value.rationale, 1, 199)
+  );
 }
 function safeId(value: unknown): value is string {
   return isNonEmptyString(value) && !/[\\/]/u.test(value);

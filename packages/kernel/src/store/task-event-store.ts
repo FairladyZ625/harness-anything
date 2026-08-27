@@ -13,6 +13,7 @@ export {
   type EventPublicationKillpoint,
   type EventRecoveryReceipt,
   type MaterializationReceipt,
+  type PublicationFile,
   type PublicationMetrics,
   type TaskEventStoreErrorCode,
 } from "./task-event-store-types.ts";

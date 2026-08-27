@@ -62,7 +62,7 @@ import { documentMode, messageOf, settleFiles, showText, workspacePath } from ".
 export function createPublicationApi(runtime: StoreRuntime) {
   const publish = (
     bundle: CanonicalWriteBundle,
-    additionalFiles: readonly PublicationRename[] = [],
+    additionalFiles: readonly PublicationFile[] = [],
   ): CanonicalEventAppendReceipt => {
     const { event, blobs } = bundle;
     assertBundle(bundle);

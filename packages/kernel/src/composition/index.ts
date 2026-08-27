@@ -14,6 +14,7 @@ export type {
   CanonicalEventStore,
   CanonicalWriteBundle,
   EventPublicationKillpoint,
+  PublicationFile,
 } from "../store/task-event-store.ts";
 export { makeTaskProjection } from "../projection/rebuildable-task-projection.ts";
 export type {

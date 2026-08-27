@@ -50,6 +50,15 @@ export function parseRouted(
         })
       : rejected(f.code, f.nextAction, json);
   }
+  if (route.id === "fact-rekey") {
+    const f = readFlags(route.id, args.slice(2), inputs);
+    return f.ok
+      ? accepted(rootDir, repoId, json, {
+          kind: "fact-rekey",
+          ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
+        })
+      : rejected(f.code, f.nextAction, json);
+  }
   if (route.id === "ledger-migrate")
     return args.length === 2
       ? accepted(rootDir, repoId, json, { kind: "ledger-migrate" })
