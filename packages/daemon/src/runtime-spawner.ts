@@ -468,7 +468,13 @@ export function makeRuntimeSpawner(input: {
             },
           }
         : prepared;
-    const taskBinding = taskId ? { taskId, executionId: remoteTask?.executionId ?? lease!.executionId } : null,
+    const taskBinding = taskId
+        ? {
+            taskId,
+            executionId: remoteTask?.executionId ?? lease!.executionId,
+            leaseVersion: lease?.version ?? null,
+          }
+        : null,
       streamStartedAt = input.now();
     let process: RuntimeProcess | undefined;
     let resumeObservation: ResumeProcessObservation | undefined;
@@ -478,6 +484,7 @@ export function makeRuntimeSpawner(input: {
         dispatchId: newDispatchId,
         taskId: taskBinding?.taskId ?? null,
         executionId: taskBinding?.executionId ?? null,
+        ...(typeof taskBinding?.leaseVersion === "number" ? { leaseVersion: taskBinding.leaseVersion } : {}),
         ...(trustedSchedule ? { schedule: trustedSchedule } : {}),
         runtimeSessionId,
         instanceId: definition.instanceId,
@@ -844,7 +851,13 @@ export function makeRuntimeSpawner(input: {
             runtimeSessionId: header.runtimeSessionId,
             dispatchId: header.dispatchId,
             task:
-              header.taskId && header.executionId ? { taskId: header.taskId, executionId: header.executionId } : null,
+              header.taskId && header.executionId
+                ? {
+                    taskId: header.taskId,
+                    executionId: header.executionId,
+                    leaseVersion: header.leaseVersion ?? null,
+                  }
+                : null,
             schedule: header.schedule ?? null,
             outcome: "failed",
             reason,
