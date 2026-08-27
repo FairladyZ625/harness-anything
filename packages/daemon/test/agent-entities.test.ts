@@ -178,6 +178,55 @@ test("daemon Agent fallback validation mirrors the kernel authority", () => {
   );
 });
 
+test("install preparation repairs a stored declaration rejected by the current schema", () => {
+  const staleStore = {
+      get: () => {
+        throw Object.assign(new Error('agent declaration field "fallback.enabled" is unknown; remove it.'), {
+          code: "invalid_entity_contract",
+        });
+      },
+    } as never,
+    prepared = prepareAgentEntityInstall({
+      rootDir: "/unused",
+      entityStore: staleStore,
+      action: { kind: "agent-install", declaration: { ...agent, id: "glm-5-3", name: "GLM 5.3" } },
+    });
+
+  assert.equal(prepared.report.changed, true);
+  assert.equal(prepared.declaration.id, "glm-5-3");
+  assert.throws(
+    () =>
+      prepareAgentEntityInstall({
+        rootDir: "/unused",
+        entityStore: staleStore,
+        action: {
+          kind: "agent-install",
+          declaration: { ...agent, id: "glm-5-3", name: "GLM 5.3" },
+          generatedOnly: true,
+          validated: true,
+        },
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "agent_id_conflict",
+  );
+});
+
+test("install preparation does not hide stored declaration integrity failures", () => {
+  const corruptStore = {
+    get: () => {
+      throw new Error("entity declaration blob hash mismatch");
+    },
+  } as never;
+  assert.throws(
+    () =>
+      prepareAgentEntityInstall({
+        rootDir: "/unused",
+        entityStore: corruptStore,
+        action: { kind: "agent-install", declaration: agent },
+      }),
+    /blob hash mismatch/u,
+  );
+});
+
 test("Agent role is optional, closed to worker or commander, and defaults to worker in GUI projections", () => {
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, role: "worker" }), []);
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, role: "commander" }), []);
