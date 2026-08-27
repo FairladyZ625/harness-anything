@@ -14,15 +14,18 @@ import {
 } from "../../kernel/src/index.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 
 const PROSE_POLICY_ID = "markdown-body-replaceable/v1",
   OPAQUE_POLICY_ID = "opaque-textual-whole-file/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
-const reviewerBinding = {
-  actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "arbiter" } },
-  source: "local" as const,
-  roles: ["$arbiter"],
-} as const;
+const reviewerBinding = withRoleBinding(
+  {
+    actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } },
+    source: "local" as const,
+  },
+  "arbiter",
+);
 
 test("artifact add treats every artifacts/ path as opaque while preserving media type and bytes", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-opaque-"));
@@ -430,9 +433,7 @@ async function blockedRow(
   assert.equal(row?.state, "blocked", JSON.stringify(row));
   return [row?.path, row?.reason];
 }
-function rows(
-  evidence: string,
-): readonly {
+function rows(evidence: string): readonly {
   readonly path: string;
   readonly state: string;
   readonly reason: string | null;

@@ -27,7 +27,12 @@ export async function executeAction(
 ): Promise<WriteReceipt> {
   if (action.kind.startsWith("schedule-")) return cell.scheduleActions.run(action, binding);
   if (action.kind === "settings-update") return cell.settingsActions.update(action, binding);
-  if (action.kind === "people-add" || action.kind === "people-set-role" || action.kind === "people-remove")
+  if (
+    action.kind === "people-add" ||
+    action.kind === "people-set-role" ||
+    action.kind === "people-bind" ||
+    action.kind === "people-remove"
+  )
     return cell.peopleActions.run(action, binding);
   if (action.kind === "migrate-import")
     return runMigrationImport({

@@ -138,3 +138,55 @@ test("roster transitions preserve the bootstrap owner and an enabled admin", () 
       return true;
     });
 });
+
+test("people bind persists only declared RoleBindings and removes a deleted person's bindings", () => {
+  const bootstrapped = applyPeopleRosterAction(null, {
+      kind: "people-add",
+      person: owner,
+      rolePolicy: { roleId: "owner", commandClasses: ["admin"] },
+    }),
+    added = applyPeopleRosterAction(bootstrapped.body, {
+      kind: "people-add",
+      person: { ...owner, personId: "person_alice", displayName: "Alice", roles: ["reviewer"], credentials: [] },
+      rolePolicy: { roleId: "reviewer", commandClasses: ["repo-read"] },
+    }),
+    bound = applyPeopleRosterAction(added.body, {
+      kind: "people-bind",
+      binding: {
+        actor: { kind: "person", id: "person_alice" },
+        role: "arbiter",
+        target: "settings/repository",
+        source: "declared",
+        expiresAt: null,
+      },
+    });
+  assert.deepEqual(parsePeopleRosterDocument(bound.body).bindings, [
+    {
+      actor: { kind: "person", id: "person_alice" },
+      role: "arbiter",
+      target: "settings/repository",
+      source: "declared",
+      expiresAt: null,
+    },
+  ]);
+  assert.equal(
+    parsePeopleRosterDocument(
+      applyPeopleRosterAction(bound.body, { kind: "people-remove", personId: "person_alice" }).body,
+    ).bindings.length,
+    0,
+  );
+  assert.throws(
+    () =>
+      applyPeopleRosterAction(added.body, {
+        kind: "people-bind",
+        binding: {
+          actor: { kind: "person", id: "person_alice" },
+          role: "arbiter",
+          target: "settings/repository",
+          source: "derived",
+          expiresAt: null,
+        },
+      }),
+    /only persist declared RoleBindings/u,
+  );
+});

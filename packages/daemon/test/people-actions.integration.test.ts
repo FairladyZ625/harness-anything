@@ -35,6 +35,28 @@ test("People Action commands are the canonical write surface for people.yaml", a
       binding,
     );
     assert.equal(added.outcome, "applied");
+    const bound = await cell.run(
+      {
+        kind: "people-bind",
+        actor: "person:person_alice",
+        role: "arbiter",
+        target: "settings/repository",
+      },
+      binding,
+    );
+    assert.equal(bound.outcome, "applied");
+    const malformedBinding = await cell.run(
+      {
+        kind: "people-bind",
+        actor: "person:person_alice",
+        role: "arbiter",
+        target: "not-an-entity-ref",
+      },
+      binding,
+    );
+    assert.equal(malformedBinding.outcome, "op_rejected");
+    assert.equal(malformedBinding.code, "invalid_people_action");
+    assert.match(malformedBinding.nextAction ?? "", /RoleBinding target must be an EntityRef/u);
     const ownerPromotion = await cell.run(
       {
         kind: "people-set-role",
@@ -59,6 +81,15 @@ test("People Action commands are the canonical write surface for people.yaml", a
     assert.equal(roleChanged.outcome, "applied");
     const afterRole = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
     assert.deepEqual(afterRole.people.find(({ personId }) => personId === "person_alice")?.roles, ["reviewer"]);
+    assert.deepEqual(afterRole.bindings, [
+      {
+        actor: { kind: "person", id: "person_alice" },
+        role: "arbiter",
+        target: "settings/repository",
+        source: "declared",
+        expiresAt: null,
+      },
+    ]);
     const removed = await cell.run({ kind: "people-remove", personId: "person_alice" }, binding);
     assert.equal(removed.outcome, "applied");
     const finalRoster = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
@@ -70,7 +101,7 @@ test("People Action commands are the canonical write surface for people.yaml", a
       makeTaskEventStore({ repoId: "people-actions", rootDir: root })
         .read()
         .events.filter(({ schema }) => schema === "people-event/v1").length,
-      3,
+      4,
     );
   } finally {
     await cell?.close();
@@ -211,6 +242,19 @@ test("People Action commands hydrate closed from-file packets inside the workspa
     );
     assert.equal(
       (await cell.run({ kind: "people-set-role", fromFile: "people-role.json" }, binding)).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(root, "people-binding.json"),
+      JSON.stringify({
+        actor: "person:person_alice",
+        role: "arbiter",
+        target: "settings/repository",
+        expiresAt: null,
+      }),
+    );
+    assert.equal(
+      (await cell.run({ kind: "people-bind", fromFile: "people-binding.json" }, binding)).outcome,
       "applied",
     );
     writeFileSync(path.join(root, "people-remove.json"), JSON.stringify({ personId: "person_alice" }));

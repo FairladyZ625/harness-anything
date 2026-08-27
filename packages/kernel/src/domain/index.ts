@@ -71,6 +71,9 @@ export type { TaskWipSnapshotEntryV1 } from "./task-wip-policy.ts";
 export { findEntityRefs, parseEntityRef } from "./entity-ref.ts";
 export type { EntityRef, EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 
+export { deriveRoleBindings, roleBindingActorMatches, roleBindingApplies, roleBindingExpired } from "./role-binding.ts";
+export type { RoleBinding } from "./role-binding.ts";
+
 export {
   decisionEntityId,
   decisionIdFromEntityId,

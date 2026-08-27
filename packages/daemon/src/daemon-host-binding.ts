@@ -1,5 +1,12 @@
 /** @daemon-transport-authority Transport-derived actor and assignment binding. */
 import { hostCodedError } from "./daemon-host-errors.ts";
+import {
+  deriveRoleBindings,
+  roleBindingActorMatches,
+  roleBindingApplies,
+  roleBindingExpired,
+  type EntityRef,
+} from "../../kernel/src/index.ts";
 import { loadPeopleRoster } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
 import type { DaemonCommandClass } from "./identity/types.ts";
@@ -8,7 +15,15 @@ import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 
 export const localRepairBinding: RepoCellBinding = {
   actor: { principal: { personId: "daemon-local-repair" }, executor: null },
-  roles: ["$admin"],
+  roleBindings: [
+    {
+      actor: { kind: "person", id: "daemon-local-repair" },
+      role: "admin",
+      target: "settings/repository",
+      source: "derived",
+      expiresAt: null,
+    },
+  ],
   source: "local",
 };
 
@@ -64,17 +79,29 @@ export async function binding(
         : { method: "repo.task.run", namespace: "repo", requiresRepo: true },
   });
   if (!resolved.ok) throw hostCodedError(resolved.code, resolved.message);
-  const allowed = resolved.actor.roles.some((role) => roster.roleAllows(role, required));
+  const actor = { principal: { personId: resolved.actor.personId }, executor },
+    repositoryTarget: EntityRef = "settings/repository",
+    evaluatedAt = new Date().toISOString(),
+    roleBindings = [
+      ...deriveRoleBindings({
+        actor,
+        roleIds: resolved.actor.roles,
+        roleDeclarations: roster.roles,
+        target: repositoryTarget,
+      }),
+      ...roster.bindings.filter(
+        (candidate) => roleBindingActorMatches(candidate.actor, actor) && !roleBindingExpired(candidate, evaluatedAt),
+      ),
+    ],
+    allowed = roleBindings.some((candidate) =>
+      roleBindingApplies(candidate, actor, required, [repositoryTarget], evaluatedAt),
+    );
   if (!allowed && !returnDeniedDocDetail) {
     throw hostCodedError("rbac_forbidden", `Principal ${resolved.actor.personId} lacks ${required}.`);
   }
   return {
-    actor: { principal: { personId: resolved.actor.personId }, executor },
-    roles: [
-      ...resolved.actor.roles,
-      ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "arbiter")) ? ["$arbiter"] : []),
-      ...(resolved.actor.roles.some((role) => roster.roleAllows(role, "admin")) ? ["$admin"] : []),
-    ],
+    actor,
+    roleBindings,
     source: "local",
     docWriteAllowed: allowed,
   };

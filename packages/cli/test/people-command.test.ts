@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
-test("People CLI projects add, set-role, and remove onto closed Action payloads", () => {
+test("People CLI projects add, set-role, bind, and remove onto closed Action payloads", () => {
   const added = parseThinCommand([
     "people",
     "add",
@@ -40,6 +40,24 @@ test("People CLI projects add, set-role, and remove onto closed Action payloads"
     ]).ok,
     true,
   );
+  const bound = parseThinCommand([
+    "people",
+    "bind",
+    "--actor",
+    "person:person_alice",
+    "--role",
+    "arbiter",
+    "--target",
+    "settings/repository",
+  ]);
+  assert.equal(bound.ok, true);
+  if (bound.ok)
+    assert.deepEqual(bound.command.action, {
+      kind: "people-bind",
+      actor: "person:person_alice",
+      role: "arbiter",
+      target: "settings/repository",
+    });
   assert.equal(parseThinCommand(["people", "remove", "--person-id", "person_alice"]).ok, true);
 });
 
@@ -84,6 +102,10 @@ test("People CLI exposes one closed structured packet facet per public command",
     [
       ["people", "set-role", "--from-file", "people-role.json"],
       { kind: "people-set-role", fromFile: "people-role.json" },
+    ],
+    [
+      ["people", "bind", "--from-file", "people-binding.json"],
+      { kind: "people-bind", fromFile: "people-binding.json" },
     ],
     [
       ["people", "remove", "--from-file", "people-remove.json"],

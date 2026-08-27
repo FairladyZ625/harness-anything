@@ -1,4 +1,11 @@
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import {
+  parseRoleBinding,
+  roleBindingKey,
+  validateRoleBinding,
+  type RoleBinding,
+  type RoleBindingActor,
+} from "./role-binding.ts";
 
 export const PEOPLE_ROSTER_SCHEMA = "harness-people/v1" as const;
 export const PEOPLE_ROSTER_PATH = "people.yaml" as const;
@@ -44,6 +51,7 @@ export interface PeopleRosterDocumentV1 {
   readonly schema: typeof PEOPLE_ROSTER_SCHEMA;
   readonly people: readonly PersonProfile[];
   readonly roles: readonly RolePolicy[];
+  readonly bindings: readonly RoleBinding[];
 }
 
 export const PERSON_V1_SCHEMA: EntityDocumentJsonSchema<PersonProfile> = {
@@ -90,6 +98,10 @@ export type PeopleRosterAction =
       readonly personId: string;
       readonly rolePolicy: RolePolicy;
     }
+  | {
+      readonly kind: "people-bind";
+      readonly binding: RoleBinding;
+    }
   | { readonly kind: "people-remove"; readonly personId: string }
   | { readonly kind: "people-reconcile"; readonly sourceBody: string }
   | { readonly kind: "people-replace"; readonly sourceBody: string };
@@ -116,12 +128,13 @@ export function parsePeopleRosterDocument(body: string): PeopleRosterDocumentV1 
   const raw = parsePeopleYaml(body);
   if (raw.schema !== PEOPLE_ROSTER_SCHEMA)
     throw new PeopleRosterContractError(`people.yaml schema must be ${PEOPLE_ROSTER_SCHEMA}`);
-  validatePeopleRoster(raw.people, raw.roles);
-  return { schema: PEOPLE_ROSTER_SCHEMA, people: raw.people, roles: raw.roles };
+  validatePeopleRoster(raw.people, raw.roles, raw.bindings);
+  return { schema: PEOPLE_ROSTER_SCHEMA, people: raw.people, roles: raw.roles, bindings: raw.bindings };
 }
 
 export function serializePeopleRosterDocument(roster: PeopleRosterDocumentV1): string {
-  validatePeopleRoster(roster.people, roster.roles);
+  const bindings = roster.bindings ?? [];
+  validatePeopleRoster(roster.people, roster.roles, bindings);
   return `${JSON.stringify(
     {
       schema: PEOPLE_ROSTER_SCHEMA,
@@ -130,6 +143,7 @@ export function serializePeopleRosterDocument(roster: PeopleRosterDocumentV1): s
         roleId,
         commandClasses: [...commandClasses],
       })),
+      ...(bindings.length ? { bindings: bindings.map(orderedBinding) } : {}),
     },
     null,
     2,
@@ -144,6 +158,7 @@ export function applyPeopleRosterAction(
   let next: PeopleRosterDocumentV1;
   if (action.kind === "people-add") next = addPerson(current, action.person, action.rolePolicy);
   else if (action.kind === "people-set-role") next = setPersonRole(current, action.personId, action.rolePolicy);
+  else if (action.kind === "people-bind") next = bindActorRole(current, action.binding);
   else if (action.kind === "people-remove") next = removePerson(current, action.personId);
   else if (action.kind === "people-replace") next = parsePeopleRosterDocument(action.sourceBody);
   else {
@@ -159,7 +174,9 @@ export function applyPeopleRosterAction(
         ? action.person.personId
         : action.kind === "people-set-role" || action.kind === "people-remove"
           ? action.personId
-          : null;
+          : action.kind === "people-bind" && action.binding.actor.kind === "person"
+            ? action.binding.actor.id
+            : null;
   return {
     action: action.kind,
     targetPersonId,
@@ -180,11 +197,12 @@ function addPerson(
   if (roster.people.length > 0 && person.roles.includes("owner"))
     throw new PeopleRosterContractError("the owner role is reserved for the bootstrap creator");
   const roles = withRolePolicy(roster.roles, rolePolicy);
-  validatePeopleRoster([...roster.people, person], roles);
+  validatePeopleRoster([...roster.people, person], roles, roster.bindings);
   return {
     schema: PEOPLE_ROSTER_SCHEMA,
     people: [...roster.people, person],
     roles,
+    bindings: roster.bindings,
   };
 }
 
@@ -203,8 +221,27 @@ function setPersonRole(
     people = roster.people.map((person) =>
       person.personId === personId ? { ...person, roles: [rolePolicy.roleId] } : person,
     );
-  validatePeopleRoster(people, roles);
-  return { schema: PEOPLE_ROSTER_SCHEMA, people, roles };
+  validatePeopleRoster(people, roles, roster.bindings);
+  return { schema: PEOPLE_ROSTER_SCHEMA, people, roles, bindings: roster.bindings };
+}
+
+function bindActorRole(roster: PeopleRosterDocumentV1, value: RoleBinding): PeopleRosterDocumentV1 {
+  const binding = parseRosterRoleBinding(value);
+  if (binding.source !== "declared")
+    throw new PeopleRosterContractError("people.yaml may only persist declared RoleBindings");
+  if (
+    binding.actor.kind === "person" &&
+    !roster.people.some((person) => person.personId === binding.actor.id && !person.disabled)
+  )
+    throw new PeopleRosterContractError(`RoleBinding actor ${binding.actor.id} is not an enabled person`);
+  const key = roleBindingKey(binding),
+    existing = roster.bindings.findIndex((candidate) => roleBindingKey(candidate) === key),
+    bindings =
+      existing < 0
+        ? [...roster.bindings, binding]
+        : roster.bindings.map((candidate, index) => (index === existing ? binding : candidate));
+  validatePeopleRoster(roster.people, roster.roles, bindings);
+  return { ...roster, bindings };
 }
 
 function removePerson(roster: PeopleRosterDocumentV1, personId: string): PeopleRosterDocumentV1 {
@@ -215,6 +252,7 @@ function removePerson(roster: PeopleRosterDocumentV1, personId: string): PeopleR
   return {
     ...roster,
     people: roster.people.filter((person) => person.personId !== personId),
+    bindings: roster.bindings.filter((binding) => binding.actor.kind !== "person" || binding.actor.id !== personId),
   };
 }
 
@@ -248,12 +286,14 @@ function peopleActionSummary(action: PeopleRosterAction, personId: string | null
   if (!changed) return "People roster already matches the requested state.";
   if (action.kind === "people-add") return `Added person ${personId}.`;
   if (action.kind === "people-set-role") return `Set person ${personId} role to ${action.rolePolicy.roleId}.`;
+  if (action.kind === "people-bind")
+    return `Bound ${action.binding.actor.kind} ${action.binding.actor.id} as ${action.binding.role} on ${action.binding.target}.`;
   if (action.kind === "people-remove") return `Removed person ${personId}.`;
   return action.kind === "people-reconcile" ? "Reconciled the people roster." : "Replaced the people roster.";
 }
 
 function emptyPeopleRoster(): PeopleRosterDocumentV1 {
-  return { schema: PEOPLE_ROSTER_SCHEMA, people: [], roles: [] };
+  return { schema: PEOPLE_ROSTER_SCHEMA, people: [], roles: [], bindings: [] };
 }
 
 export type PeopleRosterMerge =
@@ -334,8 +374,25 @@ export function mergePeopleRosterDocuments(sourceBody: string, destinationBody: 
     addedPeople.push(person.personId);
   }
 
+  const bindings = [...destination.bindings];
+  for (const binding of source.bindings) {
+    const index = bindings.findIndex((candidate) => roleBindingKey(candidate) === roleBindingKey(binding));
+    if (index < 0) {
+      bindings.push(binding);
+      continue;
+    }
+    if (JSON.stringify(orderedBinding(bindings[index]!)) !== JSON.stringify(orderedBinding(binding)))
+      return {
+        ok: false,
+        reason: [
+          `RoleBinding ${roleBindingKey(binding).replaceAll("\0", ":")} has different validity on each side;`,
+          "a roster union cannot choose which declaration is authoritative",
+        ].join(" "),
+      };
+  }
+
   try {
-    validatePeopleRoster(people, roles);
+    validatePeopleRoster(people, roles, bindings);
   } catch (error) {
     return {
       ok: false,
@@ -356,6 +413,7 @@ export function mergePeopleRosterDocuments(sourceBody: string, destinationBody: 
       schema: PEOPLE_ROSTER_SCHEMA,
       people,
       roles,
+      bindings,
     }),
     summary,
   };
@@ -412,7 +470,11 @@ function mergePerson(
   };
 }
 
-export function validatePeopleRoster(people: readonly PersonProfile[], roles: readonly RolePolicy[]): void {
+export function validatePeopleRoster(
+  people: readonly PersonProfile[],
+  roles: readonly RolePolicy[],
+  bindings: readonly RoleBinding[] = [],
+): void {
   const personIds = new Set<string>(),
     credentialKeys = new Set<string>(),
     roleIds = new Set<string>();
@@ -455,6 +517,26 @@ export function validatePeopleRoster(people: readonly PersonProfile[], roles: re
       credentialKeys.add(key);
     }
   }
+  const bindingKeys = new Set<string>();
+  for (const value of bindings) {
+    const binding = parseRosterRoleBinding(value);
+    if (binding.source !== "declared")
+      throw new PeopleRosterContractError("people.yaml may only persist declared RoleBindings");
+    if (binding.actor.kind === "person" && !personIds.has(binding.actor.id))
+      throw new PeopleRosterContractError(`RoleBinding references unknown person ${binding.actor.id}`);
+    const key = roleBindingKey(binding);
+    if (bindingKeys.has(key))
+      throw new PeopleRosterContractError(`duplicate RoleBinding: ${key.replaceAll("\0", ":")}`);
+    bindingKeys.add(key);
+  }
+}
+
+function parseRosterRoleBinding(value: unknown): RoleBinding {
+  try {
+    return parseRoleBinding(value);
+  } catch (error) {
+    throw new PeopleRosterContractError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 function orderedPerson(person: PersonProfile): Readonly<Record<string, unknown>> {
@@ -472,12 +554,23 @@ function orderedPerson(person: PersonProfile): Readonly<Record<string, unknown>>
   };
 }
 
+function orderedBinding(binding: RoleBinding): Readonly<Record<string, unknown>> {
+  return {
+    actor: { kind: binding.actor.kind, id: binding.actor.id },
+    role: binding.role,
+    target: binding.target,
+    source: binding.source,
+    expiresAt: binding.expiresAt,
+  };
+}
+
 function credentialKey(credential: CredentialRef): string {
   return `${credential.kind}\0${credential.issuer}\0${credential.subject}`;
 }
 
 function rosterShapeError(roster: ParsedRoster): string | null {
-  if (!Array.isArray(roster.people) || !Array.isArray(roster.roles)) return "people and roles must both be lists";
+  if (!Array.isArray(roster.people) || !Array.isArray(roster.roles) || !Array.isArray(roster.bindings))
+    return "people, roles, and bindings must all be lists";
   for (const person of roster.people) {
     if (!person || typeof person.personId !== "string" || !person.personId) return "every person needs a personId";
     if (typeof person.displayName !== "string") return `person ${person.personId} needs a displayName`;
@@ -487,6 +580,10 @@ function rosterShapeError(roster: ParsedRoster): string | null {
   for (const role of roster.roles) {
     if (!role || typeof role.roleId !== "string" || !role.roleId) return "every role needs a roleId";
     if (!Array.isArray(role.commandClasses)) return `role ${role.roleId} needs list-valued commandClasses`;
+  }
+  for (const binding of roster.bindings) {
+    const errors = validateRoleBinding(binding);
+    if (errors.length) return errors.join("; ");
   }
   return null;
 }
@@ -503,19 +600,25 @@ type ParsedRoster = {
   readonly schema: string;
   readonly people: PersonProfile[];
   readonly roles: RolePolicy[];
+  readonly bindings: RoleBinding[];
 };
 
 function parsePeopleYaml(body: string): ParsedRoster {
   const trimmed = body.trimStart();
-  if (trimmed.startsWith("{")) return JSON.parse(body) as ParsedRoster;
+  if (trimmed.startsWith("{")) {
+    const parsed = JSON.parse(body) as Omit<ParsedRoster, "bindings"> & { readonly bindings?: RoleBinding[] };
+    return { ...parsed, bindings: parsed.bindings ?? [] };
+  }
 
   let schema = "";
-  let section: "people" | "roles" | undefined;
+  let section: "people" | "roles" | "bindings" | undefined;
   let currentPerson: MutablePerson | undefined;
   let currentCredential: MutableCredential | undefined;
   let currentRole: MutableRole | undefined;
+  let currentBinding: MutableBinding | undefined;
   const people: MutablePerson[] = [];
   const roles: MutableRole[] = [];
+  const bindings: MutableBinding[] = [];
 
   for (const rawLine of body.split(/\r?\n/u)) {
     const line = rawLine.replace(/\s+#.*$/u, "");
@@ -526,10 +629,12 @@ function parsePeopleYaml(body: string): ParsedRoster {
       if (key === "schema") schema = unquoteRosterValue(value.trim());
       else if (key === "people") section = "people";
       else if (key === "roles") section = "roles";
+      else if (key === "bindings") section = "bindings";
       else throw new PeopleRosterContractError(`Unsupported people.yaml key: ${key}`);
       currentPerson = undefined;
       currentCredential = undefined;
       currentRole = undefined;
+      currentBinding = undefined;
       continue;
     }
     if (section === "people") {
@@ -585,12 +690,44 @@ function parsePeopleYaml(body: string): ParsedRoster {
         continue;
       }
     }
+    if (section === "bindings") {
+      const started = /^  - actor:\s*(.+)$/u.exec(line);
+      if (started) {
+        currentBinding = {
+          actor: parseBindingActor(unquoteRosterValue(started[1])),
+          role: "",
+          target: "",
+          source: "declared",
+          expiresAt: null,
+        };
+        bindings.push(currentBinding);
+        continue;
+      }
+      const scalar = /^    (role|target|source|expiresAt):\s*(.+)$/u.exec(line);
+      if (scalar && currentBinding) {
+        const value = unquoteRosterValue(scalar[2]);
+        if (scalar[1] === "expiresAt") currentBinding.expiresAt = value === "null" ? null : value;
+        else currentBinding[scalar[1] as "role" | "target" | "source"] = value;
+        continue;
+      }
+    }
     throw new PeopleRosterContractError(`Unsupported people.yaml line: ${line.trim()}`);
   }
   return {
     schema,
     people: people as PersonProfile[],
     roles: roles as RolePolicy[],
+    bindings: bindings as RoleBinding[],
+  };
+}
+
+function parseBindingActor(value: string): RoleBindingActor {
+  const separator = value.indexOf(":");
+  if (separator < 1 || separator === value.length - 1)
+    throw new PeopleRosterContractError("RoleBinding actor must use person:<id> or executor:<id>");
+  return {
+    kind: value.slice(0, separator) as RoleBindingActor["kind"],
+    id: value.slice(separator + 1),
   };
 }
 
@@ -635,4 +772,12 @@ interface MutablePerson {
 interface MutableRole {
   roleId: string;
   commandClasses: PeopleCommandClass[];
+}
+
+interface MutableBinding {
+  actor: RoleBindingActor;
+  role: string;
+  target: string;
+  source: string;
+  expiresAt: string | null;
 }

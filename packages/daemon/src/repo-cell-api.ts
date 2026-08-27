@@ -22,6 +22,7 @@ import {
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { recoveryCommandPolicy } from "./recovery-state.ts";
 import type { DaemonGuiReadHandlers, RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { withDerivedCommandClass } from "./repo-cell-role-bindings.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { chainRepoCellWrite, repoCellTaskQueryJudgments } from "./repo-cell.ts";
@@ -140,7 +141,7 @@ export function createRepoCellApi(context: any): RepoCell {
             ),
           failAction,
         );
-    return enqueuePublication(() => context.executeAction(action, { ...binding, commandClasses: [commandClass] }));
+    return enqueuePublication(() => context.executeAction(action, withDerivedCommandClass(binding, commandClass)));
   };
   const presetRun: RepoCell["presetRun"] = async (action, binding) => {
     const command = commandDescriptorForAction(action.kind),

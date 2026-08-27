@@ -22,11 +22,11 @@ export function peopleRosterFromDocument(body: string): PeopleRoster {
     peopleByCredential = new Map<string, PersonProfile>();
   for (const person of raw.people)
     for (const credential of person.credentials) peopleByCredential.set(credentialKey(credential), person);
-  const rolesById = new Map(raw.roles.map((role) => [role.roleId, role]));
   return {
     schema: raw.schema,
     people: raw.people,
     roles: raw.roles,
+    bindings: raw.bindings,
     resolveCredential: (credential, providerId) => {
       const person = peopleByCredential.get(credentialKey(credential));
       if (!person)
@@ -55,7 +55,6 @@ export function peopleRosterFromDocument(body: string): PeopleRoster {
         },
       };
     },
-    roleAllows: (roleId, commandClass) => rolesById.get(roleId)?.commandClasses.includes(commandClass) ?? false,
   };
 }
 

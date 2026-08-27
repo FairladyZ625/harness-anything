@@ -59,6 +59,24 @@ function decide(
   );
 }
 
+function commandBinding(
+  commandClass: string,
+  actor: ActorIdentity,
+): Pick<AuthorizationContext, "roleBindings" | "roleBindingTargets"> {
+  return {
+    roleBindings: [
+      {
+        actor: { kind: "person", id: actor.principal.personId },
+        role: commandClass,
+        target: "settings/repository",
+        source: "derived",
+        expiresAt: null,
+      },
+    ],
+    roleBindingTargets: ["settings/repository"],
+  };
+}
+
 test("v2 separates principal ownership from exact execution ownership", () => {
   assert.equal(decide("task.complete", humanOwner, "task/task-1", { target: { owner } }).outcome, "allowed");
   assert.equal(decide("task.complete", outsider, "task/task-1", { target: { owner } }).outcome, "denied");
@@ -68,13 +86,13 @@ test("v2 separates principal ownership from exact execution ownership", () => {
 
 test("v2 admits execution start only through the server-admitted repo-write command class", () => {
   assert.equal(
-    decide("execution.start", owner, "execution/execution-1", { commandClasses: ["repo-write"], target: {} }).outcome,
+    decide("execution.start", owner, "execution/execution-1", {
+      ...commandBinding("repo-write", owner),
+      target: {},
+    }).outcome,
     "allowed",
   );
-  assert.equal(
-    decide("execution.start", owner, "execution/execution-1", { commandClasses: [], target: {} }).outcome,
-    "denied",
-  );
+  assert.equal(decide("execution.start", owner, "execution/execution-1", { target: {} }).outcome, "denied");
 });
 
 test("v2 models held and orphaned release bindings without overloading ownership", () => {
@@ -193,43 +211,39 @@ test("v2 requires write-source equality on both direct and delegated document br
 test("v2 keeps execution review independent and rejects Decision outcomes from the proposal agent", () => {
   assert.equal(
     decide("execution.review", reviewer, "execution/execution-1", {
-      commandClasses: ["arbiter"],
+      ...commandBinding("arbiter", reviewer),
       target: { executionActor: owner, runtimeBinding: null },
     }).outcome,
     "allowed",
   );
   assert.equal(
     decide("execution.review", owner, "execution/execution-1", {
-      commandClasses: ["arbiter"],
+      ...commandBinding("arbiter", owner),
       target: { executionActor: owner, runtimeBinding: null },
     }).outcome,
     "denied",
   );
   assert.equal(
     decide("execution.review", reviewer, "execution/execution-1", {
-      commandClasses: [],
       target: { executionActor: owner, runtimeBinding: null },
     }).outcome,
     "denied",
   );
   assert.equal(
     decide("decision.accept", owner, "decision/decision-1", {
-      commandClasses: ["arbiter"],
+      ...commandBinding("arbiter", owner),
       target: { proposalActor: owner },
     }).outcome,
     "denied",
   );
   assert.equal(
     decide("decision.accept", humanOwner, "decision/decision-1", {
-      commandClasses: ["arbiter"],
+      ...commandBinding("arbiter", humanOwner),
       target: { proposalActor: humanOwner },
     }).outcome,
     "allowed",
   );
-  assert.equal(
-    decide("decision.accept", outsider, "decision/decision-1", { commandClasses: [], target: {} }).outcome,
-    "denied",
-  );
+  assert.equal(decide("decision.accept", outsider, "decision/decision-1", { target: {} }).outcome, "denied");
 });
 
 test("the default port keeps broader Decision review independence disabled", () => {
@@ -246,7 +260,7 @@ test("the default port keeps broader Decision review independence disabled", () 
           idempotencyKey: `gated-decision-${actor.executor?.id ?? "human"}`,
         },
         {
-          commandClasses: ["arbiter"],
+          ...commandBinding("arbiter", actor),
           target: { proposalActor: owner },
           evaluatedAtCut: "canonical:17",
         },
@@ -265,7 +279,7 @@ test("the default port keeps broader Decision review independence disabled", () 
         idempotencyKey: "gated-decision-human",
       },
       {
-        commandClasses: ["arbiter"],
+        ...commandBinding("arbiter", humanOwner),
         target: { proposalActor: humanOwner },
         evaluatedAtCut: "canonical:17",
       },

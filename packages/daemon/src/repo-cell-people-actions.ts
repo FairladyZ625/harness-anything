@@ -14,6 +14,8 @@ import {
 import {
   peopleAddJsonAllowedFields,
   peopleAddJsonFields,
+  peopleBindJsonAllowedFields,
+  peopleBindJsonFields,
   peopleRemoveJsonAllowedFields,
   peopleRemoveJsonFields,
   peopleSetRoleJsonAllowedFields,
@@ -83,6 +85,7 @@ const peoplePacketContracts: Readonly<
 > = Object.freeze({
   "people-add": { required: peopleAddJsonFields, allowed: peopleAddJsonAllowedFields },
   "people-set-role": { required: peopleSetRoleJsonFields, allowed: peopleSetRoleJsonAllowedFields },
+  "people-bind": { required: peopleBindJsonFields, allowed: peopleBindJsonAllowedFields },
   "people-remove": { required: peopleRemoveJsonFields, allowed: peopleRemoveJsonAllowedFields },
 });
 
@@ -114,6 +117,8 @@ function resolvePeopleAction(rootDir: string, action: RepoTaskAction): RepoTaskA
     if (field === "commandClass") {
       if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry.trim()))
         throw invalidPeopleCommand("commandClass must be a non-empty array of non-empty strings");
+    } else if (field === "expiresAt" && value === null) {
+      continue;
     } else if (typeof value !== "string" || !value.trim()) {
       throw invalidPeopleCommand(`${field} must be a non-empty string`);
     }
@@ -122,6 +127,20 @@ function resolvePeopleAction(rootDir: string, action: RepoTaskAction): RepoTaskA
 }
 
 function parsePeopleAction(action: RepoTaskAction): PeopleRosterAction {
+  if (action.kind === "people-bind") {
+    const actor = parseRoleBindingActor(requiredPeopleText(action.actor, "actor")),
+      expiresAt = action.expiresAt === null ? null : (peopleText(action.expiresAt) ?? null);
+    return {
+      kind: action.kind,
+      binding: {
+        actor,
+        role: requiredPeopleText(action.role, "role"),
+        target: requiredPeopleText(action.target, "target"),
+        source: "declared",
+        expiresAt,
+      },
+    };
+  }
   const personId = requiredPeopleText(action.personId, "person-id");
   if (action.kind === "people-remove") return { kind: action.kind, personId };
   const roleId = requiredPeopleText(action.role, "role"),
@@ -159,6 +178,15 @@ function parsePeopleAction(action: RepoTaskAction): PeopleRosterAction {
     },
     rolePolicy,
   };
+}
+
+function parseRoleBindingActor(value: string): { readonly kind: "person" | "executor"; readonly id: string } {
+  const separator = value.indexOf(":"),
+    kind = value.slice(0, separator),
+    id = value.slice(separator + 1);
+  if ((kind !== "person" && kind !== "executor") || !id)
+    throw invalidPeopleCommand("--actor must use person:<id> or executor:<id>");
+  return { kind, id };
 }
 
 function requiredCommandClasses(value: unknown): readonly PeopleCommandClass[] {

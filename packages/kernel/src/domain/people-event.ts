@@ -181,6 +181,7 @@ function validatePeopleEventFields(value: unknown, allowUnknownFields: boolean):
 const peopleActions: readonly PeopleRosterAction["kind"][] = Object.freeze([
   "people-add",
   "people-set-role",
+  "people-bind",
   "people-remove",
   "people-reconcile",
   "people-replace",

@@ -695,7 +695,12 @@ export const entityKindContracts = Object.freeze([
     id: personIdentity,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
-    actionCatalog: actionCatalog("kernel/people-event/v1", "person", personIdentity, ["add", "set-role", "remove"]),
+    actionCatalog: actionCatalog("kernel/people-event/v1", "person", personIdentity, [
+      "add",
+      "set-role",
+      "bind",
+      "remove",
+    ]),
     entityStore: null,
     authoring: { kind: "people-event", contractRef: "people-event/v1" },
     sdkExposure: noSdkExposure,

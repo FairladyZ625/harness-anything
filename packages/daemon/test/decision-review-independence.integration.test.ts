@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 
 const proposer = {
   actor: {
@@ -27,15 +28,17 @@ test("Decision outcomes reject self-judgment and accept an independent reviewer"
   try {
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
-      sameAgent = { ...proposer, roles: ["$arbiter"] },
-      independentAgent = {
-        actor: {
-          principal: proposer.actor.principal,
-          executor: { kind: "agent" as const, id: "independent-reviewer" },
+      sameAgent = withRoleBinding(proposer, "arbiter"),
+      independentAgent = withRoleBinding(
+        {
+          actor: {
+            principal: proposer.actor.principal,
+            executor: { kind: "agent" as const, id: "independent-reviewer" },
+          },
+          source: "local" as const,
         },
-        source: "local" as const,
-        roles: ["$arbiter"],
-      };
+        "arbiter",
+      );
     const denied = await cell.run(
       {
         kind: "decision-accept",
