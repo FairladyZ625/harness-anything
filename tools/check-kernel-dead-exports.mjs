@@ -7,10 +7,11 @@ import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allo
 const root = process.cwd();
 const kernelEntry = "packages/kernel/src/index.ts";
 const sourceFilePattern = /\.(?:ts|tsx|mts|js|jsx|mjs)$/u;
-const importPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
+const importPattern =
+  /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
 
 const allowlist = loadGateAllowlist("check-kernel-dead-exports", {
-  requiredSections: ["zeroConsumptionExports"]
+  requiredSections: ["zeroConsumptionExports"],
 });
 const allowedZeroExports = new Set(entryValues(allowlist.zeroConsumptionExports));
 
@@ -18,6 +19,15 @@ const exportedNames = collectKernelExports();
 const consumedNames = collectConsumedKernelNames();
 const zeroConsumptionExports = exportedNames.filter((name) => !consumedNames.has(name));
 const findings = [];
+
+for (const entry of allowlist.zeroConsumptionExports) {
+  const until = parseUntil(entry.until);
+  if (until === null) {
+    findings.push(`allowlist entry ${entry.value} must have a valid YYYY-MM-DD until date`);
+  } else if (until < currentUtcDate()) {
+    findings.push(`allowlist entry ${entry.value} expired on ${entry.until}`);
+  }
+}
 
 for (const name of zeroConsumptionExports) {
   if (!allowedZeroExports.has(name)) {
@@ -36,7 +46,9 @@ if (findings.length > 0) {
   for (const finding of findings) console.error(`- ${finding}`);
   process.exitCode = 1;
 } else {
-  console.log(`Kernel dead-export check passed (${zeroConsumptionExports.length} allowlisted zero-consumption export(s), ${consumedNames.size} consumed export(s)).`);
+  console.log(
+    `Kernel dead-export check passed (${zeroConsumptionExports.length} allowlisted zero-consumption export(s), ${consumedNames.size} consumed export(s)).`,
+  );
 }
 
 function collectKernelExports() {
@@ -51,17 +63,27 @@ function collectKernelExports() {
   const checker = program.getTypeChecker();
   const symbol = checker.getSymbolAtLocation(source);
   if (!symbol) throw new Error(`${kernelEntry} has no module symbol`);
-  return checker.getExportsOfModule(symbol)
+  return checker
+    .getExportsOfModule(symbol)
     .map((item) => String(item.escapedName))
     .filter((name) => name !== "default" && !name.startsWith("__"))
     .sort((left, right) => left.localeCompare(right));
 }
 
+function parseUntil(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return null;
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(date.valueOf()) || date.toISOString().slice(0, 10) !== value ? null : value;
+}
+
+function currentUtcDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function collectConsumedKernelNames() {
-  const files = [
-    ...walk(path.join(root, "packages")),
-    ...walk(path.join(root, "tools"))
-  ].filter((file) => !isTestOrFixturePath(relative(file)) && !relative(file).startsWith("packages/kernel/src/"));
+  const files = [...walk(path.join(root, "packages")), ...walk(path.join(root, "tools"))].filter(
+    (file) => !isTestOrFixturePath(relative(file)) && !relative(file).startsWith("packages/kernel/src/"),
+  );
   const consumed = new Set();
 
   for (const file of files) {
@@ -114,11 +136,16 @@ function isKernelImport(file, specifier) {
   if (specifier === "@harness-anything/kernel" || specifier.startsWith("@harness-anything/kernel/")) return true;
   if (specifier.includes("kernel/src/")) return true;
   if (!specifier.startsWith(".")) return false;
-  const resolved = path.relative(root, path.normalize(path.join(path.dirname(file), specifier))).split(path.sep).join("/");
-  return resolved === "packages/kernel/src/index.ts" ||
+  const resolved = path
+    .relative(root, path.normalize(path.join(path.dirname(file), specifier)))
+    .split(path.sep)
+    .join("/");
+  return (
+    resolved === "packages/kernel/src/index.ts" ||
     resolved.startsWith("packages/kernel/src/") ||
     resolved === "packages/kernel/src/index" ||
-    resolved.startsWith("packages/kernel/src/index.");
+    resolved.startsWith("packages/kernel/src/index.")
+  );
 }
 
 function extractNamedImports(statement) {
