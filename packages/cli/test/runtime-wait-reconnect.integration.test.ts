@@ -91,6 +91,57 @@ test("runtime status --wait returns daemon_gone with the last-known dispatch aft
   }
 });
 
+test("runtime status --wait bounds an exited session whose outcome never becomes visible", async () => {
+  const fixture = await openFixtureDaemon("settlement-failed");
+  let statusReads = 0;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    statusReads += 1;
+    reply(socket, request.id, runtimeStatus(false, true));
+  };
+  const invocation = runWait(fixture);
+  try {
+    const result = await invocation.result(8_000);
+    assert.equal(result.code, 1, result.stderr);
+    assert.equal(result.receipt.code, "runtime_settlement_failed");
+    assert.equal(result.receipt.outcome, "unknown");
+    assert.match(String(result.receipt.reason), /runtime_settlement_failed/u);
+    assert.equal(statusReads, 20);
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("runtime status --wait surfaces a canonical settlement failure diagnostic", async () => {
+  const fixture = await openFixtureDaemon("settlement-outcome");
+  let statusReads = 0;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    statusReads += 1;
+    reply(socket, request.id, runtimeStatus(false, true, true));
+  };
+  const invocation = runWait(fixture);
+  try {
+    const result = await invocation.result(2_000);
+    assert.equal(result.code, 1, result.stderr);
+    assert.equal(result.receipt.code, "runtime_settlement_failed");
+    assert.equal(result.receipt.outcome, "unknown");
+    assert.match(String(result.receipt.reason), /runtime_lease_release_failed/u);
+    assert.equal(statusReads, 1);
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
 test("task dispatch wait classifies an ENOENT reconnect as daemon_gone and retains the last-known rows", async () => {
   const fixture = await openFixtureDaemon("task-daemon-gone"),
     taskId = "task-runtime-wait",
@@ -264,7 +315,7 @@ function reply(socket: net.Socket, id: number, result: Record<string, unknown>):
   socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
 }
 
-function runtimeStatus(terminal: boolean): Record<string, unknown> {
+function runtimeStatus(terminal: boolean, exited = terminal, settlementFailed = false): Record<string, unknown> {
   return {
     ok: true,
     status: "ready",
@@ -276,7 +327,7 @@ function runtimeStatus(terminal: boolean): Record<string, unknown> {
       kindId: "codex",
       definitionSnapshotRef: "fixture-definition",
       definitionSnapshot: {},
-      liveness: terminal ? "exited" : "live",
+      liveness: exited ? "exited" : "live",
       attachCapability: "supported",
       streamCursor: "stream:0",
       associations: [
@@ -289,14 +340,21 @@ function runtimeStatus(terminal: boolean): Record<string, unknown> {
       ],
       activity: {
         lastObservedAt: "2026-08-27T00:00:00.000Z",
-        outcome: terminal ? "succeeded" : null,
-        exitCode: terminal ? 0 : null,
-        resultRef: terminal ? "result:fixture" : null,
+        outcome: terminal ? "succeeded" : settlementFailed ? "unknown" : null,
+        exitCode: exited ? 0 : null,
+        resultRef: terminal || settlementFailed ? "result:fixture" : null,
       },
     },
-    result: terminal ? { ref: "result:fixture", text: "settled after reconnect" } : null,
-    watermark: terminal ? 2 : 1,
-    sourceRevision: terminal ? 2 : 1,
+    result: settlementFailed
+      ? {
+          ref: "result:fixture",
+          text: "Runtime terminal settlement failed (runtime_lease_release_failed): injected failure",
+        }
+      : terminal
+        ? { ref: "result:fixture", text: "settled after reconnect" }
+        : null,
+    watermark: terminal || settlementFailed ? 2 : 1,
+    sourceRevision: terminal || settlementFailed ? 2 : 1,
   };
 }
 

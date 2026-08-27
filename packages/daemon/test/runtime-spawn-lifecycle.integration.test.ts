@@ -358,7 +358,8 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
 
 test("attached task runtime settlement releases its execution lease before publishing the terminal outcome", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-attached-tail-"));
-  let exit: ((code: number | null) => void) | null = null;
+  let exit: ((code: number | null) => void) | null = null,
+    failSettlement = false;
   try {
     initIngressRepo(root, 4310);
     const cell = await openRepoCell({
@@ -407,6 +408,12 @@ test("attached task runtime settlement releases its execution lease before publi
         },
         terminate: () => undefined,
       }),
+      killpoint: (point) => {
+        if (failSettlement && point === "after_sqlite_commit")
+          throw Object.assign(new Error("injected terminal lease settlement failure"), {
+            code: "runtime_lease_release_failed",
+          });
+      },
     });
     try {
       const taskId = "task-runtime-attached-tail",
@@ -515,6 +522,103 @@ test("attached task runtime settlement releases its execution lease before publi
       );
       assert.ok(releaseIndex < outcomeIndex, "terminal outcome must not become visible before lease release");
       assert.equal(taskSnapshot.lease, null, "terminal RuntimeSession settlement must release the execution lease");
+
+      const failedTaskId = "task-runtime-settlement-failed",
+        failedExecutionId = "execution-runtime-settlement-failed";
+      assert.equal(
+        (await cell.run({ kind: "task-create", taskId: failedTaskId, title: "Failed settlement" }, binding)).outcome,
+        "applied",
+      );
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "task-start",
+              taskId: failedTaskId,
+              executionId: failedExecutionId,
+              executor: { kind: "agent", id: "failed-settlement-worker" },
+            },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
+      const failedReceipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Expose a failed terminal lease settlement",
+          taskId: failedTaskId,
+          idempotencyKey: "failed-settlement",
+        },
+        binding,
+      );
+      for (const event of records) {
+        appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
+          kind: "provider_event",
+          occurredAt: "2026-08-24T12:01:00.000Z",
+          event,
+        });
+      }
+      appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
+        kind: "process_exit",
+        occurredAt: "2026-08-24T12:01:01.000Z",
+        exitCode: 0,
+        signal: null,
+      });
+      failSettlement = true;
+      assert.ok(exit, "failed-settlement runtime must attach its exit listener");
+      exit(0);
+      await eventually(() => {
+        const terminal = makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root })
+          .read()
+          .events.find(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
+          );
+        return terminal?.type === "runtime_session_outcome_observed" && terminal.payload.outcome === "unknown";
+      });
+      const failedEvents = makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
+        failedExitIndex = failedEvents.findIndex(
+          (event) =>
+            event.type === "runtime_session_exited" &&
+            event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
+        ),
+        failedOutcomeIndex = failedEvents.findIndex(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
+        ),
+        failedStatus = await cell.read("repo.agentRuntime.sessions.read", {
+          runtimeSessionId: failedReceipt.runtimeSessionId,
+        });
+      assert.ok(failedExitIndex < failedOutcomeIndex, "the failed settlement still publishes one terminal outcome");
+      assert.equal(
+        failedEvents.filter(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
+        ).length,
+        1,
+      );
+      assert.equal(failedStatus.session.activity.outcome, "unknown");
+      assert.match(failedStatus.result?.text ?? "", /runtime_lease_release_failed/u);
+      failSettlement = false;
+      assert.equal(
+        (await cell.run({ kind: "task-create", taskId: "task-after-settlement-failure", title: "Tail live" }, binding))
+          .outcome,
+        "applied",
+      );
+      assert.equal(
+        failedEvents.some(
+          (event) =>
+            event.type === "lease_released" &&
+            event.taskId === failedTaskId &&
+            event.payload.execution.executionId === failedExecutionId,
+        ),
+        true,
+      );
     } finally {
       await cell.close();
     }

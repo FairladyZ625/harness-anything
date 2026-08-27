@@ -9,13 +9,7 @@ import {
   streamRuntimeThroughDaemon,
 } from "./daemon/client.ts";
 
-const reconnectBaseDelayMs = 250,
-  reconnectMaxDelayMs = 5_000;
-
-interface DaemonGone {
-  readonly kind: "daemon-gone";
-  readonly cause: string;
-}
+type DaemonGone = { readonly kind: "daemon-gone"; readonly cause: string };
 
 export async function waitForRuntime(
   command: ThinCommand,
@@ -30,7 +24,7 @@ export async function waitForRuntime(
     detach: (() => void) | undefined,
     streamStarted = false;
   try {
-    for (;;) {
+    for (let exitedPolls = 0; ; ) {
       const next = await readDaemonSubscription(
         command,
         async () => {
@@ -42,19 +36,19 @@ export async function waitForRuntime(
           statusReader = undefined;
         },
       );
-      if (isDaemonGone(next)) {
+      if (next.kind === "daemon-gone") {
         const runtime = current as unknown as AgentRuntimeSessionResult | undefined,
           status = runtime?.session.activity.outcome ?? (runtime?.session ? "running" : "unknown"),
           commandName = spawned ? "runtime-run" : "runtime-status";
-        return daemonGoneReceipt(commandName, next.cause, status, {
+        return daemonGoneReceipt(commandName, String(next.cause), status, {
           runtimeSessionId,
           ...(target ?? {}),
           ...(spawned ? { spawn: spawned } : {}),
           lastKnownDispatch: lastKnownRuntimeDispatch(runtimeSessionId, target, runtime, status),
         });
       }
-      if (next.ok !== true) return next;
-      current = next;
+      if ((next as JsonObject).ok !== true) return next as JsonObject;
+      current = next as JsonObject;
       if (stream && !streamStarted) {
         streamStarted = true;
         try {
@@ -66,7 +60,8 @@ export async function waitForRuntime(
           writeActivity(`[stream] ${error instanceof Error ? error.message : String(error)}\n`);
         }
       }
-      if ((current as unknown as AgentRuntimeSessionResult).session.activity.outcome !== null) break;
+      const session = (current as unknown as AgentRuntimeSessionResult).session;
+      if (session.activity.outcome !== null || (session.liveness === "exited" && ++exitedPolls >= 20)) break;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   } finally {
@@ -74,24 +69,29 @@ export async function waitForRuntime(
     detach?.();
   }
   const result = current as unknown as AgentRuntimeSessionResult,
-    outcome = result.session.activity.outcome!,
     text = result.result?.text ?? "",
+    settlementFailed =
+      result.session.activity.outcome === null || text.startsWith("Runtime terminal settlement failed ("),
+    outcome = result.session.activity.outcome ?? "unknown",
     commandName = spawned ? "runtime-run" : "runtime-status",
     providerExit = Number.isInteger(result.session.activity.exitCode),
+    failureCode = settlementFailed ? "runtime_settlement_failed" : providerExit ? "provider_exit" : "runtime_failed",
     reason =
       outcome === "succeeded"
         ? null
         : text ||
-          (providerExit
-            ? `Provider exited with code ${String(result.session.activity.exitCode)} without a diagnostic.`
-            : `${commandName}: ${outcome}`);
+          (settlementFailed
+            ? "runtime_settlement_failed: daemon reported the runtime exited but no terminal outcome became visible."
+            : providerExit
+              ? `Provider exited with code ${String(result.session.activity.exitCode)} without a diagnostic.`
+              : `${commandName}: ${outcome}`);
   return {
     ...current,
     command: commandName,
     outcome,
     runtimeSessionId,
     ...(spawned ? { spawn: spawned } : {}),
-    ...(reason ? { code: providerExit ? "provider_exit" : "runtime_failed", reason } : {}),
+    ...(reason ? { code: failureCode, reason } : {}),
     summary: text || reason || `${commandName}: ${outcome}`,
     exitCode: outcome === "succeeded" ? 0 : 1,
   };
@@ -108,18 +108,18 @@ export async function waitForTaskDispatches(command: ThinCommand, taskId: string
     const next = await readDaemonSubscription(command, () =>
       runCommandThroughDaemon(readCommand, () => undefined, { autostart: false }),
     );
-    if (isDaemonGone(next)) {
+    if (next.kind === "daemon-gone") {
       const dispatches = Array.isArray(current?.dispatches) ? current.dispatches : [],
         rows = `${dispatches.length} row${dispatches.length === 1 ? "" : "s"}`;
       return daemonGoneReceipt(
         "runtime-status",
-        next.cause,
+        String(next.cause),
         rows,
         { taskId, lastKnownDispatches: dispatches },
         `runtime-status task ${taskId}`,
       );
     }
-    current = next;
+    current = next as JsonObject;
     if (current.ok !== true) return current;
     if (current.status !== "pending" && taskDispatchesSettled(current)) break;
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -176,13 +176,9 @@ async function readDaemonSubscription(
       if (!recoverableSubscriptionFailure(error)) throw error;
       if (await daemonGone(command))
         return { kind: "daemon-gone", cause: error instanceof Error ? error.message : String(error) };
-      await new Promise((resolve) => setTimeout(resolve, reconnectDelayMs(attempt++)));
+      await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** attempt++, 5_000)));
     }
   }
-}
-
-function reconnectDelayMs(attempt: number): number {
-  return Math.min(reconnectBaseDelayMs * 2 ** attempt, reconnectMaxDelayMs);
 }
 
 function recoverableSubscriptionFailure(error: unknown): boolean {
@@ -205,10 +201,6 @@ async function daemonGone(command: ThinCommand): Promise<boolean> {
     livePid = pid !== null && daemonProcessAlive(pid),
     liveSocket = await daemonSocketProbe(target.socketPath);
   return !livePid && !liveSocket;
-}
-
-function isDaemonGone(value: JsonObject | DaemonGone): value is DaemonGone {
-  return "kind" in value && value.kind === "daemon-gone";
 }
 
 function lastKnownRuntimeDispatch(

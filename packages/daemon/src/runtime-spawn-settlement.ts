@@ -7,6 +7,7 @@ import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 import { pushWorkerBranch } from "./runtime-worker-push.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
+import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 
 export async function publishExit(context: any, active: ActiveRuntime, code: number | null): Promise<void> {
   if (
@@ -30,11 +31,12 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
         (code === 0 && (active.finalText === null || active.providerOutcome === null)))
     )
       context.markProtocolError(active);
-    const { outcome, ...classifiedAttempt } = classifyRuntimeExit(active, code),
+    const { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code),
       attemptOutcome = {
         ...classifiedAttempt,
         reason: String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
       };
+    let outcome = initialOutcome;
     active.stream.appendAttemptOutcome(attemptOutcome, context.input.now());
     let body = context.runtimeResultText(active, code, outcome);
     if (active.task && outcome === "succeeded") {
@@ -48,14 +50,14 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
         body = `${body}\n\nWorker branch push failed (no retry): ${detail || "GitHub credential resolution failed."}`;
       }
     }
-    const sha256 = createHash("sha256").update(body).digest("hex"),
+    let sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
         sha256,
         size: Buffer.byteLength(body),
         mediaType: context.resultMediaType,
       },
-      resultRef = `artifact:runtime-result/sha256/${sha256}`,
-      endedAt = context.input.now(),
+      resultRef = `artifact:runtime-result/sha256/${sha256}`;
+    const endedAt = context.input.now(),
       archive: RuntimeDispatchArchive | null = active.task
         ? {
             dispatchId: active.dispatchId,
@@ -114,17 +116,6 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
         console.warn(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
       }
-    context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome });
-    context.input.recordLifecycle?.({
-      event: "runtime_exit",
-      runtimeSessionId: active.runtimeSessionId,
-      dispatchId: active.dispatchId,
-      pid: active.process.pid,
-      exitCode: active.lossExitCode ?? (cancelled ? null : code),
-      signal: active.lossSignal,
-      outcome: active.lossReason ? "lost" : outcome,
-      reason: active.lossReason,
-    });
     if (cancelled)
       await context.publishRuntimeEvent(
         "runtime_session_cancelled",
@@ -138,33 +129,38 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
       `${active.dispatchOpId}-exited`,
       eventBinding,
     );
-    const notification =
-      active.onExitCommand === null
-        ? null
-        : {
-            command: active.onExitCommand,
-            cwd: active.cwd,
-            stream: active.stream,
-            payload: {
-              schema: "runtime-session-exited/v1" as const,
-              runtimeSessionId: active.runtimeSessionId,
-              outcome,
-              exitCode: cancelled ? null : code,
-              nextAction: `ha runtime status ${active.runtimeSessionId} --wait`,
-            },
-          };
     context.processes.delete(active.runtimeSessionId);
     active.process.release?.();
-    await context.settleFallback(active, attemptOutcome, {
+    await context
+      .settleFallback(active, attemptOutcome, {
+        runtimeSessionId: active.runtimeSessionId,
+        dispatchId: active.dispatchId,
+        task: active.task,
+        schedule: active.schedule,
+        outcome: outcome === "succeeded" ? "succeeded" : "failed",
+        reason: outcome === "succeeded" ? null : attemptOutcome.reason,
+        endedAt,
+        resultRef,
+        binding: active.binding,
+      })
+      .catch((error: unknown) => {
+        consumeKnownError(error);
+        const settlementCode = runtimeErrorCode(error) ?? "runtime_settlement_failed";
+        outcome = "unknown";
+        body = `Runtime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
+        sha256 = createHash("sha256").update(body).digest("hex");
+        result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
+        resultRef = `artifact:runtime-result/sha256/${sha256}`;
+      });
+    context.input.recordLifecycle?.({
+      event: "runtime_exit",
       runtimeSessionId: active.runtimeSessionId,
       dispatchId: active.dispatchId,
-      task: active.task,
-      schedule: active.schedule,
-      outcome: outcome === "succeeded" ? "succeeded" : "failed",
-      reason: outcome === "succeeded" ? null : attemptOutcome.reason,
-      endedAt,
-      resultRef,
-      binding: active.binding,
+      pid: active.process.pid,
+      exitCode: active.lossExitCode ?? (cancelled ? null : code),
+      signal: active.lossSignal,
+      outcome: active.lossReason ? "lost" : outcome,
+      reason: active.lossReason,
     });
     const outcomeEvent = await context.publishRuntimeEvent(
       "runtime_session_outcome_observed",
@@ -180,7 +176,23 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
       body,
     );
     context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
-    if (notification) setImmediate(() => context.launchExitNotification({ ...notification, now: context.input.now }));
+    context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome });
+    if (active.onExitCommand !== null)
+      setImmediate(() =>
+        context.launchExitNotification({
+          command: active.onExitCommand,
+          cwd: active.cwd,
+          stream: active.stream,
+          payload: {
+            schema: "runtime-session-exited/v1" as const,
+            runtimeSessionId: active.runtimeSessionId,
+            outcome,
+            exitCode: cancelled ? null : code,
+            nextAction: `ha runtime status ${active.runtimeSessionId} --wait`,
+          },
+          now: context.input.now,
+        }),
+      );
   } finally {
     context.exiting.delete(active.runtimeSessionId);
   }
