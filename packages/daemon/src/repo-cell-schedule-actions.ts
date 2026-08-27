@@ -24,7 +24,7 @@ import {
   scheduleUpdateJsonAllowedFields,
   scheduleUpdateJsonFields,
 } from "./protocol/daemon-protocol-commands-runtime-fleet.ts";
-import { workspaceText } from "./repo-cell-packets.ts";
+import { resolvePacketAction, type PacketActionContract } from "./repo-cell-action-parse.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TrustedScheduleSpawn } from "./runtime-spawn.ts";
 
@@ -45,39 +45,32 @@ type ScheduleSpawnReceipt = {
   readonly runtimeSessionId?: string;
 };
 
-const schedulePacketContracts: Readonly<
-  Record<string, { readonly required: readonly string[]; readonly allowed: readonly string[] }>
-> = Object.freeze({
-  "schedule-show": { required: scheduleShowJsonFields, allowed: scheduleShowJsonAllowedFields },
-  "schedule-update": { required: scheduleUpdateJsonFields, allowed: scheduleUpdateJsonAllowedFields },
-  "schedule-delete": { required: scheduleDeleteJsonFields, allowed: scheduleDeleteJsonAllowedFields },
+const schedulePacketContracts: Readonly<Record<string, PacketActionContract>> = Object.freeze({
+  "schedule-show": scheduleContract(scheduleShowJsonFields, scheduleShowJsonAllowedFields),
+  "schedule-update": scheduleContract(scheduleUpdateJsonFields, scheduleUpdateJsonAllowedFields),
+  "schedule-delete": scheduleContract(scheduleDeleteJsonFields, scheduleDeleteJsonAllowedFields),
 });
 
 function resolveScheduleAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {
   const contract = schedulePacketContracts[action.kind];
   if (!contract) return action;
-  const fromFile = typeof action.fromFile === "string",
-    actionAllowed = new Set(["kind", ...(fromFile ? ["fromFile"] : contract.allowed)]),
-    unsupportedActionFields = Object.keys(action).filter((field) => !actionAllowed.has(field));
-  if (unsupportedActionFields.length)
-    throw invalidSchedulePacket(`Remove unsupported Schedule action fields: ${unsupportedActionFields.join(", ")}`);
-  if (!fromFile) return action;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(workspaceText(rootDir, action.fromFile, "fromFile"));
-  } catch (error) {
-    if (error instanceof SyntaxError)
-      throw invalidSchedulePacket("Schedule input must be one UTF-8 JSON object; repair the JSON and retry");
-    throw error;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    throw invalidSchedulePacket("Schedule input must be one JSON object");
-  const packet = parsed as Record<string, unknown>,
-    unknown = Object.keys(packet).filter((field) => !contract.allowed.includes(field)),
-    missing = contract.required.filter((field) => !Object.hasOwn(packet, field));
-  if (unknown.length) throw invalidSchedulePacket(`Remove unsupported Schedule input fields: ${unknown.join(", ")}`);
-  if (missing.length) throw invalidSchedulePacket(`Add required Schedule input fields: ${missing.join(", ")}`);
-  return { kind: action.kind, ...packet };
+  return resolvePacketAction(rootDir, action, contract);
+}
+
+function scheduleContract(required: readonly string[], allowed: readonly string[]): PacketActionContract {
+  return {
+    required,
+    allowed,
+    source: "from-file",
+    invalid: invalidSchedulePacket,
+    messages: {
+      parse: "Schedule input must be one UTF-8 JSON object; repair the JSON and retry",
+      object: "Schedule input must be one JSON object",
+      unsupportedAction: (fields) => `Remove unsupported Schedule action fields: ${fields.join(", ")}`,
+      unsupportedInput: (fields) => `Remove unsupported Schedule input fields: ${fields.join(", ")}`,
+      missingInput: (fields) => `Add required Schedule input fields: ${fields.join(", ")}`,
+    },
+  };
 }
 
 function invalidSchedulePacket(message: string): Error {

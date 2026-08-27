@@ -10,6 +10,60 @@ export const decisionProposalFields = decisionProposalJsonFields;
 
 export const taskCreateFields = taskCreateJsonFields;
 
+export type PacketActionContract = Readonly<{
+  required: readonly string[];
+  allowed: readonly string[];
+  source: "from-file" | "from-file-or-json-input";
+  actionOverrides?: readonly string[];
+  invalid: (message: string) => Error;
+  messages: Readonly<{
+    parse: string;
+    object: string;
+    unsupportedAction: (fields: string[]) => string;
+    unsupportedInput: (fields: string[]) => string;
+    missingInput?: (fields: string[]) => string;
+  }>;
+  validate?: (packet: Record<string, unknown>) => void;
+  merge?: (action: RepoTaskAction, packet: Record<string, unknown>) => RepoTaskAction;
+}>;
+
+export function resolvePacketAction(
+  rootDir: string,
+  action: RepoTaskAction,
+  contract: PacketActionContract,
+): RepoTaskAction {
+  const fromFile = typeof action.fromFile === "string",
+    jsonInput = typeof action.jsonInput === "string",
+    hasSource = contract.source === "from-file" ? fromFile : fromFile || jsonInput,
+    actionAllowed = new Set([
+      "kind",
+      ...(fromFile ? ["fromFile"] : jsonInput ? ["jsonInput"] : contract.allowed),
+      ...(contract.actionOverrides ?? []),
+    ]),
+    unsupportedActionFields = Object.keys(action).filter((field) => !actionAllowed.has(field));
+  if (unsupportedActionFields.length)
+    throw contract.invalid(contract.messages.unsupportedAction(unsupportedActionFields));
+  if (!hasSource) return action;
+  let parsed: unknown;
+  try {
+    const raw = fromFile
+      ? workspaceText(rootDir, action.fromFile, "fromFile")
+      : requiredCellText(action.jsonInput, "jsonInput");
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    if (error instanceof SyntaxError) throw contract.invalid(contract.messages.parse);
+    throw error;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw contract.invalid(contract.messages.object);
+  const packet = parsed as Record<string, unknown>,
+    unknown = Object.keys(packet).filter((field) => !contract.allowed.includes(field)),
+    missing = contract.required.filter((field) => !Object.hasOwn(packet, field));
+  if (unknown.length) throw contract.invalid(contract.messages.unsupportedInput(unknown));
+  if (missing.length && contract.messages.missingInput) throw contract.invalid(contract.messages.missingInput(missing));
+  contract.validate?.(packet);
+  return contract.merge ? contract.merge(action, packet) : { kind: action.kind, ...packet };
+}
+
 export function taskCreateAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {
   const fromFile = typeof action.fromFile === "string",
     jsonInput = typeof action.jsonInput === "string",
@@ -29,27 +83,24 @@ export function taskCreateAction(rootDir: string, action: RepoTaskAction): RepoT
   if (!fromFile && !jsonInput) return action;
   if (fromFile === jsonInput)
     throw cellCodedError("invalid_command", "Choose exactly one structured task source: --from-file or --json-input.");
-  const raw = fromFile
-    ? workspaceText(rootDir, action.fromFile, "fromFile")
-    : requiredCellText(action.jsonInput, "jsonInput");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw cellCodedError(
-      "invalid_command",
-      "Task create input must be one UTF-8 JSON object; repair the JSON and retry.",
-    );
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    throw cellCodedError("invalid_command", "Task create input must be one JSON object.");
-  const packet = parsed as Record<string, unknown>,
-    unknown = Object.keys(packet).filter((field) => !taskCreateFields.includes(field as never));
-  if (unknown.length)
-    throw cellCodedError("invalid_command", `Remove unsupported task create fields: ${unknown.join(", ")}.`);
-  const { fromFile: _fromFile, jsonInput: _jsonInput, kind: _kind, ...direct } = action,
-    merged: RepoTaskAction = { kind: "task-create", ...packet, ...direct };
-  return typeof merged.fromLegacyId === "string" ? taskCreateAction(rootDir, merged) : merged;
+  const resolved = resolvePacketAction(rootDir, action, {
+    required: [],
+    allowed: taskCreateFields,
+    source: "from-file-or-json-input",
+    actionOverrides: ["title", "slug", "dryRun"],
+    invalid: (message) => cellCodedError("invalid_command", message),
+    messages: {
+      parse: "Task create input must be one UTF-8 JSON object; repair the JSON and retry.",
+      object: "Task create input must be one JSON object.",
+      unsupportedAction: (fields) => `Remove unsupported task create fields: ${fields.join(", ")}.`,
+      unsupportedInput: (fields) => `Remove unsupported task create fields: ${fields.join(", ")}.`,
+    },
+    merge: (source, packet) => {
+      const { fromFile: _fromFile, jsonInput: _jsonInput, kind: _kind, ...direct } = source;
+      return { kind: "task-create", ...packet, ...direct };
+    },
+  });
+  return typeof resolved.fromLegacyId === "string" ? taskCreateAction(rootDir, resolved) : resolved;
 }
 
 export function legacyTaskCreateAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {

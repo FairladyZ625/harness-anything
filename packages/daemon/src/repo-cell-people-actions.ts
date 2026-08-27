@@ -25,7 +25,7 @@ import {
   peopleSetRoleJsonAllowedFields,
   peopleSetRoleJsonFields,
 } from "./protocol/daemon-protocol-commands-people.ts";
-import { workspaceText } from "./repo-cell-packets.ts";
+import { resolvePacketAction, type PacketActionContract } from "./repo-cell-action-parse.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export function makeRepoCellPeopleActions(cell: any) {
@@ -85,44 +85,22 @@ export function makeRepoCellPeopleActions(cell: any) {
   return { run };
 }
 
-const peoplePacketContracts: Readonly<
-  Record<string, { readonly required: readonly string[]; readonly allowed: readonly string[] }>
-> = Object.freeze({
-  "people-add": { required: peopleAddJsonFields, allowed: peopleAddJsonAllowedFields },
-  "people-set-role": { required: peopleSetRoleJsonFields, allowed: peopleSetRoleJsonAllowedFields },
-  "people-bind": { required: peopleBindJsonFields, allowed: peopleBindJsonAllowedFields },
-  "people-delegate": { required: peopleDelegateJsonFields, allowed: peopleDelegateJsonAllowedFields },
-  "people-revoke-delegation": {
-    required: peopleRevokeDelegationJsonFields,
-    allowed: peopleRevokeDelegationJsonAllowedFields,
-  },
-  "people-remove": { required: peopleRemoveJsonFields, allowed: peopleRemoveJsonAllowedFields },
+const peoplePacketContracts: Readonly<Record<string, PacketActionContract>> = Object.freeze({
+  "people-add": peopleContract(peopleAddJsonFields, peopleAddJsonAllowedFields),
+  "people-set-role": peopleContract(peopleSetRoleJsonFields, peopleSetRoleJsonAllowedFields),
+  "people-bind": peopleContract(peopleBindJsonFields, peopleBindJsonAllowedFields),
+  "people-delegate": peopleContract(peopleDelegateJsonFields, peopleDelegateJsonAllowedFields),
+  "people-revoke-delegation": peopleContract(peopleRevokeDelegationJsonFields, peopleRevokeDelegationJsonAllowedFields),
+  "people-remove": peopleContract(peopleRemoveJsonFields, peopleRemoveJsonAllowedFields),
 });
 
 function resolvePeopleAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {
   const contract = peoplePacketContracts[action.kind];
   if (!contract) throw invalidPeopleCommand(`Unknown people action: ${action.kind}`);
-  const fromFile = typeof action.fromFile === "string",
-    actionAllowed = new Set(["kind", ...(fromFile ? ["fromFile"] : contract.allowed)]),
-    unsupportedActionFields = Object.keys(action).filter((field) => !actionAllowed.has(field));
-  if (unsupportedActionFields.length)
-    throw invalidPeopleCommand(`Remove unsupported people action fields: ${unsupportedActionFields.join(", ")}`);
-  if (!fromFile) return action;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(workspaceText(rootDir, action.fromFile, "fromFile"));
-  } catch (error) {
-    if (error instanceof SyntaxError)
-      throw invalidPeopleCommand("People input must be one UTF-8 JSON object; repair the JSON and retry");
-    throw error;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    throw invalidPeopleCommand("People input must be one JSON object");
-  const packet = parsed as Record<string, unknown>,
-    unknown = Object.keys(packet).filter((field) => !contract.allowed.includes(field)),
-    missing = contract.required.filter((field) => !Object.hasOwn(packet, field));
-  if (unknown.length) throw invalidPeopleCommand(`Remove unsupported people input fields: ${unknown.join(", ")}`);
-  if (missing.length) throw invalidPeopleCommand(`Add required people input fields: ${missing.join(", ")}`);
+  return resolvePacketAction(rootDir, action, contract);
+}
+
+function peoplePacketValidation(packet: Record<string, unknown>): void {
   for (const [field, value] of Object.entries(packet)) {
     if (field === "commandClass" || field === "action") {
       if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry.trim()))
@@ -133,7 +111,23 @@ function resolvePeopleAction(rootDir: string, action: RepoTaskAction): RepoTaskA
       throw invalidPeopleCommand(`${field} must be a non-empty string`);
     }
   }
-  return { kind: action.kind, ...packet };
+}
+
+function peopleContract(required: readonly string[], allowed: readonly string[]): PacketActionContract {
+  return {
+    required,
+    allowed,
+    source: "from-file",
+    invalid: invalidPeopleCommand,
+    messages: {
+      parse: "People input must be one UTF-8 JSON object; repair the JSON and retry",
+      object: "People input must be one JSON object",
+      unsupportedAction: (fields) => `Remove unsupported people action fields: ${fields.join(", ")}`,
+      unsupportedInput: (fields) => `Remove unsupported people input fields: ${fields.join(", ")}`,
+      missingInput: (fields) => `Add required people input fields: ${fields.join(", ")}`,
+    },
+    validate: peoplePacketValidation,
+  };
 }
 
 function parsePeopleAction(action: RepoTaskAction, issuerPersonId: string, occurredAt: string): PeopleRosterAction {
