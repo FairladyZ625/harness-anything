@@ -23,7 +23,11 @@ export type EntityJsonSchemaNode = (
       readonly description?: string;
     }
   | EntityJsonObjectSchema
-) & { readonly "x-error"?: string; readonly "x-nullable"?: boolean };
+) & {
+  readonly "x-error"?: string;
+  readonly "x-nullable"?: boolean;
+  readonly "x-settings-ownership"?: "repository" | "local";
+};
 
 export interface EntityJsonObjectSchema {
   readonly type: "object";

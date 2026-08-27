@@ -22,7 +22,7 @@ import type { PolicyActionRule, PolicyPredicateName } from "./policy.ts";
 import { canonicalRelationDirections } from "./relation-direction.ts";
 import { reviewVerdicts } from "./review.ts";
 import { SCHEDULE_V1_SCHEMA, scheduleEventTypes, scheduleRunOutcomes, scheduleStates } from "./schedule.ts";
-import { SETTINGS_V1_SCHEMA } from "./settings.ts";
+import { SETTINGS_REPOSITORY_V1_SCHEMA } from "./settings.ts";
 import { PERSON_V1_SCHEMA } from "./people-roster.ts";
 import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
 import {
@@ -678,7 +678,7 @@ export const entityKindContracts = Object.freeze([
   {
     kind: "settings",
     residency: Object.freeze({ authored: "ledger" as const, current: "projection" as const }),
-    schema: SETTINGS_V1_SCHEMA,
+    schema: SETTINGS_REPOSITORY_V1_SCHEMA,
     id: settingsIdentity,
     relations: { directions: [], edges: [] },
     canonicalProjection: {

@@ -75,7 +75,6 @@ export const HarnessConfigSchema = Schema.Struct({
   }),
   settings: Schema.optional(
     Schema.Struct({
-      locale: Schema.optional(LocaleSchema),
       defaultVertical: Schema.optional(ConfigIdentifierSchema),
       defaultPreset: Schema.optional(ConfigIdentifierSchema),
       defaultProfile: Schema.optional(ConfigIdentifierSchema),

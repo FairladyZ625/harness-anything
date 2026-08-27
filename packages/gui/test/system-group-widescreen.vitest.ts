@@ -303,15 +303,18 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
       repoId: REPO_ID,
       defaultPreset: "docs-task",
       defaultProfile: "prose",
-      locale: "zh-CN",
     });
+    expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty("locale");
 
     const languageTab = [...container.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("语言"),
     )!;
     await act(async () => languageTab.click());
-    const english = [...container.querySelectorAll("button")].find((button) => button.textContent === "English")!;
-    await act(async () => english.click());
+    const language = container.querySelector('select[aria-label="语言"]') as HTMLSelectElement;
+    await act(async () => {
+      language.value = "en-US";
+      language.dispatchEvent(new Event("change", { bubbles: true }));
+    });
     expect(updateSettings.mock.calls.at(-1)?.[0]).toMatchObject({ repoId: REPO_ID, locale: "en-US" });
   });
 });

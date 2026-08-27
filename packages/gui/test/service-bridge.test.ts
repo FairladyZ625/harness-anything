@@ -160,13 +160,11 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         repository: "governance/repository-scaffold.json",
       },
     });
-    // settings-update 只接受 catalog 内的 preset/profile(6b642a426):本仓库
-    // bundled catalog 的另一个 preset 是 docs-task,profile 同为 baseline。
     const settingsUpdated = parseDaemonGuiActionResponse(
       "repo.settings.update",
       await bridge.invoke("updateSettings", {
         ...scope,
-        defaultPreset: "docs-task",
+        defaultPreset: "strict-task",
         locale: "zh-CN",
         idempotencyKey: "gui-settings-update-1",
       }),
@@ -182,7 +180,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
           path.join(fixture.rootDir, "harness"),
           "log",
           "--all",
-          "-SdefaultPreset: docs-task",
+          "-SdefaultPreset: strict-task",
           "--format=%H",
           "--",
           "harness.yaml",
@@ -193,11 +191,15 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     }
     assert.match(settingsCommit, /^[0-9a-f]{40}$/u, "Settings update must become reachable in a daemon commit");
     const settingsAfter = parseDaemonGuiReadResult("repo.settings.read", await bridge.invoke("getSettings", scope));
-    assert.equal(settingsAfter.settings.defaultPreset, "docs-task");
+    assert.equal(settingsAfter.settings.defaultPreset, "strict-task");
     assert.equal(settingsAfter.settings.locale, "zh-CN");
     const harnessYaml = readFileSync(path.join(fixture.rootDir, "harness/harness.yaml"), "utf8");
-    assert.match(harnessYaml, /defaultPreset: docs-task/u);
-    assert.match(harnessYaml, /locale: zh-CN/u);
+    assert.match(harnessYaml, /defaultPreset: strict-task/u);
+    assert.doesNotMatch(harnessYaml, /^  locale:/mu);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(fixture.rootDir, ".harness/settings.local.json"), "utf8")), {
+      schema: "settings-local/v1",
+      locale: "zh-CN",
+    });
     assert.match(harnessYaml, /wipLimit: 30/u);
     const observability = parseDaemonGuiReadResult("observe.tail", results.get("observe.tail"));
     assert.equal(observability.schema, "daemon.observe-tail/v3");

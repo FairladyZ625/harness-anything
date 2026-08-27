@@ -22,8 +22,7 @@ import {
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { recoveryCommandPolicy } from "./recovery-state.ts";
 import type { DaemonGuiReadHandlers, RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { withDerivedCommandClass } from "./repo-cell-role-bindings.ts";
-import { admitRepoMode } from "./repo-mode.ts";
+import { admitRepoMode, settingsCommandTopology } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { chainRepoCellWrite, repoCellTaskQueryJudgments } from "./repo-cell.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
@@ -32,7 +31,7 @@ import { readCiObservatory } from "./ci-observatory-read.ts";
 
 export function createRepoCellApi(context: any): RepoCell {
   const run = (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
-    const command = commandDescriptorForAction(action.kind),
+    const command = settingsCommandTopology(commandDescriptorForAction(action.kind), action),
       commandClass = command.commandClass,
       modeAdmission = admitRepoMode(context.mode, command, binding.source);
     if (!modeAdmission.ok)
@@ -142,7 +141,7 @@ export function createRepoCellApi(context: any): RepoCell {
             ),
           failAction,
         );
-    return enqueuePublication(() => context.executeAction(action, withDerivedCommandClass(binding, commandClass)));
+    return enqueuePublication(() => context.executeAction(action, { ...binding, commandClasses: [commandClass] }));
   };
   const presetRun: RepoCell["presetRun"] = async (action, binding) => {
     const command = commandDescriptorForAction(action.kind),

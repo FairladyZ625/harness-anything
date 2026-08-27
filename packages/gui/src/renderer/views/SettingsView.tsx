@@ -162,7 +162,6 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                     defaultVertical: draft.defaultVertical,
                     defaultPreset: draft.defaultPreset,
                     defaultProfile: draft.defaultProfile,
-                    locale: draft.locale,
                     taskScaffold: draft.scaffolds.task,
                     repositoryScaffold: draft.scaffolds.repository,
                   })
@@ -222,7 +221,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, repository: value } })}
               />
             </Row>
-            <Row label="实体" desc="规范 Settings 投影">
+            <Row label="归属" desc="repository · 经事件流提交并与协作者同步">
               <span className="font-mono text-[12px] text-text-muted">
                 settings/{draft.settingsId} · {draft.schema}
               </span>
@@ -279,21 +278,26 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
         );
       case "language":
         return (
-          <Section title={t("settings.language")}>
-            <Row label={t("settings.language")} desc={t("settings.languageDesc")}>
-              <Segmented
+          <Section title="本地设置">
+            <Row label={t("settings.language")} desc="local · 仅保存在本机，不进入事件流或 Git">
+              <select
+                aria-label="语言"
+                className="rounded border border-border bg-surface-raised px-2 py-1 text-[12px] text-text"
                 value={locale}
-                options={[
-                  { key: "zh-CN", label: "中文" },
-                  { key: "en-US", label: t("views.settingsView.english") },
-                ]}
-                onChange={(next) => {
+                onChange={(event) => {
+                  const next = event.currentTarget.value as "zh-CN" | "en-US";
                   setLocale(next);
                   setDraft((current) => (current ? { ...current, locale: next } : current));
                   settingsMutation.mutate({ locale: next });
                 }}
-              />
+              >
+                <option value="zh-CN">中文</option>
+                <option value="en-US">{t("views.settingsView.english")}</option>
+              </select>
             </Row>
+            {settingsMutation.error ? (
+              <div className="px-3 py-2 text-[12px] text-danger">{String(settingsMutation.error)}</div>
+            ) : null}
           </Section>
         );
       case "shortcuts":
@@ -405,7 +409,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
         <h1 className="ui-title font-mono font-semibold">{t("settings.title")}</h1>
-        <p className="ui-meta mt-0.5 text-text-faint">仓库默认值由守护进程提交到 harness.yaml；外观偏好保留在本机。</p>
+        <p className="ui-meta mt-0.5 text-text-faint">仓库约定提交到 harness.yaml；个人偏好保存在本机。</p>
       </header>
 
       <div

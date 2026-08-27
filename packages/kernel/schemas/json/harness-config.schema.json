@@ -14,7 +14,6 @@
     "settings": {
       "type": "object",
       "properties": {
-        "locale": { "enum": ["zh-CN", "en-US"] },
         "defaultVertical": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$" },
         "defaultPreset": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$" },
         "defaultProfile": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$" },
