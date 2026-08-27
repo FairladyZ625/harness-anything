@@ -4,6 +4,7 @@ export const guiVitestManifest = [
   "packages/gui/test/schedules-view.vitest.ts",
   "packages/gui/test/runtime-workspace-interactions.vitest.ts",
   "packages/gui/test/agent-dispatch.vitest.ts",
+  "packages/gui/test/squad-cockpit.vitest.ts",
   "packages/gui/test/runtime-provider-planes.vitest.ts",
   "packages/gui/test/local-main-controls.vitest.ts",
   "packages/gui/test/secure-runtime-instance-broker.vitest.ts",

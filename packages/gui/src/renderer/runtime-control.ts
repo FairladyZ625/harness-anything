@@ -5,7 +5,7 @@ import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 export interface RuntimeSpawnInput {
   readonly runtimeInstanceId?: string;
   readonly agentId?: string;
-  readonly targetAgentId?: string;
+  readonly squadId?: string;
   readonly model?: string;
   readonly effort?: string;
   readonly permissionMode?: string;

@@ -74,11 +74,6 @@ const squadSubject: DispatchSubject = {
   squadId: "core-squad",
   squadName: "Core Squad",
   leader: { agentId: "fable", agentName: "fable", runtimeType: "claude" },
-  workers: [
-    { agentId: "luna", agentName: "luna", runtimeType: "claude" },
-    { agentId: "sol", agentName: "sol", runtimeType: "codex" },
-    { agentId: "terra", agentName: "terra", runtimeType: "codex" },
-  ],
 };
 const baseRequest = {
   runtimeInstanceId: "w4c-verify-codex",
@@ -137,18 +132,23 @@ describe("agent dispatch flow", () => {
       hasRuntimeInstanceId: false,
     });
   });
-  it("routes squad dispatch through the leader to the chosen worker", () => {
-    const input = buildDispatchSpawnInput({ ...baseRequest, subject: squadSubject, workerId: "sol" }, [
+  it("launches exactly one dispatch per squad operation and its executor is the Commander", () => {
+    const input = buildDispatchSpawnInput({ ...baseRequest, subject: squadSubject, runtimeInstanceId: "claude-one" }, [
       codexInstance,
       claudeInstance,
     ]);
+    // 一次小队派发只产生一个派工:执行者是 leader 本人,带 squadId 归属,不写 targetAgentId。
     expect(input.agentId).toBe("fable");
-    expect(input.targetAgentId).toBe("sol");
-    const other = buildDispatchSpawnInput({ ...baseRequest, subject: squadSubject, workerId: "terra" }, [
-      codexInstance,
-      claudeInstance,
-    ]);
-    expect(other.targetAgentId).toBe("terra");
+    expect(input.squadId).toBe("core-squad");
+    expect("targetAgentId" in input).toBe(false);
+    expect("workerId" in input).toBe(false);
+    expect(input).toMatchObject({
+      runtimeInstanceId: "claude-one",
+      prompt: "Verify the auth cleanup diff.",
+      taskId: "task-dispatch",
+      cwd: { scope: "repo-root" },
+      idempotencyKey: "gui-dispatch-1",
+    });
   });
   it("keeps task binding nullable and passes model and effort only when chosen", () => {
     const unbound = buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject, taskId: null }, [
@@ -281,7 +281,7 @@ describe("agent dispatch flow", () => {
     expect(markup).toContain("prompt://review");
     expect(markup).toContain('data-testid="dispatch-mission"');
   });
-  it("renders the squad dialog with leader-to-worker routing and a worker selector", () => {
+  it("renders the squad dialog with a fixed Commander and no worker selector", () => {
     const markup = renderToStaticMarkup(
       createElement(DispatchDialog, {
         subject: squadSubject,
@@ -296,16 +296,18 @@ describe("agent dispatch flow", () => {
     );
     for (const text of [
       "Core Squad",
-      "dispatch-worker",
-      "luna",
-      "sol",
-      "terra",
+      "core-squad",
+      "fable",
       "lease free",
-      "One dispatch, one worker",
-      "3 in roster",
+      "One launch, one Commander: the Commander splits the work itself.",
     ])
       expect(markup).toContain(text);
-    expect(markup).not.toContain("The commander splits");
+    // 旧路径全量删除:没有 worker 选择器,没有 roster 清单,也没有 workerId 提交面。
+    expect(markup).not.toContain("dispatch-worker");
+    expect(markup).not.toContain("luna");
+    expect(markup).not.toContain("sol");
+    expect(markup).not.toContain("terra");
+    expect(markup).not.toContain("One dispatch, one worker");
   });
   it("submits the authored request through the dialog contract", () => {
     const submitted: DispatchRequest[] = [];

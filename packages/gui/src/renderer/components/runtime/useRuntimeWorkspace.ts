@@ -30,12 +30,15 @@ export type RuntimeDockRow = {
   readonly runtimeSessionId: string;
   readonly agentId: string | null;
   readonly agentName: string | null;
+  readonly delegatedByAgentId: string | null;
   readonly squadId: string | null;
   readonly squadName: string | null;
+  readonly parentRuntimeSessionId: string | null;
   readonly instanceId: string;
   readonly taskId: string | null;
   readonly taskTitle: string | null;
   readonly startedAt: string;
+  readonly endedAt: string | null;
   readonly status: string;
   readonly liveness: "live" | "stale" | "unknown" | "exited" | null;
   readonly dispatchId: string | null;
@@ -265,12 +268,15 @@ export function useAgentSquadWorkspace(
       runtimeSessionId: row.runtimeSessionId,
       agentId: row.agentId ?? null,
       agentName: row.agentName ?? row.agentId ?? null,
+      delegatedByAgentId: row.delegatedByAgentId ?? null,
       squadId: row.squadId ?? null,
       squadName: null,
+      parentRuntimeSessionId: row.parentRuntimeSessionId ?? null,
       instanceId: row.instanceId,
       taskId: row.taskId,
       taskTitle: relatedLabels.get(row.taskId) ?? null,
       startedAt: row.startedAt,
+      endedAt: row.endedAt ?? null,
       status: row.status,
       liveness: null,
       dispatchId: row.dispatchId,

@@ -44,14 +44,13 @@ export function DispatchDialog({
   const [open, setOpen] = useState<StepKey>(initialMission ? "mission" : "task");
   const [taskId, setTaskId] = useState(""),
     [mission, setMission] = useState(initialMission);
-  const [workerId, setWorkerId] = useState(subject.kind === "squad" ? (subject.workers[0]?.agentId ?? "") : "");
   const [runtimeMode, setRuntimeMode] = useState<"auto" | "manual">("auto"),
     [runtimeInstanceId, setRuntimeInstanceId] = useState("");
   const [cwdScope, setCwdScope] = useState<"repo-root" | "repo-relative">("repo-root"),
     [cwdPath, setCwdPath] = useState(""),
     [model, setModel] = useState(""),
     [effort, setEffort] = useState("");
-  const executor = dispatchExecutorRef(useMemo(() => ({ subject, workerId }), [subject, workerId])),
+  const executor = dispatchExecutorRef(useMemo(() => ({ subject }), [subject])),
     runtimeType = executor?.runtimeType ?? "";
   const compatible = useMemo(() => compatibleDispatchInstances(runtimeType, instances), [runtimeType, instances]);
   const instance =
@@ -60,15 +59,11 @@ export function DispatchDialog({
         : (compatible[0] ?? null),
     modelOptions = compatibleDispatchModels(runtimeMode === "manual" && instance ? [instance] : compatible);
   const task = tasks.find((row) => row.taskId === taskId) ?? null;
-  const ready =
-    Boolean(instance && task && mission.trim()) &&
-    (subject.kind === "agent" || Boolean(workerId)) &&
-    (cwdScope === "repo-root" || cwdPath.trim().length > 0);
+  const ready = Boolean(instance && task && mission.trim()) && (cwdScope === "repo-root" || cwdPath.trim().length > 0);
   const submit = () => {
     if (!ready || busy || !instance) return;
     onSubmit({
       subject,
-      ...(subject.kind === "squad" ? { workerId } : {}),
       ...(runtimeMode === "manual" ? { runtimeInstanceId: instance.instanceId } : {}),
       mission: mission.trim(),
       cwd: cwdScope === "repo-root" ? { scope: "repo-root" } : { scope: "repo-relative", path: cwdPath.trim() },
@@ -131,32 +126,13 @@ export function DispatchDialog({
               <KindDot kind="any" />
               <b>{subject.squadName}</b>
               <Badge>{subject.squadId}</Badge>
-              <Hint>{t("agentRuntime.squadRouting", { count: subject.workers.length })}</Hint>
-              {subject.workers.map((worker) => (
-                <Chip key={worker.agentId} tone="mono">
-                  {worker.agentId}
-                </Chip>
-              ))}
+              <Avatar id={subject.leader.agentId} />
+              <b>{subject.leader.agentName}</b>
+              <Badge>{subject.leader.agentId}</Badge>
+              <Hint>{t("agentRuntime.squadCommanderHint")}</Hint>
             </>
           )}
         </div>
-        {subject.kind === "squad" && (
-          <label className="mt-2 grid gap-1 text-[11px] text-text-muted">
-            {t("agentRuntime.worker")}
-            <select
-              data-testid="dispatch-worker"
-              value={workerId}
-              onChange={(event) => setWorkerId(event.target.value)}
-              className="control"
-            >
-              {subject.workers.map((worker) => (
-                <option key={worker.agentId} value={worker.agentId}>
-                  {worker.agentName} · {worker.runtimeType || "any"}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
         <p className="mt-2 text-[11px] text-text-faint">{t("agentRuntime.twoAxes")}</p>
       </Step>
 

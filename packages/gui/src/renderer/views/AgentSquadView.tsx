@@ -11,6 +11,7 @@ import { Badge, Btn, Empty, Hint } from "../components/runtime/parts.tsx";
 import { IdentityRail } from "../components/runtime/RuntimeRail.tsx";
 import { IdentityInspector } from "../components/runtime/RuntimeInspector.tsx";
 import { SquadCard, squadDeclarationFrom, squadDraftFrom } from "../components/runtime/SquadCard.tsx";
+import { SquadCockpit } from "../components/runtime/SquadCockpit.tsx";
 import {
   runtimeSelectionFromRef,
   runtimeSelectionRef,
@@ -97,20 +98,21 @@ export function AgentSquadView({
   };
   const openSquadDispatch = async (squadId: string) => {
     const detail = await agentEntityClient.showSquad(repoId, squadId),
-      byId = new Map(agents.map((agent) => [agent.id, agent]));
-    const ref = (id: string) => ({
-      agentId: id,
-      agentName: byId.get(id)?.name ?? id,
-      runtimeType: byId.get(id)?.runtimeType ?? "",
-    });
+      leaderRow = agents.find((agent) => agent.id === detail.leader);
+    // dec_AB0672F220EE630C0A06C575B8:一次小队派发只派 Commander 本人。subject 只带
+    // leader,不带 worker 清单;下级由 Commander 在自己的会话里自主派出,其派工行
+    // 带 squadId 与 parentRuntimeSessionId,由小队页直接读出。
     setDialog({
       kind: "dispatch",
       subject: {
         kind: "squad",
         squadId,
         squadName: detail.name,
-        leader: ref(detail.leader),
-        workers: detail.workers.map(ref),
+        leader: {
+          agentId: detail.leader,
+          agentName: leaderRow?.name ?? detail.leader,
+          runtimeType: leaderRow?.runtimeType ?? "",
+        },
       },
       prompts: [],
       mission: "",
@@ -225,16 +227,24 @@ export function AgentSquadView({
               <Empty>{t("agentRuntime.loading")}</Empty>
             )
           ) : squadDetail.data ? (
-            <SquadCard
-              detail={squadDetail.data}
-              row={squads.find((squad) => squad.id === current.id) ?? null}
-              agents={agents}
-              busy={workspace.busy}
-              onSave={(declaration) => void workspace.saveSquad(declaration)}
-              onLaunch={() => void openSquadDispatch(current.id)}
-              onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
-              onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
-            />
+            <>
+              <SquadCockpit
+                squad={squadDetail.data}
+                rows={workspace.dockRows.filter((row) => row.squadId === current.id)}
+                busy={workspace.busy}
+                onLaunch={() => void openSquadDispatch(current.id)}
+                onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
+              />
+              <SquadCard
+                detail={squadDetail.data}
+                row={squads.find((squad) => squad.id === current.id) ?? null}
+                agents={agents}
+                busy={workspace.busy}
+                onSave={(declaration) => void workspace.saveSquad(declaration)}
+                onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
+                onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
+              />
+            </>
           ) : (
             <Empty>{t("agentRuntime.loading")}</Empty>
           )}

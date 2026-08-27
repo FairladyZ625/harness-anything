@@ -67,11 +67,10 @@ type Props = {
   readonly agents: readonly AgentEntityRow[];
   readonly busy: boolean;
   readonly onSave: (declaration: SquadDeclarationV1) => void;
-  readonly onLaunch: () => void;
   readonly onSelectAgent: (agentId: string) => void;
   readonly onSelectSquad: (squadId: string) => void;
 };
-export function SquadCard({ detail, row, agents, busy, onSave, onLaunch, onSelectAgent, onSelectSquad }: Props) {
+export function SquadCard({ detail, row, agents, busy, onSave, onSelectAgent, onSelectSquad }: Props) {
   const [draft, setDraft] = useState<SquadDraft>(() => squadDraftFrom(detail)),
     [slot, setSlot] = useState<SquadSlot | null>(null);
   useEffect(() => {
@@ -191,9 +190,6 @@ export function SquadCard({ detail, row, agents, busy, onSave, onLaunch, onSelec
 
         <Sect title={t("agentRuntime.actions")}>
           <div className="flex flex-wrap items-center gap-2">
-            <Btn variant="primary" disabled={draft.workers.length === 0} onClick={onLaunch}>
-              {t("agentRuntime.launchSquad")}
-            </Btn>
             <Hint>{t("agentRuntime.launchSquadHint")}</Hint>
             <span className="flex-1" />
             <Btn
