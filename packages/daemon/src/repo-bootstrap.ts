@@ -11,6 +11,7 @@ import {
   INITIAL_SETTINGS_V1,
   readSettingsFacet,
   resolveHarnessLayout,
+  type SettingsV1,
   type WriterGeneration,
   type WriterGenerationToken,
 } from "../../kernel/src/index.ts";
@@ -49,6 +50,7 @@ export interface RepoBootstrapInput {
   readonly rootDir: CanonicalRoot;
   readonly repoId: WorkspaceId;
   readonly machineDocuments: readonly BootstrapDocument[];
+  readonly settingsBootstrap: readonly [settings: SettingsV1, documentBody: string];
   readonly repositoryPlan: RepositoryScaffoldPlan;
   readonly configureOnly?: boolean;
 }
@@ -141,7 +143,8 @@ export function resolveRepoBootstrap(
       "workspace_not_initialized",
       "--configure-only reapplies machine configuration to an initialized workspace; run init without it first.",
     );
-  const machineDocuments = [...identityDocuments, ...(request.addNpmScripts ? [npmScriptsDocument(rootDir)] : [])];
+  const machineDocuments = [...identityDocuments, ...(request.addNpmScripts ? [npmScriptsDocument(rootDir)] : [])],
+    settings = readSettingsFacet(harnessDocument.body);
   const layout = resolveHarnessLayout(rootDir),
     oldStandardsRoot = path.join(layout.authoredRoot, "standards");
   if (oldStandardsRoot !== layout.standardsRoot && existsSync(oldStandardsRoot) && !existsSync(layout.standardsRoot))
@@ -153,7 +156,8 @@ export function resolveRepoBootstrap(
     rootDir,
     repoId,
     machineDocuments,
-    repositoryPlan: compileRepoRepositoryScaffold(rootDir, readSettingsFacet(harnessDocument.body)),
+    settingsBootstrap: [settings, harnessDocument.body],
+    repositoryPlan: compileRepoRepositoryScaffold(rootDir, settings),
     ...(request.configureOnly ? { configureOnly: true } : {}),
   };
 }

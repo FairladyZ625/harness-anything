@@ -31,6 +31,7 @@ import {
   unavailableRuntimeInstanceStore,
 } from "./repo-cell-errors.ts";
 import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
+import { localRepairBinding } from "./daemon-host-binding.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { makeRepoCellScheduleActions } from "./repo-cell-schedule-actions.ts";
@@ -438,6 +439,13 @@ export async function openRepoCell(input: {
   const settingsActions = makeRepoCellSettingsActions(extracted);
   const peopleActions = makeRepoCellPeopleActions(extracted);
   Object.assign(extracted, { mode, runtimeSpawner, scheduleActions, settingsActions, peopleActions });
+  if (input.bootstrap && !input.bootstrap.configureOnly) {
+    const appended = settingsActions.initialize(...input.bootstrap.settingsBootstrap, localRepairBinding);
+    if (appended && bootstrapReceipt) {
+      bootstrapReceipt = { ...bootstrapReceipt, outcome: "applied" };
+      input.onBootstrap?.(bootstrapReceipt);
+    }
+  }
   readSettings = settingsActions.read;
   settleScheduledOutcome = async (terminal) => {
     const scheduled = terminal.schedule,

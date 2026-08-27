@@ -13,7 +13,7 @@ import {
   canonicalRoot,
   workspaceId,
 } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import {
   actor,

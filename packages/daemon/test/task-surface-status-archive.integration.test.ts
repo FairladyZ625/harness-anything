@@ -15,7 +15,7 @@ import {
   canonicalRoot,
   workspaceId,
 } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 test("forced cancellation is audited and terminal tasks require supersede instead of reopen", async () => {
@@ -300,6 +300,7 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
       ownerId: "task-contract-manual",
       now: () => "2026-08-15T02:45:00.000Z",
     });
+    const revisionBeforeDryRun = makeTaskEventStore({ repoId: "task-contract-manual", rootDir }).read().revision;
     const receipt = await cell.run(
       {
         kind: "task-contract-migrate",
@@ -313,7 +314,7 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
     assert.equal(
       makeTaskEventStore({ repoId: "task-contract-manual", rootDir }).read()
         .revision,
-      1,
+      revisionBeforeDryRun,
     );
     assert.match(
       String(receipt.evidence),

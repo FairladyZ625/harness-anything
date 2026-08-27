@@ -22,7 +22,7 @@ import {
   parseDaemonRpcParams,
   workspaceId,
 } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const binding = {
     actor: { principal: { personId: "person-owner" }, executor: null },

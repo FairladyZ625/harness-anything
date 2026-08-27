@@ -10,8 +10,8 @@ import { deriveRelationId, makeTaskEventStore } from "../../kernel/src/index.ts"
 // eslint-disable-next-line no-restricted-imports
 import { readColdRebuildSource } from "../../kernel/src/projection/cold-rebuild-source.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const proposer = {
     actor: { principal: { personId: "person-proposer" }, executor: { kind: "agent", id: "codex" } } as const,

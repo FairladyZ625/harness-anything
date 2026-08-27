@@ -9,7 +9,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import { connect, createServer, type TLSSocket } from "node:tls";
 import {
   makeTaskEventStore,
-  registerDaemonRepo,
   sha256Bytes,
   type AgentDefinitionSnapshot,
   type LedgerCutIdentity,
@@ -26,6 +25,7 @@ import {
   type FleetReplicaPullClientOptions,
   type FleetWriteClientOptions,
 } from "../src/fleet/edge.ts";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import {
   FleetUtf8LineDecoder,
   parseFleetFrame,

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 test("wide task reads keep byte-identical unparameterized results and serve narrow pages through the cell", async () => {

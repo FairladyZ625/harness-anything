@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
+import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 type TaskSnapshot = {
@@ -25,6 +26,7 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
     reviewId = "review-executor-null-live";
   let daemon: ChildProcess | undefined;
   initialize(root);
+  seedSettingsEvent({ rootDir: root, repoId: "executor-null-live" });
   try {
     daemon = spawnSourceDaemon(root, userRoot, daemonId);
     const status = waitForDaemon(root, userRoot, daemonId), daemonPid = readDaemonPid(userRoot, daemonId);

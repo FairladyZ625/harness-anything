@@ -11,6 +11,7 @@ import {
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 test("a submitted fixture reaches done through one ha task closeout command", (context) => {
@@ -20,6 +21,7 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
     taskId = "task-closeout-e2e",
     executionId = "execution-closeout-e2e";
   initialize(root);
+  seedSettingsEvent({ rootDir: root, repoId: "closeout-e2e" });
   try {
     startDaemon(root, userRoot);
     run(root, userRoot, [

@@ -15,7 +15,7 @@ import {
   canonicalRoot,
   workspaceId,
 } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const runtimeSessionId = "runtime-session-identity",
   providerSessionId = "01a02711-fb92-7ae2-b5bc-76c9b7154ead",
