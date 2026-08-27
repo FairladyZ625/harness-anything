@@ -462,6 +462,10 @@ export async function openRepoCell(input: {
     if (!task) return;
     const lease = extracted.projection.currentLease(task.taskId, terminal.endedAt);
     if (!lease || lease.phase === "released" || lease.executionId !== task.executionId) return;
+    // executionId survives release and reacquisition, so it cannot tell one lease generation from
+    // the next: a sibling dispatch that settles late would otherwise release the lease its own
+    // batch just reacquired. The version is the generation, so settle only against that one.
+    if (task.leaseVersion !== null && lease.version !== task.leaseVersion) return;
     const settled = await extracted.taskSurfaceWrite(
       {
         kind: "task-release",

@@ -62,7 +62,8 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
       archive: RuntimeDispatchArchive | null = active.task
         ? {
             dispatchId: active.dispatchId,
-            ...active.task,
+            taskId: active.task.taskId,
+            executionId: active.task.executionId,
             ...(active.agent ? { agentId: active.agent.id, agentName: active.agent.name } : {}),
             ...(active.squadId ? { squadId: active.squadId } : {}),
             ...(active.delegatedBy

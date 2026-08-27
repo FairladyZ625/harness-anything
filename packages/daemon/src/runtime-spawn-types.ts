@@ -55,10 +55,18 @@ export interface TrustedScheduleSpawn extends TrustedScheduleRuntime {
   readonly cwd?: string;
 }
 
+/** The execution lease generation a task-bound dispatch was authorized against; terminal
+ * settlement releases that generation only, never whichever lease the task holds later. */
+export interface RuntimeTaskBinding {
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly leaseVersion: number | null;
+}
+
 export interface RuntimeAttemptTerminal {
   readonly runtimeSessionId: string;
   readonly dispatchId: string;
-  readonly task: { readonly taskId: string; readonly executionId: string } | null;
+  readonly task: RuntimeTaskBinding | null;
   readonly schedule: TrustedScheduleRuntime | null;
   readonly outcome: "succeeded" | "failed";
   readonly reason: string | null;
@@ -92,10 +100,7 @@ export type ActiveRuntime = {
   readonly delegatedBy: Pick<RuntimeAgent, "id" | "name"> | null;
   readonly squadId: string | null;
   readonly binding: RuntimeBinding;
-  readonly task: {
-    readonly taskId: string;
-    readonly executionId: string;
-  } | null;
+  readonly task: RuntimeTaskBinding | null;
   readonly schedule: TrustedScheduleRuntime | null;
   readonly cwd: string;
   readonly prompt: string;
