@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { taskProjectionSchemaVersion } from "../../kernel/src/projection/projection-schema.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -6,11 +7,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import {
-  makeTaskEventStore,
-  taskProjectionSchemaVersion,
-  type AgentDefinitionSnapshot,
-} from "../../kernel/src/index.ts";
+import { makeTaskEventStore, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
