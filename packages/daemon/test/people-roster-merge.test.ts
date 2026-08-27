@@ -133,6 +133,34 @@ test("declared RoleBindings union by identity and conflicting validity refuses",
   );
 });
 
+test("DelegatedExecutionTokens union by token id and conflicting revocation refuses", () => {
+  const token = {
+      schema: "delegated-execution-token/v1",
+      tokenId: "det_owner_runtime_1",
+      issuer: { personId: "person_zeyu" },
+      delegate: { runtimeSessionId: "runtime_1" },
+      allowedActions: ["execution.start"],
+      issuedAt: "2026-08-27T02:00:00.000Z",
+      expiresAt: "2026-08-27T03:00:00.000Z",
+      revokedAt: null,
+    },
+    source = JSON.parse(bootstrapRoster([bootstrapPerson])) as Record<string, unknown>;
+  source.delegatedExecutionTokens = [token];
+  const carried = peopleRosterFromDocument(
+    merged(`${JSON.stringify(source, null, 2)}\n`, bootstrapRoster([bootstrapPerson])).body,
+  );
+  assert.deepEqual(carried.delegatedExecutionTokens, [token]);
+
+  const revoked = {
+    ...source,
+    delegatedExecutionTokens: [{ ...token, revokedAt: "2026-08-27T02:30:00.000Z" }],
+  };
+  assert.match(
+    refusal(`${JSON.stringify(source, null, 2)}\n`, `${JSON.stringify(revoked, null, 2)}\n`),
+    /DelegatedExecutionToken det_owner_runtime_1 differs on each side/u,
+  );
+});
+
 test("a person's own roles union but a role's authority definition must agree on both sides", () => {
   const wider = legacyRoster.replace(
     "commandClasses: [admin, repo-write, repo-read, arbiter]",

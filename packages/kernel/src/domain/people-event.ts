@@ -182,6 +182,8 @@ const peopleActions: readonly PeopleRosterAction["kind"][] = Object.freeze([
   "people-add",
   "people-set-role",
   "people-bind",
+  "people-delegate",
+  "people-revoke-delegation",
   "people-remove",
   "people-reconcile",
   "people-replace",

@@ -5,6 +5,13 @@ import { DEFAULT_POLICY } from "../domain/default-policy.ts";
 import type { EntityRef } from "../domain/entity-ref.ts";
 import type { LeaseV1 } from "../domain/execution.ts";
 import {
+  parseDelegatedExecutionToken,
+  validateDelegatedExecutionToken,
+  verifyDelegatedExecutionToken,
+  type DelegatedExecutionToken,
+  type DelegatedExecutionTokenVerification,
+} from "../domain/delegated-execution-token.ts";
+import {
   validatePolicyDeclarationV1,
   type PolicyActionRule,
   type PolicyDeclarationV1,
@@ -27,6 +34,7 @@ export interface AuthorizationTargetSnapshot {
 
 /** Volatile bindings are inputs to evaluation, not fields added to ActionEnvelope. */
 export interface AuthorizationContext {
+  readonly delegatedExecutionToken?: DelegatedExecutionToken;
   readonly ruleScope?: string;
   readonly roleBindings?: readonly RoleBinding[];
   readonly roleBindingTargets?: readonly EntityRef[];
@@ -73,18 +81,25 @@ export function evaluateAuthorization(
             (candidate.scope === undefined ? context.ruleScope === undefined : candidate.scope === context.ruleScope),
         ),
     authorizationRefMatches = action.authorizationRef === policyRef,
+    tokenVerification = verifyActorProof(action, context),
     evaluated = rules.map((rule) => evaluateRule(rule, action, context)),
     allowed = policyValid && actionValid && authorizationRefMatches && evaluated.some((result) => result.allowed),
-    bindingsUsed = evaluated.flatMap((result) => result.bindings),
+    actorProofAllowed = tokenVerification === null || tokenVerification.ok,
+    authorizationAllowed = allowed && actorProofAllowed,
+    tokenBinding = context.delegatedExecutionToken
+      ? receiptDelegatedExecutionToken(context.delegatedExecutionToken)
+      : null,
+    bindingsUsed = [...(tokenBinding ? [tokenBinding] : []), ...evaluated.flatMap((result) => result.bindings)],
     missing = rules.length === 0 ? "policy_rule_missing" : null,
-    reasonCodes = allowed
+    reasonCodes = authorizationAllowed
       ? ["authorization_allowed"]
       : [
+          ...(tokenVerification !== null && !tokenVerification.ok ? [tokenVerification.reasonCode] : []),
           ...(authorizationRefMatches ? [] : ["authorization_ref_mismatch"]),
           ...(policyValid ? [] : ["policy_contract_invalid"]),
           ...(actionValid ? [] : ["action_envelope_invalid"]),
           ...(missing ? [missing] : []),
-          ...(rules.length && policyValid && actionValid && authorizationRefMatches
+          ...(!allowed && rules.length && policyValid && actionValid && authorizationRefMatches
             ? ["authorization_predicate_failed"]
             : []),
         ];
@@ -93,15 +108,28 @@ export function evaluateAuthorization(
     actor: action.actor,
     subject: action.target,
     bindingsUsed: Object.freeze(bindingsUsed),
-    outcome: allowed ? "allowed" : "denied",
+    outcome: authorizationAllowed ? "allowed" : "denied",
     reasonCodes: Object.freeze(reasonCodes),
     nextActions: Object.freeze(
-      allowed
+      authorizationAllowed
         ? []
         : [missing ? `Define Policy rule ${action.kind}.` : `Retry ${action.kind} with authorized bindings.`],
     ),
     evaluatedAtCut: context.evaluatedAtCut,
   });
+}
+
+function verifyActorProof(
+  action: ActionEnvelope,
+  context: AuthorizationContext,
+): DelegatedExecutionTokenVerification | null {
+  if (!context.delegatedExecutionToken) return null;
+  return verifyDelegatedExecutionToken(
+    context.delegatedExecutionToken,
+    action.actor,
+    action.kind,
+    context.evaluatedAt ?? "",
+  );
 }
 
 function evaluateRule(
@@ -209,6 +237,17 @@ function receiptRoleBinding(binding: RoleBinding): ReceiptJsonValue {
     source: binding.source,
     expiresAt: binding.expiresAt,
   };
+}
+
+function receiptDelegatedExecutionToken(value: unknown): Readonly<Record<string, ReceiptJsonValue>> | null {
+  if (validateDelegatedExecutionToken(value).length) return null;
+  const token = parseDelegatedExecutionToken(value);
+  return Object.freeze({
+    proof: "delegated-execution-token",
+    tokenId: token.tokenId,
+    issuerPersonId: token.issuer.personId,
+    runtimeSessionId: token.delegate.runtimeSessionId,
+  });
 }
 
 export const authorizationPort = createAuthorizationPort(DEFAULT_POLICY);

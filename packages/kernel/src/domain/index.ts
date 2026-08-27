@@ -74,6 +74,7 @@ export type { EntityRef, EntityRefKind, ParsedEntityRef } from "./entity-ref.ts"
 export { deriveRoleBindings, roleBindingActorMatches, roleBindingApplies, roleBindingExpired } from "./role-binding.ts";
 export type { RoleBinding } from "./role-binding.ts";
 export { deriveOwnerRoleBinding } from "./owner-role-binding.ts";
+export type { DelegatedExecutionToken } from "./delegated-execution-token.ts";
 
 export {
   decisionEntityId,
