@@ -119,7 +119,7 @@ export function validateSquadDeclarationV1(value: unknown): readonly string[] {
   for (const field of SQUAD_DECLARATION_V1_SCHEMA.required)
     if (!Object.hasOwn(value, field))
       errors.push(
-        `squad declaration is missing required field "${field}"; expected id, name, leader, workers, leaderTurnBudget, and roster.`,
+        `squad missing required field "${field}"; expected id, name, leader, workers, leaderTurnBudget, and roster.`,
       );
   if (value.schema !== "squad-declaration/v1")
     errors.push('squad declaration field "schema" must equal "squad-declaration/v1".');

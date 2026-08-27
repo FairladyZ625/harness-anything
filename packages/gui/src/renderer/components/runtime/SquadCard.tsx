@@ -168,7 +168,10 @@ export function SquadCard({ detail, row, agents, busy, onSave, onLaunch, onSelec
             step={1}
             value={draft.leaderTurnBudget}
             onChange={(event) => patch({ leaderTurnBudget: event.target.value })}
-            className="w-32 rounded border border-border bg-surface px-2 py-1 text-[12px] outline-none focus-visible:border-accent"
+            className={
+              "w-32 rounded border border-border bg-surface px-2 py-1 text-[12px] outline-none " +
+              "focus-visible:border-accent"
+            }
           />
         </Sect>
 
