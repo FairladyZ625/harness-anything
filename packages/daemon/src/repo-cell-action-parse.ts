@@ -45,8 +45,10 @@ export function resolvePacketAction(
           : jsonInput
             ? ["jsonInput"]
             : contract.allowed,
-    actionAllowed = new Set(["kind", ...sourceFields, ...(contract.actionOverrides ?? [])]),
-    unsupportedActionFields = Object.keys(action).filter((field) => !actionAllowed.has(field));
+    actionAllowed = contract.actionOverrides
+      ? new Set(["kind", ...sourceFields, ...contract.actionOverrides])
+      : undefined,
+    unsupportedActionFields = actionAllowed ? Object.keys(action).filter((field) => !actionAllowed.has(field)) : [];
   if (unsupportedActionFields.length)
     throw contract.invalid(contract.messages.unsupportedAction(unsupportedActionFields));
   if (!hasSource) return action;
@@ -93,7 +95,6 @@ export function taskCreateAction(rootDir: string, action: RepoTaskAction): RepoT
     required: [],
     allowed: taskCreateFields,
     source: "from-file-or-json-input",
-    actionOverrides: ["title", "slug", "dryRun"],
     invalid: (message) => cellCodedError("invalid_command", message),
     messages: {
       parse: "Task create input must be one UTF-8 JSON object; repair the JSON and retry.",
