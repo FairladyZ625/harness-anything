@@ -370,12 +370,12 @@ export function prepareAgentEntityInstall(input: {
       "Generated Agent output must pass ha agent validate before install; rerun ha agent create so the harness can validate the structured declaration.",
     );
   const declaration = decoded.declaration,
-    current = (input.entityStore ?? openEntityStore(input.rootDir)).get(kind, declaration.id);
-  if (input.action.generatedOnly === true && current) throw generatedAgentConflict(declaration.id);
+    current = repairableStoredDeclaration(input.entityStore ?? openEntityStore(input.rootDir), kind, declaration.id);
+  if (input.action.generatedOnly === true && current.exists) throw generatedAgentConflict(declaration.id);
   if (input.action.generatedOnly === true && kind === "agent")
     admitGeneratedAgent(declaration as AgentDeclarationV1, input.runtimeInstances);
   const body = `${JSON.stringify(declaration, null, 2)}\n`,
-    changed = current === null || `${JSON.stringify(current.value, null, 2)}\n` !== body;
+    changed = current.value === null || `${JSON.stringify(current.value, null, 2)}\n` !== body;
   return {
     kind,
     declaration,
@@ -390,6 +390,19 @@ export function prepareAgentEntityInstall(input: {
       issues: [],
     },
   };
+}
+function repairableStoredDeclaration(
+  entityStore: EntityStore,
+  kind: AgentEntityKind,
+  id: string,
+): { readonly exists: boolean; readonly value: Readonly<Record<string, unknown>> | null } {
+  try {
+    const current = entityStore.get<Readonly<Record<string, unknown>>>(kind, id);
+    return current === null ? { exists: false, value: null } : { exists: true, value: current.value };
+  } catch (error) {
+    if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
+    return { exists: true, value: null };
+  }
 }
 function declarationSource(
   action: Readonly<Record<string, unknown>>,
