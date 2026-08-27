@@ -6,1292 +6,1550 @@
       {
         "value": "ActorAxes",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "ActorKindSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ActorRefSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ArtifactDocument",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ArtifactStoreError",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "assertNoPortablePathCollisions",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "assertTaskBootstrapWritePlan",
         "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
-        "reason": "Preset v3 Slice A exposes the fixed canonical task bootstrap event contract for downstream consumers and contract tests."
+        "reason": "Preset v3 Slice A exposes the fixed canonical task bootstrap event contract for downstream consumers and contract tests.",
+        "until": "2026-09-30"
       },
       {
         "value": "BindingInvariantError",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "BindingInvariantResult",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "buildCheckReport",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "buildPublishableProjection",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "canonicalRelationIdentityInput",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "CanonicalStatus",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "checkTaskProjection",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "CloseoutReadiness",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "closeoutReadinesses",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "CompleteTaskProof",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "CompositeManifestBlobDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land."
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "until": "2026-09-30"
       },
       {
         "value": "CoordinationStatus",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "createEntityKindRegistry",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "createHarnessRuntimeContext",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "createInMemoryPublishIdempotencyLedger",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "CreateReplayTaskCommand",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "createTaskIdentity",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "createWriteReceipt",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "CurrentSessionRuntimeSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "DaemonRegistry",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "DaemonRegistryRepo",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "decisionEntityId",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "decisionFieldContracts",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "DecisionFieldKey",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "decisionIdFromEntityId",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "defaultTaskProjectionPath",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "detectRelationGraphCycles",
         "ref": "task_P4_INT",
-        "reason": "The dynamically loaded decision-conformance preset consumes the canonical relation-cycle detector through the kernel public surface."
+        "reason": "The dynamically loaded decision-conformance preset consumes the canonical relation-cycle detector through the kernel public surface.",
+        "until": "2026-09-30"
       },
       {
         "value": "DispositionAction",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "DispositionLevel",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "DispositionMatrixEntry",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "DocsReleasePromotionBundle",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "DocsReleasePromotionBundleSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "DomainStatusSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EngineError",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "EngineId",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityAnchorDeclaration",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityCascadeImpact",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityDispositionEvaluation",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityDispositionMatrix",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityDispositionOptions",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityDispositionRequest",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityDocumentCodec",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land."
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityFieldContract",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityFieldMutability",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityFieldReadSurface",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityFieldWriteSurface",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityId",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityKindDeclaration",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityKindRegistration",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityKindRegistry",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityKindWithFieldCoverage",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityPackageScaffold",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityProjectionColumnDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land."
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityProjectionDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land."
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRefKind",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRegistration",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "entityRegistry",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "entityRegistryKinds",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRegistryShape",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRelationRecordSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRelations",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRelationsSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRelationValidationIssue",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRelationValidationIssueCode",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRepositoryRootScaffold",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRootIntent",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRootResolution",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityRootResolverDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land."
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "until": "2026-09-30"
       },
       {
         "value": "EntityStorageForm",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "entityStorageForms",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land."
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "until": "2026-09-30"
       },
       {
         "value": "evaluateEntityDisposition",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "evaluateImplicitDispositionRecommendations",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ExtensionInputKind",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ExtensionValidationIssue",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "ExtensionValidationResult",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ExternalRef",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "FactEventSchema",
         "ref": "dec_01KZVM5NBQFV92QJQKMF1HF77R",
-        "reason": "Decision/Fact Slice A exposes the closed Fact event schema through the canonical kernel registry even though current product consumers use the typed event and registry parser."
+        "reason": "Decision/Fact Slice A exposes the closed Fact event schema through the canonical kernel registry even though current product consumers use the typed event and registry parser.",
+        "until": "2026-09-30"
       },
       {
         "value": "factConfidenceLevels",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "factFieldContracts",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "FactFieldKey",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "factMemoryClasses",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "FactMemoryTag",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "findConflictMarkerWarnings",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "findEntityRefs",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "findPortablePathCollisions",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "findTaskIdByExternalRef",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "findTaskPackagePath",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "formatTemplateRef",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "FreshnessSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "generateTaskId",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "getEntityKind",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "getEntityRegistration",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "hardFail",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "HarnessCheckReport",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "HarnessCheckReportSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "HarnessConfig",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "HarnessConfigSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "HarnessLayout",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "HarnessRuntimeContext",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "harnessRuntimeRoot",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "hashTaskProjectionRows",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "HostedEntityDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land."
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "until": "2026-09-30"
       },
       {
         "value": "ImmutableBindingField",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "immutableBindingFields",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ImplicitDispositionEvaluation",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ImplicitDispositionRecommendation",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "InitialDocumentClaim",
         "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
-        "reason": "Preset v3 Slice A exposes the fixed task bootstrap document claim contract."
+        "reason": "Preset v3 Slice A exposes the fixed task bootstrap document claim contract.",
+        "until": "2026-09-30"
       },
       {
         "value": "isAllowedRelationKindTriple",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "isCloseoutReadiness",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "isEntityStorageForm",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land."
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "until": "2026-09-30"
       },
       {
         "value": "isFactId",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "IsoTimestamp",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "isPriorityTier",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "isTaskWorkKind",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "KernelEntityKind",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "LegacyCollisionReport",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "LegacyCollisionReportSchema",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "LegacyEvidencePointer",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "LegacyEvidencePointerSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "LegacyIndex",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "LegacyIndexEntry",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "LegacyIndexEntrySchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "LegacyIndexSchema",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "LifecycleBinding",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "LifecycleBindingSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "LinkKindSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "listTaskIndexPaths",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "Locale",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "MaterializationRequest",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "MaterializationResult",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "MaterializedTemplatePlan",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "moduleEntityId",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "moduleKeyFromEntityId",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "NonBlankStringSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ParsedEntityRef",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ParsedWriteEntityId",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "parseEntityRef",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "parseWriteEntityId",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "PresetSnapshotClaim",
         "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
-        "reason": "Preset v3 Slice A exposes the fixed task bootstrap snapshot claim contract."
+        "reason": "Preset v3 Slice A exposes the fixed task bootstrap snapshot claim contract.",
+        "until": "2026-09-30"
       },
       {
         "value": "PriorityTier",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "priorityTiers",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "privateTextScannerVersion",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionCanonicalStatus",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionCheckAxisReport",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionCheckReport",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionCheckResult",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionFreshness",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionReadResult",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionSource",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionWarningCode",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionWarningCodeSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionWarningSeverity",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionWarningSource",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProjectionWarningSourceSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ProvenanceEntrySchema",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "PublishableLink",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "PublishableProjection",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "PublishableProjectionSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "PublishIdempotencyLedger",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "PublishProjectionInput",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "PublishProjectionRejection",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "PublishProjectionRejectionCode",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "PublishProjectionResult",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "PublishProjectionSuccess",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "PublishReadinessEvidence",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "PublishRedactionFinding",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "queryTaskChildren",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "readEntityCascadeImpact",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "readNestedScalar",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "readRelationGraphAuthoredSourceKinds",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ReadScalarOptions",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "readTaskProjection",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "rebuildTaskProjection",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "RecordReviewCommand",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "RedactionFindingSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationDirection",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "relationDirections",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationDirectionSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "relationFieldContracts",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationFieldKey",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationGraphProjection",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationOrigin",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "relationOrigins",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationOriginSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationRecordEntry",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationRecordValidationIssue",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationState",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "relationStates",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationStateSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationStrength",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "relationStrengths",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationStrengthSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "relationTypes",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "RelationTypeSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "requiredSchemaIds",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "reservePublishIdempotencyKey",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "resolveDaemonRepoByRoot",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "resolveEntityRoot",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "ReviewVerdict",
         "ref": "task_P4_INT",
-        "reason": "W1 RecordReviewCommand exposes ReviewVerdict as part of the replay/v1 public contract."
+        "reason": "W1 RecordReviewCommand exposes ReviewVerdict as part of the replay/v1 public contract.",
+        "until": "2026-09-30"
       },
       {
         "value": "reviewVerdicts",
         "ref": "task_P4_INT",
-        "reason": "W1 review/v1 validation and command construction share the public verdict catalog."
+        "reason": "W1 review/v1 validation and command construction share the public verdict catalog.",
+        "until": "2026-09-30"
       },
       {
         "value": "runPostMergeChecks",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "scanPrivateText",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "Sha256Fingerprint",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "Sha256FingerprintSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "SnapshotStatusSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "SqliteTaskRow",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "SqliteTaskRowSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "stablePayloadHash",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "StartExecutionCommand",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "StatusCoarseClass",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "StatusTransitionExplanation",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "StatusTransitionRejectionReason",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "SubmitExecutionCommand",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "SubtaskPlan",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "SubtaskPlanSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "Task",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TASK_LIFECYCLE_COMMAND_CATALOG",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "taskBootstrapClaims",
         "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
-        "reason": "Preset v3 Slice A exposes exact task bootstrap claims for canonical store admission."
+        "reason": "Preset v3 Slice A exposes exact task bootstrap claims for canonical store admission.",
+        "until": "2026-09-30"
       },
       {
         "value": "taskDocumentPath",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "taskEntityId",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "taskFieldContracts",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskFieldExtensionProjection",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskFieldKey",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskFrontmatter",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskFrontmatterSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskId",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskIdentity",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "taskIdFromEntityId",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskLifecycleCommandType",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "taskPackagePath",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskPackageRead",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskProjectionOptions",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskProjectionQueryFilters",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskSnapshot",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskSnapshotSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TaskWorkKind",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "taskWorkKinds",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "TemplateBodyResolver",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       },
       {
         "value": "TemplateDocument",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TemplateLibrary",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TemplateLibraryError",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TemplateRef",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TemplateSelection",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "TemplateSelectionSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "validateLifecycleBindingInvariant",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "validateRelationGraphRecords",
         "ref": "task_P4_INT",
-        "reason": "Relation graph validation remains part of the retained read projection surface."
+        "reason": "Relation graph validation remains part of the retained read projection surface.",
+        "until": "2026-09-30"
       },
       {
         "value": "VcsCommitAuthor",
         "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
-        "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring."
+        "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring.",
+        "until": "2026-09-30"
       },
       {
         "value": "VersionControlSystem",
         "ref": "task_P4_INT",
-        "reason": "VersionControlSystem is the canonical public port used by composition roots and externally supplied implementations."
+        "reason": "VersionControlSystem is the canonical public port used by composition roots and externally supplied implementations.",
+        "until": "2026-09-30"
       },
       {
         "value": "VersionControlSystemPort",
         "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
-        "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring."
+        "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring.",
+        "until": "2026-09-30"
       },
       {
         "value": "warning",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
+        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "until": "2026-09-30"
       },
       {
         "value": "WRITE_RECEIPT_SCHEMA",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel."
+        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
       }
     ]
   }

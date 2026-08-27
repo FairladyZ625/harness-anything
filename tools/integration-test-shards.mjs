@@ -16,14 +16,13 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "tools/check-runtime-release-readiness.test.mjs": 1003.8,
   "tools/check-supply-chain.test.mjs": 8797.4,
   "tools/quickstart-demo.test.mjs": 5488.9,
-  "tools/relation-weathering-spike.test.mjs": 182.9
 });
 
 export function assignIntegrationTestShards(
   manifestFiles,
   weightOverrides = integrationTestFileWeightsMs,
   shardCount = integrationShardCount,
-  defaultWeightMs = defaultIntegrationTestWeightMs
+  defaultWeightMs = defaultIntegrationTestWeightMs,
 ) {
   const shards = Array.from({ length: shardCount }, (_, index) => ({ id: index + 1, files: [], estimatedMs: 0 }));
   const weightedFiles = [...new Set(manifestFiles)]
@@ -57,10 +56,7 @@ export function integrationShardSummaries(manifestFiles, weightOverrides = integ
   return assignIntegrationTestShards(manifestFiles, weightOverrides).map((shard) => ({
     id: shard.id,
     files: shard.files.length,
-    estimatedMs: shard.files.reduce(
-      (sum, file) => sum + (weightOverrides[file] ?? defaultIntegrationTestWeightMs),
-      0
-    )
+    estimatedMs: shard.files.reduce((sum, file) => sum + (weightOverrides[file] ?? defaultIntegrationTestWeightMs), 0),
   }));
 }
 

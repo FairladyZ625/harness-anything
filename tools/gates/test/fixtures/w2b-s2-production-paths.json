@@ -1,9 +1,0 @@
-[
-  { "path": "packages/kernel/src/domain/fact-event.ts", "module": "fact" },
-  { "path": "packages/kernel/src/domain/index.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/entity/field-contracts.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/projection/fact-event-projection.ts", "module": "fact" },
-  { "path": "packages/daemon/src/fact-actions.ts", "module": "fact" },
-  { "path": "packages/daemon/src/protocol/daemon-protocol.contract.ts", "module": "daemon" },
-  { "path": "packages/cli/src/cli/thin-command.ts", "module": "cli" }
-]

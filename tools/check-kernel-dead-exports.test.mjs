@@ -20,14 +20,15 @@ test("kernel dead-export check catches new unused value and type exports as bypa
   const root = makeFixtureRoot();
   const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-f8a-policy-"));
   try {
-    writeKernel(root, [
-      "export { usedValue, unusedValue } from './symbols.ts';",
-      "export type { UnusedType } from './symbols.ts';"
-    ], [
-      "export const usedValue = true;",
-      "export const unusedValue = false;",
-      "export interface UnusedType { readonly ok: boolean; }"
-    ]);
+    writeKernel(
+      root,
+      ["export { usedValue, unusedValue } from './symbols.ts';", "export type { UnusedType } from './symbols.ts';"],
+      [
+        "export const usedValue = true;",
+        "export const unusedValue = false;",
+        "export interface UnusedType { readonly ok: boolean; }",
+      ],
+    );
     writeConsumer(root, "import { usedValue } from '../../kernel/src/index.ts';\nexport const value = usedValue;\n");
     writeAllowlist(policyRoot, ["NotARealExport"]);
 
@@ -45,13 +46,15 @@ test("kernel dead-export check treats aliased named imports as real consumers", 
   const root = makeFixtureRoot();
   const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-f8a-policy-"));
   try {
-    writeKernel(root, [
-      "export { usedValue, unusedValue } from './symbols.ts';"
-    ], [
-      "export const usedValue = true;",
-      "export const unusedValue = false;"
-    ]);
-    writeConsumer(root, "import { usedValue as liveValue } from '../../kernel/src/index.ts';\nexport const value = liveValue;\n");
+    writeKernel(
+      root,
+      ["export { usedValue, unusedValue } from './symbols.ts';"],
+      ["export const usedValue = true;", "export const unusedValue = false;"],
+    );
+    writeConsumer(
+      root,
+      "import { usedValue as liveValue } from '../../kernel/src/index.ts';\nexport const value = liveValue;\n",
+    );
     writeAllowlist(policyRoot, ["unusedValue"]);
 
     const result = runChecker(root, { env: { HARNESS_GATE_ALLOWLIST_DIR: policyRoot } });
@@ -63,21 +66,55 @@ test("kernel dead-export check treats aliased named imports as real consumers", 
   }
 });
 
+test("kernel dead-export check rejects missing, invalid, and expired until dates", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-f8a-policy-"));
+  try {
+    writeKernel(
+      root,
+      ["export { missing, invalid, expired } from './symbols.ts';"],
+      ["export const missing = true;", "export const invalid = true;", "export const expired = true;"],
+    );
+    writeAllowlist(policyRoot, [
+      { value: "missing" },
+      { value: "invalid", until: "2026-02-30" },
+      { value: "expired", until: "2000-01-01" },
+    ]);
+
+    const result = runChecker(root, { env: { HARNESS_GATE_ALLOWLIST_DIR: policyRoot } });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /allowlist entry missing must have a valid YYYY-MM-DD until date/u);
+    assert.match(result.stderr, /allowlist entry invalid must have a valid YYYY-MM-DD until date/u);
+    assert.match(result.stderr, /allowlist entry expired expired on 2000-01-01/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-f8a-dead-exports-"));
   mkdirSync(path.join(root, "packages/kernel/src"), { recursive: true });
   mkdirSync(path.join(root, "packages/application/src"), { recursive: true });
-  writeFileSync(path.join(root, "packages/kernel/tsconfig.json"), JSON.stringify({
-    compilerOptions: {
-      module: "NodeNext",
-      moduleResolution: "NodeNext",
-      target: "ES2024",
-      strict: true,
-      allowImportingTsExtensions: true,
-      noEmit: true
-    },
-    include: ["src/**/*.ts"]
-  }, null, 2), "utf8");
+  writeFileSync(
+    path.join(root, "packages/kernel/tsconfig.json"),
+    JSON.stringify(
+      {
+        compilerOptions: {
+          module: "NodeNext",
+          moduleResolution: "NodeNext",
+          target: "ES2024",
+          strict: true,
+          allowImportingTsExtensions: true,
+          noEmit: true,
+        },
+        include: ["src/**/*.ts"],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
   return root;
 }
 
@@ -91,23 +128,32 @@ function writeConsumer(root, body) {
 }
 
 function writeAllowlist(policyRoot, names) {
-  writeFileSync(path.join(policyRoot, "check-kernel-dead-exports.json"), JSON.stringify({
-    schema: "harness-anything/gate-allowlist/v1",
-    gateId: "check-kernel-dead-exports",
-    entries: {
-      zeroConsumptionExports: names.map((name) => ({
-        value: name,
-        ref: "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        reason: "fixture allowlist entry"
-      }))
-    }
-  }, null, 2), "utf8");
+  writeFileSync(
+    path.join(policyRoot, "check-kernel-dead-exports.json"),
+    JSON.stringify(
+      {
+        schema: "harness-anything/gate-allowlist/v1",
+        gateId: "check-kernel-dead-exports",
+        entries: {
+          zeroConsumptionExports: names.map((entry) => ({
+            value: typeof entry === "string" ? entry : entry.value,
+            ref: "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
+            reason: "fixture allowlist entry",
+            until: typeof entry === "string" ? "2099-12-31" : entry.until,
+          })),
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
 }
 
 function runChecker(root, options = {}) {
   return spawnSync(process.execPath, [checkerPath], {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, ...(options.env ?? {}) }
+    env: { ...process.env, ...(options.env ?? {}) },
   });
 }

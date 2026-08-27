@@ -362,6 +362,16 @@
         "value": "packages/daemon/test/doc-sync-watcher.test.ts",
         "ref": "dec_585DB10A4218D9FA00F67B9537",
         "reason": "CH2 retires the watcher ingestion slice completely, including its dedicated integration test; document ingestion now occurs only through explicit doc sync and audited doc retirement commands."
+      },
+      {
+        "value": "tools/duplicate-soft-delete.test.mjs",
+        "ref": "dec_57A9D27BA446C23759A08B1C13",
+        "reason": "The unregistered one-time duplicate cleanup utility and its self-only integration test are retired after entity-event became the canonical write surface."
+      },
+      {
+        "value": "tools/relation-weathering-spike.test.mjs",
+        "ref": "dec_57A9D27BA446C23759A08B1C13",
+        "reason": "The unregistered relation weathering spike and its self-only integration test are retired in favor of the canonical rebuildable projection read surface."
       }
     ]
   }

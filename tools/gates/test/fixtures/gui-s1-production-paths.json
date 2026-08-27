@@ -1,6 +1,0 @@
-[
-  { "path": "packages/gui/src/renderer/views/TerritoryView.tsx", "module": "gui" },
-  { "path": "packages/gui/src/renderer/model/genealogy.ts", "module": "gui" },
-  { "path": "packages/gui/src/renderer/components/EntityWorkspace.tsx", "module": "gui" },
-  { "path": "packages/gui/src/renderer/App.tsx", "module": "gui" }
-]

@@ -1,6 +1,0 @@
-[
-  { "path": "packages/gui/src/renderer/App.tsx", "module": "gui" },
-  { "path": "packages/gui/src/renderer/app-model.ts", "module": "gui" },
-  { "path": "packages/gui/src/renderer/model/execution-evidence.ts", "module": "gui" },
-  { "path": "packages/gui/src/renderer/views/ExecutionEvidenceView.tsx", "module": "gui" }
-]

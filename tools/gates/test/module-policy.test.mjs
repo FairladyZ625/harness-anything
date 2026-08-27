@@ -80,218 +80,48 @@ test("tool tests, fixtures, and snapshots stay outside production classification
   }
 });
 
-test("runtime Slice B fixture classifies dedicated and shared registry paths into their budget buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/agent-runtime-slice-b-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
+const productionPathFixtures = [
+  "agent-runtime-slice-b",
+  "authored-content-migration",
+  "backend-truth",
+  "daemon-autostart",
+  "decision-fact-slice-a",
+  "decision-surface",
+  "fleet-slice-1",
+  "gui-archive-parity",
+  "gui-gap-fix",
+  "gui-graph-rework",
+  "gui-i18n",
+  "gui-s3-r1",
+  "gui-s3-r2",
+  "gui-territory-rebuild",
+  "migration-import",
+  "p6-cold-rebuild",
+  "preset-provider",
+  "preset-slice-a",
+  "preset-slice-b",
+  "runtime-instances-s1",
+  "runtime-instances-s2",
+  "runtime-instances-s3",
+  "task-surface",
+  "territory-root-cluster",
+  "w3-s1",
+  "w3-s2",
+  "w3-s3",
+  "w5-r1",
+];
 
-test("runtime instances Slice 1 fixture bills the instance store and shared seams to their production buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/runtime-instances-s1-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("runtime instances Slice 2 fixture bills spawn, provenance, GUI, and preset seams to their production buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/runtime-instances-s2-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("runtime instances Slice 3 fixture bills GUI management, auth terminal, and safe DTO seams to their production buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/runtime-instances-s3-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("preset Slice A fixture classifies canonical and shared paths into their ratcheted buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/preset-slice-a-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("preset Slice B fixture keeps the process service in preset and shared seams in frozen buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/preset-slice-b-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("W3 Slice 1 fixture keeps the canonical catalog resolver in the preset budget", () => {
-  const fixture = JSON.parse(readFileSync(new URL("./fixtures/w3-s1-production-paths.json", import.meta.url), "utf8"));
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("W3 Slice 2 fixture keeps inventory and dynamic help in their production budgets", () => {
-  const fixture = JSON.parse(readFileSync(new URL("./fixtures/w3-s2-production-paths.json", import.meta.url), "utf8"));
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("W3 Slice 3 fixture keeps user shadow lifecycle paths in their production budgets", () => {
-  const fixture = JSON.parse(readFileSync(new URL("./fixtures/w3-s3-production-paths.json", import.meta.url), "utf8"));
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("Decision/Fact split fixture assigns both concepts and shared seams to their budgets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/decision-fact-slice-a-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("Fleet Slice 1 fixture isolates transport production from daemon seams", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/fleet-slice-1-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("W5 R1 fixture assigns replica cut production paths to their ratcheted buckets", () => {
-  const fixture = JSON.parse(readFileSync(new URL("./fixtures/w5-r1-production-paths.json", import.meta.url), "utf8"));
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("GUI graph rework fixture bills the ego canvas + territory progress paths to gui", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/gui-graph-rework-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("backend truth fixture bills the read path, contract, and readiness projection to their ratcheted buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/backend-truth-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("P6 cold rebuild fixture bills every autonomous L1 materialization path to kernel", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/p6-cold-rebuild-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("GUI S3 R1 fixture bills repo isolation and truthful catalog/system paths to their ratcheted buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/gui-s3-r1-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("GUI S3 R2 fixture bills runtime truth, secure control, and direct PTY paths to their ratcheted buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/gui-s3-r2-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("migration import fixture bills the native CLI, daemon, GUI, and kernel seams to their ratcheted buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/migration-import-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("task surface fixture bills CLI, daemon, GUI, kernel, and preset seams to their ratcheted buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/task-surface-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("decision surface fixture bills CLI, daemon, Decision, and kernel seams to their ratcheted buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/decision-surface-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("GUI gap-fix fixture bills the legend, navigation, and terminal fidelity paths to gui", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/gui-gap-fix-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("preset provider fixture keeps catalog resolution and its public contract in the preset budget", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/preset-provider-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("GUI territory rebuild fixture bills the two-level layout paths to gui", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/gui-territory-rebuild-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("GUI i18n fixture bills renderer copy paths into their ratcheted buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/gui-i18n-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("territory root-cluster fixture bills the graph clustering seam to the gui bucket", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/territory-root-cluster-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("GUI archive-parity fixture bills the terminal repair, recents rail, filter parity, and system detail seams to the gui bucket", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/gui-archive-parity-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("daemon autostart fixture bills the shared autostart seam and both client wirings to their buckets", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/daemon-autostart-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
-});
-
-test("authored content migration fixture bills replay and symlink materialization to daemon and kernel", () => {
-  const fixture = JSON.parse(
-    readFileSync(new URL("./fixtures/authored-content-migration-production-paths.json", import.meta.url), "utf8"),
-  );
-  for (const row of fixture)
-    assert.deepEqual(classifyPath(row.path), { module: row.module, kind: "production" }, row.path);
+test("production path fixtures stay in their ratcheted module buckets", () => {
+  for (const fixtureName of productionPathFixtures) {
+    const fixture = JSON.parse(
+      readFileSync(new URL(`./fixtures/${fixtureName}-production-paths.json`, import.meta.url), "utf8"),
+    );
+    for (const row of fixture) {
+      assert.deepEqual(
+        classifyPath(row.path),
+        { module: row.module, kind: "production" },
+        `${fixtureName}: ${row.path}`,
+      );
+    }
+  }
 });

@@ -1,7 +1,0 @@
-{
-  "schema": "harness-anything/gate-allowlist/v1",
-  "gateId": "check-write-coordinator-boundary",
-  "entries": {
-    "knownMetabolicDecisionDebt": []
-  }
-}
