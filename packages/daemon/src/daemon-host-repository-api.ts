@@ -208,7 +208,6 @@ export function createDaemonHostRepositoryApi(
     run: async (repoId, action, auth) => {
       const command = settingsCommandTopology(commandDescriptorForAction(action.kind), action),
         commandClass = command.commandClass,
-        projectionRepair = context.localCenterProjectionRepair(repoId, action.kind, auth),
         modeAdmission = context.admitHostMode(repoId, command, auth);
       if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
       await context.attemptHostRecovery(repoId);
@@ -245,9 +244,13 @@ export function createDaemonHostRepositoryApi(
       try {
         const { executor: declared, ...intent } = action,
           executor = context.declaredExecutor(declared);
-        const baseBinding = projectionRepair
-            ? context.localRepairBinding
-            : await context.binding(cell.status().rootDir, auth, commandClass, action.kind === "doc-submit", executor),
+        const baseBinding = await context.binding(
+            cell.status().rootDir,
+            auth,
+            commandClass,
+            action.kind === "doc-submit",
+            executor,
+          ),
           serverBinding =
             auth.sessionEnvironment === undefined
               ? baseBinding

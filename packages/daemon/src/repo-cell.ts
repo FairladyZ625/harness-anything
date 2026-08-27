@@ -3,7 +3,7 @@ import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-s
 import { blockingOf, closeoutReadiness, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
-import { localRepairBinding } from "./daemon-host-binding.ts";
+import { localSystemBinding } from "./daemon-host-binding.ts";
 import { makeDecisionActions } from "./decision-actions.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeFactActions } from "./fact-actions.ts";
@@ -37,9 +37,18 @@ export function initializeRepoCell(context: any): any {
       settlementPending = true;
       return;
     }
+    let binding: RepoCellBinding;
+    try {
+      binding = localSystemBinding(context.rootDir, "repo-write");
+    } catch (error) {
+      console.warn(
+        `[wal-materializer] local identity unavailable; authored doc scan deferred: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
     void runDocAction({
       action: { kind: "doc-submit", paths: [] },
-      binding: localRepairBinding,
+      binding,
       workspaceId: context.input.repoId,
       rootDir: context.rootDir,
       store,
