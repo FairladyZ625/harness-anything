@@ -182,8 +182,10 @@ export function makeSquadCoordinator(input: {
   const list = (payload: Readonly<Record<string, unknown>>): SquadRunsListResult => {
     const query = listQuery(payload),
       cut = input.projection().readTaskStatuses([]),
+      // 一次 list 内按 taskId memo 派工台账读:同 task 的多个 run 共享一次读,读放大按 task 数结算。
+      dispatchesByTaskId = new Map<string, readonly TaskDispatchRow[]>(),
       matching = readStates()
-        .map(summaryDto)
+        .map((state) => summaryDto(state, dispatchesByTaskId))
         .filter((run) => activePhase(run.phase) || query.since === null || runInActivityWindow(run, query.since))
         .filter((run) => matchesRunQuery(run, query.tokens))
         .sort(compareRunSummaries),
@@ -516,6 +518,26 @@ export function makeSquadCoordinator(input: {
     }).dispatches;
   }
 
+  /** list 专用:同 task 的多个 run 共享一次台账读(per-call memo,不跨 list 复用);单个
+   * run 的事实缺失(投影缺包路径)只降级自己的活动时间(可解析会话/无活动),不拖垮整页
+   * list。status/read 面对同一坏数据仍 fail-closed。 */
+  function summaryDispatchRows(
+    state: SquadState,
+    cache: Map<string, readonly TaskDispatchRow[]>,
+  ): readonly TaskDispatchRow[] {
+    const memoized = cache.get(state.taskId);
+    if (memoized !== undefined) return memoized;
+    let rows: readonly TaskDispatchRow[];
+    try {
+      rows = dispatchRows(state);
+    } catch (error) {
+      consumeKnownError(error); // 台账读不出:该 run 无派工事实。
+      rows = [];
+    }
+    cache.set(state.taskId, rows);
+    return rows;
+  }
+
   function terminalRow(state: SquadState, runtimeSessionId: string): TaskDispatchRow | undefined {
     return dispatchRows(state).find((row) => row.runtimeSessionId === runtimeSessionId && row.outcome !== null);
   }
@@ -661,8 +683,11 @@ export function makeSquadCoordinator(input: {
     };
   }
 
-  function summaryDto(state: SquadState): SquadRunSummaryDto {
-    const byDispatchId = new Map(dispatchRows(state).map((row) => [row.dispatchId, row])),
+  function summaryDto(
+    state: SquadState,
+    dispatchesByTaskId: Map<string, readonly TaskDispatchRow[]>,
+  ): SquadRunSummaryDto {
+    const byDispatchId = new Map(summaryDispatchRows(state, dispatchesByTaskId).map((row) => [row.dispatchId, row])),
       sessions = [
         ...state.leaderTurns.map((turn) => turn.runtimeSessionId),
         ...state.workerAttempts.flatMap((attempt) => (attempt.runtimeSessionId ? [attempt.runtimeSessionId] : [])),
