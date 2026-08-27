@@ -440,7 +440,9 @@ export function makeSquadCoordinator(input: {
         {
           kind: "worker_wait",
           runtimeSessionId: attempt.runtimeSessionId,
-          reason: `Worker ${attempt.workerId} already has running attempt ${attempt.attemptId}; waited for its callback instead of redispatching.`,
+          reason:
+            `Worker ${attempt.workerId} already has running attempt ${attempt.attemptId}; ` +
+            `waited for its callback instead of redispatching.`,
         },
       ],
     });
