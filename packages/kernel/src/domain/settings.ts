@@ -212,15 +212,6 @@ export function readSettingsFacet(body: string): SettingsV1 {
   return settings;
 }
 
-export function writeSettingsFacet(body: string, settings: SettingsV1): string {
-  const errors = validateSettingsV1(settings);
-  if (errors.length) throw new Error(errors.join("; "));
-  const next = writeRepositorySettingsFacet(body, settings);
-  if (JSON.stringify(repositorySettings(readSettingsFacet(next))) !== JSON.stringify(repositorySettings(settings)))
-    throw new Error("settings facet replacement did not round-trip exactly");
-  return next;
-}
-
 /** Replace repository-owned YAML fields and remove the legacy authored locale line. */
 export function writeRepositorySettingsFacet(body: string, settings: RepositorySettingsV1 | SettingsV1): string {
   const repository = repositorySettings(settings),
