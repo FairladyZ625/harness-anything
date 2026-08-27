@@ -138,8 +138,15 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
     !exactStrings(payload, ["repoId", "instanceId", "idempotencyKey"])
   )
     throw new Error(`Preload ${method} request is invalid.`);
-  // Schedule actions (S4) carry exactly the retry-stable claim trio; everything else
-  // is rejected so the bridge cannot smuggle extra fields into the daemon action.
+  // Schedule actions carry only their closed declaration or retry-stable claim fields;
+  // the renderer cannot smuggle transport or runtime controls into the daemon action.
+  if (
+    ["createSchedule", "updateSchedule"].includes(method) &&
+    !validScheduleDefinitionMutation(payload, method === "updateSchedule")
+  )
+    throw new Error(`Preload ${method} request is invalid.`);
+  if (method === "deleteSchedule" && !validScheduleDelete(payload))
+    throw new Error("Preload deleteSchedule request is invalid.");
   if (
     ["enableSchedule", "disableSchedule", "runScheduleNow"].includes(method) &&
     !exactStrings(payload, ["repoId", "scheduleId", "idempotencyKey"])
@@ -276,6 +283,46 @@ function validRuntimeInstanceShow(value: unknown): boolean {
     typeof value.instanceId === "string" &&
     value.instanceId.length > 0 &&
     (value.probe === undefined || typeof value.probe === "boolean")
+  );
+}
+function validScheduleDefinitionMutation(value: unknown, nullableOptionals: boolean): boolean {
+  const fields = [
+    "repoId",
+    "scheduleId",
+    "name",
+    "everyMs",
+    "agentId",
+    "runtimeInstanceId",
+    "mission",
+    "model",
+    "reasoningEffort",
+    "cwd",
+    "idempotencyKey",
+  ];
+  if (!isPreloadPayloadRecord(value) || !closed(value, fields)) return false;
+  if (
+    !["repoId", "scheduleId", "name", "agentId", "runtimeInstanceId", "mission", "idempotencyKey"].every(
+      (field) => typeof value[field] === "string" && String(value[field]).trim().length > 0,
+    ) ||
+    !Number.isSafeInteger(value.everyMs) ||
+    Number(value.everyMs) < 60_000
+  )
+    return false;
+  return [value.model, value.reasoningEffort, value.cwd].every(
+    (field) =>
+      field === undefined ||
+      (nullableOptionals && field === null) ||
+      (typeof field === "string" && field.trim().length > 0),
+  );
+}
+function validScheduleDelete(value: unknown): boolean {
+  return (
+    isPreloadPayloadRecord(value) &&
+    closed(value, ["repoId", "scheduleId", "reason", "idempotencyKey"]) &&
+    [value.repoId, value.scheduleId, value.idempotencyKey].every(
+      (field) => typeof field === "string" && field.trim().length > 0,
+    ) &&
+    (value.reason === undefined || (typeof value.reason === "string" && value.reason.trim().length > 0))
   );
 }
 function exactStrings(value: unknown, fields: readonly string[]): boolean {

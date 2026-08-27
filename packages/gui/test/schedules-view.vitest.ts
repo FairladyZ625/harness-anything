@@ -38,6 +38,8 @@ function dto(
     claim: { nodeId: null, assignmentId: null },
     nextRunAt: "2026-08-27T08:30:00.000Z",
     actions: {
+      edit: { available: true, code: null, nextAction: null },
+      delete: { available: true, code: null, nextAction: null },
       enable: { available: false, code: "no_changes", nextAction: "The Schedule is already armed." },
       disable: { available: true, code: null, nextAction: null },
       runNow: { available: true, code: null, nextAction: null },
@@ -66,6 +68,20 @@ function dto(
     repoId: "repo-a",
     repoMode: "local",
     viewerNodeId: "local",
+    actions: { create: { available: true, code: null, nextAction: null } },
+    options: {
+      agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" }],
+      instances: [
+        {
+          instanceId: "codex-schedule",
+          name: "Schedule Codex",
+          kindId: "codex",
+          models: ["gpt-5.6", "gpt-5.6-sol"],
+          efforts: ["low", "medium", "high", "xhigh"],
+        },
+      ],
+      cwd: [".", "packages/gui"],
+    },
     schedules: [row],
     watermark: 12,
     sourceRevision: 12,
@@ -123,6 +139,16 @@ describe("schedules plane (S4)", () => {
             executionAvailability: "not-on-this-node",
             claim: { nodeId: "edge-one", assignmentId: "assignment-edge-one" },
             actions: {
+              edit: {
+                available: false,
+                code: "repo_mode_requires_center_ingress",
+                nextAction: "Send write commands through the authenticated Fleet assignment ingress.",
+              },
+              delete: {
+                available: false,
+                code: "repo_mode_requires_center_ingress",
+                nextAction: "Send write commands through the authenticated Fleet assignment ingress.",
+              },
               enable: {
                 available: false,
                 code: "repo_mode_requires_center_ingress",
@@ -170,6 +196,12 @@ describe("schedules plane (S4)", () => {
           executionAvailability: "claimed-elsewhere",
           claim: { nodeId: "edge-two", assignmentId: "assignment-edge-two" },
           actions: {
+            edit: { available: true, code: null, nextAction: null },
+            delete: {
+              available: false,
+              code: "schedule_single_flight_active",
+              nextAction: "Occurrence occurrence_now is already claimed by node edge-two.",
+            },
             enable: { available: false, code: "no_changes", nextAction: "The Schedule is already armed." },
             disable: { available: true, code: null, nextAction: null },
             runNow: {
@@ -249,6 +281,78 @@ describe("schedules plane (S4)", () => {
     expect(onFocusSchedule).toHaveBeenCalledWith("schedule/heartbeat-probe");
   });
 
+  it("creates and edits through catalog selectors, and confirms deletion explicitly", async () => {
+    const receipt = (command: string) => ({
+        ok: true,
+        command,
+        outcome: "applied",
+        opId: `op-${command}`,
+        code: null,
+        nextAction: null,
+        scheduleId: "heartbeat-probe",
+      }),
+      create = vi.spyOn(schedulesClient, "create").mockResolvedValue(receipt("schedule-create")),
+      update = vi.spyOn(schedulesClient, "update").mockResolvedValue(receipt("schedule-update")),
+      remove = vi.spyOn(schedulesClient, "delete").mockResolvedValue(receipt("schedule-delete")),
+      onFocusSchedule = vi.fn(),
+      container = await renderSurface(
+        createElement(ScheduleWorkspace, {
+          repoId: "repo-a",
+          data: dto(),
+          pending: false,
+          focusedEntityRef: null,
+          onSelectEntity: noop,
+          onFocusSchedule,
+        }),
+      );
+    await click(container, "schedule-action-create");
+    await setValue(container, "schedule-form-id", "fresh-probe");
+    await setValue(container, "schedule-form-name", "Fresh probe");
+    await setValue(container, "schedule-form-mission", "Run the fresh probe.");
+    expect(container.querySelector('[data-testid="schedule-form-agent"]')?.tagName).toBe("SELECT");
+    expect(container.querySelector('[data-testid="schedule-form-instance"]')?.tagName).toBe("SELECT");
+    expect(container.querySelector('[data-testid="schedule-form-model"]')?.tagName).toBe("SELECT");
+    expect(container.querySelector('[data-testid="schedule-form-effort"]')?.tagName).toBe("SELECT");
+    expect(container.querySelector('[data-testid="schedule-form-cwd"]')?.tagName).toBe("SELECT");
+    await click(container, "schedule-form-submit");
+    await flush();
+    expect(create).toHaveBeenCalledWith(
+      "repo-a",
+      expect.objectContaining({
+        scheduleId: "fresh-probe",
+        name: "Fresh probe",
+        everyMs: 1_800_000,
+        agentId: "probe-agent",
+        runtimeInstanceId: "codex-schedule",
+        mission: "Run the fresh probe.",
+      }),
+      expect.stringMatching(/^gui:schedule-create:/u),
+    );
+
+    await click(container, "schedule-action-edit");
+    await setValue(container, "schedule-form-name", "Edited heartbeat");
+    await click(container, "schedule-form-submit");
+    await flush();
+    expect(update).toHaveBeenCalledWith(
+      "repo-a",
+      expect.objectContaining({ scheduleId: "heartbeat-probe", name: "Edited heartbeat" }),
+      expect.stringMatching(/^gui:schedule-update:/u),
+    );
+
+    await click(container, "schedule-action-delete");
+    expect(remove).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="schedule-delete-confirmation"]')).not.toBeNull();
+    await click(container, "schedule-action-confirm-delete");
+    await flush();
+    expect(remove).toHaveBeenCalledWith(
+      "repo-a",
+      "heartbeat-probe",
+      expect.stringMatching(/^gui:schedule-delete:/u),
+      "Deleted from the Schedules GUI.",
+    );
+    expect(onFocusSchedule).toHaveBeenCalledWith(null);
+  });
+
   it("focus resolves from the deep-link ref and falls back to the first row", () => {
     const rows = dto().schedules;
     expect(scheduleRefId("schedule/heartbeat-probe")).toBe("heartbeat-probe");
@@ -263,6 +367,9 @@ describe("schedules plane (S4)", () => {
   it("reads the list through the bridge and reports invalid results", async () => {
     const harness = {
       listSchedules: vi.fn().mockResolvedValue(dto()),
+      createSchedule: vi.fn(),
+      updateSchedule: vi.fn(),
+      deleteSchedule: vi.fn(),
       enableSchedule: vi.fn(),
       disableSchedule: vi.fn(),
       runScheduleNow: vi.fn(),
@@ -303,3 +410,27 @@ describe("schedules plane (S4)", () => {
     expect(container.querySelector('[data-testid="schedules-view"]')).not.toBeNull();
   });
 });
+
+async function setValue(container: HTMLElement, testId: string, value: string): Promise<void> {
+  const field = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-testid="${testId}"]`);
+  if (!field) throw new Error(`missing ${testId}`);
+  await act(async () => {
+    const prototype = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
+      setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+    setter?.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+async function click(container: HTMLElement, testId: string): Promise<void> {
+  const button = container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
+  if (!button) throw new Error(`missing ${testId}`);
+  await act(async () => button.click());
+}
+
+async function flush(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}

@@ -1,16 +1,22 @@
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { nextScheduleOccurrence, type DaemonRepoMode, type ScheduleV1 } from "../../kernel/src/index.ts";
+import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
+import { parseAgentDeclarationV1 } from "./agent-entities.contract.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { parseFleetRoster, type FleetRoster } from "./fleet-center-admission.ts";
+import { scheduleReasoningEfforts } from "./protocol/daemon-protocol-commands-runtime-fleet.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import type {
   ScheduleExecutionAvailability,
   ScheduleGuiActionFacet,
+  ScheduleGuiOptionsDto,
   ScheduleGuiRowDto,
   ScheduleGuiTriggerDto,
   SchedulesListResult,
 } from "./protocol/schedules-gui-contract.ts";
 import { admitRepoMode } from "./repo-mode.ts";
+import { makeGitReadinessSource } from "./process-port.ts";
 
 /** Schedule GUI 读侧 join(S4)。上游事实全部来自已合入面:S1 的 ScheduleV1 领域形状与
  * nextScheduleOccurrence、S3 的投影/action 语义、dec_9C393CDA 的 residency 拆分。
@@ -20,7 +26,10 @@ export interface SchedulesGuiReadContext {
   readonly mode: DaemonRepoMode | null;
   readonly rootDir: string;
   readonly now: () => string;
-  readonly input: { readonly repoId: string };
+  readonly input: {
+    readonly repoId: string;
+    readonly runtimeInstances?: () => readonly AgentRuntimeInstanceDto[];
+  };
   readonly projection: {
     readonly listEntities: (entityKind: string) => readonly {
       readonly value: unknown;
@@ -130,13 +139,31 @@ export function deriveScheduleExecutionAvailability(input: {
 }
 
 function admissionFacet(
-  actionKind: "schedule-enable" | "schedule-disable" | "schedule-run-now",
+  actionKind:
+    | "schedule-create"
+    | "schedule-update"
+    | "schedule-delete"
+    | "schedule-enable"
+    | "schedule-disable"
+    | "schedule-run-now",
   mode: DaemonRepoMode,
 ): ScheduleGuiActionFacet {
   const admission = admitRepoMode(mode, commandDescriptorForAction(actionKind), "local");
   return admission.ok
     ? { available: true, code: null, nextAction: null }
     : { available: false, code: admission.code, nextAction: admission.nextAction };
+}
+
+function deleteFacet(mode: DaemonRepoMode, active: ScheduleV1["status"]["activeRun"]): ScheduleGuiActionFacet {
+  const admission = admissionFacet("schedule-delete", mode);
+  if (!admission.available) return admission;
+  return active === null
+    ? admission
+    : {
+        available: false,
+        code: "schedule_single_flight_active",
+        nextAction: `Occurrence ${active.occurrenceId} must settle before deleting the Schedule.`,
+      };
 }
 
 function runNowFacet(input: {
@@ -266,6 +293,8 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
             : { nodeId: null, assignmentId: null },
         nextRunAt: schedule.state === "armed" ? nextScheduleOccurrence(schedule.spec.trigger, now) : null,
         actions: {
+          edit: admissionFacet("schedule-update", mode),
+          delete: deleteFacet(mode, schedule.status.activeRun),
           enable: stateFacet("schedule-enable", mode, schedule.state),
           disable: stateFacet("schedule-disable", mode, schedule.state),
           runNow: runNowFacet({
@@ -296,8 +325,55 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
     repoId: context.input.repoId,
     repoMode: mode,
     viewerNodeId,
+    actions: { create: admissionFacet("schedule-create", mode) },
+    options: scheduleOptions(context, schedules),
     schedules,
     watermark: cut.watermark,
     sourceRevision: cut.sourceRevision,
   };
+}
+
+function scheduleOptions(
+  context: SchedulesGuiReadContext,
+  schedules: readonly ScheduleGuiRowDto[],
+): ScheduleGuiOptionsDto {
+  const agents = context.projection.listEntities("agent").map(({ value }) => {
+      const agent = parseAgentDeclarationV1(value);
+      return { agentId: agent.id, name: agent.name, runtimeType: agent.runtime_type };
+    }),
+    instances = (context.input.runtimeInstances?.() ?? [])
+      .filter(({ enabled }) => enabled)
+      .map((instance) => ({
+        instanceId: instance.instanceId,
+        name: instance.name,
+        kindId: instance.kindId,
+        models: instance.models,
+        efforts:
+          instance.kindId === "codex"
+            ? scheduleReasoningEfforts
+            : instance.kindId === "agy"
+              ? scheduleReasoningEfforts.filter((effort) => ["low", "medium", "high"].includes(effort))
+              : [],
+      })),
+    cwd = new Set<string>([".", ...trackedDirectories(context.rootDir)]);
+  for (const schedule of schedules) if (schedule.target.cwd) cwd.add(schedule.target.cwd);
+  return {
+    agents: agents.sort((left, right) => left.agentId.localeCompare(right.agentId)),
+    instances: instances.sort((left, right) => left.instanceId.localeCompare(right.instanceId)),
+    cwd: [...cwd].sort((left, right) => (left === "." ? -1 : right === "." ? 1 : left.localeCompare(right))),
+  };
+}
+
+function trackedDirectories(rootDir: string): readonly string[] {
+  const listed = makeGitReadinessSource().run(rootDir, ["ls-files"]);
+  if (!listed.ok || !listed.stdout) return [];
+  const directories = new Set<string>();
+  for (const file of listed.stdout.split("\n")) {
+    let directory = path.posix.dirname(file);
+    while (directory !== ".") {
+      directories.add(directory);
+      directory = path.posix.dirname(directory);
+    }
+  }
+  return [...directories];
 }

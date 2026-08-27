@@ -1,11 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import {
+  makeTaskEventStore,
+  registerDaemonRepo,
+  resolveHarnessLayout,
+  type AgentDefinitionSnapshot,
+} from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
@@ -161,6 +166,14 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         (launched as { prompt: string } | null)?.prompt ?? "",
         /Schedule claim fence:[\s\S]*Assigned Mission/u,
       );
+      const activeDelete = await cell.run(
+        { kind: "schedule-delete", scheduleId: "e2e-probe", idempotencyKey: "delete-while-active" },
+        actor,
+      );
+      assert.deepEqual(
+        { outcome: activeDelete.outcome, code: activeDelete.code },
+        { outcome: "op_rejected", code: "schedule_single_flight_active" },
+      );
       const replayedRun = await cell.run(
         { kind: "schedule-run-now", scheduleId: "e2e-probe", idempotencyKey: "manual-e2e-probe-1" },
         actor,
@@ -249,6 +262,90 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         { automaticEvaluatedThrough: missedStatus?.automaticEvaluatedThrough, missedCount: missedStatus?.missedCount },
         { automaticEvaluatedThrough: missedAt, missedCount: 1 },
       );
+
+      const updated = await cell.run(
+        {
+          kind: "schedule-update",
+          scheduleId: "e2e-probe",
+          name: "Updated E2E probe",
+          everyMs: 600_000,
+          mission: "Inspect the updated repository and report success.",
+          model: definition.model,
+          reasoningEffort: "high",
+          cwd: null,
+          idempotencyKey: "update-e2e-probe",
+        },
+        actor,
+      );
+      assert.equal(updated.outcome, "applied", JSON.stringify(updated));
+      const shown = (await cell.run({ kind: "schedule-show", scheduleId: "e2e-probe" }, actor)) as unknown as {
+        readonly schedule: {
+          readonly name: string;
+          readonly spec: { readonly trigger: { readonly everyMs: number }; readonly mission: string };
+          readonly status: { readonly missedCount: number; readonly lastRun: unknown };
+        };
+      };
+      assert.equal(shown.schedule.name, "Updated E2E probe");
+      assert.equal(shown.schedule.spec.trigger.everyMs, 600_000);
+      assert.equal(shown.schedule.spec.mission, "Inspect the updated repository and report success.");
+      assert.equal(shown.schedule.status.missedCount, 1);
+      assert.notEqual(shown.schedule.status.lastRun, null);
+      const authoredSchedulePath = path.join(resolveHarnessLayout(root).authoredRoot, "schedules/e2e-probe.json");
+      assert.equal(existsSync(authoredSchedulePath), true);
+      const deleted = await cell.run(
+        {
+          kind: "schedule-delete",
+          scheduleId: "e2e-probe",
+          reason: "Retired after integration verification",
+          idempotencyKey: "delete-e2e-probe",
+        },
+        actor,
+      );
+      assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
+      assert.equal(existsSync(authoredSchedulePath), false);
+      const afterDelete = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
+        readonly schedules: readonly { readonly scheduleId: string }[];
+      };
+      assert.equal(
+        afterDelete.schedules.some(({ scheduleId }) => scheduleId === "e2e-probe"),
+        false,
+      );
+      const retainedEvents = makeTaskEventStore({ repoId: "schedule-actions", rootDir: root })
+        .read()
+        .events.filter((event) => event.schema === "schedule-event/v1" && event.entity.id === "e2e-probe");
+      assert.equal(
+        retainedEvents.some(({ type }) => type === "schedule_updated"),
+        true,
+      );
+      assert.equal(
+        retainedEvents.some(({ type }) => type === "schedule_run_settled"),
+        true,
+      );
+      assert.equal(retainedEvents.at(-1)?.type, "schedule_deleted");
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "schedule-create",
+              scheduleId: "e2e-probe",
+              name: "Recreated E2E probe",
+              everyMs: 900_000,
+              agentId: "probe-agent",
+              runtimeInstanceId: definition.instanceId,
+              mission: "Run the recreated probe.",
+              idempotencyKey: "recreate-e2e-probe",
+            },
+            actor,
+          )
+        ).outcome,
+        "applied",
+      );
+      const recreated = (await cell.run({ kind: "schedule-show", scheduleId: "e2e-probe" }, actor)) as unknown as {
+        readonly schedule: { readonly name: string; readonly status: { readonly lastRun: unknown } };
+      };
+      assert.equal(recreated.schedule.name, "Recreated E2E probe");
+      assert.equal(recreated.schedule.status.lastRun, null);
+      assert.equal(existsSync(authoredSchedulePath), true);
 
       assert.equal(
         (

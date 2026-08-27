@@ -39,6 +39,7 @@ import { projectMigration } from "./rebuildable-task-projection-migration.ts";
 import { projectDecision, projectFact, projectProgress } from "./rebuildable-task-projection-write-model.ts";
 import { applyTaskEvent } from "./rebuildable-task-projection-task-events.ts";
 import {
+  deleteEntityProjectionRow,
   projectEmbeddedCanonicalEntities,
   projectInterpretedEntityValue,
 } from "./rebuildable-task-projection-entities.ts";
@@ -190,6 +191,11 @@ export function applyEvent(
         workspaceRevision: event.workspaceRevision,
       };
       runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    }
+    if ("declarationDocumentRetirement" in event.payload) {
+      runSql(db, "DELETE FROM document WHERE path = ?", event.payload.declarationDocumentRetirement.path);
+      deleteEntityProjectionRow(db, "schedule", event.entity.id);
+      return;
     }
     projectEmbeddedCanonicalEntities(db, event);
     return;

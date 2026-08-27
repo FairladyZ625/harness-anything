@@ -320,6 +320,8 @@ const scheduleIdInput = (verb: string) =>
     nextAction: `Use one stable non-empty --idempotency-key when retrying schedule ${verb}.`,
   });
 
+export const scheduleReasoningEfforts = ["minimal", "low", "medium", "high", "xhigh"] as const;
+
 export const scheduleProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "schedule-create",
@@ -365,7 +367,7 @@ export const scheduleProtocolCommands = Object.freeze([
           code: "invalid_runtime_effort",
           nextAction: "Use minimal, low, medium, high, or xhigh with a Codex instance.",
         },
-        { enum: ["minimal", "low", "medium", "high", "xhigh"] },
+        { enum: scheduleReasoningEfforts },
       ),
       cliInput("--cwd", "single", false, {
         code: "invalid_field",
@@ -385,6 +387,83 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "List canonical Schedules and their projected run state.",
     method: "repo.task.run",
     inputs: [],
+  }),
+  defineCenterForwardReadCommand({
+    id: "schedule-show",
+    phase: "Schedule-S3",
+    path: ["schedule", "show", "<schedule-id>"],
+    summary: "Show one canonical Schedule definition and projected run state.",
+    method: "repo.task.run",
+    positional: "scheduleId",
+    inputs: [],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "schedule-update",
+    phase: "Schedule-S3",
+    path: ["schedule", "update", "<schedule-id>"],
+    summary: "Replace selected Schedule definition fields in one canonical declaration event.",
+    method: "repo.task.run",
+    positional: "scheduleId",
+    inputs: [
+      cliInput("--name", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one non-empty Schedule name.",
+      }),
+      cliInput("--every", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one duration such as 30m or 2h; the minimum is 1m.",
+      }),
+      cliInput("--agent", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one declared Agent id.",
+      }),
+      cliInput("--instance", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one enabled runtime instance id.",
+      }),
+      cliInput("--mission", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use --mission <text> or --mission-file <path>, not both.",
+      }),
+      cliInput("--mission-file", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use --mission <text> or --mission-file <path>, not both.",
+      }),
+      cliInput("--model", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one model supported by the runtime instance.",
+      }),
+      cliInput(
+        "--effort",
+        "single",
+        false,
+        {
+          code: "invalid_runtime_effort",
+          nextAction: "Use minimal, low, medium, high, or xhigh with a Codex instance.",
+        },
+        { enum: scheduleReasoningEfforts },
+      ),
+      cliInput("--cwd", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use a repository-relative directory.",
+      }),
+      scheduleIdInput("update"),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "schedule-delete",
+    phase: "Schedule-S3",
+    path: ["schedule", "delete", "<schedule-id>"],
+    summary: "Delete a Schedule definition while retaining its canonical event history.",
+    method: "repo.task.run",
+    positional: "scheduleId",
+    inputs: [
+      cliInput("--reason", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one non-empty deletion reason, or omit --reason.",
+      }),
+      scheduleIdInput("deletion"),
+    ],
   }),
   defineCenterForwardWriteCommand({
     id: "schedule-enable",

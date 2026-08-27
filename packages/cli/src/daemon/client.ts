@@ -371,7 +371,11 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
 }
 
 function materializeScheduleMission(command: ThinCommand): ThinCommand {
-  if (command.action.kind !== "schedule-create" || typeof command.action.missionFile !== "string") return command;
+  if (
+    !["schedule-create", "schedule-update"].includes(command.action.kind) ||
+    typeof command.action.missionFile !== "string"
+  )
+    return command;
   const missionPath = path.resolve(command.rootDir, command.action.missionFile),
     relative = path.relative(command.rootDir, missionPath);
   if (relative.startsWith("..") || path.isAbsolute(relative))

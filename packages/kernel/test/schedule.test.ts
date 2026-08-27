@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createScheduleV1,
   nextScheduleOccurrence,
+  updateScheduleV1,
   validateScheduleV1,
   type ScheduleV1,
 } from "../src/domain/schedule.ts";
@@ -63,6 +64,41 @@ test("Schedule creation trims authored text and starts with an empty projected r
     lastMissedAt: null,
     lastMissedReason: null,
   });
+});
+
+test("Schedule update replaces the complete declaration while retaining projected run evidence", () => {
+  const original = fixtureSchedule(),
+    withHistory: ScheduleV1 = {
+      ...original,
+      status: {
+        ...original.status,
+        missedCount: 2,
+        lastMissedAt: "2026-08-26T10:30:00.000Z",
+        lastMissedReason: "scheduler_unavailable",
+      },
+    },
+    updated = updateScheduleV1({
+      schedule: withHistory,
+      name: "  Daily health  ",
+      spec: {
+        trigger: { kind: "interval", everyMs: 3_600_000, anchorAt: "2026-08-26T11:00:00.000Z" },
+        target: {
+          kind: "agent",
+          agentId: "reviewer",
+          runtimeInstanceId: "runtime-review",
+          model: "gpt-5.6-sol",
+          reasoningEffort: "high",
+          cwd: "packages/kernel",
+        },
+        mission: "  Review repository health.  ",
+      },
+      occurredAt: "2026-08-26T11:00:00.000Z",
+    });
+  assert.equal(updated.name, "Daily health");
+  assert.equal(updated.spec.mission, "Review repository health.");
+  assert.equal(updated.createdAt, original.createdAt);
+  assert.equal(updated.updatedAt, "2026-08-26T11:00:00.000Z");
+  assert.deepEqual(updated.status, withHistory.status);
 });
 
 function fixtureSchedule(): ScheduleV1 {

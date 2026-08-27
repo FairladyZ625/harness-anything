@@ -23,6 +23,55 @@ export function parseSchedule(
   if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
   const idempotencyKey = flags.one.get("--idempotency-key"),
     retry = idempotencyKey ? { idempotencyKey } : {};
+  if (route.id === "schedule-delete")
+    return accepted(rootDir, repoId, json, {
+      kind: route.id,
+      scheduleId,
+      ...(flags.one.get("--reason") ? { reason: flags.one.get("--reason") } : {}),
+      ...retry,
+    });
+  if (route.id === "schedule-update") {
+    const mission = flags.one.get("--mission"),
+      missionFile = flags.one.get("--mission-file"),
+      every = flags.one.get("--every"),
+      updateFlags = [
+        "--name",
+        "--every",
+        "--agent",
+        "--instance",
+        "--mission",
+        "--mission-file",
+        "--model",
+        "--effort",
+        "--cwd",
+      ];
+    if (mission && missionFile)
+      return rejected("invalid_field", "Use --mission <text> or --mission-file <path>, not both.", json);
+    if (!updateFlags.some((flag) => flags.one.has(flag)))
+      return rejected("missing_field", "Change at least one Schedule definition field.", json);
+    const everyMs = every === undefined ? undefined : parseScheduleDuration(every);
+    if (everyMs === null)
+      return rejected(
+        "invalid_field",
+        "Use --every with one whole-number interval such as 60s, 30m, 2h, or 1d; the minimum is 1m.",
+        json,
+      );
+    return accepted(rootDir, repoId, json, {
+      kind: route.id,
+      scheduleId,
+      ...optionalFlags(flags.one, [
+        ["--name", "name"],
+        ["--agent", "agentId"],
+        ["--instance", "runtimeInstanceId"],
+        ["--model", "model"],
+        ["--effort", "reasoningEffort"],
+        ["--cwd", "cwd"],
+      ]),
+      ...(everyMs === undefined ? {} : { everyMs }),
+      ...(mission ? { mission } : missionFile ? { missionFile } : {}),
+      ...retry,
+    });
+  }
   if (route.id !== "schedule-create") return accepted(rootDir, repoId, json, { kind: route.id, scheduleId, ...retry });
   const mission = flags.one.get("--mission"),
     missionFile = flags.one.get("--mission-file");
@@ -74,4 +123,10 @@ export function renderScheduleList(receipt: Record<string, unknown>): string | n
         .join("\t");
     })
     .join("\n");
+}
+
+export function renderScheduleShow(receipt: Record<string, unknown>): string | null {
+  if (receipt.command !== "schedule-show" || receipt.schedule === null || typeof receipt.schedule !== "object")
+    return null;
+  return JSON.stringify(receipt.schedule, null, 2);
 }

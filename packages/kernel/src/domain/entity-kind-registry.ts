@@ -663,6 +663,8 @@ export const entityKindContracts = Object.freeze([
     ],
     actionCatalog: actionCatalog("kernel/schedule-event/v1", "schedule", scheduleIdentity, [
       "create",
+      "update",
+      "delete",
       "enable",
       "disable",
       "run-now",

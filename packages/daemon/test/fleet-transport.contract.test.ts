@@ -268,6 +268,17 @@ test("Fleet transport union round-trips every closed wire variant", () => {
     assert.deepEqual(parseFleetFrame({ ...taskCommand, taskId: "task_abc", action }).action, action);
   const scheduleCommand = frames.find((frame) => frame.schema === "fleet.schedule.command/v1")!;
   for (const action of [
+    { kind: "schedule-show", scheduleId: "probe" },
+    {
+      kind: "schedule-update",
+      scheduleId: "probe",
+      name: "Updated probe",
+      model: null,
+      reasoningEffort: null,
+      cwd: null,
+      idempotencyKey: "update-probe",
+    },
+    { kind: "schedule-delete", scheduleId: "probe", reason: "retired", idempotencyKey: "delete-probe" },
     {
       kind: "schedule-run-now",
       scheduleId: "probe",
@@ -344,6 +355,7 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     },
     { ...taskCommand, action: { kind: "task-submit", taskId: "task_abc", submission: "not-an-object" } },
     { ...scheduleCommand, action: { kind: "schedule-create", scheduleId: "probe" } },
+    { ...scheduleCommand, action: { kind: "schedule-update", scheduleId: "probe" } },
     { ...scheduleCommand, action: { kind: "schedule-run-now", scheduleId: "probe", daemonRoute: "/tmp/socket" } },
     {
       ...scheduleCommand,

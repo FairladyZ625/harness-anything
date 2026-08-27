@@ -5,6 +5,9 @@ import type { ThinCommand } from "../cli/thin-command.ts";
 const fleetScheduleKinds = [
   "schedule-create",
   "schedule-list",
+  "schedule-show",
+  "schedule-update",
+  "schedule-delete",
   "schedule-enable",
   "schedule-disable",
   "schedule-run-now",
