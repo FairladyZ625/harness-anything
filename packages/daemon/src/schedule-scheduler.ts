@@ -4,9 +4,9 @@ import {
   type ScheduleMissedReason,
   type ScheduleV1,
 } from "../../kernel/src/index.ts";
-import { localRepairBinding } from "./daemon-host-binding.ts";
+import type { DaemonCommandClass } from "./identity/types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import type { RepoCell } from "./repo-cell.ts";
+import type { RepoCell, RepoCellBinding } from "./repo-cell.ts";
 
 export const scheduleAdmissionWindowMs = 60_000;
 
@@ -36,6 +36,7 @@ type MissedOccurrences = {
 
 export function makeScheduleScheduler(input: {
   readonly cells: ReadonlyMap<string, RepoCell>;
+  readonly localBinding: (rootDir: string, required: DaemonCommandClass) => RepoCellBinding | Promise<RepoCellBinding>;
   readonly remoteEdgeAction?: (
     repoId: string,
     rootDir: string,
@@ -195,8 +196,11 @@ export function makeScheduleScheduler(input: {
     if (mode === "local")
       return {
         repoId,
-        execute: (action) =>
-          cell.run(action, localRepairBinding) as unknown as Promise<Readonly<Record<string, unknown>>>,
+        execute: async (action) =>
+          cell.run(
+            action,
+            await input.localBinding(rootDir, action.kind === "schedule-list" ? "repo-read" : "repo-write"),
+          ) as unknown as Promise<Readonly<Record<string, unknown>>>,
       };
     if (mode !== "remote-edge" || !input.remoteEdgeAction) return null;
     return {

@@ -155,7 +155,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["daemon", "stop"],
     summary: "Stop the resident daemon.",
-    method: "protocol.hello",
+    method: "daemon.stop",
     inputs: [
       cliInput("--force", "boolean", false, {
         code: "invalid_field",

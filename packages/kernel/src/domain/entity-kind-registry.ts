@@ -786,7 +786,3 @@ export function createEntityKindRegistry(vertical: VerticalDefinition): EntityKi
     byId: new Map(entries.map((entry) => [entry.id, entry])),
   };
 }
-
-export function getEntityKind(registry: EntityKindRegistry, entityKind: string): EntityKindRegistration | undefined {
-  return registry.byId.get(entityKind);
-}

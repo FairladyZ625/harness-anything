@@ -1,4 +1,5 @@
 /** @daemon-transport-authority Transport-derived actor and assignment binding. */
+import os from "node:os";
 import { hostCodedError } from "./daemon-host-errors.ts";
 import {
   deriveRoleBindings,
@@ -9,23 +10,59 @@ import {
 } from "../../kernel/src/index.ts";
 import { loadPeopleRoster } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
-import type { DaemonCommandClass } from "./identity/types.ts";
+import type { DaemonCommandClass, PeopleRoster } from "./identity/types.ts";
 import { type RepoCellBinding } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 
-export const localRepairBinding: RepoCellBinding = {
-  actor: { principal: { personId: "daemon-local-repair" }, executor: null },
-  roleBindings: [
-    {
-      actor: { kind: "person", id: "daemon-local-repair" },
-      role: "admin",
-      target: "settings/repository",
-      source: "derived",
-      expiresAt: null,
-    },
-  ],
-  source: "local",
-};
+export function localSystemBinding(
+  rootDir: string,
+  required: DaemonCommandClass = "repo-write",
+  executor: RepoCellBinding["actor"]["executor"] = null,
+): RepoCellBinding {
+  const ownerUid = process.getuid?.();
+  if (typeof ownerUid !== "number")
+    throw hostCodedError("credential_unavailable", "Local system binding requires a Unix socket owner boundary.");
+  const roster = loadPeopleRoster({ rootDir }),
+    resolved = roster.resolveCredential(
+      {
+        kind: "unix-socket-owner-boundary",
+        issuer: `host:${os.hostname()}`,
+        subject: String(ownerUid),
+      },
+      "local-system/v1",
+    );
+  if (!resolved.ok) throw hostCodedError(resolved.code, resolved.message);
+  const actor = { principal: { personId: resolved.actor.personId }, executor };
+  return deriveLocalBinding(roster, actor, resolved.actor.roles, required);
+}
+
+function deriveLocalBinding(
+  roster: PeopleRoster,
+  actor: RepoCellBinding["actor"],
+  roleIds: readonly string[],
+  required: DaemonCommandClass,
+  returnDeniedDocDetail = false,
+): RepoCellBinding {
+  const repositoryTarget: EntityRef = "settings/repository",
+    evaluatedAt = new Date().toISOString(),
+    roleBindings = [
+      ...deriveRoleBindings({
+        actor,
+        roleIds,
+        roleDeclarations: roster.roles,
+        target: repositoryTarget,
+      }),
+      ...roster.bindings.filter(
+        (candidate) => roleBindingActorMatches(candidate.actor, actor) && !roleBindingExpired(candidate, evaluatedAt),
+      ),
+    ],
+    allowed = roleBindings.some((candidate) =>
+      roleBindingApplies(candidate, actor, required, [repositoryTarget], evaluatedAt),
+    );
+  if (!allowed && !returnDeniedDocDetail)
+    throw hostCodedError("rbac_forbidden", `Principal ${actor.principal.personId} lacks ${required}.`);
+  return { actor, roleBindings, source: "local", docWriteAllowed: allowed };
+}
 
 export async function binding(
   rootDir: string,
@@ -79,32 +116,8 @@ export async function binding(
         : { method: "repo.task.run", namespace: "repo", requiresRepo: true },
   });
   if (!resolved.ok) throw hostCodedError(resolved.code, resolved.message);
-  const actor = { principal: { personId: resolved.actor.personId }, executor },
-    repositoryTarget: EntityRef = "settings/repository",
-    evaluatedAt = new Date().toISOString(),
-    roleBindings = [
-      ...deriveRoleBindings({
-        actor,
-        roleIds: resolved.actor.roles,
-        roleDeclarations: roster.roles,
-        target: repositoryTarget,
-      }),
-      ...roster.bindings.filter(
-        (candidate) => roleBindingActorMatches(candidate.actor, actor) && !roleBindingExpired(candidate, evaluatedAt),
-      ),
-    ],
-    allowed = roleBindings.some((candidate) =>
-      roleBindingApplies(candidate, actor, required, [repositoryTarget], evaluatedAt),
-    );
-  if (!allowed && !returnDeniedDocDetail) {
-    throw hostCodedError("rbac_forbidden", `Principal ${resolved.actor.personId} lacks ${required}.`);
-  }
-  return {
-    actor,
-    roleBindings,
-    source: "local",
-    docWriteAllowed: allowed,
-  };
+  const actor = { principal: { personId: resolved.actor.personId }, executor };
+  return deriveLocalBinding(roster, actor, resolved.actor.roles, required, returnDeniedDocDetail);
 }
 
 export function declaredExecutor(value: unknown): RepoCellBinding["actor"]["executor"] {

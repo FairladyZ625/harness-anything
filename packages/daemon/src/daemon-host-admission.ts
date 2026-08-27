@@ -31,21 +31,6 @@ export function admitHostMode(
   return admitRepoMode(persisted?.mode ?? fallback!.mode!, command, source);
 }
 
-export function localCenterProjectionRepair(
-  context: any,
-  repoId: string,
-  actionKind: string,
-  auth: DaemonAuthenticationContext,
-): boolean {
-  if (actionKind !== "projection-rebuild" || auth.transportKind !== "unix-socket" || auth.assignmentBinding)
-    return false;
-  const persisted = readDaemonRegistry({
-      userRoot: context.input.userRoot,
-    }).repos.find((entry) => entry.repoId === repoId && entry.state === "enabled"),
-    fallback = context.unavailable.get(repoId);
-  return (persisted?.mode ?? fallback?.mode) === "remote-center";
-}
-
 export function requireHostMode(
   context: any,
   repoId: string,

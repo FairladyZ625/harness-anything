@@ -6,6 +6,7 @@ import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
 import type { RepoCell } from "../src/repo-cell.ts";
 
 const actor = { principal: { personId: "schedule-scheduler-test" }, executor: null } as const;
+const localBinding = () => ({ actor, source: "local" as const });
 
 test("one nearest timer launches different due Schedules concurrently", async () => {
   const clock = fakeClock("2026-08-27T10:00:00.000Z"),
@@ -23,6 +24,7 @@ test("one nearest timer launches different due Schedules concurrently", async ()
       [first.repoId, first.cell],
       [second.repoId, second.cell],
     ]),
+    localBinding,
     now: clock.now,
     setTimer: clock.setTimer,
     clearTimer: clock.clearTimer,
@@ -48,6 +50,7 @@ test("a long stop aggregates missed intervals and never catches them up", async 
     repo = fixtureRepo("missed", "local", [schedule("heartbeat")]),
     scheduler = makeScheduleScheduler({
       cells: new Map([[repo.repoId, repo.cell]]),
+      localBinding,
       now: clock.now,
       setTimer: clock.setTimer,
       clearTimer: clock.clearTimer,
@@ -83,6 +86,7 @@ test("an active Schedule records the next tick as single-flight missed", async (
   const repo = fixtureRepo("single-flight", "local", [active]),
     scheduler = makeScheduleScheduler({
       cells: new Map([[repo.repoId, repo.cell]]),
+      localBinding,
       now: clock.now,
       setTimer: clock.setTimer,
       clearTimer: clock.clearTimer,
@@ -104,6 +108,7 @@ test("remote-center installs no timer while remote-edge uses its assignment acti
         [center.repoId, center.cell],
         [edge.repoId, edge.cell],
       ]),
+      localBinding,
       remoteEdgeAction: async (_repoId, _rootDir, action) => {
         edgeActions.push(String(action.kind));
         return edge.execute(action);
@@ -141,6 +146,7 @@ test("manual runs do not move automatic cadence and enabling skips the paused wi
   const repo = fixtureRepo("cadence", "local", [heartbeat]),
     scheduler = makeScheduleScheduler({
       cells: new Map([[repo.repoId, repo.cell]]),
+      localBinding,
       now: clock.now,
       setTimer: clock.setTimer,
       clearTimer: clock.clearTimer,
@@ -166,6 +172,7 @@ test("a deleted Schedule disappears from scheduler refreshes and is never fired"
     repo = fixtureRepo("deleted", "local", rows),
     scheduler = makeScheduleScheduler({
       cells: new Map([[repo.repoId, repo.cell]]),
+      localBinding,
       now: clock.now,
       setTimer: clock.setTimer,
       clearTimer: clock.clearTimer,

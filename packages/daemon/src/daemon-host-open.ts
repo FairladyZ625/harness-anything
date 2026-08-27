@@ -16,11 +16,10 @@ import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import {
   admitHostMode as admitHostModeImpl,
-  localCenterProjectionRepair as localCenterProjectionRepairImpl,
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import { binding, declaredExecutor, localRepairBinding } from "./daemon-host-binding.ts";
+import { binding, declaredExecutor, localSystemBinding } from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -138,6 +137,7 @@ export async function openDaemonHost(input: {
     scheduleScheduler = makeScheduleScheduler({
       cells,
       now,
+      localBinding: (rootDir, required) => localSystemBinding(rootDir, required),
       remoteEdgeAction: async (repoId, rootDir, action) => {
         const config = readFleetEdgeConfig(rootDir);
         if (!config || config.repoId !== repoId)
@@ -388,14 +388,12 @@ export async function openDaemonHost(input: {
     settleWarming,
     closeCell,
     publicRegistryRepo,
-    localCenterProjectionRepair,
     admitHostMode,
     rejectHostAction,
     attemptHostRecovery,
     warming,
     warmingMessage,
     declaredExecutor,
-    localRepairBinding,
     code,
     daemonErrorMessage,
     requiredCell,
@@ -515,9 +513,6 @@ export async function openDaemonHost(input: {
     auth: DaemonAuthenticationContext,
   ): RepoModeAdmission {
     return admitHostModeImpl(extracted, repoId, command, auth);
-  }
-  function localCenterProjectionRepair(repoId: string, actionKind: string, auth: DaemonAuthenticationContext): boolean {
-    return localCenterProjectionRepairImpl(extracted, repoId, actionKind, auth);
   }
   function requireHostMode(repoId: string, command: CommandTopology, auth: DaemonAuthenticationContext): void {
     return requireHostModeImpl(extracted, repoId, command, auth);

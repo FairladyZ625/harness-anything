@@ -1,5 +1,5 @@
 import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
-import type { EventHead } from "../domain/write-chain.contract.ts";
+import type { ActorIdentity, EventHead } from "../domain/write-chain.contract.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
@@ -41,7 +41,7 @@ type StoreOptions = Parameters<typeof makeGitEventStore>[0] & {
   readonly walRetryLimit?: number;
   readonly walRetryBaseMs?: number;
   /** Runs after a WAL cut is durable and Git state has been reloaded. */
-  readonly afterFlush?: () => void;
+  readonly afterFlush?: (actor: ActorIdentity) => void;
 };
 
 export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventStore {
@@ -148,6 +148,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
             ...canonicalDocumentRetirements(record.event).map((retirement) => ledgerGitPath(ledger, retirement.path)),
           ]),
         ),
+        pendingRecords.at(-1)!.event.actor,
       );
       console.info(
         `[wal-materializer] materialized revisions ${first}-${last} (${context}, attempt ${consecutiveFailures + 1})`,
@@ -181,7 +182,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       return false;
     }
   };
-  const notifyAfterFlush = (ignored: ReadonlySet<string> = new Set()): void => {
+  const notifyAfterFlush = (ignored: ReadonlySet<string>, actor: ActorIdentity | undefined): void => {
+    if (!actor) return;
     const fingerprint = localGitWorktreeSettlement.changesFingerprint(
       ledger.rootDir,
       ledger.authoredPrefix || ".",
@@ -191,7 +193,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     lastSettlementFingerprint = fingerprint;
     if (fingerprint === null) return;
     try {
-      options.afterFlush?.();
+      options.afterFlush?.(actor);
     } catch (error) {
       console.warn(`[wal-materializer] authored settlement failed: ${walShadowErrorMessage(error)}`);
       consumeKnownError(error);
@@ -384,6 +386,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
               ...canonicalDocumentRetirements(record.event).map((retirement) => ledgerGitPath(ledger, retirement.path)),
             ]),
           ),
+          records.at(-1)?.event.actor,
         );
       return recovered;
     }
@@ -400,6 +403,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
             ...canonicalDocumentRetirements(record.event).map((retirement) => ledgerGitPath(ledger, retirement.path)),
           ]),
         ),
+        records.at(-1)?.event.actor,
       );
     return result;
   };

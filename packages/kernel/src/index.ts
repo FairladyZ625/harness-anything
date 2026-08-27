@@ -210,8 +210,6 @@ export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
 export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
-export { readTaskProjectionSchemaVersion, taskProjectionSchemaVersion } from "./projection/projection-schema.ts";
-export { defaultLifecycleTaskProjectionPath } from "./projection/rebuildable-task-projection.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {

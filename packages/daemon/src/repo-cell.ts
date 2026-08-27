@@ -1,14 +1,20 @@
 import path from "node:path";
 import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
-import { blockingOf, closeoutReadiness, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import {
+  blockingOf,
+  closeoutReadiness,
+  makeTaskEventStore,
+  makeTaskProjection,
+  type ActorIdentity,
+} from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
-import { localRepairBinding } from "./daemon-host-binding.ts";
 import { makeDecisionActions } from "./decision-actions.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeFactActions } from "./fact-actions.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
+import { withDerivedCommandClass } from "./repo-cell-role-bindings.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { TaskQueryJudgments } from "./task-query-read.ts";
 
@@ -30,16 +36,17 @@ export const repoCellTaskQueryJudgments: TaskQueryJudgments = {
 
 export function initializeRepoCell(context: any): any {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
-  let settlementPending = false;
-  const settleAuthoredCandidates = (): void => {
+  let pendingSettlementActor: ActorIdentity | null = null;
+  const settleAuthoredCandidates = (actor: ActorIdentity): void => {
     const currentProjection = projection;
     if (currentProjection === null) {
-      settlementPending = true;
+      pendingSettlementActor = actor;
       return;
     }
+    const binding = withDerivedCommandClass({ actor, source: "local" }, "repo-write");
     void runDocAction({
       action: { kind: "doc-submit", paths: [] },
-      binding: localRepairBinding,
+      binding,
       workspaceId: context.input.repoId,
       rootDir: context.rootDir,
       store,
@@ -75,7 +82,7 @@ export function initializeRepoCell(context: any): any {
     }),
     recovery = store.recover();
   projection = makeTaskProjection({ rootDir: context.rootDir, eventStore: store, now: context.now });
-  if (settlementPending) settleAuthoredCandidates();
+  if (pendingSettlementActor) settleAuthoredCandidates(pendingSettlementActor);
   const currentSessionIdentity = (binding: RepoCellBinding) => resolveWriteSessionIdentity(binding, projection!);
   const factActions = makeFactActions({
       store,

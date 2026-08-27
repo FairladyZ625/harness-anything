@@ -26,6 +26,18 @@ export class ProjectionIdentityMismatchError extends Error {
     this.name = "ProjectionIdentityMismatchError";
   }
 }
+
+export class ProjectionSchemaMismatchError extends Error {
+  readonly code = "kernel_schema_mismatch";
+
+  constructor(observed: number, projectionPath: string) {
+    super(
+      `kernel projection schema ${observed} is newer than supported schema ${taskProjectionSchemaVersion}; ` +
+        `run a daemon build that understands ${projectionPath}`,
+    );
+    this.name = "ProjectionSchemaMismatchError";
+  }
+}
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
 const projectionClosers = new Map<string, Set<() => void>>();
 
@@ -140,7 +152,12 @@ function projectionDatabaseOwner(
   };
   const initialize = () => {
     open();
-    if (projectionSchemaVersion(db!) !== null && projectionSchemaVersion(db!) !== taskProjectionSchemaVersion) {
+    const observed = projectionSchemaVersion(db!);
+    if (observed !== null && observed > taskProjectionSchemaVersion) {
+      close();
+      throw new ProjectionSchemaMismatchError(observed, projectionPath);
+    }
+    if (observed !== null && observed !== taskProjectionSchemaVersion) {
       discard();
       open();
     }
@@ -149,6 +166,9 @@ function projectionDatabaseOwner(
   const use = <A>(operation: (database: DatabaseSync) => A): A => {
     if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
     if (db === null) initialize();
+    const observed = projectionSchemaVersion(db!);
+    if (observed !== null && observed > taskProjectionSchemaVersion)
+      throw new ProjectionSchemaMismatchError(observed, projectionPath);
     if (!matchesLedgerIdentity(db!, readHead())) throw new ProjectionIdentityMismatchError();
     return operation(db!);
   };

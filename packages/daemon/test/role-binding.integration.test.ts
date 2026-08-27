@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { binding } from "../src/daemon-host-binding.ts";
+import { binding, localSystemBinding } from "../src/daemon-host-binding.ts";
 
 test("daemon identity derives the RoleBinding contract and joins declared bindings without a second map", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-role-binding-")),
@@ -64,6 +64,7 @@ test("daemon identity derives the RoleBinding contract and joins declared bindin
         expiresAt: null,
       },
     ]);
+    assert.deepEqual(localSystemBinding(rootDir, "repo-write"), resolved);
 
     writeFileSync(peoplePath, `${JSON.stringify(roster(["repo-read"]), null, 2)}\n`);
     await assert.rejects(() => binding(rootDir, auth, "repo-write"), /lacks repo-write/u);

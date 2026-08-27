@@ -6,11 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import {
-  makeTaskEventStore,
-  taskProjectionSchemaVersion,
-  type AgentDefinitionSnapshot,
-} from "../../kernel/src/index.ts";
+import { makeTaskEventStore, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
@@ -158,7 +154,7 @@ test("task-bound spawn exit keeps its released execution visible after a v7 cach
         .prepare("SELECT entity_id FROM entity_projection WHERE entity_kind = 'execution' AND task_id = ?")
         .get(taskId) as { readonly entity_id: string } | undefined;
     rebuilt.close();
-    assert.equal(version.schema_version, taskProjectionSchemaVersion);
+    assert.equal(version.schema_version, 12); // taskProjectionSchemaVersion in kernel projection-schema.ts
     assert.equal(execution?.entity_id, executionId);
   } finally {
     await host.close();
