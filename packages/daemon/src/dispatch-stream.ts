@@ -360,15 +360,6 @@ function isFallbackProvider(value: unknown): value is { readonly instance: strin
   );
 }
 
-export function readDispatchStreams(rootDir: string): readonly NonNullable<ReturnType<typeof readDispatchStream>>[] {
-  const root = dispatchStreamRoot(rootDir);
-  if (!existsSync(root) || !statSync(root).isDirectory()) return [];
-  return readdirSync(root)
-    .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
-    .map((name) => readDispatchStream(rootDir, name.slice(0, -6)))
-    .filter((stream): stream is NonNullable<ReturnType<typeof readDispatchStream>> => stream !== null);
-}
-
 export function appendRuntimeWorkerRecord(
   rootDir: string,
   dispatchId: string,

@@ -8,7 +8,7 @@ import {
   SETTINGS_V1_SCHEMA,
   readSettingsFacet,
   repositorySettings,
-  writeSettingsFacet,
+  writeRepositorySettingsFacet,
   type SettingsV1,
 } from "../../src/domain/settings.ts";
 
@@ -51,7 +51,7 @@ test("Settings facet codec changes owned fields and preserves every unowned byte
       defaultPreset: "strict-task",
       locale: "zh-CN",
     },
-    candidate = writeSettingsFacet(original, settings);
+    candidate = writeRepositorySettingsFacet(original, settings);
 
   assert.deepEqual(repositorySettings(readSettingsFacet(candidate)), repositorySettings(settings));
   assert.equal(candidate.includes("defaultPreset: strict-task # owned"), true);
@@ -63,7 +63,7 @@ test("Settings facet codec changes owned fields and preserves every unowned byte
 
 test("settings_changed carries the singleton snapshot, parent CAS, YAML claim, and exact write plan", () => {
   const settings = { ...readSettingsFacet(original), locale: "zh-CN" } as SettingsV1,
-    candidate = writeSettingsFacet(original, settings),
+    candidate = writeRepositorySettingsFacet(original, settings),
     bundle = compileSettingsChangedEvent({
       settings,
       baseDocumentBody: original,

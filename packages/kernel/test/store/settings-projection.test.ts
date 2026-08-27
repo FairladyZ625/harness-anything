@@ -8,7 +8,7 @@ import { compileSettingsChangedEvent } from "../../src/domain/settings-event.ts"
 import {
   readSettingsFacet,
   repositorySettings,
-  writeSettingsFacet,
+  writeRepositorySettingsFacet,
   type SettingsV1,
 } from "../../src/domain/settings.ts";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
@@ -25,7 +25,7 @@ test(rebuildTitle, async () => {
       eventStore = makeTaskEventStore({ repoId: "settings-projection", rootDir }),
       projection = makeTaskProjection({ rootDir, eventStore }),
       settings = { ...readSettingsFacet(original), defaultPreset: "strict-task", locale: "zh-CN" } as SettingsV1,
-      candidate = writeSettingsFacet(original, settings),
+      candidate = writeRepositorySettingsFacet(original, settings),
       bundle = compileSettingsChangedEvent({
         settings,
         baseDocumentBody: original,
@@ -63,7 +63,7 @@ test("Settings publication rejects a candidate that also mutates layout, WIP, or
     const original = initRepo(rootDir),
       eventStore = makeTaskEventStore({ repoId: "settings-ownership", rootDir }),
       settings = { ...readSettingsFacet(original), locale: "zh-CN" } as SettingsV1,
-      ownedCandidate = writeSettingsFacet(original, settings),
+      ownedCandidate = writeRepositorySettingsFacet(original, settings),
       trespassing = ownedCandidate
         .replace("authoredRoot: harness", "authoredRoot: elsewhere")
         .replace("wipLimit: 60", "wipLimit: 1")

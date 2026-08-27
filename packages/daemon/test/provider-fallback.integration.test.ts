@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, type AgentDefinitionSnapshot, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
 import type { RuntimeInstanceSummary, RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { readDispatchStreams } from "../src/dispatch-stream.ts";
+import { readDispatchStream, readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
 import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -354,7 +354,9 @@ test("repeated adoption dispatches one durable fallback continuation", async () 
       binding,
     );
     const first = await eventually(async () => {
-      const stream = readDispatchStreams(root)[0];
+      const stream = readDispatchStreamHeaders(root)
+        .map((header) => readDispatchStream(root, header.dispatchId))
+        .find((value) => value !== null);
       return stream?.fallbackState === "scheduled" ? stream : null;
     });
     spawner.close();
@@ -362,7 +364,9 @@ test("repeated adoption dispatches one durable fallback continuation", async () 
     await spawner.adopt();
     await spawner.adopt();
     const streams = await eventually(async () => {
-      const values = readDispatchStreams(root),
+      const values = readDispatchStreamHeaders(root)
+          .map((header) => readDispatchStream(root, header.dispatchId))
+          .filter((value): value is NonNullable<typeof value> => value !== null),
         original = values.find((stream) => stream.header.dispatchId === first.header.dispatchId);
       return values.length === 2 && original?.fallbackState === "dispatched" ? values : null;
     });

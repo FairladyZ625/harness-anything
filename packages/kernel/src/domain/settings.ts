@@ -15,6 +15,15 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   scaffolds: "repository",
 } as const);
 
+type SettingsOwnedField = keyof typeof SETTINGS_FIELD_OWNERSHIP;
+
+function ownedSchema<T extends object>(
+  field: SettingsOwnedField,
+  schema: T,
+): T & { readonly "x-settings-ownership": (typeof SETTINGS_FIELD_OWNERSHIP)[SettingsOwnedField] } {
+  return { ...schema, "x-settings-ownership": SETTINGS_FIELD_OWNERSHIP[field] };
+}
+
 export interface RepositorySettingsV1 {
   readonly schema: "settings/v1";
   readonly settingsId: typeof SETTINGS_ID;
@@ -51,7 +60,7 @@ export const SETTINGS_LOCAL_V1_SCHEMA: EntityDocumentJsonSchema<LocalSettingsV1>
   type: "object",
   properties: {
     schema: { type: "string", const: "settings-local/v1" },
-    locale: { type: "string", enum: settingsLocales, "x-settings-ownership": "local" },
+    locale: ownedSchema("locale", { type: "string", enum: settingsLocales }),
   },
   required: ["schema", "locale"],
   additionalProperties: false,
@@ -83,36 +92,36 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
       type: "string",
       pattern: settingValuePattern,
       minLength: 1,
-      "x-settings-ownership": "repository",
+      ...ownedSchema("defaultVertical", {}),
     },
     defaultPreset: {
       type: "string",
       pattern: settingValuePattern,
       minLength: 1,
-      "x-settings-ownership": "repository",
+      ...ownedSchema("defaultPreset", {}),
     },
     defaultProfile: {
       type: "string",
       pattern: settingValuePattern,
       minLength: 1,
-      "x-settings-ownership": "repository",
+      ...ownedSchema("defaultProfile", {}),
     },
-    locale: { type: "string", enum: settingsLocales, "x-settings-ownership": "local" },
+    locale: ownedSchema("locale", { type: "string", enum: settingsLocales }),
     scaffolds: {
-      "x-settings-ownership": "repository",
+      ...ownedSchema("scaffolds", {}),
       type: "object",
       properties: {
         task: {
           type: "string",
           pattern: settingValuePattern,
           minLength: 1,
-          "x-settings-ownership": "repository",
+          ...ownedSchema("scaffolds", {}),
         },
         repository: {
           type: "string",
           pattern: settingValuePattern,
           minLength: 1,
-          "x-settings-ownership": "repository",
+          ...ownedSchema("scaffolds", {}),
         },
       },
       required: ["task", "repository"],
@@ -135,25 +144,25 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
       type: "string",
       pattern: settingValuePattern,
       minLength: 1,
-      "x-settings-ownership": "repository",
+      ...ownedSchema("defaultVertical", {}),
     },
-    defaultPreset: { type: "string", pattern: settingValuePattern, minLength: 1, "x-settings-ownership": "repository" },
+    defaultPreset: ownedSchema("defaultPreset", { type: "string", pattern: settingValuePattern, minLength: 1 }),
     defaultProfile: {
       type: "string",
       pattern: settingValuePattern,
       minLength: 1,
-      "x-settings-ownership": "repository",
+      ...ownedSchema("defaultProfile", {}),
     },
     scaffolds: {
-      "x-settings-ownership": "repository",
+      ...ownedSchema("scaffolds", {}),
       type: "object",
       properties: {
-        task: { type: "string", pattern: settingValuePattern, minLength: 1, "x-settings-ownership": "repository" },
+        task: ownedSchema("scaffolds", { type: "string", pattern: settingValuePattern, minLength: 1 }),
         repository: {
           type: "string",
           pattern: settingValuePattern,
           minLength: 1,
-          "x-settings-ownership": "repository",
+          ...ownedSchema("scaffolds", {}),
         },
       },
       required: ["task", "repository"],
@@ -210,15 +219,6 @@ export function readSettingsFacet(body: string): SettingsV1 {
   const errors = validateSettingsV1(settings);
   if (errors.length) throw new Error(errors.join("; "));
   return settings;
-}
-
-export function writeSettingsFacet(body: string, settings: SettingsV1): string {
-  const errors = validateSettingsV1(settings);
-  if (errors.length) throw new Error(errors.join("; "));
-  const next = writeRepositorySettingsFacet(body, settings);
-  if (JSON.stringify(repositorySettings(readSettingsFacet(next))) !== JSON.stringify(repositorySettings(settings)))
-    throw new Error("settings facet replacement did not round-trip exactly");
-  return next;
 }
 
 /** Replace repository-owned YAML fields and remove the legacy authored locale line. */
