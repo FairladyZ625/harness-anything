@@ -27,6 +27,7 @@ export interface SquadDeclarationV1 {
   readonly name: string;
   readonly leader: string;
   readonly workers: readonly string[];
+  /** Whole-run limit: the initial planning turn plus every callback and retry turn. */
   readonly leaderTurnBudget: number;
   readonly roster: string;
 }

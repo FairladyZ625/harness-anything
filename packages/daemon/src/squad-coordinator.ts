@@ -28,6 +28,12 @@ type LeaderDecision =
       readonly dispatches: readonly WorkerPlan[];
     };
 
+type WorkerWaitTrigger = {
+  readonly kind: "worker_wait";
+  readonly runtimeSessionId: string;
+  readonly reason: string;
+};
+
 type LeaderTrigger =
   | { readonly kind: "initial" }
   | {
@@ -42,7 +48,8 @@ type LeaderTrigger =
   | {
       readonly kind: "worker_rejected";
       readonly attemptId: string;
-    };
+    }
+  | WorkerWaitTrigger;
 
 type LeaderTurn = {
   readonly turnId: string;
@@ -89,6 +96,7 @@ type SquadState = {
   readonly currentLeaderRuntimeSessionId: string | null;
   readonly workerAttempts: readonly WorkerAttempt[];
   readonly observedWorkerRuntimeSessionIds: readonly string[];
+  readonly workerWaits: readonly WorkerWaitTrigger[];
   readonly pendingLeaderTriggers: readonly LeaderTrigger[];
   readonly phase: SquadRunPhase;
   readonly revision: number;
@@ -139,6 +147,7 @@ export function makeSquadCoordinator(input: {
         currentLeaderRuntimeSessionId: null,
         workerAttempts: [],
         observedWorkerRuntimeSessionIds: [],
+        workerWaits: [],
         pendingLeaderTriggers: [],
         phase: "planning",
         revision: 0,
@@ -268,9 +277,12 @@ export function makeSquadCoordinator(input: {
 
   async function continueWorker(state: SquadState, runtimeSessionId: string): Promise<void> {
     if (state.observedWorkerRuntimeSessionIds.includes(runtimeSessionId)) return;
+    const wait = state.workerWaits.find((candidate) => candidate.runtimeSessionId === runtimeSessionId),
+      trigger: LeaderTrigger = wait ?? { kind: "worker_outcome", runtimeSessionId };
     const updated = revise(state, {
       observedWorkerRuntimeSessionIds: [...state.observedWorkerRuntimeSessionIds, runtimeSessionId],
-      pendingLeaderTriggers: [...state.pendingLeaderTriggers, { kind: "worker_outcome", runtimeSessionId }],
+      workerWaits: state.workerWaits.filter((candidate) => candidate.runtimeSessionId !== runtimeSessionId),
+      pendingLeaderTriggers: [...state.pendingLeaderTriggers, trigger],
     });
     writeState(updated);
     if (!updated.currentLeaderRuntimeSessionId) await spawnPendingLeader(updated);
@@ -310,13 +322,15 @@ export function makeSquadCoordinator(input: {
     writeState(updated);
 
     if (decision.kind === "plan") {
-      const activeWorkerIds = new Set(
+      const activeWorkers = new Map(
         workerRows(updated)
           .filter(({ attempt, row }) => attempt.rejection === null && (!row || row.outcome === null))
-          .map((worker) => worker.attempt.workerId),
+          .map(({ attempt }) => [attempt.workerId, attempt] as const),
       );
-      for (const plan of decision.dispatches.filter((dispatch) => !activeWorkerIds.has(dispatch.workerId)))
-        updated = await spawnWorker(updated, plan, turn.turnId);
+      for (const plan of decision.dispatches) {
+        const active = activeWorkers.get(plan.workerId);
+        updated = active ? recordWorkerWait(updated, active) : await spawnWorker(updated, plan, turn.turnId);
+      }
     }
 
     updated = discoverWorkerCallbacks(updated);
@@ -414,6 +428,24 @@ export function makeSquadCoordinator(input: {
     }
   }
 
+  function recordWorkerWait(state: SquadState, attempt: WorkerAttempt): SquadState {
+    if (
+      attempt.runtimeSessionId === null ||
+      state.workerWaits.some((wait) => wait.runtimeSessionId === attempt.runtimeSessionId)
+    )
+      return state;
+    return revise(state, {
+      workerWaits: [
+        ...state.workerWaits,
+        {
+          kind: "worker_wait",
+          runtimeSessionId: attempt.runtimeSessionId,
+          reason: `Worker ${attempt.workerId} already has running attempt ${attempt.attemptId}; waited for its callback instead of redispatching.`,
+        },
+      ],
+    });
+  }
+
   async function spawnPendingLeader(state: SquadState): Promise<SquadState> {
     const trigger = state.pendingLeaderTriggers[0];
     if (!trigger) return state;
@@ -494,15 +526,15 @@ export function makeSquadCoordinator(input: {
       )
       .map(({ attempt }) => attempt.runtimeSessionId!);
     if (!discovered.length) return state;
+    const waits = new Map(state.workerWaits.map((wait) => [wait.runtimeSessionId, wait]));
     return revise(state, {
       observedWorkerRuntimeSessionIds: [...state.observedWorkerRuntimeSessionIds, ...discovered],
+      workerWaits: state.workerWaits.filter((wait) => !discovered.includes(wait.runtimeSessionId)),
       pendingLeaderTriggers: [
         ...state.pendingLeaderTriggers,
         ...discovered.map(
-          (runtimeSessionId): LeaderTrigger => ({
-            kind: "worker_outcome",
-            runtimeSessionId,
-          }),
+          (runtimeSessionId): LeaderTrigger =>
+            waits.get(runtimeSessionId) ?? { kind: "worker_outcome", runtimeSessionId },
         ),
       ],
     });
@@ -638,7 +670,7 @@ export function makeSquadCoordinator(input: {
         ...attempt,
       })),
       workerCallbackCount: state.observedWorkerRuntimeSessionIds.length,
-      pendingLeaderCallbackCount: state.pendingLeaderTriggers.length,
+      pendingLeaderCallbackCount: state.pendingLeaderTriggers.length + state.workerWaits.length,
       error: state.error,
     };
   }
@@ -760,7 +792,11 @@ function callbackLeaderPrompt(state: SquadState, trigger: LeaderTrigger, rows: r
   return [
     trigger.kind === "leader_retry" ? "# Squad leader retry" : "# Squad worker callback",
     `Trigger: ${JSON.stringify(trigger)}`,
-    ...(trigger.kind === "leader_retry" ? [`Previous turn could not advance: ${trigger.reason}`] : []),
+    ...(trigger.kind === "leader_retry"
+      ? [`Previous turn could not advance: ${trigger.reason}`]
+      : trigger.kind === "worker_wait"
+        ? [`Wait completed: ${trigger.reason}`]
+        : []),
     "Review the durable TaskDispatchRow receipts below. " +
       "Return runtime-batch/v1 to reassign or add work. " +
       "Return an empty dispatches array to accept this callback while other work runs. " +
@@ -832,6 +868,7 @@ function squadState(value: unknown): SquadState | null {
     Array.isArray(row.leaderTurns) &&
     Array.isArray(row.workerAttempts) &&
     Array.isArray(row.observedWorkerRuntimeSessionIds) &&
+    Array.isArray(row.workerWaits) &&
     Array.isArray(row.pendingLeaderTriggers) &&
     Number.isSafeInteger(row.leaderTurnBudget) &&
     Number(row.leaderTurnBudget) >= 1 &&
@@ -885,6 +922,7 @@ function cwdPayload(rootDir: string, cwd: string): JsonObject {
 
 function triggerKey(trigger: Exclude<LeaderTrigger, { readonly kind: "initial" }>): string {
   if (trigger.kind === "leader_retry") return `retry:${trigger.turnId}`;
+  if (trigger.kind === "worker_wait") return `wait:${trigger.runtimeSessionId}`;
   return trigger.kind === "worker_outcome" ? `outcome:${trigger.runtimeSessionId}` : `rejected:${trigger.attemptId}`;
 }
 

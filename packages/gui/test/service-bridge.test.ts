@@ -565,6 +565,7 @@ function seedSquadRunState(rootDir: string, repoId: string): string {
         },
       ],
       observedWorkerRuntimeSessionIds: [],
+      workerWaits: [],
       pendingLeaderTriggers: [],
       phase: "converged",
       revision: 3,

@@ -35,6 +35,7 @@ export interface SquadDeclarationV1 {
   readonly name: string;
   readonly leader: string;
   readonly workers: readonly string[];
+  /** Whole-run limit: the initial planning turn plus every callback and retry turn. */
   readonly leaderTurnBudget: number;
   readonly roster: string;
 }
@@ -145,7 +146,7 @@ export const SQUAD_DECLARATION_V1_SCHEMA = Object.freeze({
       type: "integer",
       minimum: 1,
       maximum: Number.MAX_SAFE_INTEGER,
-      description: "Maximum leader turns in one Squad run, including the initial turn.",
+      description: "Maximum leader turns in one Squad run, including the initial, callback, and retry turns.",
       "x-error": "must be a positive integer.",
     },
     roster: nonEmptyString("Human-readable roster."),

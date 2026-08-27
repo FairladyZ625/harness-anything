@@ -148,7 +148,7 @@
   "agentRuntime.openAgent": "Open this agent",
   "agentRuntime.slotRoleHint": "A slot only decides who is in the formation; the wording of the role lives in the roster.",
   "agentRuntime.leaderTurnBudget": "Leader turn budget",
-  "agentRuntime.leaderTurnBudgetDesc": "Maximum leader turns in one run, including the initial planning turn",
+  "agentRuntime.leaderTurnBudgetDesc": "Maximum leader turns in one run, including initial, callback, and retry turns",
   "agentRuntime.roster": "Roster",
   "agentRuntime.rosterDesc": "The natural-language roster the leader actually reads",
   "agentRuntime.rosterHint": "The leader does no capability scoring: it reads this roster and decides in natural language.",

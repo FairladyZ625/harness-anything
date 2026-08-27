@@ -47,6 +47,15 @@ export function interpretEntityValue(
   value: unknown,
   label = `${contract.kind} declaration`,
 ): InterpretedEntityValue {
+  // Pre-budget Squad events are append-only history. Validate that exact old shape without
+  // inventing a budget, then carry it to the read boundary where reinstall guidance is available.
+  if (contract.kind === "squad" && isEntityRecord(value) && !Object.hasOwn(value, "leaderTurnBudget")) {
+    const currentShape = parseEntityJsonSchema(contract.schema, { ...value, leaderTurnBudget: 1 }, label);
+    if (!isEntityRecord(currentShape)) throw new Error(`${label} must be an object`);
+    const id = currentShape[contract.id.field];
+    if (typeof id !== "string") throw new Error(`${label} has no string identity`);
+    return { kind: contract.kind, id, value };
+  }
   const parsed = parseEntityJsonSchema(contract.schema, value, label);
   if (!isEntityRecord(parsed)) throw new Error(`${label} must be an object`);
   const id = parsed[contract.id.field];

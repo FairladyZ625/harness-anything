@@ -87,6 +87,7 @@ function seedSquadRun(rootDir: string, options: SeedOptions): void {
           ]
         : [],
       observedWorkerRuntimeSessionIds: [],
+      workerWaits: [],
       pendingLeaderTriggers: [],
       phase: options.phase,
       revision: 3,

@@ -33,7 +33,9 @@ type RecoveryFixture = {
   readonly coordinator: ReturnType<typeof makeSquadCoordinator>;
   readonly spawns: JsonObject[];
   readonly reacquired: () => number;
+  readonly state: () => Readonly<Record<string, unknown>>;
   readonly completeLeader: (runtimeSessionId: string, result: string) => void;
+  readonly completeWorker: (runtimeSessionId: string) => void;
 };
 
 function makeRecoveryFixture(
@@ -120,6 +122,7 @@ function makeRecoveryFixture(
       rejection: null,
     })),
     observedWorkerRuntimeSessionIds: [],
+    workerWaits: [],
     pendingLeaderTriggers: options.pendingLeaderTriggers ?? [],
     phase: options.currentLeaderRuntimeSessionId === null ? "planning" : "leader_running",
     revision: 1,
@@ -216,6 +219,11 @@ function makeRecoveryFixture(
     }),
     spawns,
     reacquired: () => reacquired,
+    state: () => {
+      const state = rows.find((row) => row.squadRunId === SQUAD_RUN_ID)?.state;
+      assert.ok(state);
+      return state;
+    },
     completeLeader: (runtimeSessionId, result) => {
       const index = sessions.findIndex((session) => session.runtimeSessionId === runtimeSessionId);
       assert.notEqual(index, -1);
@@ -228,6 +236,11 @@ function makeRecoveryFixture(
         `artifact:runtime-result/sha256/${sha256}`,
         "provider-leader",
       );
+    },
+    completeWorker: (runtimeSessionId) => {
+      const index = sessions.findIndex((session) => session.runtimeSessionId === runtimeSessionId);
+      assert.notEqual(index, -1);
+      sessions[index] = { ...sessions[index]!, liveness: "exited", outcome: "succeeded", exitCode: 0 };
     },
   };
 }
@@ -357,6 +370,20 @@ test("redispatch of an active worker waits while non-overlapping work still star
       (status.workers as { readonly workerId: string }[]).map((worker) => worker.workerId),
       ["sol", "terra"],
     );
+    const reason = "Worker sol already has running attempt worker-1; waited for its callback instead of redispatching.";
+    assert.deepEqual(fixture.state().workerWaits, [
+      { kind: "worker_wait", runtimeSessionId: active.runtimeSessionId, reason },
+    ]);
+
+    fixture.completeWorker(active.runtimeSessionId);
+    await fixture.coordinator.observeOutcome(outcomeEvent(active.runtimeSessionId));
+    const resumed = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.deepEqual((resumed.leaders as { readonly trigger: unknown }[])[1]?.trigger, {
+      kind: "worker_wait",
+      runtimeSessionId: active.runtimeSessionId,
+      reason,
+    });
+    assert.match(String(fixture.spawns[1]?.prompt), /Wait completed: Worker sol already has running attempt worker-1/u);
   });
 });
 
