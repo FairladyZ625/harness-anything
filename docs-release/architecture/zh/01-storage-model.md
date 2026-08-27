@@ -1,7 +1,7 @@
 # 撰写记录如何落盘
 
 [三原语内核](../../learn/zh/01-three-primitive-kernel.md) 主张 decision、task、fact 就是整个
-内核,并且它们存储得不对称——decision 集中式、task 是容器、fact 嵌入式。这一页展示这套主张
+内核,并且它们存储得不对称——decision 集中式、task 是容器、fact 独立存储。这一页展示这套主张
 落成真实文件时的样子:目录、每个文件必须携带的 frontmatter,以及模式所强制的 ID 形状。
 
 每个实体在物理上都是同一样东西:一份顶部带着 YAML frontmatter 块的纯 Markdown 文件。这个
@@ -26,9 +26,11 @@ frontmatter 不是装饰——在文件被接受之前,它会对着 `packages/ke
           ├── progress.md               叙述:进度
           ├── review.md                 叙述:判断
           ├── closeout.md               叙述:收尾
-          ├── facts.md                  本地 fact 账本
           ├── executions/exe_<ULID>.md  一轮不可变交付
           └── reviews/rev_<ULID>.md     一轮不可变裁决
+
+  <facts 根目录>/
+  └── F-<Crockford-8>.md                 每条记录一个不可变 fact 文档
 
   <sessions 根>/
   └── <session-id>.md                   捕获的 Session manifest
@@ -36,9 +38,9 @@ frontmatter 不是装饰——在文件被接受之前,它会对着 `packages/ke
 
 三个原语,但只有两个存储位置。**Decision** 一起住在顶级 `decisions/` 目录里——它们是唯一一个
 应该让人类盯着看的投影,所以被放在一处。**Task** 是容器:每个 task 是它自己的目录,命名为
-`task_<ULID>-<slug>/`,里面放着一小组文件。**Fact** 完全没有属于自己的目录——它们被记录在
-产生它们的那个 task 的 `facts.md` 账本里。fact 从不迁出;如果它在别处也重要,由某个 decision
-就地引用它。
+`task_<ULID>-<slug>/`,里面放着一小组文件。**Fact** 有自己的顶级 `facts/` 目录,每条记录对应
+一个 `fact/F-<id>` 文档。与 task 关联的 fact 另有一条 active 的
+`task/<id> -> fact/F-<id>` `produces` 边;独立 fact 则没有这条边。
 
 `objects/sha256/` 树不同于这些手写 Markdown 面。它是内容寻址 blob store。一个 blob 由它的
 SHA-256 摘要寻址，存成 `objects/sha256/<前两个十六进制字符>/<剩余十六进制字符>`，描述符携带
@@ -113,10 +115,10 @@ task 的 `status` 活在它的 `lifecycle` 绑定里,而它是一台真实的状
 `task_plan.md` 是计划,`progress.md` 是进度,`review.md` 是对其产出的判断,`closeout.md` 是收尾。
 它们都不是 task 状态的真相来源——`INDEX.md` 的 frontmatter 才是。
 
-## fact 账本
+## Fact 文档
 
-fact 记录在 task 的 `facts.md` 里,每条对着 `fact-record/v1` 校验
-(`packages/kernel/src/schemas/fact-record.ts`):
+fact 记录为 `facts/F-<id>.md` 文档,每条对着 `fact-event/v1` 校验
+(`packages/kernel/src/domain/fact-event.ts`):
 
 | 字段 | 装的是什么 |
 |---|---|

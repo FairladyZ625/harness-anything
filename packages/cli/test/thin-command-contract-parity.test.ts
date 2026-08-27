@@ -25,7 +25,7 @@ const frozenMutations = Object.freeze([
     commandId: "fact-show",
     inputName: "--id",
     facet: "regex",
-    argv: ["fact", "show", "--task", "task-1", "--id", "bad"],
+    argv: ["fact", "show", "--id", "bad"],
   },
   {
     commandId: "fact-record",

@@ -27,10 +27,7 @@ export const actor = {
   executor: null,
 } as const;
 
-export function proposal(
-  revision: number,
-  decisionId: string,
-): DecisionEventDraftV1 {
+export function proposal(revision: number, decisionId: string): DecisionEventDraftV1 {
   return {
     schema: "decision-event/v1",
     eventId: `event-${revision}`,
@@ -51,9 +48,7 @@ export function proposal(
       appliesTo: { modules: ["kernel"], productLines: [] },
       decisionClass: "ordinary",
       chosen: [{ id: "CH1", text: "Use events" }],
-      rejected: [
-        { id: "RJ1", text: "Use files", whyNot: "Files are not canonical." },
-      ],
+      rejected: [{ id: "RJ1", text: "Use files", whyNot: "Files are not canonical." }],
       body: "\n# Canonical Decision\n",
       claims: [],
       fulfillments: [],
@@ -61,10 +56,7 @@ export function proposal(
     },
   };
 }
-export function claim(
-  revision: number,
-  decisionId: string,
-): DecisionEventDraftV1 {
+export function claim(revision: number, decisionId: string): DecisionEventDraftV1 {
   return {
     schema: "decision-event/v1",
     eventId: `event-${revision}`,
@@ -82,10 +74,7 @@ export function claim(
     },
   };
 }
-export function accepted(
-  revision: number,
-  decisionId: string,
-): DecisionEventDraftV1 {
+export function accepted(revision: number, decisionId: string): DecisionEventDraftV1 {
   return {
     schema: "decision-event/v1",
     eventId: `event-${revision}`,
@@ -102,11 +91,7 @@ export function accepted(
     },
   };
 }
-export function related(
-  revision: number,
-  decisionId: string,
-  record: EntityRelationRecord,
-): DecisionEventDraftV1 {
+export function related(revision: number, decisionId: string, record: EntityRelationRecord): DecisionEventDraftV1 {
   return {
     schema: "decision-event/v1",
     eventId: `event-${revision}`,
@@ -178,9 +163,7 @@ export function taskCreated(revision: number, taskId: string): TaskEventV1 {
     },
   };
 }
-export function relation(
-  input: Pick<EntityRelationRecord, "source" | "target" | "type">,
-): EntityRelationRecord {
+export function relation(input: Pick<EntityRelationRecord, "source" | "target" | "type">): EntityRelationRecord {
   const identity = { ...input, direction: "directed" as const };
   return {
     relation_id: deriveRelationId(identity),
@@ -236,10 +219,7 @@ export function migrationFactEvent(revision: number): MigrationImportEventV1 {
     },
   };
 }
-export function migrationRelationEvent(
-  revision: number,
-  record: EntityRelationRecord,
-): MigrationImportEventV1 {
+export function migrationRelationEvent(revision: number, record: EntityRelationRecord): MigrationImportEventV1 {
   const opId = `migration-relation-${revision}`;
   return {
     schema: "migration-import-event/v1",
@@ -261,29 +241,34 @@ export function migrationRelationEvent(
     },
   };
 }
-export function writeMigrationEvent(
-  rootDir: string,
-  event: MigrationImportEventV1,
-): void {
+export function writeMigrationEvent(rootDir: string, event: MigrationImportEventV1): void {
   const eventRoot = path.join(rootDir, "harness/events/fixture");
   mkdirSync(eventRoot, { recursive: true });
-  writeFileSync(
-    path.join(eventRoot, `${event.opId}.json`),
-    serializeCanonicalEvent(event),
-  );
+  writeFileSync(path.join(eventRoot, `${event.opId}.json`), serializeCanonicalEvent(event));
 }
 export function writeFactEvent(rootDir: string, event: FactEventDraftV1): void {
   const compiled = compileFactWrite({
       event,
-      packagePath: `tasks/${event.taskId}-fixture`,
-      currentFacts: [],
     }),
     eventRoot = path.join(rootDir, "harness/events/fixture");
   mkdirSync(eventRoot, { recursive: true });
-  writeFileSync(
-    path.join(eventRoot, `${event.opId}.json`),
-    serializeCanonicalEvent(compiled.event),
-  );
+  writeFileSync(path.join(eventRoot, `${event.opId}.json`), serializeCanonicalEvent(compiled.event));
+}
+export function writeLegacyFactEvent(rootDir: string, event: FactEventDraftV1): void {
+  const compiled = compileFactWrite({ event }),
+    legacy = {
+      ...compiled.event,
+      payload: {
+        ...compiled.event.payload,
+        factsDocumentClaim: {
+          ...compiled.event.payload.factsDocumentClaim,
+          path: `tasks/${event.taskId}-fixture/facts.md`,
+        },
+      },
+    },
+    eventRoot = path.join(rootDir, "harness/events/fixture");
+  mkdirSync(eventRoot, { recursive: true });
+  writeFileSync(path.join(eventRoot, `${event.opId}.json`), `${JSON.stringify(legacy)}\n`);
 }
 export function projectionFixture(rootDir: string) {
   const blobs = new Map<string, Uint8Array>(),
@@ -310,10 +295,7 @@ export function decisionProjectionDatabase(): DatabaseSync {
   createDecisionProjectionTables(db);
   return db;
 }
-export function compileCurrent(
-  fixture: ReturnType<typeof projectionFixture>,
-  event: DecisionEventDraftV1,
-) {
+export function compileCurrent(fixture: ReturnType<typeof projectionFixture>, event: DecisionEventDraftV1) {
   const { projection } = fixture,
     current = projection.readDecision(event.decisionId).decision,
     path = `decisions/decision-${event.decisionId}/decision.md`,
@@ -339,32 +321,21 @@ export function compileCurrent(
     currentDocument: document,
   });
 }
-export function applyDecision(
-  fixture: ReturnType<typeof projectionFixture>,
-  event: DecisionEventDraftV1,
-): void {
+export function applyDecision(fixture: ReturnType<typeof projectionFixture>, event: DecisionEventDraftV1): void {
   const compiled = compileCurrent(fixture, event);
   fixture.blobs.set(compiled.blobs[0].sha256, Buffer.from(compiled.body));
   fixture.projection.apply(compiled.event, compiled.plan);
 }
-export function applyFact(
-  fixture: ReturnType<typeof projectionFixture>,
-  event: FactEventDraftV1,
-): void {
+export function applyFact(fixture: ReturnType<typeof projectionFixture>, event: FactEventDraftV1): void {
   const compiled = compileFactWrite({
     event,
     packagePath: `tasks/${event.taskId}-evidence`,
-    currentFacts: fixture.projection.searchFacts({ taskId: event.taskId })
-      .facts,
+    currentFacts: fixture.projection.searchFacts({ taskId: event.taskId }).facts,
   });
   fixture.blobs.set(compiled.blobs[0].sha256, Buffer.from(compiled.body));
   fixture.projection.apply(compiled.event, compiled.plan);
 }
-export function writeTask(
-  rootDir: string,
-  taskId: string,
-  record: EntityRelationRecord,
-): void {
+export function writeTask(rootDir: string, taskId: string, record: EntityRelationRecord): void {
   const taskRoot = path.join(rootDir, "harness/tasks", taskId);
   mkdirSync(taskRoot, { recursive: true });
   writeFileSync(
@@ -389,10 +360,7 @@ export function writeTask(
     ].join("\n"),
   );
 }
-export function seedRelationProjection(
-  projectionPath: string,
-  includeTruthSource = true,
-): void {
+export function seedRelationProjection(projectionPath: string, includeTruthSource = true): void {
   mkdirSync(path.dirname(projectionPath), { recursive: true });
   const db = new DatabaseSync(projectionPath);
   try {
@@ -406,12 +374,9 @@ export function seedRelationProjection(
   INSERT INTO task_projection VALUES ('task-positive','Positive',NULL,'active','open','active','active','not_ready','kernel/task-lifecycle/v1','fresh','2026-08-14T00:00:00.000Z','local-document','harness/tasks/task-positive/INDEX.md',NULL,'medium','medium','software/coding','standard-task',NULL,'kernel','Kernel',0);
   INSERT INTO relation_edges VALUES ('rel_positive','decision/dec_01KXA7811SVVT8P66HNDFZQ7DF/CH1','task/task-positive','derives','directed','strong','declared','active','positive','decision/dec_01KXA7811SVVT8P66HNDFZQ7DF','harness/decisions/decision-dec_01KXA7811SVVT8P66HNDFZQ7DF/decision.md',0);
   INSERT INTO relation_coverage VALUES ('decision/dec_01KXA7811SVVT8P66HNDFZQ7DF/CH1','decision/dec_01KXA7811SVVT8P66HNDFZQ7DF','covered','standing-policy',NULL,'[]','["rel_positive"]');
-  INSERT INTO task_fact_anchors VALUES ('fact/task-positive/F-POSITIVE','task-positive','F-POSITIVE','harness/tasks/task-positive/facts.md');
-  INSERT INTO task_fact_projection VALUES ('fact/task-positive/F-POSITIVE','task-positive','F-POSITIVE','task-fact-row/v1','Observed','fixture','2026-08-14T00:00:00.000Z','high','semantic','[]','[]','standing');`);
-    if (includeTruthSource)
-      db.exec(
-        "INSERT INTO projection_meta VALUES ('relationTruthSource','authored-l1/v1')",
-      );
+  INSERT INTO task_fact_anchors VALUES ('fact/F-POSITIVE','task-positive','F-POSITIVE','harness/facts/F-POSITIVE.md');
+  INSERT INTO task_fact_projection VALUES ('fact/F-POSITIVE','task-positive','F-POSITIVE','task-fact-row/v1','Observed','fixture','2026-08-14T00:00:00.000Z','high','semantic','[]','[]','standing');`);
+    if (includeTruthSource) db.exec("INSERT INTO projection_meta VALUES ('relationTruthSource','authored-l1/v1')");
   } finally {
     db.close();
   }
@@ -496,15 +461,10 @@ export function writeColdHistory(
     ].join("\n"),
   );
 }
-export function git(
-  rootDir: string,
-  ...argsAndMaybeEnv: Array<string | Record<string, string>>
-): string {
+export function git(rootDir: string, ...argsAndMaybeEnv: Array<string | Record<string, string>>): string {
   const maybeEnv = argsAndMaybeEnv.at(-1),
     env = typeof maybeEnv === "object" ? maybeEnv : {},
-    args = argsAndMaybeEnv.filter(
-      (value): value is string => typeof value === "string",
-    );
+    args = argsAndMaybeEnv.filter((value): value is string => typeof value === "string");
   return execFileSync("git", args, {
     cwd: rootDir,
     encoding: "utf8",
@@ -517,10 +477,7 @@ export function testReadinessSource() {
       try {
         return { ok: true, stdout: git(rootDir, ...args) };
       } catch (error) {
-        const status =
-          typeof error === "object" && error && "status" in error
-            ? Number(error.status)
-            : null;
+        const status = typeof error === "object" && error && "status" in error ? Number(error.status) : null;
         return { ok: allowNoMatch && status === 1, stdout: "" };
       }
     },

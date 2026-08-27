@@ -36,10 +36,7 @@ test("Decision transition matrix, transport arbiter, claims, relation retirement
       relationRecord("decision/dec_FIXTURE/C404", "decision/dec_FIXTURE/CH1", "supports"),
       "anchor_not_found",
     );
-    rejectsRelation(
-      relationRecord("decision/dec_FIXTURE/CH1", "fact/task-fact/F-12345678", "evidenced-by"),
-      "entity_not_found",
-    );
+    rejectsRelation(relationRecord("decision/dec_FIXTURE/CH1", "fact/F-12345678", "evidenced-by"), "entity_not_found");
     rejectsRelation(
       relationRecord("decision/dec_FIXTURE/CH1", "decision/dec_FIXTURE/RJ1", "produces"),
       "relation_invalid",

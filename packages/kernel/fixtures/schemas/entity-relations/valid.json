@@ -3,9 +3,9 @@
   "host": "decision/dec_01K7ZTRIADIC",
   "relations": [
     {
-      "relation_id": "rel_472c68c5d5dff1ed",
+      "relation_id": "rel_2cd7a0e798425d6f",
       "source": "decision/dec_01K7ZTRIADIC/C1",
-      "target": "fact/task_01KV5TBASE/F-a3f2",
+      "target": "fact/F-A3F2B7K9",
       "type": "evidenced-by",
       "strength": "strong",
       "direction": "directed",

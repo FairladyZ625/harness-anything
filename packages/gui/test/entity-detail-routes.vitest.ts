@@ -36,9 +36,9 @@ describe("entity detail target routing (W4)", () => {
   });
 
   it("routes fact refs to the fact detail view, preserving the full anchor", () => {
-    expect(entityDetailTargetOf("fact/task_a/F-001")).toEqual({
+    expect(entityDetailTargetOf("fact/F-001")).toEqual({
       view: "factDetail",
-      focusedEntityRef: "fact/task_a/F-001",
+      focusedEntityRef: "fact/F-001",
     });
   });
 
@@ -89,11 +89,11 @@ describe("entity detail target routing (W4)", () => {
 describe("detail views in the view history stack (W4)", () => {
   it("pushes detail locations and restores them via back", () => {
     let state = createViewHistory(loc({ view: "graph", focusedEntityRef: "decision/dec_1" }));
-    state = pushLocation(state, loc({ view: "factDetail", focusedEntityRef: "fact/task_a/F-001" }));
+    state = pushLocation(state, loc({ view: "factDetail", focusedEntityRef: "fact/F-001" }));
     state = pushLocation(state, loc({ view: "decisionDetail", focusedEntityRef: "decision/dec_2" }));
     expect(canGoBack(state)).toBe(true);
     state = goBack(state);
-    expect(currentLocation(state)).toMatchObject({ view: "factDetail", focusedEntityRef: "fact/task_a/F-001" });
+    expect(currentLocation(state)).toMatchObject({ view: "factDetail", focusedEntityRef: "fact/F-001" });
     state = goBack(state);
     expect(currentLocation(state)).toMatchObject({ view: "graph", focusedEntityRef: "decision/dec_1" });
   });
@@ -106,7 +106,7 @@ describe("detail views in the view history stack (W4)", () => {
     };
     let state = createViewHistory(loc({ view: "overview" }));
     state = pushLocation(state, loc({ view: "decisionDetail", focusedEntityRef: "decision/dec_1" }));
-    state = pushLocation(state, loc({ view: "factDetail", focusedEntityRef: "fact/task_a/F-001" }));
+    state = pushLocation(state, loc({ view: "factDetail", focusedEntityRef: "fact/F-001" }));
     writeViewHistory(shim, "proj-a", state);
     const restored = readViewHistory(shim, "proj-a");
     expect(currentLocation(restored)).toMatchObject({ view: "factDetail" });

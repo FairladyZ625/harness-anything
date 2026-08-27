@@ -134,8 +134,8 @@ export function relationEndpointExists(cell: any, ref: string): boolean {
   if (task) return cell.projectedTaskIds().has(task);
   const decision = /^decision\/([^/]+)/u.exec(ref)?.[1];
   if (decision) return cell.projection.readDecision(decision).decision !== null;
-  const fact = /^fact\/([^/]+)\/([^/]+)$/u.exec(ref);
-  return fact ? cell.projection.readFact(fact[1]!, fact[2]!).fact !== null : false;
+  const fact = /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(ref);
+  return fact ? cell.projection.readFact(fact[1]!).fact !== null : false;
 }
 
 export function createTask(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {

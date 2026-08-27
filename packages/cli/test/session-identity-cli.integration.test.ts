@@ -1,13 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -47,15 +41,7 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
     assert.equal(
       run(
         fixture,
-        [
-          "task",
-          "create",
-          "--id",
-          "task-interactive-session",
-          "--admin",
-          "--title",
-          "Interactive Session",
-        ],
+        ["task", "create", "--id", "task-interactive-session", "--admin", "--title", "Interactive Session"],
         claude,
       ).outcome,
       "applied",
@@ -97,63 +83,28 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
       fulfillments: [],
       relations: [],
     });
-    const proposed = run(
-        fixture,
-        ["decision", "propose", "--json-input", proposal],
-        claude,
-      ),
+    const proposed = run(fixture, ["decision", "propose", "--json-input", proposal], claude),
       proposedEvidence = evidence(proposed),
       decisionId = String(proposedEvidence.decisionId);
 
-    const task = evidence(
-      run(fixture, ["task", "show", "task-interactive-session"]),
-    ).task as { provenance: unknown[] };
-    const shownFact = evidence(
-      run(fixture, [
-        "fact",
-        "show",
-        "--task",
-        "task-interactive-session",
-        "--id",
-        String(fact.factId),
-      ]),
-    ).fact as { provenance: unknown[] };
-    const decision = evidence(run(fixture, ["decision", "show", decisionId]))
-      .decision as { provenance: unknown[] };
-    for (const provenance of [
-      task.provenance,
-      shownFact.provenance,
-      decision.provenance,
-    ])
+    const task = evidence(run(fixture, ["task", "show", "task-interactive-session"])).task as { provenance: unknown[] };
+    const shownFact = evidence(run(fixture, ["fact", "show", "--id", String(fact.factId)])).fact as {
+      provenance: unknown[];
+    };
+    const decision = evidence(run(fixture, ["decision", "show", decisionId])).decision as { provenance: unknown[] };
+    for (const provenance of [task.provenance, shownFact.provenance, decision.provenance])
       assert.deepEqual(identity(provenance), claudeIdentity);
-    const decisionDocument = readFileSync(
-      path.join(fixture.root, "harness", String(proposed.path)),
-      "utf8",
-    );
+    const decisionDocument = readFileSync(path.join(fixture.root, "harness", String(proposed.path)), "utf8");
     assert.match(decisionDocument, new RegExp(claudeIdentity.sessionId, "u"));
     assert.doesNotMatch(decisionDocument, /local-must-not-be-forwarded/u);
 
     assert.equal(
-      run(
-        fixture,
-        [
-          "task",
-          "create",
-          "--id",
-          "task-interactive-codex",
-          "--admin",
-          "--title",
-          "Interactive Codex",
-        ],
-        {
-          CODEX_THREAD_ID: "codex-interactive-thread",
-        },
-      ).outcome,
+      run(fixture, ["task", "create", "--id", "task-interactive-codex", "--admin", "--title", "Interactive Codex"], {
+        CODEX_THREAD_ID: "codex-interactive-thread",
+      }).outcome,
       "applied",
     );
-    const codexTask = evidence(
-      run(fixture, ["task", "show", "task-interactive-codex"]),
-    ).task as {
+    const codexTask = evidence(run(fixture, ["task", "show", "task-interactive-codex"])).task as {
       provenance: unknown[];
     };
     assert.deepEqual(identity(codexTask.provenance), {
@@ -163,26 +114,12 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
     });
 
     assert.equal(
-      run(
-        fixture,
-        [
-          "task",
-          "create",
-          "--id",
-          "task-session-unavailable",
-          "--admin",
-          "--title",
-          "No Session",
-        ],
-        {
-          CLAUDE_CODE_HOST_SESSION_ID: "local-is-not-a-session",
-        },
-      ).outcome,
+      run(fixture, ["task", "create", "--id", "task-session-unavailable", "--admin", "--title", "No Session"], {
+        CLAUDE_CODE_HOST_SESSION_ID: "local-is-not-a-session",
+      }).outcome,
       "applied",
     );
-    const unavailable = evidence(
-      run(fixture, ["task", "show", "task-session-unavailable"]),
-    ).task as {
+    const unavailable = evidence(run(fixture, ["task", "show", "task-session-unavailable"])).task as {
       provenance: unknown[];
     };
     assert.deepEqual(identity(unavailable.provenance), {
@@ -202,10 +139,7 @@ function setup(): { parent: string; root: string; userRoot: string } {
     userRoot = path.join(parent, "user");
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "README.md"), "# Fixture\n");
-  writeFileSync(
-    path.join(root, "harness/harness.yaml"),
-    "layout:\n  authoredRoot: harness\n",
-  );
+  writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n");
   writeFileSync(
     path.join(root, "harness/people.yaml"),
     `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`,
@@ -222,22 +156,14 @@ function run(
   args: readonly string[],
   session: Readonly<Record<string, string>> = {},
 ): Record<string, unknown> {
-  const result = spawnSync(
-    process.execPath,
-    [cli, "--root", fixture.root, "--json", ...args],
-    {
-      encoding: "utf8",
-      env: cliEnv(fixture.root, fixture.userRoot, session),
-    },
-  );
+  const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", ...args], {
+    encoding: "utf8",
+    env: cliEnv(fixture.root, fixture.userRoot, session),
+  });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
 }
-function cliEnv(
-  root: string,
-  userRoot: string,
-  session: Readonly<Record<string, string>>,
-): NodeJS.ProcessEnv {
+function cliEnv(root: string, userRoot: string, session: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
   const {
     HARNESS_ACTOR: _actor,
     HARNESS_DAEMON_ENDPOINT: _endpoint,
@@ -262,22 +188,15 @@ function evidence(receipt: Record<string, unknown>): Record<string, unknown> {
 }
 function identity(provenance: unknown[]): Record<string, unknown> {
   assert.equal(provenance.length, 1);
-  const { boundAt: _boundAt, ...value } = provenance[0] as Record<
-    string,
-    unknown
-  >;
+  const { boundAt: _boundAt, ...value } = provenance[0] as Record<string, unknown>;
   return value;
 }
 function stop(fixture: { root: string; userRoot: string }): void {
   if (readDaemonPid(fixture.userRoot, "default") !== null)
-    spawnSync(
-      process.execPath,
-      [cli, "--root", fixture.root, "--json", "daemon", "stop"],
-      {
-        encoding: "utf8",
-        env: cliEnv(fixture.root, fixture.userRoot, {}),
-      },
-    );
+    spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "stop"], {
+      encoding: "utf8",
+      env: cliEnv(fixture.root, fixture.userRoot, {}),
+    });
 }
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], {

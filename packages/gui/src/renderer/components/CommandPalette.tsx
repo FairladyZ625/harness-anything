@@ -19,7 +19,7 @@ export interface PaletteEntry {
 export function buildPaletteIndex(
   tasks: ReadonlyArray<{ taskId: string; title: string; coordinationStatus?: string }>,
   decisions: ReadonlyArray<{ decisionId: string; title: string; state?: string }>,
-  facts: ReadonlyArray<{ anchor: string; taskId: string; text: string; category?: string }>,
+  facts: ReadonlyArray<{ anchor: string; taskId?: string; text: string; category?: string }>,
 ): PaletteEntry[] {
   const entries: PaletteEntry[] = [];
   for (const t of tasks) {
@@ -29,7 +29,12 @@ export function buildPaletteIndex(
     entries.push({ ref: `decision/${d.decisionId}`, label: d.title, sub: d.state, entity: "decision" });
   }
   for (const f of facts) {
-    entries.push({ ref: `fact/${f.anchor}`, label: f.text, sub: f.category, entity: "fact" });
+    entries.push({
+      ref: f.anchor.startsWith("fact/") ? f.anchor : `fact/${f.anchor}`,
+      label: f.text,
+      sub: f.category,
+      entity: "fact",
+    });
   }
   return entries;
 }

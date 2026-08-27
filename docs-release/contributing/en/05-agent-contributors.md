@@ -51,7 +51,7 @@ should use the current CLI:
 ```bash
 ha task create --title "<title>" --vertical software/coding --preset standard-task
 ha task progress append <task-id> --text "<progress>"
-ha fact record --task <task-id> --statement "<observed fact>" --source "<source>" --confidence high
+ha fact record --statement "<observed fact>" --source "<source>" --confidence high [--task <task-id>]
 ```
 
 Do not hand-scaffold task directories. If the CLI cannot create or update the

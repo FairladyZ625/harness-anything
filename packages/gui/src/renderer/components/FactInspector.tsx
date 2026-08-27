@@ -82,9 +82,12 @@ export function FactInspector({
 }) {
   const anchor = factRef.replace(/^fact\//, "");
   const fullRef = `fact/${anchor}`;
-  const fact = facts.find((candidate) => candidate.anchor === anchor);
-  const task = fact ? tasks.find((candidate) => candidate.taskId === fact.taskId) : undefined;
+  const fact = facts.find((candidate) => candidate.anchor === fullRef);
   const inbound = relations.filter((relation) => relation.to === fullRef);
+  const ownerTaskId = relations
+    .find((relation) => relation.kind === "produces" && relation.to === fullRef)
+    ?.from.replace(/^task\//, "");
+  const task = ownerTaskId ? tasks.find((candidate) => candidate.taskId === ownerTaskId) : undefined;
   // Current contradiction status follows kernel decision coverage: retired/deleted
   // refuted-by edges remain visible in the incoming audit list, but do not warn here.
   const contradictions = activeIncomingRelations(fullRef, "refuted-by", relations);
@@ -210,19 +213,23 @@ export function FactInspector({
                 {t("components.factInspector.taskPackage")}
               </div>
               <div className="mt-1 flex items-center gap-2">
-                {onNavigateTask ? (
+                {ownerTaskId && onNavigateTask ? (
                   <EntityRefLink
-                    entityRef={`task/${fact.taskId}`}
-                    onNavigate={() => onNavigateTask(fact.taskId)}
+                    entityRef={`task/${ownerTaskId}`}
+                    onNavigate={() => onNavigateTask(ownerTaskId)}
                     title={t("components.factInspector.jumpSourceTask")}
                     className="font-mono text-[12px] text-accent hover:underline"
                   />
                 ) : (
-                  <span className="font-mono text-[12px] text-text">{fact.taskId}</span>
+                  <span className="font-mono text-[12px] text-text">
+                    {ownerTaskId ?? t("components.factInspector.unknown")}
+                  </span>
                 )}
-                <span className="min-w-0 truncate text-[12px] text-text-muted">
-                  {task?.title ?? t("components.factInspector.hostTaskNotProjectedByCurrentTask")}
-                </span>
+                {ownerTaskId && (
+                  <span className="min-w-0 truncate text-[12px] text-text-muted">
+                    {task?.title ?? t("components.factInspector.hostTaskNotProjectedByCurrentTask")}
+                  </span>
+                )}
               </div>
               {task && (
                 <div className="mt-1 font-mono text-[11px] text-text-faint">

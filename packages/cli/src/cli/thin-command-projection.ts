@@ -7,7 +7,7 @@ export const projectedAliases: Readonly<Record<string, Readonly<Record<string, s
   "relation-list": { "--type": "relationType" },
   "task-review": { "--reviewer": "reviewerId" },
   "fact-search": { "--task": "taskId" },
-  "fact-show": { "--task": "taskId", "--id": "factId" },
+  "fact-show": { "--id": "factId" },
   "decision-accept": {
     "--rationale": "rationale",
     "--judgment-only": "judgmentOnlyRationale",

@@ -21,19 +21,33 @@ import { defaultAxisFilter, defaultKindFilter } from "../src/renderer/graph/rela
 
 function task(overrides: Partial<TaskRow> = {}): TaskRow {
   return {
-    taskId: "task_a", title: "Task A", projectId: "proj",
-    coordinationStatus: "active", rawStatus: "active", freshness: "fresh",
-    packageDisposition: "active", closeoutReadiness: "not_required",
-    engine: "local", source: "local-document", module: "kernel",
-    lastKnownAt: "2026-08-01T00:00:00.000Z", gates: [], docs: [],
+    taskId: "task_a",
+    title: "Task A",
+    projectId: "proj",
+    coordinationStatus: "active",
+    rawStatus: "active",
+    freshness: "fresh",
+    packageDisposition: "active",
+    closeoutReadiness: "not_required",
+    engine: "local",
+    source: "local-document",
+    module: "kernel",
+    lastKnownAt: "2026-08-01T00:00:00.000Z",
+    gates: [],
+    docs: [],
     ...overrides,
   };
 }
 
 function dec(overrides: Partial<DecisionRow> = {}): DecisionRow {
   return {
-    decisionId: "dec_1", title: "D1", state: "active", question: "Q?",
-    chosen: [], rejected: [], claims: [],
+    decisionId: "dec_1",
+    title: "D1",
+    state: "active",
+    question: "Q?",
+    chosen: [],
+    rejected: [],
+    claims: [],
     proposedAt: "2026-08-01T00:00:00.000Z",
     ...overrides,
   } as DecisionRow;
@@ -41,8 +55,12 @@ function dec(overrides: Partial<DecisionRow> = {}): DecisionRow {
 
 function fact(overrides: Partial<FactRef> = {}): FactRef {
   return {
-    anchor: "task_a/F-1", taskId: "task_a", category: "finding",
-    text: "observation", at: "2026-08-01T00:00:00.000Z", confidence: "high",
+    anchor: "fact/F-1",
+    taskId: "task_a",
+    category: "finding",
+    text: "observation",
+    at: "2026-08-01T00:00:00.000Z",
+    confidence: "high",
     ...overrides,
   };
 }
@@ -58,10 +76,10 @@ const filters: EgoFilters = {
 function claimAnchoredFixture() {
   const tasks = [task({ taskId: "task_a", title: "派生任务" })];
   const decisions = [dec({ decisionId: "dec_1", title: "本决策" }), dec({ decisionId: "dec_up", title: "上游决策" })];
-  const facts = [fact({ taskId: "task_a", anchor: "task_a/F-1", text: "证据" })];
+  const facts = [fact({ taskId: "task_a", anchor: "fact/F-1", text: "证据" })];
   const relations: RelationEdge[] = [
     { from: "decision/dec_1/CH1", to: "task/task_a", kind: "derives", provenance: "local-document" },
-    { from: "decision/dec_1/C1", to: "fact/task_a/F-1", kind: "evidenced-by", provenance: "local-document" },
+    { from: "decision/dec_1/C1", to: "fact/F-1", kind: "evidenced-by", provenance: "local-document" },
     { from: "decision/dec_up/CH1", to: "decision/dec_1", kind: "refines", provenance: "local-document" },
   ];
   return { tasks, decisions, facts, relations };
@@ -73,7 +91,7 @@ describe("ego 图入口不变量", () => {
     expect(egoFocusIdOf("decision/dec_1")).toBe("decision/dec_1");
     // claim 锚定的 ref 收敛回 decision 本体 —— 这正是聚光灯 join 的关键。
     expect(egoFocusIdOf("decision/dec_1/C1")).toBe("decision/dec_1");
-    expect(egoFocusIdOf("fact/task_a/F-1")).toBe("fact/task_a/F-1");
+    expect(egoFocusIdOf("fact/F-1")).toBe("fact/F-1");
   });
 });
 
@@ -83,7 +101,7 @@ describe("claim 锚定边的 join", () => {
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
     const neighbors = egoNeighborsOf(graph, "decision/dec_1", filters.axes);
     expect(neighbors).toContain("task_a");
-    expect(neighbors).toContain("fact/task_a/F-1");
+    expect(neighbors).toContain("fact/F-1");
     expect(neighbors).toContain("decision/dec_up");
   });
 
@@ -92,8 +110,13 @@ describe("claim 锚定边的 join", () => {
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
     const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
     const layout = layoutEgoCanvas({
-      focusId: "decision/dec_1", graph, relations, filters,
-      shown, expanded: new Set(["decision/dec_1"]), highlight: null,
+      focusId: "decision/dec_1",
+      graph,
+      relations,
+      filters,
+      shown,
+      expanded: new Set(["decision/dec_1"]),
+      highlight: null,
     });
     expect(layout.neighborCount).toBe(3);
     expect(layout.edges.length).toBe(3);
@@ -102,9 +125,12 @@ describe("claim 锚定边的 join", () => {
   });
 
   it("悬挂端点不造节点(投影里没有的实体不伪造)", () => {
-    const graph = buildEgoGraph([task()], [], [], [
-      { from: "task/task_a", to: "task/task_missing", kind: "depends-on", provenance: "local-document" },
-    ]);
+    const graph = buildEgoGraph(
+      [task()],
+      [],
+      [],
+      [{ from: "task/task_a", to: "task/task_missing", kind: "depends-on", provenance: "local-document" }],
+    );
     expect(egoNeighborsOf(graph, "task_a", filters.axes)).toEqual([]);
   });
 });
@@ -115,8 +141,13 @@ describe("分层分列", () => {
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
     const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
     const layout = layoutEgoCanvas({
-      focusId: "decision/dec_1", graph, relations, filters,
-      shown, expanded: new Set(), highlight: null,
+      focusId: "decision/dec_1",
+      graph,
+      relations,
+      filters,
+      shown,
+      expanded: new Set(),
+      highlight: null,
     });
     const at = (id: string) => layout.nodes.find((n) => n.id === id)!;
     // 焦点节点盒以自身中心为原点。
@@ -135,12 +166,21 @@ describe("分层分列", () => {
       task({ taskId: "c3", title: "子三" }),
     ];
     const relations: RelationEdge[] = ["c1", "c2", "c3"].map((id) => ({
-      from: "task/root", to: `task/${id}`, kind: "depends-on", provenance: "local-document",
+      from: "task/root",
+      to: `task/${id}`,
+      kind: "depends-on",
+      provenance: "local-document",
     }));
     const graph = buildEgoGraph(tasks, [], [], relations);
     const shown = bfsShownFromFocus(graph, "root", 2, filters.axes);
     const layout = layoutEgoCanvas({
-      focusId: "root", graph, relations, filters, shown, expanded: new Set(), highlight: null,
+      focusId: "root",
+      graph,
+      relations,
+      filters,
+      shown,
+      expanded: new Set(),
+      highlight: null,
     });
     const children = layout.nodes.filter((n) => n.id !== "root").sort((a, b) => a.position.y - b.position.y);
     for (let i = 1; i < children.length; i += 1) {
@@ -176,12 +216,22 @@ describe("累积展开(决策 CH1:累计保留、永不重置)", () => {
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
     const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
     const expandedLayout = layoutEgoCanvas({
-      focusId: "decision/dec_1", graph, relations, filters,
-      shown, expanded: new Set(["decision/dec_1", "task_a"]), highlight: null,
+      focusId: "decision/dec_1",
+      graph,
+      relations,
+      filters,
+      shown,
+      expanded: new Set(["decision/dec_1", "task_a"]),
+      highlight: null,
     });
     const collapsedLayout = layoutEgoCanvas({
-      focusId: "decision/dec_1", graph, relations, filters,
-      shown, expanded: new Set(["decision/dec_1"]), highlight: null,
+      focusId: "decision/dec_1",
+      graph,
+      relations,
+      filters,
+      shown,
+      expanded: new Set(["decision/dec_1"]),
+      highlight: null,
     });
     // 收起 task_a 后节点集合不变(只是它从卡片变回 chip)。
     expect(collapsedLayout.nodes.map((n) => n.id).sort()).toEqual(expandedLayout.nodes.map((n) => n.id).sort());
@@ -198,7 +248,13 @@ describe("累积展开(决策 CH1:累计保留、永不重置)", () => {
     const graph = buildEgoGraph(tasks, [], [], relations);
     const shown = bfsShownFromFocus(graph, "a", 1, filters.axes);
     const layout = layoutEgoCanvas({
-      focusId: "a", graph, relations, filters, shown, expanded: new Set(), highlight: null,
+      focusId: "a",
+      graph,
+      relations,
+      filters,
+      shown,
+      expanded: new Set(),
+      highlight: null,
     });
     expect((layout.nodes.find((n) => n.id === "b")!.data as any).hiddenCount).toBe(1);
   });
@@ -210,9 +266,13 @@ describe("筛选与高亮", () => {
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
     const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
     const layout = layoutEgoCanvas({
-      focusId: "decision/dec_1", graph, relations,
+      focusId: "decision/dec_1",
+      graph,
+      relations,
       filters: { ...filters, types: new Set(["decision", "task"]) },
-      shown, expanded: new Set(), highlight: null,
+      shown,
+      expanded: new Set(),
+      highlight: null,
     });
     expect(layout.nodes.some((n) => (n.data as any).entity === "fact")).toBe(false);
     expect(layout.nodes.some((n) => n.id === "decision/dec_1")).toBe(true);
@@ -224,7 +284,13 @@ describe("筛选与高亮", () => {
     const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
     const highlight = egoOneHopHighlight(graph, "task_a", filters.axes)!;
     const layout = layoutEgoCanvas({
-      focusId: "decision/dec_1", graph, relations, filters, shown, expanded: new Set(), highlight,
+      focusId: "decision/dec_1",
+      graph,
+      relations,
+      filters,
+      shown,
+      expanded: new Set(),
+      highlight,
     });
     expect((layout.nodes.find((n) => n.id === "task_a")!.data as any).dimmed).toBe(false);
     expect((layout.nodes.find((n) => n.id === "decision/dec_up")!.data as any).dimmed).toBe(true);
@@ -234,8 +300,13 @@ describe("筛选与高亮", () => {
   it("焦点不在投影里时给空布局,不抛异常", () => {
     const graph = buildEgoGraph([task()], [], [], []);
     const layout = layoutEgoCanvas({
-      focusId: "decision/missing", graph, relations: [], filters,
-      shown: new Map(), expanded: new Set(), highlight: null,
+      focusId: "decision/missing",
+      graph,
+      relations: [],
+      filters,
+      shown: new Map(),
+      expanded: new Set(),
+      highlight: null,
     });
     expect(layout.nodes).toEqual([]);
     expect(layout.focusId).toBeNull();

@@ -32,7 +32,7 @@ export function writeTriadicLedger(rootDir) {
       "vertical: software/coding",
       "preset: implementation",
       "relations:",
-      '  - {relation_id: rel_bfa32bfd7f399b66, source: task/task-gui-smoke, target: fact/task-gui-smoke/F-ABCDEFGH, type: produces, strength: strong, direction: directed, origin: declared, rationale: "Task produced the renderer projection evidence", state: active}',
+      '  - {relation_id: rel_bfa32bfd7f399b66, source: task/task-gui-smoke, target: fact/F-ABCDEFGH, type: produces, strength: strong, direction: directed, origin: declared, rationale: "Task produced the renderer projection evidence", state: active}',
       "---",
       "",
     ].join("\n"),
@@ -156,7 +156,7 @@ export function seedTriadicEvents(rootDir, repoId) {
       },
       {
         source: "decision/dec_gui_smoke/C1",
-        target: "fact/task-gui-smoke/F-ABCDEFGH",
+        target: "fact/F-ABCDEFGH",
         type: "evidenced-by",
         rationale: "Fact evidences the public projection",
       },

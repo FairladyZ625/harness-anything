@@ -311,7 +311,7 @@ const taskFramework = Object.freeze({
 const factFramework = Object.freeze({
   schemaId: "fact-event",
   mutabilityContract: "entityFieldContracts" as const,
-  anchors: { entityRef: "fact/{task_id}/{fact_id}", anchors: [] },
+  anchors: { entityRef: "fact/{fact_id}", anchors: [] },
   dispositionMatrix: dispositionMatrix([
     supported("D1", "invalidate", ["fact_recorded"], "fact invalidation is a superseding append-only Fact event"),
     unsupported("D1", "retire", "fact semantic exit is invalidate, not retire"),

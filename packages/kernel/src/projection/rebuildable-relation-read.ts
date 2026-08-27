@@ -7,7 +7,7 @@ export interface RebuildableRelationRead {
   readonly coverageRows: readonly RelationCoverageRow[];
   readonly factAnchors: readonly {
     readonly factRef: string;
-    readonly taskId: string;
+    readonly taskId?: string;
     readonly factId: string;
     readonly sourcePath: string;
   }[];
@@ -97,7 +97,7 @@ export function decodeRebuildableRelationRecords(records: RebuildableRelationRec
     coverageRows: records.coverageRows.map(coverageRow),
     factAnchors: records.factAnchors.map((row) => ({
       factRef: row.fact_ref,
-      taskId: row.task_id,
+      ...(row.task_id ? { taskId: row.task_id } : {}),
       factId: row.fact_id,
       sourcePath: row.source_path,
     })),
@@ -139,7 +139,7 @@ function factRow(row: FactRecord): RelationFactRow {
   return {
     schema,
     ref: row.fact_ref,
-    taskId: row.task_id,
+    ...(row.task_id ? { taskId: row.task_id } : {}),
     factId: row.fact_id,
     statement: row.statement,
     source: row.source,
@@ -228,13 +228,13 @@ export interface CoverageRecord {
 }
 export interface FactAnchorRecord {
   readonly fact_ref: string;
-  readonly task_id: string;
+  readonly task_id: string | null;
   readonly fact_id: string;
   readonly source_path: string;
 }
 export interface FactRecord {
   readonly fact_ref: string;
-  readonly task_id: string;
+  readonly task_id: string | null;
   readonly fact_id: string;
   readonly schema_name: string;
   readonly statement: string;

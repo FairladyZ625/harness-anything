@@ -145,7 +145,7 @@ export async function runSingleMigrationImport(
       ),
       allAuthoredEntries.length - authoredEntries.length,
     ),
-    cold = readColdRebuildSource(sourceRoot),
+    cold = readColdRebuildSource(sourceRoot, { includeLegacyTaskFacts: true }),
     skips: Skip[] = cold.issues.map(fromColdIssue),
     validEntries = new Set(taskRead.entries.map((entry) => path.resolve(entry.indexPath)));
   for (const indexPath of taskIndexPaths(sourceLayout.tasksRoot))
@@ -304,9 +304,10 @@ export async function runSingleMigrationImport(
   for (const row of cold.truth.edges) {
     const rebound = reboundRelation(row);
     if (!rebound) continue;
-    const held = existingSourceEntity("relation", row.relationId);
+    const held = existingSourceEntity("relation", rebound.oldId);
     if (held?.kind === "relation") {
       relationMap.set(row.relationId, held.relation.relation_id);
+      if (rebound.oldId !== row.relationId) relationMap.set(rebound.oldId, held.relation.relation_id);
       migratedEdges.push(row);
       alreadyImported.relation += 1;
       continue;
@@ -328,9 +329,14 @@ export async function runSingleMigrationImport(
       continue;
     }
     relationMap.set(row.relationId, rebound.record.relation_id);
+    if (rebound.oldId !== row.relationId) relationMap.set(rebound.oldId, rebound.record.relation_id);
     migratedEdges.push(row);
     prepared.push(next);
     revision += 1;
+  }
+  for (const [legacyId, canonicalId] of cold.legacyRelationIds) {
+    const mapped = relationMap.get(canonicalId);
+    if (mapped) relationMap.set(legacyId, mapped);
   }
   for (const draft of packageDrafts.sort(
     (a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt) || a.migratedFrom.localeCompare(b.migratedFrom),

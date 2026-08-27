@@ -47,11 +47,11 @@ export function makeFactService(options: {
     if (existing === null) options.projection.admitFact(event);
     const appended = options.eventStore.append(bundle);
     if (existing === null) options.projection.apply(event, bundle.plan);
-    const read = options.projection.readFact(event.taskId, event.factId);
+    const read = options.projection.readFact(event.factId);
     if (read.status !== "ready" || read.fact === null)
       throw new FactServiceError(
         "content_not_ready",
-        `Fact ${event.taskId}/${event.factId} is not projected at revision ${appended.revision}.`,
+        `Fact ${event.factId} is not projected at revision ${appended.revision}.`,
       );
     return {
       status: "ready",
@@ -63,10 +63,9 @@ export function makeFactService(options: {
       path: event.payload.factsDocumentClaim.path,
     };
   };
-  const show = (taskId: string, factId: string) => {
-    const read = options.projection.readFact(taskId, factId);
-    if (read.fact === null)
-      throw new FactServiceError("entity_not_found", `Fact fact/${taskId}/${factId} does not exist.`);
+  const show = (factId: string) => {
+    const read = options.projection.readFact(factId);
+    if (read.fact === null) throw new FactServiceError("entity_not_found", `Fact fact/${factId} does not exist.`);
     return { ...read, fact: read.fact };
   };
   const search = (filters: FactSearchFilters) => options.projection.searchFacts(filters);

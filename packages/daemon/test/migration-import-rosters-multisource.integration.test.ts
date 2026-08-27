@@ -276,7 +276,7 @@ test("two independent Git sources merge incrementally with explicit id remaps an
     assert.equal(repeated.revision, revision);
     assert.match(
       String(repeated.summary),
-      /Already imported from this Git lineage: task=1, decision=1, fact=1, relation=1/u,
+      /Already imported from this Git lineage: task=1, decision=1, fact=1, relation=2/u,
     );
     await cell.close();
     cell = undefined;

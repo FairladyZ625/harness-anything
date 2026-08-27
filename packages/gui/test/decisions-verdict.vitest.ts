@@ -6,9 +6,14 @@ import { computeReadinessSignals } from "../src/renderer/views/decisions-verdict
 
 function dec(overrides: Partial<DecisionRow> = {}): DecisionRow {
   return {
-    decisionId: "dec_1", title: "D1", state: "proposed", question: "Q?",
-    riskTier: "medium", urgency: "medium",
-    chosen: [{ id: "CH1", text: "c", evidence: ["fact/task_1/F-live"] }], rejected: [],
+    decisionId: "dec_1",
+    title: "D1",
+    state: "proposed",
+    question: "Q?",
+    riskTier: "medium",
+    urgency: "medium",
+    chosen: [{ id: "CH1", text: "c", evidence: ["fact/F-live"] }],
+    rejected: [],
     claims: [{ id: "CH1", text: "c", loadBearing: true, fulfillment: "evidenced" }],
     proposedAt: "2026-08-01T00:00:00.000Z",
     judgmentConsents: [],
@@ -16,10 +21,10 @@ function dec(overrides: Partial<DecisionRow> = {}): DecisionRow {
   };
 }
 
-function fact(anchor: string, invalidated = false): FactRef {
+function fact(anchor: string, invalidated = false, taskId = "task_1"): FactRef {
   return {
     anchor,
-    taskId: anchor.split("/")[0] ?? "task_1",
+    taskId,
     category: "finding",
     text: anchor,
     at: "2026-08-01T00:00:00.000Z",
@@ -34,7 +39,7 @@ function coverage(overrides: Partial<RelationCoverageRow> = {}): RelationCoverag
     claimRef: "decision/dec_1/CH1",
     status: "covered",
     fulfillment: "evidenced",
-    coveringFactRef: "fact/task_1/F-live",
+    coveringFactRef: "fact/F-live",
     refutingFactRefs: [],
     relationPath: ["rel_evidence"],
     basisRevision: 12,
@@ -54,8 +59,17 @@ describe("decision readiness uses canonical coverage and explicit unknowns", () 
   it("renders canonical commit-bound drift and conflict projections", () => {
     const decision = dec({
       readinessSignals: {
-        appliesToDrift: { state: "drift", paths: ["packages/kernel/index.ts"], lastCommitAt: "2026-08-10T00:00:00.000Z", summary: "Canonical scope changed." },
-        conflictMarker: { state: "conflict", paths: ["packages/kernel/index.ts"], summary: "Committed conflict marker." },
+        appliesToDrift: {
+          state: "drift",
+          paths: ["packages/kernel/index.ts"],
+          lastCommitAt: "2026-08-10T00:00:00.000Z",
+          summary: "Canonical scope changed.",
+        },
+        conflictMarker: {
+          state: "conflict",
+          paths: ["packages/kernel/index.ts"],
+          summary: "Committed conflict marker.",
+        },
       },
     });
 
@@ -65,7 +79,16 @@ describe("decision readiness uses canonical coverage and explicit unknowns", () 
     expect(signal(decision, [], [], "conflict-marker").summary).toContain("Committed conflict marker");
   });
 
-  it("keeps explicitly unavailable canonical readiness unknown", () => { const decision = dec({ readinessSignals: { appliesToDrift: { state: "unknown", paths: [], lastCommitAt: null, summary: "Scope unresolved." }, conflictMarker: { state: "unknown", paths: [], summary: "Scope unresolved." } } }); expect(signal(decision, [], [], "applies-to-drift").color).toBe("unknown"); expect(signal(decision, [], [], "conflict-marker").color).toBe("unknown"); });
+  it("keeps explicitly unavailable canonical readiness unknown", () => {
+    const decision = dec({
+      readinessSignals: {
+        appliesToDrift: { state: "unknown", paths: [], lastCommitAt: null, summary: "Scope unresolved." },
+        conflictMarker: { state: "unknown", paths: [], summary: "Scope unresolved." },
+      },
+    });
+    expect(signal(decision, [], [], "applies-to-drift").color).toBe("unknown");
+    expect(signal(decision, [], [], "conflict-marker").color).toBe("unknown");
+  });
 
   it("renders no load-bearing claims as gray N/A instead of green", () => {
     const decision = dec({ claims: [{ id: "CH1", text: "c", loadBearing: false, fulfillment: null }] });
@@ -76,11 +99,13 @@ describe("decision readiness uses canonical coverage and explicit unknowns", () 
 
   it("uses coverageRows rather than guessing coverage from option evidence", () => {
     const decision = dec();
-    const live = fact("task_1/F-live");
+    const live = fact("fact/F-live");
 
     expect(signal(decision, [live], [], "coverage").color).toBe("unknown");
     expect(signal(decision, [live], [coverage()], "coverage").color).toBe("green");
-    expect(signal(decision, [live], [coverage({ status: "uncovered", coveringFactRef: undefined })], "coverage").color).toBe("red");
+    expect(
+      signal(decision, [live], [coverage({ status: "uncovered", coveringFactRef: undefined })], "coverage").color,
+    ).toBe("red");
   });
 
   it("marks missing graph/fact projection unknown and invalidated evidence yellow", () => {
@@ -88,13 +113,13 @@ describe("decision readiness uses canonical coverage and explicit unknowns", () 
 
     expect(signal(decision, [], [coverage()], "evidence-liveness", "loading").color).toBe("unknown");
     expect(signal(decision, [], [coverage()], "evidence-liveness").color).toBe("unknown");
-    expect(signal(decision, [fact("task_1/F-live", true)], [coverage()], "evidence-liveness").color).toBe("yellow");
+    expect(signal(decision, [fact("fact/F-live", true)], [coverage()], "evidence-liveness").color).toBe("yellow");
   });
 
   it("treats live covering and refuting fact references as a known liveness check", () => {
     const decision = dec();
-    const row = coverage({ refutingFactRefs: ["fact/task_1/F-refute"] });
-    const liveness = signal(decision, [fact("task_1/F-live"), fact("task_1/F-refute")], [row], "evidence-liveness");
+    const row = coverage({ refutingFactRefs: ["fact/F-refute"] });
+    const liveness = signal(decision, [fact("fact/F-live"), fact("fact/F-refute")], [row], "evidence-liveness");
 
     expect(liveness.color).toBe("green");
     expect(liveness.summary).toContain("basisRevision 12");

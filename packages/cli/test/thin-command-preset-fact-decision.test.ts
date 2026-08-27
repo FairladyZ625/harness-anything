@@ -4,30 +4,13 @@ import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("thin parser derives builtin vertical, template, and script discovery actions", () => {
-  const vertical = parseThinCommand([
-      "vertical",
-      "validate",
-      "--source",
-      "software/coding",
-    ]),
+  const vertical = parseThinCommand(["vertical", "validate", "--source", "software/coding"]),
     templates = parseThinCommand(["template", "list"]),
-    render = parseThinCommand([
-      "template",
-      "render",
-      "template://repository/adr-template@1",
-      "--locale",
-      "zh-CN",
-    ]),
+    render = parseThinCommand(["template", "render", "template://repository/adr-template@1", "--locale", "zh-CN"]),
     scripts = parseThinCommand(["script", "list"]),
-    inspect = parseThinCommand([
-      "script",
-      "inspect",
-      "vertical:software-coding:architecture-check",
-    ]);
+    inspect = parseThinCommand(["script", "inspect", "vertical:software-coding:architecture-check"]);
   assert.equal(
-    [vertical, templates, render, scripts, inspect].every(
-      (result) => result.ok,
-    ),
+    [vertical, templates, render, scripts, inspect].every((result) => result.ok),
     true,
   );
   if (vertical.ok)
@@ -35,16 +18,14 @@ test("thin parser derives builtin vertical, template, and script discovery actio
       kind: "vertical-validate",
       verticalSource: "software/coding",
     });
-  if (templates.ok)
-    assert.deepEqual(templates.command.action, { kind: "template-list" });
+  if (templates.ok) assert.deepEqual(templates.command.action, { kind: "template-list" });
   if (render.ok)
     assert.deepEqual(render.command.action, {
       kind: "template-render",
       templateRef: "template://repository/adr-template@1",
       locale: "zh-CN",
     });
-  if (scripts.ok)
-    assert.deepEqual(scripts.command.action, { kind: "script-list" });
+  if (scripts.ok) assert.deepEqual(scripts.command.action, { kind: "script-list" });
   if (inspect.ok)
     assert.deepEqual(inspect.command.action, {
       kind: "script-inspect",
@@ -75,15 +56,9 @@ test("thin parser derives builtin vertical, template, and script discovery actio
         dryRun: true,
       },
     });
-  assert.equal(
-    parseThinCommand(["script", "run", "user-canary/check"]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["script", "run", "user-canary/check"]).ok, false);
   assert.equal(parseThinCommand(["preset", "run", "standard-task"]).ok, false);
-  assert.equal(
-    parseThinCommand(["preset", "action", "standard-task"]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["preset", "action", "standard-task"]).ok, false);
 });
 
 test("Fact CLI exposes only record/search/show and covers all five local parse errors", () => {
@@ -103,21 +78,8 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
     "--memory-tag",
     "pattern",
   ]);
-  const search = parseThinCommand([
-      "fact",
-      "search",
-      "Observed",
-      "--task",
-      "task-1",
-    ]),
-    show = parseThinCommand([
-      "fact",
-      "show",
-      "--task",
-      "task-1",
-      "--id",
-      "F-ABCDEFGH",
-    ]);
+  const search = parseThinCommand(["fact", "search", "Observed", "--task", "task-1"]),
+    show = parseThinCommand(["fact", "show", "--id", "F-ABCDEFGH"]);
   assert.equal(record.ok, true);
   assert.equal(search.ok, true);
   assert.equal(show.ok, true);
@@ -132,32 +94,15 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
       memoryTags: ["pattern"],
     });
   const failures = [
-    parseThinCommand([
-      "fact",
-      "record",
-      "--task",
-      "a",
-      "--task",
-      "b",
-      "--statement",
-      "x",
-      "--source",
-      "s",
-    ]),
-    parseThinCommand(["fact", "show", "--task", "a", "--id", "bad"]),
+    parseThinCommand(["fact", "record", "--task", "a", "--task", "b", "--statement", "x", "--source", "s"]),
+    parseThinCommand(["fact", "show", "--id", "bad"]),
     parseThinCommand(["fact", "record", "--task", "a"]),
     parseThinCommand(["fact", "search", "--wat", "x"]),
     parseThinCommand(["fact", "list"]),
   ];
   assert.deepEqual(
     failures.map((result) => (result.ok ? "ok" : result.code)),
-    [
-      "duplicate_field",
-      "invalid_field",
-      "missing_field",
-      "unknown_field",
-      "unsupported_command",
-    ],
+    ["duplicate_field", "invalid_field", "missing_field", "unknown_field", "unsupported_command"],
   );
   const excessiveRationale = parseThinCommand([
     "fact",
@@ -169,14 +114,11 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
     "--source",
     "test",
     "--supersedes",
-    "fact/task-1/F-ABCDEFGH",
+    "fact/F-ABCDEFGH",
     "--rationale",
     "x".repeat(200),
   ]);
-  assert.equal(
-    excessiveRationale.ok ? "ok" : excessiveRationale.code,
-    "invalid_field",
-  );
+  assert.equal(excessiveRationale.ok ? "ok" : excessiveRationale.code, "invalid_field");
 });
 
 test("Fact search CLI forwards observed-time windows and keyset pagination", () => {
@@ -241,26 +183,8 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       "--judgment-only",
       "CEO judgment without evidence",
     ]),
-    claim = parseThinCommand([
-      "decision",
-      "claim",
-      "add",
-      "dec_1",
-      "--id",
-      "C1",
-      "--text",
-      "Coverage is replayable",
-    ]),
-    fulfill = parseThinCommand([
-      "decision",
-      "claim",
-      "fulfill",
-      "dec_1",
-      "--id",
-      "C1",
-      "--mode",
-      "evidenced",
-    ]),
+    claim = parseThinCommand(["decision", "claim", "add", "dec_1", "--id", "C1", "--text", "Coverage is replayable"]),
+    fulfill = parseThinCommand(["decision", "claim", "fulfill", "dec_1", "--id", "C1", "--mode", "evidenced"]),
     relate = parseThinCommand([
       "decision",
       "relate",
@@ -270,7 +194,7 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       "--type",
       "evidenced-by",
       "--target",
-      "fact/task-1/F-ABCDEFGH",
+      "fact/F-ABCDEFGH",
       "--rationale",
       "Observed",
     ]),
@@ -284,13 +208,7 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       "--reason",
       "Stale",
     ]),
-    reckon = parseThinCommand([
-      "decision",
-      "reckon",
-      "dec_1",
-      "--task",
-      "task-1",
-    ]),
+    reckon = parseThinCommand(["decision", "reckon", "dec_1", "--task", "task-1"]),
     list = parseThinCommand([
       "decision",
       "list",
@@ -309,17 +227,7 @@ test("Decision CLI maps every canonical command and keeps the five local error c
     ]),
     show = parseThinCommand(["decision", "show", "E12", "--include-body"]);
   assert.equal(
-    [
-      propose,
-      accept,
-      claim,
-      fulfill,
-      relate,
-      retireRelation,
-      reckon,
-      list,
-      show,
-    ].every((result) => result.ok),
+    [propose, accept, claim, fulfill, relate, retireRelation, reckon, list, show].every((result) => result.ok),
     true,
   );
   if (propose.ok)
@@ -352,71 +260,25 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       includeBody: true,
     });
   const failures = [
-    parseThinCommand([
-      "decision",
-      "accept",
-      "dec_1",
-      "--rationale",
-      "a",
-      "--rationale",
-      "b",
-    ]),
-    parseThinCommand([
-      "decision",
-      "accept",
-      "dec_1",
-      "--rationale",
-      "valid",
-      "--judgment-only",
-      "x".repeat(200),
-    ]),
+    parseThinCommand(["decision", "accept", "dec_1", "--rationale", "a", "--rationale", "b"]),
+    parseThinCommand(["decision", "accept", "dec_1", "--rationale", "valid", "--judgment-only", "x".repeat(200)]),
     parseThinCommand(["decision", "accept"]),
     parseThinCommand(["decision", "show", "dec_1", "--body"]),
     parseThinCommand(["decision", "search"]),
   ];
   assert.deepEqual(
     failures.map((result) => (result.ok ? "ok" : result.code)),
-    [
-      "duplicate_field",
-      "invalid_field",
-      "missing_field",
-      "unknown_field",
-      "unsupported_command",
-    ],
+    ["duplicate_field", "invalid_field", "missing_field", "unknown_field", "unsupported_command"],
   );
   assert.equal(
-    parseThinCommand([
-      "decision",
-      "propose",
-      "--from-file",
-      "proposal.json",
-      "--json-input",
-      packet,
-    ]).ok,
+    parseThinCommand(["decision", "propose", "--from-file", "proposal.json", "--json-input", packet]).ok,
     false,
   );
   assert.equal(
-    parseThinCommand([
-      "decision",
-      "propose",
-      "--json-input",
-      packet,
-      "--body",
-      "inline",
-      "--body-file",
-      "body.md",
-    ]).ok,
+    parseThinCommand(["decision", "propose", "--json-input", packet, "--body", "inline", "--body-file", "body.md"]).ok,
     false,
   );
-  assert.equal(
-    parseThinCommand([
-      "decision",
-      "propose",
-      "--title",
-      "retired flags-only proposal",
-    ]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["decision", "propose", "--title", "retired flags-only proposal"]).ok, false);
   assert.equal(
     parseThinCommand([
       "decision",
@@ -431,22 +293,13 @@ test("Decision CLI maps every canonical command and keeps the five local error c
     ]).ok,
     false,
   );
-  assert.equal(
-    parseThinCommand(["decision", "list", "--legacy-range", "E20-E1"]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["decision", "list", "--legacy-range", "E20-E1"]).ok, false);
 });
 
 test("Decision F06 and distill leaf commands preserve their complete structured payloads", () => {
   const validate = parseThinCommand(["decision", "validate", "dec_1"]),
     verifyAll = parseThinCommand(["decision", "verify", "--all"]),
-    repin = parseThinCommand([
-      "decision",
-      "repin",
-      "--all",
-      "--migration-evidence",
-      "task/task-1/audit-2026",
-    ]),
+    repin = parseThinCommand(["decision", "repin", "--all", "--migration-evidence", "task/task-1/audit-2026"]),
     active = parseThinCommand([
       "decision",
       "transition",
@@ -459,19 +312,8 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       "--fulfillment",
       "C1:delivered",
     ]),
-    superseded = parseThinCommand([
-      "decision",
-      "transition",
-      "superseded",
-      "dec_1",
-    ]),
-    alias = parseThinCommand([
-      "decision",
-      "supersede",
-      "dec_1",
-      "--reason",
-      "Replaced by a newer Decision",
-    ]),
+    superseded = parseThinCommand(["decision", "transition", "superseded", "dec_1"]),
+    alias = parseThinCommand(["decision", "supersede", "dec_1", "--reason", "Replaced by a newer Decision"]),
     amend = parseThinCommand([
       "decision",
       "amend",
@@ -501,14 +343,7 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       "--rationale",
       "Corrected edge",
     ]),
-    candidate = parseThinCommand([
-      "distill",
-      "candidate",
-      "--task",
-      "task-1",
-      "--input",
-      "notes.md",
-    ]),
+    candidate = parseThinCommand(["distill", "candidate", "--task", "task-1", "--input", "notes.md"]),
     promote = parseThinCommand([
       "distill",
       "promote",
@@ -524,18 +359,9 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       "pattern",
     ]);
   assert.equal(
-    [
-      validate,
-      verifyAll,
-      repin,
-      active,
-      superseded,
-      alias,
-      amend,
-      replace,
-      candidate,
-      promote,
-    ].every((result) => result.ok),
+    [validate, verifyAll, repin, active, superseded, alias, amend, replace, candidate, promote].every(
+      (result) => result.ok,
+    ),
     true,
   );
   if (validate.ok)
@@ -590,14 +416,7 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       target: "task/task-1",
       rationale: "Corrected edge",
     });
-  const preview = parseThinCommand([
-    "decision",
-    "amend",
-    "dec_1",
-    "--title",
-    "Preview",
-    "--dry-run",
-  ]);
+  const preview = parseThinCommand(["decision", "amend", "dec_1", "--title", "Preview", "--dry-run"]);
   assert.equal(preview.ok, true);
   if (preview.ok) assert.equal(preview.command.action.dryRun, true);
   if (candidate.ok)
@@ -618,19 +437,7 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       memoryTags: ["pattern"],
     });
   assert.equal(parseThinCommand(["distill", "commit"]).ok, false);
-  assert.equal(
-    parseThinCommand(["decision", "validate", "dec_1", "--all"]).ok,
-    false,
-  );
-  assert.equal(
-    parseThinCommand([
-      "decision",
-      "transition",
-      "retired",
-      "dec_1",
-      "--standing-policy",
-    ]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["decision", "validate", "dec_1", "--all"]).ok, false);
+  assert.equal(parseThinCommand(["decision", "transition", "retired", "dec_1", "--standing-policy"]).ok, false);
   assert.equal(parseThinCommand(["decision", "amend", "dec_1"]).ok, false);
 });

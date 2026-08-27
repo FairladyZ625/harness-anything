@@ -1,14 +1,8 @@
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types";
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
 import { activeIncomingRelations, incomingRelations } from "../model/relation-direction.ts";
-import {
-  resolveTaskModule,
-  resolveFactModule,
-  UNPROJECTED_MODULE,
-} from "./moduleAssignment";
-import {
-  buildGenealogyEdges,
-} from "./genealogy";
+import { resolveTaskModule, resolveFactModule, UNPROJECTED_MODULE } from "./moduleAssignment";
+import { buildGenealogyEdges } from "./genealogy";
 import { clusterTasksByPrd, type ZoneProgress } from "./territoryProgress";
 
 /**
@@ -119,7 +113,7 @@ export function partitionDecisions(
     familyIdx += 1;
     const zoneId = `decision:family-${familyIdx}`;
     const chips = group
-      .sort((a, b) => (a.title).localeCompare(b.title))
+      .sort((a, b) => a.title.localeCompare(b.title))
       .map((d) => ({
         navRef: `decision/${d.decisionId}`,
         label: d.title,
@@ -144,12 +138,7 @@ export function partitionDecisions(
 }
 
 /** Fact 异常分类(REQ-GUI-03 fact territory + REQ-GUI-07 信号同源)。 */
-export type FactAnomaly =
-  | "contradictory"
-  | "orphan"
-  | "low-confidence"
-  | "superseded"
-  | "normal";
+export type FactAnomaly = "contradictory" | "orphan" | "low-confidence" | "superseded" | "normal";
 
 export const ANOMALY_LABEL: Record<FactAnomaly, string> = {
   contradictory: "矛盾 / 已失效",
@@ -192,13 +181,13 @@ export function partitionFacts(
   facts: ReadonlyArray<FactRef>,
   factAnchors: ReadonlyArray<FactAnchorRow>,
   tasks: ReadonlyArray<TaskRow>,
+  relations: ReadonlyArray<RelationEdge> = [],
 ): TerritoryZone[] {
   // 合并 facts projection + factAnchors(anchors 可能有无 body 的 fact)。
   const seen = new Set<string>();
-  const allFacts: { ref: string; taskId: string; label: string; sub?: string }[] = [];
+  const allFacts: { ref: string; taskId?: string; label: string; sub?: string }[] = [];
   for (const f of facts) {
-    const anchor = f.anchor.split("/").pop() ?? f.anchor;
-    const ref = `fact/${f.taskId}/${anchor}`;
+    const ref = f.anchor.startsWith("fact/") ? f.anchor : `fact/${f.anchor}`;
     if (seen.has(ref)) continue;
     seen.add(ref);
     allFacts.push({ ref, taskId: f.taskId, label: f.text, sub: f.invalidated ? "已失效" : f.category });
@@ -206,20 +195,17 @@ export function partitionFacts(
   for (const a of factAnchors) {
     if (seen.has(a.factRef)) continue;
     seen.add(a.factRef);
-    const taskId = a.factRef.split("/")[1] ?? a.taskId;
-    allFacts.push({ ref: a.factRef, taskId, label: a.factId, sub: "anchor" });
+    allFacts.push({ ref: a.factRef, ...(a.taskId ? { taskId: a.taskId } : {}), label: a.factId, sub: "anchor" });
   }
 
   // 失效 fact 集合(用于异常标记)。
   const invalidatedRefs = new Set(
-    facts
-      .filter((f) => f.invalidated)
-      .map((f) => `fact/${f.taskId}/${f.anchor.split("/").pop() ?? f.anchor}`),
+    facts.filter((f) => f.invalidated).map((f) => (f.anchor.startsWith("fact/") ? f.anchor : `fact/${f.anchor}`)),
   );
 
   const byModule = new Map<string, typeof allFacts>();
   for (const fact of allFacts) {
-    const mod = resolveFactModule(fact.ref, tasks);
+    const mod = resolveFactModule(fact.ref, tasks, relations);
     const arr = byModule.get(mod) ?? [];
     arr.push(fact);
     byModule.set(mod, arr);
@@ -260,8 +246,8 @@ export function partitionFactsByAnomaly(
   // 构建 fact 查找表 + coveredRefs。
   const factByRef = new Map<string, FactRef>();
   for (const f of facts) {
-    const anchor = f.anchor.split("/").pop() ?? f.anchor;
-    factByRef.set(`fact/${f.taskId}/${anchor}`, f);
+    const ref = f.anchor.startsWith("fact/") ? f.anchor : `fact/${f.anchor}`;
+    factByRef.set(ref, f);
   }
   const coveredRefs = new Set<string>();
   for (const row of coverageRows) {
@@ -272,10 +258,10 @@ export function partitionFactsByAnomaly(
   const allRefs = new Set<string>([...factByRef.keys()]);
   for (const a of factAnchors) allRefs.add(a.factRef);
 
-  const byAnomaly = new Map<FactAnomaly, { ref: string; fact?: FactRef; taskId: string; label: string }[]>();
+  const byAnomaly = new Map<FactAnomaly, { ref: string; fact?: FactRef; taskId?: string; label: string }[]>();
   for (const ref of allRefs) {
     const fact = factByRef.get(ref);
-    const taskId = ref.split("/")[1] ?? fact?.taskId ?? "";
+    const taskId = fact?.taskId ?? "";
     const anomaly = classifyFactAnomaly(ref, fact, relations, coveredRefs);
     const arr = byAnomaly.get(anomaly) ?? [];
     arr.push({ ref, fact, taskId, label: fact?.text ?? ref.split("/").pop() ?? ref });
@@ -293,7 +279,7 @@ export function partitionFactsByAnomaly(
     if (anomaly === "normal") {
       const byMod = new Map<string, typeof group>();
       for (const item of group) {
-        const mod = resolveFactModule(item.ref, tasks);
+        const mod = resolveFactModule(item.ref, tasks, relations);
         const arr = byMod.get(mod) ?? [];
         arr.push(item);
         byMod.set(mod, arr);
@@ -360,7 +346,7 @@ export function partitionAll(
 ): TerritoryPartition {
   const taskZones = partitionTasks(tasks);
   const { zones: decisionZones, landing } = partitionDecisions(decisions, relations);
-  const factZones = partitionFacts(facts, factAnchors, tasks);
+  const factZones = partitionFacts(facts, factAnchors, tasks, relations);
   const zones = [...taskZones, ...decisionZones, ...factZones];
   return { zones, landing, unprojectedCount: countUnprojectedChips(zones) };
 }

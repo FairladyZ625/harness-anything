@@ -11,7 +11,11 @@ import {
   classifyFactAnomaly,
 } from "../src/renderer/graph/territory.ts";
 import { UNPROJECTED_MODULE, resolveTaskModule, isModuleUnprojected } from "../src/renderer/graph/moduleAssignment.ts";
-import { defaultEntityStatusFilter, taskPassesStatusFilter, decisionPassesStateFilter } from "../src/renderer/graph/entityStatusFilter.ts";
+import {
+  defaultEntityStatusFilter,
+  taskPassesStatusFilter,
+  decisionPassesStateFilter,
+} from "../src/renderer/graph/entityStatusFilter.ts";
 
 function task(overrides: Partial<TaskRow> = {}): TaskRow {
   return {
@@ -49,7 +53,7 @@ function dec(overrides: Partial<DecisionRow> = {}): DecisionRow {
 
 function fact(overrides: Partial<FactRef> = {}): FactRef {
   return {
-    anchor: "task_a/F-1",
+    anchor: "fact/F-1",
     taskId: "task_a",
     category: "finding",
     text: "observation",
@@ -61,10 +65,10 @@ function fact(overrides: Partial<FactRef> = {}): FactRef {
 
 function anchor(f: FactRef = fact()): FactAnchorRow {
   return {
-    factRef: `fact/${f.anchor}`,
+    factRef: f.anchor.startsWith("fact/") ? f.anchor : `fact/${f.anchor}`,
     taskId: f.taskId,
     factId: f.anchor.split("/").at(-1) ?? "F-1",
-    sourcePath: `event:fact/${f.anchor}`,
+    sourcePath: `event:${f.anchor.startsWith("fact/") ? f.anchor : `fact/${f.anchor}`}`,
   };
 }
 
@@ -120,7 +124,10 @@ describe("territory task partition", () => {
         task({ taskId: "root", title: "PRD", rootTaskId: "root", module: "kernel" }),
         task({ taskId: "a", parentTaskId: "root", rootTaskId: "root", module: "unassigned" }),
       ],
-      [], [], [], [],
+      [],
+      [],
+      [],
+      [],
     );
     // a 落在真实 PRD 块里,但 module 缺失仍被计入未投影总数(块级计数会漏报)。
     expect(partition.unprojectedCount).toBe(1);
@@ -148,18 +155,28 @@ describe("territory decision partition", () => {
 describe("territory fact partition", () => {
   it("groups facts by host task module, 未投影 when host absent", () => {
     const facts: FactRef[] = [
-      { anchor: "task_a/F-1", taskId: "task_a", category: "finding", text: "x", at: "2026-08-01", confidence: "high" },
+      { anchor: "fact/F-1", taskId: "task_a", category: "finding", text: "x", at: "2026-08-01", confidence: "high" },
     ];
     const anchors: FactAnchorRow[] = [];
     const tasks = [task({ taskId: "task_a", module: "kernel" })];
-    const zones = partitionFacts(facts, anchors, tasks, []);
+    const zones = partitionFacts(facts, anchors, tasks, [
+      { from: "task/task_a", to: "fact/F-1", kind: "produces", provenance: "local-document" },
+    ]);
     expect(zones).toHaveLength(1);
     expect(zones[0]!.title).toBe("kernel");
   });
 
   it("marks invalidated facts in chip sub label", () => {
     const facts: FactRef[] = [
-      { anchor: "task_a/F-1", taskId: "task_a", category: "finding", text: "x", at: "2026-08-01", confidence: "high", invalidated: true },
+      {
+        anchor: "fact/F-1",
+        taskId: "task_a",
+        category: "finding",
+        text: "x",
+        at: "2026-08-01",
+        confidence: "high",
+        invalidated: true,
+      },
     ];
     const zones = partitionFacts(facts, [], [task()], []);
     expect(zones[0]!.chips[0]!.sub).toBe("已失效");
@@ -168,15 +185,7 @@ describe("territory fact partition", () => {
 
 describe("territory skeleton dispatch", () => {
   it("unified skel returns all entity zones", () => {
-    const result = partitionForSkel(
-      "unified",
-      [task()],
-      [dec()],
-      [],
-      [],
-      [],
-      [],
-    );
+    const result = partitionForSkel("unified", [task()], [dec()], [], [], [], []);
     expect(result.zones.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -186,7 +195,7 @@ describe("territory skeleton dispatch", () => {
   });
 
   it("fact skel uses anomaly partition", () => {
-    const f = fact({ anchor: "task_a/F-orphan" });
+    const f = fact({ anchor: "fact/F-orphan" });
     const result = partitionForSkel("fact", [task()], [], [f], [anchor(f)], [], []);
     // Orphan fact → should have an anomaly zone.
     expect(result.zones.some((z) => z.zoneId.includes("anomaly:orphan"))).toBe(true);
@@ -195,89 +204,83 @@ describe("territory skeleton dispatch", () => {
 
 describe("fact anomaly classification (TERRITORY-001)", () => {
   it("classifies a fact targeted by refuted-by as contradictory", () => {
-    const f = fact({ anchor: "task_a/F-contr" });
+    const f = fact({ anchor: "fact/F-contr" });
     const relations: RelationEdge[] = [
-      { from: "decision/dec_1", to: `fact/${f.anchor}`, kind: "refuted-by", state: "active", provenance: "local-document" },
+      { from: "decision/dec_1", to: f.anchor, kind: "refuted-by", state: "active", provenance: "local-document" },
     ];
-    expect(classifyFactAnomaly(`fact/${f.anchor}`, f, relations, new Set())).toBe("contradictory");
+    expect(classifyFactAnomaly(f.anchor, f, relations, new Set())).toBe("contradictory");
   });
 
   it("does not classify a fact as contradictory from a retired or deleted refuted-by edge", () => {
-    const f = fact({ anchor: "task_a/F-contr" });
-    const covered = new Set([`fact/${f.anchor}`]);
+    const f = fact({ anchor: "fact/F-contr" });
+    const covered = new Set([f.anchor]);
     for (const state of ["retired", "deleted"] as const) {
       const relations: RelationEdge[] = [
-        { from: "decision/dec_1", to: `fact/${f.anchor}`, kind: "refuted-by", state, provenance: "local-document" },
+        { from: "decision/dec_1", to: f.anchor, kind: "refuted-by", state, provenance: "local-document" },
       ];
-      expect(classifyFactAnomaly(`fact/${f.anchor}`, f, relations, covered)).toBe("normal");
+      expect(classifyFactAnomaly(f.anchor, f, relations, covered)).toBe("normal");
     }
   });
 
   it("classifies a fact with invalidated flag as contradictory", () => {
-    const f = fact({ anchor: "task_a/F-inval", invalidated: true });
-    expect(classifyFactAnomaly(`fact/${f.anchor}`, f, [], new Set())).toBe("contradictory");
+    const f = fact({ anchor: "fact/F-inval", invalidated: true });
+    expect(classifyFactAnomaly(f.anchor, f, [], new Set())).toBe("contradictory");
   });
 
   it("classifies a fact targeted by supersedes-fact as superseded", () => {
-    const f = fact({ anchor: "task_a/F-old" });
+    const f = fact({ anchor: "fact/F-old" });
     const relations: RelationEdge[] = [
-      { from: "fact/task_a/F-new", to: `fact/${f.anchor}`, kind: "supersedes-fact", state: "active", provenance: "local-document" },
+      { from: "fact/F-new", to: f.anchor, kind: "supersedes-fact", state: "active", provenance: "local-document" },
     ];
-    expect(classifyFactAnomaly(`fact/${f.anchor}`, f, relations, new Set())).toBe("superseded");
+    expect(classifyFactAnomaly(f.anchor, f, relations, new Set())).toBe("superseded");
   });
 
   it("does not classify a fact as superseded when the supersedes-fact edge is retired or deleted", () => {
     // Kernel criterion (packages/kernel/src/domain/fact-liveness.ts): only an
     // ACTIVE incoming supersedes-fact edge retires the fact. Retired/deleted
     // edges are audit history and must not drive the territory anomaly display.
-    const f = fact({ anchor: "task_a/F-old" });
-    const covered = new Set([`fact/${f.anchor}`]);
+    const f = fact({ anchor: "fact/F-old" });
+    const covered = new Set([f.anchor]);
     for (const state of ["retired", "deleted"] as const) {
       const relations: RelationEdge[] = [
-        { from: "fact/task_a/F-new", to: `fact/${f.anchor}`, kind: "supersedes-fact", state, provenance: "local-document" },
+        { from: "fact/F-new", to: f.anchor, kind: "supersedes-fact", state, provenance: "local-document" },
       ];
-      expect(classifyFactAnomaly(`fact/${f.anchor}`, f, relations, covered)).toBe("normal");
+      expect(classifyFactAnomaly(f.anchor, f, relations, covered)).toBe("normal");
     }
   });
 
   it("classifies a low-confidence fact as low-confidence", () => {
-    const f = fact({ anchor: "task_a/F-low", confidence: "low" });
-    expect(classifyFactAnomaly(`fact/${f.anchor}`, f, [], new Set())).toBe("low-confidence");
+    const f = fact({ anchor: "fact/F-low", confidence: "low" });
+    expect(classifyFactAnomaly(f.anchor, f, [], new Set())).toBe("low-confidence");
   });
 
   it("classifies a fact with no coverage or evidence as orphan", () => {
-    const f = fact({ anchor: "task_a/F-orphan" });
-    expect(classifyFactAnomaly(`fact/${f.anchor}`, f, [], new Set())).toBe("orphan");
+    const f = fact({ anchor: "fact/F-orphan" });
+    expect(classifyFactAnomaly(f.anchor, f, [], new Set())).toBe("orphan");
   });
 
   it("classifies a covered fact with evidence as normal", () => {
-    const f = fact({ anchor: "task_a/F-ok" });
+    const f = fact({ anchor: "fact/F-ok" });
     const relations: RelationEdge[] = [
-      { from: "decision/dec_1/CH1", to: `fact/${f.anchor}`, kind: "evidenced-by", provenance: "local-document" },
+      { from: "decision/dec_1/CH1", to: f.anchor, kind: "evidenced-by", provenance: "local-document" },
     ];
-    expect(classifyFactAnomaly(`fact/${f.anchor}`, f, relations, new Set())).toBe("normal");
+    expect(classifyFactAnomaly(f.anchor, f, relations, new Set())).toBe("normal");
   });
 });
 
 describe("fact anomaly partition (partitionFactsByAnomaly)", () => {
   it("creates separate zones for contradictory, orphan, low-confidence, superseded", () => {
-    const fContr = fact({ anchor: "task_a/F-contr", invalidated: true });
-    const fOrphan = fact({ anchor: "task_a/F-orphan" });
-    const fLow = fact({ anchor: "task_a/F-low", confidence: "low" });
-    const fSuper = fact({ anchor: "task_a/F-old" });
-    const fOk = fact({ anchor: "task_a/F-ok" });
+    const fContr = fact({ anchor: "fact/F-contr", invalidated: true });
+    const fOrphan = fact({ anchor: "fact/F-orphan" });
+    const fLow = fact({ anchor: "fact/F-low", confidence: "low" });
+    const fSuper = fact({ anchor: "fact/F-old" });
+    const fOk = fact({ anchor: "fact/F-ok" });
     const relations: RelationEdge[] = [
-      { from: "fact/task_a/F-new", to: "fact/task_a/F-old", kind: "supersedes-fact", state: "active", provenance: "local-document" },
-      { from: "decision/dec_1/CH1", to: "fact/task_a/F-ok", kind: "evidenced-by", provenance: "local-document" },
+      { from: "fact/F-new", to: "fact/F-old", kind: "supersedes-fact", state: "active", provenance: "local-document" },
+      { from: "decision/dec_1/CH1", to: "fact/F-ok", kind: "evidenced-by", provenance: "local-document" },
     ];
     const coverage: RelationCoverageRow[] = [];
-    const zones = partitionFactsByAnomaly(
-      [fContr, fOrphan, fLow, fSuper, fOk],
-      [],
-      [task()],
-      relations,
-      coverage,
-    );
+    const zones = partitionFactsByAnomaly([fContr, fOrphan, fLow, fSuper, fOk], [], [task()], relations, coverage);
     const anomalyZones = zones.filter((z) => z.zoneId.includes("anomaly:"));
     expect(anomalyZones.length).toBe(4); // contradictory + orphan + low-confidence + superseded
     expect(anomalyZones.some((z) => z.title.includes("矛盾"))).toBe(true);
@@ -290,10 +293,10 @@ describe("fact anomaly partition (partitionFactsByAnomaly)", () => {
   });
 
   it("orders anomaly zones before normal zones", () => {
-    const fOrphan = fact({ anchor: "task_a/F-orphan" });
-    const fOk = fact({ anchor: "task_a/F-ok" });
+    const fOrphan = fact({ anchor: "fact/F-orphan" });
+    const fOk = fact({ anchor: "fact/F-ok" });
     const relations: RelationEdge[] = [
-      { from: "decision/dec_1/CH1", to: "fact/task_a/F-ok", kind: "evidenced-by", provenance: "local-document" },
+      { from: "decision/dec_1/CH1", to: "fact/F-ok", kind: "evidenced-by", provenance: "local-document" },
     ];
     const zones = partitionFactsByAnomaly([fOrphan, fOk], [], [task()], relations, []);
     const orphanIdx = zones.findIndex((z) => z.zoneId.includes("anomaly:orphan"));

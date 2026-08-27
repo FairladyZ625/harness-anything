@@ -190,9 +190,20 @@ function GraphViewInner({
     const visibleTasks = tasks.filter(taskVisible);
     const moduleByTaskId = new Map(tasks.map((task) => [task.taskId, task.module] as const));
     // fact 跟随宿主 task 的 module 可见性;无宿主(未知/外部)不因 module 筛选隐藏。
-    const factVisible = (fact: FactRef) =>
-      territoryTypes.has("fact") &&
-      (moduleByTaskId.get(fact.taskId) ? filters.modules.has(moduleByTaskId.get(fact.taskId)!) : true);
+    const ownerTaskForFact = (fact: FactRef) =>
+      relations
+        .find(
+          (edge) =>
+            edge.kind === "produces" &&
+            edge.state === "active" &&
+            edge.to === (fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`),
+        )
+        ?.from.slice("task/".length);
+    const factVisible = (fact: FactRef) => {
+      const ownerTaskId = ownerTaskForFact(fact),
+        ownerModule = ownerTaskId ? moduleByTaskId.get(ownerTaskId) : undefined;
+      return territoryTypes.has("fact") && (ownerModule === undefined || filters.modules.has(ownerModule));
+    };
     return partitionForSkel(
       skel,
       visibleTasks,

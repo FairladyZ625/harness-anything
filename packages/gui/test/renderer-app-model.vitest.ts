@@ -289,7 +289,7 @@ describe("renderer app model", () => {
     } satisfies DecisionRow;
     const edge = {
       from: "decision/dec_test/C1",
-      to: "fact/task_1/F-live",
+      to: "fact/F-live",
       kind: "evidenced-by",
       direction: "directed",
       state: "active",

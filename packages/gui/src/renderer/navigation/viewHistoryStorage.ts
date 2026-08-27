@@ -42,6 +42,15 @@ function isNullableString(value: unknown): boolean {
   return value === null || typeof value === "string";
 }
 
+function isCanonicalFocusedRef(value: unknown): boolean {
+  return (
+    value === null ||
+    typeof value !== "string" ||
+    !value.startsWith("fact/") ||
+    /^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value)
+  );
+}
+
 function isTaskFilters(value: unknown): value is TaskFilters {
   if (!isRendererRecord(value)) return false;
   return (
@@ -63,6 +72,7 @@ function isAppLocation(value: unknown): value is AppLocation {
     !isNullableString(value.selectedId) ||
     !isNullableString(value.previewId) ||
     !isNullableString(value.focusedEntityRef) ||
+    !isCanonicalFocusedRef(value.focusedEntityRef) ||
     !isTaskFilters(value.taskFilters)
   )
     return false;

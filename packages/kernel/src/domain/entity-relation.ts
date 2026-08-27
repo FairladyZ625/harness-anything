@@ -196,11 +196,6 @@ function requiresRationale(record: EntityRelationRecord): boolean {
 
 function hostOwnsSource(host: ParsedEntityRef, source: ParsedEntityRef): boolean {
   if (host.kind !== source.kind) return false;
-  if (host.kind === "fact" || source.kind === "fact") {
-    return (
-      host.kind === "fact" && source.kind === "fact" && host.ownerTaskId === source.ownerTaskId && host.id === source.id
-    );
-  }
   return host.id === source.id;
 }
 

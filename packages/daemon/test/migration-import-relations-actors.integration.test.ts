@@ -5,10 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
 import {
@@ -39,14 +36,8 @@ test("task hierarchy and task-side relations replay into the event stream", asyn
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
-    assert.match(
-      String(dryRun.summary),
-      /\| task \| 2 \| 0 \| 2 \| 2 \| PASS \|/u,
-    );
-    assert.match(
-      String(dryRun.summary),
-      /\| relation \| 1 \| 0 \| 1 \| 1 \| PASS \|/u,
-    );
+    assert.match(String(dryRun.summary), /\| task \| 2 \| 0 \| 2 \| 2 \| PASS \|/u);
+    assert.match(String(dryRun.summary), /\| relation \| 1 \| 0 \| 1 \| 1 \| PASS \|/u);
 
     const applied = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
@@ -60,9 +51,7 @@ test("task hierarchy and task-side relations replay into the event stream", asyn
       .read()
       .events.filter((event) => event.schema === "migration-import-event/v1");
     const child = events.find(
-      (event) =>
-        event.payload.entity.kind === "task" &&
-        event.payload.entity.task.taskId === "task_child",
+      (event) => event.payload.entity.kind === "task" && event.payload.entity.task.taskId === "task_child",
     )!;
     assert.equal(
       (
@@ -90,18 +79,12 @@ test("task hierarchy and task-side relations replay into the event stream", asyn
           ).relation,
       );
     assert.deepEqual(
-      relations.map(
-        ({ source: from, target, type }) => `${from} ${type} ${target}`,
-      ),
+      relations.map(({ source: from, target, type }) => `${from} ${type} ${target}`),
       ["task/task_child depends-on task/task_parent"],
     );
 
     const rows = (await cell.read("repo.tasks.list")).rows;
-    assert.equal(
-      rows.find(({ taskId }) => taskId === "task_child")!.placement
-        .parentTaskId,
-      "task_parent",
-    );
+    assert.equal(rows.find(({ taskId }) => taskId === "task_child")!.placement.parentTaskId, "task_parent");
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
@@ -127,15 +110,9 @@ test("relations the current matrix rejects are skipped with a reason instead of 
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(dryRun.exitCode, 3, JSON.stringify(dryRun));
-    assert.match(
-      String(dryRun.summary),
-      /\| relation \| 2 \| 1 \| 1 \| 1 \| PASS \|/u,
-    );
+    assert.match(String(dryRun.summary), /\| relation \| 3 \| 1 \| 2 \| 2 \| PASS \|/u);
     assert.match(String(dryRun.summary), /Format validation: 1 skipped/u);
-    assert.match(
-      String(dryRun.summary),
-      /type supports is not allowed for decision->fact/u,
-    );
+    assert.match(String(dryRun.summary), /type supports is not allowed for decision->fact/u);
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
@@ -162,16 +139,8 @@ test("a relation whose endpoint entity never migrates is reported, not dropped i
     )) as Record<string, unknown>;
     // old counts the edge, and it cannot be produced because its endpoint task is skipped.
     // Either it is accounted for as a skip, or the reconciliation must fail — never a silent drop.
-    assert.match(
-      String(dryRun.summary),
-      /\| relation \| 1 \| 1 \| 0 \| 0 \| PASS \|/u,
-      String(dryRun.summary),
-    );
-    assert.match(
-      String(dryRun.summary),
-      /SKIP relation/u,
-      String(dryRun.summary),
-    );
+    assert.match(String(dryRun.summary), /\| relation \| 1 \| 1 \| 0 \| 0 \| PASS \|/u, String(dryRun.summary));
+    assert.match(String(dryRun.summary), /SKIP relation/u, String(dryRun.summary));
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
@@ -204,24 +173,16 @@ test("migrated entities keep the actor recorded in the source repository, not th
       /Attribution: principal restored from source records for [1-9]\d* entities, [1-9]\d* fell back/u,
       String(applied.summary),
     );
-    assert.match(
-      String(applied.summary),
-      /\| source-authority-attribution \| excluded \| 1 \| PASS \|/u,
-    );
+    assert.match(String(applied.summary), /\| source-authority-attribution \| excluded \| 1 \| PASS \|/u);
     const events = makeTaskEventStore({
       repoId: "migration-attribution-target",
       rootDir: destination,
     })
       .read()
-      .events.filter(
-        (event) =>
-          event.schema === "migration-import-event/v1" &&
-          event.payload.entity.kind === "task",
-      );
+      .events.filter((event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "task");
     const seen = Object.fromEntries(
       events.map((event) => [
-        (event.payload.entity as { readonly task: { readonly taskId: string } })
-          .task.taskId,
+        (event.payload.entity as { readonly task: { readonly taskId: string } }).task.taskId,
         event.actor,
       ]),
     );

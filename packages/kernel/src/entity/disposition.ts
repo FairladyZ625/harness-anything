@@ -174,7 +174,7 @@ function cascadeImpactFromProjection(
 ): EntityCascadeImpact {
   const incoming = activeSorted(edges.filter((edge) => edgeHasIncomingToEntity(edge, entityRef)));
   const outgoing = activeSorted(edges.filter((edge) => edgeHasOutgoingFromEntity(edge, entityRef)));
-  const anchoredFacts = activeAnchoredFacts(entityRef, factAnchors);
+  const anchoredFacts = activeAnchoredFacts(entityRef, edges, factAnchors);
   return {
     entityRef,
     incoming,
@@ -197,12 +197,18 @@ function childTasksForEntity(options: EntityDispositionOptions, entityRef: strin
 
 function activeAnchoredFacts(
   entityRef: string,
+  edges: ReadonlyArray<RelationGraphEdgeRow>,
   factAnchors: ReadonlyArray<FactAnchorRow>,
 ): ReadonlyArray<FactAnchorRow> {
   const entity = parseEntityRef(entityRef);
   if (!entity || entity.externalHarness || entity.kind !== "task") return [];
+  const produced = new Set(
+    edges
+      .filter((edge) => edge.state === "active" && edge.relationType === "produces" && edge.sourceRef === entityRef)
+      .map((edge) => edge.targetRef),
+  );
   return factAnchors
-    .filter((fact) => fact.taskId === entity.id)
+    .filter((fact) => produced.has(fact.factRef))
     .sort((left, right) => left.factRef.localeCompare(right.factRef));
 }
 

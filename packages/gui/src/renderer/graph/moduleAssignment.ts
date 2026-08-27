@@ -18,7 +18,8 @@ export const UNPROJECTED_MODULE = "__unprojected__";
 /** task.module 字段里代表「未赋值」的占位值(task-adapter 硬编码)。 */
 const PLACEHOLDER_MODULES = new Set(
   /* @gate-identity check-gui-status-judgments/gui-status-021 */
-  ["", "unassigned", "unknown", "none"]);
+  ["", "unassigned", "unknown", "none"],
+);
 
 /** task.module 是否为占位(未投影)。 */
 export function isModuleUnprojected(module: string | undefined | null): boolean {
@@ -59,9 +60,12 @@ export function resolveDecisionModule(
 export function resolveFactModule(
   factRef: string,
   tasks: ReadonlyArray<TaskRow>,
+  relations: ReadonlyArray<RelationEdge> = [],
 ): string {
-  // factRef 形如 fact/<taskId>/<anchor>
-  const taskId = factRef.split("/")[1] ?? "";
+  // Fact ownership is supplied by the produces edge; standalone facts are unprojected.
+  const taskId = relations
+    .find((edge) => edge.kind === "produces" && edge.to === factRef && edge.from.startsWith("task/"))
+    ?.from.slice("task/".length);
   const task = tasks.find((t) => t.taskId === taskId);
   if (!task) return UNPROJECTED_MODULE;
   return resolveTaskModule(task.module);

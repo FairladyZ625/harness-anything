@@ -45,8 +45,11 @@ export function reboundRelation(
     rationale: row.rationale,
     state: (row.state as string) === "retired" ? "edge_retired" : row.state,
   };
+  const legacyRelationId = [...(context.cold.legacyRelationIds as ReadonlyMap<string, string>).entries()].find(
+    ([, canonicalId]) => canonicalId === row.relationId,
+  )?.[0];
   return {
-    oldId: row.relationId,
+    oldId: legacyRelationId ?? row.relationId,
     sourcePath: row.sourcePath,
     ownerRef,
     record,
@@ -61,10 +64,13 @@ export function reboundRef(context: any, ref: string): string | null {
     return context.decisionMap.has(decision[1]!)
       ? `decision/${context.decisionMap.get(decision[1]!)}${decision[2] ?? ""}`
       : null;
-  const fact = /^fact\/([^/]+)\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(ref);
-  return fact && context.cold.knownFactRefs.has(ref) && context.taskMap.has(fact[1]!)
-    ? (context.factMap.get(ref) ?? `fact/${context.taskMap.get(fact[1]!)}/${fact[2]}`)
-    : null;
+  const fact =
+    /^fact\/([^/]+)\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(ref) ?? /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(ref);
+  if (!fact) return null;
+  const factId = fact.at(-1)!;
+  if (context.factMap.has(ref)) return context.factMap.get(ref)!;
+  const canonical = `fact/${factId}`;
+  return context.cold.knownFactRefs.has(canonical) ? canonical : null;
 }
 
 export function prepareRelation(

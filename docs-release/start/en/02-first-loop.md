@@ -82,13 +82,14 @@ Tasks move through six states: `planned → active → blocked → in_review →
 
 ## 4. Record a fact, then a decision
 
-Facts are append-only observations, anchored to the task that produced them:
+Facts are append-only observations. Add `--task` when the observation belongs to
+the task and should receive a `produces` edge:
 
 ```bash
 $ ha --actor human:you fact record --task task_01KWPP52D062Q7BWTD8BCNDRWF \
     --statement "Redirect loops when the session cookie is missing" \
     --source "manual repro" --confidence high
-ok command="fact record" task=task_01KWPP52D062Q7BWTD8BCNDRWF path=facts.md
+ok command="fact record" fact=F-7K3M2Q9R path=facts/F-7K3M2Q9R.md
 ```
 
 Now propose a decision — the WHY — and adjudicate it:

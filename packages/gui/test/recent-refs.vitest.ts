@@ -19,9 +19,9 @@ describe("graph left rail recents and typeahead (archive-line parity)", () => {
     const entries: PaletteEntry[] = [
       { ref: "task/task_a", label: "Fix daemon spawn", sub: "active", entity: "task" },
       { ref: "decision/dec_1", label: "Adopt tmux", sub: "proposed", entity: "decision" },
-      { ref: "fact/task_b/F-001", label: "posix_spawn failed", sub: "evidence", entity: "fact" },
+      { ref: "fact/F-001", label: "posix_spawn failed", sub: "evidence", entity: "fact" },
     ];
-    expect(searchPaletteEntries(entries, "spawn").map((e) => e.ref)).toEqual(["task/task_a", "fact/task_b/F-001"]);
+    expect(searchPaletteEntries(entries, "spawn").map((e) => e.ref)).toEqual(["task/task_a", "fact/F-001"]);
     expect(searchPaletteEntries(entries, "DEC_1").map((e) => e.ref)).toEqual(["decision/dec_1"]);
     expect(searchPaletteEntries(entries, "proposed").map((e) => e.ref)).toEqual(["decision/dec_1"]);
     expect(searchPaletteEntries(entries, "")).toEqual([]);

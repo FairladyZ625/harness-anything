@@ -14,7 +14,8 @@ export type CompletionBlockerCode =
   | "decision_lineage_missing"
   | "lease_held"
   | "doc_sync_required"
-  | "gate_witness_missing";
+  | "gate_witness_missing"
+  | "fact_missing";
 export interface CompletionNext {
   readonly command: string;
   readonly reason: string;
@@ -28,6 +29,7 @@ export interface CompletionReadinessContext {
   readonly closeout: "ready" | "placeholder" | "dirty_eligible" | "missing";
   readonly closeoutPath: string;
   readonly eligibleDirtyPaths: readonly string[];
+  readonly producesFactCount: number;
 }
 
 export function completionBlockers(
@@ -124,6 +126,13 @@ export function completionBlockers(
       "lineage",
       `ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/${task.taskId} --rationale <why this decision authorises the task>`,
       `A ${task.taskClass} task completes only with an active decision derives edge; no active edge names this task.`,
+    );
+  if (context.producesFactCount < 1)
+    return one(
+      "fact_missing",
+      "facts",
+      `ha fact record --task ${task.taskId} --statement <observation> --source <source>`,
+      "A task requires at least one active task→fact produces edge before completion.",
     );
   if (context.eligibleDirtyPaths.length)
     return one(

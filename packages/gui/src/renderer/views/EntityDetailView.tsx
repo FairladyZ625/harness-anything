@@ -8,7 +8,7 @@ import { t } from "../i18n/index.tsx";
 
 /**
  * Fact 详情页(W4 可寻址路由):
- *   fact/<taskId>/<anchor> → view=factDetail + focusedEntityRef
+ *   fact/<anchor> → view=factDetail + focusedEntityRef
  *
  * 「打开详情」不再落在列表页。页面 = 详情栏(复用 FactInspector)
  * + 邻域画布(复用 graph/EgoNeighborhood):任意实体就地看到「它周围有什么」,
@@ -50,8 +50,8 @@ export function FactDetailView({
 }) {
   const anchor = factRef?.replace(/^fact\//, "") ?? null;
   const fact = useMemo(
-    () => (anchor ? facts.find((f) => f.anchor === anchor) ?? null : null),
-    [facts, anchor],
+    () => (factRef ? (facts.find((f) => f.anchor === factRef || f.anchor === anchor) ?? null) : null),
+    [facts, factRef, anchor],
   );
   // anchor-only fact(有锚点、正文未投影)仍是图上一等节点 —— 邻域照常铺开。
   const inProjection = fact !== null || (factRef ? factAnchors.some((a) => a.factRef === factRef) : false);

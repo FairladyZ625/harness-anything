@@ -12,10 +12,7 @@ import {
   sha256Text,
   taskLifecycleWritePlan,
 } from "../../src/index.ts";
-import {
-  readDecisionDocumentState,
-  reduceDecisionEvent,
-} from "../../src/projection/decision-event-projection.ts";
+import { readDecisionDocumentState, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
 import { withTempStore } from "./helpers.ts";
 
 import {
@@ -42,7 +39,7 @@ test("post-merge continues to consume event-backed Decision/Fact truth", () => {
     applyFact(fixture, fact(2));
     const edge = relation({
       source: "decision/dec_GRAPH/C1",
-      target: "fact/task-evidence/F-DEADBEEF",
+      target: "fact/F-DEADBEEF",
       type: "evidenced-by",
     });
     applyDecision(fixture, claim(3, "dec_GRAPH"));
@@ -64,9 +61,7 @@ test("post-merge fails closed without identity-bound event relation truth", () =
     assert.equal(result.ok, false);
     assert.equal(
       result.warnings.some(
-        ({ code, message }) =>
-          code === "relation_truth_unavailable" &&
-          message.includes("identity-bound"),
+        ({ code, message }) => code === "relation_truth_unavailable" && message.includes("identity-bound"),
       ),
       true,
     );
@@ -79,10 +74,7 @@ test("Decision readiness is commit-bound and ignores uncommitted worktree guesse
     git(rootDir, "config", "user.name", "Fixture");
     git(rootDir, "config", "user.email", "fixture@example.test");
     mkdirSync(path.join(rootDir, "packages/kernel"), { recursive: true });
-    writeFileSync(
-      path.join(rootDir, "packages/kernel/index.ts"),
-      "export const ready = true;\n",
-    );
+    writeFileSync(path.join(rootDir, "packages/kernel/index.ts"), "export const ready = true;\n");
     git(rootDir, "add", ".");
     git(rootDir, "commit", "-m", "base", {
       GIT_AUTHOR_DATE: "2026-08-01T00:00:00Z",
@@ -95,43 +87,23 @@ test("Decision readiness is commit-bound and ignores uncommitted worktree guesse
         appliesTo: { modules: ["kernel"], productLines: [] },
       };
     const source = testReadinessSource();
-    let readiness = projectDecisionReadiness(
-      { rootDir, commitSha: base, decisions: [decision] },
-      source,
-    )[0]!;
+    let readiness = projectDecisionReadiness({ rootDir, commitSha: base, decisions: [decision] }, source)[0]!;
     assert.equal(readiness.appliesToDrift.state, "clear");
     assert.equal(readiness.conflictMarker.state, "clear");
-    writeFileSync(
-      path.join(rootDir, "packages/kernel/index.ts"),
-      "<<<<<<< local\n=======\n>>>>>>> remote\n",
-    );
-    readiness = projectDecisionReadiness(
-      { rootDir, commitSha: base, decisions: [decision] },
-      source,
-    )[0]!;
-    assert.equal(
-      readiness.conflictMarker.state,
-      "clear",
-      "uncommitted worktree markers are not canonical truth",
-    );
+    writeFileSync(path.join(rootDir, "packages/kernel/index.ts"), "<<<<<<< local\n=======\n>>>>>>> remote\n");
+    readiness = projectDecisionReadiness({ rootDir, commitSha: base, decisions: [decision] }, source)[0]!;
+    assert.equal(readiness.conflictMarker.state, "clear", "uncommitted worktree markers are not canonical truth");
     git(rootDir, "add", ".");
     git(rootDir, "commit", "-m", "canonical conflict", {
       GIT_AUTHOR_DATE: "2026-08-03T00:00:00Z",
       GIT_COMMITTER_DATE: "2026-08-03T00:00:00Z",
     });
     const head = git(rootDir, "rev-parse", "HEAD");
-    readiness = projectDecisionReadiness(
-      { rootDir, commitSha: head, decisions: [decision] },
-      source,
-    )[0]!;
+    readiness = projectDecisionReadiness({ rootDir, commitSha: head, decisions: [decision] }, source)[0]!;
     assert.equal(readiness.appliesToDrift.state, "drift");
-    assert.deepEqual(readiness.appliesToDrift.paths, [
-      "packages/kernel/index.ts",
-    ]);
+    assert.deepEqual(readiness.appliesToDrift.paths, ["packages/kernel/index.ts"]);
     assert.equal(readiness.conflictMarker.state, "conflict");
-    assert.deepEqual(readiness.conflictMarker.paths, [
-      "packages/kernel/index.ts",
-    ]);
+    assert.deepEqual(readiness.conflictMarker.paths, ["packages/kernel/index.ts"]);
     const unknown = projectDecisionReadiness(
       {
         rootDir,
@@ -167,17 +139,10 @@ test("Decision readiness batches canonical Git reads across the ledger", () => {
     proposedAt: new Date(Date.UTC(2026, 7, 1) + index * 1_000).toISOString(),
     appliesTo: { modules: ["kernel"], productLines: [] },
   }));
-  const readiness = projectDecisionReadiness(
-    { rootDir: "/fixture", commitSha: "a".repeat(40), decisions },
-    source,
-  );
+  const readiness = projectDecisionReadiness({ rootDir: "/fixture", commitSha: "a".repeat(40), decisions }, source);
   assert.equal(readiness.length, count);
   assert.equal(
-    readiness.every(
-      (row) =>
-        row.appliesToDrift.state === "clear" &&
-        row.conflictMarker.state === "clear",
-    ),
+    readiness.every((row) => row.appliesToDrift.state === "clear" && row.conflictMarker.state === "clear"),
     true,
   );
   assert.equal(
@@ -234,11 +199,7 @@ test("Replay accepts a document today's renderer no longer reproduces, as long a
       });
     // Stand in for a document written by an older renderer: strip a frontmatter line today's renderer always emits.
     const legacyBody = compiled.body.replace(/^provenance: .*\n/mu, "");
-    assert.notEqual(
-      legacyBody,
-      compiled.body,
-      "fixture must actually differ from what the current renderer produces",
-    );
+    assert.notEqual(legacyBody, compiled.body, "fixture must actually differ from what the current renderer produces");
     const legacySha = sha256Text(legacyBody),
       legacySize = Buffer.byteLength(legacyBody, "utf8");
     const event = {
@@ -284,14 +245,8 @@ test("Decision projection requires exact plan, content hash, consent pin, and do
         },
       };
     fixture.blobs.set(forgedSha, Buffer.from(compiled.body));
-    assert.throws(
-      () => fixture.projection.apply(compiled.event),
-      /write plan/u,
-    );
-    assert.throws(
-      () => fixture.projection.apply(forged, decisionWritePlan(forged)),
-      /projection mismatch/u,
-    );
+    assert.throws(() => fixture.projection.apply(compiled.event), /write plan/u);
+    assert.throws(() => fixture.projection.apply(forged, decisionWritePlan(forged)), /projection mismatch/u);
     assert.equal(fixture.projection.readDecision("dec_EXACT").decision, null);
     applyDecision(fixture, draft);
     const next = compileCurrent(fixture, accepted(2, "dec_EXACT")),
@@ -310,25 +265,15 @@ test("Decision projection requires exact plan, content hash, consent pin, and do
         payload: { ...next.event.payload, baseDocumentSha256: "0".repeat(64) },
       };
     fixture.blobs.set(next.blobs[0].sha256, Buffer.from(next.body));
-    assert.throws(
-      () => fixture.projection.apply(tampered, decisionWritePlan(tampered)),
-      /machine content cut/u,
-    );
-    assert.throws(
-      () => fixture.projection.apply(stale, decisionWritePlan(stale)),
-      /base.*mismatch/u,
-    );
-    assert.equal(
-      fixture.projection.readDecision("dec_EXACT").decision?.state,
-      "proposed",
-    );
+    assert.throws(() => fixture.projection.apply(tampered, decisionWritePlan(tampered)), /machine content cut/u);
+    assert.throws(() => fixture.projection.apply(stale, decisionWritePlan(stale)), /base.*mismatch/u);
+    assert.equal(fixture.projection.readDecision("dec_EXACT").decision?.state, "proposed");
   });
 });
 
 test("Decision projection preserves authored option and claim order across two-digit ids", () => {
   const draft = proposal(1, "dec_ORDER"),
-    numbered = (prefix: string) =>
-      Array.from({ length: 10 }, (_, index) => `${prefix}${index + 1}`),
+    numbered = (prefix: string) => Array.from({ length: 10 }, (_, index) => `${prefix}${index + 1}`),
     event: typeof draft = {
       ...draft,
       payload: {
@@ -369,10 +314,7 @@ test("Decision projection preserves authored option and claim order across two-d
       state.claims.map(({ id }) => id),
       numbered("C"),
     );
-    assert.equal(
-      renderDecisionDocument(state, null, event.payload.body),
-      compiled.body,
-    );
+    assert.equal(renderDecisionDocument(state, null, event.payload.body), compiled.body);
   } finally {
     db.close();
   }

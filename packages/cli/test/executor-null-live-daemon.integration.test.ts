@@ -12,7 +12,10 @@ import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 const cli = path.resolve("packages/cli/src/index.ts");
 type TaskSnapshot = {
   readonly task: { readonly status: string; readonly currentNode: string };
-  readonly executions: readonly { readonly state: string; readonly actor: { readonly executor: null | { readonly kind: string; readonly id: string } } }[];
+  readonly executions: readonly {
+    readonly state: string;
+    readonly actor: { readonly executor: null | { readonly kind: string; readonly id: string } };
+  }[];
   readonly reviews: readonly { readonly verdict: string }[];
 };
 
@@ -29,7 +32,8 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
   seedSettingsEvent({ rootDir: root, repoId: "executor-null-live" });
   try {
     daemon = spawnSourceDaemon(root, userRoot, daemonId);
-    const status = waitForDaemon(root, userRoot, daemonId), daemonPid = readDaemonPid(userRoot, daemonId);
+    const status = waitForDaemon(root, userRoot, daemonId),
+      daemonPid = readDaemonPid(userRoot, daemonId);
     assert.equal(status.ok, true, JSON.stringify(status));
     assert.equal(daemonPid, daemon.pid, "the responding daemon must be the explicitly spawned source process");
     assert.deepEqual(status.target, {
@@ -41,21 +45,43 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
     });
 
     assert.equal(
-      run(root, userRoot, daemonId, ["daemon", "repo", "register", "--repo-id", "executor-null-live", "--root", root]).outcome,
+      run(root, userRoot, daemonId, ["daemon", "repo", "register", "--repo-id", "executor-null-live", "--root", root])
+        .outcome,
       "applied",
     );
-    const created = run(root, userRoot, daemonId, ["task", "create", "--id", taskId, "--admin", "--title", "Executor null live"]),
+    const created = run(root, userRoot, daemonId, [
+        "task",
+        "create",
+        "--id",
+        taskId,
+        "--admin",
+        "--title",
+        "Executor null live",
+      ]),
       closeoutPath = `${String(created.packagePath)}/closeout.md`;
     assert.equal(created.outcome, "applied", JSON.stringify(created));
-    assert.equal(run(root, userRoot, daemonId, ["task", "start", taskId, "--execution-id", executionId]).outcome, "applied");
+    assert.equal(
+      run(root, userRoot, daemonId, [
+        "fact",
+        "record",
+        "--task",
+        taskId,
+        "--statement",
+        "The reviewed execution can recover its omitted executor through the live daemon.",
+        "--source",
+        "test:executor-null-live",
+      ]).outcome,
+      "applied",
+    );
+    assert.equal(
+      run(root, userRoot, daemonId, ["task", "start", taskId, "--execution-id", executionId]).outcome,
+      "applied",
+    );
     writeFileSync(
       path.join(root, "harness", closeoutPath),
       "# Closeout\n\n## Summary\n\nExecutor attribution recovered.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the executor declaration contract.\n",
     );
-    assert.equal(
-      run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--task", taskId]).outcome,
-      "applied",
-    );
+    assert.equal(run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--task", taskId]).outcome, "applied");
     const commitSha = git(root, "rev-parse", "HEAD");
     writeFileSync(
       path.join(root, "submission.json"),
@@ -70,22 +96,63 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
       }),
     );
     assert.equal(
-      run(root, userRoot, daemonId, ["task", "submit", taskId, "--execution-id", executionId, "--from-file", "submission.json"]).outcome,
+      run(root, userRoot, daemonId, [
+        "task",
+        "submit",
+        taskId,
+        "--execution-id",
+        executionId,
+        "--from-file",
+        "submission.json",
+      ]).outcome,
       "applied",
     );
     assert.equal(
-      run(root, userRoot, daemonId, ["task", "code-doc", "reconcile", taskId, "--execution-id", executionId, "--commit-sha", commitSha, "--iteration", "0", "--path", "README.md"], "agent:worker").outcome,
+      run(
+        root,
+        userRoot,
+        daemonId,
+        [
+          "task",
+          "code-doc",
+          "reconcile",
+          taskId,
+          "--execution-id",
+          executionId,
+          "--commit-sha",
+          commitSha,
+          "--iteration",
+          "0",
+          "--path",
+          "README.md",
+        ],
+        "agent:worker",
+      ).outcome,
       "applied",
     );
     writeFileSync(
       path.join(root, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Independent agent review passed.", evidenceChecked: ["live source daemon route"] }),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Independent agent review passed.",
+        evidenceChecked: ["live source daemon route"],
+      }),
     );
     const reviewed = run(
       root,
       userRoot,
       daemonId,
-      ["task", "review-execution", taskId, "--execution-id", executionId, "--review-id", reviewId, "--from-file", "review.json"],
+      [
+        "task",
+        "review-execution",
+        taskId,
+        "--execution-id",
+        executionId,
+        "--review-id",
+        reviewId,
+        "--from-file",
+        "review.json",
+      ],
       "agent:reviewer",
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
@@ -97,7 +164,15 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
       root,
       userRoot,
       daemonId,
-      ["task", "declare-executor", taskId, "--execution-id", executionId, "--reason", "The original principal names the agent that performed the approved work."],
+      [
+        "task",
+        "declare-executor",
+        taskId,
+        "--execution-id",
+        executionId,
+        "--reason",
+        "The original principal names the agent that performed the approved work.",
+      ],
       "agent:worker",
     );
     assert.equal(declared.outcome, "applied", JSON.stringify(declared));
@@ -106,27 +181,58 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
       JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }),
     );
     assert.equal(
-      run(root, userRoot, daemonId, ["task", "review-consent", taskId, "--execution-id", executionId, "--review-id", reviewId, "--consent-id", "consent-executor-null-live", "--from-file", "consent.json"]).outcome,
+      run(root, userRoot, daemonId, [
+        "task",
+        "review-consent",
+        taskId,
+        "--execution-id",
+        executionId,
+        "--review-id",
+        reviewId,
+        "--consent-id",
+        "consent-executor-null-live",
+        "--from-file",
+        "consent.json",
+      ]).outcome,
       "applied",
     );
-    const completed = run(root, userRoot, daemonId, ["task", "complete", taskId, "--execution-id", executionId, "--ci", "passed"]),
+    const completed = run(root, userRoot, daemonId, [
+        "task",
+        "complete",
+        taskId,
+        "--execution-id",
+        executionId,
+        "--ci",
+        "passed",
+      ]),
       after = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId]));
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal(after.task.status, "done");
     assert.deepEqual(after.executions[0]?.actor.executor, { kind: "agent", id: "worker" });
-    assert.equal(after.reviews.some((review) => review.verdict === "changes_requested"), false);
-    context.diagnostic(`executor-null-live-receipt=${JSON.stringify({
-      daemonId,
-      userRoot,
-      sourceEntry: cli,
-      nodeEntry: process.execPath,
-      pid: daemonPid,
-      target: status.target,
-      before: { taskStatus: before.task.status, currentNode: before.task.currentNode, executionState: before.executions[0]?.state, executor: before.executions[0]?.actor.executor, reviewVerdict: before.reviews[0]?.verdict },
-      declared: { outcome: declared.outcome, opId: declared.opId },
-      completed: { outcome: completed.outcome, opId: completed.opId, taskStatus: after.task.status },
-      changesRequestedReviews: after.reviews.filter((review) => review.verdict === "changes_requested").length,
-    })}`);
+    assert.equal(
+      after.reviews.some((review) => review.verdict === "changes_requested"),
+      false,
+    );
+    context.diagnostic(
+      `executor-null-live-receipt=${JSON.stringify({
+        daemonId,
+        userRoot,
+        sourceEntry: cli,
+        nodeEntry: process.execPath,
+        pid: daemonPid,
+        target: status.target,
+        before: {
+          taskStatus: before.task.status,
+          currentNode: before.task.currentNode,
+          executionState: before.executions[0]?.state,
+          executor: before.executions[0]?.actor.executor,
+          reviewVerdict: before.reviews[0]?.verdict,
+        },
+        declared: { outcome: declared.outcome, opId: declared.opId },
+        completed: { outcome: completed.outcome, opId: completed.opId, taskStatus: after.task.status },
+        changesRequestedReviews: after.reviews.filter((review) => review.verdict === "changes_requested").length,
+      })}`,
+    );
 
     const stopped = run(root, userRoot, daemonId, ["daemon", "stop", "--user-root", userRoot, "--daemon-id", daemonId]);
     assert.equal(stopped.ok, true, JSON.stringify(stopped));
@@ -159,7 +265,9 @@ function initialize(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "README.md"), "# Fixture\n");
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n");
-  writeFileSync(path.join(root, "harness/people.yaml"), `schema: harness-people/v1
+  writeFileSync(
+    path.join(root, "harness/people.yaml"),
+    `schema: harness-people/v1
 people:
   - personId: owner
     displayName: Owner
@@ -172,7 +280,8 @@ people:
 roles:
   - roleId: owner
     commandClasses: [admin, repo-write, repo-read, arbiter]
-`);
+`,
+  );
   git(root, "init", "--quiet");
   git(root, "config", "user.name", "Executor Null Live Test");
   git(root, "config", "user.email", "executor-null-live@example.test");
@@ -198,13 +307,25 @@ function waitForDaemon(root: string, userRoot: string, daemonId: string): Record
   return JSON.parse(last.stdout) as Record<string, unknown>;
 }
 
-function run(root: string, userRoot: string, daemonId: string, args: readonly string[], actor?: string): Record<string, unknown> {
+function run(
+  root: string,
+  userRoot: string,
+  daemonId: string,
+  args: readonly string[],
+  actor?: string,
+): Record<string, unknown> {
   const result = runMaybe(root, userRoot, daemonId, args, actor);
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
 }
 
-function runMaybe(root: string, userRoot: string, daemonId: string, args: readonly string[], actor?: string): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
+function runMaybe(
+  root: string,
+  userRoot: string,
+  daemonId: string,
+  args: readonly string[],
+  actor?: string,
+): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
   const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], {
     encoding: "utf8",
     env: environment(root, userRoot, daemonId, actor),
@@ -213,7 +334,13 @@ function runMaybe(root: string, userRoot: string, daemonId: string, args: readon
 }
 
 function environment(root: string, userRoot: string, daemonId: string, actor?: string): NodeJS.ProcessEnv {
-  const { HARNESS_ACTOR: _actor, HARNESS_DAEMON_ENDPOINT: _endpoint, HARNESS_DAEMON_REPO_ID: _repo, HARNESS_DAEMON_ID: _daemon, ...base } = process.env;
+  const {
+    HARNESS_ACTOR: _actor,
+    HARNESS_DAEMON_ENDPOINT: _endpoint,
+    HARNESS_DAEMON_REPO_ID: _repo,
+    HARNESS_DAEMON_ID: _daemon,
+    ...base
+  } = process.env;
   return {
     ...base,
     HOME: path.join(root, ".home"),

@@ -7,6 +7,7 @@ import { type MigrationDocumentClaim, type MigrationImportEventV1 } from "../dom
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
+import { deriveRelationId } from "../domain/entity-relation.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
@@ -46,7 +47,7 @@ export function projectMigration(
       entity.kind === "task"
         ? entity.task.taskId
         : entity.kind === "fact"
-          ? entity.fact.taskId
+          ? (entity.fact.taskId ?? null)
           : entity.kind === "execution"
             ? entity.execution.taskId
             : entity.kind === "task-document"
@@ -152,7 +153,7 @@ export function projectMigration(
   }
   if (entity.kind === "fact") {
     const value = entity.fact,
-      ref = `fact/${value.taskId}/${value.factId}`,
+      ref = `fact/${value.factId}`,
       row = {
         schema: "fact-row/v1",
         ref,
@@ -165,7 +166,7 @@ export function projectMigration(
     runSql(
       db,
       INSERT_FACT_SQL,
-      value.taskId,
+      value.taskId ?? null,
       value.factId,
       ref,
       value.statement,
@@ -177,14 +178,40 @@ export function projectMigration(
       event.workspaceRevision,
       JSON.stringify(row),
     );
-    runSql(
-      db,
-      "INSERT INTO fact_fts VALUES (?, ?, ?, ?)",
-      value.taskId,
-      value.factId,
-      value.statement,
-      value.evidenceSource,
-    );
+    runSql(db, "INSERT INTO fact_fts VALUES (?, ?, ?)", value.factId, value.statement, value.evidenceSource);
+    if (value.taskId) {
+      const produces = {
+        source: `task/${value.taskId}`,
+        target: ref,
+        type: "produces" as const,
+        direction: "directed" as const,
+      };
+      runSql(
+        db,
+        "INSERT OR IGNORE INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        deriveRelationId(produces),
+        produces.source,
+        produces.target,
+        produces.type,
+        "active",
+        produces.source,
+        event.workspaceRevision,
+        JSON.stringify({
+          relationId: deriveRelationId(produces),
+          sourceRef: produces.source,
+          targetRef: produces.target,
+          relationType: produces.type,
+          direction: produces.direction,
+          strength: "strong",
+          origin: "generated",
+          state: "active",
+          rationale: "Migrated fact owner.",
+          ownerRef: produces.source,
+          sourcePath: `event:${event.opId}`,
+          recordIndex: 1,
+        }),
+      );
+    }
     storeMigrationDocument(db, event, entity.documentClaim, readBlob);
     return;
   }
@@ -247,7 +274,7 @@ export function projectMigration(
       };
     runSql(
       db,
-      "INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       edge.relationId,
       edge.sourceRef,
       edge.targetRef,

@@ -21,7 +21,7 @@
     },
     "entityRef": {
       "type": "string",
-      "pattern": "^(?:(?:task|decision)/[A-Za-z0-9_-]+(?:/[A-Za-z][A-Za-z0-9_-]*)?|fact/[A-Za-z0-9_-]+/F-[A-Za-z0-9_-]+)$"
+      "pattern": "^(?:(?:task|decision)/[A-Za-z0-9_-]+(?:/[A-Za-z][A-Za-z0-9_-]*)?|fact/F-[A-Za-z0-9_-]+)$"
     },
     "relationRecord": {
       "type": "object",

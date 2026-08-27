@@ -53,13 +53,13 @@ export function knowledgeQueryApi(
           );
         assertFactAdmission(db, event);
       }),
-    readFact: (taskId, factId) =>
+    readFact: (factId) =>
       withDatabase(projectionPath, readHead, (db) => {
         const round = catchUpRound(db, eventStore, limit),
           current = watermark(db);
         return {
           status: current === round.sourceRevision ? "ready" : "pending",
-          fact: readFactRow(db, taskId, factId),
+          fact: readFactRow(db, factId),
           watermark: current,
           sourceRevision: round.sourceRevision,
         };

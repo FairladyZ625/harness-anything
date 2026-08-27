@@ -13,7 +13,7 @@ A cheat sheet for the commands you'll reach for most. Add `--json` to any comman
 | `ha task transition <id> <state>` | Move a task to a new lifecycle state. |
 | `ha decision propose --title <t> ...` | Propose a decision (question, chosen, rejected, why-not). |
 | `ha decision accept <id>` | Adjudicate a proposed decision — the evidence checkpoint. |
-| `ha fact record --task <id> --statement <text>` | Record an append-only fact anchored to a task. |
+| `ha fact record --statement <text> --source <text> [--task <id>]` | Record an append-only fact; optionally associate it with a task. |
 | `ha status` | Summarize harness state. |
 | `ha check` | Run harness health checks. |
 | `ha graph` | Render the relation graph as a self-contained HTML panorama. |
@@ -36,7 +36,7 @@ ha decision list --state active
 
 **Facts**
 ```bash
-ha fact record --task <id> --statement "..." --source "..." --confidence high
+ha fact record --statement "..." --source "..." --confidence high [--task <id>]
 ```
 
 **Check & navigate**

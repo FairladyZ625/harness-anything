@@ -111,9 +111,7 @@ export function decisionEvent(
         appliesTo: { modules: ["kernel"], productLines: [] },
         decisionClass: "ordinary",
         chosen: [{ id: "CH1", text: "Use events", rationale: "Replayable" }],
-        rejected: [
-          { id: "RJ1", text: "Use markdown", whyNot: "Not canonical" },
-        ],
+        rejected: [{ id: "RJ1", text: "Use markdown", whyNot: "Not canonical" }],
         body: "\n# Canonical Decision\n",
         claims: [],
         fulfillments: [],
@@ -137,11 +135,7 @@ export function decisionEvent(
         judgmentOnlyRationale: "Explicit judgment-only acceptance.",
       },
     };
-  if (
-    type === "decision_rejected" ||
-    type === "decision_deferred" ||
-    type === "decision_retired"
-  )
+  if (type === "decision_rejected" || type === "decision_deferred" || type === "decision_retired")
     return { ...base, type, payload: { reason: "Recorded outcome." } };
   if (type === "decision_claim_declared")
     return {
@@ -155,8 +149,7 @@ export function decisionEvent(
     };
   if (type === "decision_claim_fulfillment_declared")
     return { ...base, type, payload: { claimId: "C1", mode: "evidenced" } };
-  if (type === "decision_related")
-    return { ...base, type, payload: { relation: extra as never } };
+  if (type === "decision_related") return { ...base, type, payload: { relation: extra as never } };
   return {
     ...base,
     type,
@@ -186,11 +179,7 @@ export function decisionAt(
     payload,
   } as DecisionEventDraftV1;
 }
-export function relationRecord(
-  source: string,
-  target: string,
-  type: "supports" | "produces" | "evidenced-by",
-) {
+export function relationRecord(source: string, target: string, type: "supports" | "produces" | "evidenced-by") {
   const identity = { source, target, type, direction: "directed" as const };
   return {
     relation_id: deriveRelationId(identity),
@@ -237,14 +226,9 @@ export function factEvent(
     },
   };
 }
-export function compile(
-  projection: Pick<TaskProjection, "searchFacts">,
-  draft: FactEventDraftV1,
-) {
+export function compile(projection: Pick<TaskProjection, "searchFacts">, draft: FactEventDraftV1) {
   return compileFactWrite({
     event: draft,
-    packagePath: `tasks/${draft.taskId}-fixture`,
-    currentFacts: projection.searchFacts({ taskId: draft.taskId }).facts,
   });
 }
 export function recordFact(
@@ -254,10 +238,7 @@ export function recordFact(
 ) {
   return service.record(compile(projection, draft));
 }
-export function compileDecision(
-  projection: TaskProjection,
-  draft: DecisionEventDraftV1,
-) {
+export function compileDecision(projection: TaskProjection, draft: DecisionEventDraftV1) {
   const read = projection.readDecision(draft.decisionId),
     current = read.decision,
     path = `decisions/decision-${draft.decisionId}/decision.md`,
@@ -291,20 +272,12 @@ export function compileDecision(
       "decision_related",
       "decision_relation_retired",
     ].includes(draft.type);
-  assert.equal(
-    compiled.event.payload.baseDocumentSha256,
-    document?.blobSha256 ?? null,
-  );
-  assert.equal(
-    compiled.event.payload.decisionDocumentClaim.sha256,
-    compiled.blobs[0].sha256,
-  );
+  assert.equal(compiled.event.payload.baseDocumentSha256, document?.blobSha256 ?? null);
+  assert.equal(compiled.event.payload.decisionDocumentClaim.sha256, compiled.blobs[0].sha256);
   assert.equal(compiled.event.payload.decisionDocumentClaim.path, path);
   assert.equal(
     compiled.plan.targets.some(
-      (target) =>
-        target.kind === "projection_invalidation" &&
-        target.projection === "relation-graph/v1",
+      (target) => target.kind === "projection_invalidation" && target.projection === "relation-graph/v1",
     ),
     graphMutation,
   );
@@ -317,48 +290,23 @@ export function recordDecision(
 ) {
   const result = service.record(compileDecision(projection, draft));
   assert.equal(result.decision.workspaceRevision, result.revision);
-  assert.equal(
-    projection.readDocument(result.path).document?.workspaceRevision,
-    result.revision,
-  );
+  assert.equal(projection.readDocument(result.path).document?.workspaceRevision, result.revision);
   return result;
 }
 export function factBacklog(count: number, taskId: string) {
   const events: FactEventV1[] = [],
-    records: Parameters<typeof compileFactWrite>[0]["currentFacts"][number][] =
-      [],
     contents = new Map<string, Uint8Array>();
   for (let index = 0; index < count; index += 1) {
     const compiled = compileFactWrite({
-      event: factEvent(
-        index + 1,
-        taskId,
-        `F-${String(index + 1).padStart(8, "0")}`,
-      ),
-      packagePath: `tasks/${taskId}-fixture`,
-      currentFacts: records,
+      event: factEvent(index + 1, taskId, `F-${String(index + 1).padStart(8, "0")}`),
     });
     events.push(compiled.event);
-    contents.set(
-      compiled.event.payload.factsDocumentClaim.sha256,
-      Buffer.from(compiled.body),
-    );
-    records.push({
-      factId: compiled.event.factId,
-      statement: compiled.event.payload.statement,
-      evidenceSource: compiled.event.payload.evidenceSource,
-      observedAt: compiled.event.payload.observedAt,
-      confidence: compiled.event.payload.confidence,
-      state: "standing",
-      workspaceRevision: compiled.event.workspaceRevision,
-    });
+    contents.set(compiled.event.payload.factsDocumentClaim.sha256, Buffer.from(compiled.body));
   }
   return { events, contents };
 }
 export function code(error: unknown): string | undefined {
-  return typeof error === "object" && error !== null && "code" in error
-    ? String(error.code)
-    : undefined;
+  return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
 }
 export function bundle(event: CanonicalEventV1): CanonicalWriteBundle {
   if (!isTaskEvent(event)) throw new Error("fixture requires a task event");
@@ -370,9 +318,7 @@ export function git(rootDir: string, ...args: readonly string[]): string {
     encoding: "utf8",
   }).trim();
 }
-export function memoryFactStore(
-  initial: ReturnType<typeof factBacklog>,
-): CanonicalEventStore {
+export function memoryFactStore(initial: ReturnType<typeof factBacklog>): CanonicalEventStore {
   const events = [...initial.events],
     contents = new Map(initial.contents);
   return {
@@ -400,13 +346,11 @@ export function memoryFactStore(
       };
     },
     readContentBlob: (sha256: string) => contents.get(sha256) ?? null,
-    readEvent: (opId: string) =>
-      events.find((event) => event.opId === opId) ?? null,
+    readEvent: (opId: string) => events.find((event) => event.opId === opId) ?? null,
     append: (bundleValue: CanonicalWriteBundle) => {
       const event = bundleValue.event as FactEventV1;
       events.push(event);
-      for (const blob of bundleValue.blobs)
-        contents.set(blob.sha256, Buffer.from(blob.body));
+      for (const blob of bundleValue.blobs) contents.set(blob.sha256, Buffer.from(blob.body));
       return {
         revision: event.workspaceRevision,
         commitSha: { sha: "0".repeat(40) },

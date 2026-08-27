@@ -224,8 +224,8 @@ function knownEndpoint(db: DatabaseSync, ref: string): boolean {
   const decision = /^decision\/([^/]+)(?:\/([^/]+))?$/u.exec(ref);
   if (decision)
     return decision[2] ? decisionAnchorRefs(db, decision[1]!).includes(ref) : Boolean(decisionState(db, decision[1]!));
-  const fact = /^fact\/([^/]+)\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(ref);
-  if (fact) return Boolean(db.prepare("SELECT 1 FROM fact WHERE task_id=? AND fact_id=?").get(fact[1], fact[2]));
+  const fact = /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(ref);
+  if (fact) return Boolean(db.prepare("SELECT 1 FROM fact WHERE fact_id=?").get(fact[1]));
   const task = /^task\/([^/]+)$/u.exec(ref);
   return Boolean(task && db.prepare("SELECT 1 FROM task_snapshot WHERE task_id=?").get(task[1]));
 }

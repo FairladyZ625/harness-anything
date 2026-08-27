@@ -8,6 +8,7 @@ import {
 } from "../domain/doc-sync.contract.ts";
 import {
   deriveRelationId,
+  isFactId,
   parseEntityRef,
   validateRelationRecordsForHost,
   type EntityRelationRecord,
@@ -35,6 +36,7 @@ import { sourcePath } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 import { coverageOf } from "../domain/decision-coverage.ts";
 import { factLiveness } from "../domain/fact-liveness.ts";
+import type { FactEventV1 } from "../domain/fact-event.ts";
 import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
 
 export interface ColdDecisionProjectionRow {
@@ -78,6 +80,10 @@ export interface ColdRebuildSource {
   readonly facts: readonly RelationFactRow[];
   readonly tasks: readonly { readonly ref: string; readonly status: string }[];
   readonly knownFactRefs: ReadonlySet<string>;
+  /** Legacy task-local refs accepted only by the migration importer. */
+  readonly legacyFactRefs: ReadonlyMap<string, string>;
+  /** Legacy relation IDs whose endpoint re-key changed their canonical digest. */
+  readonly legacyRelationIds: ReadonlyMap<string, string>;
   readonly issues: readonly ColdRebuildIssue[];
   readonly complete: boolean;
 }
@@ -96,24 +102,31 @@ interface RelationEntry {
   readonly recordIndex: number;
 }
 interface EventFactSource {
+  readonly identityRef: string;
   readonly row: RelationFactRow;
   readonly sourcePath: string;
 }
 interface AuthoredEventRead {
   readonly rows: readonly EventFactSource[];
   readonly relations: readonly RelationEntry[];
+  readonly legacyFactRefs: ReadonlyMap<string, string>;
   readonly issues: readonly ColdRebuildIssue[];
 }
 
-export function readColdRebuildSource(rootInput: HarnessLayoutInput): ColdRebuildSource {
+export function readColdRebuildSource(
+  rootInput: HarnessLayoutInput,
+  options: { readonly includeLegacyTaskFacts?: boolean } = {},
+): ColdRebuildSource {
   const layout = resolveHarnessLayout(rootInput),
     taskDirs = listDirs(layout.tasksRoot),
     taskIds = new Set(taskDirs.map(readTaskId));
   const decisionRead = readDecisions(layout.rootDir, layout.decisionsRoot),
-    eventRead = readAuthoredEvents(layout.rootDir, layout.authoredRoot),
+    eventRead = readAuthoredEvents(layout.rootDir, layout.authoredRoot, options.includeLegacyTaskFacts === true),
     eventFacts = eventRead.rows,
-    factRows = new Map(eventFacts.map(({ row }) => [row.ref, row])),
+    factRows = new Map(eventFacts.map(({ identityRef, row }) => [identityRef, row])),
     knownFactRefs = new Set(factRows.keys()),
+    legacyFactRefs = new Map<string, string>(eventRead.legacyFactRefs),
+    legacyRelationIds = new Map<string, string>(),
     factAnchors = new Map<string, FactAnchorRow>();
   const entries: RelationEntry[] = [],
     decisionAnchors: DecisionAnchorTruth[] = [];
@@ -125,32 +138,86 @@ export function readColdRebuildSource(rootInput: HarnessLayoutInput): ColdRebuil
       indexBody = readTextFileIfPresent(indexPath),
       indexFrontmatter = indexBody === null ? null : readFrontmatter(indexBody),
       factsPath = layout.taskDocumentPath(taskId, "facts.md"),
-      body = readTextFileIfPresent(factsPath),
-      hosted = [
-        ...(indexFrontmatter
-          ? frontmatterRelations(indexFrontmatter).map((record) => ({ record, from: indexPath }))
-          : []),
-        ...(body === null ? [] : parseRelationFlowRecords(body).map((record) => ({ record, from: factsPath }))),
-      ];
+      body = options.includeLegacyTaskFacts === true ? readTextFileIfPresent(factsPath) : null;
+    if (body !== null) {
+      const parsed = parseLegacyFacts(taskId, sourcePath(layout.rootDir, factsPath), body);
+      complete &&= parsed.complete;
+      issues.push(...parsed.issues);
+      // Event-backed rows are authoritative when the legacy task-local file is
+      // still present during the migration window. Otherwise key legacy rows by
+      // their full source identity so equal F-* ids under different tasks both
+      // reach the migration layer and its deterministic re-keying rule.
+      for (const row of parsed.rows) {
+        const legacyRef = row.taskId ? `fact/${row.taskId}/${row.factId}` : row.ref;
+        if (!factRows.has(row.ref) && !factRows.has(legacyRef)) factRows.set(legacyRef, row);
+      }
+      for (const ref of parsed.knownFactRefs) knownFactRefs.add(ref);
+      for (const [legacyRef, canonicalRef] of parsed.legacyFactRefs) legacyFactRefs.set(legacyRef, canonicalRef);
+      for (const row of parsed.anchors) factAnchors.set(row.factRef, row);
+      for (const row of parsed.rows) {
+        if (row.taskId) {
+          const identity = {
+            source: `task/${row.taskId}`,
+            target: row.ref,
+            type: "produces" as const,
+            direction: "directed" as const,
+          };
+          entries.push(
+            relationEntry(
+              {
+                relation_id: deriveRelationId(identity),
+                ...identity,
+                strength: "strong",
+                origin: "generated",
+                state: "active",
+                rationale: "Fact owner.",
+              },
+              identity.source,
+              sourcePath(layout.rootDir, factsPath),
+              1,
+            ),
+          );
+        }
+      }
+    }
+    const hosted = [
+      ...(indexFrontmatter
+        ? frontmatterRelations(indexFrontmatter).map((record) => ({
+            record: normalizeLegacyRelationRecord(record, legacyFactRefs, legacyRelationIds),
+            from: indexPath,
+          }))
+        : []),
+      ...(body === null
+        ? []
+        : parseRelationFlowRecords(body).map((record) => ({
+            record: normalizeLegacyRelationRecord(record, legacyFactRefs, legacyRelationIds),
+            from: factsPath,
+          }))),
+    ];
     for (const [recordIndex, { record, from }] of hosted.entries())
       entries.push(relationEntry(record, `task/${taskId}`, sourcePath(layout.rootDir, from), recordIndex));
     if (body === null) continue;
-    const parsed = parseLegacyFacts(taskId, sourcePath(layout.rootDir, factsPath), body);
-    complete &&= parsed.complete;
-    issues.push(...parsed.issues);
-    for (const row of parsed.rows) factRows.set(row.ref, row);
-    for (const ref of parsed.knownFactRefs) knownFactRefs.add(ref);
-    for (const row of parsed.anchors) factAnchors.set(row.factRef, row);
     if (
       body.includes("Managed by `ha fact record`") &&
-      [...body.matchAll(/^### (F-[0-9A-HJKMNP-TV-Z]{8})$/gmu)].some(
-        (match) => !factRows.has(`fact/${taskId}/${match[1]}`),
-      )
+      [...body.matchAll(/^### (F-[0-9A-HJKMNP-TV-Z]{8})$/gmu)].some((match) => !factRows.has(`fact/${match[1]}`))
     )
       complete = false;
   }
+  for (const file of listColdRebuildFiles(path.join(layout.authoredRoot, "facts"))) {
+    const factId = /^F-[0-9A-HJKMNP-TV-Z]{8}\.md$/u.test(path.basename(file)) ? path.basename(file, ".md") : null;
+    if (!factId) continue;
+    const ref = `fact/${factId}`;
+    knownFactRefs.add(ref);
+    if (!factAnchors.has(ref))
+      factAnchors.set(ref, { factRef: ref, factId, sourcePath: sourcePath(layout.rootDir, file) });
+  }
   for (const { row, sourcePath: eventPath } of eventFacts)
-    factAnchors.set(row.ref, { factRef: row.ref, taskId: row.taskId, factId: row.factId, sourcePath: eventPath });
+    factAnchors.set(row.ref, {
+      factRef: row.ref,
+      ...(row.taskId ? { taskId: row.taskId } : {}),
+      factId: row.factId,
+      sourcePath: eventPath,
+    });
   for (const decision of decisionRead.sources.filter(({ visible }) => visible)) {
     const anchorRefs = [
       decision.decisionRef,
@@ -162,15 +229,23 @@ export function readColdRebuildSource(rootInput: HarnessLayoutInput): ColdRebuil
       anchorRefs,
       sourcePath: sourcePath(layout.rootDir, decision.filePath),
     });
-    for (const [recordIndex, record] of frontmatterRelations(decision.frontmatter).entries())
+    for (const [recordIndex, rawRecord] of frontmatterRelations(decision.frontmatter).entries()) {
+      const record = normalizeLegacyRelationRecord(rawRecord, legacyFactRefs, legacyRelationIds);
       entries.push(
         relationEntry(record, decision.decisionRef, sourcePath(layout.rootDir, decision.filePath), recordIndex),
       );
+    }
   }
-  const eventRelationIds = new Set(eventRead.relations.map(({ record }) => record.relation_id)),
+  const normalizedEventRelations = eventRead.relations.map((entry) => {
+      const record = normalizeLegacyRelationRecord(entry.record, legacyFactRefs, legacyRelationIds);
+      return record === entry.record
+        ? entry
+        : relationEntry(record, entry.ownerRef, entry.sourcePath, entry.recordIndex);
+    }),
+    eventRelationIds = new Set(normalizedEventRelations.map(({ record }) => record.relation_id)),
     materializedEntries = [
       ...entries.filter(({ record }) => !eventRelationIds.has(record.relation_id)),
-      ...eventRead.relations,
+      ...normalizedEventRelations,
     ];
   const knownDecisions = new Set(decisionAnchors.flatMap(({ anchorRefs }) => anchorRefs)),
     relationRead = relationEdges(materializedEntries, taskIds, knownDecisions, knownFactRefs);
@@ -200,6 +275,8 @@ export function readColdRebuildSource(rootInput: HarnessLayoutInput): ColdRebuil
     facts,
     tasks,
     knownFactRefs,
+    legacyFactRefs,
+    legacyRelationIds,
     issues: issues.sort((a, b) =>
       `${a.sourcePath}\0${a.migratedFrom}`.localeCompare(`${b.sourcePath}\0${b.migratedFrom}`),
     ),
@@ -429,12 +506,15 @@ function parseLegacyFacts(
   readonly rows: readonly RelationFactRow[];
   readonly anchors: readonly FactAnchorRow[];
   readonly knownFactRefs: readonly string[];
+  readonly legacyFactRefs: ReadonlyMap<string, string>;
   readonly issues: readonly ColdRebuildIssue[];
   readonly complete: boolean;
 } {
   const rows: RelationFactRow[] = [],
     anchors: FactAnchorRow[] = [],
     knownFactRefs: string[] = [],
+    legacyFactRefs = new Map<string, string>(),
+    seenLegacyRefs = new Set<string>(),
     issues: ColdRebuildIssue[] = [];
   let candidates = 0;
   for (const [index, line] of body
@@ -465,8 +545,20 @@ function parseLegacyFacts(
       });
       continue;
     }
-    const ref = `fact/${taskId}/${factId}`;
+    const legacyRef = `fact/${taskId}/${factId}`,
+      ref = `fact/${factId}`;
+    if (seenLegacyRefs.has(legacyRef)) {
+      issues.push({
+        entityType: "fact",
+        migratedFrom: legacyRef,
+        sourcePath: portablePath,
+        reason: "legacy fact ref occurs more than once in the same source document",
+      });
+      continue;
+    }
+    seenLegacyRefs.add(legacyRef);
     knownFactRefs.push(ref);
+    legacyFactRefs.set(legacyRef, ref);
     if (!migrated) {
       rows.push({
         schema: "task-fact-row/v1",
@@ -492,14 +584,16 @@ function parseLegacyFacts(
     rows,
     anchors,
     knownFactRefs,
+    legacyFactRefs,
     issues,
     complete: rows.length <= candidates && candidates === rows.length + migratedFactCount(body),
   };
 }
-function readAuthoredEvents(rootDir: string, authoredRoot: string): AuthoredEventRead {
+function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFactRefs: boolean): AuthoredEventRead {
   const eventsRoot = path.join(authoredRoot, "events"),
     rows = new Map<string, EventFactSource>(),
     relations: RelationEntry[] = [],
+    legacyFactRefs = new Map<string, string>(),
     issues: ColdRebuildIssue[] = [];
   for (const file of listColdRebuildFiles(eventsRoot).filter(
     (candidate) => path.extname(candidate) === ".json" && path.basename(candidate) !== "head.json",
@@ -510,22 +604,32 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string): AuthoredEven
     try {
       event = normalizePersistedCanonicalEvent(parseCanonicalEvent(body));
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      consumeKnownError(error);
-      issues.push({
-        entityType: "fact",
-        migratedFrom: path.basename(file, ".json"),
-        sourcePath: sourcePath(rootDir, file),
-        reason,
-      });
-      continue;
+      event = allowLegacyFactRefs ? parseLegacyFactEvent(body) : null;
+      if (event === null) {
+        const reason = error instanceof Error ? error.message : String(error);
+        consumeKnownError(error);
+        issues.push({
+          entityType: "fact",
+          migratedFrom: path.basename(file, ".json"),
+          sourcePath: sourcePath(rootDir, file),
+          reason,
+        });
+        continue;
+      }
     }
     if (isFactEvent(event)) {
-      const ref = `fact/${event.taskId}/${event.factId}`,
+      const ref = `fact/${event.factId}`,
+        legacyRef = event.taskId ? `fact/${event.taskId}/${event.factId}` : null,
+        identityRef =
+          allowLegacyFactRefs &&
+          legacyRef !== null &&
+          event.payload.factsDocumentClaim.path !== `facts/${event.factId}.md`
+            ? legacyRef
+            : ref,
         row: RelationFactRow = {
           schema: "task-fact-row/v1",
           ref,
-          taskId: event.taskId,
+          ...(event.taskId ? { taskId: event.taskId } : {}),
           factId: event.factId,
           statement: event.payload.statement,
           source: event.payload.evidenceSource,
@@ -536,11 +640,39 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string): AuthoredEven
           provenance: relationProvenance(event.payload.provenance),
           liveness: "standing",
         };
-      rows.set(ref, { row, sourcePath: `event:${event.opId}` });
+      addEventFactSource(rows, issues, identityRef, row, `event:${event.opId}`);
+      if (allowLegacyFactRefs && legacyRef !== null) legacyFactRefs.set(legacyRef, ref);
+      if (event.taskId) {
+        const identity = {
+          source: `task/${event.taskId}`,
+          target: ref,
+          type: "produces" as const,
+          direction: "directed" as const,
+        };
+        relations.push(
+          relationEntry(
+            {
+              relation_id: deriveRelationId(identity),
+              ...identity,
+              strength: "strong",
+              origin: "generated",
+              state: "active",
+              rationale: "Fact owner.",
+            },
+            identity.source,
+            `event:${event.opId}`,
+            1,
+          ),
+        );
+      }
       if (event.payload.supersedes) {
+        const superseded = allowLegacyFactRefs
+            ? /^fact\/[^/]+\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(event.payload.supersedes.factRef)
+            : null,
+          targetRef = superseded ? `fact/${superseded[1]}` : event.payload.supersedes.factRef;
         const identity = {
             source: ref,
-            target: event.payload.supersedes.factRef,
+            target: targetRef,
             type: "supersedes-fact" as const,
             direction: "directed" as const,
           },
@@ -559,11 +691,11 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string): AuthoredEven
     if (!isMigrationImportEvent(event)) continue;
     const entity = event.payload.entity;
     if (entity.kind === "fact") {
-      const ref = `fact/${entity.fact.taskId}/${entity.fact.factId}`,
+      const ref = `fact/${entity.fact.factId}`,
         row: RelationFactRow = {
           schema: "task-fact-row/v1",
           ref,
-          taskId: entity.fact.taskId,
+          ...(entity.fact.taskId ? { taskId: entity.fact.taskId } : {}),
           factId: entity.fact.factId,
           statement: entity.fact.statement,
           source: entity.fact.evidenceSource,
@@ -574,11 +706,101 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string): AuthoredEven
           provenance: entity.fact.provenance,
           liveness: "standing",
         };
-      rows.set(ref, { row, sourcePath: `event:${event.opId}` });
+      addEventFactSource(rows, issues, ref, row, `event:${event.opId}`);
+      if (entity.fact.taskId) {
+        if (allowLegacyFactRefs) legacyFactRefs.set(`fact/${entity.fact.taskId}/${entity.fact.factId}`, ref);
+        const identity = {
+          source: `task/${entity.fact.taskId}`,
+          target: ref,
+          type: "produces" as const,
+          direction: "directed" as const,
+        };
+        relations.push(
+          relationEntry(
+            {
+              relation_id: deriveRelationId(identity),
+              ...identity,
+              strength: "strong",
+              origin: "generated",
+              state: "active",
+              rationale: "Migrated fact owner.",
+            },
+            identity.source,
+            `event:${event.opId}`,
+            1,
+          ),
+        );
+      }
     } else if (entity.kind === "relation")
       relations.push(relationEntry(entity.relation, entity.ownerRef, `event:${event.opId}`, 0));
   }
-  return { rows: [...rows.values()], relations, issues };
+  return { rows: [...rows.values()], relations, legacyFactRefs, issues };
+}
+
+function addEventFactSource(
+  rows: Map<string, EventFactSource>,
+  issues: ColdRebuildIssue[],
+  identityRef: string,
+  row: RelationFactRow,
+  eventPath: string,
+): void {
+  if (rows.has(identityRef)) {
+    issues.push({
+      entityType: "fact",
+      migratedFrom: identityRef,
+      sourcePath: eventPath,
+      reason: "fact ref occurs more than once in the source event ledger",
+    });
+    return;
+  }
+  rows.set(identityRef, { identityRef, row, sourcePath: eventPath });
+}
+
+/** Migration input only: old fact events carried a task-local document claim and
+ * therefore fail the current fact-event validator. Parse enough of that envelope
+ * to re-key its fact and relations without widening the normal read/validation path. */
+function parseLegacyFactEvent(body: string): FactEventV1 | null {
+  let value: any;
+  try {
+    value = JSON.parse(body);
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+  const payload = value?.payload;
+  if (
+    !value ||
+    value.schema !== "fact-event/v1" ||
+    value.type !== "fact_recorded" ||
+    typeof value.taskId !== "string" ||
+    !value.taskId ||
+    !isFactId(String(value.factId)) ||
+    typeof value.opId !== "string" ||
+    typeof value.occurredAt !== "string" ||
+    !payload ||
+    typeof payload.statement !== "string" ||
+    typeof payload.evidenceSource !== "string" ||
+    typeof payload.observedAt !== "string" ||
+    !["low", "medium", "high"].includes(payload.confidence) ||
+    !["semantic", "episodic", "procedural"].includes(payload.memoryClass) ||
+    !Array.isArray(payload.memoryTags) ||
+    !Array.isArray(payload.provenance)
+  )
+    return null;
+  return value as FactEventV1;
+}
+
+function normalizeLegacyRelationRecord(
+  record: EntityRelationRecord,
+  legacyFactRefs: ReadonlyMap<string, string>,
+  legacyRelationIds?: Map<string, string>,
+): EntityRelationRecord {
+  const source = legacyFactRefs.get(record.source) ?? record.source,
+    target = legacyFactRefs.get(record.target) ?? record.target;
+  if (source === record.source && target === record.target) return record;
+  const relation_id = deriveRelationId({ source, target, type: record.type, direction: record.direction });
+  legacyRelationIds?.set(record.relation_id, relation_id);
+  return { ...record, source, target, relation_id };
 }
 
 function relationProvenance(
@@ -596,7 +818,7 @@ function relationEntry(
   recordIndex: number,
 ): RelationEntry {
   const source = parseEntityRef(record.source),
-    host = source?.kind === "fact" && source.ownerTaskId ? `fact/${source.ownerTaskId}/${source.id}` : hostRef;
+    host = source?.kind === "fact" ? `fact/${source.id}` : hostRef;
   return { hostRef: host, ownerRef: hostRef, record, sourcePath: portablePath, recordIndex };
 }
 function relationEdges(

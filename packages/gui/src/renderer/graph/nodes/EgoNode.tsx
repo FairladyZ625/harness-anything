@@ -243,24 +243,26 @@ function EgoFactBody({ fact, onNavigate }: { fact: FactRef; onNavigate?: (ref: s
         )}
       </div>
       <div className={EGO_FACT_ID_BOX}>
-        <div>
-          task{" "}
-          {onNavigate ? (
-            <EntityRefLink
-              entityRef={`task/${fact.taskId}`}
-              onNavigate={onNavigate}
-              title={fact.taskId}
-              className="text-accent hover:underline"
-            />
-          ) : (
-            fact.taskId
-          )}
-        </div>
+        {fact.taskId && (
+          <div>
+            task{" "}
+            {onNavigate ? (
+              <EntityRefLink
+                entityRef={`task/${fact.taskId}`}
+                onNavigate={onNavigate}
+                title={fact.taskId}
+                className="text-accent hover:underline"
+              />
+            ) : (
+              fact.taskId
+            )}
+          </div>
+        )}
         <div>
           anchor{" "}
           {onNavigate ? (
             <EntityRefLink
-              entityRef={`fact/${fact.taskId}/${fact.anchor.split("/")[1] ?? ""}`}
+              entityRef={fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`}
               onNavigate={onNavigate}
               title={fact.anchor}
               className="break-all text-accent hover:underline"

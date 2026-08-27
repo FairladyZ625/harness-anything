@@ -12,13 +12,11 @@ function makeHarnessRoot(): string {
   const tasksRoot = path.join(rootDir, "harness", "tasks");
   mkdirSync(path.join(tasksRoot, "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q-owner"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness", "harness.yaml"), "schema: harness-anything/v1\n", "utf8");
-  writeFileSync(path.join(tasksRoot, "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q-owner", "INDEX.md"), [
-    "---",
-    "schema: task-package/v2",
-    "task_id: task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q",
-    "---",
-    ""
-  ].join("\n"), "utf8");
+  writeFileSync(
+    path.join(tasksRoot, "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q-owner", "INDEX.md"),
+    ["---", "schema: task-package/v2", "task_id: task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q", "---", ""].join("\n"),
+    "utf8",
+  );
   return rootDir;
 }
 
@@ -44,13 +42,16 @@ test("entity root resolver maps decision refs to the canonical authored package"
 test("entity root resolver rejects event-backed Fact refs as authored documents", () => {
   const rootDir = makeHarnessRoot();
 
-  assert.throws(() => resolveEntityRoot(rootDir, "fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/F-a3f2"), /event-backed fact refs/u);
+  assert.throws(() => resolveEntityRoot(rootDir, "fact/F-a3f2"), /event-backed fact refs/u);
 });
 
 test("entity root resolver rejects unknown, external, and traversal-like refs", () => {
   const rootDir = makeHarnessRoot();
 
   assert.throws(() => resolveEntityRoot(rootDir, "issue/123"), /invalid entity ref/u);
-  assert.throws(() => resolveEntityRoot(rootDir, "team-a:task/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q"), /external entity ref/u);
+  assert.throws(
+    () => resolveEntityRoot(rootDir, "team-a:task/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q"),
+    /external entity ref/u,
+  );
   assert.throws(() => resolveEntityRoot(rootDir, "decision/../C1"), /invalid entity ref/u);
 });

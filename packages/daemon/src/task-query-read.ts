@@ -85,7 +85,7 @@ export function makeTaskQueryReadModel(input: {
     const eventFacts = facts.facts.map((row) => ({
       schema: "task-fact-row/v1" as const,
       ref: row.ref,
-      taskId: row.taskId,
+      ...(row.taskId ? { taskId: row.taskId } : {}),
       factId: row.factId,
       statement: row.statement,
       source: row.evidenceSource,
@@ -364,7 +364,7 @@ export function makeTaskQueryReadModel(input: {
     const servedFacts = facts.facts.map((row) => ({
       schema: "task-fact-row/v1" as const,
       ref: row.ref,
-      taskId: row.taskId,
+      ...(row.taskId ? { taskId: row.taskId } : {}),
       factId: row.factId,
       statement: row.statement,
       source: row.evidenceSource,

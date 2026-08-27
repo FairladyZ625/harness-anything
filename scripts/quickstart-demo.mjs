@@ -10,7 +10,7 @@ const defaultCliPath = path.join(repoRoot, "packages/cli/dist/cli/src/index.js")
 const demoAttribution = {
   actor: "agent:quickstart-demo",
   gitAuthorName: "Harness Quickstart Demo",
-  gitAuthorEmail: "quickstart-demo@example.invalid"
+  gitAuthorEmail: "quickstart-demo@example.invalid",
 };
 
 const options = parseArgs(process.argv.slice(2));
@@ -19,31 +19,31 @@ if (!existsSync(cliPath)) {
   fail(`CLI entry not found: ${cliPath}. Run npm -w @harness-anything/cli run build first.`);
 }
 
-const workspace = options.rootDir
-  ? path.resolve(options.rootDir)
-  : mkdtempSync(path.join(tmpdir(), "ha-quickstart-"));
+const workspace = options.rootDir ? path.resolve(options.rootDir) : mkdtempSync(path.join(tmpdir(), "ha-quickstart-"));
 mkdirSync(workspace, { recursive: true });
 ensureGitWorkspace(workspace);
 
-let step = "start", daemonStarted = false;
+let step = "start",
+  daemonStarted = false;
 try {
   step = "daemon start";
   runCli(["daemon", "start", "--service"]);
   daemonStarted = true;
 
   step = "init";
-  const init = runCli(["init", "--repo-id", "quickstart", "--person-id", "quickstart-owner", "--display-name", "Quickstart Owner"]);
+  const init = runCli([
+    "init",
+    "--repo-id",
+    "quickstart",
+    "--person-id",
+    "quickstart-owner",
+    "--display-name",
+    "Quickstart Owner",
+  ]);
   assertEqual(init.ok, true, "init receipt");
 
   step = "task create";
-  const task = runCli([
-    "task",
-    "create",
-    "--title",
-    "First harness value",
-    "--preset",
-    "standard-task"
-  ]);
+  const task = runCli(["task", "create", "--title", "First harness value", "--preset", "standard-task"]);
   assertEqual(task.outcome, "applied", "task create outcome");
   const taskId = assertString(task.taskId, "created task id");
 
@@ -62,43 +62,63 @@ try {
     "--memory-class",
     options.breakStep === "fact-record" ? "invalid" : "episodic",
     "--memory-tag",
-    "task_skill"
+    "task_skill",
   ]);
   const factRow = JSON.parse(assertString(fact.evidence, "fact record evidence"));
   const factRef = assertString(factRow.ref, "created fact ref");
 
   step = "fact search";
-  const search = JSON.parse(assertString(runCli(["fact", "search", "queryable", "--task", taskId]).evidence, "fact search evidence"));
+  const search = JSON.parse(
+    assertString(runCli(["fact", "search", "queryable", "--task", taskId]).evidence, "fact search evidence"),
+  );
   assertEqual(search.facts?.[0]?.ref, factRef, "Fact FTS result");
   step = "fact show";
-  const shown = JSON.parse(assertString(runCli(["fact", "show", "--task", taskId, "--id", factRow.factId]).evidence, "fact show evidence"));
+  const shown = JSON.parse(
+    assertString(runCli(["fact", "show", "--id", factRow.factId]).evidence, "fact show evidence"),
+  );
   assertEqual(shown.fact?.ref, factRef, "Fact show result");
 
-  console.log(JSON.stringify({
-    ok: true,
-    schema: "quickstart-demo/v1",
-    workspace,
-    taskId,
-    factRef,
-    attribution: {
-      actor: demoAttribution.actor,
-      gitAuthorName: demoAttribution.gitAuthorName,
-      gitAuthorEmail: demoAttribution.gitAuthorEmail
-    }
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        schema: "quickstart-demo/v1",
+        workspace,
+        taskId,
+        factRef,
+        attribution: {
+          actor: demoAttribution.actor,
+          gitAuthorName: demoAttribution.gitAuthorName,
+          gitAuthorEmail: demoAttribution.gitAuthorEmail,
+        },
+      },
+      null,
+      2,
+    ),
+  );
   if (options.cleanup) rmSync(workspace, { recursive: true, force: true });
 } catch (error) {
-  console.error(JSON.stringify({
-    ok: false,
-    schema: "quickstart-demo/v1",
-    step,
-    workspace,
-    error: error instanceof Error ? error.message : String(error)
-  }, null, 2));
+  console.error(
+    JSON.stringify(
+      {
+        ok: false,
+        schema: "quickstart-demo/v1",
+        step,
+        workspace,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      null,
+      2,
+    ),
+  );
   process.exitCode = 1;
 } finally {
   if (daemonStarted) {
-    try { runCli(["daemon", "stop"]); } catch { /* best-effort local daemon cleanup */ }
+    try {
+      runCli(["daemon", "stop"]);
+    } catch {
+      /* best-effort local daemon cleanup */
+    }
   }
 }
 
@@ -128,9 +148,9 @@ function runCliProcess(args) {
         CLAUDE_SESSION_ID: "",
         CODEX_SESSION_ID: "",
         CODEX_THREAD_ID: "",
-        ZCODE_SESSION_ID: ""
+        ZCODE_SESSION_ID: "",
       },
-      maxBuffer: 64 * 1024 * 1024
+      maxBuffer: 64 * 1024 * 1024,
     });
   } catch (error) {
     const failure = error;
@@ -148,18 +168,20 @@ function runCliProcess(args) {
 function ensureGitWorkspace(rootDir) {
   try {
     execFileSync("git", ["-C", rootDir, "rev-parse", "--is-inside-work-tree"], {
-      stdio: "ignore"
+      stdio: "ignore",
     });
   } catch {
     execFileSync("git", ["-C", rootDir, "init", "-q"], {
-      stdio: "ignore"
+      stdio: "ignore",
     });
   }
 }
 
 function unwrapReceipt(value) {
   const data = value.details?.data && typeof value.details.data === "object" ? value.details.data : {};
-  const paths = Object.fromEntries(Array.isArray(value.paths) ? value.paths.map((entry) => [entry.role, entry.path]) : []);
+  const paths = Object.fromEntries(
+    Array.isArray(value.paths) ? value.paths.map((entry) => [entry.role, entry.path]) : [],
+  );
   return {
     ...value,
     ...data,
@@ -168,7 +190,7 @@ function unwrapReceipt(value) {
     error: value.error,
     path: paths.primary,
     packagePath: paths.package,
-    projectionPath: paths.projection
+    projectionPath: paths.projection,
   };
 }
 

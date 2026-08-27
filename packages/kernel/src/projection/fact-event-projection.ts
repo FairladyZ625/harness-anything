@@ -1,5 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
-import { deriveRelationId } from "../domain/entity-relation.ts";
+import {
+  deriveRelationId,
+  type RelationType,
+  type RelationOrigin,
+  type RelationState,
+} from "../domain/entity-relation.ts";
 import { factRef, type FactEventV1, type FactMemoryClass, type FactConfidence } from "../domain/fact-event.ts";
 import type { ActorIdentity, WriteSource } from "../domain/write-chain.contract.ts";
 import type { FactAnchorRow } from "./relation-graph-projection.ts";
@@ -9,7 +14,7 @@ import { ftsQuery } from "./fts-query.ts";
 export interface FactProjectionRow {
   readonly schema: "fact-row/v1";
   readonly ref: string;
-  readonly taskId: string;
+  readonly taskId?: string;
   readonly factId: string;
   readonly statement: string;
   readonly evidenceSource: string;
@@ -28,15 +33,15 @@ export interface FactRelationEdgeRow {
   readonly relationId: string;
   readonly sourceRef: string;
   readonly targetRef: string;
-  readonly relationType: "supersedes-fact";
+  readonly relationType: RelationType;
   readonly direction: "directed";
   readonly strength: "strong";
-  readonly origin: "declared";
-  readonly state: "active";
+  readonly origin: RelationOrigin;
+  readonly state: RelationState;
   readonly rationale: string;
   readonly ownerRef: string;
   readonly sourcePath: string;
-  readonly recordIndex: 0;
+  readonly recordIndex: number;
 }
 export interface FactSearchFilters {
   readonly query?: string;
@@ -70,12 +75,12 @@ export class FactProjectionError extends Error {
 
 export function createFactProjectionTables(db: DatabaseSync): void {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS fact (task_id TEXT NOT NULL, fact_id TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, statement TEXT NOT NULL, evidence_source TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS fact (task_id TEXT, fact_id TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, statement TEXT NOT NULL, evidence_source TEXT NOT NULL,
       observed_at TEXT NOT NULL, confidence TEXT NOT NULL, memory_class TEXT NOT NULL, op_id TEXT NOT NULL UNIQUE, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL,
-      PRIMARY KEY(task_id, fact_id));
-    CREATE VIRTUAL TABLE IF NOT EXISTS fact_fts USING fts5(task_id UNINDEXED, fact_id UNINDEXED, statement, evidence_source,
+      PRIMARY KEY(fact_id));
+    CREATE VIRTUAL TABLE IF NOT EXISTS fact_fts USING fts5(fact_id UNINDEXED, statement, evidence_source,
       tokenize='unicode61 remove_diacritics 2');
-    CREATE INDEX IF NOT EXISTS fact_filter ON fact(task_id, confidence, memory_class, observed_at);
+    CREATE INDEX IF NOT EXISTS fact_task_page ON fact(task_id, observed_at DESC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_observed_page ON fact(observed_at DESC, task_id ASC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_confidence_page ON fact(confidence, observed_at DESC, task_id ASC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_memory_class_page ON fact(memory_class, observed_at DESC, task_id ASC, fact_id ASC);
@@ -83,8 +88,8 @@ export function createFactProjectionTables(db: DatabaseSync): void {
 }
 
 export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void {
-  const ownRef = factRef(event.taskId, event.factId);
-  if (db.prepare("SELECT 1 FROM fact WHERE task_id = ? AND fact_id = ?").get(event.taskId, event.factId))
+  const ownRef = factRef(event.factId);
+  if (db.prepare("SELECT 1 FROM fact WHERE fact_id = ?").get(event.factId))
     throw new FactProjectionError("invalid_transition", `Fact ${ownRef} already exists.`);
   const supersedes = event.payload.supersedes;
   if (!supersedes) return;
@@ -102,12 +107,12 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
 
 export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
   assertFactAdmission(db, event);
-  const ref = factRef(event.taskId, event.factId),
+  const ref = factRef(event.factId),
     sourcePath = `event:${event.opId}`;
   const row: Omit<FactProjectionRow, "state"> = {
     schema: "fact-row/v1",
     ref,
-    taskId: event.taskId,
+    ...(event.taskId ? { taskId: event.taskId } : {}),
     factId: event.factId,
     statement: event.payload.statement,
     evidenceSource: event.payload.evidenceSource,
@@ -124,7 +129,7 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
   db.prepare(
     "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
-    event.taskId,
+    event.taskId ?? null,
     event.factId,
     ref,
     row.statement,
@@ -136,8 +141,7 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     event.workspaceRevision,
     JSON.stringify(row),
   );
-  db.prepare("INSERT INTO fact_fts(task_id, fact_id, statement, evidence_source) VALUES (?, ?, ?, ?)").run(
-    event.taskId,
+  db.prepare("INSERT INTO fact_fts(fact_id, statement, evidence_source) VALUES (?, ?, ?)").run(
     event.factId,
     row.statement,
     row.evidenceSource,
@@ -165,6 +169,40 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     };
     db.prepare(
       "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      edge.relationId,
+      edge.sourceRef,
+      edge.targetRef,
+      edge.relationType,
+      edge.state,
+      edge.ownerRef,
+      event.workspaceRevision,
+      JSON.stringify(edge),
+    );
+  }
+  if (event.taskId) {
+    const identity = {
+        source: `task/${event.taskId}`,
+        target: ref,
+        type: "produces" as const,
+        direction: "directed" as const,
+      },
+      edge = {
+        relationId: deriveRelationId(identity),
+        sourceRef: identity.source,
+        targetRef: identity.target,
+        relationType: identity.type,
+        direction: identity.direction,
+        strength: "strong" as const,
+        origin: "generated" as const,
+        state: "active" as const,
+        rationale: "Fact recorded with an explicit task owner.",
+        ownerRef: identity.source,
+        sourcePath,
+        recordIndex: 1,
+      };
+    db.prepare(
+      "INSERT OR IGNORE INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
       edge.relationId,
       edge.sourceRef,
@@ -214,14 +252,12 @@ function listFactRows(db: DatabaseSync, where: string, values: readonly string[]
   return decodeFactRows(
     db,
     db
-      .prepare(`${factRowSelect}${where} ORDER BY observed_at DESC, task_id, fact_id`)
+      .prepare(`${factRowSelect}${where} ORDER BY observed_at DESC, fact_id`)
       .all(...values) as unknown as readonly FactRecord[],
   );
 }
-export function readFactRow(db: DatabaseSync, taskId: string, factId: string): FactProjectionRow | null {
-  const record = db.prepare(`${factRowSelect} WHERE task_id = ? AND fact_id = ?`).get(taskId, factId) as
-    | FactRecord
-    | undefined;
+export function readFactRow(db: DatabaseSync, factId: string): FactProjectionRow | null {
+  const record = db.prepare(`${factRowSelect} WHERE fact_id = ?`).get(factId) as FactRecord | undefined;
   return record ? (decodeFactRows(db, [record])[0] ?? null) : null;
 }
 
@@ -273,11 +309,11 @@ export function searchFactRowsPage(
   const paged = filters.limit !== undefined || filters.cursor !== undefined;
   if (filters.cursor !== undefined) {
     const cursor = decodeFactCursor(filters.cursor);
-    where.push("(fact.observed_at < ? OR fact.observed_at = ? AND fact.task_id || '/' || fact.fact_id > ?)");
+    where.push("(fact.observed_at < ? OR fact.observed_at = ? AND fact.fact_id > ?)");
     values.push(cursor[0]!, cursor[0]!, cursor[1]!);
   }
   const pageLimit = filters.limit === undefined ? (paged ? 100 : null) : checkedFactPageLimit(filters.limit);
-  const sql = `${factRowSelect}${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY observed_at DESC, task_id, fact_id${pageLimit === null ? "" : " LIMIT ?"}`;
+  const sql = `${factRowSelect}${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY observed_at DESC, fact_id${pageLimit === null ? "" : " LIMIT ?"}`;
   if (pageLimit !== null) values.push(String(pageLimit + 1));
   const records = db.prepare(sql).all(...values) as unknown as readonly FactRecord[];
   const visible = pageLimit === null ? records : records.slice(0, pageLimit),
@@ -291,7 +327,7 @@ export function searchFactRowsPage(
     page: {
       limit: pageLimit,
       cursor: filters.cursor ?? null,
-      nextCursor: hasMore && last ? encodeFactCursor([last.observedAt, `${last.taskId}/${last.factId}`]) : null,
+      nextCursor: hasMore && last ? encodeFactCursor([last.observedAt, last.factId]) : null,
     },
   };
 }
@@ -303,7 +339,9 @@ export function readFactGraphRows(db: DatabaseSync): {
 } {
   const edges = (
     db
-      .prepare("SELECT row_json FROM relation_edge WHERE owner_ref LIKE 'fact/%' ORDER BY relation_id")
+      .prepare(
+        "SELECT row_json FROM relation_edge WHERE owner_ref LIKE 'fact/%' OR target_ref LIKE 'fact/%' ORDER BY relation_id",
+      )
       .all() as unknown as readonly { readonly row_json: string }[]
   ).map((row) => JSON.parse(row.row_json) as FactRelationEdgeRow);
   const factAnchors = readFactAnchorRows(db);
@@ -320,11 +358,16 @@ export function readFactAnchorRows(db: DatabaseSync, refs?: readonly string[]): 
       .prepare(`SELECT ref, task_id, fact_id, op_id FROM fact${where} ORDER BY ref`)
       .all(...(scoped ? refs : [])) as unknown as readonly {
       readonly ref: string;
-      readonly task_id: string;
+      readonly task_id: string | null;
       readonly fact_id: string;
       readonly op_id: string;
     }[]
-  ).map((row) => ({ factRef: row.ref, taskId: row.task_id, factId: row.fact_id, sourcePath: `event:${row.op_id}` }));
+  ).map((row) => ({
+    factRef: row.ref,
+    ...(row.task_id ? { taskId: row.task_id } : {}),
+    factId: row.fact_id,
+    sourcePath: `event:${row.op_id}`,
+  }));
   return memoryRefs === null ? rows : rows.filter((row) => memoryRefs.has(row.factRef));
 }
 function checkedFactPageLimit(value: number): number {

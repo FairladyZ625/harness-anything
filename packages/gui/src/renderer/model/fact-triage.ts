@@ -1,7 +1,4 @@
-import type {
-  FactAnchorRow,
-  RelationCoverageRow,
-} from "../../api/renderer-dto";
+import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
 import { activeIncomingRelations, incomingRelations } from "./relation-direction.ts";
 import type { FactRef, RelationEdge } from "./types";
 
@@ -9,11 +6,7 @@ import type { FactRef, RelationEdge } from "./types";
  * Fact triage is a read-only projection over the kernel graph. It finds
  * candidates for a person to judge; it never mutates facts or decides a verdict.
  */
-export type FactTriageSignalKind =
-  | "INVALIDATED"
-  | "ORPHAN"
-  | "LOW_CONFIDENCE"
-  | "SUPERSEDED";
+export type FactTriageSignalKind = "INVALIDATED" | "ORPHAN" | "LOW_CONFIDENCE" | "SUPERSEDED";
 
 export interface FactTriageSignal {
   kind: FactTriageSignalKind;
@@ -53,7 +46,7 @@ export function computeFactTriageSignals(
   coverageRows: ReadonlyArray<RelationCoverageRow>,
   factAnchors: ReadonlyArray<FactAnchorRow>,
 ): FactTriageItem {
-  const factRef = `fact/${fact.anchor}`;
+  const factRef = fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`;
   const signals: FactTriageSignal[] = [];
 
   // Kernel grammar (canonical direction): decision --refuted-by--> fact. The fact that
@@ -72,13 +65,13 @@ export function computeFactTriageSignals(
   // carries a decision claim?”. factAnchors supplies the complete fact universe.
   const citingDecisionIdSet = new Set(
     coverageRows
-        .filter(
-          (row) =>
-            /* @gate-identity check-gui-status-judgments/gui-status-030 */
-            row.status === "covered" && row.coveringFactRef === factRef,
-        )
-        .map((row) => decisionIdFromRef(row.decisionRef))
-        .filter((id): id is string => Boolean(id)),
+      .filter(
+        (row) =>
+          /* @gate-identity check-gui-status-judgments/gui-status-030 */
+          row.status === "covered" && row.coveringFactRef === factRef,
+      )
+      .map((row) => decisionIdFromRef(row.decisionRef))
+      .filter((id): id is string => Boolean(id)),
   );
   for (const edge of incomingRelations(factRef, "evidenced-by", relations)) {
     const decisionId = decisionIdFromRef(edge.from);
@@ -115,10 +108,7 @@ export function computeFactTriageSignals(
   return {
     fact,
     signals,
-    severity: signals.reduce(
-      (max, signal) => Math.max(max, SIGNAL_SEVERITY[signal.kind]),
-      0,
-    ),
+    severity: signals.reduce((max, signal) => Math.max(max, SIGNAL_SEVERITY[signal.kind]), 0),
     citingDecisionIds,
   };
 }
@@ -139,9 +129,5 @@ export function buildFactTriage(
   coverageRows: ReadonlyArray<RelationCoverageRow>,
   factAnchors: ReadonlyArray<FactAnchorRow>,
 ): FactTriageItem[] {
-  return rankFactTriage(
-    facts.map((fact) =>
-      computeFactTriageSignals(fact, relations, coverageRows, factAnchors),
-    ),
-  );
+  return rankFactTriage(facts.map((fact) => computeFactTriageSignals(fact, relations, coverageRows, factAnchors)));
 }

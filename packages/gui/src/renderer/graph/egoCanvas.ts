@@ -56,14 +56,13 @@ export interface EgoFilters {
   flowMode: FlowAnimMode;
 }
 
-/** fact 归一 ref(fact/<taskId>/<anchor>),与边端点键空间对齐。 */
+/** fact 归一 ref(fact/<anchor>),与边端点键空间对齐。 */
 export function egoFactRefOf(fact: FactRef): string {
-  const anchor = fact.anchor.split("/").pop() ?? fact.anchor;
-  return `fact/${fact.taskId}/${anchor}`;
+  return fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`;
 }
 
 /**
- * 任何入口形态(decision/<id>、task/<id>、fact/<t>/<a>、裸 task id)→ ego 图键空间。
+ * 任何入口形态(decision/<id>、task/<id>、fact/<id>、裸 task id)→ ego 图键空间。
  * territory chip、命令面板、双击、焦点历史共用此不变量,避免「焦点键不上 → 空白画布」。
  */
 export function egoFocusIdOf(ref: string): string {
@@ -82,7 +81,7 @@ export function buildEgoGraph(
   decisions: ReadonlyArray<DecisionRow>,
   facts: ReadonlyArray<FactRef>,
   relations: ReadonlyArray<RelationEdge>,
-  factAnchors: ReadonlyArray<{ factRef: string; taskId: string; factId: string }> = [],
+  factAnchors: ReadonlyArray<{ factRef: string; taskId?: string; factId: string }> = [],
 ): EgoGraph {
   const byId = new Map<string, EgoNodeMeta>();
   for (const t of tasks) byId.set(t.taskId, { entity: "task", row: t });
@@ -95,8 +94,8 @@ export function buildEgoGraph(
       // 缺的字段(at / confidence)保持**缺席**,不填空串或默认值冒充观察数据;
       // 渲染侧对空正文有显式「仅有锚点」分支。
       row: {
-        anchor: `${anchor.taskId}/${anchor.factId}`,
-        taskId: anchor.taskId,
+        anchor: `fact/${anchor.factId}`,
+        ...(anchor.taskId ? { taskId: anchor.taskId } : {}),
         category: "anchor",
         text: "",
       } as unknown as FactRef,

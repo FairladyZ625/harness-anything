@@ -343,5 +343,19 @@ export function completionContext(
         : projected.document.blobSha256 === template.content.sha256
           ? "placeholder"
           : "ready";
-  return { closeout, closeoutPath, eligibleDirtyPaths };
+  const producesFactCount = cell.projection
+    .readFactGraph()
+    .edges.filter(
+      (row: {
+        readonly sourceRef: string;
+        readonly targetRef: string;
+        readonly relationType: string;
+        readonly state: string;
+      }) =>
+        row.sourceRef === `task/${taskId}` &&
+        row.relationType === "produces" &&
+        row.state === "active" &&
+        row.targetRef.startsWith("fact/"),
+    ).length;
+  return { closeout, closeoutPath, eligibleDirtyPaths, producesFactCount };
 }

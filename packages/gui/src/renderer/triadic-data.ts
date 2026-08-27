@@ -66,12 +66,23 @@ export function buildTriadicRendererData(input: {
   readonly graph: RelationGraphSuccess;
   readonly decisions: DecisionListSuccess;
 }): TriadicRendererData {
-  const relationRows = input.graph.edges;
+  const relationRows = input.graph.edges,
+    producedBy = new Map(
+      relationRows
+        .filter(
+          (row) =>
+            row.relationType === "produces" &&
+            row.state === "active" &&
+            row.sourceRef.startsWith("task/") &&
+            row.targetRef.startsWith("fact/"),
+        )
+        .map((row) => [row.targetRef, row.sourceRef.slice("task/".length)] as const),
+    );
   return {
     decisions: adaptDecisionRows(input.decisions.decisions, relationRows, input.graph.coverageRows),
     facts: input.graph.facts.map((row) => ({
-      anchor: `${row.taskId}/${row.factId}`,
-      taskId: row.taskId,
+      anchor: `fact/${row.factId}`,
+      ...(producedBy.get(row.ref) ? { taskId: producedBy.get(row.ref) } : {}),
       category: row.memoryClass === "semantic" ? "lesson" : row.memoryClass === "procedural" ? "progress" : "finding",
       text: row.statement,
       at: row.observedAt,

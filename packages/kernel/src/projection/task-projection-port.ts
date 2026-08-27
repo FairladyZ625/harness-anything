@@ -120,7 +120,7 @@ export interface TaskProjection {
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
   readonly admitFact: (event: FactEventV1) => void;
-  readonly readFact: (taskId: string, factId: string) => FactProjectionRead;
+  readonly readFact: (factId: string) => FactProjectionRead;
   readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead;
   readonly readFactAnchors: (refs?: readonly string[]) => FactAnchorProjectionRead;
   readonly readFactGraph: () => FactGraphProjectionRead;

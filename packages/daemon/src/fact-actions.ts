@@ -41,10 +41,7 @@ export function makeFactActions(input: {
   ): WriteReceipt => {
     if (action.kind === "fact-search") return readReceipt("fact-search", service.search(filters(action)));
     if (action.kind === "fact-show")
-      return readReceipt(
-        "fact-show",
-        service.show(requiredFactText(action.taskId, "taskId"), requiredFactText(action.factId, "factId")),
-      );
+      return readReceipt("fact-show", service.show(requiredFactText(action.factId, "factId")));
     if (action.kind !== "fact-record")
       throw factActionError("unsupported_command", "Use fact record, search, or show.");
     const existing = input.store.readEvent(opId),
@@ -96,7 +93,7 @@ function factEvent(
     action.supersedes !== undefined &&
     (!action.supersedes ||
       typeof action.supersedes !== "object" ||
-      !/^fact\/[^/]+\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(String((action.supersedes as Record<string, unknown>).factRef)) ||
+      !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(String((action.supersedes as Record<string, unknown>).factRef)) ||
       typeof (action.supersedes as Record<string, unknown>).rationale !== "string" ||
       [...String((action.supersedes as Record<string, unknown>).rationale)].length < 1 ||
       [...String((action.supersedes as Record<string, unknown>).rationale)].length > 199)
@@ -110,7 +107,7 @@ function factEvent(
     eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
     workspaceRevision,
     opId,
-    taskId: requiredFactText(action.taskId, "taskId"),
+    ...(typeof action.taskId === "string" && action.taskId.trim() ? { taskId: action.taskId.trim() } : {}),
     factId:
       typeof action.factId === "string"
         ? requiredFactText(action.factId, "factId")
@@ -137,13 +134,15 @@ export function compileFact(
   input: { readonly store: CanonicalEventStore; readonly projection: TaskProjection },
   draft: FactEventDraftV1,
 ) {
-  const task = input.projection.read(draft.taskId);
-  if (task.watermark !== task.sourceRevision || !task.packagePath || !task.snapshot.task)
-    throw factActionError("content_not_ready", `Task ${draft.taskId} is not ready for fact record.`);
-  const current = input.projection.searchFacts({ taskId: draft.taskId });
+  if (draft.taskId) {
+    const task = input.projection.read(draft.taskId);
+    if (task.watermark !== task.sourceRevision || !task.packagePath || !task.snapshot.task)
+      throw factActionError("content_not_ready", `Task ${draft.taskId} is not ready for fact record.`);
+  }
+  const current = input.projection.searchFacts(draft.taskId ? { taskId: draft.taskId } : {});
   if (current.watermark !== current.sourceRevision)
-    throw factActionError("content_not_ready", `Facts for ${draft.taskId} are pending.`);
-  return compileFactWrite({ event: draft, packagePath: task.packagePath, currentFacts: current.facts });
+    throw factActionError("content_not_ready", "Fact projection is pending.");
+  return compileFactWrite({ event: draft });
 }
 function replayBundle(input: { readonly store: CanonicalEventStore }, event: FactEventV1) {
   const bytes = input.store.readContentBlob(event.payload.factsDocumentClaim.sha256);

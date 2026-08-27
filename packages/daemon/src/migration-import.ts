@@ -20,16 +20,10 @@ export async function runMigrationImport(input: MigrationImportRunInput): Promis
       ].join(""),
     );
   if (sourceRoots.length === 1)
-    return runSingleMigrationImport(
-      { ...input, action: { ...input.action, sourceRoot: sourceRoots[0] } },
-      addFact,
-    );
+    return runSingleMigrationImport({ ...input, action: { ...input.action, sourceRoot: sourceRoots[0] } }, addFact);
   const receipts: MigrationImportReceipt[] = [];
   for (const sourceRoot of sourceRoots) {
-    const receipt = await runSingleMigrationImport(
-      { ...input, action: { ...input.action, sourceRoot } },
-      addFact,
-    );
+    const receipt = await runSingleMigrationImport({ ...input, action: { ...input.action, sourceRoot } }, addFact);
     receipts.push(receipt);
     if (receipt.exitCode === 1) break;
   }
@@ -37,17 +31,21 @@ export async function runMigrationImport(input: MigrationImportRunInput): Promis
 }
 
 function addFact(context: any, row: RelationFactRow): void {
-  const factRef = row.ref,
+  const legacyRef = row.taskId ? `fact/${row.taskId}/${row.factId}` : row.ref,
+    factRef = context.cold.legacyFactRefs.has(legacyRef) ? legacyRef : row.ref,
     occurredAt = context.timestamp(row.observedAt),
-    mappedTaskId = context.taskMap.get(row.taskId);
-  if (!occurredAt || !mappedTaskId || !context.validFact(row)) {
+    mappedTaskId = row.taskId ? context.taskMap.get(row.taskId) : undefined;
+  if (!occurredAt || (row.taskId !== undefined && !mappedTaskId) || !context.validFact(row)) {
     context.skips.push({
       entityType: "fact",
       migratedFrom: factRef,
       sourcePath:
-        context.cold.truth.factAnchors.find(({ factRef: ref }: { readonly factRef: string }) => ref === factRef)
+        context.cold.truth.factAnchors.find(({ factRef: ref }: { readonly factRef: string }) => ref === row.ref)
           ?.sourcePath ?? factRef,
-      reason: !mappedTaskId ? "fact owner task was skipped" : "fact fields or occurredAt are invalid",
+      reason:
+        row.taskId !== undefined && !mappedTaskId
+          ? "fact owner task was skipped"
+          : "fact fields or occurredAt are invalid",
     });
     return;
   }
@@ -62,16 +60,17 @@ function addFact(context: any, row: RelationFactRow): void {
   }
   const held = context.existingSourceEntity("fact", factRef);
   if (held?.kind === "fact") {
-    const targetRef = `fact/${held.fact.taskId}/${held.fact.factId}`;
+    const targetRef = `fact/${held.fact.factId}`;
     context.factMap.set(factRef, targetRef);
     context.alreadyImported.fact += 1;
     return;
   }
   let targetFactId = row.factId,
-    targetRef = `fact/${mappedTaskId}/${targetFactId}`;
-  if (context.existingFacts.has(targetRef)) {
+    targetRef = `fact/${targetFactId}`;
+  const sourceTargetOccupied = [...context.factMap.values()].includes(targetRef);
+  if (context.existingFacts.has(targetRef) || sourceTargetOccupied) {
     targetFactId = `F-${sha256Text(`${context.sourceKey}\0${factRef}`).slice(0, 8).toUpperCase()}`;
-    targetRef = `fact/${mappedTaskId}/${targetFactId}`;
+    targetRef = `fact/${targetFactId}`;
     if (context.existingFacts.has(targetRef) || [...context.factMap.values()].includes(targetRef))
       throw context.idRemapConflict("fact", factRef, targetRef);
     context.remappings.push({
@@ -88,13 +87,14 @@ function addFact(context: any, row: RelationFactRow): void {
     });
   }
   context.factMap.set(factRef, targetRef);
+  if (row.ref !== factRef && !context.factMap.has(row.ref)) context.factMap.set(row.ref, targetRef);
   context.drafts.push({
     kind: "fact",
     migratedFrom: factRef,
     occurredAt,
     build: (workspaceRevision: number) => {
       const fact = {
-          taskId: mappedTaskId,
+          ...(mappedTaskId ? { taskId: mappedTaskId } : {}),
           factId: targetFactId,
           statement: row.statement,
           evidenceSource: row.source,
@@ -104,24 +104,22 @@ function addFact(context: any, row: RelationFactRow): void {
           memoryTags: row.memoryTags as never,
           provenance: row.provenance as never,
         },
-        records = [
-          ...(context.factDocuments.get(mappedTaskId) ?? []),
-          {
-            factId: targetFactId,
-            statement: row.statement,
-            evidenceSource: row.source,
-            observedAt: row.observedAt,
-            confidence: row.confidence,
-            state: "standing" as const,
-            workspaceRevision,
-          },
-        ];
-      context.factDocuments.set(mappedTaskId, records);
-      const body = renderFactsDocument(records),
-        documentClaim = context.claim(`${context.taskPackages.get(row.taskId)!}/facts.md`, body, "text/markdown");
+        record = {
+          factId: targetFactId,
+          statement: row.statement,
+          evidenceSource: row.source,
+          observedAt: row.observedAt,
+          confidence: row.confidence,
+          state: "standing" as const,
+          workspaceRevision,
+        },
+        records = mappedTaskId ? [...(context.factDocuments.get(mappedTaskId) ?? []), record] : [];
+      if (mappedTaskId) context.factDocuments.set(mappedTaskId, records);
+      const body = renderFactsDocument([record]),
+        documentClaim = context.claim(`facts/${targetFactId}.md`, body, "text/markdown");
       return context.prepare(
         context.sourceKey,
-        context.actorFor(`task/${row.taskId}`),
+        context.actorFor(row.taskId ? `task/${row.taskId}` : factRef),
         "fact",
         factRef,
         occurredAt,

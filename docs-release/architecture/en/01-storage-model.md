@@ -2,7 +2,7 @@
 
 [The three-primitive kernel](../../learn/en/01-three-primitive-kernel.md) argues
 that decision, task, and fact are the whole core, and that they store
-asymmetrically — decisions centralized, tasks as containers, facts embedded. This
+asymmetrically — decisions centralized, tasks as containers, facts independently. This
 page shows what that looks like as actual files: the directories, the frontmatter
 each file must carry, and the ID shapes the schemas enforce.
 
@@ -29,9 +29,11 @@ so the fields below are contracts, not conventions.
           ├── progress.md               narrative: how far
           ├── review.md                 narrative: judgment
           ├── closeout.md               narrative: the wrap-up
-          ├── facts.md                  the local fact ledger
           ├── executions/exe_<ULID>.md  one immutable delivery round
           └── reviews/rev_<ULID>.md     one immutable judgment round
+
+  <facts root>/
+  └── F-<Crockford-8>.md                 one immutable fact document per record
 
   <sessions root>/
   └── <session-id>.md                   captured Session manifest
@@ -41,9 +43,10 @@ Three primitives, but only two storage sites. **Decisions** live together in a
 top-level `decisions/` directory — they are the one projection a human is meant to
 watch, so they are kept in one place. **Tasks** are containers: each task is its
 own directory named `task_<ULID>-<slug>/`, holding a small set of files. **Facts**
-have no directory of their own at all — they are recorded inside the `facts.md`
-ledger of the task that produced them. A fact never migrates out; if it matters
-elsewhere, a decision references it in place.
+have their own top-level `facts/` directory, with one immutable document per
+`fact/F-<id>`. A task-associated fact also has one active
+`task/<id> -> fact/F-<id>` `produces` edge; standalone facts simply have no such
+edge.
 
 The `objects/sha256/` tree is different from those authored Markdown surfaces. It
 is the content-addressed blob store. A blob is addressed by its SHA-256 digest and
@@ -130,10 +133,10 @@ directory are the narrative around that state: `task_plan.md` is the plan,
 and `closeout.md` is the wrap-up. None of these are the source of truth for the
 task's state — `INDEX.md`'s frontmatter is.
 
-## The fact ledger
+## Fact documents
 
-Facts are recorded in the task's `facts.md`, each validated against
-`fact-record/v1` (`packages/kernel/src/schemas/fact-record.ts`):
+Facts are recorded as `facts/F-<id>.md` documents, each validated against
+`fact-event/v1` (`packages/kernel/src/domain/fact-event.ts`):
 
 | Field | What it holds |
 |---|---|

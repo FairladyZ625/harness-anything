@@ -17,7 +17,7 @@ const EntityRelationRefSchema = Schema.String.pipe(
       [
         "^(?:",
         "(?:task|decision)/[A-Za-z0-9_-]+(?:/[A-Za-z][A-Za-z0-9_-]*)?",
-        "|fact/[A-Za-z0-9_-]+/F-[A-Za-z0-9_-]+",
+        "|fact/F-[A-Za-z0-9_-]+",
         "|runtime-session/runtime_[a-z0-9]+",
         ")$",
       ].join(""),
