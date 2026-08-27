@@ -12,6 +12,7 @@ import {
   readSettingsFacet,
   resolveHarnessLayout,
   type SettingsV1,
+  type ActorIdentity,
   type WriterGeneration,
   type WriterGenerationToken,
 } from "../../kernel/src/index.ts";
@@ -52,6 +53,7 @@ export interface RepoBootstrapInput {
   readonly machineDocuments: readonly BootstrapDocument[];
   readonly settingsBootstrap: readonly [settings: SettingsV1, documentBody: string];
   readonly repositoryPlan: RepositoryScaffoldPlan;
+  readonly actor: ActorIdentity;
   readonly configureOnly?: boolean;
 }
 export interface RepoBootstrapReceipt {
@@ -154,6 +156,7 @@ export function resolveRepoBootstrap(
   return {
     rootDir,
     repoId,
+    actor: { principal: { personId: request.personId }, executor: null },
     machineDocuments,
     settingsBootstrap: [settings, harnessDocument.body],
     repositoryPlan: compileRepoRepositoryScaffold(rootDir, settings),

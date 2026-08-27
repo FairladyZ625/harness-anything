@@ -31,7 +31,6 @@ import {
   unavailableRuntimeInstanceStore,
 } from "./repo-cell-errors.ts";
 import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
-import { localSystemBinding } from "./daemon-host-binding.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { makeRepoCellScheduleActions } from "./repo-cell-schedule-actions.ts";
@@ -424,7 +423,7 @@ export async function openRepoCell(input: {
   if (input.bootstrap && !input.bootstrap.configureOnly) {
     const appended = settingsActions.initialize(
       ...input.bootstrap.settingsBootstrap,
-      localSystemBinding(rootDir, "repo-write"),
+      withDerivedCommandClass({ actor: input.bootstrap.actor, source: "local" }, "repo-write"),
     );
     if (appended && bootstrapReceipt) {
       bootstrapReceipt = { ...bootstrapReceipt, outcome: "applied" };
