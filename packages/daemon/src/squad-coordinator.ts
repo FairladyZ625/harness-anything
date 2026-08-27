@@ -85,8 +85,6 @@ type SquadState = {
   readonly phase: SquadRunPhase;
   readonly revision: number;
   readonly error: string | null;
-  /** 最近一次状态落盘时间(writeState 写入);早于该字段的持久化状态为 null。 */
-  readonly updatedAt: string | null;
 };
 
 type RuntimeOutcomeEvent = Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>;
@@ -136,7 +134,6 @@ export function makeSquadCoordinator(input: {
         phase: "planning",
         revision: 0,
         error: null,
-        updatedAt: null,
       };
     try {
       const running = await spawnLeader(state, { kind: "initial" });
@@ -185,8 +182,10 @@ export function makeSquadCoordinator(input: {
   const list = (payload: Readonly<Record<string, unknown>>): SquadRunsListResult => {
     const query = listQuery(payload),
       cut = input.projection().readTaskStatuses([]),
+      // 一次 list 内按 taskId memo 派工台账读:同 task 的多个 run 共享一次读,读放大按 task 数结算。
+      dispatchesByTaskId = new Map<string, readonly TaskDispatchRow[]>(),
       matching = readStates()
-        .map(summaryDto)
+        .map((state) => summaryDto(state, dispatchesByTaskId))
         .filter((run) => activePhase(run.phase) || query.since === null || runInActivityWindow(run, query.since))
         .filter((run) => matchesRunQuery(run, query.tokens))
         .sort(compareRunSummaries),
@@ -519,6 +518,26 @@ export function makeSquadCoordinator(input: {
     }).dispatches;
   }
 
+  /** list 专用:同 task 的多个 run 共享一次台账读(per-call memo,不跨 list 复用);单个
+   * run 的事实缺失(投影缺包路径)只降级自己的活动时间(可解析会话/无活动),不拖垮整页
+   * list。status/read 面对同一坏数据仍 fail-closed。 */
+  function summaryDispatchRows(
+    state: SquadState,
+    cache: Map<string, readonly TaskDispatchRow[]>,
+  ): readonly TaskDispatchRow[] {
+    const memoized = cache.get(state.taskId);
+    if (memoized !== undefined) return memoized;
+    let rows: readonly TaskDispatchRow[];
+    try {
+      rows = dispatchRows(state);
+    } catch (error) {
+      consumeKnownError(error); // 台账读不出:该 run 无派工事实。
+      rows = [];
+    }
+    cache.set(state.taskId, rows);
+    return rows;
+  }
+
   function terminalRow(state: SquadState, runtimeSessionId: string): TaskDispatchRow | undefined {
     return dispatchRows(state).find((row) => row.runtimeSessionId === runtimeSessionId && row.outcome !== null);
   }
@@ -576,19 +595,16 @@ export function makeSquadCoordinator(input: {
 
   function writeState(state: SquadState): void {
     if (!state.stateDispatchId) throw new Error("Squad state has no owning dispatch stream.");
-    // 每次落盘都带上转换时间:latestActivityAt 的「run 自身活动」来源,也是读面能对
-    // terminal run 过窗的唯一自身时间证据(revise 不写盘,只在写盘点取真实时钟)。
-    const persisted: SquadState = { ...state, updatedAt: new Date().toISOString() };
     ensureSquadRunProjection();
     const projection = input.projection();
     projection.markSquadRunProjectionDirty();
     appendRuntimeWorkerRecord(input.rootDir, state.stateDispatchId, {
       kind: "squad_run_state",
-      squadRunId: persisted.squadRunId,
-      revision: persisted.revision,
-      state: persisted,
+      squadRunId: state.squadRunId,
+      revision: state.revision,
+      state,
     });
-    projection.upsertSquadRun({ squadRunId: persisted.squadRunId, revision: persisted.revision, state: persisted });
+    projection.upsertSquadRun({ squadRunId: state.squadRunId, revision: state.revision, state });
   }
 
   function statusDto(state: SquadState) {
@@ -667,13 +683,17 @@ export function makeSquadCoordinator(input: {
     };
   }
 
-  function summaryDto(state: SquadState): SquadRunSummaryDto {
-    const sessions = [
-      ...state.leaderTurns.map((turn) => turn.runtimeSessionId),
-      ...state.workerAttempts.flatMap((attempt) => (attempt.runtimeSessionId ? [attempt.runtimeSessionId] : [])),
-    ]
-      .map((runtimeSessionId) => input.projection().readRuntimeSession(runtimeSessionId))
-      .filter((session) => session !== null);
+  function summaryDto(
+    state: SquadState,
+    dispatchesByTaskId: Map<string, readonly TaskDispatchRow[]>,
+  ): SquadRunSummaryDto {
+    const byDispatchId = new Map(summaryDispatchRows(state, dispatchesByTaskId).map((row) => [row.dispatchId, row])),
+      sessions = [
+        ...state.leaderTurns.map((turn) => turn.runtimeSessionId),
+        ...state.workerAttempts.flatMap((attempt) => (attempt.runtimeSessionId ? [attempt.runtimeSessionId] : [])),
+      ]
+        .map((runtimeSessionId) => input.projection().readRuntimeSession(runtimeSessionId))
+        .filter((session) => session !== null);
     return {
       squadRunId: state.squadRunId,
       squadId: state.squadId,
@@ -683,14 +703,14 @@ export function makeSquadCoordinator(input: {
       leaderTurnCount: state.leaderTurns.length,
       workerAttemptCount: state.workerAttempts.length,
       runningCount: sessions.filter((session) => runtimeSessionSemanticState(session) === "running").length,
-      // 活动时间 = 成员会话的最后观测时间 ∪ run 自身最近一次状态落盘时间。只看会话时,
-      // 会话不可解析(未孵化/投影缺行)的 terminal run 会把 reduce 初值 1970 泄漏成
-      // 「从无活动」,导致它在任何 since 窗口恒不可见;以 updatedAt 为初值后,run 自身
-      // 的状态流转就是真实活动时间。
-      latestActivityAt: sessions.reduce(
-        (latest, session) =>
-          Date.parse(session.lastObservedAt) > Date.parse(latest) ? session.lastObservedAt : latest,
-        state.updatedAt ?? "1970-01-01T00:00:00.000Z",
+      // 活动时间只从已落盘事实按瞬值取 max:run 自有派工台账行(startedAt 恒有、归档另有 endedAt)∪ 成员会话最后观测时间;epoch 仅是空集的 max 恒等元,不是读取兜底。
+      latestActivityAt: [
+        ...state.leaderTurns.flatMap((turn) => dispatchRowStamps(byDispatchId.get(turn.dispatchId))),
+        ...state.workerAttempts.flatMap((attempt) => dispatchRowStamps(byDispatchId.get(attempt.dispatchId ?? ""))),
+        ...sessions.map((session) => session.lastObservedAt),
+      ].reduce(
+        (latest, stamp) => (Date.parse(stamp) > Date.parse(latest) ? stamp : latest),
+        "1970-01-01T00:00:00.000Z",
       ),
     };
   }
@@ -884,11 +904,16 @@ function runInActivityWindow(run: SquadRunSummaryDto, since: string): boolean {
   return Date.parse(run.latestActivityAt) >= Date.parse(since);
 }
 
+/** 派工台账行的已落盘时间事实:startedAt 恒有,endedAt 仅归档结算行有;无台账行的派工不贡献时间。 */
+function dispatchRowStamps(row: TaskDispatchRow | undefined): readonly string[] {
+  return row === undefined ? [] : [row.startedAt, ...(row.endedAt === null ? [] : [row.endedAt])];
+}
+
 function compareRunSummaries(left: SquadRunSummaryDto, right: SquadRunSummaryDto): number {
   const active = Number(activePhase(right.phase)) - Number(activePhase(left.phase));
   return (
     active ||
-    right.latestActivityAt.localeCompare(left.latestActivityAt) ||
+    Date.parse(right.latestActivityAt) - Date.parse(left.latestActivityAt) ||
     left.squadRunId.localeCompare(right.squadRunId)
   );
 }
