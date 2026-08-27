@@ -1,5 +1,4 @@
 // harness-test-tier: integration
-import { taskProjectionSchemaVersion } from "../../kernel/src/projection/projection-schema.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -155,7 +154,7 @@ test("task-bound spawn exit keeps its released execution visible after a v7 cach
         .prepare("SELECT entity_id FROM entity_projection WHERE entity_kind = 'execution' AND task_id = ?")
         .get(taskId) as { readonly entity_id: string } | undefined;
     rebuilt.close();
-    assert.equal(version.schema_version, taskProjectionSchemaVersion);
+    assert.equal(version.schema_version, 12); // taskProjectionSchemaVersion in kernel projection-schema.ts
     assert.equal(execution?.entity_id, executionId);
   } finally {
     await host.close();
