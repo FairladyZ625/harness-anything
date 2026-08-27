@@ -244,6 +244,7 @@ test("Agent and Squad writes stay on the daemon allowlist and reject secret-shap
       name: "Blue",
       leader: "fable",
       workers: [],
+      leaderTurnBudget: 8,
       roster: "# Blue\n",
     },
   };

@@ -27,6 +27,7 @@ export interface SquadDeclarationV1 {
   readonly name: string;
   readonly leader: string;
   readonly workers: readonly string[];
+  readonly leaderTurnBudget: number;
   readonly roster: string;
 }
 export type AgentEntityKind = "agent" | "squad";
@@ -49,6 +50,7 @@ export const SQUAD_DECLARATION_V1_SCHEMA = entitySchema<SquadDeclarationV1>("squ
   "name",
   "leader",
   "workers",
+  "leaderTurnBudget",
   "roster",
 ]);
 export class AgentEntityContractError extends Error {
@@ -117,7 +119,7 @@ export function validateSquadDeclarationV1(value: unknown): readonly string[] {
   for (const field of SQUAD_DECLARATION_V1_SCHEMA.required)
     if (!Object.hasOwn(value, field))
       errors.push(
-        `squad declaration is missing required field "${field}"; expected id, name, leader, workers, and roster.`,
+        `squad declaration is missing required field "${field}"; expected id, name, leader, workers, leaderTurnBudget, and roster.`,
       );
   if (value.schema !== "squad-declaration/v1")
     errors.push('squad declaration field "schema" must equal "squad-declaration/v1".');
@@ -134,6 +136,11 @@ export function validateSquadDeclarationV1(value: unknown): readonly string[] {
       new Set(value.workers as string[]).size !== (value.workers as string[]).length)
   )
     errors.push('squad declaration field "workers" must be an array of unique lowercase Agent ids.');
+  if (
+    Object.hasOwn(value, "leaderTurnBudget") &&
+    (!Number.isSafeInteger(value.leaderTurnBudget) || Number(value.leaderTurnBudget) < 1)
+  )
+    errors.push('squad declaration field "leaderTurnBudget" must be a positive integer.');
   if (Object.hasOwn(value, "roster") && !entityNonEmpty(value.roster))
     errors.push('squad declaration field "roster" must be a non-empty string.');
   return errors;
@@ -265,7 +272,7 @@ const agentCatalogRowFields = Object.freeze(["id", "name", "runtimeType", "role"
     "preset",
     "fallback",
   ]),
-  squadDetailFields = Object.freeze(["id", "name", "leader", "workers", "roster"]);
+  squadDetailFields = Object.freeze(["id", "name", "leader", "workers", "leaderTurnBudget", "roster"]);
 function catalogErrors(
   value: unknown,
   schema: string,
@@ -347,6 +354,9 @@ const squadDetailChecks = (row: Record<string, unknown>): readonly string[] =>
       : [],
     !Array.isArray(row.workers) || !nonEmptyStrings(row.workers) || !row.workers.every(entitySlug)
       ? ["squad detail workers must be an array of agent slugs."]
+      : [],
+    !Number.isSafeInteger(row.leaderTurnBudget) || Number(row.leaderTurnBudget) < 1
+      ? ["squad detail leaderTurnBudget must be a positive integer."]
       : [],
   ].flat();
 export function validateAgentEntityCatalog(value: unknown): readonly string[] {

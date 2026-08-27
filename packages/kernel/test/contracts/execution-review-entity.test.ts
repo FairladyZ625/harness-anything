@@ -62,6 +62,7 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
       name: "Valid Squad",
       leader: agent.id,
       workers: [agent.id],
+      leaderTurnBudget: 8,
       roster: "# Valid Squad",
     },
     base = {

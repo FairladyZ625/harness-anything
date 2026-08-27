@@ -147,6 +147,8 @@
   "agentRuntime.unassigned": "未指派",
   "agentRuntime.openAgent": "打开该 Agent",
   "agentRuntime.slotRoleHint": "槽位只决定谁在编队里;角色措辞写在 Roster 里。",
+  "agentRuntime.leaderTurnBudget": "Leader 轮数预算",
+  "agentRuntime.leaderTurnBudgetDesc": "单次 run 的 Leader 总轮数上限,包含首轮规划",
   "agentRuntime.roster": "Roster",
   "agentRuntime.rosterDesc": "Leader 实际读到的自然语言花名册",
   "agentRuntime.rosterHint": "Leader 不做能力评分,它读这份花名册用自然语言判断派谁。",

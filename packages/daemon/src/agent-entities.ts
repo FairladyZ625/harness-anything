@@ -64,6 +64,7 @@ export interface SquadEntityGuiDetail {
   readonly name: string;
   readonly leader: string;
   readonly workers: readonly string[];
+  readonly leaderTurnBudget: number;
   readonly roster: string;
 }
 export type AgentEntityGuiRead =
@@ -214,6 +215,7 @@ export function readAgentEntityGuiProjection<
       name: entityText(squad.name),
       leader: entityText(squad.leader),
       workers: entityStrings(squad.workers),
+      leaderTurnBudget: squad.leaderTurnBudget,
       roster: entityText(squad.roster),
     },
   } as never;

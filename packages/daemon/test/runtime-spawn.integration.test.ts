@@ -297,6 +297,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       name: "Persona Squad",
       leader: "default-model",
       workers: ["declared-model"],
+      leaderTurnBudget: 8,
       roster: "persona work -> declared-model",
     },
   ] as const) {
@@ -659,6 +660,7 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
         name: "Runtime Squad",
         leader: "squad-leader",
         workers: ["squad-worker"],
+        leaderTurnBudget: 8,
         roster: "# Runtime Squad",
       },
     ],

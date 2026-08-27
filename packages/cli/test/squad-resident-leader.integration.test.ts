@@ -49,6 +49,7 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
         name: "Core Squad",
         leader: "fable",
         workers: ["terra", "luna"],
+        leaderTurnBudget: 8,
         roster: "terra -> backend\nluna -> frontend",
       }),
     );
@@ -216,6 +217,7 @@ test(
           name: "Core Squad",
           leader: "fable",
           workers: ["terra", "luna"],
+          leaderTurnBudget: 8,
           roster: "terra -> backend\nluna -> frontend",
         }),
       );

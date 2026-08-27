@@ -137,6 +137,7 @@ export async function seedEntityDeclarations(endpoint: string, repoId: string): 
       name: "Core Squad",
       leader: "terra",
       workers: ["terra"],
+      leaderTurnBudget: 8,
       roster: "# Core Squad\n\nTerra leads review.",
     };
   for (const [method, declaration] of [

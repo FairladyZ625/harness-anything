@@ -1,1 +1,1 @@
-{ "schema": "squad-declaration/v1", "id": "core-squad", "name": "Core Squad", "leader": "fable", "workers": ["terra", "terra"], "roster": "Terra leads." }
+{ "schema": "squad-declaration/v1", "id": "core-squad", "name": "Core Squad", "leader": "fable", "workers": ["terra", "terra"], "leaderTurnBudget": 8, "roster": "Terra leads." }

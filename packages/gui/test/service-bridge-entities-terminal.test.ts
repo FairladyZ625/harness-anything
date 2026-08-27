@@ -61,36 +61,18 @@ test("GUI entity write channel validates then installs an Agent and preserves a 
           name: "GUI Created Squad",
           leader: "gui-created-agent",
           workers: ["gui-created-agent"],
+          leaderTurnBudget: 8,
           roster,
         },
       }),
     );
     assert.equal(squadReceipt.ok, true, JSON.stringify(squadReceipt));
     assert.equal(squadReceipt.outcome, "applied");
-    assert.equal(
-      existsSync(
-        path.join(fixture.rootDir, "harness/agents/gui-created-agent.json"),
-      ),
-      true,
-    );
-    assert.equal(
-      existsSync(
-        path.join(fixture.rootDir, "harness/squads/gui-created-squad.json"),
-      ),
-      true,
-    );
-    assert.equal(
-      existsSync(path.join(fixture.rootDir, ".harness/agents")),
-      false,
-    );
-    assert.equal(
-      existsSync(path.join(fixture.rootDir, ".harness/squads")),
-      false,
-    );
-    const listed = parseDaemonGuiReadResult(
-      "repo.agent.entities.list",
-      await bridge.invoke("listAgents", scope),
-    );
+    assert.equal(existsSync(path.join(fixture.rootDir, "harness/agents/gui-created-agent.json")), true);
+    assert.equal(existsSync(path.join(fixture.rootDir, "harness/squads/gui-created-squad.json")), true);
+    assert.equal(existsSync(path.join(fixture.rootDir, ".harness/agents")), false);
+    assert.equal(existsSync(path.join(fixture.rootDir, ".harness/squads")), false);
+    const listed = parseDaemonGuiReadResult("repo.agent.entities.list", await bridge.invoke("listAgents", scope));
     assert.ok(listed.agents.some(({ id }) => id === "gui-created-agent"));
     const shownAgent = parseDaemonGuiReadResult(
       "repo.agent.entity.read",
@@ -126,9 +108,7 @@ test("GUI entity write channel validates then installs an Agent and preserves a 
 });
 
 test("GUI contract rejects any shipped bridge method missing from the daemon protocol", () => {
-  const daemonMethods = new Set(
-    jsonRpcMethodContracts.map(({ method }) => method),
-  );
+  const daemonMethods = new Set(jsonRpcMethodContracts.map(({ method }) => method));
   const missing = [...daemonGuiInvokeFacets, ...daemonGuiStreamFacets]
     .map(({ method }) => method)
     .filter((method) => !daemonMethods.has(method));
@@ -157,11 +137,7 @@ test("GUI renderer bridge drives a resident PTY through spawn attach IO resize d
       shellProfileId: "default",
       taskId: "task-terminal",
     })) as Record<string, unknown>;
-    assert.equal(
-      spawned.schema,
-      "terminal-control-receipt/v1",
-      JSON.stringify(spawned),
-    );
+    assert.equal(spawned.schema, "terminal-control-receipt/v1", JSON.stringify(spawned));
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     const sessionId = String(spawned.sessionId),
       values: Array<Record<string, unknown>> = [];
@@ -170,25 +146,15 @@ test("GUI renderer bridge drives a resident PTY through spawn attach IO resize d
     const echoSeen = new Promise<void>((resolve) => {
       resolveEcho = resolve;
     });
-    const stop = await bridge.stream(
-      "attachTerminal",
-      { ...scope, sessionId, afterSeq: 0 },
-      (value) => {
-        const frame = value as Record<string, unknown>;
-        values.push(frame);
-        if (
-          frame.schema === "terminal-attach-event/v1" &&
-          frame.kind === "output" &&
-          typeof frame.utf8 === "string"
-        ) {
-          output += frame.utf8;
-          if (output.includes("GUI_S3_R2_PTY")) resolveEcho();
-        }
-      },
-    );
-    const initial = values.find(
-      (value) => value.schema === "terminal-attach/v1",
-    );
+    const stop = await bridge.stream("attachTerminal", { ...scope, sessionId, afterSeq: 0 }, (value) => {
+      const frame = value as Record<string, unknown>;
+      values.push(frame);
+      if (frame.schema === "terminal-attach-event/v1" && frame.kind === "output" && typeof frame.utf8 === "string") {
+        output += frame.utf8;
+        if (output.includes("GUI_S3_R2_PTY")) resolveEcho();
+      }
+    });
+    const initial = values.find((value) => value.schema === "terminal-attach/v1");
     assert.equal(initial?.status, "attached");
     assert.equal(typeof initial?.attachmentId, "string");
     const input = (await bridge.invoke("sendTerminalInput", {
@@ -203,9 +169,7 @@ test("GUI renderer bridge drives a resident PTY through spawn attach IO resize d
     );
     await Promise.race([
       echoSeen,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("resident PTY echo timeout")), 2_000),
-      ),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("resident PTY echo timeout")), 2_000)),
     ]);
     const resized = (await bridge.invoke("resizeTerminal", {
       ...scope,
@@ -235,10 +199,7 @@ test("GUI renderer bridge drives a resident PTY through spawn attach IO resize d
       sessionId,
       confirmed: true,
     })) as Record<string, unknown>;
-    assert.deepEqual(
-      { outcome: terminated.outcome, state: terminated.state },
-      { outcome: "applied", state: "exited" },
-    );
+    assert.deepEqual({ outcome: terminated.outcome, state: terminated.state }, { outcome: "applied", state: "exited" });
   } finally {
     await fixture.stop();
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot);

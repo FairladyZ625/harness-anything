@@ -25,6 +25,7 @@ const squad = {
   name: "Core Squad",
   leader: "terra",
   workers: ["terra"],
+  leaderTurnBudget: 8,
   roster: "# Core Squad",
 };
 

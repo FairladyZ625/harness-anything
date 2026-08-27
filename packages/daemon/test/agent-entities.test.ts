@@ -22,7 +22,7 @@ import {
   runAgentEntityAction,
 } from "../src/agent-entities.ts";
 import { discoverAgentSkills, resolveAgentSkills } from "../src/agent-skills.ts";
-import { validateAgentDeclarationV1 } from "../src/agent-entities.contract.ts";
+import { validateAgentDeclarationV1, validateSquadDeclarationV1 } from "../src/agent-entities.contract.ts";
 
 const agent = {
     schema: "agent-declaration/v1",
@@ -41,6 +41,7 @@ const agent = {
     name: "Core Squad",
     leader: "terra",
     workers: ["terra"],
+    leaderTurnBudget: 8,
     roster: "# Core Squad\n\nTerra leads review.",
   };
 
@@ -247,6 +248,17 @@ test("Agent skills only accept unique exact {id, path} declarations", () => {
       /skills.*unique \{id, path\}/u,
       JSON.stringify(skills),
     );
+});
+
+test("Squad leader turn budgets are required positive integers", () => {
+  const { leaderTurnBudget: _leaderTurnBudget, ...missing } = squad;
+  assert.match(validateSquadDeclarationV1(missing).join("\n"), /missing required field "leaderTurnBudget"/u);
+  for (const leaderTurnBudget of [0, -1, 1.5, "8", null])
+    assert.match(
+      validateSquadDeclarationV1({ ...squad, leaderTurnBudget }).join("\n"),
+      /leaderTurnBudget.*positive integer/u,
+    );
+  assert.deepEqual(validateSquadDeclarationV1(squad), []);
 });
 
 test("Agent skill discovery scans user and project roots and returns absolute selectable paths", () => {
@@ -567,6 +579,7 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       name: "Core Squad",
       leader: "terra",
       workers: ["terra"],
+      leaderTurnBudget: 8,
       roster: squad.roster,
     });
     assert.throws(

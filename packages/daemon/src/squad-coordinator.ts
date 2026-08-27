@@ -82,6 +82,7 @@ type SquadState = {
   readonly leaderAgentId: string;
   readonly roster: string;
   readonly workers: readonly string[];
+  readonly leaderTurnBudget: number;
   readonly binding: RuntimeBinding;
   readonly leaderTurns: readonly LeaderTurn[];
   readonly leaderProviderSessionId: string | null;
@@ -131,6 +132,7 @@ export function makeSquadCoordinator(input: {
         leaderAgentId: squad.leader,
         roster: squad.roster,
         workers: squad.workers,
+        leaderTurnBudget: squad.leaderTurnBudget,
         binding: { actor: binding.actor, source: binding.source },
         leaderTurns: [],
         leaderProviderSessionId: null,
@@ -310,7 +312,7 @@ export function makeSquadCoordinator(input: {
     if (decision.kind === "plan") {
       const activeWorkerIds = new Set(
         workerRows(updated)
-          .filter((worker) => !worker.row || worker.row.outcome === null)
+          .filter(({ attempt, row }) => attempt.rejection === null && (!row || row.outcome === null))
           .map((worker) => worker.attempt.workerId),
       );
       for (const plan of decision.dispatches.filter((dispatch) => !activeWorkerIds.has(dispatch.workerId)))
@@ -351,7 +353,6 @@ export function makeSquadCoordinator(input: {
       currentLeaderRuntimeSessionId: null,
       pendingLeaderTriggers: [{ kind: "leader_retry", turnId: turn.turnId, reason }, ...state.pendingLeaderTriggers],
       phase: "planning",
-      error: reason,
     });
     writeState(retrying);
     await spawnPendingLeader(retrying);
@@ -430,6 +431,8 @@ export function makeSquadCoordinator(input: {
   }
 
   async function spawnLeader(state: SquadState, trigger: LeaderTrigger): Promise<SquadState> {
+    if (state.leaderTurns.length >= state.leaderTurnBudget)
+      throw new Error(`leader turn budget ${state.leaderTurnBudget} exhausted`);
     if (trigger.kind !== "initial") await input.reacquireTaskLease(state.taskId, state.binding);
     const turnId = `leader-${state.leaderTurns.length + 1}`,
       prompt =
@@ -830,6 +833,8 @@ function squadState(value: unknown): SquadState | null {
     Array.isArray(row.workerAttempts) &&
     Array.isArray(row.observedWorkerRuntimeSessionIds) &&
     Array.isArray(row.pendingLeaderTriggers) &&
+    Number.isSafeInteger(row.leaderTurnBudget) &&
+    Number(row.leaderTurnBudget) >= 1 &&
     typeof row.revision === "number"
     ? (value as SquadState)
     : null;

@@ -33,6 +33,7 @@ type RecoveryFixture = {
   readonly coordinator: ReturnType<typeof makeSquadCoordinator>;
   readonly spawns: JsonObject[];
   readonly reacquired: () => number;
+  readonly completeLeader: (runtimeSessionId: string, result: string) => void;
 };
 
 function makeRecoveryFixture(
@@ -40,9 +41,11 @@ function makeRecoveryFixture(
   options: {
     readonly leaderOutcome: RuntimeSession["outcome"];
     readonly leaderResult?: string;
+    readonly leaderTurnBudget: number;
     readonly workers?: readonly SeedWorker[];
     readonly currentLeaderRuntimeSessionId?: string | null;
     readonly pendingLeaderTriggers?: readonly Readonly<Record<string, unknown>>[];
+    readonly rejectWorkerOnce?: string;
   },
 ): RecoveryFixture {
   const workers = options.workers ?? [],
@@ -62,9 +65,14 @@ function makeRecoveryFixture(
       ...workers.map((worker) => [worker.runtimeSessionId, worker.dispatchId] as const),
     ]),
     rows: { squadRunId: string; revision: number; state: Readonly<Record<string, unknown>> }[] = [],
-    spawns: JsonObject[] = [];
+    spawns: JsonObject[] = [],
+    resultBodies = new Map<string, Uint8Array>();
   let reacquired = 0,
-    nextSpawn = 0;
+    nextSpawn = 0,
+    nextResult = 2,
+    rejectedWorker = false;
+
+  if (options.leaderResult !== undefined) resultBodies.set(RESULT_SHA, new TextEncoder().encode(options.leaderResult));
 
   for (const [runtimeSessionId, dispatchId] of dispatchBySession)
     openDispatchStream(rootDir, {
@@ -90,6 +98,7 @@ function makeRecoveryFixture(
     leaderAgentId: "leader",
     roster: "leader -> sol, terra",
     workers: ["sol", "terra"],
+    leaderTurnBudget: options.leaderTurnBudget,
     binding: { actor: { principal: { personId: "person-squad" }, executor: null }, source: "local" },
     leaderTurns: [
       {
@@ -166,10 +175,7 @@ function makeRecoveryFixture(
         sessions.find((session) => session.runtimeSessionId === runtimeSessionId) ?? null,
     } as unknown as TaskProjection,
     store = {
-      readContentBlob: (sha256: string) =>
-        sha256 === RESULT_SHA && options.leaderResult !== undefined
-          ? new TextEncoder().encode(options.leaderResult)
-          : null,
+      readContentBlob: (sha256: string) => resultBodies.get(sha256) ?? null,
     } as CanonicalEventStore;
   return {
     coordinator: makeSquadCoordinator({
@@ -183,17 +189,46 @@ function makeRecoveryFixture(
       runtimeSpawner: () => ({
         spawn: (payload) => {
           spawns.push(payload);
+          if (
+            options.rejectWorkerOnce !== undefined &&
+            payload.targetAgentId === options.rejectWorkerOnce &&
+            !rejectedWorker
+          ) {
+            rejectedWorker = true;
+            return Promise.reject(new Error(`worker ${options.rejectWorkerOnce} rejected`));
+          }
           nextSpawn += 1;
-          return Promise.resolve({
-            ok: true,
-            dispatchId: `dispatch_${(100 + nextSpawn).toString(16).padStart(24, "0")}`,
-            runtimeSessionId: `runtime-spawn-${nextSpawn}`,
+          const dispatchId = `dispatch_${(100 + nextSpawn).toString(16).padStart(24, "0")}`,
+            runtimeSessionId = `runtime-spawn-${nextSpawn}`;
+          dispatchBySession.set(runtimeSessionId, dispatchId);
+          openDispatchStream(rootDir, {
+            dispatchId,
+            taskId: TASK_ID,
+            executionId: "execution-squad",
+            runtimeSessionId,
+            instanceId: INSTANCE_ID,
+            startedAt: "2026-08-27T00:00:00.000Z",
           });
+          sessions.push(runtimeSession(runtimeSessionId, null, null, "provider-leader"));
+          return Promise.resolve({ ok: true, dispatchId, runtimeSessionId });
         },
       }),
     }),
     spawns,
     reacquired: () => reacquired,
+    completeLeader: (runtimeSessionId, result) => {
+      const index = sessions.findIndex((session) => session.runtimeSessionId === runtimeSessionId);
+      assert.notEqual(index, -1);
+      const sha256 = nextResult.toString(16).padStart(64, "0");
+      nextResult += 1;
+      resultBodies.set(sha256, new TextEncoder().encode(result));
+      sessions[index] = runtimeSession(
+        runtimeSessionId,
+        "succeeded",
+        `artifact:runtime-result/sha256/${sha256}`,
+        "provider-leader",
+      );
+    },
   };
 }
 
@@ -240,7 +275,11 @@ async function withRootDir(use: (rootDir: string) => Promise<void>): Promise<voi
 
 test("a malformed leader result re-asks the same leader session instead of failing the run", async () => {
   await withRootDir(async (rootDir) => {
-    const fixture = makeRecoveryFixture(rootDir, { leaderOutcome: "succeeded", leaderResult: "not json" });
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: "succeeded",
+      leaderResult: "not json",
+      leaderTurnBudget: 3,
+    });
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
     assert.equal(fixture.spawns.length, 1);
@@ -249,7 +288,7 @@ test("a malformed leader result re-asks the same leader session instead of faili
     assert.equal(fixture.spawns[0]?.idempotencyKey, `${SQUAD_RUN_ID}:leader:retry:leader-1`);
     assert.match(String(fixture.spawns[0]?.prompt), /Leader result was not JSON\./u);
     const status = fixture.coordinator.status(SQUAD_RUN_ID);
-    assert.equal(status.status, "leader_running");
+    assert.equal(status.status, "leader_running", String(status.error));
     assert.equal(status.error, null);
     assert.deepEqual((status.leaders as { trigger: unknown }[])[1]?.trigger, {
       kind: "leader_retry",
@@ -261,12 +300,13 @@ test("a malformed leader result re-asks the same leader session instead of faili
 
 test("a failed leader runtime turn is recorded and re-asked instead of terminating the run", async () => {
   await withRootDir(async (rootDir) => {
-    const fixture = makeRecoveryFixture(rootDir, { leaderOutcome: "failed" });
+    const fixture = makeRecoveryFixture(rootDir, { leaderOutcome: "failed", leaderTurnBudget: 3 });
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
     assert.equal(fixture.spawns.length, 1);
     assert.match(String(fixture.spawns[0]?.prompt), /Leader turn leader-1 ended with failed\./u);
-    assert.equal(fixture.coordinator.status(SQUAD_RUN_ID).status, "leader_running");
+    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "leader_running", String(status.error));
   });
 });
 
@@ -275,12 +315,14 @@ test("an empty non-converged plan re-asks the leader instead of failing the run"
     const fixture = makeRecoveryFixture(rootDir, {
       leaderOutcome: "succeeded",
       leaderResult: JSON.stringify({ schema: "runtime-batch/v1", dispatches: [] }),
+      leaderTurnBudget: 3,
     });
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
     assert.equal(fixture.spawns.length, 1);
     assert.match(String(fixture.spawns[0]?.prompt), /Leader returned no work and did not declare convergence\./u);
-    assert.equal(fixture.coordinator.status(SQUAD_RUN_ID).status, "leader_running");
+    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "leader_running", String(status.error));
   });
 });
 
@@ -301,6 +343,7 @@ test("redispatch of an active worker waits while non-overlapping work still star
             { instance: INSTANCE_ID, to: "terra", prompt: "new work" },
           ],
         }),
+        leaderTurnBudget: 3,
         workers: [active],
       });
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
@@ -321,6 +364,7 @@ test("reconcile resumes a durable leader retry left pending between daemon turns
   await withRootDir(async (rootDir) => {
     const fixture = makeRecoveryFixture(rootDir, {
       leaderOutcome: "failed",
+      leaderTurnBudget: 3,
       currentLeaderRuntimeSessionId: null,
       pendingLeaderTriggers: [
         { kind: "leader_retry", turnId: "leader-1", reason: "Leader turn leader-1 ended with failed." },
@@ -329,6 +373,74 @@ test("reconcile resumes a durable leader retry left pending between daemon turns
     await fixture.coordinator.reconcile();
 
     assert.equal(fixture.spawns.length, 1);
-    assert.equal(fixture.coordinator.status(SQUAD_RUN_ID).status, "leader_running");
+    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "leader_running", String(status.error));
+  });
+});
+
+test("malformed leader results exhaust the declared budget after exactly that many turns", async () => {
+  await withRootDir(async (rootDir) => {
+    const leaderTurnBudget = 3,
+      fixture = makeRecoveryFixture(rootDir, {
+        leaderOutcome: "succeeded",
+        leaderResult: "not json",
+        leaderTurnBudget,
+      });
+    let runtimeSessionId = LEADER_SESSION_ID;
+    for (let completedTurns = 1; completedTurns <= leaderTurnBudget; completedTurns += 1) {
+      await fixture.coordinator.observeOutcome(outcomeEvent(runtimeSessionId));
+      const status = fixture.coordinator.status(SQUAD_RUN_ID);
+      assert.equal(
+        (status.leaders as unknown[]).length,
+        completedTurns === leaderTurnBudget ? leaderTurnBudget : completedTurns + 1,
+      );
+      if (completedTurns === leaderTurnBudget) {
+        assert.equal(status.status, "failed");
+        assert.equal(status.error, `leader turn budget ${leaderTurnBudget} exhausted`);
+      } else {
+        assert.equal(status.status, "leader_running", String(status.error));
+        runtimeSessionId = String(status.currentLeaderRuntimeSessionId);
+        fixture.completeLeader(runtimeSessionId, "not json");
+      }
+    }
+    assert.equal(fixture.spawns.length, leaderTurnBudget - 1);
+  });
+});
+
+test("a rejected worker attempt does not block a later dispatch to the same worker", async () => {
+  await withRootDir(async (rootDir) => {
+    const plan = JSON.stringify({
+        schema: "runtime-batch/v1",
+        dispatches: [{ instance: INSTANCE_ID, to: "sol", prompt: "try the worker" }],
+      }),
+      fixture = makeRecoveryFixture(rootDir, {
+        leaderOutcome: "succeeded",
+        leaderResult: plan,
+        leaderTurnBudget: 4,
+        rejectWorkerOnce: "sol",
+      });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+    const retryLeaderSessionId = String(fixture.coordinator.status(SQUAD_RUN_ID).currentLeaderRuntimeSessionId);
+    fixture.completeLeader(retryLeaderSessionId, plan);
+    await fixture.coordinator.observeOutcome(outcomeEvent(retryLeaderSessionId));
+
+    const status = fixture.coordinator.status(SQUAD_RUN_ID),
+      attempts = status.workers as Array<{
+        readonly workerId: string;
+        readonly dispatchId: string | null;
+        readonly rejection: string | null;
+      }>;
+    assert.equal(status.status, "workers_running");
+    assert.deepEqual(
+      attempts.map(({ workerId, dispatchId, rejection }) => ({ workerId, dispatchId, rejection })),
+      [
+        { workerId: "sol", dispatchId: null, rejection: "worker sol rejected" },
+        { workerId: "sol", dispatchId: "dispatch_000000000000000000000066", rejection: null },
+      ],
+    );
+    assert.deepEqual(
+      fixture.spawns.map((spawn) => spawn.targetAgentId ?? "leader"),
+      ["sol", "leader", "sol"],
+    );
   });
 });

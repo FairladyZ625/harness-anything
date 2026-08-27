@@ -35,6 +35,7 @@ export interface SquadDeclarationV1 {
   readonly name: string;
   readonly leader: string;
   readonly workers: readonly string[];
+  readonly leaderTurnBudget: number;
   readonly roster: string;
 }
 export type AgentEntityKind = "agent" | "squad";
@@ -127,7 +128,7 @@ export const SQUAD_DECLARATION_V1_SCHEMA = Object.freeze({
   $id: "squad-declaration/v1",
   type: "object",
   additionalProperties: false,
-  required: Object.freeze(["schema", "id", "name", "leader", "workers", "roster"]),
+  required: Object.freeze(["schema", "id", "name", "leader", "workers", "leaderTurnBudget", "roster"]),
   properties: Object.freeze({
     schema: { type: "string", const: "squad-declaration/v1", description: "Schema discriminator." },
     id: { ...slug("Stable Squad identity."), "x-error": "must be a lowercase entity slug." },
@@ -139,6 +140,13 @@ export const SQUAD_DECLARATION_V1_SCHEMA = Object.freeze({
       "x-error": "must be an array of unique lowercase Agent ids.",
       items: slug("Worker Agent identity."),
       description: "Worker Agent identities.",
+    },
+    leaderTurnBudget: {
+      type: "integer",
+      minimum: 1,
+      maximum: Number.MAX_SAFE_INTEGER,
+      description: "Maximum leader turns in one Squad run, including the initial turn.",
+      "x-error": "must be a positive integer.",
     },
     roster: nonEmptyString("Human-readable roster."),
   }),
