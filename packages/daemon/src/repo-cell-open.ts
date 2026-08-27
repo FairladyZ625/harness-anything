@@ -301,7 +301,13 @@ export async function openRepoCell(input: {
       if (state === "attached") await work();
     });
     tail = pending.catch(() => undefined);
-    void pending.then(() => replica.kick(), console.error);
+    void pending.then(
+      () => replica.kick(),
+      (error: unknown) => {
+        console.error(error);
+        replica.kick();
+      },
+    );
   };
   let settleExecutionLease: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell execution settlement is not ready.");
