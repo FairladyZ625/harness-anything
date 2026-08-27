@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 export const actor = {
   principal: { personId: "person-surface" },

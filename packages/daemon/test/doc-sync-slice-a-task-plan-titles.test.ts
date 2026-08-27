@@ -14,7 +14,7 @@ import {
   sha256Text,
 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import { actor, blockedReason, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 // F-42D28979/F-F4814511: a task plan whose H1 no longer matches the ledger

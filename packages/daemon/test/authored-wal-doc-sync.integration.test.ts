@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { actor, git, initRepo, write } from "./doc-sync-slice-a.fixtures.ts";
 
 test("WAL flush settles an eligible authored edit and status highlights blocked candidates", async () => {
@@ -39,8 +39,8 @@ test("WAL flush settles an eligible authored edit and status highlights blocked 
     assert.match(status.summary ?? "", /harness\.yaml\tblocked/u);
   } finally {
     await cell.close();
-    assert.equal(git(rootDir, "diff", "--name-only"), "");
-    assert.match(git(rootDir, "status", "--porcelain", "-uall"), /\?\? harness\/harness\.yaml/u);
+    assert.equal(git(rootDir, "diff", "--name-only"), "harness/harness.yaml");
+    assert.match(git(rootDir, "status", "--porcelain", "-uall"), /^M harness\/harness\.yaml$/mu);
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

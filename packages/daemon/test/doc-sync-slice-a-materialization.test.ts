@@ -13,7 +13,7 @@ import {
   canonicalRoot,
   workspaceId,
 } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import {
   actor,
@@ -263,7 +263,7 @@ test("an authored branch advanced outside the daemon remains an ancestor of the 
     );
     assert.equal(
       git(rootDir, "log", "-1", "--format=%s"),
-      "harness WAL flush 1-1",
+      `harness WAL flush ${result.revision}-${result.revision}`,
     );
   } finally {
     await cell.close();

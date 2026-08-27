@@ -12,6 +12,7 @@ import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-ta
 import { openDaemonLifecycleLog, readDaemonLifecycleRecords } from "../../daemon/src/lifecycle-log.ts";
 import { currentDaemonProtocolVersion } from "../../daemon/src/protocol/version.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
+import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { canonicalEventWritePlan, makeTaskEventStore, registerDaemonRepo, REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type AgentDefinitionSnapshot, type AgentRuntimeEventV1, type TaskEventV1 } from "../../kernel/src/index.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
@@ -73,6 +74,7 @@ test("task-bound runtime identity cannot autostart the shared daemon", (context)
       HARNESS_TASK_BOUND: "1",
     };
   try {
+    seedSettingsEvent({ rootDir: fixture.root, repoId });
     registerDaemonRepo({ canonicalRoot: fixture.root, repoId, userRoot: fixture.userRoot, createConvenienceLinks: false });
     const denied = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "task", "list"], {
       encoding: "utf8",
@@ -238,6 +240,7 @@ test("disconnecting a blocked vertical script client terminates its child after 
 test("receipt show diagnoses a missing daemon without starting one", () => {
   const fixture = setup();
   try {
+    seedSettingsEvent({ rootDir: fixture.root, repoId: "diagnostic" });
     registerDaemonRepo({ canonicalRoot: fixture.root, repoId: "diagnostic", userRoot: fixture.userRoot, createConvenienceLinks: false });
     const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "receipt", "show", "op-missing"], { encoding: "utf8", env: cliEnv(fixture.root, fixture.userRoot) });
     assert.notEqual(result.status, 0); const receipt = JSON.parse(result.stdout) as { error: { code: string } };
@@ -247,6 +250,7 @@ test("receipt show diagnoses a missing daemon without starting one", () => {
 
 test("CLI reports lifecycle attach progress and waits through a slow warming repository", async () => {
   const fixture = setup(), repoId = "slow-warming", socketPath = localUserDaemonEndpoint(fixture.userRoot, "default"), lifecycle = openDaemonLifecycleLog({ userRoot: fixture.userRoot, daemonId: "default" });
+  seedSettingsEvent({ rootDir: fixture.root, repoId });
   registerDaemonRepo({ canonicalRoot: fixture.root, repoId, userRoot: fixture.userRoot, createConvenienceLinks: false }); lifecycle.record({ event: "process_start", endpoint: socketPath }); lifecycle.record({ event: "socket_bound", endpoint: socketPath }); lifecycle.record({ event: "repo_attach_started", repoId, attachIndex: 2, attachTotal: 5 });
   let requests = 0; const server = createServer((socket) => { let buffered = ""; socket.on("data", (chunk) => { buffered += String(chunk); for (;;) { const newline = buffered.indexOf("\n"); if (newline < 0) break; const line = buffered.slice(0, newline); buffered = buffered.slice(newline + 1); const request = JSON.parse(line) as { id: number; method: string }; requests += request.method === "protocol.hello" ? 0 : 1; if (requests === 2) lifecycle.record({ event: "repo_attach_completed", repoId, attachIndex: 2, attachTotal: 5, durationMs: 1_000 }); const result = request.method === "protocol.hello" ? { protocolVersion: { major: 1, minor: 0 } } : requests >= 2 ? { schema: "command-receipt/v2", ok: true, command: "task-list", outcome: "applied", summary: "task list: 0" } : { schema: "command-receipt/v2", ok: false, command: "task-list", outcome: "op_rejected", code: "repo_warming", nextAction: "wait for attach" }; socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`); } }); });
   try {
@@ -372,7 +376,7 @@ function setupRepository(parent: string, name: string): string { const root = pa
   writeFileSync(path.join(root, "harness/people.yaml"), `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`, "utf8");
   git(root, "init", "--quiet"); git(root, "config", "user.name", "Autostart Test"); git(root, "config", "user.email", "autostart@example.test");
   git(root, "add", "README.md", "harness/harness.yaml", "harness/people.yaml"); git(root, "commit", "--quiet", "-m", "fixture"); return root; }
-function register(root: string, userRoot: string, repoId: string): void { assert.equal(run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]).ok, true); }
+function register(root: string, userRoot: string, repoId: string): void { seedSettingsEvent({ rootDir: root, repoId }); assert.equal(run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]).ok, true); }
 function run(root: string, userRoot: string, args: readonly string[], actor?: string): Record<string, unknown> {
   const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], { encoding: "utf8", env: cliEnv(root, userRoot, actor) });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`); return JSON.parse(result.stdout) as Record<string, unknown>; }

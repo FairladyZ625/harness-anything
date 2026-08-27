@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 
 function probeGit(repo: string, ...args: string[]): string { return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim(); }
@@ -84,8 +84,9 @@ test("append rechecks the epoch after a successor is allocated", async () => {
   try {
     const oldAuthority = openPersistentWriterEpoch({ stateRoot, holderId: "old-center" }), newAuthority = openPersistentWriterEpoch({ stateRoot, holderId: "new-center" }), oldLease = oldAuthority.acquire("probe-repo"); let successorEpoch: number | null = null, triggered = false;
     cell = await openRepoCell({ repoId: "probe-repo" as never, rootDir: repo as never, ownerId: "probe-cell", mode: "remote-center", killpoint: (point) => { if (point === "before_event_write" && !triggered) { triggered = true; successorEpoch = newAuthority.acquire("probe-repo").epoch; } } });
+    const before = Number(probeGit(repo, "rev-list", "--count", "refs/ha/canonical"));
     const receipt = await cell.run({ kind: "task-create", taskId: "task_probe_epoch", title: "stale append window" }, probeBinding(() => oldAuthority.assert("probe-repo", oldLease.epoch, oldLease.holderId)));
-    assert.equal(successorEpoch, 2); assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "writer_epoch_stale"); assert.equal(Number(probeGit(repo, "rev-list", "--count", "refs/ha/canonical")), 2);
+    assert.equal(successorEpoch, 2); assert.equal(receipt.outcome, "op_rejected"); assert.equal(receipt.code, "writer_epoch_stale"); assert.equal(Number(probeGit(repo, "rev-list", "--count", "refs/ha/canonical")), before);
     newAuthority.close(); oldAuthority.close();
   } finally { await cell?.close(); rmSync(root, { recursive: true, force: true }); }
 });

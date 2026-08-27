@@ -12,7 +12,7 @@ import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const actor = { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const };
 const definition: AgentDefinitionSnapshot = {
