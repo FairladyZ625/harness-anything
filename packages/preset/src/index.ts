@@ -34,3 +34,5 @@ export type {
 } from "./preset-process-service.ts";
 export { acceptBuiltinVerticalScriptPlan, prepareBuiltinVerticalScriptExecution } from "./vertical-script.ts";
 export type { PreparedBuiltinVerticalScript } from "./vertical-script.ts";
+export { listGovernanceScaffoldOverlays } from "./scaffold-overlay.ts";
+export type { GovernanceScaffoldOverlays } from "./scaffold-overlay.ts";

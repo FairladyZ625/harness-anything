@@ -1,9 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
 import { openGuiCatalog } from "../src/gui-catalog.ts";
 import { validateCatalogPreset, validateCatalogRereadReceipt, validateCatalogSnapshot } from "../src/gui-s3-control.ts";
+
+const write = (target: string, body: string) => {
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, body);
+};
 
 const openCatalog = () =>
   openGuiCatalog({ repoId: "catalog-test", rootDir: process.cwd(), readSettings: () => INITIAL_SETTINGS_V1 });
@@ -89,4 +97,55 @@ test("GUI catalog preset read carries only detail-page consumed fields (review#4
       errors.some((error) => error.includes(field)),
       `${field} must be rejected by the closed shape: ${JSON.stringify(errors)}`,
     );
+});
+
+test("GUI catalog carries the settings selector value faces: preset profiles and governance scaffolds", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-catalog-settings-faces-"));
+  try {
+    write(
+      path.join(root, "harness/governance/task-scaffold.json"),
+      JSON.stringify({ schema: "task-scaffold/v1", replaceTemplate: [], addDocument: [] }),
+    );
+    write(
+      path.join(root, "harness/governance/repository-scaffold.json"),
+      JSON.stringify({ schema: "repository-scaffold/v1", replaceTemplate: [], addDocument: [] }),
+    );
+    write(path.join(root, "harness/governance/generated/Template-Projections.json"), JSON.stringify({ rows: [] }));
+    const catalog = openGuiCatalog({
+        repoId: "catalog-settings-faces",
+        rootDir: root,
+        readSettings: () => INITIAL_SETTINGS_V1,
+      }),
+      snapshot = await catalog.snapshot();
+    assert.deepEqual(validateCatalogSnapshot(snapshot), []);
+    // 取值面来自 resolver 解码的 manifest:每个 valid preset 都带 profile 清单。
+    assert.ok(snapshot.presets.length > 0);
+    for (const row of snapshot.presets) {
+      assert.ok(Array.isArray(row.profiles), `${row.id} must carry a profiles array`);
+      if (row.validity === "valid")
+        assert.ok(
+          row.profiles.some((profile) => profile.id === row.defaultProfile),
+          `${row.id} must list its defaultProfile`,
+        );
+    }
+    assert.deepEqual(snapshot.scaffolds, {
+      task: ["governance/task-scaffold.json"],
+      repository: ["governance/repository-scaffold.json"],
+    });
+    // 阴性对照:闭形状必须拒掉缺 profiles / 缺 scaffolds / 形状错的 scaffolds。
+    const withoutProfiles = JSON.parse(JSON.stringify(snapshot)) as Record<string, unknown>;
+    for (const row of withoutProfiles.presets as Record<string, unknown>[]) delete row.profiles;
+    assert.ok(validateCatalogSnapshot(withoutProfiles).some((error) => error.includes("profiles")));
+    const withoutScaffolds = JSON.parse(JSON.stringify(snapshot)) as Record<string, unknown>;
+    delete withoutScaffolds.scaffolds;
+    assert.ok(validateCatalogSnapshot(withoutScaffolds).some((error) => error.includes("scaffolds")));
+    const badScaffolds = JSON.parse(JSON.stringify(snapshot)) as Record<string, unknown>;
+    (badScaffolds.scaffolds as Record<string, unknown>).task = ["", 3];
+    assert.ok(validateCatalogSnapshot(badScaffolds).some((error) => error.includes("scaffold paths")));
+    const badProfileRow = JSON.parse(JSON.stringify(snapshot)) as Record<string, unknown>;
+    ((badProfileRow.presets as Record<string, unknown>[])[0]!.profiles as Record<string, unknown>[])[0]!.extra = true;
+    assert.ok(validateCatalogSnapshot(badProfileRow).some((error) => error.includes("catalog preset profile")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

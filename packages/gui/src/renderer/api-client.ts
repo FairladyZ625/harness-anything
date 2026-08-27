@@ -177,6 +177,7 @@ export interface CatalogPresetRow {
   readonly version: string | null;
   readonly kind: string | null;
   readonly defaultProfile: string | null;
+  readonly profiles: ReadonlyArray<{ readonly id: string; readonly title: string }>;
   readonly entrypoints: ReadonlyArray<string>;
   readonly issues: ReadonlyArray<unknown>;
   readonly shadows: { readonly layer: "bundled"; readonly title: string } | null;
@@ -220,6 +221,7 @@ export interface CatalogSnapshotSuccess {
   readonly presets: ReadonlyArray<CatalogPresetRow>;
   readonly verticals: ReadonlyArray<CatalogVerticalRow>;
   readonly templates: ReadonlyArray<CatalogTemplateRow>;
+  readonly scaffolds: { readonly task: ReadonlyArray<string>; readonly repository: ReadonlyArray<string> };
   readonly adapters: ReadonlyArray<CatalogAdapterRow>;
 }
 export interface CatalogPresetDocument {
@@ -745,7 +747,18 @@ function readCatalogSnapshot(value: unknown): CatalogSnapshotSuccess {
     !Array.isArray(value.presets) ||
     !Array.isArray(value.verticals) ||
     !Array.isArray(value.templates) ||
-    !Array.isArray(value.adapters)
+    !Array.isArray(value.adapters) ||
+    !isRendererRecord(value.scaffolds) ||
+    !Array.isArray(value.scaffolds.task) ||
+    !Array.isArray(value.scaffolds.repository) ||
+    !value.presets.every(
+      (row) =>
+        isRendererRecord(row) &&
+        Array.isArray(row.profiles) &&
+        row.profiles.every(
+          (profile) => isRendererRecord(profile) && typeof profile.id === "string" && typeof profile.title === "string",
+        ),
+    )
   )
     throw new Error(localErrorHint(value, "Catalog snapshot bridge returned an invalid result."));
   return value as unknown as CatalogSnapshotSuccess;

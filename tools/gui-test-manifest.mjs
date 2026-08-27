@@ -42,6 +42,7 @@ export const guiVitestManifest = [
   "packages/gui/test/system-view-detail.vitest.ts",
   "packages/gui/test/daemon-observe.vitest.ts",
   "packages/gui/test/preset-detail.vitest.ts",
+  "packages/gui/test/settings-repository-selectors.vitest.ts",
   "packages/gui/test/entity-id-links.vitest.ts",
   "packages/gui/test/location-restore.vitest.tsx",
   "packages/gui/test/recent-refs.vitest.ts",

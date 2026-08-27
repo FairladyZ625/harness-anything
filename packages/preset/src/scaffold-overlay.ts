@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { normalizeRelativeDocumentPath } from "../../kernel/src/index.ts";
-import { canonicalPresetBytes, type TemplateSelectionV1 } from "./preset.contract.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { canonicalPresetBytes, consumeKnownError, type TemplateSelectionV1 } from "./preset.contract.ts";
 
 export interface ProjectTemplate {
   readonly body: string;
@@ -110,7 +110,8 @@ function projectTemplate(options: ScaffoldOverlayOptions, value: string): Projec
   const body = requiredFile(target, `missing_${options.schema.slice(0, -3).replace("-", "_")}_template`);
   if (!isWithinScaffoldRoot(realpathSync.native(options.templateRoot), realpathSync.native(target)))
     throw scaffoldFailure(options.errorCode, `Project template ${value} is unsafe.`);
-  return { body, mediaType: value.endsWith(".md") ? "text/markdown" : "text/plain", ref: `project://${normalized}` }; }
+  return { body, mediaType: value.endsWith(".md") ? "text/markdown" : "text/plain", ref: `project://${normalized}` };
+}
 function safePath(value: string, used: Set<string>, allowed?: (value: string) => boolean): void {
   let normalized: string;
   try {
@@ -161,4 +162,58 @@ function hasNonEmptyScaffoldStrings(value: unknown): value is string[] {
 }
 function scaffoldFailure(code: string, message: string): Error & { readonly code: string } {
   return Object.assign(new Error(message), { code });
+}
+
+export interface GovernanceScaffoldOverlays {
+  /** Authored-root-relative POSIX paths of `task-scaffold/v1` overlays. */
+  readonly task: readonly string[];
+  /** Authored-root-relative POSIX paths of `repository-scaffold/v1` overlays. */
+  readonly repository: readonly string[];
+}
+
+/** Enumerate the scaffold overlay documents a repository can point
+ * `settings.scaffolds.{task,repository}` at: JSON files under the governance
+ * root whose declared `schema` matches an overlay contract. Discovery only
+ * classifies by schema — an offered file may still be rejected by the write
+ * path, which validates the overlay body — so a selector can offer real files
+ * instead of asking for a hand-typed path. Unreadable or non-overlay JSON is
+ * skipped rather than failing the read: a broken neighbour document does not
+ * remove the legal values that do exist. */
+export function listGovernanceScaffoldOverlays(rootDir: string): GovernanceScaffoldOverlays {
+  const layout = resolveHarnessLayout(rootDir),
+    task: string[] = [],
+    repository: string[] = [];
+  if (!existsSync(layout.governanceRoot)) return { task, repository };
+  visit(layout.governanceRoot);
+  return {
+    task: task.sort((left, right) => left.localeCompare(right)),
+    repository: repository.sort((left, right) => left.localeCompare(right)),
+  };
+
+  function visit(directory: string): void {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      // Vendored and tool-owned trees are not authored overlays; dot directories are local state.
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(target);
+      else if (entry.isFile() && entry.name.endsWith(".json")) classify(target);
+    }
+  }
+
+  function classify(target: string): void {
+    let decoded: unknown;
+    try {
+      if (lstatSync(target).isSymbolicLink()) return;
+      decoded = JSON.parse(readFileSync(target, "utf8"));
+    } catch (error) {
+      // 一个坏邻居文件不该撤销其它合法取值;这次跳过是刻意的,失败在这里被消费掉。
+      consumeKnownError(error);
+      return;
+    }
+    if (!isScaffoldOverlayRecord(decoded)) return;
+    const relative = path.relative(layout.authoredRoot, target).split(path.sep).join("/");
+    if (relative === "" || relative.startsWith("../") || path.isAbsolute(relative)) return;
+    if (decoded.schema === "task-scaffold/v1") task.push(relative);
+    else if (decoded.schema === "repository-scaffold/v1") repository.push(relative);
+  }
 }

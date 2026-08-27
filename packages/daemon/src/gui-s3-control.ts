@@ -111,6 +111,16 @@ const digest = (value: unknown): boolean => typeof value === "string" && /^sha25
 const integer = (value: unknown): boolean => Number.isSafeInteger(value) && Number(value) >= 0;
 const stringArray = (value: unknown): boolean =>
   Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0);
+const profileRows = (value: unknown): boolean =>
+  Array.isArray(value) &&
+  value.every(
+    (item) =>
+      record(item) &&
+      typeof item.id === "string" &&
+      item.id.length > 0 &&
+      typeof item.title === "string" &&
+      Object.keys(item).every((key) => key === "id" || key === "title"),
+  );
 
 export function validateSystemStatus(value: unknown): readonly string[] {
   const errors = closed(
@@ -239,6 +249,7 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
       presets: "array",
       verticals: "array",
       templates: "array",
+      scaffolds: "object",
       adapters: "array",
     },
     "catalog snapshot",
@@ -272,6 +283,7 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
           version: "null-string",
           kind: "null-string",
           defaultProfile: "null-string",
+          profiles: "array",
           entrypoints: "array",
           issues: "array",
           shadows: "nullable-object",
@@ -286,6 +298,7 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
         !stringArray(row.entrypoints))
     )
       errors.push("catalog preset enum is invalid");
+    if (record(row) && !profileRows(row.profiles)) errors.push("catalog preset profiles are invalid");
     if (record(row) && record(row.shadows)) {
       errors.push(...closed(row.shadows, { layer: "string", title: "string" }, "catalog preset shadows"));
       if (row.shadows.layer !== "bundled") errors.push("catalog preset shadow layer is invalid");
@@ -318,6 +331,11 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
       ),
     );
     if (record(row) && !stringArray(row.locales)) errors.push("catalog template locales are invalid");
+  }
+  if (record(value.scaffolds)) {
+    errors.push(...closed(value.scaffolds, { task: "array", repository: "array" }, "catalog scaffolds"));
+    if (!stringArray(value.scaffolds.task) || !stringArray(value.scaffolds.repository))
+      errors.push("catalog scaffold paths are invalid");
   }
   for (const row of Array.isArray(value.adapters) ? value.adapters : []) {
     errors.push(

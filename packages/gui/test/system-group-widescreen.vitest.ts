@@ -68,13 +68,58 @@ function seedQueries(client: QueryClient): void {
         version: "1",
         kind: null,
         defaultProfile: null,
+        profiles: [],
+        entrypoints: [],
+        issues: [],
+        shadows: null,
+      },
+      {
+        id: "standard-task",
+        title: "Standard Task",
+        description: "fixture 标准任务",
+        verticalId: "software/coding",
+        sourceKind: "bundled",
+        validity: "valid",
+        version: "3.0.0",
+        kind: null,
+        defaultProfile: "baseline",
+        profiles: [{ id: "baseline", title: "Baseline" }],
+        entrypoints: [],
+        issues: [],
+        shadows: null,
+      },
+      {
+        id: "docs-task",
+        title: "Documentation / Design Task",
+        description: "fixture 文档任务",
+        verticalId: "software/coding",
+        sourceKind: "bundled",
+        validity: "valid",
+        version: "3.0.0",
+        kind: null,
+        defaultProfile: "prose",
+        profiles: [{ id: "prose", title: "Prose" }],
         entrypoints: [],
         issues: [],
         shadows: null,
       },
     ],
-    verticals: [],
+    verticals: [
+      {
+        id: "software/coding",
+        title: "Software / Coding",
+        version: "1",
+        source: "builtin" as const,
+        available: true,
+        valid: true,
+        issues: [],
+      },
+    ],
     templates: [],
+    scaffolds: {
+      task: ["governance/task-scaffold.json"],
+      repository: ["governance/repository-scaffold.json"],
+    },
     adapters: [1, 2, 3].map((n) => ({
       adapterId: `adapter-g5-${n}`,
       registered: true as const,
@@ -236,26 +281,28 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
       value: { updateSettings, getSettings },
     });
     const container = await mountView(createElement(SettingsView, { repoId: REPO_ID }));
-    for (const value of [
-      "software/coding",
-      "standard-task",
-      "baseline",
-      "governance/task-scaffold.json",
-      "governance/repository-scaffold.json",
-    ])
-      expect((container.querySelector(`input[value="${value}"]`) as HTMLInputElement | null)?.value).toBe(value);
+    for (const [testId, value] of [
+      ["settings-vertical-select", "software/coding"],
+      ["settings-preset-select", "standard-task"],
+      ["settings-profile-select", "baseline"],
+      ["settings-task-scaffold-select", "governance/task-scaffold.json"],
+      ["settings-repository-scaffold-select", "governance/repository-scaffold.json"],
+    ] as const)
+      expect((container.querySelector(`[data-testid="${testId}"]`) as HTMLSelectElement | null)?.value).toBe(value);
+    expect(container.querySelector('[data-testid="settings-preset-select"]')?.tagName).toBe("SELECT");
     expect(container.textContent).toContain("settings/repository · settings/v1");
 
-    const preset = container.querySelector('input[aria-label="默认预设"]') as HTMLInputElement;
+    const preset = container.querySelector('[data-testid="settings-preset-select"]') as HTMLSelectElement;
     await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(preset, "strict-task");
-      preset.dispatchEvent(new Event("input", { bubbles: true }));
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(preset, "docs-task");
+      preset.dispatchEvent(new Event("change", { bubbles: true }));
     });
     const save = [...container.querySelectorAll("button")].find((button) => button.textContent === "提交到仓库")!;
     await act(async () => save.click());
     expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
       repoId: REPO_ID,
-      defaultPreset: "strict-task",
+      defaultPreset: "docs-task",
+      defaultProfile: "prose",
       locale: "zh-CN",
     });
 
