@@ -5,7 +5,12 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { compileSettingsChangedEvent } from "../../src/domain/settings-event.ts";
-import { readSettingsFacet, writeSettingsFacet, type SettingsV1 } from "../../src/domain/settings.ts";
+import {
+  readSettingsFacet,
+  repositorySettings,
+  writeSettingsFacet,
+  type SettingsV1,
+} from "../../src/domain/settings.ts";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -36,7 +41,7 @@ test(rebuildTitle, async () => {
     eventStore.append(bundle);
     projection.apply(bundle.event, bundle.plan);
     assert.equal(readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8"), candidate);
-    assert.deepEqual(projection.getEntity("settings", "repository")?.value, settings);
+    assert.deepEqual(projection.getEntity("settings", "repository")?.value, repositorySettings(settings));
     assert.equal(projection.readDocument("harness.yaml").document?.body, candidate);
 
     const liveRow = projection.getEntity("settings", "repository"),

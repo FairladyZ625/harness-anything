@@ -160,8 +160,6 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         repository: "governance/repository-scaffold.json",
       },
     });
-    // settings-update 只接受 catalog 内的 preset/profile(6b642a426):本仓库
-    // bundled catalog 的另一个 preset 是 docs-task,profile 同为 baseline。
     const settingsUpdated = parseDaemonGuiActionResponse(
       "repo.settings.update",
       await bridge.invoke("updateSettings", {
@@ -197,7 +195,11 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(settingsAfter.settings.locale, "zh-CN");
     const harnessYaml = readFileSync(path.join(fixture.rootDir, "harness/harness.yaml"), "utf8");
     assert.match(harnessYaml, /defaultPreset: docs-task/u);
-    assert.match(harnessYaml, /locale: zh-CN/u);
+    assert.doesNotMatch(harnessYaml, /^  locale:/mu);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(fixture.rootDir, ".harness/settings.local.json"), "utf8")), {
+      schema: "settings-local/v1",
+      locale: "zh-CN",
+    });
     assert.match(harnessYaml, /wipLimit: 30/u);
     const observability = parseDaemonGuiReadResult("observe.tail", results.get("observe.tail"));
     assert.equal(observability.schema, "daemon.observe-tail/v3");

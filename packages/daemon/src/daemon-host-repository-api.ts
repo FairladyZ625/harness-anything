@@ -21,6 +21,7 @@ import {
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { openRepoCell, type RepoCell, type RepoTaskAction } from "./repo-cell.ts";
+import { settingsCommandTopology } from "./repo-mode.ts";
 
 export function createDaemonHostRepositoryApi(
   context: any,
@@ -205,7 +206,7 @@ export function createDaemonHostRepositoryApi(
       };
     },
     run: async (repoId, action, auth) => {
-      const command = commandDescriptorForAction(action.kind),
+      const command = settingsCommandTopology(commandDescriptorForAction(action.kind), action),
         commandClass = command.commandClass,
         projectionRepair = context.localCenterProjectionRepair(repoId, action.kind, auth),
         modeAdmission = context.admitHostMode(repoId, command, auth);

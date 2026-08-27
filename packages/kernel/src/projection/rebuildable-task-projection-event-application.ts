@@ -27,7 +27,7 @@ import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
-import { readSettingsFacet } from "../domain/settings.ts";
+import { readSettingsFacet, repositorySettings } from "../domain/settings.ts";
 import { isPeopleEvent } from "../domain/people-event.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { parsePeopleRosterDocument } from "../domain/people-roster.ts";
@@ -223,7 +223,10 @@ export function applyEvent(
       throw new Error(`settings harness.yaml blob ${claim.sha256} is not UTF-8`);
     }
     if (sha256Text(body) !== claim.sha256) throw new Error(`settings harness.yaml blob ${claim.sha256} hash mismatch`);
-    if (canonicalJson(readSettingsFacet(body)) !== canonicalJson(event.payload.settings))
+    if (
+      canonicalJson(repositorySettings(readSettingsFacet(body))) !==
+      canonicalJson(repositorySettings(event.payload.settings))
+    )
       throw new Error(`settings harness.yaml blob ${claim.sha256} does not match the event settings facet`);
     const document: DocumentState = {
       path: claim.path as DocumentState["path"],

@@ -10,7 +10,7 @@ import { isLedgerLayoutMigrationEvent } from "../domain/ledger-layout-migration-
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isPeopleEvent } from "../domain/people-event.ts";
 import { parsePeopleRosterDocument, serializePeopleRosterDocument } from "../domain/people-roster.ts";
-import { writeSettingsFacet } from "../domain/settings.ts";
+import { writeRepositorySettingsFacet } from "../domain/settings.ts";
 import { serializeEventHead, type EventHead } from "../domain/write-chain.contract.ts";
 import { ledgerGitPath, type LedgerGitLayout } from "./ledger-git-layout.ts";
 import {
@@ -173,7 +173,8 @@ export function assertAuthorizedReplacement(
         "invalid_write_plan",
         "Settings replacement authorization requires candidate bytes",
       );
-    if (candidateBody !== writeSettingsFacet(committed, event.payload.settings))
+    const expected = writeRepositorySettingsFacet(committed, event.payload.settings);
+    if (candidateBody !== expected)
       throw new TaskEventStoreError(
         "invalid_write_plan",
         "Settings may change only their owned harness.yaml facet fields",

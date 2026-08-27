@@ -1,6 +1,13 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
-import { SETTINGS_ID, readSettingsFacet, validateSettingsV1, type SettingsV1 } from "./settings.ts";
+import {
+  SETTINGS_ID,
+  readSettingsFacet,
+  repositorySettings,
+  validateRepositorySettings,
+  type RepositorySettingsV1,
+  type SettingsV1,
+} from "./settings.ts";
 import {
   freezeDeclaredWritePlan,
   hasContractFields,
@@ -30,7 +37,7 @@ export type SettingsEventV1 = EventEnvelope<
   "settings_changed",
   ActorIdentity,
   {
-    readonly settings: SettingsV1;
+    readonly settings: RepositorySettingsV1;
     readonly harnessDocumentClaim: SettingsDocumentClaim;
     readonly baseDocumentSha256: string;
   }
@@ -45,7 +52,7 @@ export interface SettingsEventBundle {
 }
 
 export function compileSettingsChangedEvent(input: {
-  readonly settings: SettingsV1;
+  readonly settings: RepositorySettingsV1 | SettingsV1;
   readonly baseDocumentBody: string;
   readonly candidateDocumentBody: string;
   readonly eventId: string;
@@ -55,7 +62,8 @@ export function compileSettingsChangedEvent(input: {
   readonly source: WriteSource;
   readonly occurredAt: string;
 }): SettingsEventBundle {
-  const claim: SettingsDocumentClaim = {
+  const settings = repositorySettings(input.settings),
+    claim: SettingsDocumentClaim = {
       path: "harness.yaml",
       sha256: sha256Text(input.candidateDocumentBody),
       size: Buffer.byteLength(input.candidateDocumentBody),
@@ -73,7 +81,7 @@ export function compileSettingsChangedEvent(input: {
       source: input.source,
       occurredAt: input.occurredAt,
       payload: {
-        settings: input.settings,
+        settings,
         harnessDocumentClaim: claim,
         baseDocumentSha256: sha256Text(input.baseDocumentBody),
       },
@@ -122,20 +130,27 @@ function validateSettingsEventFields(value: unknown, allowUnknownFields: boolean
 }
 
 function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boolean {
-  if (!allowUnknownFields) return validateSettingsV1(value).length === 0;
   if (!isRecord(value) || !isRecord(value.scaffolds)) return false;
-  return (
-    validateSettingsV1({
+  const normalized = {
       schema: value.schema,
       settingsId: value.settingsId,
       defaultVertical: value.defaultVertical,
       defaultPreset: value.defaultPreset,
       defaultProfile: value.defaultProfile,
-      locale: value.locale,
       scaffolds: {
         task: value.scaffolds.task,
         repository: value.scaffolds.repository,
       },
+    },
+    current = validateRepositorySettings(normalized).length === 0;
+  if (!current) return false;
+  if (!allowUnknownFields)
+    return Object.keys(value).every((field) =>
+      ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds"].includes(field),
+    );
+  return (
+    validateRepositorySettings({
+      ...normalized,
     }).length === 0
   );
 }
@@ -185,7 +200,10 @@ export function assertSettingsEventInputs(
     blob = blobs.find((candidate) => candidate.sha256 === claim.sha256);
   if (!blob || blob.size !== claim.size || blob.mediaType !== claim.mediaType || sha256Text(blob.body) !== claim.sha256)
     throw new Error("settings harness.yaml blob must be exact");
-  if (stableStringify(readSettingsFacet(blob.body)) !== stableStringify(event.payload.settings))
+  if (
+    stableStringify(repositorySettings(readSettingsFacet(blob.body))) !==
+    stableStringify(repositorySettings(event.payload.settings))
+  )
     throw new Error("settings harness.yaml blob must contain the exact settings facet");
 }
 

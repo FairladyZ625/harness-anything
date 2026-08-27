@@ -172,8 +172,18 @@ export {
   isScheduleEvent,
 } from "./schedule-event.ts";
 
-export { INITIAL_SETTINGS_V1, readSettingsFacet, validateSettingsV1, writeSettingsFacet } from "./settings.ts";
-export type { SettingsV1 } from "./settings.ts";
+export {
+  INITIAL_SETTINGS_V1,
+  SETTINGS_LOCAL_PATH,
+  parseLocalSettings,
+  readSettingsFacet,
+  repositorySettings,
+  serializeLocalSettings,
+  validateRepositorySettings,
+  validateSettingsV1,
+  writeRepositorySettingsFacet,
+} from "./settings.ts";
+export type { RepositorySettingsV1, SettingsLocale, SettingsV1 } from "./settings.ts";
 export { compileSettingsChangedEvent } from "./settings-event.ts";
 export {
   applyPeopleRosterAction,

@@ -12,6 +12,25 @@ const rejection = (code: string, nextAction: string): RepoModeAdmission => ({
   nextAction,
 });
 
+/** Locale is a machine-local preference; repository-owned settings retain the command's normal route. */
+export function settingsCommandTopology(
+  command: CommandTopology,
+  action: Readonly<Record<string, unknown>> & { readonly kind?: string },
+): CommandTopology {
+  if (
+    action.kind !== "settings-update" ||
+    typeof action.locale !== "string" ||
+    ["defaultVertical", "defaultPreset", "defaultProfile", "taskScaffold", "repositoryScaffold"].some((field) =>
+      Object.hasOwn(action, field),
+    )
+  )
+    return command;
+  return {
+    ...command,
+    admission: { local: "direct", "remote-center": "direct", "remote-edge": "direct" },
+  };
+}
+
 export function admitRepoMode(
   mode: DaemonRepoMode,
   command: Pick<CommandTopology, "admission">,
