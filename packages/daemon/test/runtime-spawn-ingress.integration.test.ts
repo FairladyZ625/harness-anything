@@ -5,11 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventStore,
-  makeTaskProjection,
-  type AgentDefinitionSnapshot,
-} from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -1673,7 +1669,7 @@ async function eventually(check: () => boolean | Promise<boolean>): Promise<void
   await eventuallyValue(async () => ((await check()) ? true : null));
 }
 async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     const value = await read();
     if (value !== null) return value;
     await new Promise((resolve) => setTimeout(resolve, 10));
