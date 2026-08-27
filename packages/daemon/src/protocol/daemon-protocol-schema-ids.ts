@@ -124,7 +124,6 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
       "repoId",
       "repoMode",
       "viewerNodeId",
-      "assignmentResolution",
       "schedules",
       "watermark",
       "sourceRevision",

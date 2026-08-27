@@ -105,9 +105,6 @@ export function SchedulesView({
             <Chip tip={t("schedules.viewerTip")} tone="mono">
               {query.data.viewerNodeId ?? "—"}
             </Chip>
-            {query.data.assignmentResolution === "unavailable" && (
-              <Chip tip={t("schedules.rosterUnavailableTip")}>{t("schedules.rosterUnavailable")}</Chip>
-            )}
           </span>
         )}
       </header>

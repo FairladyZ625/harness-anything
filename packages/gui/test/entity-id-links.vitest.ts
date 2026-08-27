@@ -373,7 +373,6 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
     repoId: REPO_ID,
     repoMode: "local",
     viewerNodeId: "local",
-    assignmentResolution: "roster",
     schedules: [
       {
         scheduleId: "heartbeat-probe",

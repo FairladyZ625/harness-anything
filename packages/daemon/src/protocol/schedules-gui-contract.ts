@@ -84,12 +84,6 @@ export interface SchedulesListResult {
   readonly repoId: string;
   readonly repoMode: "local" | "remote-center" | "remote-edge";
   readonly viewerNodeId: string | null;
-  /** How execution ownership was resolved: "roster" = the assignment authority
-   * (fleet roster, or daemon-local ownership in local mode — local never consults a
-   * roster, so the value is vacuously "roster" there) resolved; "unavailable" = the
-   * roster could not be resolved, so claim/assignment fields degrade to null and
-   * availability falls back to not-on-this-node. */
-  readonly assignmentResolution: "roster" | "unavailable";
   readonly schedules: readonly ScheduleGuiRowDto[];
   readonly watermark: number;
   readonly sourceRevision: number;
@@ -213,7 +207,6 @@ const schedulesListFields = [
   "repoId",
   "repoMode",
   "viewerNodeId",
-  "assignmentResolution",
   "schedules",
   "watermark",
   "sourceRevision",
@@ -228,7 +221,6 @@ export function validateSchedulesList(value: unknown): readonly string[] {
     !scheduleNonEmptyText(value.repoId) ||
     !["local", "remote-center", "remote-edge"].includes(String(value.repoMode)) ||
     !nullableNonEmpty(value.viewerNodeId) ||
-    !["roster", "unavailable"].includes(String(value.assignmentResolution)) ||
     !Array.isArray(value.schedules) ||
     !Number.isSafeInteger(value.watermark) ||
     !Number.isSafeInteger(value.sourceRevision)

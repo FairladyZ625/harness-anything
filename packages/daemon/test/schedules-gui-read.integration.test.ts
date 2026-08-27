@@ -334,22 +334,9 @@ test(
           "repo.schedules.list",
           await host.read("schedules-gui-center", "repo.schedules.list", {}, localAuth),
         );
-      // Before any fleet center is admitted the roster is unresolvable, so the read
-      // degrades instead of guessing an owner.
-      const unresolved = await list();
-      assert.equal(unresolved.ok, true);
-      assert.equal(unresolved.repoMode, "remote-center");
-      assert.equal(unresolved.viewerNodeId, null);
-      assert.equal(unresolved.assignmentResolution, "unavailable");
-      assert.equal(unresolved.schedules.length, 1);
-      const row = unresolved.schedules[0] as ScheduleGuiRowDto;
-      assert.equal(row.state, "armed");
-      assert.equal(row.executionAvailability, "not-on-this-node");
-      assert.equal(row.actions.runNow.available, false);
-      assert.equal(row.actions.runNow.code, "repo_mode_requires_center_ingress");
-      assert.equal(row.actions.enable.available, false);
-      // The center never fabricates a local executor: no node/provider/liveness claims.
-      assert.equal(row.claim.nodeId, null);
+      // Ownership is authoritative input to this join: before center admission the
+      // whole read fails instead of fabricating an unresolved owner.
+      await assert.rejects(list, /requires an admitted fleet roster/u);
       // Admitting the fleet center snapshots the roster onto the host; the repo cell
       // (already attached at daemon boot) must resolve that snapshot at read time.
       const keyFile = path.join(root, "center.key"),
@@ -408,7 +395,6 @@ test(
       assert.equal(admission.nodes, 1);
       assert.equal(admission.assignments, 1);
       const rosterJoined = await list();
-      assert.equal(rosterJoined.assignmentResolution, "roster");
       const joined = rosterJoined.schedules[0] as ScheduleGuiRowDto;
       assert.deepEqual(joined.claim, { nodeId: "edge-one", assignmentId: "assignment-edge-one" });
       // The viewer is the center, never the executing node: ownership stays remote.

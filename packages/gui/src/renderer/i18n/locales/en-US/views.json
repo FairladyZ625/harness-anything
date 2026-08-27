@@ -353,8 +353,6 @@
   "schedules.readFailed": "Failed to read schedules: {error}",
   "schedules.modeTip": "repo mode of this daemon (from the daemon DTO)",
   "schedules.viewerTip": "execution identity of this node (from the daemon DTO)",
-  "schedules.rosterUnavailable": "roster unresolved",
-  "schedules.rosterUnavailableTip": "this daemon cannot resolve the fleet roster; ownership follows the center roster and the page never guesses an owner",
   "schedules.state.armed": "Armed",
   "schedules.state.paused": "Paused",
   "schedules.availability.local": "Runnable here",

@@ -10,7 +10,6 @@ import type {
   ScheduleGuiTriggerDto,
   SchedulesListResult,
 } from "./protocol/schedules-gui-contract.ts";
-import { consumeKnownError } from "../../kernel/src/index.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 
 /** Schedule GUI 读侧 join(S4)。上游事实全部来自已合入面:S1 的 ScheduleV1 领域形状与
@@ -71,14 +70,9 @@ function formatEveryMs(everyMs: number): string {
 function viewerNodeIdOf(mode: DaemonRepoMode, rootDir: string): string | null {
   if (mode === "local") return "local";
   if (mode !== "remote-edge") return null;
-  try {
-    return readFleetEdgeConfig(rootDir)?.nodeId ?? null;
-  } catch (error) {
-    // An unreadable edge config must not take the read down; the DTO reports the
-    // unresolved roster state instead of guessing a viewer node.
-    consumeKnownError(error);
-    return null;
-  }
+  const config = readFleetEdgeConfig(rootDir);
+  if (!config) throw new Error("A remote-edge Schedule read requires fleet-edge.json.");
+  return config.nodeId;
 }
 
 function rosterOf(
@@ -86,16 +80,15 @@ function rosterOf(
   rootDir: string,
   fleetRoster: FleetRoster | null | undefined,
 ): FleetRoster | null {
-  if (mode === "remote-center") return fleetRoster ?? null;
-  if (mode !== "remote-edge") return null;
-  try {
-    const rosterPath = readFleetEdgeConfig(rootDir)?.rosterPath;
-    return rosterPath ? parseFleetRoster(JSON.parse(readFileSync(rosterPath, "utf8"))) : null;
-  } catch (error) {
-    // Same posture as the viewer lookup: degrade to assignmentResolution=unavailable.
-    consumeKnownError(error);
-    return null;
+  if (mode === "remote-center") {
+    if (!fleetRoster) throw new Error("A remote-center Schedule read requires an admitted fleet roster.");
+    return fleetRoster;
   }
+  if (mode !== "remote-edge") return null;
+  const config = readFleetEdgeConfig(rootDir);
+  if (!config) throw new Error("A remote-edge Schedule read requires fleet-edge.json.");
+  if (!config.rosterPath) throw new Error("A remote-edge Schedule read requires fleet-edge.json rosterPath.");
+  return parseFleetRoster(JSON.parse(readFileSync(config.rosterPath, "utf8")));
 }
 
 function scheduleAssignmentOf(
@@ -117,9 +110,7 @@ function scheduleAssignmentOf(
 }
 
 /** Availability 是 daemon 侧判断,renderer 不复算:active claim 的 owner 优先;
- * 空闲时 local 恒可执行,edge/center 按 roster 分辨 unassigned 与 not-on-this-node;
- * roster 不可解析时不伪报 owner——降级为 not-on-this-node,DTO 同时给出
- * assignmentResolution=unavailable 供页面解释。 */
+ * 空闲时 local 恒可执行,edge/center 按 roster 分辨 unassigned 与 not-on-this-node。 */
 export function deriveScheduleExecutionAvailability(input: {
   readonly mode: DaemonRepoMode;
   readonly viewerNodeId: string | null;
@@ -132,7 +123,7 @@ export function deriveScheduleExecutionAvailability(input: {
   const { mode, viewerNodeId, roster, repoId, scheduleId, activeNodeId, now } = input;
   if (activeNodeId !== null) return activeNodeId === viewerNodeId ? "local" : "claimed-elsewhere";
   if (mode === "local") return "local";
-  if (!roster) return "not-on-this-node";
+  if (!roster) throw new Error(`A ${mode} Schedule availability read requires a fleet roster.`);
   const assignment = scheduleAssignmentOf(roster, repoId, scheduleId, now);
   if (assignment === null) return "unassigned";
   return assignment.nodeId === viewerNodeId ? "local" : "not-on-this-node";
@@ -154,7 +145,6 @@ function runNowFacet(input: {
   readonly availability: ScheduleExecutionAvailability;
   readonly active: { readonly occurrenceId: string; readonly nodeId: string } | null;
   readonly claimNodeId: string | null;
-  readonly roster: FleetRoster | null;
 }): ScheduleGuiActionFacet {
   const admission = admissionFacet("schedule-run-now", input.mode);
   if (!admission.available) return admission;
@@ -174,11 +164,9 @@ function runNowFacet(input: {
   const nextAction =
     input.availability === "claimed-elsewhere"
       ? "The active claim is owned by another node; watch its run projection here."
-      : input.roster === null
-        ? "This daemon cannot resolve the fleet roster; execution ownership is defined by the center roster."
-        : input.availability === "unassigned"
-          ? "No fleet edge holds this Schedule; add a schedule assignment to the roster before expecting runs."
-          : `Execution belongs to node ${input.claimNodeId ?? "another node"}; run it there.`;
+      : input.availability === "unassigned"
+        ? "No fleet edge holds this Schedule; add a schedule assignment to the roster before expecting runs."
+        : `Execution belongs to node ${input.claimNodeId ?? "another node"}; run it there.`;
   return { available: false, code: "not_execution_node", nextAction };
 }
 
@@ -288,7 +276,6 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
               ? { occurrenceId: schedule.status.activeRun.occurrenceId, nodeId: schedule.status.activeRun.nodeId }
               : null,
             claimNodeId: assignment?.nodeId ?? null,
-            roster,
           }),
         },
         activeRun: active,
@@ -309,7 +296,6 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
     repoId: context.input.repoId,
     repoMode: mode,
     viewerNodeId,
-    assignmentResolution: mode === "local" ? "roster" : roster === null ? "unavailable" : "roster",
     schedules,
     watermark: cut.watermark,
     sourceRevision: cut.sourceRevision,

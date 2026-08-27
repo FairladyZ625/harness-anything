@@ -403,7 +403,7 @@ test("the real write path keeps deriving activity from dispatch facts, not a per
   }
 });
 
-test("a run whose task has no projected package path degrades alone instead of failing the list", () => {
+test("a run whose task has no projected package path fails the list", () => {
   withRootDir((rootDir) => {
     const worker = {
       dispatchId: "dispatch_00000000000000000000b2c3",
@@ -437,45 +437,7 @@ test("a run whose task has no projected package path degrades alone instead of f
       new Map([[worker.dispatchId, archiveDoc(worker)]]),
       (taskId) => (taskId === "task-no-package" ? null : `tasks/${taskId}`),
     );
-    // 坏 run 的派工台账读会抛(投影缺包路径):list 不整页报错,只把该 run 的活动时间
-    // 退化为无活动;好 run 的派工事实照常进入派生。
-    const listed = squad.list({});
-    assert.deepEqual(listed.totals, { runs: 2 });
-    assert.deepEqual(
-      Object.fromEntries(listed.runs.map(({ squadRunId, latestActivityAt }) => [squadRunId, latestActivityAt])),
-      {
-        squad_0123456789abcdef01234567: "2026-08-27T11:55:00.000Z",
-        squad_0123456789abcdef99887766: "1970-01-01T00:00:00.000Z",
-      },
-    );
-    assert.deepEqual(validateSquadRunsList(listed), []);
-    // 无活动的 terminal run 在窗口内不可见,但不影响好 run 过窗。
-    assert.deepEqual(squad.list({ since: sinceAgo(DAY) }).totals, { runs: 1 });
-  });
-});
-
-test("a package-path-less run falls back to its resolvable member sessions for activity", () => {
-  withRootDir((rootDir) => {
-    seedSquadRun(rootDir, {
-      squadRunId: "squad_0123456789abcdef99887766",
-      phase: "converged",
-      taskId: "task-no-package",
-      leader: {
-        dispatchId: "dispatch_00000000000000000000e5f6",
-        runtimeSessionId: "runtime-leader-broken",
-        startedAt: "2026-08-27T11:00:00.000Z",
-      },
-    });
-    const { coordinator: squad } = coordinator(
-      rootDir,
-      [session("runtime-leader-broken", "2026-08-27T11:44:00.000Z")],
-      new Map(),
-      (taskId) => (taskId === "task-no-package" ? null : `tasks/${taskId}`),
-    );
-    // 台账读失败后,该 run 的活动时间退化为可解析会话的 lastObservedAt。
-    const listed = squad.list({ since: sinceAgo(DAY) });
-    assert.deepEqual(listed.totals, { runs: 1 });
-    assert.equal(listed.runs[0]?.latestActivityAt, "2026-08-27T11:44:00.000Z");
+    assert.throws(() => squad.list({}), /Task task-no-package has no projected package path/u);
   });
 });
 
