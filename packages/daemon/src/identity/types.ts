@@ -5,6 +5,7 @@ import type {
   CredentialRef as KernelCredentialRef,
   PeopleCommandClass,
   PersonProfile as KernelPersonProfile,
+  DelegatedExecutionToken,
   RoleBinding,
   RolePolicy as KernelRolePolicy,
 } from "../../../kernel/src/index.ts";
@@ -23,6 +24,7 @@ export interface PeopleRoster {
   readonly people: ReadonlyArray<PersonProfile>;
   readonly roles: ReadonlyArray<RolePolicy>;
   readonly bindings: ReadonlyArray<RoleBinding>;
+  readonly delegatedExecutionTokens: ReadonlyArray<DelegatedExecutionToken>;
   readonly resolveCredential: (
     credential: CredentialRef,
     providerId: string,

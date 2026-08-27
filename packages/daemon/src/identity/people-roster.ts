@@ -27,6 +27,7 @@ export function peopleRosterFromDocument(body: string): PeopleRoster {
     people: raw.people,
     roles: raw.roles,
     bindings: raw.bindings,
+    delegatedExecutionTokens: raw.delegatedExecutionTokens,
     resolveCredential: (credential, providerId) => {
       const person = peopleByCredential.get(credentialKey(credential));
       if (!person)

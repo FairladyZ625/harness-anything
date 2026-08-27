@@ -16,8 +16,12 @@ import {
   peopleAddJsonFields,
   peopleBindJsonAllowedFields,
   peopleBindJsonFields,
+  peopleDelegateJsonAllowedFields,
+  peopleDelegateJsonFields,
   peopleRemoveJsonAllowedFields,
   peopleRemoveJsonFields,
+  peopleRevokeDelegationJsonAllowedFields,
+  peopleRevokeDelegationJsonFields,
   peopleSetRoleJsonAllowedFields,
   peopleSetRoleJsonFields,
 } from "./protocol/daemon-protocol-commands-people.ts";
@@ -27,7 +31,8 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 export function makeRepoCellPeopleActions(cell: any) {
   const run = (action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt => {
     const resolvedAction = resolvePeopleAction(cell.rootDir, action),
-      domainAction = parsePeopleAction(resolvedAction),
+      occurredAt = cell.now(),
+      domainAction = parsePeopleAction(resolvedAction, binding.actor.principal.personId, occurredAt),
       peoplePath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "people.yaml"),
       currentBody = existsSync(peoplePath) ? readFileSync(peoplePath, "utf8") : null,
       revision = cell.store.readHead()?.revision ?? 0,
@@ -45,7 +50,7 @@ export function makeRepoCellPeopleActions(cell: any) {
         workspaceRevision: revision + 1,
         actor: binding.actor,
         source: binding.source,
-        occurredAt: cell.now(),
+        occurredAt,
       });
     if (compiled.bundle === null) return noChangesReceipt(opId, revision, compiled.summary, compiled.roster);
     const existing = cell.store.readEvent(opId);
@@ -86,6 +91,11 @@ const peoplePacketContracts: Readonly<
   "people-add": { required: peopleAddJsonFields, allowed: peopleAddJsonAllowedFields },
   "people-set-role": { required: peopleSetRoleJsonFields, allowed: peopleSetRoleJsonAllowedFields },
   "people-bind": { required: peopleBindJsonFields, allowed: peopleBindJsonAllowedFields },
+  "people-delegate": { required: peopleDelegateJsonFields, allowed: peopleDelegateJsonAllowedFields },
+  "people-revoke-delegation": {
+    required: peopleRevokeDelegationJsonFields,
+    allowed: peopleRevokeDelegationJsonAllowedFields,
+  },
   "people-remove": { required: peopleRemoveJsonFields, allowed: peopleRemoveJsonAllowedFields },
 });
 
@@ -114,9 +124,9 @@ function resolvePeopleAction(rootDir: string, action: RepoTaskAction): RepoTaskA
   if (unknown.length) throw invalidPeopleCommand(`Remove unsupported people input fields: ${unknown.join(", ")}`);
   if (missing.length) throw invalidPeopleCommand(`Add required people input fields: ${missing.join(", ")}`);
   for (const [field, value] of Object.entries(packet)) {
-    if (field === "commandClass") {
+    if (field === "commandClass" || field === "action") {
       if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry.trim()))
-        throw invalidPeopleCommand("commandClass must be a non-empty array of non-empty strings");
+        throw invalidPeopleCommand(`${field} must be a non-empty array of non-empty strings`);
     } else if (field === "expiresAt" && value === null) {
       continue;
     } else if (typeof value !== "string" || !value.trim()) {
@@ -126,7 +136,7 @@ function resolvePeopleAction(rootDir: string, action: RepoTaskAction): RepoTaskA
   return { kind: action.kind, ...packet };
 }
 
-function parsePeopleAction(action: RepoTaskAction): PeopleRosterAction {
+function parsePeopleAction(action: RepoTaskAction, issuerPersonId: string, occurredAt: string): PeopleRosterAction {
   if (action.kind === "people-bind") {
     const actor = parseRoleBindingActor(requiredPeopleText(action.actor, "actor")),
       expiresAt = action.expiresAt === null ? null : (peopleText(action.expiresAt) ?? null);
@@ -141,6 +151,28 @@ function parsePeopleAction(action: RepoTaskAction): PeopleRosterAction {
       },
     };
   }
+  if (action.kind === "people-delegate") {
+    return {
+      kind: action.kind,
+      token: {
+        schema: "delegated-execution-token/v1",
+        tokenId: requiredPeopleText(action.tokenId, "token-id"),
+        issuer: { personId: issuerPersonId },
+        delegate: { runtimeSessionId: requiredPeopleText(action.runtimeSessionId, "runtime-session-id") },
+        allowedActions: requiredDelegatedActions(action.action),
+        issuedAt: occurredAt,
+        expiresAt: requiredPeopleText(action.expiresAt, "expires-at"),
+        revokedAt: null,
+      },
+    };
+  }
+  if (action.kind === "people-revoke-delegation")
+    return {
+      kind: action.kind,
+      tokenId: requiredPeopleText(action.tokenId, "token-id"),
+      issuerPersonId,
+      revokedAt: occurredAt,
+    };
   const personId = requiredPeopleText(action.personId, "person-id");
   if (action.kind === "people-remove") return { kind: action.kind, personId };
   const roleId = requiredPeopleText(action.role, "role"),
@@ -178,6 +210,15 @@ function parsePeopleAction(action: RepoTaskAction): PeopleRosterAction {
     },
     rolePolicy,
   };
+}
+
+function requiredDelegatedActions(value: unknown): readonly string[] {
+  const actions = (Array.isArray(value) ? value : [value])
+    .map(peopleText)
+    .filter((entry): entry is string => Boolean(entry));
+  if (actions.length === 0) throw invalidPeopleCommand("At least one --action is required");
+  if (new Set(actions).size !== actions.length) throw invalidPeopleCommand("Delegated Actions must be unique");
+  return actions;
 }
 
 function parseRoleBindingActor(value: string): { readonly kind: "person" | "executor"; readonly id: string } {

@@ -2,12 +2,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_POLICY } from "../../src/domain/default-policy.ts";
+import { validateWriteReceipt } from "../../src/domain/receipt-domain-registry.ts";
 import { createAuthorizationPort, evaluateAuthorization } from "../../src/ports/authorization-port.ts";
 import {
   currentActionEnvelopeVersion,
   type ActionEnvelope,
   type ActorIdentity,
   type AuthorizationContext,
+  type DelegatedExecutionToken,
   type LeaseV1,
 } from "../../src/index.ts";
 
@@ -343,5 +345,76 @@ test("evaluation fails closed for stale policy references and missing action or 
   assert.equal(
     decide("task.closeout", owner, "task/task-1", { target: { owner, lease } }).reasonCodes[0],
     "policy_rule_missing",
+  );
+});
+
+test("AuthorizationDecision audits the DelegatedExecutionToken used as actor proof", () => {
+  const delegatedActor: ActorIdentity = {
+      principal: { personId: "owner" },
+      executor: { kind: "agent", id: "runtime-session:runtime-1" },
+    },
+    token: DelegatedExecutionToken = {
+      schema: "delegated-execution-token/v1",
+      tokenId: "det_owner_runtime_1",
+      issuer: delegatedActor.principal,
+      delegate: { runtimeSessionId: "runtime-1" },
+      allowedActions: ["execution.start"],
+      issuedAt: "2026-08-27T02:00:00.000Z",
+      expiresAt: "2026-08-27T03:00:00.000Z",
+      revokedAt: null,
+    },
+    decision = decide("execution.start", delegatedActor, "execution/execution-1", {
+      ...commandBinding("repo-write", delegatedActor),
+      delegatedExecutionToken: token,
+      evaluatedAt: "2026-08-27T02:30:00.000Z",
+      target: {},
+    });
+  assert.equal(decision.outcome, "allowed");
+  assert.deepEqual(decision.bindingsUsed[0], {
+    proof: "delegated-execution-token",
+    tokenId: token.tokenId,
+    issuerPersonId: "owner",
+    runtimeSessionId: "runtime-1",
+  });
+  assert.deepEqual(
+    validateWriteReceipt({
+      outcome: "op_rejected",
+      opId: "op-token-audit",
+      code: "audit_sample",
+      origin: "test",
+      nextAction: "No action is required.",
+      evidence: "authorization:det_owner_runtime_1",
+      authorizationDecision: decision,
+    }),
+    [],
+  );
+
+  const expired = decide("execution.start", delegatedActor, "execution/execution-1", {
+    ...commandBinding("repo-write", delegatedActor),
+    delegatedExecutionToken: token,
+    evaluatedAt: token.expiresAt,
+    target: {},
+  });
+  assert.equal(expired.outcome, "denied");
+  assert.ok(expired.reasonCodes.includes("delegated_token_expired"));
+  const revoked = decide("execution.start", delegatedActor, "execution/execution-1", {
+    ...commandBinding("repo-write", delegatedActor),
+    delegatedExecutionToken: { ...token, revokedAt: "2026-08-27T02:20:00.000Z" },
+    evaluatedAt: "2026-08-27T02:30:00.000Z",
+    target: {},
+  });
+  assert.equal(revoked.outcome, "denied");
+  assert.ok(revoked.reasonCodes.includes("delegated_token_revoked"));
+  const malformed = decide("execution.start", delegatedActor, "execution/execution-1", {
+    ...commandBinding("repo-write", delegatedActor),
+    delegatedExecutionToken: {} as DelegatedExecutionToken,
+    evaluatedAt: "2026-08-27T02:30:00.000Z",
+    target: {},
+  });
+  assert.equal(malformed.outcome, "denied");
+  assert.ok(malformed.reasonCodes.includes("delegated_token_contract_invalid"));
+  assert.equal(
+    malformed.bindingsUsed.some((binding) => binding.proof === "delegated-execution-token"),
+    false,
   );
 });

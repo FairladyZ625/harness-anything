@@ -275,3 +275,60 @@ test("People Action commands hydrate closed from-file packets inside the workspa
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("People delegated tokens issue and revoke through the canonical people event writer", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-people-delegation-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(root);
+    let now = "2026-08-27T02:00:00.000Z";
+    cell = await openRepoCell({
+      repoId: workspaceId("people-delegation"),
+      rootDir: canonicalRoot(root),
+      ownerId: "people-daemon",
+      now: () => now,
+    });
+    const delegatingActor = { ...actor, principal: { personId: "person_zeyu" } },
+      binding = { actor: delegatingActor, source: "local" as const },
+      issued = await cell.run(
+        {
+          kind: "people-delegate",
+          tokenId: "det_owner_runtime_1",
+          runtimeSessionId: "runtime_1",
+          action: ["execution.start", "doc.submit"],
+          expiresAt: "2026-08-27T03:00:00.000Z",
+        },
+        binding,
+      );
+    assert.equal(issued.outcome, "applied", JSON.stringify(issued));
+    let roster = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
+    assert.deepEqual(roster.delegatedExecutionTokens, [
+      {
+        schema: "delegated-execution-token/v1",
+        tokenId: "det_owner_runtime_1",
+        issuer: { personId: delegatingActor.principal.personId },
+        delegate: { runtimeSessionId: "runtime_1" },
+        allowedActions: ["doc.submit", "execution.start"],
+        issuedAt: now,
+        expiresAt: "2026-08-27T03:00:00.000Z",
+        revokedAt: null,
+      },
+    ]);
+    assert.match(issued.evidence ?? "", /det_owner_runtime_1/u);
+
+    now = "2026-08-27T02:30:00.000Z";
+    const revoked = await cell.run({ kind: "people-revoke-delegation", tokenId: "det_owner_runtime_1" }, binding);
+    assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));
+    roster = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
+    assert.equal(roster.delegatedExecutionTokens[0]?.revokedAt, now);
+    assert.equal(
+      makeTaskEventStore({ repoId: "people-delegation", rootDir: root })
+        .read()
+        .events.filter(({ schema }) => schema === "people-event/v1").length,
+      2,
+    );
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

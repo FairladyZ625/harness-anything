@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
-test("People CLI projects add, set-role, bind, and remove onto closed Action payloads", () => {
+test("People CLI projects registry and delegated-token mutations onto closed Action payloads", () => {
   const added = parseThinCommand([
     "people",
     "add",
@@ -58,6 +58,36 @@ test("People CLI projects add, set-role, bind, and remove onto closed Action pay
       role: "arbiter",
       target: "settings/repository",
     });
+  const delegated = parseThinCommand([
+    "people",
+    "delegate",
+    "--token-id",
+    "det_alice_runtime_1",
+    "--runtime-session-id",
+    "runtime_1",
+    "--action",
+    "execution.start",
+    "--action",
+    "doc.submit",
+    "--expires-at",
+    "2026-08-27T03:00:00.000Z",
+  ]);
+  assert.equal(delegated.ok, true);
+  if (delegated.ok)
+    assert.deepEqual(delegated.command.action, {
+      kind: "people-delegate",
+      tokenId: "det_alice_runtime_1",
+      runtimeSessionId: "runtime_1",
+      action: ["execution.start", "doc.submit"],
+      expiresAt: "2026-08-27T03:00:00.000Z",
+    });
+  const revoked = parseThinCommand(["people", "revoke-delegation", "--token-id", "det_alice_runtime_1"]);
+  assert.equal(revoked.ok, true);
+  if (revoked.ok)
+    assert.deepEqual(revoked.command.action, {
+      kind: "people-revoke-delegation",
+      tokenId: "det_alice_runtime_1",
+    });
   assert.equal(parseThinCommand(["people", "remove", "--person-id", "person_alice"]).ok, true);
 });
 
@@ -106,6 +136,14 @@ test("People CLI exposes one closed structured packet facet per public command",
     [
       ["people", "bind", "--from-file", "people-binding.json"],
       { kind: "people-bind", fromFile: "people-binding.json" },
+    ],
+    [
+      ["people", "delegate", "--from-file", "people-delegation.json"],
+      { kind: "people-delegate", fromFile: "people-delegation.json" },
+    ],
+    [
+      ["people", "revoke-delegation", "--from-file", "people-revocation.json"],
+      { kind: "people-revoke-delegation", fromFile: "people-revocation.json" },
     ],
     [
       ["people", "remove", "--from-file", "people-remove.json"],

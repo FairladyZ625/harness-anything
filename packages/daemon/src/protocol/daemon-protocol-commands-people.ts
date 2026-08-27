@@ -14,6 +14,13 @@ export const peopleAddJsonFields = Object.freeze(["personId", "displayName", "ro
   peopleSetRoleJsonAllowedFields = Object.freeze([...peopleSetRoleJsonFields, "idempotencyKey"] as const),
   peopleBindJsonFields = Object.freeze(["actor", "role", "target"] as const),
   peopleBindJsonAllowedFields = Object.freeze([...peopleBindJsonFields, "expiresAt", "idempotencyKey"] as const),
+  peopleDelegateJsonFields = Object.freeze(["tokenId", "runtimeSessionId", "action", "expiresAt"] as const),
+  peopleDelegateJsonAllowedFields = Object.freeze([...peopleDelegateJsonFields, "idempotencyKey"] as const),
+  peopleRevokeDelegationJsonFields = Object.freeze(["tokenId"] as const),
+  peopleRevokeDelegationJsonAllowedFields = Object.freeze([
+    ...peopleRevokeDelegationJsonFields,
+    "idempotencyKey",
+  ] as const),
   peopleRemoveJsonFields = Object.freeze(["personId"] as const),
   peopleRemoveJsonAllowedFields = Object.freeze([...peopleRemoveJsonFields, "idempotencyKey"] as const);
 
@@ -68,6 +75,20 @@ const peopleWriteTopology = {
       },
       {
         regex: "^(?:person|executor):[A-Za-z0-9][A-Za-z0-9._:-]*$",
+        conflictsWith: ["--from-file"],
+      },
+    ),
+  tokenIdInput = () =>
+    cliInput(
+      "--token-id",
+      "single",
+      false,
+      {
+        code: "missing_field",
+        nextAction: "Use --token-id with a stable det_ identifier, or use --from-file.",
+      },
+      {
+        regex: "^det_[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
         conflictsWith: ["--from-file"],
       },
     ),
@@ -151,6 +172,69 @@ export const peopleProtocolCommands = Object.freeze([
       roleInput(),
       textInput("--target", false, "Use --target with one EntityRef, or use --from-file."),
       textInput("--expires-at", false, "Use an ISO-8601 UTC timestamp ending in Z, or omit it."),
+      idempotencyInput(),
+    ],
+    ...peopleWriteTopology,
+  }),
+  defineCliCommand({
+    id: "people-delegate",
+    actionKind: "people-delegate",
+    phase: "Persons-Registry",
+    path: ["people", "delegate"],
+    summary: "Delegate a closed Action set from the authenticated principal to one RuntimeSession.",
+    method: "repo.task.run",
+    inputs: [
+      fromFileInput(peopleDelegateJsonFields, peopleDelegateJsonAllowedFields),
+      tokenIdInput(),
+      cliInput(
+        "--runtime-session-id",
+        "single",
+        false,
+        {
+          code: "missing_field",
+          nextAction: "Use --runtime-session-id with one RuntimeSession identifier, or use --from-file.",
+        },
+        { regex: "^[A-Za-z0-9][A-Za-z0-9._:-]*$", conflictsWith: ["--from-file"] },
+      ),
+      cliInput(
+        "--action",
+        "repeated",
+        false,
+        {
+          code: "missing_field",
+          nextAction: "Repeat --action for every delegated Action kind, or use --from-file.",
+        },
+        {
+          regex: "^[A-Za-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*$",
+          minItems: 1,
+          unique: true,
+          conflictsWith: ["--from-file"],
+        },
+      ),
+      cliInput(
+        "--expires-at",
+        "single",
+        false,
+        {
+          code: "missing_field",
+          nextAction: "Use --expires-at with an ISO-8601 UTC timestamp ending in Z, or use --from-file.",
+        },
+        { minLength: 1, conflictsWith: ["--from-file"] },
+      ),
+      idempotencyInput(),
+    ],
+    ...peopleWriteTopology,
+  }),
+  defineCliCommand({
+    id: "people-revoke-delegation",
+    actionKind: "people-revoke-delegation",
+    phase: "Persons-Registry",
+    path: ["people", "revoke-delegation"],
+    summary: "Revoke one DelegatedExecutionToken through the canonical Action writer.",
+    method: "repo.task.run",
+    inputs: [
+      fromFileInput(peopleRevokeDelegationJsonFields, peopleRevokeDelegationJsonAllowedFields),
+      tokenIdInput(),
       idempotencyInput(),
     ],
     ...peopleWriteTopology,

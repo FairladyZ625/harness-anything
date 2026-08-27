@@ -190,3 +190,44 @@ test("people bind persists only declared RoleBindings and removes a deleted pers
     /only persist declared RoleBindings/u,
   );
 });
+
+test("people delegate and revoke mutate the same roster without a token store", () => {
+  const bootstrapped = applyPeopleRosterAction(null, {
+      kind: "people-add",
+      person: owner,
+      rolePolicy: { roleId: "owner", commandClasses: ["admin"] },
+    }),
+    token = {
+      schema: "delegated-execution-token/v1" as const,
+      tokenId: "det_owner_runtime_1",
+      issuer: { personId: owner.personId },
+      delegate: { runtimeSessionId: "runtime_1" },
+      allowedActions: ["execution.start"],
+      issuedAt: "2026-08-27T02:00:00.000Z",
+      expiresAt: "2026-08-27T03:00:00.000Z",
+      revokedAt: null,
+    },
+    delegated = applyPeopleRosterAction(bootstrapped.body, { kind: "people-delegate", token }),
+    revoked = applyPeopleRosterAction(delegated.body, {
+      kind: "people-revoke-delegation",
+      tokenId: token.tokenId,
+      issuerPersonId: owner.personId,
+      revokedAt: "2026-08-27T02:30:00.000Z",
+    });
+  assert.equal(delegated.action, "people-delegate");
+  assert.deepEqual(parsePeopleRosterDocument(delegated.body).delegatedExecutionTokens, [token]);
+  assert.equal(
+    parsePeopleRosterDocument(revoked.body).delegatedExecutionTokens[0]?.revokedAt,
+    "2026-08-27T02:30:00.000Z",
+  );
+  assert.throws(
+    () =>
+      applyPeopleRosterAction(delegated.body, {
+        kind: "people-revoke-delegation",
+        tokenId: token.tokenId,
+        issuerPersonId: "person_other",
+        revokedAt: "2026-08-27T02:30:00.000Z",
+      }),
+    /Only DelegatedExecutionToken issuer person_owner may revoke it/u,
+  );
+});

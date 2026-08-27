@@ -33,6 +33,8 @@ export async function executeAction(
     action.kind === "people-add" ||
     action.kind === "people-set-role" ||
     action.kind === "people-bind" ||
+    action.kind === "people-delegate" ||
+    action.kind === "people-revoke-delegation" ||
     action.kind === "people-remove"
   )
     return cell.peopleActions.run(action, binding);
