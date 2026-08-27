@@ -93,8 +93,8 @@ const SNAPSHOT = {
       validity: "valid" as const,
       version: "3.0.0",
       kind: null,
-      defaultProfile: null,
-      profiles: [],
+      defaultProfile: "other-default",
+      profiles: [{ id: "other-default", title: "Other Default" }],
       entrypoints: [],
       issues: [],
       shadows: null,
@@ -104,6 +104,15 @@ const SNAPSHOT = {
     {
       id: "software/coding",
       title: "Software / Coding",
+      version: "1",
+      source: "builtin" as const,
+      available: true,
+      valid: true,
+      issues: [],
+    },
+    {
+      id: "other/vertical",
+      title: "Other Vertical",
       version: "1",
       source: "builtin" as const,
       available: true,
@@ -219,7 +228,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
   it("五个字段全部是 select,选项来自目录快照,且没有自由文本输入", async () => {
     const container = await mountView();
     expect(container.querySelectorAll('input[aria-label^="默认"], input[aria-label*="脚手架"]').length).toBe(0);
-    expect(optionValues(select(container, "settings-vertical-select"))).toEqual(["software/coding"]);
+    expect(optionValues(select(container, "settings-vertical-select"))).toEqual(["software/coding", "other/vertical"]);
     // other/vertical 的 preset 不进 software/coding 的选项面。
     expect(optionValues(select(container, "settings-preset-select"))).toEqual([
       "standard-task",
@@ -275,6 +284,22 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       saveButton(container).click();
     });
     expect(lastUpdatePayload()).toMatchObject({ defaultPreset: "docs-task", defaultProfile: "prose" });
+  });
+
+  it("换 vertical 时不兼容的 preset 落到新垂直的默认项并复用 preset/profile 联动", async () => {
+    const container = await mountView();
+    await choose(select(container, "settings-vertical-select"), "other/vertical");
+    expect(optionValues(select(container, "settings-preset-select"))).toEqual(["other-vertical-preset"]);
+    expect(select(container, "settings-preset-select").value).toBe("other-vertical-preset");
+    expect(select(container, "settings-profile-select").value).toBe("other-default");
+    await act(async () => {
+      saveButton(container).click();
+    });
+    expect(lastUpdatePayload()).toMatchObject({
+      defaultVertical: "other/vertical",
+      defaultPreset: "other-vertical-preset",
+      defaultProfile: "other-default",
+    });
   });
 
   it("新 preset 的清单包含当前 profile 时,profile 保持不动", async () => {

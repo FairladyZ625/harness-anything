@@ -193,7 +193,7 @@ export function listGovernanceScaffoldOverlays(rootDir: string): GovernanceScaff
   function visit(directory: string): void {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       // Vendored and tool-owned trees are not authored overlays; dot directories are local state.
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      if (["archive", "generated", "node_modules"].includes(entry.name) || entry.name.startsWith(".")) continue;
       const target = path.join(directory, entry.name);
       if (entry.isDirectory()) visit(target);
       else if (entry.isFile() && entry.name.endsWith(".json")) classify(target);
@@ -203,7 +203,6 @@ export function listGovernanceScaffoldOverlays(rootDir: string): GovernanceScaff
   function classify(target: string): void {
     let decoded: unknown;
     try {
-      if (lstatSync(target).isSymbolicLink()) return;
       decoded = JSON.parse(readFileSync(target, "utf8"));
     } catch (error) {
       // 一个坏邻居文件不该撤销其它合法取值;这次跳过是刻意的,失败在这里被消费掉。
@@ -212,7 +211,6 @@ export function listGovernanceScaffoldOverlays(rootDir: string): GovernanceScaff
     }
     if (!isScaffoldOverlayRecord(decoded)) return;
     const relative = path.relative(layout.authoredRoot, target).split(path.sep).join("/");
-    if (relative === "" || relative.startsWith("../") || path.isAbsolute(relative)) return;
     if (decoded.schema === "task-scaffold/v1") task.push(relative);
     else if (decoded.schema === "repository-scaffold/v1") repository.push(relative);
   }

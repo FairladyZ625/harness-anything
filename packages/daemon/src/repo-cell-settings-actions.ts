@@ -11,6 +11,7 @@ import {
   type SettingsV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
+import { runPresetAction } from "../../preset/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export function makeRepoCellSettingsActions(cell: any) {
@@ -32,7 +33,7 @@ export function makeRepoCellSettingsActions(cell: any) {
     return settings;
   };
 
-  const update = (action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt => {
+  const update = async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
     const current = read(),
       settings: SettingsV1 = {
         schema: current.schema,
@@ -48,6 +49,18 @@ export function makeRepoCellSettingsActions(cell: any) {
       },
       errors = validateSettingsV1(settings);
     if (errors.length) throw cell.cellCodedError("invalid_command", errors.join("; "));
+    const presets = (await runPresetAction({
+        rootDir: cell.rootDir,
+        action: { kind: "preset-list", verticalId: settings.defaultVertical },
+        settings,
+      })) as readonly SettingsCatalogPreset[],
+      preset = presets.find((row) => row.id === settings.defaultPreset && row.verticalId === settings.defaultVertical),
+      selection = [settings.defaultVertical, settings.defaultPreset, settings.defaultProfile].join("/");
+    if (preset?.validity !== "valid" || !preset.profiles?.some((profile) => profile.id === settings.defaultProfile))
+      throw cell.cellCodedError(
+        "invalid_settings_catalog_selection",
+        `Settings selection ${selection} is not a valid catalog preset profile.`,
+      );
     const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml"),
       baseDocumentBody = readFileSync(configPath, "utf8"),
       candidateDocumentBody = writeSettingsFacet(baseDocumentBody, settings),
@@ -110,6 +123,13 @@ export function makeRepoCellSettingsActions(cell: any) {
   };
 
   return { read, update };
+}
+
+interface SettingsCatalogPreset {
+  readonly id: string;
+  readonly verticalId: string;
+  readonly validity: "valid" | "unavailable" | "blocked";
+  readonly profiles?: ReadonlyArray<{ readonly id: string }>;
 }
 
 function settingsText(value: unknown): string | undefined {

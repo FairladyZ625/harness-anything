@@ -110,7 +110,14 @@ test("GUI catalog carries the settings selector value faces: preset profiles and
       path.join(root, "harness/governance/repository-scaffold.json"),
       JSON.stringify({ schema: "repository-scaffold/v1", replaceTemplate: [], addDocument: [] }),
     );
-    write(path.join(root, "harness/governance/generated/Template-Projections.json"), JSON.stringify({ rows: [] }));
+    write(
+      path.join(root, "harness/governance/generated/task-scaffold.json"),
+      JSON.stringify({ schema: "task-scaffold/v1", replaceTemplate: [], addDocument: [] }),
+    );
+    write(
+      path.join(root, "harness/governance/nested/archive/repository-scaffold.json"),
+      JSON.stringify({ schema: "repository-scaffold/v1", replaceTemplate: [], addDocument: [] }),
+    );
     const catalog = openGuiCatalog({
         repoId: "catalog-settings-faces",
         rootDir: root,

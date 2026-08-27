@@ -7,7 +7,7 @@ import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widg
 import { readTimeZoneOverride, supportedTimeZones, systemTimeZone, writeTimeZoneOverride } from "../model/time.ts";
 import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
 import { useCatalogSnapshot } from "../catalog-data.ts";
-import type { SettingsSuccess } from "../api-client.ts";
+import type { CatalogPresetRow, SettingsSuccess } from "../api-client.ts";
 
 const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: "dark", label: "暗色" },
@@ -80,7 +80,8 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
     verticalOptions = selectorOptions(
       (snapshot?.verticals ?? []).map((row) => ({
         value: row.id,
-        label: row.available && row.valid ? row.id : `${row.id} · 不可用`,
+        label:
+          row.available && row.valid ? row.id : t("views.settingsView.catalogUnavailableOption", { value: row.id }),
       })),
       draft?.defaultVertical,
     ),
@@ -112,19 +113,26 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
       draft?.scaffolds.repository,
     );
 
+  const chooseVertical = (verticalId: string) =>
+    setDraft((current) => {
+      if (!current) return current;
+      const next = { ...current, defaultVertical: verticalId },
+        presets = (snapshot?.presets ?? []).filter((row) => row.verticalId === verticalId && row.validity === "valid"),
+        defaultPresetId = snapshot?.defaults.verticalId === verticalId ? snapshot.defaults.presetId : undefined,
+        row =
+          presets.find((candidate) => candidate.id === current.defaultPreset) ??
+          presets.find((candidate) => candidate.id === defaultPresetId) ??
+          presets[0];
+      return row ? selectPreset(next, row.id, row) : next;
+    });
+
   const choosePreset = (presetId: string) =>
     setDraft((current) => {
       if (!current) return current;
-      const row = (snapshot?.presets ?? []).find((candidate) => candidate.id === presetId),
-        profiles = cataloguedProfiles(row);
-      // profile 必须属于所选 preset:换 preset 时当前 profile 不在新清单里就落到该 preset 的默认 profile。
-      const keepProfile =
-        !row || profiles.length === 0 || profiles.some((profile) => profile.id === current.defaultProfile);
-      return {
-        ...current,
-        defaultPreset: presetId,
-        defaultProfile: keepProfile ? current.defaultProfile : (row?.defaultProfile ?? current.defaultProfile),
-      };
+      const row = (snapshot?.presets ?? []).find(
+        (candidate) => candidate.id === presetId && candidate.verticalId === current.defaultVertical,
+      );
+      return selectPreset(current, presetId, row);
     });
 
   const renderActivePanel = () => {
@@ -164,17 +172,17 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
               </button>
             }
           >
-            <Row label="默认垂直" desc="垂直能力目录（daemon 目录快照）">
+            <Row label="默认垂直" desc={t("views.settingsView.verticalDescription")}>
               <SettingSelect
                 label="默认垂直"
                 testId="settings-vertical-select"
                 value={draft.defaultVertical}
                 disabled={catalogBlocked}
                 options={verticalOptions}
-                onChange={(value) => updateDraft("defaultVertical", value)}
+                onChange={chooseVertical}
               />
             </Row>
-            <Row label="默认预设" desc="所选垂直下已登记的 preset">
+            <Row label="默认预设" desc={t("views.settingsView.presetDescription")}>
               <SettingSelect
                 label="默认预设"
                 testId="settings-preset-select"
@@ -184,7 +192,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 onChange={choosePreset}
               />
             </Row>
-            <Row label="默认配置" desc="所选 preset 清单声明的 profile">
+            <Row label="默认配置" desc={t("views.settingsView.profileDescription")}>
               <SettingSelect
                 label="默认配置"
                 testId="settings-profile-select"
@@ -194,7 +202,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 onChange={(value) => updateDraft("defaultProfile", value)}
               />
             </Row>
-            <Row label="任务脚手架" desc="governance 根下已存在的 task-scaffold/v1 文档">
+            <Row label="任务脚手架" desc={t("views.settingsView.taskScaffoldDescription")}>
               <SettingSelect
                 label="任务脚手架"
                 testId="settings-task-scaffold-select"
@@ -204,7 +212,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, task: value } })}
               />
             </Row>
-            <Row label="仓库脚手架" desc="governance 根下已存在的 repository-scaffold/v1 文档">
+            <Row label="仓库脚手架" desc={t("views.settingsView.repositoryScaffoldDescription")}>
               <SettingSelect
                 label="仓库脚手架"
                 testId="settings-repository-scaffold-select"
@@ -221,7 +229,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
             </Row>
             {catalogQuery.error ? (
               <div className="px-3 py-2 text-[12px] text-danger">
-                {String(catalogQuery.error)}；取值目录不可用时选择器停用，修复后重试。
+                {t("views.settingsView.catalogUnavailableHint", { error: String(catalogQuery.error) })}
               </div>
             ) : null}
             {settingsMutation.error ? (
@@ -459,7 +467,6 @@ function SettingSelect({
       value={value}
       onChange={(event) => onChange(event.currentTarget.value)}
     >
-      {options.length === 0 ? <option value={value}>{value}</option> : null}
       {options.map((option) => (
         <option key={option.value} value={option.value}>
           {option.label}
@@ -482,8 +489,19 @@ function selectorOptions(
 ): readonly SelectorOption[] {
   const options = catalogued.map((row) => ({ value: row.value, label: row.label ?? row.value }));
   if (current && !options.some((option) => option.value === current))
-    options.push({ value: current, label: `${current} · 目录中不存在` });
+    options.push({ value: current, label: t("views.settingsView.catalogMissingOption", { value: current }) });
   return options;
+}
+
+/** preset/profile 一致性只在这里收敛:vertical 与 preset 两种切换都复用同一条联动。 */
+function selectPreset(current: SettingsDraft, presetId: string, row: CatalogPresetRow | undefined): SettingsDraft {
+  const profiles = cataloguedProfiles(row),
+    keepProfile = !row || profiles.length === 0 || profiles.some((profile) => profile.id === current.defaultProfile);
+  return {
+    ...current,
+    defaultPreset: presetId,
+    defaultProfile: keepProfile ? current.defaultProfile : (row.defaultProfile ?? current.defaultProfile),
+  };
 }
 
 /** preset 行的 profile 取值面;清单为空时退到该 preset 的 defaultProfile,
