@@ -1,0 +1,74 @@
+{
+  "schema": "cost-budget-fixture/v2",
+  "projectionRebuild": {
+    "repoId": "g37-cost-fixture",
+    "events": [
+      {
+        "schema": "task-event/v1",
+        "eventId": "event-1",
+        "workspaceRevision": 1,
+        "opId": "op-1",
+        "taskId": "task-1",
+        "type": "task_created",
+        "actor": {
+          "principal": { "personId": "person-1" },
+          "executor": { "kind": "agent", "id": "codex" }
+        },
+        "source": "local",
+        "occurredAt": "2026-08-11T00:00:00.000Z",
+        "payload": {
+          "task": {
+            "schema": "task/v1",
+            "taskId": "task-1",
+            "title": "G37 fixture",
+            "taskClass": "standard",
+            "status": "planned",
+            "graph": {
+              "template": "replay/v1",
+              "nodes": [
+                { "id": "implementation", "kind": "work" },
+                { "id": "review", "kind": "review" }
+              ],
+              "edges": [
+                {
+                  "id": "implementation-submitted",
+                  "from": "implementation",
+                  "to": "review",
+                  "on": "submitted",
+                  "actorRole": "executor",
+                  "kind": "forward"
+                },
+                {
+                  "id": "review-changes-requested",
+                  "from": "review",
+                  "to": "implementation",
+                  "on": "changes_requested",
+                  "actorRole": "reviewer",
+                  "kind": "return"
+                }
+              ],
+              "maxIterations": 1
+            },
+            "currentNode": "implementation",
+            "iteration": 0,
+            "createdBy": {
+              "principal": { "personId": "person-1" },
+              "executor": { "kind": "agent", "id": "codex" }
+            },
+            "completionGateIds": [],
+            "presetSnapshotDigest": null
+          }
+        }
+      }
+    ]
+  },
+  "firstScreenReads": [
+    "getSystemStatus",
+    "getTasks",
+    "getWorkspaceSummary",
+    "getRelationGraph",
+    "getDecisions",
+    "getCatalogSnapshot",
+    "listRuntimeInstances"
+  ]
+}

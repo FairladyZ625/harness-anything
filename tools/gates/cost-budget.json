@@ -1,0 +1,12 @@
+{
+  "schema": "cost-budget/v1",
+  "fixture": "packages/daemon/fixtures/perf/cost-budget-ledger.json",
+  "baseline": {
+    "projectionRebuildGitProcesses": 4,
+    "firstScreenReadRpcs": 7
+  },
+  "budgets": {
+    "projectionRebuildGitProcesses": 4,
+    "firstScreenReadRpcs": 7
+  }
+}
