@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   compileSettingsChangedEvent,
@@ -56,11 +56,12 @@ export function makeRepoCellSettingsActions(cell: any) {
     return append(settings, documentBody, documentBody, opId, revision, binding);
   };
 
+  // A repository that carries no authored settings document has nothing to mint into the ledger.
   const initializeFromAuthoredDocument = (binding: RepoCellBinding) => {
-    if (cell.store.read().events.some((event: { readonly schema: string }) => event.schema === "settings-event/v1"))
-      return null;
     const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml"),
-      documentBody = readFileSync(configPath, "utf8");
+      isSettingsEvent = (event: { readonly schema: string }) => event.schema === "settings-event/v1";
+    if (!existsSync(configPath) || cell.store.read().events.some(isSettingsEvent)) return null;
+    const documentBody = readFileSync(configPath, "utf8");
     return initialize(readSettingsFacet(documentBody), documentBody, binding);
   };
 
