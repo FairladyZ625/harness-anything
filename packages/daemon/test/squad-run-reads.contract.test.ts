@@ -48,6 +48,7 @@ const detail = {
         dispatchId: "dispatch_000000000000000000000001",
         runtimeSessionId: "runtime-leader",
         decision: { kind: "plan", dispatchCount: 1 },
+        resultText: '{"schema":"runtime-batch/v1","dispatches":[{"instance":"i","to":"terra","prompt":"go"}]}',
         status: "succeeded" as const,
         startedAt: "2026-08-26T00:00:00.000Z",
         endedAt: "2026-08-26T00:05:00.000Z",
@@ -58,6 +59,7 @@ const detail = {
         dispatchId: "dispatch_000000000000000000000002",
         runtimeSessionId: "runtime-leader",
         decision: { kind: "converged" },
+        resultText: null,
         status: null,
         startedAt: null,
         endedAt: null,
@@ -67,6 +69,7 @@ const detail = {
       {
         attemptId: "worker-1",
         workerId: "terra",
+        leaderTurnId: "leader-1",
         dispatchId: "dispatch_000000000000000000000003",
         runtimeSessionId: "runtime-worker-1",
         rejection: null,
@@ -77,6 +80,7 @@ const detail = {
       {
         attemptId: "worker-2",
         workerId: "sol",
+        leaderTurnId: null,
         dispatchId: null,
         runtimeSessionId: null,
         rejection: "Runtime dispatch was rejected.",
@@ -164,6 +168,33 @@ test("squad run read validator locks the orchestration-flow wire shape", () => {
       run: {
         ...detail.run,
         leaderTurns: detail.run.leaderTurns.map((turn: object) => ({ ...turn, decision: { kind: "unknown" } })),
+      },
+    }),
+    [],
+  );
+  // 扇出树的父子边与 receipt 原文是锁死的 wire 字段:缺字段或错类型都不得过。
+  assert.notDeepEqual(
+    validateSquadRunRead({
+      ...detail,
+      run: {
+        ...detail.run,
+        leaderTurns: detail.run.leaderTurns.map((turn: { readonly resultText: string | null }) => {
+          const { resultText, ...rest } = turn;
+          return resultText === null ? rest : { ...rest, resultText: 42 };
+        }),
+      },
+    }),
+    [],
+  );
+  assert.notDeepEqual(
+    validateSquadRunRead({
+      ...detail,
+      run: {
+        ...detail.run,
+        workerAttempts: detail.run.workerAttempts.map((attempt: { readonly leaderTurnId: string | null }) => {
+          const { leaderTurnId, ...rest } = attempt;
+          return leaderTurnId === null ? rest : { ...rest, leaderTurnId: 7 };
+        }),
       },
     }),
     [],

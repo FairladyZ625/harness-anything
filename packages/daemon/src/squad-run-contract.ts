@@ -38,6 +38,8 @@ export interface SquadRunLeaderTurnDto {
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
   readonly decision: SquadRunDecisionDto | null;
+  /** 该轮 receipt 原文(台账行 resultRef 指向的 runtime-result);null = 未结算或缺失。 */
+  readonly resultText: string | null;
   readonly status: SquadRunTurnStatus | null;
   readonly startedAt: string | null;
   readonly endedAt: string | null;
@@ -45,6 +47,8 @@ export interface SquadRunLeaderTurnDto {
 export interface SquadRunWorkerAttemptDto {
   readonly attemptId: string;
   readonly workerId: string;
+  /** 派发该 attempt 的 leader 轮次(扇出树父子边);null = 存量状态,不得猜轮次。 */
+  readonly leaderTurnId: string | null;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
   readonly rejection: string | null;
@@ -52,8 +56,9 @@ export interface SquadRunWorkerAttemptDto {
   readonly startedAt: string | null;
   readonly endedAt: string | null;
 }
-/** `ha squad status` 的 statusDto 对 GUI 开放的编排流转(leader 轮次 → worker 派工链):
- * daemon 侧零新计算,全部来自 readSquadRunState 的 SquadState 与既有派工台账行。 */
+/** `ha squad status` 的 statusDto 对 GUI 开放的编排流转扇出树(leaderTurnId 是
+ * 父子边,turn.resultText 是该轮 receipt 原文):全部来自 SquadState、既有派工
+ * 台账行及其 resultRef 指向的内容包,零新计算。 */
 export type SquadRunReadResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
@@ -139,11 +144,13 @@ function validSquadRunLeaderTurn(value: unknown): value is SquadRunLeaderTurnDto
       "dispatchId",
       "runtimeSessionId",
       "decision",
+      "resultText",
       "status",
       "startedAt",
       "endedAt",
     ]) &&
     [value.turnId, value.dispatchId, value.runtimeSessionId].every(squadRunText) &&
+    (value.resultText === null || squadRunText(value.resultText)) &&
     validSquadRunTrigger(value.trigger) &&
     (value.decision === null || validSquadRunDecision(value.decision)) &&
     (value.status === null || turnStatuses.includes(value.status as SquadRunTurnStatus)) &&
@@ -158,6 +165,7 @@ function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAtte
     exactSquadRunFields(value, [
       "attemptId",
       "workerId",
+      "leaderTurnId",
       "dispatchId",
       "runtimeSessionId",
       "rejection",
@@ -166,6 +174,7 @@ function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAtte
       "endedAt",
     ]) &&
     [value.attemptId, value.workerId].every(squadRunText) &&
+    (value.leaderTurnId === null || squadRunText(value.leaderTurnId)) &&
     (value.dispatchId === null || squadRunText(value.dispatchId)) &&
     (value.runtimeSessionId === null || squadRunText(value.runtimeSessionId)) &&
     (value.rejection === null || squadRunText(value.rejection)) &&
