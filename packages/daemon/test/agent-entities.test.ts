@@ -22,7 +22,7 @@ import {
   runAgentEntityAction,
 } from "../src/agent-entities.ts";
 import { discoverAgentSkills, resolveAgentSkills } from "../src/agent-skills.ts";
-import { validateAgentDeclarationV1, validateSquadDeclarationV1 } from "../src/agent-entities.contract.ts";
+import { validateAgentDeclarationV1, validateSquadDeclarationV1 } from "../../kernel/src/domain/agent-squad-schema.ts";
 
 const agent = {
     schema: "agent-declaration/v1",

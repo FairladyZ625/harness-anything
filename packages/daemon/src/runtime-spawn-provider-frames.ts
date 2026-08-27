@@ -1,5 +1,5 @@
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import { validateAgentDeclarationV1 } from "./agent-entities.contract.ts";
+import { validateAgentDeclarationV1 } from "../../kernel/src/domain/agent-squad-schema.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";

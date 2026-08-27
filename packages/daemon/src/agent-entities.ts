@@ -10,7 +10,7 @@ import {
   type AgentDeclarationV1,
   type AgentEntityKind,
   type SquadDeclarationV1,
-} from "./agent-entities.contract.ts";
+} from "../../kernel/src/domain/agent-squad-schema.ts";
 
 export type AgentCatalogRow = Omit<AgentDeclarationV1, "instructions"> & {
   readonly layer: "user";

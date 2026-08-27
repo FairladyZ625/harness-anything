@@ -1,4 +1,4 @@
-import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../daemon/src/agent-entities.contract.ts";
+import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../kernel/src/domain/agent-squad-schema.ts";
 import type {
   AgentEntityGuiDetail as AgentEntityDetail,
   AgentEntityGuiRead as AgentEntityRead,

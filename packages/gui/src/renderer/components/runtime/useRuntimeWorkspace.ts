@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
-import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
+import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../../kernel/src/domain/agent-squad-schema.ts";
 import { successfulAgentRuntimeResult } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import { agentEntityClient } from "../../agent-entity-client.ts";
 import { agentRuntimeClient } from "../../agent-runtime-client.ts";
