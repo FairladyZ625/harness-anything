@@ -21,6 +21,36 @@ test("G33 matches the declared production addition and deletion", () => {
   assert.deepEqual({ added: result.computed.added, deleted: result.computed.deleted }, { added: 2, deleted: 1 });
 });
 
+test("G33 measures additions and deletions in tool source", () => {
+  const { rootDir, base } = makeRepo({ "tools/gates/example.mjs": "one\ntwo\n" });
+  writeRepoFile(rootDir, "tools/gates/example.mjs", "one\nthree\nfour\n");
+  const result = computeProductionDelta({ rootDir, base });
+  assert.deepEqual({ added: result.added, deleted: result.deleted }, { added: 2, deleted: 1 });
+  assert.deepEqual(result.changed, [
+    {
+      filePath: "tools/gates/example.mjs",
+      module: "tooling",
+      added: 2,
+      deleted: 1,
+    },
+  ]);
+});
+
+test("G33 ignores tool tests, fixtures, and snapshots in both delta directions", () => {
+  const files = {
+    "tools/gates/example.test.mjs": "old test\n",
+    "tools/gates/test/example.mjs": "old helper\n",
+    "tools/gates/fixtures/example.mjs": "old fixture\n",
+    "tools/gates/snapshots/example.mjs": "old snapshot\n",
+    "tools/gates/__snapshots__/example.mjs": "old snapshot\n",
+  };
+  const { rootDir, base } = makeRepo(files);
+  for (const filePath of Object.keys(files)) writeRepoFile(rootDir, filePath, "new first\nnew second\n");
+  const result = computeProductionDelta({ rootDir, base });
+  assert.deepEqual({ added: result.added, deleted: result.deleted }, { added: 0, deleted: 0 });
+  assert.deepEqual(result.changed, []);
+});
+
 test("G33 rejects a missing or inaccurate declaration", () => {
   const { rootDir, base } = makeRepo({ "packages/kernel/src/index.ts": "one\n" });
   writeRepoFile(rootDir, "packages/kernel/src/index.ts", "one\ntwo\n");
@@ -40,10 +70,9 @@ test("G33 does not read a Production-Delta value from the next line", () => {
 });
 
 test("G33 does not read a Retained-Path value from the next line", () => {
-  const result = parseRetainedPaths([
-    "Retained-Path:",
-    "packages/kernel/src/legacy.ts until 2099-12-30 per dec_01KZQ92VEPTDRS2HS8CKDBKW2Q"
-  ].join("\n"));
+  const result = parseRetainedPaths(
+    ["Retained-Path:", "packages/kernel/src/legacy.ts until 2099-12-30 per dec_01KZQ92VEPTDRS2HS8CKDBKW2Q"].join("\n"),
+  );
 
   assert.deepEqual(result.declarations, []);
   assert.match(result.errors.join("\n"), /each Retained-Path line must use/u);
@@ -56,19 +85,23 @@ test("G33 verifies retained production paths against an expiring decision receip
     scope: "retained-path:packages/kernel/src/legacy.ts",
     kind: "retained-path",
     limit: "2099-12-30",
-    expiry: "2099-12-31T23:59:59Z"
+    expiry: "2099-12-31T23:59:59Z",
   };
-  writeRepoFile(rootDir, "tools/gates/receipts/retained.json", `${JSON.stringify({ ...unsigned, signature: signReceipt(unsigned) }, null, 2)}\n`);
+  writeRepoFile(
+    rootDir,
+    "tools/gates/receipts/retained.json",
+    `${JSON.stringify({ ...unsigned, signature: signReceipt(unsigned) }, null, 2)}\n`,
+  );
   const prBody = [
     "Production-Delta: +0/-0",
-    "Retained-Path: packages/kernel/src/legacy.ts until 2099-12-30 per dec_01KZQ92VEPTDRS2HS8CKDBKW2Q"
+    "Retained-Path: packages/kernel/src/legacy.ts until 2099-12-30 per dec_01KZQ92VEPTDRS2HS8CKDBKW2Q",
   ].join("\n");
   const result = evaluateProductionDelta({
     rootDir,
     base,
     prBody,
     receiptsDir: path.join(rootDir, "tools/gates/receipts"),
-    now: new Date("2026-08-11T00:00:00Z")
+    now: new Date("2026-08-11T00:00:00Z"),
   });
   assert.equal(result.ok, true, result.errors.join("\n"));
 });

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { git, pathExistsAt, repoRoot } from "./git.mjs";
-import { classifyModule, isProductionPath, MODULES } from "./module-policy.mjs";
+import * as modulePolicy from "./module-policy.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
 
 export function countLines(body) {
@@ -12,7 +12,7 @@ export function countLines(body) {
 }
 
 function emptyCounts() {
-  return Object.fromEntries(MODULES.map((moduleName) => [moduleName, 0]));
+  return Object.fromEntries(modulePolicy.BUDGETED_MODULES.map((moduleName) => [moduleName, 0]));
 }
 
 function listCurrentFiles(rootDir) {
@@ -33,12 +33,13 @@ export function measureProductionLines({ rootDir, revision = null }) {
   const files = revision === null ? listCurrentFiles(rootDir) : listFilesAt(rootDir, revision);
 
   for (const filePath of files) {
-    if (!isProductionPath(filePath)) continue;
-    const moduleName = classifyModule(filePath);
+    if (!modulePolicy.isProductionPath(filePath)) continue;
+    const moduleName = modulePolicy.classifyModule(filePath);
     if (moduleName === null) {
       unclassified.push(filePath);
       continue;
     }
+    if (!modulePolicy.isBudgetedProductionPath(filePath)) continue;
     if (revision === null) {
       const absolutePath = path.join(rootDir, filePath);
       if (!existsSync(absolutePath)) continue;
@@ -51,7 +52,7 @@ export function measureProductionLines({ rootDir, revision = null }) {
   return { counts, unclassified };
 }
 
-const RETIRED_HISTORICAL_MODULES = new Set(["decision-fact"]);
+const RETIRED_HISTORICAL_MODULES = new Set(["decision-fact", "test-infra"]);
 
 // These are the post-restoration measurements that produced the committed
 // candidate ceilings. They are intentionally fixed inputs for this derivation:
@@ -72,7 +73,6 @@ export const MEASURED_MODULE_LINES = Object.freeze({
   "agent-runtime": 3719,
   decision: 768,
   fact: 1058,
-  "test-infra": 0,
 });
 
 export function headroomFor(measured) {
@@ -103,9 +103,9 @@ export function parseBudgets(body, source = "line-budgets.json", historical = fa
   ) {
     throw new Error(`${source} must contain { version: 1, ceilings: { ... } }`);
   }
-  const unknown = Object.keys(parsed.ceilings).filter((name) => !MODULES.includes(name));
+  const unknown = Object.keys(parsed.ceilings).filter((name) => !modulePolicy.BUDGETED_MODULES.includes(name));
   const invalidUnknown = historical ? unknown.filter((name) => !RETIRED_HISTORICAL_MODULES.has(name)) : unknown;
-  const missing = MODULES.filter((name) => !Object.hasOwn(parsed.ceilings, name));
+  const missing = modulePolicy.BUDGETED_MODULES.filter((name) => !Object.hasOwn(parsed.ceilings, name));
   const invalidMissing = historical ? [] : missing;
   if (invalidUnknown.length > 0 || invalidMissing.length > 0) {
     throw new Error(
@@ -116,8 +116,9 @@ export function parseBudgets(body, source = "line-budgets.json", historical = fa
     if (!Number.isInteger(ceiling) || ceiling < 0)
       throw new Error(`${source} ceiling for ${moduleName} must be a non-negative integer`);
   }
-  const ceilings = Object.fromEntries(MODULES.map((moduleName) => [moduleName, parsed.ceilings[moduleName] ?? 0]));
-  return ceilings;
+  return Object.fromEntries(
+    modulePolicy.BUDGETED_MODULES.map((moduleName) => [moduleName, parsed.ceilings[moduleName] ?? 0]),
+  );
 }
 
 function readBaseBudgets(rootDir, base, relativeBudgetPath) {
@@ -156,7 +157,7 @@ export function evaluateLineBudget({
     errors.push(`production source is not classified by module-policy: ${filePath}`);
   }
 
-  for (const moduleName of MODULES) {
+  for (const moduleName of modulePolicy.BUDGETED_MODULES) {
     const actual = current.counts[moduleName];
     const ceiling = ceilings[moduleName];
     const mechanicalUpperBound = mechanicalUpperBoundFor(moduleName);
@@ -198,7 +199,7 @@ export function main(argv = process.argv.slice(2), rootDir = repoRoot()) {
   try {
     const { base } = parseArgs(argv);
     const result = evaluateLineBudget({ rootDir, base });
-    for (const moduleName of MODULES) {
+    for (const moduleName of modulePolicy.BUDGETED_MODULES) {
       console.log(`${moduleName}: ${result.actual[moduleName]}/${result.ceilings[moduleName]}`);
     }
     if (!result.ok) {

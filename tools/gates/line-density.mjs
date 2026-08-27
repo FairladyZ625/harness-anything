@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { git, repoRoot } from "./git.mjs";
-import { isProductionPath } from "./module-policy.mjs";
+import { isBudgetedProductionPath } from "./module-policy.mjs";
 
 export const MAX_LINE_LENGTH = 120;
 
@@ -31,9 +31,8 @@ export function parseHunks(diffText) {
     if (line.startsWith("@@")) {
       flush();
       const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/u.exec(line);
-      current = filePath === null || hunk === null
-        ? null
-        : { filePath, startLine: Number(hunk[1]), added: [], removed: [] };
+      current =
+        filePath === null || hunk === null ? null : { filePath, startLine: Number(hunk[1]), added: [], removed: [] };
       continue;
     }
     if (current === null) continue;
@@ -75,7 +74,8 @@ function comparableLength(text) {
 }
 
 function measureOverlongCorpus(lines, limit) {
-  let characters = 0, maximum = 0;
+  let characters = 0,
+    maximum = 0;
   for (const text of lines) {
     if (text.length <= limit) continue;
     const comparable = comparableLength(text);
@@ -98,7 +98,7 @@ export function findViolations(diffText, limit = MAX_LINE_LENGTH) {
   const byFile = new Map();
 
   for (const hunk of parseHunks(diffText)) {
-    if (!isProductionPath(hunk.filePath)) continue;
+    if (!isBudgetedProductionPath(hunk.filePath)) continue;
     const added = measureOverlongCorpus(hunk.added, limit);
     const removed = measureOverlongCorpus(hunk.removed, limit);
     const entry = byFile.get(hunk.filePath) ?? {
@@ -106,7 +106,7 @@ export function findViolations(diffText, limit = MAX_LINE_LENGTH) {
       removedCharacters: 0,
       addedMaximum: 0,
       removedMaximum: 0,
-      firstLine: hunk.startLine
+      firstLine: hunk.startLine,
     };
     entry.addedCharacters += added.characters;
     entry.removedCharacters += removed.characters;
@@ -127,7 +127,7 @@ export function findViolations(diffText, limit = MAX_LINE_LENGTH) {
       addedLongCharacters: entry.addedCharacters,
       removedLongCharacters: entry.removedCharacters,
       addedMaxLineLength: entry.addedMaximum,
-      removedMaxLineLength: entry.removedMaximum
+      removedMaxLineLength: entry.removedMaximum,
     });
   }
 
@@ -136,21 +136,24 @@ export function findViolations(diffText, limit = MAX_LINE_LENGTH) {
 
 export function explain(violations, limit = MAX_LINE_LENGTH) {
   const shown = violations.slice(0, REPORT_LIMIT);
-  const found = shown.map((v) => `  ${v.filePath}:${v.lineNumber}  overlong characters ${v.removedLongCharacters} -> ${v.addedLongCharacters}; longest line ${v.removedMaxLineLength} -> ${v.addedMaxLineLength}`);
+  const found = shown.map(
+    (v) =>
+      `  ${v.filePath}:${v.lineNumber}  overlong characters ${v.removedLongCharacters} -> ${v.addedLongCharacters}; longest line ${v.removedMaxLineLength} -> ${v.addedMaxLineLength}`,
+  );
   if (violations.length > shown.length) {
     found.push(`  ... and ${violations.length - shown.length} more (${violations.length} total)`);
   }
 
   return [
     "=".repeat(78),
-    `G36 line-density FAILED — ${violations.length} production file(s) increased overlong content`,
+    `G36 line-density FAILED — ${violations.length} budgeted production file(s) increased overlong content`,
     "=".repeat(78),
     "",
     "WHAT FAILED",
     ...found,
     "",
     "THE RULE",
-    `  Across each production file's diff, added lines longer than ${limit} characters may`,
+    `  Across each budgeted production file's diff, added lines longer than ${limit} characters may`,
     "  increase neither their total characters nor their longest line. Total means the",
     `  complete line length: a ${limit + 1}-character line contributes ${limit + 1}, not 1.`,
     `  A file with no removed content starts from zero, so every added line must be at most ${limit} characters.`,
@@ -166,23 +169,11 @@ export function explain(violations, limit = MAX_LINE_LENGTH) {
     "  change will collide with it. Your obligation is bounded to the files listed above.",
     "",
     "WHY THIS GATE EXISTS — read this before you try to satisfy it",
-    "  G32 (line-budget) enforces a per-module ceiling on production lines. It counts",
-    "  newlines and nothing else:",
-    "",
-    "      const lines = body.split(/\\r?\\n/u);",
-    "      return lines.length - (lines.at(-1) === \"\" ? 1 : 0);",
-    "",
-    "  So joining two statements onto one line lowers G32's reading while removing no",
-    "  code at all. That made line-joining a free, invisible way to pass a ceiling —",
-    "  and it was used. Measured on this repository:",
-    "",
-    "      packages/*/src/**  (governed by G32)     92.8 characters per line",
-    "      tools/**/*.mjs     (not governed)        48.1 characters per line",
-    "",
-    "  Same repository, same authors, same period, 1.93x apart. The modules whose",
-    "  ceiling could not be raised at all sat at 97.0% average utilisation — three of",
-    "  them at exactly 100.0% — while raisable modules sat at 75.8%. Pressure with no",
-    "  legitimate outlet went into the lines.",
+    "  G32 enforces per-module line ceilings and counts newlines and nothing else.",
+    "  Joining statements can therefore lower its reading without removing code.",
+    "  G36 closes that loophole by reusing G32's explicit budget scope: production",
+    "  modules with a committed line budget. Budget-exempt production modules are",
+    "  outside this gate because their lines cannot relieve or pressure a G32 ceiling.",
     "",
     "  Compressed lines do not reduce complexity. They hide it, and they corrupt the",
     "  number every future ceiling decision is judged against.",
@@ -220,13 +211,13 @@ export function explain(violations, limit = MAX_LINE_LENGTH) {
     "",
     "WHAT NOT TO DO",
     "  Do not lower the threshold, add an ignore entry, or skip this gate. Do not move",
-    "  code into a non-production path to get it out of scope. Do not reformat unrelated",
+    "  code outside its budgeted module to get it out of scope. Do not reformat unrelated",
     "  lines in the same file to offset new overlong content; that is not a legitimate fix.",
     "",
     "AUTHORITY",
     "  dec_12BE7EB602461E84F6F0BA019B — establishes this gate (standing policy)",
     "  dec_D848EF980B86800CFC6BD82125 — doubles every ceiling and design limit",
-    "=".repeat(78)
+    "=".repeat(78),
   ].join("\n");
 }
 

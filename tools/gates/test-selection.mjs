@@ -15,11 +15,13 @@ function tierForTest(filePath, readTestTier) {
 }
 
 function isGovernancePath(filePath) {
-  return filePath === "eslint.config.mjs"
-    || filePath === "package.json"
-    || filePath === "package-lock.json"
-    || filePath.startsWith("tools/gates/")
-    || filePath === ".github/workflows/rebuild-gates.yml";
+  return (
+    filePath === "eslint.config.mjs" ||
+    filePath === "package.json" ||
+    filePath === "package-lock.json" ||
+    filePath.startsWith("tools/gates/") ||
+    filePath === ".github/workflows/rebuild-gates.yml"
+  );
 }
 
 export function selectTests(changedPaths, options = {}) {
@@ -35,25 +37,29 @@ export function selectTests(changedPaths, options = {}) {
       errors.push(`changed path is not normalized: ${rawPath}`);
       continue;
     }
-    const classification = classifyPath(filePath);
-    if ((filePath.startsWith("tools/gates/") && !filePath.startsWith("tools/gates/test/"))
-      || filePath === "eslint.config.mjs"
-      || filePath === ".github/workflows/rebuild-gates.yml") governanceMechanismChanged = true;
+    const { module, kind } = classifyPath(filePath);
+    if (
+      (filePath.startsWith("tools/gates/") && !filePath.startsWith("tools/gates/test/")) ||
+      filePath === "eslint.config.mjs" ||
+      filePath === ".github/workflows/rebuild-gates.yml"
+    )
+      governanceMechanismChanged = true;
     if (filePath.startsWith("tools/gates/test/")) governanceFixtureChanged = true;
     const tiers = [];
-    if (classification.kind === "production") tiers.push(...ALL_TIERS);
-    else if (classification.kind === "test") {
+    if (kind === "test") {
       const tier = tierForTest(filePath, options.readTestTier);
       if (tier === null) tiers.push(...ALL_TIERS);
       else tiers.push(tier);
-    }
-    else if (isGovernancePath(filePath)) tiers.push("fast", "contract");
-    else proof.push(`${filePath}: non-production (${classification.module ?? "unclassified"}/${classification.kind})`);
+    } else if (isGovernancePath(filePath)) tiers.push("fast", "contract");
+    else if (kind === "production" && module !== "tooling") tiers.push(...ALL_TIERS);
+    else proof.push(`${filePath}: outside G25 (${module ?? "unclassified"}/${kind})`);
     for (const tier of tiers) required.add(tier);
-    paths.push({ path: filePath, module: classification.module, kind: classification.kind, tiers: [...new Set(tiers)] });
+    paths.push({ path: filePath, module, kind, tiers: [...new Set(tiers)] });
   }
-  if (governanceMechanismChanged && !governanceFixtureChanged) errors.push("governance mechanism changes require a tools/gates/test data fixture in the same change");
-  if (required.size === 0 && proof.length !== changedPaths.length) errors.push("zero test selection lacks proof that every changed path is non-production");
+  if (governanceMechanismChanged && !governanceFixtureChanged)
+    errors.push("governance mechanism changes require a tools/gates/test data fixture in the same change");
+  if (required.size === 0 && proof.length !== changedPaths.length)
+    errors.push("zero test selection lacks proof that every changed path is non-production");
   return { ok: errors.length === 0, required: ALL_TIERS.filter((tier) => required.has(tier)), paths, proof, errors };
 }
 
@@ -73,7 +79,7 @@ export function main(argv = process.argv.slice(2)) {
       const absolutePath = path.join(rootDir, filePath);
       if (!/\.(?:test|spec)\.(?:mjs|js|ts|tsx)$/u.test(filePath) || !existsSync(absolutePath)) return null;
       return parseTestTierMarker(readFileSync(absolutePath, "utf8"), filePath);
-    }
+    },
   });
   console.log(JSON.stringify(result, null, 2));
   return result.ok ? 0 : 1;

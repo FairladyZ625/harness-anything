@@ -7,17 +7,23 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { makeRepo, runGit } from "./gates/test/helpers.mjs";
-import { MODULES } from "./gates/module-policy.mjs";
+import { BUDGETED_MODULES } from "./gates/module-policy.mjs";
 import { resolveLocalLineBudgetBase } from "./run-local-line-budget.mjs";
 
 const runnerPath = fileURLToPath(new URL("./run-local-line-budget.mjs", import.meta.url));
 const canonicalUrl = "https://github.com/FairladyZ625/harness-anything.git";
 
 function budgetBody(kernel) {
-  return `${JSON.stringify({
-    version: 1,
-    ceilings: Object.fromEntries(MODULES.map((moduleName) => [moduleName, moduleName === "kernel" ? kernel : 0]))
-  }, null, 2)}\n`;
+  return `${JSON.stringify(
+    {
+      version: 1,
+      ceilings: Object.fromEntries(
+        BUDGETED_MODULES.map((moduleName) => [moduleName, moduleName === "kernel" ? kernel : 0]),
+      ),
+    },
+    null,
+    2,
+  )}\n`;
 }
 
 function addCanonicalRemote(rootDir) {
@@ -47,7 +53,7 @@ test("local line-budget refuses a repository without the canonical remote and gi
 test("local line-budget fetches canonical main and runs G32 with that exact base", () => {
   const { rootDir, base } = makeRepo({
     "packages/kernel/src/index.ts": "one\n",
-    "tools/gates/line-budgets.json": budgetBody(1)
+    "tools/gates/line-budgets.json": budgetBody(1),
   });
   const remoteRoot = addCanonicalRemote(rootDir);
   try {
@@ -92,7 +98,7 @@ test("local line-budget bounds canonical-main fetch latency and explains a timeo
         assert.match(error.message, /check network access/u);
         assert.match(error.message, /git fetch origin main/u);
         return true;
-      }
+      },
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -103,7 +109,7 @@ test("local line-budget bounds canonical-main fetch latency and explains a timeo
 test("local line-budget rejects a branch behind canonical main and tells the worker to rebase", () => {
   const { rootDir, base } = makeRepo({
     "packages/kernel/src/index.ts": "one\n",
-    "tools/gates/line-budgets.json": budgetBody(1)
+    "tools/gates/line-budgets.json": budgetBody(1),
   });
   const remoteRoot = addCanonicalRemote(rootDir);
   try {
