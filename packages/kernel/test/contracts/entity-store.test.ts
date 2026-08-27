@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { createEntityStore, explainEntityKind } from "../../src/index.ts";
 import { validateAgentDeclarationV1 } from "../../src/domain/agent-squad-schema.ts";
@@ -152,6 +153,35 @@ test("one EntityStore implementation upserts, gets, and lists every registered d
   assert.equal(store.get("agent", "missing"), null);
 });
 
+test("EntityStore get isolates current-schema rejection to the requested declaration", () => {
+  const stale = {
+      ...agent,
+      id: "glm-5-3",
+      fallback: {
+        enabled: true,
+        chain: [{ instance: "provider-a" }],
+        backoff: { baseMs: 25, maxMs: 100, maxAttempts: 3 },
+      },
+    },
+    staleBody = `${JSON.stringify(stale, null, 2)}\n`,
+    currentBody = `${JSON.stringify(agent, null, 2)}\n`,
+    events = [storedAgentEvent(stale, staleBody, 1), storedAgentEvent(agent, currentBody, 2)],
+    blobs = new Map([
+      [events[0]!.payload.declarationDocumentClaim.sha256, Buffer.from(staleBody)],
+      [events[1]!.payload.declarationDocumentClaim.sha256, Buffer.from(currentBody)],
+    ]),
+    store = createEntityStore({
+      read: () => ({ schema: "canonical-event-stream/v1", revision: events.length, events }),
+      readContentBlob: (sha256) => blobs.get(sha256) ?? null,
+    });
+
+  assert.equal(store.get<{ readonly name: string }>("agent", "terra")?.value.name, "Terra");
+  assert.throws(
+    () => store.get("agent", "glm-5-3"),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "invalid_entity_contract",
+  );
+});
+
 test("Entity upsert rejects schema-invalid declarations and tampered declaration bundles", () => {
   const store = createEntityStore({
     read: () => ({ schema: "canonical-event-stream/v1", revision: 0, events: [] }),
@@ -211,4 +241,33 @@ function upsert(
     source: "local",
     occurredAt: "2026-08-25T00:00:00.000Z",
   });
+}
+
+function storedAgentEvent(
+  entity: Readonly<Record<string, unknown>> & { readonly id: string },
+  body: string,
+  workspaceRevision: number,
+): EntityEventV1 {
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  return {
+    schema: "entity-event/v1",
+    eventId: `event-stored-agent-${workspaceRevision}`,
+    workspaceRevision,
+    opId: `op-stored-agent-${workspaceRevision}`,
+    type: "entity_upserted",
+    actor,
+    source: "local",
+    occurredAt: "2026-08-25T00:00:00.000Z",
+    payload: {
+      entityKind: "agent",
+      entityId: entity.id,
+      declarationDocumentClaim: {
+        path: `agents/${entity.id}.json`,
+        sha256,
+        size: Buffer.byteLength(body),
+        mediaType: "application/json",
+        policyId: "typed-entity/v1",
+      },
+    },
+  };
 }
