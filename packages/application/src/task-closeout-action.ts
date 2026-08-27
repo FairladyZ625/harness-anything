@@ -5,13 +5,13 @@ import {
   currentActionEnvelopeVersion,
   currentExecutionCuts,
   DEFAULT_POLICY,
+  deriveOwnerRoleBinding,
   type ActorIdentity,
   type AuthorizationDecision,
   type CloseoutSnapshot,
   type LeaseV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { deriveOwnerRoleBinding } from "../../kernel/src/domain/owner-role-binding.ts";
 
 const submissionFields = [
   "completionClaim",

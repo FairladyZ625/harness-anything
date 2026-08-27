@@ -4,6 +4,7 @@ import {
   codeDocRecordId,
   consentedApprovedReview,
   currentCodeDocWitness,
+  deriveOwnerRoleBinding,
   heldLeaseForExecutionActor,
   makeTaskProjection,
   normalizeCommandEnvelope,
@@ -16,7 +17,6 @@ import {
   type TaskLifecycleCommand,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { deriveOwnerRoleBinding } from "../../kernel/src/domain/owner-role-binding.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { submitLeaseRequiredMessage } from "./repo-cell-execution-selection.ts";
