@@ -2938,7 +2938,7 @@
         "decision:dec_8B16B68483C12901EDCD5C4F68"
       ],
       "consumerScope": [
-        "Mergify must derive required checks from GitHub branch protection and automatically requeue dequeued merge-queue PRs only after checks recover"
+        "Mergify must derive required checks from GitHub branch protection and automatically requeue dequeued merge-queue PRs only after checks recover, for at most two automatic attempts"
       ],
       "githubContext": {
         "requiredContexts": [

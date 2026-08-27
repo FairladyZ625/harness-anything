@@ -73,9 +73,11 @@ work has a fresh base.
 
 Mergify marks a pull request removed after a queue failure with `dequeued`. If
 the pull request still has `merge-queue`, it is requeued automatically after no
-check is failed or pending. Investigate the remaining failed or pending check
-when that transition does not happen; cycling the queue label is not part of
-the normal recovery path.
+check is failed or pending, for at most two automatic recovery attempts. After
+two unsuccessful attempts, the pull request remains `dequeued` for manual
+diagnosis. To intentionally leave the queue at any time, remove the
+`merge-queue` label; the attempt count is cleared so a later opt-in starts
+fresh.
 
 ## Evidence in the PR
 

@@ -32,19 +32,41 @@ export function checkMergifyQueuePolicy({ mergifyText = readFileSync(mergifyPath
     if (!conditions.includes("#check-failure = 0")) {
       errors.push("default queue must reject failed checks with #check-failure = 0");
     }
+    if (readScalar(defaultQueue.lines, "merge_conditions") !== "[]") {
+      errors.push("default queue must declare merge_conditions: []");
+    }
   }
 
-  const requeueRule = pullRequestRules.find((rule) => isAutomaticRequeueRule(rule));
-  if (!requeueRule) {
+  const requeueRules = pullRequestRules.filter((rule) => isAutomaticRequeueCandidate(rule));
+  if (requeueRules.length === 0) {
     errors.push(
       "pull_request_rules must queue merge-queue + dequeued PRs after #check-failure = 0 and #check-pending = 0",
     );
   } else {
-    if (readActionScalar(requeueRule.lines, "queue", "name") !== "default") {
-      errors.push("automatic requeue rule must target the default queue");
-    }
-    if (!readActionList(requeueRule.lines, "label", "remove").includes("dequeued")) {
-      errors.push("automatic requeue rule must remove the dequeued label");
+    for (const rule of requeueRules) {
+      const conditions = new Set(readList(rule.lines, "conditions"));
+      if (!conditions.has("#check-failure = 0")) {
+        errors.push(`automatic requeue rule ${rule.name} must wait for #check-failure = 0`);
+      }
+      if (!conditions.has("#check-pending = 0")) {
+        errors.push(`automatic requeue rule ${rule.name} must wait for #check-pending = 0`);
+      }
+      if (readActionScalar(rule.lines, "queue", "name") !== "default") {
+        errors.push(`automatic requeue rule ${rule.name} must target the default queue`);
+      }
+      if (!readActionList(rule.lines, "label", "remove").includes("dequeued")) {
+        errors.push(`automatic requeue rule ${rule.name} must remove the dequeued label`);
+      }
+
+      const negativeAttemptLabels = readList(rule.lines, "conditions")
+        .map((condition) => /^-label = (merge-queue-requeue-\d+)$/u.exec(condition))
+        .filter(Boolean)
+        .map((match) => match[1]);
+      if (negativeAttemptLabels.length === 0) {
+        errors.push(`automatic requeue rule ${rule.name} must include a negative attempt-label condition`);
+      } else if (!readActionList(rule.lines, "label", "add").some((label) => negativeAttemptLabels.includes(label))) {
+        errors.push(`automatic requeue rule ${rule.name} must add one of its negative attempt labels`);
+      }
     }
   }
 
@@ -52,15 +74,13 @@ export function checkMergifyQueuePolicy({ mergifyText = readFileSync(mergifyPath
     ok: errors.length === 0,
     errors,
     queueRule: defaultQueue?.name ?? null,
-    requeueRule: requeueRule?.name ?? null,
+    requeueRules: requeueRules.map((rule) => rule.name),
   };
 }
 
-function isAutomaticRequeueRule(rule) {
+function isAutomaticRequeueCandidate(rule) {
   const conditions = new Set(readList(rule.lines, "conditions"));
-  return ["base = main", "label = merge-queue", "label = dequeued", "#check-failure = 0", "#check-pending = 0"].every(
-    (condition) => conditions.has(condition),
-  );
+  return ["base = main", "label = merge-queue", "label = dequeued"].every((condition) => conditions.has(condition));
 }
 
 function parseNamedRules(text, sectionName) {
@@ -173,7 +193,7 @@ function main() {
     return;
   }
 
-  console.log(`Mergify queue policy check passed (automatic rule: ${result.requeueRule}).`);
+  console.log(`Mergify queue policy check passed (automatic rules: ${result.requeueRules.join(", ")}).`);
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {

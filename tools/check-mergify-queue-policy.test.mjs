@@ -23,19 +23,40 @@ function validMergifyPolicy() {
     "      queue:",
     "        name: default",
     "",
-    "  - name: recover dequeued pull requests",
+    "  - name: recover dequeued pull requests attempt 1",
     "    conditions:",
     "      - base = main",
     "      - label = merge-queue",
     "      - label = dequeued",
+    '      - "-label = merge-queue-requeue-1"',
     '      - "#check-failure = 0"',
     '      - "#check-pending = 0"',
     "    actions:",
-    "      queue:",
-    "        name: default",
     "      label:",
+    "        add:",
+    "          - merge-queue-requeue-1",
     "        remove:",
     "          - dequeued",
+    "      queue:",
+    "        name: default",
+    "",
+    "  - name: recover dequeued pull requests attempt 2",
+    "    conditions:",
+    "      - base = main",
+    "      - label = merge-queue",
+    "      - label = dequeued",
+    "      - label = merge-queue-requeue-1",
+    '      - "-label = merge-queue-requeue-2"',
+    '      - "#check-failure = 0"',
+    '      - "#check-pending = 0"',
+    "    actions:",
+    "      label:",
+    "        add:",
+    "          - merge-queue-requeue-2",
+    "        remove:",
+    "          - dequeued",
+    "      queue:",
+    "        name: default",
   ].join("\n");
 }
 
@@ -43,7 +64,10 @@ test("repository Mergify policy derives required checks and automatically requeu
   const result = checkMergifyQueuePolicy();
   assert.equal(result.ok, true, result.errors.join("\n"));
   assert.equal(result.queueRule, "default");
-  assert.equal(result.requeueRule, "requeue dequeued pull requests after checks recover");
+  assert.deepEqual(result.requeueRules, [
+    "requeue dequeued pull requests after checks recover attempt 1",
+    "requeue dequeued pull requests after checks recover attempt 2",
+  ]);
 });
 
 test("Mergify queue policy accepts a derived-check automatic requeue rule", () => {
@@ -71,6 +95,33 @@ test("Mergify queue policy rejects disabled branch-protection derivation", () =>
 
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /branch_protection_injection_mode: queue/u);
+});
+
+test("Mergify queue policy rejects non-empty merge conditions", () => {
+  const mergifyText = validMergifyPolicy().replace(
+    "    merge_conditions: []",
+    "    merge_conditions:\n      - check-success = boundaries",
+  );
+  const result = checkMergifyQueuePolicy({ mergifyText });
+
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /merge_conditions: \[\]/u);
+});
+
+test("Mergify queue policy rejects an unbounded automatic requeue rule", () => {
+  const mergifyText = validMergifyPolicy().replace('      - "-label = merge-queue-requeue-1"\n', "");
+  const result = checkMergifyQueuePolicy({ mergifyText });
+
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /negative attempt-label condition/u);
+});
+
+test("Mergify queue policy rejects an attempt marker that is never added", () => {
+  const mergifyText = validMergifyPolicy().replace("          - merge-queue-requeue-1", "          - other-label");
+  const result = checkMergifyQueuePolicy({ mergifyText });
+
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /must add one of its negative attempt labels/u);
 });
 
 test("Mergify queue policy rejects requeueing while checks are pending", () => {

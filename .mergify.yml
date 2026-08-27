@@ -19,16 +19,63 @@ pull_request_rules:
       queue:
         name: default
 
-  - name: requeue dequeued pull requests after checks recover
+  - name: requeue dequeued pull requests after checks recover attempt 1
     conditions:
       - base = main
       - label = merge-queue
       - label = dequeued
+      - "-label = merge-queue-requeue-1"
+      - "-label = merge-queue-requeue-2"
       - "#check-failure = 0"
       - "#check-pending = 0"
     actions:
-      queue:
-        name: default
       label:
+        add:
+          - merge-queue-requeue-1
         remove:
           - dequeued
+      queue:
+        name: default
+
+  - name: requeue dequeued pull requests after checks recover attempt 2
+    conditions:
+      - base = main
+      - label = merge-queue
+      - label = dequeued
+      - label = merge-queue-requeue-1
+      - "-label = merge-queue-requeue-2"
+      - "#check-failure = 0"
+      - "#check-pending = 0"
+    actions:
+      label:
+        add:
+          - merge-queue-requeue-2
+        remove:
+          - dequeued
+      queue:
+        name: default
+
+  - name: clear requeue attempts after merge
+    conditions:
+      - base = main
+      - merged
+      - or:
+          - label = merge-queue-requeue-1
+          - label = merge-queue-requeue-2
+    actions:
+      label:
+        remove:
+          - merge-queue-requeue-1
+          - merge-queue-requeue-2
+
+  - name: clear requeue attempts after leaving the queue
+    conditions:
+      - "-label = merge-queue"
+      - or:
+          - label = merge-queue-requeue-1
+          - label = merge-queue-requeue-2
+    actions:
+      label:
+        remove:
+          - merge-queue-requeue-1
+          - merge-queue-requeue-2
