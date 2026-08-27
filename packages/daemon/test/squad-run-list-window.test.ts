@@ -62,6 +62,7 @@ function seedSquadRun(rootDir: string, options: SeedOptions): void {
       leaderAgentId: "terra",
       roster: "terra -> sol",
       workers: ["sol"],
+      leaderTurnBudget: 8,
       binding: { actor: { principal: { personId: "person-squad" }, executor: null }, source: "local" },
       leaderTurns: [
         {
@@ -86,6 +87,7 @@ function seedSquadRun(rootDir: string, options: SeedOptions): void {
           ]
         : [],
       observedWorkerRuntimeSessionIds: [],
+      workerWaits: [],
       pendingLeaderTriggers: [],
       phase: options.phase,
       revision: 3,

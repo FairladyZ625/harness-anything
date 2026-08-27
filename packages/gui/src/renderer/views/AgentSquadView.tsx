@@ -132,14 +132,19 @@ export function AgentSquadView({
           };
       await workspace.saveAgent(agentDeclarationFrom(request.id, { ...draft, name: request.name }));
     } else {
-      const draft = request.templateId
-        ? squadDraftFrom(await agentEntityClient.showSquad(repoId, request.templateId))
-        : {
-            name: request.name,
-            leader: agents.find((agent) => agent.role === "commander")?.id ?? agents[0]?.id ?? "",
-            workers: [],
-            roster: t("agentRuntime.blankRoster"),
-          };
+      let draft;
+      if (request.templateId !== null)
+        draft = squadDraftFrom(await agentEntityClient.showSquad(repoId, request.templateId));
+      else {
+        if (request.leaderTurnBudget === null) throw new Error("A blank Squad requires a leader turn budget.");
+        draft = {
+          name: request.name,
+          leader: agents.find((agent) => agent.role === "commander")?.id ?? agents[0]?.id ?? "",
+          workers: [],
+          leaderTurnBudget: request.leaderTurnBudget,
+          roster: t("agentRuntime.blankRoster"),
+        };
+      }
       await workspace.saveSquad(squadDeclarationFrom(request.id, { ...draft, name: request.name }));
     }
     onSelectEntity(`${request.kind}/${request.id}`);

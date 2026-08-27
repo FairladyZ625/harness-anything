@@ -45,6 +45,7 @@ function seedRunningSquadRun(rootDir: string, squadRunId: string): void {
       leaderAgentId: "terra",
       roster: "terra -> sol",
       workers: ["sol"],
+      leaderTurnBudget: 8,
       binding: { actor: { principal: { personId: "person-squad" }, executor: null }, source: "local" },
       leaderTurns: [
         {
@@ -59,6 +60,7 @@ function seedRunningSquadRun(rootDir: string, squadRunId: string): void {
       currentLeaderRuntimeSessionId: "runtime-leader",
       workerAttempts: [],
       observedWorkerRuntimeSessionIds: [],
+      workerWaits: [],
       pendingLeaderTriggers: [],
       phase: "leader_running",
       revision: 2,
@@ -95,6 +97,7 @@ function seedLegacySquadRun(rootDir: string, squadRunId: string): void {
       leaderAgentId: "terra",
       roster: "terra -> sol",
       workers: ["sol"],
+      leaderTurnBudget: 8,
       binding: { actor: { principal: { personId: "person-squad" }, executor: null }, source: "local" },
       leaderTurns: [
         {
@@ -117,6 +120,7 @@ function seedLegacySquadRun(rootDir: string, squadRunId: string): void {
         },
       ],
       observedWorkerRuntimeSessionIds: [],
+      workerWaits: [],
       pendingLeaderTriggers: [],
       phase: "converged",
       revision: 2,

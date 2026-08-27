@@ -286,6 +286,7 @@ export const FIXTURE_SQUAD_DETAIL: SquadEntityDetail = {
   name: "G10 Squad",
   leader: AGENT_ID,
   workers: [AGENT_ID],
+  leaderTurnBudget: 8,
   roster: "g10-agent",
 };
 

@@ -14,6 +14,7 @@ const ontologySquad = {
   name: "Ontology 里程碑小队",
   leader: "ontology-commander",
   workers: ["sol", "terra", "luna", "glm-5-3", "ae-discrimination"],
+  leaderTurnBudget: 8,
   roster:
     "默认派 sol:kernel / daemon / CLI 写路 / identity / gate 语义 / 任何需要读懂现有契约再改的活,以及所有子锚的第一版实现 -> sol\n明确机械且范围已被 sol 或 Commander 圈死的后端改造(按清单改、按模板生成、批量迁移)-> terra\n纯跑命令收数、生成测量表、重命名、整理清单 -> luna\n只有 packages/gui 渲染器与视图的核心前端逻辑 -> glm-5-3;GUI 之外不派它\n对已交回实现做变异/分辨力复核 -> ae-discrimination\n\n这个里程碑难且重要:拿不准派谁就派 sol,不要为了省额度降级。承重判断(限值数字、Entity 取舍、门的去留)不派 worker,由 Commander 整理成选项上报 CEO。一个 worker 一个 worktree,文件面不重叠。worker 回报里没有真实命令输出的,退回重做,不进综合报告。",
 } as const;
@@ -59,6 +60,7 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
       name: "Designer Squad",
       leader: "meta-designer",
       workers: ["meta-designer"],
+      leaderTurnBudget: 8,
       roster: "# Designer Squad",
     });
     const squadInstalled = run(root, env, ["squad", "install", "--source", squadRoot]);

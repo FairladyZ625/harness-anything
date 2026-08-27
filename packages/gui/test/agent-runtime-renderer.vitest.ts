@@ -155,6 +155,7 @@ const squadDetail = {
   name: "Core Squad",
   leader: "fable",
   workers: ["luna", "sol", "terra"],
+  leaderTurnBudget: 8,
   roster: "fable » luna, sol, terra",
 } as const;
 const noop = () => undefined;
@@ -558,10 +559,13 @@ describe("agent runtime renderer", () => {
       "Commander",
       "Worker #1",
       "4 members",
+      "Leader turn budget",
       "Dispatch to one worker",
       "ha squad run",
     ])
       expect(squad).toContain(text);
+    expect(squad).toContain('data-testid="squad-leader-turn-budget"');
+    expect(squad).toContain('value="8"');
     expect(squad).not.toContain("Launch squad");
   });
   it("round-trips skill paths and exposes searchable Skill and Preset selectors", () => {

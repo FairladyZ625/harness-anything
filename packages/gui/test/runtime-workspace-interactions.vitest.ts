@@ -430,6 +430,25 @@ describe("runtime entry split (W6 IA)", () => {
     expect(onSelectEntity).toHaveBeenCalledWith("squad/core-squad");
   });
 
+  it("requires an explicit leader turn budget before creating a blank squad", async () => {
+    await mountAgentSquad("squad/core-squad");
+    await click("runtime-new-squads");
+    const blank = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("＋ Blank"));
+    expect(blank).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => {
+      (blank as HTMLButtonElement).click();
+    });
+    await input("new-squad-id", "new-squad");
+    await input("new-squad-name", "New Squad");
+
+    const budget = byTestId("new-squad-leader-turn-budget") as HTMLInputElement,
+      create = byTestId("new-squad-create") as HTMLButtonElement;
+    expect(budget.value).toBe("");
+    expect(create.disabled).toBe(true);
+    await input("new-squad-leader-turn-budget", "8");
+    expect(create.disabled).toBe(false);
+  });
+
   it("lists every round of the selected agent in the inspector, not only the latest (G12 §4a)", async () => {
     await mountAgentSquad("agent/terra");
     const inspector = byTestId("runtime-inspector");
@@ -657,6 +676,7 @@ function seedQueries(client: QueryClient) {
     name: "Core Squad",
     leader: "terra",
     workers: ["terra"],
+    leaderTurnBudget: 8,
     roster: "terra » terra",
   });
 }

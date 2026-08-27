@@ -3,12 +3,15 @@ import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.t
 import { t } from "../../i18n/index.tsx";
 import { Avatar, Badge, Btn, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
 
-export type NewEntityRequest = {
+type NewEntityRequestBase = {
   readonly kind: "agent" | "squad";
   readonly id: string;
   readonly name: string;
   readonly templateId: string | null;
 };
+export type NewEntityRequest =
+  | (NewEntityRequestBase & { readonly kind: "agent" })
+  | (NewEntityRequestBase & { readonly kind: "squad"; readonly leaderTurnBudget: string | null });
 export const entitySlug = (value: string): boolean => /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value.trim());
 
 // New Agent / New Squad: pick a role template or start blank, then name it. Copying a
@@ -34,9 +37,16 @@ export function NewEntityDialog({
   const [templateId, setTemplateId] = useState<string | null>(null),
     [picked, setPicked] = useState(false),
     [id, setId] = useState(""),
-    [name, setName] = useState("");
+    [name, setName] = useState(""),
+    [leaderTurnBudget, setLeaderTurnBudget] = useState("");
   const collision = taken.includes(id.trim()),
-    valid = picked && entitySlug(id) && !collision && name.trim() !== "";
+    validBudget = Number.isSafeInteger(Number(leaderTurnBudget)) && Number(leaderTurnBudget) >= 1,
+    valid =
+      picked &&
+      entitySlug(id) &&
+      !collision &&
+      name.trim() !== "" &&
+      (kind !== "squad" || templateId !== null || validBudget);
   const choose = (value: string | null) => {
     setTemplateId(value);
     setPicked(true);
@@ -62,7 +72,19 @@ export function NewEntityDialog({
             variant="primary"
             testId={`new-${kind}-create`}
             disabled={busy || !valid}
-            onClick={() => onCreate({ kind, id: id.trim(), name: name.trim(), templateId })}
+            onClick={() =>
+              onCreate(
+                kind === "squad"
+                  ? {
+                      kind,
+                      id: id.trim(),
+                      name: name.trim(),
+                      templateId,
+                      leaderTurnBudget: templateId === null ? leaderTurnBudget : null,
+                    }
+                  : { kind, id: id.trim(), name: name.trim(), templateId },
+              )
+            }
           >
             {t("agentRuntime.create")}
           </Btn>
@@ -120,8 +142,19 @@ export function NewEntityDialog({
             )}
           </CfgRow>
           <CfgRow label={t("agentRuntime.name")}>
-            <TextInput label={t("agentRuntime.name")} value={name} onChange={setName} />
+            <TextInput label={t("agentRuntime.name")} testId={`new-${kind}-name`} value={name} onChange={setName} />
           </CfgRow>
+          {kind === "squad" && templateId === null && (
+            <CfgRow label={t("agentRuntime.leaderTurnBudget")}>
+              <TextInput
+                label={t("agentRuntime.leaderTurnBudget")}
+                testId="new-squad-leader-turn-budget"
+                type="number"
+                value={leaderTurnBudget}
+                onChange={setLeaderTurnBudget}
+              />
+            </CfgRow>
+          )}
           {templateId === null && (
             <WarnBar>
               <span>{t(kind === "agent" ? "agentRuntime.blankAgentWarn" : "agentRuntime.blankSquadWarn")}</span>

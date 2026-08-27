@@ -127,6 +127,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         name: "Core Squad",
         leader: "fable",
         workers: ["terra", "opencode-worker"],
+        leaderTurnBudget: 8,
         roster: "# Core Squad\n\nFable delegates to Terra and OpenCode Worker.",
       },
     });
@@ -150,6 +151,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         name: "Core Squad",
         leader: "fable",
         workers: ["terra", "opencode-worker"],
+        leaderTurnBudget: 8,
         roster: "# Core Squad\n\nFable delegates; humans edited this roster.",
       },
     });

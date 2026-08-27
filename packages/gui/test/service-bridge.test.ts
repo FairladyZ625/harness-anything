@@ -253,8 +253,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       squadDetail.squad && {
         leader: squadDetail.squad.leader,
         workers: squadDetail.squad.workers,
+        leaderTurnBudget: squadDetail.squad.leaderTurnBudget,
       },
-      { leader: "terra", workers: ["terra"] },
+      { leader: "terra", workers: ["terra"], leaderTurnBudget: 8 },
     );
     // G12 §2c:repo.squad.run.read 把 `ha squad status` 的编排流转(leader 轮次 →
     // worker 派工链)对 GUI 开放;这里断言种子状态真实过桥,且无台账的 worker
@@ -541,6 +542,7 @@ function seedSquadRunState(rootDir: string, repoId: string): string {
       leaderAgentId: "terra",
       roster: "terra » terra",
       workers: ["terra"],
+      leaderTurnBudget: 8,
       binding: { actor: { principal: { personId: "person-gui" }, executor: null }, source: "local" },
       leaderTurns: [
         {
@@ -563,6 +565,7 @@ function seedSquadRunState(rootDir: string, repoId: string): string {
         },
       ],
       observedWorkerRuntimeSessionIds: [],
+      workerWaits: [],
       pendingLeaderTriggers: [],
       phase: "converged",
       revision: 3,

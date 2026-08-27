@@ -14,15 +14,16 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createEntityStore, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { createEntityStore, makeTaskEventStore, makeTaskProjection, sha256Text } from "../../kernel/src/index.ts";
 import {
   prepareAgentEntityInstall,
   readAgentEntityGuiProjection,
+  readSquadDeclaration,
   resolveSquadDispatch,
   runAgentEntityAction,
 } from "../src/agent-entities.ts";
 import { discoverAgentSkills, resolveAgentSkills } from "../src/agent-skills.ts";
-import { validateAgentDeclarationV1 } from "../src/agent-entities.contract.ts";
+import { validateAgentDeclarationV1, validateSquadDeclarationV1 } from "../src/agent-entities.contract.ts";
 
 const agent = {
     schema: "agent-declaration/v1",
@@ -41,6 +42,7 @@ const agent = {
     name: "Core Squad",
     leader: "terra",
     workers: ["terra"],
+    leaderTurnBudget: 8,
     roster: "# Core Squad\n\nTerra leads review.",
   };
 
@@ -247,6 +249,87 @@ test("Agent skills only accept unique exact {id, path} declarations", () => {
       /skills.*unique \{id, path\}/u,
       JSON.stringify(skills),
     );
+});
+
+test("Squad leader turn budgets are required positive integers", () => {
+  const { leaderTurnBudget: _leaderTurnBudget, ...missing } = squad;
+  assert.match(validateSquadDeclarationV1(missing).join("\n"), /missing required field "leaderTurnBudget"/u);
+  for (const leaderTurnBudget of [0, -1, 1.5, "8", null])
+    assert.match(
+      validateSquadDeclarationV1({ ...squad, leaderTurnBudget }).join("\n"),
+      /leaderTurnBudget.*positive integer/u,
+    );
+  assert.deepEqual(validateSquadDeclarationV1(squad), []);
+});
+
+test("an installed pre-budget Squad fails with coded reinstall guidance without blocking its replacement", () => {
+  const { leaderTurnBudget: _leaderTurnBudget, ...outdated } = squad,
+    body = `${JSON.stringify(outdated)}\n`,
+    sha256 = sha256Text(body),
+    entityStore = createEntityStore({
+      read: () => ({
+        schema: "canonical-event-stream/v1",
+        revision: 1,
+        events: [
+          {
+            schema: "agent-entity-event/v1",
+            eventId: "event-squad-core-squad-1",
+            workspaceRevision: 1,
+            opId: "op-squad-core-squad-1",
+            type: "agent_entity_written",
+            actor: { principal: { personId: "agent-entities-test" }, executor: null },
+            source: "local",
+            occurredAt: "2026-08-25T00:00:00.000Z",
+            payload: {
+              entityKind: "squad",
+              entityId: "core-squad",
+              declarationDocumentClaim: {
+                path: "squads/core-squad.json",
+                sha256,
+                size: Buffer.byteLength(body),
+                mediaType: "application/json",
+                policyId: "typed-agent-entity/v1",
+              },
+            },
+          } as never,
+        ],
+      }),
+      readContentBlob: (candidate) => (candidate === sha256 ? Buffer.from(body) : null),
+    });
+
+  assert.deepEqual(entityStore.get("squad", "core-squad")?.value, outdated);
+  assert.throws(
+    () => readSquadDeclaration({ rootDir: "/unused", squadId: "core-squad", entityStore }),
+    (error: unknown) =>
+      (error as { readonly code?: string }).code === "squad_declaration_outdated" &&
+      /ha squad install --source <squad-package-dir>/u.test(error instanceof Error ? error.message : ""),
+  );
+  assert.throws(
+    () =>
+      readAgentEntityGuiProjection({
+        kind: "squad-inspect",
+        entityId: "core-squad",
+        projection: {
+          listEntities: () => [],
+          getEntity: () => ({
+            kind: "squad",
+            id: "core-squad",
+            ownerId: null,
+            workspaceRevision: 1,
+            value: outdated,
+          }),
+        },
+      }),
+    (error: unknown) => (error as { readonly code?: string }).code === "squad_declaration_outdated",
+  );
+  assert.equal(
+    prepareAgentEntityInstall({
+      rootDir: "/unused",
+      entityStore,
+      action: { kind: "squad-install", declaration: squad },
+    }).report.changed,
+    true,
+  );
 });
 
 test("Agent skill discovery scans user and project roots and returns absolute selectable paths", () => {
@@ -567,6 +650,7 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       name: "Core Squad",
       leader: "terra",
       workers: ["terra"],
+      leaderTurnBudget: 8,
       roster: squad.roster,
     });
     assert.throws(

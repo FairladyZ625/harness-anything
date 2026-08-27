@@ -25,12 +25,14 @@ export type SquadDraft = {
   readonly name: string;
   readonly leader: string;
   readonly workers: readonly string[];
+  readonly leaderTurnBudget: string;
   readonly roster: string;
 };
 export const squadDraftFrom = (detail: SquadEntityDetail): SquadDraft => ({
   name: detail.name,
   leader: detail.leader,
   workers: detail.workers,
+  leaderTurnBudget: String(detail.leaderTurnBudget),
   roster: detail.roster,
 });
 export const squadDeclarationFrom = (id: string, draft: SquadDraft): SquadDeclarationV1 =>
@@ -40,6 +42,7 @@ export const squadDeclarationFrom = (id: string, draft: SquadDraft): SquadDeclar
     name: draft.name.trim(),
     leader: draft.leader.trim(),
     workers: draft.workers.filter(Boolean),
+    leaderTurnBudget: Number(draft.leaderTurnBudget),
     roster: draft.roster,
   }) as SquadDeclarationV1;
 export const squadDraftDirty = (detail: SquadEntityDetail, draft: SquadDraft): boolean =>
@@ -78,6 +81,7 @@ export function SquadCard({ detail, row, agents, busy, onSave, onLaunch, onSelec
   const patch = (value: Partial<SquadDraft>) => setDraft((current) => ({ ...current, ...value }));
   const name = (agentId: string) => agents.find((agent) => agent.id === agentId)?.name ?? agentId;
   const dirty = squadDraftDirty(detail, draft),
+    validLeaderTurnBudget = Number.isSafeInteger(Number(draft.leaderTurnBudget)) && Number(draft.leaderTurnBudget) >= 1,
     members = draft.workers.length + 1;
   return (
     <div data-testid={`squad-card-${detail.id}`}>
@@ -155,6 +159,22 @@ export function SquadCard({ detail, row, agents, busy, onSave, onLaunch, onSelec
           </div>
         </Sect>
 
+        <Sect title={t("agentRuntime.leaderTurnBudget")} desc={t("agentRuntime.leaderTurnBudgetDesc")}>
+          <input
+            aria-label={t("agentRuntime.leaderTurnBudget")}
+            data-testid="squad-leader-turn-budget"
+            type="number"
+            min={1}
+            step={1}
+            value={draft.leaderTurnBudget}
+            onChange={(event) => patch({ leaderTurnBudget: event.target.value })}
+            className={
+              "w-32 rounded border border-border bg-surface px-2 py-1 text-[12px] outline-none " +
+              "focus-visible:border-accent"
+            }
+          />
+        </Sect>
+
         <Sect title={t("agentRuntime.roster")} desc={t("agentRuntime.rosterDesc")}>
           <p className="mb-1.5 text-[11px] text-text-faint">{t("agentRuntime.rosterHint")}</p>
           <textarea
@@ -179,7 +199,14 @@ export function SquadCard({ detail, row, agents, busy, onSave, onLaunch, onSelec
             <Btn
               variant="primary"
               testId="squad-save"
-              disabled={busy || !dirty || !draft.name.trim() || !draft.leader.trim() || !draft.roster.trim()}
+              disabled={
+                busy ||
+                !dirty ||
+                !draft.name.trim() ||
+                !draft.leader.trim() ||
+                !validLeaderTurnBudget ||
+                !draft.roster.trim()
+              }
               onClick={() => onSave(squadDeclarationFrom(detail.id, draft))}
             >
               {t(dirty ? "agentRuntime.saveDeclaration" : "agentRuntime.saved")}
