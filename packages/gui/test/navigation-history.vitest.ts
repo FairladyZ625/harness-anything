@@ -146,6 +146,45 @@ describe("view navigation history (HISTORY-002)", () => {
     expect(currentLocation(state).taskFilters.query).toBe("x");
   });
 
+  it("persists the schedules view and narrows unknown stored view ids", () => {
+    const storage = new Map<string, string>();
+    const shim = {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => void storage.set(key, value),
+    };
+    // Reload closure: schedule focus survives a reload through the persisted stack.
+    let state = createViewHistory(loc({ view: "overview" }));
+    state = pushLocation(state, loc({ view: "schedules", focusedEntityRef: "schedule/heartbeat-probe" }));
+    writeViewHistory(shim, "proj-schedules", state);
+    const restored = readViewHistory(shim, "proj-schedules");
+    expect(currentLocation(restored).view).toBe("schedules");
+    expect(currentLocation(restored).focusedEntityRef).toBe("schedule/heartbeat-probe");
+    expect(viewCanBack(restored)).toBe(true);
+    // Narrowing closure: a stored view id that is not in the closed ViewId set falls
+    // back to the clean initial stack instead of rendering an unknown view.
+    storage.set(
+      "harness-view-history:proj-stale",
+      JSON.stringify({
+        schema: "gui-view-history/v1",
+        history: {
+          entries: [
+            {
+              view: "schedulesLegacy",
+              selectedId: null,
+              previewId: null,
+              focusedEntityRef: null,
+              taskFilters: initialLocation().taskFilters,
+              drill: null,
+            },
+          ],
+          index: 0,
+        },
+      }),
+    );
+    expect(currentLocation(readViewHistory(shim, "proj-stale")).view).toBe("overview");
+    expect(viewCanBack(readViewHistory(shim, "proj-stale"))).toBe(false);
+  });
+
   it("persists per project and rejects corrupted storage", () => {
     const storage = new Map<string, string>();
     const shim = {
@@ -164,7 +203,25 @@ describe("view navigation history (HISTORY-002)", () => {
     storage.set("harness-view-history:proj-c", "{not json");
     expect(viewCanBack(readViewHistory(shim, "proj-c"))).toBe(false);
     // 篡改后的栈(schema 头伪造)同样回退。
-    storage.set("harness-view-history:proj-d", JSON.stringify({ schema: "gui-view-history/v1", history: { entries: [{ view: "rm -rf", selectedId: null, previewId: null, focusedEntityRef: null, taskFilters: initialLocation().taskFilters, drill: null }], index: 0 } }));
+    storage.set(
+      "harness-view-history:proj-d",
+      JSON.stringify({
+        schema: "gui-view-history/v1",
+        history: {
+          entries: [
+            {
+              view: "rm -rf",
+              selectedId: null,
+              previewId: null,
+              focusedEntityRef: null,
+              taskFilters: initialLocation().taskFilters,
+              drill: null,
+            },
+          ],
+          index: 0,
+        },
+      }),
+    );
     expect(currentLocation(readViewHistory(shim, "proj-d")).view).toBe("overview");
     resetViewHistory(shim, "proj-a");
     expect(currentLocation(readViewHistory(shim, "proj-a")).view).toBe("overview");

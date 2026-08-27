@@ -100,6 +100,10 @@ export function createDaemonHostRuntimeApi(
             payload: request,
           });
         context.fleetCenter = started.center;
+        // Retained for read-side joins (Schedule GUI availability): the roster is the
+        // assignment authority, so repository reads on this center can resolve which
+        // fleet edge owns execution instead of guessing.
+        context.fleetRoster = started.roster;
         return {
           schema: "command-receipt/v2",
           ok: true,

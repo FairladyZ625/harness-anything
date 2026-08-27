@@ -138,6 +138,13 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
     !exactStrings(payload, ["repoId", "instanceId", "idempotencyKey"])
   )
     throw new Error(`Preload ${method} request is invalid.`);
+  // Schedule actions (S4) carry exactly the retry-stable claim trio; everything else
+  // is rejected so the bridge cannot smuggle extra fields into the daemon action.
+  if (
+    ["enableSchedule", "disableSchedule", "runScheduleNow"].includes(method) &&
+    !exactStrings(payload, ["repoId", "scheduleId", "idempotencyKey"])
+  )
+    throw new Error(`Preload ${method} request is invalid.`);
   if (method === "createRuntimeInstance") {
     const problem = runtimeInstanceCreateProblem(payload);
     if (problem !== undefined) throw new Error(`Runtime instance create request is invalid: ${problem}`);

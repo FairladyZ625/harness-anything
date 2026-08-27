@@ -263,9 +263,9 @@ afterEach(async () => {
 });
 
 describe("runtime entry split (W6 IA)", () => {
-  it("exposes exactly three runtime nav entries and no aggregate agents entry", () => {
+  it("exposes the runtime nav entries with Schedules and no aggregate agents entry", () => {
     const runtime = NAV_GROUPS.find((group) => group.id === "runtime");
-    expect(runtime?.items.map((item) => item.id)).toEqual(["sessions", "agentSquad", "providers"]);
+    expect(runtime?.items.map((item) => item.id)).toEqual(["sessions", "schedules", "agentSquad", "providers"]);
   });
 
   it("expands a task group and selects its round row into the sessions workspace main area", async () => {

@@ -61,6 +61,7 @@ import {
 } from "./daemon-host-status.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
 import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
+import type { FleetRoster } from "./fleet-center-admission.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -156,6 +157,11 @@ export async function openDaemonHost(input: {
     });
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;
+  // Fleet roster snapshot retained when the center is admitted (daemon-fleet-center-start).
+  // startFleetCenterAdmission reads the roster file once and the center cannot restart on a
+  // live daemon, so the snapshot is an invariant after admission; schedule reads on
+  // remote-center repos join it through the cell context getter below.
+  let fleetRoster: FleetRoster | null = null;
   let initialAttachments: Promise<void> | null = null,
     closing = false;
   // An unavailable row reports no writer generation or queue: the cell that would own them
@@ -244,6 +250,11 @@ export async function openDaemonHost(input: {
     now,
     warmingSettlements,
     startInitialAttachments,
+    // Live view of the admission-time fleet roster snapshot for performOpenRegistered,
+    // which hands it to repo cells as a read-time resolver.
+    get fleetRoster() {
+      return fleetRoster;
+    },
     get initialAttachments() {
       return initialAttachments;
     },
@@ -396,6 +407,12 @@ export async function openDaemonHost(input: {
     },
     set fleetCenter(value) {
       fleetCenter = value;
+    },
+    get fleetRoster() {
+      return fleetRoster;
+    },
+    set fleetRoster(value) {
+      fleetRoster = value;
     },
     fleetEdgeRuntimes,
     runtimeDaemonRoute,
