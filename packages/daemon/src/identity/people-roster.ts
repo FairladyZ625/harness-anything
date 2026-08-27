@@ -10,8 +10,6 @@ import {
   type PersonProfile,
 } from "./types.ts";
 
-export { mergePeopleRosterDocuments } from "../../../kernel/src/index.ts";
-
 export function loadPeopleRoster(rootInput: HarnessLayoutInput): PeopleRoster {
   const layout = resolveHarnessLayout(rootInput),
     filePath = path.join(layout.authoredRoot, "people.yaml");

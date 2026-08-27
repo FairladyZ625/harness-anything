@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   compilePeopleRosterActionEvent,
@@ -17,7 +17,7 @@ export function makeRepoCellPeopleActions(cell: any) {
   const run = (action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt => {
     const domainAction = parsePeopleAction(action),
       peoplePath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "people.yaml"),
-      currentBody = readFileSync(peoplePath, "utf8"),
+      currentBody = existsSync(peoplePath) ? readFileSync(peoplePath, "utf8") : null,
       revision = cell.store.readHead()?.revision ?? 0,
       opId = cell.operationId(action, binding, cell.input.repoId, text(action.idempotencyKey) ? 0 : revision),
       compiled = compilePeopleRosterActionEvent({

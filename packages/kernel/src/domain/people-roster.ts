@@ -151,6 +151,7 @@ export function applyPeopleRosterAction(
     if (!merged.ok) throw new PeopleRosterContractError(merged.reason);
     next = parsePeopleRosterDocument(merged.body);
   }
+  assertPeopleRosterActionInvariants(current, next, action);
   const body = serializePeopleRosterDocument(next),
     changed = currentBody === null || body !== currentBody,
     targetPersonId =
@@ -176,6 +177,8 @@ function addPerson(
 ): PeopleRosterDocumentV1 {
   if (roster.people.some((candidate) => candidate.personId === person.personId))
     throw new PeopleRosterContractError(`person ${person.personId} already exists`);
+  if (roster.people.length > 0 && person.roles.includes("owner"))
+    throw new PeopleRosterContractError("the owner role is reserved for the bootstrap creator");
   const roles = withRolePolicy(roster.roles, rolePolicy);
   validatePeopleRoster([...roster.people, person], roles);
   return {
@@ -192,6 +195,10 @@ function setPersonRole(
 ): PeopleRosterDocumentV1 {
   const held = roster.people.find((person) => person.personId === personId);
   if (!held) throw new PeopleRosterContractError(`person ${personId} does not exist`);
+  if (rolePolicy.roleId === "owner" && !held.roles.includes("owner"))
+    throw new PeopleRosterContractError("the owner role is reserved for the bootstrap creator");
+  if (held.roles.includes("owner") && rolePolicy.roleId !== "owner")
+    throw new PeopleRosterContractError(`bootstrap creator ${personId} must retain the owner role`);
   const roles = withRolePolicy(roster.roles, rolePolicy),
     people = roster.people.map((person) =>
       person.personId === personId ? { ...person, roles: [rolePolicy.roleId] } : person,
@@ -201,12 +208,34 @@ function setPersonRole(
 }
 
 function removePerson(roster: PeopleRosterDocumentV1, personId: string): PeopleRosterDocumentV1 {
-  if (!roster.people.some((person) => person.personId === personId))
-    throw new PeopleRosterContractError(`person ${personId} does not exist`);
+  const held = roster.people.find((person) => person.personId === personId);
+  if (!held) throw new PeopleRosterContractError(`person ${personId} does not exist`);
+  if (held.roles.includes("owner"))
+    throw new PeopleRosterContractError(`bootstrap creator ${personId} cannot be removed`);
   return {
     ...roster,
     people: roster.people.filter((person) => person.personId !== personId),
   };
+}
+
+function assertPeopleRosterActionInvariants(
+  current: PeopleRosterDocumentV1,
+  next: PeopleRosterDocumentV1,
+  action: PeopleRosterAction,
+): void {
+  if (action.kind === "people-reconcile" || action.kind === "people-replace") {
+    const currentOwners = current.people.filter((person) => person.roles.includes("owner"));
+    for (const owner of currentOwners) {
+      const retained = next.people.find((person) => person.personId === owner.personId);
+      if (!retained?.roles.includes("owner"))
+        throw new PeopleRosterContractError(`bootstrap creator ${owner.personId} must retain the owner role`);
+    }
+  }
+  const adminRoleIds = new Set(
+    next.roles.filter((role) => role.commandClasses.includes("admin")).map((role) => role.roleId),
+  );
+  if (!next.people.some((person) => !person.disabled && person.roles.some((roleId) => adminRoleIds.has(roleId))))
+    throw new PeopleRosterContractError("people roster must retain at least one enabled person with admin authority");
 }
 
 function withRolePolicy(roles: readonly RolePolicy[], rolePolicy: RolePolicy | undefined): readonly RolePolicy[] {
@@ -247,7 +276,10 @@ export function mergePeopleRosterDocuments(sourceBody: string, destinationBody: 
   if (source.schema !== PEOPLE_ROSTER_SCHEMA || destination.schema !== PEOPLE_ROSTER_SCHEMA)
     return {
       ok: false,
-      reason: `people.yaml schema must be ${PEOPLE_ROSTER_SCHEMA} on both sides; source=${label(source.schema)}, destination=${label(destination.schema)}`,
+      reason: [
+        `people.yaml schema must be ${PEOPLE_ROSTER_SCHEMA} on both sides;`,
+        `source=${label(source.schema)}, destination=${label(destination.schema)}`,
+      ].join(" "),
     };
   for (const [side, roster] of [
     ["source", source],
@@ -275,7 +307,10 @@ export function mergePeopleRosterDocuments(sourceBody: string, destinationBody: 
     if (kept !== incoming)
       return {
         ok: false,
-        reason: `role ${role.roleId} authorizes different command classes on each side (source=[${incoming}], destination=[${kept}]); merging would change what the role grants`,
+        reason: [
+          `role ${role.roleId} authorizes different command classes on each side`,
+          `(source=[${incoming}], destination=[${kept}]); merging would change what the role grants`,
+        ].join(" "),
       };
   }
 
@@ -307,7 +342,14 @@ export function mergePeopleRosterDocuments(sourceBody: string, destinationBody: 
       reason: `the union of both rosters is not a valid roster: ${describe(error)}`,
     };
   }
-  const summary = `${people.length} people (${addedPeople.length} carried from the source${addedPeople.length ? `: ${addedPeople.join(", ")}` : ""}, ${enriched.length} enriched in place${enriched.length ? `: ${enriched.join(", ")}` : ""}), ${roles.length} roles (${addedRoles.length} carried from the source${addedRoles.length ? `: ${addedRoles.join(", ")}` : ""})`;
+  const addedPeopleNames = addedPeople.length ? `: ${addedPeople.join(", ")}` : "",
+    enrichedNames = enriched.length ? `: ${enriched.join(", ")}` : "",
+    addedRoleNames = addedRoles.length ? `: ${addedRoles.join(", ")}` : "",
+    summary = [
+      `${people.length} people (${addedPeople.length} carried from the source${addedPeopleNames},`,
+      `${enriched.length} enriched in place${enrichedNames}),`,
+      `${roles.length} roles (${addedRoles.length} carried from the source${addedRoleNames})`,
+    ].join(" ");
   return {
     ok: true,
     body: serializePeopleRosterDocument({
@@ -336,7 +378,11 @@ function mergePerson(
     if (kept !== undefined && incoming !== undefined && kept !== incoming)
       return {
         ok: false,
-        reason: `person ${destination.personId} declares a different ${field} on each side (source=${JSON.stringify(incoming)}, destination=${JSON.stringify(kept)}); a roster union cannot choose between two values for one field`,
+        reason: [
+          `person ${destination.personId} declares a different ${field} on each side`,
+          `(source=${JSON.stringify(incoming)}, destination=${JSON.stringify(kept)});`,
+          "a roster union cannot choose between two values for one field",
+        ].join(" "),
       };
     if (field !== "displayName") {
       const resolved = kept ?? incoming;
