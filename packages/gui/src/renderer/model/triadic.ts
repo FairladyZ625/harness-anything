@@ -1,6 +1,43 @@
 import { incomingRelations } from "./relation-direction.ts";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "./types";
 
+type ProducesFactRelation = {
+  readonly kind?: string;
+  readonly relationType?: string;
+  readonly state?: string;
+  readonly from?: string;
+  readonly to?: string;
+  readonly sourceRef?: string;
+  readonly targetRef?: string;
+};
+
+export interface ActiveProducesFactRef {
+  readonly sourceRef: string;
+  readonly targetRef: string;
+}
+
+/** Returns active task-to-fact ownership edges across renderer and bridge row shapes. */
+export function activeProducesFactRefs(
+  relations: ReadonlyArray<ProducesFactRelation>,
+  taskRef?: string,
+): ActiveProducesFactRef[] {
+  return relations.flatMap((relation) => {
+    const sourceRef = relation.from ?? relation.sourceRef;
+    const targetRef = relation.to ?? relation.targetRef;
+    if (
+      (relation.kind ?? relation.relationType) !== "produces" ||
+      /* @gate-identity check-gui-status-judgments/gui-status-068 */
+      relation.state !== "active" ||
+      !sourceRef?.startsWith("task/") ||
+      !targetRef?.startsWith("fact/") ||
+      (taskRef !== undefined && sourceRef !== taskRef)
+    ) {
+      return [];
+    }
+    return [{ sourceRef, targetRef }];
+  });
+}
+
 export function normalizeDecisionId(raw: string): string {
   return raw.replace(/^decision\//, "").split("/")[0];
 }

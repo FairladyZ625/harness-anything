@@ -4,6 +4,7 @@
 // The marker moves with its subject across formatting, reorder, split, and rename.
 // Baseline membership still rejects unmarked additions, unknown ids, duplicate ids,
 // and stale identities.
+// prettier-ignore
 export const guiStatusJudgmentBaseline = Object.freeze([
   { key: "gui-status-001", classification: "domain-judgment", kind: "group", shape: "proper-subset", words: ["blocked","in_review","open","terminal","unknown"] }, // proper-subset: blocked, in_review, open, terminal, unknown @ boardOrder
   { key: "gui-status-002", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["ready"] }, // point-comparison: ready @ buildGuiViewModel.reviewQueue
@@ -71,4 +72,5 @@ export const guiStatusJudgmentBaseline = Object.freeze([
   { key: "gui-status-065", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["missing"] }, // point-comparison: missing @ ListView.riskCount
   { key: "gui-status-066", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["failed"] }, // point-comparison: failed @ ListView.riskCount
   { key: "gui-status-067", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ LaneCard.archived
+  { key: "gui-status-068", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ activeProducesFactRefs
 ]);

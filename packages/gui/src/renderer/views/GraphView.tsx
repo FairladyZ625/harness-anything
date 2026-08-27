@@ -31,6 +31,7 @@ import {
   decisionPassesStateFilter,
 } from "../graph/entityStatusFilter";
 import { focusHistoryReducer, EMPTY_HISTORY, canBack, canForward } from "../navigation/focusHistory";
+import { activeProducesFactRefs } from "../model/triadic";
 
 export type ViewMode = "territory" | "spotlight";
 
@@ -190,15 +191,12 @@ function GraphViewInner({
     const visibleTasks = tasks.filter(taskVisible);
     const moduleByTaskId = new Map(tasks.map((task) => [task.taskId, task.module] as const));
     // fact 跟随宿主 task 的 module 可见性;无宿主(未知/外部)不因 module 筛选隐藏。
-    const ownerTaskForFact = (fact: FactRef) =>
-      relations
-        .find(
-          (edge) =>
-            edge.kind === "produces" &&
-            edge.state === "active" &&
-            edge.to === (fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`),
-        )
-        ?.from.slice("task/".length);
+    const ownerTaskForFact = (fact: FactRef) => {
+      const ref = fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`;
+      return activeProducesFactRefs(relations)
+        .find((edge) => edge.targetRef === ref)
+        ?.sourceRef.slice("task/".length);
+    };
     const factVisible = (fact: FactRef) => {
       const ownerTaskId = ownerTaskForFact(fact),
         ownerModule = ownerTaskId ? moduleByTaskId.get(ownerTaskId) : undefined;

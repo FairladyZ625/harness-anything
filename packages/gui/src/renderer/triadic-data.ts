@@ -5,6 +5,7 @@ import { harnessClient } from "./api-client.ts";
 import type { DecisionListSuccess, RelationGraphSuccess } from "./api-client.ts";
 import { KIND_LABEL } from "./graph/constants.ts";
 import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge } from "./model/types.ts";
+import { activeProducesFactRefs } from "./model/triadic.ts";
 
 export const triadicQueryKeys = {
   all: (repoId: string) => ["triadic", repoId] as const,
@@ -68,15 +69,7 @@ export function buildTriadicRendererData(input: {
 }): TriadicRendererData {
   const relationRows = input.graph.edges,
     producedBy = new Map(
-      relationRows
-        .filter(
-          (row) =>
-            row.relationType === "produces" &&
-            row.state === "active" &&
-            row.sourceRef.startsWith("task/") &&
-            row.targetRef.startsWith("fact/"),
-        )
-        .map((row) => [row.targetRef, row.sourceRef.slice("task/".length)] as const),
+      activeProducesFactRefs(relationRows).map((row) => [row.targetRef, row.sourceRef.slice("task/".length)] as const),
     );
   return {
     decisions: adaptDecisionRows(input.decisions.decisions, relationRows, input.graph.coverageRows),

@@ -21,7 +21,7 @@ import { useTaskDocumentQuery } from "../../task-data.ts";
 import { buildTriadicRendererData, triadicQueryKeys } from "../../triadic-data.ts";
 import { formatTime } from "../../model/time.ts";
 import type { DecisionRow, RelationEdge, TaskRow } from "../../model/types.ts";
-import { normalizeTaskId } from "../../model/triadic.ts";
+import { activeProducesFactRefs, normalizeTaskId } from "../../model/triadic.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { buildFactTriage, SIGNAL_LABEL, type FactTriageItem } from "../../model/fact-triage.ts";
 import { buildFactTriageContext } from "../../model/copy-context.ts";
@@ -320,15 +320,7 @@ export function TaskEvidenceTab({
     staleTime: 10_000,
   });
   const ownedFactRefs = new Set(
-    (graph.data?.edges ?? [])
-      .filter(
-        (edge) =>
-          edge.sourceRef === `task/${task.taskId}` &&
-          edge.targetRef.startsWith("fact/") &&
-          edge.relationType === "produces" &&
-          edge.state === "active",
-      )
-      .map((edge) => edge.targetRef),
+    activeProducesFactRefs(graph.data?.edges ?? [], `task/${task.taskId}`).map((edge) => edge.targetRef),
   );
   const facts = (graph.data?.facts ?? []).filter((fact) => ownedFactRefs.has(fact.ref));
   const triageByAnchor = useMemo(() => {

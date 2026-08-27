@@ -106,7 +106,7 @@ describe("detail views in the view history stack (W4)", () => {
     };
     let state = createViewHistory(loc({ view: "overview" }));
     state = pushLocation(state, loc({ view: "decisionDetail", focusedEntityRef: "decision/dec_1" }));
-    state = pushLocation(state, loc({ view: "factDetail", focusedEntityRef: "fact/F-001" }));
+    state = pushLocation(state, loc({ view: "factDetail", focusedEntityRef: "fact/F-ABCDEFGH" }));
     writeViewHistory(shim, "proj-a", state);
     const restored = readViewHistory(shim, "proj-a");
     expect(currentLocation(restored)).toMatchObject({ view: "factDetail" });
