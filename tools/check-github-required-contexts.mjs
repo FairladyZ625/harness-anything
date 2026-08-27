@@ -2,7 +2,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseManifestBranchProtectionContexts } from "./check-mergify-queue-contexts.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const gateManifestPath = path.join(repoRoot, "tools/gate-manifest.json");
@@ -11,7 +10,7 @@ const DEFAULT_API_BASE = "https://api.github.com";
 
 export function checkGithubRequiredContexts({
   branchRules,
-  gateManifestText = readFileSync(gateManifestPath, "utf8")
+  gateManifestText = readFileSync(gateManifestPath, "utf8"),
 }) {
   const apiResult = extractGitHubRequiredStatusCheckContexts(branchRules);
   const apiContexts = apiResult.contexts;
@@ -41,7 +40,7 @@ export function checkGithubRequiredContexts({
     ok: errors.length === 0,
     errors,
     apiContexts,
-    requiredContexts
+    requiredContexts,
   };
 }
 
@@ -74,6 +73,23 @@ export function extractGitHubRequiredStatusCheckContexts(branchRules) {
   return { hasRequiredStatusCheckRule, contexts };
 }
 
+export function parseManifestBranchProtectionContexts(gateManifestText) {
+  const manifest = JSON.parse(gateManifestText);
+  const contexts = [];
+  const seen = new Set();
+
+  for (const gate of manifest.gates ?? []) {
+    for (const context of gate.executionSurfaces?.branchProtection?.contexts ?? []) {
+      if (!seen.has(context)) {
+        seen.add(context);
+        contexts.push(context);
+      }
+    }
+  }
+
+  return contexts;
+}
+
 // Retry only what a retry can fix: transport faults, rate limiting, and 5xx.
 // A 4xx is a permission or configuration answer -- repeating it just delays a
 // red that must stay red.
@@ -89,7 +105,7 @@ export async function fetchGitHubBranchRules({
   fetchImpl = globalThis.fetch,
   attempts = 3,
   backoffMs = 500,
-  sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
   if (!repo || !/^[^/\s]+\/[^/\s]+$/u.test(repo)) {
     throw new Error("repository must be provided as owner/name");
@@ -109,11 +125,11 @@ export async function fetchGitHubBranchRules({
     try {
       response = await fetchImpl(url, {
         headers: {
-          "Accept": "application/vnd.github+json",
-          "Authorization": `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
           "X-GitHub-Api-Version": "2022-11-28",
-          "User-Agent": "harness-anything-required-context-check"
-        }
+          "User-Agent": "harness-anything-required-context-check",
+        },
       });
     } catch (error) {
       lastError = new Error(`GitHub branch rules request failed: ${error.message}`);
@@ -128,9 +144,7 @@ export async function fetchGitHubBranchRules({
 
     const body = await response.text();
     const detail = body.trim() ? `: ${body.slice(0, 500)}` : "";
-    lastError = new Error(
-      `GitHub branch rules request failed (${response.status} ${response.statusText})${detail}`
-    );
+    lastError = new Error(`GitHub branch rules request failed (${response.status} ${response.statusText})${detail}`);
     if (!isRetryableStatus(response.status) || attempt === attempts) break;
     await sleepImpl(backoffMs * attempt);
   }
@@ -141,7 +155,7 @@ export async function fetchGitHubBranchRules({
 function parseArgs(argv) {
   const options = {
     repo: process.env.GITHUB_REPOSITORY ?? null,
-    branch: process.env.GITHUB_REF_NAME === DEFAULT_BRANCH ? process.env.GITHUB_REF_NAME : DEFAULT_BRANCH
+    branch: process.env.GITHUB_REF_NAME === DEFAULT_BRANCH ? process.env.GITHUB_REF_NAME : DEFAULT_BRANCH,
   };
 
   for (let index = 0; index < argv.length; index += 1) {

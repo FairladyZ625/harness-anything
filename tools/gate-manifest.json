@@ -79,7 +79,7 @@
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
-        "check-mergify-queue-contexts",
+        "check-mergify-queue-policy",
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
@@ -129,7 +129,7 @@
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
-        "check-mergify-queue-contexts",
+        "check-mergify-queue-policy",
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
@@ -2927,17 +2927,18 @@
       }
     },
     {
-      "id": "check-mergify-queue-contexts",
-      "command": "npm run harness:check-mergify-queue-contexts",
+      "id": "check-mergify-queue-policy",
+      "command": "npm run harness:check-mergify-queue-policy",
       "category": "meta-governance",
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
         ".mergify.yml",
-        "tools/gate-manifest.json"
+        "tools/gate-manifest.json",
+        "decision:dec_8B16B68483C12901EDCD5C4F68"
       ],
       "consumerScope": [
-        "Mergify queue_conditions must require exactly the same GitHub contexts as the gate manifest branch-protection surface"
+        "Mergify must derive required checks from GitHub branch protection and automatically requeue dequeued merge-queue PRs only after checks recover"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -2954,15 +2955,15 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "Queue context reconciliation is fail-closed and has no allowlist."
+        "notes": "Queue policy validation is fail-closed and has no allowlist."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           ".mergify.yml",
-          "tools/check-mergify-queue-contexts.mjs",
-          "package.json:scripts.harness:check-mergify-queue-contexts",
+          "tools/check-mergify-queue-policy.mjs",
+          "package.json:scripts.harness:check-mergify-queue-policy",
           "tools/gate-manifest.json"
         ]
       },
@@ -2971,7 +2972,7 @@
         "packageJson": {
           "check": true,
           "checkPr": true,
-          "script": "harness:check-mergify-queue-contexts"
+          "script": "harness:check-mergify-queue-policy"
         },
         "rewriteCi": {
           "pullRequestJobs": [
@@ -2997,7 +2998,7 @@
       "positiveControl": {
         "status": "covered",
         "evidence": [
-          "tools/check-mergify-queue-contexts.test.mjs"
+          "tools/check-mergify-queue-policy.test.mjs"
         ]
       }
     },

@@ -62,11 +62,9 @@ job 按设计 skipped 时，不要把它当失败。
 如果紧急情况被明确批准为直接合并，执行者负责立即 rebase 队列里已有的所有 pull request，并重新运行 required
 gates。队内工作重新基于最新 `main` 之前，这次紧急合并不算收尾完成。
 
-队列排障先看 PR 标签：
-
-1. 检查 PR 是否带有 `dequeued` 标签。
-2. 用 `@Mergifyio refresh` 让 Mergify 刷新状态。
-3. required checks 变绿后，用 `@Mergifyio queue` 重新入队。
+Mergify 会给因队列失败而移出的 pull request 加上 `dequeued`。如果 pull request 仍有
+`merge-queue`，在没有 failed 或 pending check 后会自动重新入队。若未发生该转换，应排查仍然
+failed 或 pending 的 check；正常恢复路径不再需要手工摘挂队列标签。
 
 ## PR 里的证据
 
