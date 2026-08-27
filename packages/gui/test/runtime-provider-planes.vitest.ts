@@ -8,6 +8,8 @@ import {
   applyRuntimeAuthMode,
   applyRuntimeKind,
   buildRuntimeInstanceCreatePayload,
+  buildRuntimeInstanceUpdatePayload,
+  runtimeInstanceEditForm,
   runtimeInstanceFormReady,
   runtimeInstanceIdAvailable,
   type CreateInstanceFormState,
@@ -42,6 +44,62 @@ const form: CreateInstanceFormState = {
   permissionMode: "bypass",
   isolation: "operator-environment",
 };
+
+describe("provider edit form", () => {
+  const apiCodex = {
+    schemaVersion: 2,
+    instanceId: "codex-edit",
+    name: "Codex Edit",
+    kindId: "codex",
+    installationId: "codex-install",
+    providerId: "openai",
+    models: ["gpt-5.6-sol"],
+    defaultModel: "gpt-5.6-sol",
+    enabled: true,
+    permissionMode: "bypass",
+    isolationState: "enforced",
+    codex: {
+      reasoningEffort: null,
+      baseUrl: "https://old.example/v1",
+      baseUrlConfigured: true,
+      wire_api: null,
+      requires_openai_auth: null,
+      http_headers: null,
+    },
+    authMode: "api-key",
+    authState: "configured",
+    authReadiness: { status: "ready", code: null, hint: null },
+  } as const;
+  it("seeds the edit form with the current base URL and keeps it editable", () => {
+    const form = runtimeInstanceEditForm(apiCodex);
+    expect(form.baseUrl).toBe("https://old.example/v1");
+    expect(form.baseUrlEditable).toBe(true);
+    expect(buildRuntimeInstanceUpdatePayload("codex-edit", { ...form, name: "Codex Edited" })).toMatchObject({
+      instanceId: "codex-edit",
+      baseUrl: "https://old.example/v1",
+    });
+  });
+  it("sends the edited base URL and an explicit empty value clears it", () => {
+    const form = runtimeInstanceEditForm(apiCodex);
+    expect(
+      buildRuntimeInstanceUpdatePayload("codex-edit", { ...form, baseUrl: "https://new.example/v1" }).baseUrl,
+    ).toBe("https://new.example/v1");
+    expect(buildRuntimeInstanceUpdatePayload("codex-edit", { ...form, baseUrl: "" }).baseUrl).toBe("");
+  });
+  it("omits the base URL entirely for planes without an API mode", () => {
+    const subscription = runtimeInstanceEditForm({ ...apiCodex, authMode: "subscription" });
+    expect(subscription.baseUrlEditable).toBe(false);
+    expect("baseUrl" in buildRuntimeInstanceUpdatePayload("codex-edit", subscription)).toBe(false);
+    const agy = runtimeInstanceEditForm({
+      ...apiCodex,
+      kindId: "agy",
+      agy: { effort: "high" },
+      authMode: "subscription",
+    });
+    expect(agy.baseUrlEditable).toBe(false);
+    expect("baseUrl" in buildRuntimeInstanceUpdatePayload("codex-edit", agy)).toBe(false);
+  });
+});
 
 describe("provider planes (2026-08-20 adjudication)", () => {
   it("gives agy a login-only plane with no API mode to construct", () => {

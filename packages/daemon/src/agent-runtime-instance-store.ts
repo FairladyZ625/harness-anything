@@ -464,14 +464,29 @@ export function openRuntimeInstanceStore(input: {
         hasDefault = action.defaultModel !== undefined,
         hasEnabled = action.enabled !== undefined,
         hasPermission = action.permissionMode !== undefined,
-        hasIsolation = action.isolationState !== undefined;
-      if (!hasName && !hasInstallation && !hasModels && !hasDefault && !hasEnabled && !hasPermission && !hasIsolation)
+        hasIsolation = action.isolationState !== undefined,
+        hasBaseUrl = action.baseUrl !== undefined;
+      if (
+        !hasName &&
+        !hasInstallation &&
+        !hasModels &&
+        !hasDefault &&
+        !hasEnabled &&
+        !hasPermission &&
+        !hasIsolation &&
+        !hasBaseUrl
+      )
         throw runtimeInstanceError(
           "invalid_runtime_instance_update",
           [
             "Runtime instance update requires --name, --installation, --model, ",
-            "--default-model, --permission-mode, --isolation, --enable, or --disable.",
+            "--default-model, --base-url, --permission-mode, --isolation, --enable, or --disable.",
           ].join(""),
+        );
+      if (hasBaseUrl && current.kindId === "agy")
+        throw runtimeInstanceError(
+          "invalid_runtime_kind_config",
+          "agy runtime instances support subscription OAuth only and have no base URL.",
         );
       const installationId = hasInstallation
           ? requireWitnessedInstallation(current.kindId, action.installationId, input.discover()).installationId
@@ -480,7 +495,12 @@ export function openRuntimeInstanceStore(input: {
         defaultModel = hasDefault
           ? requiredRuntimeInstanceText(action.defaultModel, "defaultModel")
           : current.defaultModel,
-        enabled = hasEnabled ? requireBoolean(action.enabled, "enabled") : current.enabled;
+        enabled = hasEnabled ? requireBoolean(action.enabled, "enabled") : current.enabled,
+        // Base URL edit on the existing instance: a non-empty value replaces the current
+        // endpoint (same secure validation as create); an explicit empty string clears it
+        // back to the official endpoint. Omitted leaves it untouched.
+        baseUrl = hasBaseUrl ? String(action.baseUrl).trim() : undefined,
+        kindConfig = runtimeInstanceBaseUrlConfig(current, baseUrl);
       if (!models.includes(defaultModel))
         throw runtimeInstanceError(
           "invalid_runtime_model",
@@ -496,9 +516,10 @@ export function openRuntimeInstanceStore(input: {
         enabled,
         ...(hasPermission ? { permissionMode: action.permissionMode } : {}),
         ...(hasIsolation ? { isolationState: action.isolationState } : {}),
+        ...kindConfig,
       });
       persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
-      if (hasInstallation) readiness.delete(updated.instanceId);
+      if (hasInstallation || hasBaseUrl) readiness.delete(updated.instanceId);
       if (updated.isolationState === "enforced") ensureStateRoot(updated);
       return {
         ...base,
@@ -652,6 +673,25 @@ export function openRuntimeInstanceStore(input: {
 
 function codexConfigHasBearer(configPath: string): boolean {
   return existsSync(configPath) && /^\s*experimental_bearer_token\s*=/mu.test(readFileSync(configPath, "utf8"));
+}
+
+/** Rebuilds the kind-scoped configuration after a base URL edit. `baseUrl === undefined`
+ * means the update did not touch it (keep the stored endpoint); a non-empty string
+ * replaces it; an explicit empty string clears it back to the official endpoint. */
+function runtimeInstanceBaseUrlConfig(
+  current: RuntimeInstanceConfig,
+  baseUrl: string | undefined,
+): { readonly claude?: unknown } | { readonly codex?: unknown } {
+  if (current.kindId === "codex") {
+    const { baseUrl: _dropped, ...rest } = current.codex,
+      next = baseUrl === undefined ? current.codex.baseUrl : baseUrl || undefined;
+    return { codex: { ...rest, ...(next ? { baseUrl: next } : {}) } };
+  }
+  if (current.kindId === "claude") {
+    const next = baseUrl === undefined ? current.claude.baseUrl : baseUrl || undefined;
+    return { claude: next ? { baseUrl: next } : {} };
+  }
+  return {};
 }
 
 function authReadinessLabel(readiness: RuntimeAuthReadiness): string {

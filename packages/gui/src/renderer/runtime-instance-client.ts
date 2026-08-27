@@ -18,6 +18,9 @@ export type RuntimeInstanceUpdateInput = {
   readonly installationId?: string;
   readonly models?: readonly string[];
   readonly defaultModel?: string;
+  /** Non-empty replaces the endpoint (create-time validation applies); empty clears back
+   * to the official endpoint; omitted leaves it untouched. claude/codex API mode only. */
+  readonly baseUrl?: string;
   readonly enabled?: boolean;
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   readonly isolationState?: "enforced" | "operator-environment";

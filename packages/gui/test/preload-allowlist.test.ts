@@ -455,6 +455,7 @@ test("runtime update accepts exactly the fields the registry declares", () => {
   };
   const declared = Object.keys(entry.params.fields.payload.fields);
   assert.deepEqual([...declared].sort(), [
+    "baseUrl",
     "defaultModel",
     "enabled",
     "installationId",

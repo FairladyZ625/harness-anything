@@ -32,6 +32,10 @@ export type RuntimeInstanceEditFormState = {
   readonly models: readonly string[];
   readonly defaultModel: string;
   readonly customModel: string;
+  /** Current endpoint for API-mode planes; empty means the official endpoint. */
+  readonly baseUrl: string;
+  /** Whether this instance's plane carries a base URL at all (API-mode claude/codex). */
+  readonly baseUrlEditable: boolean;
 };
 
 type DetectedModels = { readonly models?: readonly string[]; readonly defaultModel?: string };
@@ -98,16 +102,23 @@ export function buildRuntimeInstanceCreatePayload(
       };
 }
 
-export function runtimeInstanceEditForm(
-  instance: Pick<RuntimeInstanceSummary, "name" | "installationId" | "models" | "defaultModel">,
-): RuntimeInstanceEditFormState {
+export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): RuntimeInstanceEditFormState {
+  const editable = planeAllowsBaseUrl(instance.kindId, instance.authMode);
   return {
     name: instance.name,
     installationId: instance.installationId,
     models: [...instance.models],
     defaultModel: instance.defaultModel,
     customModel: "",
+    baseUrlEditable: editable,
+    baseUrl: editable ? runtimeInstanceBaseUrl(instance) : "",
   };
+}
+
+function runtimeInstanceBaseUrl(instance: RuntimeInstanceSummary): string {
+  if (instance.kindId === "claude") return instance.claude.baseUrl ?? "";
+  if (instance.kindId === "codex") return instance.codex.baseUrl ?? "";
+  return "";
 }
 
 export function runtimeCustomModels(value: string | undefined): readonly string[] {
@@ -150,7 +161,17 @@ export function buildRuntimeInstanceUpdatePayload(
     defaultModel = runtimeDefaultModel(models, form.defaultModel);
   if (!form.name.trim() || !form.installationId.trim() || !defaultModel)
     throw new Error("Runtime instance update form is incomplete.");
-  return { instanceId, name: form.name.trim(), installationId: form.installationId.trim(), models, defaultModel };
+  return {
+    instanceId,
+    name: form.name.trim(),
+    installationId: form.installationId.trim(),
+    models,
+    defaultModel,
+    // Base URL rides the same update write path the other fields use; the empty field is
+    // meaningful (back to the official endpoint), so it is sent whenever the plane has one.
+    // A plane without an API mode has no base URL at all and the field is omitted there.
+    ...(form.baseUrlEditable ? { baseUrl: form.baseUrl.trim() } : {}),
+  };
 }
 
 // Switching provider plane rewrites every field the new plane does not have, so a value
