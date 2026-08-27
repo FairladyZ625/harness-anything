@@ -287,7 +287,10 @@ function peopleActionSummary(action: PeopleRosterAction, personId: string | null
   if (action.kind === "people-add") return `Added person ${personId}.`;
   if (action.kind === "people-set-role") return `Set person ${personId} role to ${action.rolePolicy.roleId}.`;
   if (action.kind === "people-bind")
-    return `Bound ${action.binding.actor.kind} ${action.binding.actor.id} as ${action.binding.role} on ${action.binding.target}.`;
+    return (
+      `Bound ${action.binding.actor.kind} ${action.binding.actor.id} as ` +
+      `${action.binding.role} on ${action.binding.target}.`
+    );
   if (action.kind === "people-remove") return `Removed person ${personId}.`;
   return action.kind === "people-reconcile" ? "Reconciled the people roster." : "Replaced the people roster.";
 }

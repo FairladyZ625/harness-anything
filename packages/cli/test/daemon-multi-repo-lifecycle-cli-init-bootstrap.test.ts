@@ -295,7 +295,7 @@ test("local init isolates the ledger from later project commits and removes trac
     assert.equal(git(ledgerRoot, "rev-parse", "refs/ha/canonical"), ledgerAfter);
     assert.equal(
       spawnSync("git", ["-C", fixture.repo, "rev-parse", "--verify", "refs/ha/canonical"], { encoding: "utf8" }).status,
-      129,
+      128,
     );
     context.diagnostic(
       `ledger.git=true\nouter.check-ignore harness=${harnessIgnored}\nouter.check-ignore .harness=${runtimeIgnored}\nouter.ls-files harness/=${harnessTracked}\nouter.ls-files .harness/=${runtimeTracked}\nproject.head.after=${projectHead}\nledger.head.before=${ledgerHead}\nledger.head.after=${ledgerAfter}\nwrite.outcome=${String(written.outcome)}`,
