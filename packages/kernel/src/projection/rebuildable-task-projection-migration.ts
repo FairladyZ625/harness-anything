@@ -188,7 +188,9 @@ export function projectMigration(
       };
       runSql(
         db,
-        "INSERT OR IGNORE INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO relation_edge" +
+          "(relation_id, source_ref, target_ref, relation_type, state, owner_ref, workspace_revision, row_json)" +
+          " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         deriveRelationId(produces),
         produces.source,
         produces.target,

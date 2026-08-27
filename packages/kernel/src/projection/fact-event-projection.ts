@@ -75,7 +75,9 @@ export class FactProjectionError extends Error {
 
 export function createFactProjectionTables(db: DatabaseSync): void {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS fact (task_id TEXT, fact_id TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, statement TEXT NOT NULL, evidence_source TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS fact (
+      task_id TEXT, fact_id TEXT NOT NULL, ref TEXT NOT NULL UNIQUE,
+      statement TEXT NOT NULL, evidence_source TEXT NOT NULL,
       observed_at TEXT NOT NULL, confidence TEXT NOT NULL, memory_class TEXT NOT NULL, op_id TEXT NOT NULL UNIQUE, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL,
       PRIMARY KEY(fact_id));
     CREATE VIRTUAL TABLE IF NOT EXISTS fact_fts USING fts5(fact_id UNINDEXED, statement, evidence_source,
@@ -202,7 +204,9 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
         recordIndex: 1,
       };
     db.prepare(
-      "INSERT OR IGNORE INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO relation_edge" +
+        "(relation_id, source_ref, target_ref, relation_type, state, owner_ref, workspace_revision, row_json)" +
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
       edge.relationId,
       edge.sourceRef,
@@ -313,7 +317,9 @@ export function searchFactRowsPage(
     values.push(cursor[0]!, cursor[0]!, cursor[1]!);
   }
   const pageLimit = filters.limit === undefined ? (paged ? 100 : null) : checkedFactPageLimit(filters.limit);
-  const sql = `${factRowSelect}${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY observed_at DESC, fact_id${pageLimit === null ? "" : " LIMIT ?"}`;
+  const whereSql = where.length ? ` WHERE ${where.join(" AND ")}` : "",
+    limitSql = pageLimit === null ? "" : " LIMIT ?",
+    sql = `${factRowSelect}${whereSql} ORDER BY observed_at DESC, fact_id${limitSql}`;
   if (pageLimit !== null) values.push(String(pageLimit + 1));
   const records = db.prepare(sql).all(...values) as unknown as readonly FactRecord[];
   const visible = pageLimit === null ? records : records.slice(0, pageLimit),
@@ -340,7 +346,8 @@ export function readFactGraphRows(db: DatabaseSync): {
   const edges = (
     db
       .prepare(
-        "SELECT row_json FROM relation_edge WHERE owner_ref LIKE 'fact/%' OR target_ref LIKE 'fact/%' ORDER BY relation_id",
+        "SELECT row_json FROM relation_edge" +
+          " WHERE owner_ref LIKE 'fact/%' OR target_ref LIKE 'fact/%' ORDER BY relation_id",
       )
       .all() as unknown as readonly { readonly row_json: string }[]
   ).map((row) => JSON.parse(row.row_json) as FactRelationEdgeRow);
