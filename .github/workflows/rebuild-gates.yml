@@ -44,6 +44,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - run: npm ci
       - run: node tools/gates/derived-contracts.mjs --check
 
   evidence-contract:
