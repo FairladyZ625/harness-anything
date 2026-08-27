@@ -10,9 +10,6 @@ import {
   isContractVersionCompatible,
   requireEntityStoreKindContract,
 } from "../../src/domain/index.ts";
-import { entityFieldContracts } from "../../src/entity/field-contracts.ts";
-import { entityRegistry, entityRegistryKinds } from "../../src/entity/registry.ts";
-import { schemaRegistry } from "../../src/schemas/registry.ts";
 
 const expectedKinds = [
   "agent",
@@ -103,20 +100,13 @@ test("kind identity views are derived from the ref grammar authority without lea
   }
 });
 
-test("framework registry derives schema and mutability while relation/session stay explicit boundaries", () => {
+test("generic entity-store boundaries stay aligned with the kind authority", () => {
   for (const kind of ["task", "fact", "decision"] as const) {
     const contract = entityKindContracts.find((candidate) => candidate.kind === kind),
-      framework = contract?.framework,
-      schema = schemaRegistry.find(({ id }) => id === framework?.schemaId)?.schema;
+      framework = contract?.framework;
     assert.ok(framework);
-    assert.equal(entityRegistry[kind].schema, schema);
-    assert.equal(entityRegistry[kind].mutabilityContract, entityFieldContracts[kind]);
-    assert.deepEqual(entityRegistry[kind].anchors, framework.anchors);
-    assert.deepEqual(entityRegistry[kind].dispositionMatrix, framework.dispositionMatrix);
-    assert.equal(entityRegistry[kind].storageForm, framework.storageForm);
     assert.throws(() => requireEntityStoreKindContract(kind), /no generic entity-store surface/u);
   }
-  assert.deepEqual([...entityRegistryKinds].sort(), ["decision", "fact", "relation", "session", "task"]);
   assert.equal(getEntityKindContract("relation"), undefined);
   assert.equal(getEntityKindContract("session"), undefined);
   assert.equal(requireEntityStoreKindContract("agent").kind, "agent");

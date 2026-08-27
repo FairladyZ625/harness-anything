@@ -10,7 +10,7 @@ import {
   type EntityRegistration,
   type EntityRootResolverDeclaration,
   type EntityStorageForm,
-} from "./registry.ts";
+} from "./registry-contract.ts";
 
 export interface EntitySchemaLike {
   readonly ast: object;

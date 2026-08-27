@@ -117,7 +117,6 @@ export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 export {
   createEntityKindRegistry,
   explainEntityKind,
-  getEntityKind,
   getEntityKindContract,
   requireEntityKindContract,
   requireEntityStoreKindContract,

@@ -1,10 +1,20 @@
 /** @slice-activation M5 F5 entity CRUD framework exposes disposition evaluation for application services and W7 cascade graph consumers. */
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
+import { getEntityKindContract } from "../domain/entity-kind-registry.ts";
 import { parseEntityRef } from "../domain/entity-ref.ts";
 import type { FactAnchorRow, RelationGraphEdgeRow } from "../projection/relation-graph-projection.ts";
 import { queryTaskChildren, readRelationGraphProjection } from "../projection/sqlite-task-projection.ts";
 import type { TaskProjectionRow } from "../projection/types.ts";
-import { entityRegistry, type DispositionAction, type DispositionLevel, type KernelEntityKind } from "./registry.ts";
+import {
+  dispositionMatrix,
+  supported,
+  unsupported,
+  type DispositionAction,
+  type DispositionLevel,
+  type EntityDispositionMatrix,
+  type KernelEntityKind,
+} from "./registry-contract.ts";
+import { sessionEntityRegistration } from "./session-declaration.ts";
 
 export interface EntityDispositionOptions {
   readonly rootDir: string;
@@ -54,10 +64,31 @@ export interface ImplicitDispositionEvaluation extends EntityDispositionOptions 
   readonly affectedEntityRefs: ReadonlyArray<string>;
 }
 
+const relationDispositionMatrix = dispositionMatrix([
+  supported(
+    "D1",
+    "retire",
+    ["relation_retire"],
+    "relation semantic retirement preserves the hosted edge record while removing it from active graph semantics",
+  ),
+  unsupported("D1", "supersede", "relation replacement is modeled as retire old edge plus append new edge"),
+  unsupported("D1", "invalidate", "relation invalidation is modeled as retire or replacing the edge"),
+  unsupported("D2", "archive", "relation storage is hosted in source frontmatter and follows the host document"),
+  unsupported("D3", "tombstone", "relation exit is represented by retired state, not tombstone"),
+  unsupported("D4", "hard-delete", "relation records are provenance-bearing and are not physically deleted"),
+]);
+
+function dispositionMatrixFor(kind: KernelEntityKind): EntityDispositionMatrix {
+  if (kind === "relation") return relationDispositionMatrix;
+  if (kind === "session") return sessionEntityRegistration.dispositionMatrix;
+  const framework = getEntityKindContract(kind)?.framework;
+  if (!framework) throw new Error(`Entity kind ${kind} has no framework disposition matrix.`);
+  return framework.dispositionMatrix;
+}
+
 export function evaluateEntityDisposition(request: EntityDispositionRequest): EntityDispositionEvaluation {
   const entityKind = entityKindFromRef(request.entityRef);
-  const registration = entityRegistry[entityKind];
-  const matrixEntry = registration.dispositionMatrix.entries[request.action];
+  const matrixEntry = dispositionMatrixFor(entityKind).entries[request.action];
   const graph = readRelationGraphProjection(request);
   const childTasks = childTasksForEntity(request, request.entityRef);
   const cascade = cascadeImpactFromProjection(request.entityRef, graph.edges, graph.factAnchors, childTasks);
@@ -249,7 +280,7 @@ function entityKindFromRef(entityRef: string): KernelEntityKind {
 }
 
 function nonDestructiveSupportedActions(entityKind: KernelEntityKind): ReadonlyArray<DispositionAction> {
-  return Object.values(entityRegistry[entityKind].dispositionMatrix.entries)
+  return Object.values(dispositionMatrixFor(entityKind).entries)
     .filter((entry) => entry.supported && (entry.level === "D1" || entry.level === "D2"))
     .map((entry) => entry.action)
     .sort();
