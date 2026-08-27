@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createScheduleV1 } from "../../kernel/src/index.ts";
@@ -128,6 +128,7 @@ test("the schedules list validator locks the joined wire shape", () => {
   for (const mutation of [
     (value: SchedulesListResult) => ({ ...value, repoMode: "fleet" }),
     (value: SchedulesListResult) => ({ ...value, schedules: "many" }),
+    (value: SchedulesListResult) => ({ ...value, assignmentResolution: "roster" }),
     (value: SchedulesListResult) => ({ ...value, apiKey: "secret" }),
   ])
     assert.notDeepEqual(validateSchedulesList(mutation(result)), []);
@@ -361,7 +362,6 @@ test("a remote-edge read resolves viewer node and roster from the repo root", ()
     const result = readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root }));
     assert.equal(result.repoMode, "remote-edge");
     assert.equal(result.viewerNodeId, "edge-one");
-    assert.equal(result.assignmentResolution, "roster");
     const row = result.schedules[0]!;
     assert.equal(row.executionAvailability, "local");
     assert.deepEqual(row.claim, { nodeId: "edge-one", assignmentId: "assignment-edge-one" });
@@ -379,7 +379,6 @@ test("a remote-center read keeps the catalog blockers instead of faking an execu
   );
   assert.equal(result.repoMode, "remote-center");
   assert.equal(result.viewerNodeId, null);
-  assert.equal(result.assignmentResolution, "roster");
   const row = result.schedules[0]!;
   assert.equal(row.executionAvailability, "not-on-this-node");
   assert.deepEqual(row.claim, { nodeId: "edge-one", assignmentId: "assignment-edge-one-heartbeat-probe" });
@@ -389,9 +388,36 @@ test("a remote-center read keeps the catalog blockers instead of faking an execu
   assert.equal(row.actions.runNow.code, "repo_mode_requires_center_ingress");
   for (const facet of [row.actions.enable, row.actions.disable])
     assert.equal(facet.code, "repo_mode_requires_center_ingress");
-  const unresolved = readSchedulesGui(guiContext({ mode: "remote-center" }));
-  assert.equal(unresolved.assignmentResolution, "unavailable");
-  assert.equal(unresolved.schedules[0]!.executionAvailability, "not-on-this-node");
+  assert.throws(() => readSchedulesGui(guiContext({ mode: "remote-center" })), /requires an admitted fleet roster/u);
+});
+
+test("remote-edge reads propagate edge config and roster failures", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-schedules-edge-failure-"));
+  try {
+    const configPath = path.join(root, "fleet-edge.json"),
+      rosterPath = path.join(root, "roster.json");
+    writeFileSync(configPath, "{");
+    assert.throws(() => readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root })), /not valid JSON/u);
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        schema: "fleet-edge-config/v1",
+        repoId: "schedule-gui",
+        host: "127.0.0.1",
+        port: 1,
+        caPath: "/tmp/ca.pem",
+        nodeId: "edge-one",
+        rosterPath,
+        assignmentId: "assignment-edge-one",
+        viewRoot: path.join(root, "view"),
+        quotaBytes: 1024,
+      }),
+    );
+    writeFileSync(rosterPath, "{");
+    assert.throws(() => readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root })), /JSON/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("paused and single-flight states produce precise run-now blockers", () => {
@@ -429,9 +455,6 @@ test("paused and single-flight states produce precise run-now blockers", () => {
   assert.equal(paused.schedules[0]!.actions.enable.available, true);
   const claimed = readSchedulesGui(
     guiContext({
-      mode: "remote-edge",
-      rootDir: unusedEdgeRoot(),
-      fleetRoster: null,
       projection: {
         listEntities: () => [{ value: singleFlight, workspaceRevision: 1 }],
         readTaskStatuses: guiContext().projection.readTaskStatuses,
@@ -450,15 +473,9 @@ test("the schedules list schema is registry-closed with a negative fixture", () 
   assert.notDeepEqual(
     validateSchedulesList(
       JSON.parse(
-        '{"ok":true,"status":"ready","repoId":"r","repoMode":"local","viewerNodeId":"local","assignmentResolution":"roster","schedules":[],"watermark":0,"sourceRevision":0,"schema":"daemon.schedules-list/v1"}',
+        '{"ok":true,"status":"ready","repoId":"r","repoMode":"local","viewerNodeId":"local","schedules":[],"watermark":0,"sourceRevision":0,"schema":"daemon.schedules-list/v1"}',
       ),
     ),
     [],
   );
 });
-
-function unusedEdgeRoot(): string {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-schedules-unused-"));
-  mkdirSync(root, { recursive: true });
-  return root;
-}

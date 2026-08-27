@@ -518,22 +518,14 @@ export function makeSquadCoordinator(input: {
     }).dispatches;
   }
 
-  /** list 专用:同 task 的多个 run 共享一次台账读(per-call memo,不跨 list 复用);单个
-   * run 的事实缺失(投影缺包路径)只降级自己的活动时间(可解析会话/无活动),不拖垮整页
-   * list。status/read 面对同一坏数据仍 fail-closed。 */
+  /** list 专用:同 task 的多个 run 共享一次台账读(per-call memo,不跨 list 复用)。 */
   function summaryDispatchRows(
     state: SquadState,
     cache: Map<string, readonly TaskDispatchRow[]>,
   ): readonly TaskDispatchRow[] {
     const memoized = cache.get(state.taskId);
     if (memoized !== undefined) return memoized;
-    let rows: readonly TaskDispatchRow[];
-    try {
-      rows = dispatchRows(state);
-    } catch (error) {
-      consumeKnownError(error); // 台账读不出:该 run 无派工事实。
-      rows = [];
-    }
+    const rows = dispatchRows(state);
     cache.set(state.taskId, rows);
     return rows;
   }

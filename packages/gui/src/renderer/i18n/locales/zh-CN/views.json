@@ -353,8 +353,6 @@
   "schedules.readFailed": "读取定时计划失败:{error}",
   "schedules.modeTip": "当前 daemon 的 repo mode(来自 daemon DTO)",
   "schedules.viewerTip": "本节点的执行身份(来自 daemon DTO)",
-  "schedules.rosterUnavailable": "roster 不可解析",
-  "schedules.rosterUnavailableTip": "本 daemon 无法解析 fleet roster;执行归属以 center roster 为准,页面不伪报 owner",
   "schedules.state.armed": "已布防",
   "schedules.state.paused": "已暂停",
   "schedules.availability.local": "本节点可执行",

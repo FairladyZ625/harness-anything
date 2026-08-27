@@ -66,7 +66,6 @@ function dto(
     repoId: "repo-a",
     repoMode: "local",
     viewerNodeId: "local",
-    assignmentResolution: "roster",
     schedules: [row],
     watermark: 12,
     sourceRevision: 12,
@@ -284,7 +283,6 @@ describe("schedules plane (S4)", () => {
       ...dto(),
       repoMode: "remote-edge",
       viewerNodeId: "edge-one",
-      assignmentResolution: "unavailable",
       schedules: [],
     });
     const container = await renderSurface(
@@ -301,7 +299,6 @@ describe("schedules plane (S4)", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("remote-edge");
     expect(text).toContain("edge-one");
-    expect(text).toContain("roster unresolved");
     expect(text).toContain("No schedules yet");
     expect(container.querySelector('[data-testid="schedules-view"]')).not.toBeNull();
   });
