@@ -5,8 +5,11 @@ import { agentRuntimeClient } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { Badge, Btn, Empty, SegCtl } from "../components/runtime/parts.tsx";
-import { runtimeSelectionFromRef, useSessionsWorkspace } from "../components/runtime/useRuntimeWorkspace.ts";
-import { squadRunsClient } from "../squad-run-client.ts";
+import {
+  runtimeSelectionFromRef,
+  useSessionsWorkspace,
+  useSquadRunDetail,
+} from "../components/runtime/useRuntimeWorkspace.ts";
 import { SessionGroupList } from "../components/sessions/SessionGroupList.tsx";
 import { SquadRunList } from "../components/sessions/SquadRunList.tsx";
 import { SquadRunDetail } from "../components/sessions/SquadRunDetail.tsx";
@@ -258,15 +261,14 @@ export function SessionsView({
   const squadNames = useMemo(() => new Map((squads.data ?? []).map((squad) => [squad.id, squad.name])), [squads.data]);
 
   // 小队编排详情(G12 §2b/§2c):选中行的 repo.squad.run.read,渲染 leader 轮次 →
-  // worker 派工链;只有显式点击行才读取详情,切换范围后若该 run 不在列表则回到空选中。
+  // worker 派工链扇出树;只有显式点击行才读取详情,切换范围后若该 run 不在列表则
+  // 回到空选中。读面收敛在 useSquadRunDetail(与失效键同源)。
   const selectedSquadRun =
     selectedSquadRunId === null ? null : (runs.find((run) => run.squadRunId === selectedSquadRunId) ?? null);
-  const squadRunDetail = useQuery({
-    queryKey: ["squad-run-detail", repoId, selectedSquadRun?.squadRunId ?? ""],
-    queryFn: () => squadRunsClient.read(repoId, selectedSquadRun!.squadRunId),
-    enabled: segment === "squads" && selectedSquadRun !== null,
-    staleTime: 4_000,
-  });
+  const squadRunDetail = useSquadRunDetail(
+    repoId,
+    segment === "squads" && selectedSquadRun !== null ? selectedSquadRun.squadRunId : null,
+  );
 
   const rangeLabel: Record<Range, string> = {
     "24h": "24h",

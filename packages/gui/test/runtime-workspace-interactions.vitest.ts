@@ -166,6 +166,7 @@ const squadRunDetailFixture = {
         dispatchId: "dispatch_000000000000000000000002",
         runtimeSessionId: "runtime-sibling",
         decision: { kind: "converged" },
+        resultText: '{"schema":"squad-decision/v1","action":"converged"}',
         status: "succeeded" as const,
         startedAt: "2026-08-23T01:30:00.000Z",
         endedAt: "2026-08-23T01:40:00.000Z",
@@ -175,6 +176,7 @@ const squadRunDetailFixture = {
       {
         attemptId: "worker-1",
         workerId: "terra",
+        leaderTurnId: "leader-1",
         dispatchId: "dispatch_bbb",
         runtimeSessionId: "runtime-bound",
         rejection: null,

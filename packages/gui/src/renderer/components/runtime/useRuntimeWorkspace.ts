@@ -511,6 +511,16 @@ export function useSquadDetail(repoId: string, squadId: string | null) {
     staleTime: 4_000,
   });
 }
+/** squad run 的编排流转详情(repo.squad.run.read):与 useSessionsWorkspace 里
+ * ["squad-run-detail"] 的失效键同源,是唯一的 run 详情读面——选中即读,null 不发。 */
+export function useSquadRunDetail(repoId: string, squadRunId: string | null) {
+  return useQuery({
+    queryKey: ["squad-run-detail", repoId, squadRunId],
+    queryFn: () => squadRunsClient.read(repoId, squadRunId!),
+    enabled: squadRunId !== null,
+    staleTime: 4_000,
+  });
+}
 
 // A task-bound dispatch spawns first; only a runtime_task_lease_required rejection triggers
 // one lease acquisition and one resubmit under the same idempotency key — the first attempt
