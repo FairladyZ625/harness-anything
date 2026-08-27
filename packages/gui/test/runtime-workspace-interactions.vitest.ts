@@ -604,6 +604,48 @@ describe("runtime entry split (W6 IA)", () => {
     expect(probe).toHaveBeenCalledWith("provider-selected");
   });
 
+  it("edits the base URL of an API-mode provider in place and can clear it back", async () => {
+    const onUpdate = vi.fn();
+    const apiInstance = {
+      ...providerInstance,
+      instanceId: "codex-api-edit",
+      name: "Codex API Edit",
+      authMode: "api-key" as const,
+      codex: {
+        ...(providerInstance as { readonly codex: object }).codex,
+        baseUrl: "https://old-gateway.example/v1",
+        baseUrlConfigured: true,
+      },
+    };
+    await mountProviderCard(onUpdate, apiInstance);
+
+    await click("runtime-provider-edit");
+    expect((byTestId("runtime-provider-base-url") as HTMLInputElement).value).toBe("https://old-gateway.example/v1");
+    await input("runtime-provider-base-url", "https://new-gateway.example/v1");
+    await click("runtime-provider-save");
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instanceId: "codex-api-edit",
+        baseUrl: "https://new-gateway.example/v1",
+      }),
+    );
+
+    onUpdate.mockClear();
+    await click("runtime-provider-edit");
+    await input("runtime-provider-base-url", "");
+    await click("runtime-provider-save");
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ baseUrl: "" }));
+  });
+
+  it("does not offer a base URL field on a subscription provider", async () => {
+    const onUpdate = vi.fn();
+    await mountProviderCard(onUpdate);
+    await click("runtime-provider-edit");
+    expect(document.querySelector('[data-testid="runtime-provider-base-url"]')).toBeNull();
+    await click("runtime-provider-cancel");
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
   it("edits a provider with one cancelable draft and always keeps its default model selected", async () => {
     const onUpdate = vi.fn();
     await mountProviderCard(onUpdate);
@@ -822,7 +864,7 @@ async function mountProviders(
   return mountView(element);
 }
 
-async function mountProviderCard(onUpdate: ReturnType<typeof vi.fn>) {
+async function mountProviderCard(onUpdate: ReturnType<typeof vi.fn>, instance = providerInstance) {
   const client = new QueryClient(),
     container = document.createElement("div"),
     root = createRoot(container);
@@ -831,7 +873,7 @@ async function mountProviderCard(onUpdate: ReturnType<typeof vi.fn>) {
   await act(async () => {
     root.render(
       createElement(RuntimeCard, {
-        instance: providerInstance,
+        instance,
         installations: providerInstallations,
         agents: [],
         liveSessions: 0,

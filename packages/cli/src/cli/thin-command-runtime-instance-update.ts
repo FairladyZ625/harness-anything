@@ -1,15 +1,6 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  accepted,
-  readFlags,
-  rejectInput,
-  rejected,
-} from "./thin-command-flags.ts";
-import type {
-  ProtocolCommand,
-  ThinCliInputDirectory,
-  ThinParseResult,
-} from "./thin-command-types.ts";
+import { accepted, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
+import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 type ParsedFlags = Extract<ReturnType<typeof readFlags>, { readonly ok: true }>;
 
@@ -30,6 +21,7 @@ export function parseRuntimeInstanceUpdate(
     !flags.one.has("--installation") &&
     models.length === 0 &&
     !flags.one.has("--default-model") &&
+    !flags.one.has("--base-url") &&
     !flags.one.has("--permission-mode") &&
     !flags.one.has("--isolation") &&
     !enable &&
@@ -38,7 +30,7 @@ export function parseRuntimeInstanceUpdate(
     return rejected(
       "invalid_field",
       "Runtime instance update requires --name, --installation, --model, --default-model, " +
-        "--permission-mode, --isolation, --enable, or --disable.",
+        "--base-url, --permission-mode, --isolation, --enable, or --disable.",
       json,
     );
   return accepted(
@@ -49,19 +41,12 @@ export function parseRuntimeInstanceUpdate(
       kind: route.id,
       instanceId,
       ...(flags.one.get("--name") ? { name: flags.one.get("--name") } : {}),
-      ...(flags.one.get("--installation")
-        ? { installationId: flags.one.get("--installation") }
-        : {}),
+      ...(flags.one.get("--installation") ? { installationId: flags.one.get("--installation") } : {}),
       ...(models.length ? { models } : {}),
-      ...(flags.one.get("--default-model")
-        ? { defaultModel: flags.one.get("--default-model") }
-        : {}),
-      ...(flags.one.get("--permission-mode")
-        ? { permissionMode: flags.one.get("--permission-mode") }
-        : {}),
-      ...(flags.one.get("--isolation")
-        ? { isolationState: flags.one.get("--isolation") }
-        : {}),
+      ...(flags.one.get("--default-model") ? { defaultModel: flags.one.get("--default-model") } : {}),
+      ...(flags.one.has("--base-url") ? { baseUrl: flags.one.get("--base-url") } : {}),
+      ...(flags.one.get("--permission-mode") ? { permissionMode: flags.one.get("--permission-mode") } : {}),
+      ...(flags.one.get("--isolation") ? { isolationState: flags.one.get("--isolation") } : {}),
       ...(enable || disable ? { enabled: enable } : {}),
     },
     route.method,

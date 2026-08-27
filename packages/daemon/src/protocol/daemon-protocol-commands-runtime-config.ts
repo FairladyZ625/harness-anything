@@ -297,6 +297,10 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         code: "invalid_field",
         nextAction: "Use one model from the updated --model set.",
       }),
+      cliInput("--base-url", "single", false, {
+        code: "invalid_base_url",
+        nextAction: "Use an absolute HTTPS base URL, or an empty --base-url to return to the official endpoint.",
+      }),
       cliInput(
         "--permission-mode",
         "single",

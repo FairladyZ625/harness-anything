@@ -814,3 +814,115 @@ test("the shared provider stub fixture launches with the exact argv on every pla
     assert.equal(readFileSync(witness, "utf8"), JSON.stringify(["login", "status"]));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("runtime instance update edits the base URL of an existing instance", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-instance-base-url-"));
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed] });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "codex-edit",
+      name: "Codex Edit",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "codex_local_access",
+      models: ["gpt-5.6-sol"],
+      codex: { baseUrl: "http://127.0.0.1:1/v1", wireApi: "responses" },
+      authMode: "api-key",
+      credentialRef: "keychain:harness/codex-edit",
+    });
+    const replaced = store.command({
+      kind: "runtime-instance-update",
+      instanceId: "codex-edit",
+      baseUrl: "https://api.new-endpoint.example/v1",
+    });
+    assert.equal(
+      (replaced.instance as { readonly codex: { readonly baseUrl: string | null } }).codex.baseUrl,
+      "https://api.new-endpoint.example/v1",
+    );
+    // An untouched base URL survives an unrelated update.
+    const renamed = store.command({ kind: "runtime-instance-update", instanceId: "codex-edit", name: "Codex Edited" });
+    assert.equal(
+      (renamed.instance as { readonly codex: { readonly baseUrl: string | null } }).codex.baseUrl,
+      "https://api.new-endpoint.example/v1",
+    );
+    // An explicit empty base URL clears back to the official endpoint.
+    const cleared = store.command({ kind: "runtime-instance-update", instanceId: "codex-edit", baseUrl: "" });
+    assert.equal(
+      (cleared.instance as { readonly codex: { readonly baseUrl: string | null; readonly baseUrlConfigured: boolean } })
+        .codex.baseUrl,
+      null,
+    );
+    assert.equal(
+      (cleared.instance as { readonly codex: { readonly baseUrlConfigured: boolean } }).codex.baseUrlConfigured,
+      false,
+    );
+    // Same edit path for a claude API-override instance.
+    const claudeInstallation = {
+      ...observed,
+      installationId: "claude-edit",
+      kindId: "claude" as const,
+      executablePath: "/opt/runtime-test/claude",
+    };
+    const claudeStore = openRuntimeInstanceStore({ userRoot, discover: () => [claudeInstallation] });
+    claudeStore.command({
+      kind: "runtime-instance-create",
+      instanceId: "claude-edit",
+      name: "Claude Edit",
+      kindId: "claude",
+      installationId: claudeInstallation.installationId,
+      providerId: "anthropic",
+      models: ["claude-fable-5"],
+      claude: { baseUrl: "https://old-gateway.example/v1" },
+      authMode: "api-key",
+      credentialRef: "keychain:harness/claude-edit",
+    });
+    const claudeReplaced = claudeStore.command({
+      kind: "runtime-instance-update",
+      instanceId: "claude-edit",
+      baseUrl: "https://new-gateway.example/v1",
+    });
+    assert.equal(
+      (claudeReplaced.instance as { readonly claude: { readonly baseUrl: string | null } }).claude.baseUrl,
+      "https://new-gateway.example/v1",
+    );
+    // Insecure endpoints are rejected by the same validation create uses.
+    assert.throws(
+      () =>
+        store.command({
+          kind: "runtime-instance-update",
+          instanceId: "codex-edit",
+          baseUrl: "http://insecure.example/v1",
+        }),
+      (error: unknown) => codedAs(error, "invalid_base_url"),
+    );
+    // agy has no API mode and no base URL at all.
+    const agyInstallation = {
+      ...observed,
+      installationId: "agy-edit",
+      kindId: "agy" as const,
+      executablePath: "/opt/runtime-test/agy",
+    };
+    const agyStore = openRuntimeInstanceStore({ userRoot, discover: () => [agyInstallation] });
+    agyStore.command({
+      kind: "runtime-instance-create",
+      instanceId: "agy-edit",
+      name: "Agy Edit",
+      kindId: "agy",
+      providerId: "google",
+      models: ["gemini"],
+      authMode: "subscription",
+    });
+    assert.throws(
+      () =>
+        agyStore.command({
+          kind: "runtime-instance-update",
+          instanceId: "agy-edit",
+          baseUrl: "https://api.example/v1",
+        }),
+      (error: unknown) => codedAs(error, "invalid_runtime_kind_config"),
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});

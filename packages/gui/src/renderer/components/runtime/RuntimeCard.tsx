@@ -18,7 +18,12 @@ import {
   toggleRuntimeModel,
   type RuntimeInstanceEditFormState,
 } from "../../runtime-instance-form.ts";
-import { planeAllowsPermissions, planeUsesApiOverride, runtimeProviderPlane } from "../../runtime-provider-planes.ts";
+import {
+  planeAllowsBaseUrl,
+  planeAllowsPermissions,
+  planeUsesApiOverride,
+  runtimeProviderPlane,
+} from "../../runtime-provider-planes.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import {
@@ -445,6 +450,22 @@ function ProviderEditor({
             ))}
           </select>
         </label>
+        {planeAllowsBaseUrl(instance.kindId, instance.authMode) && (
+          <label className="grid gap-0.5">
+            <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">
+              {t("agentRuntime.baseUrl")}
+            </span>
+            <TextInput
+              label={t("agentRuntime.baseUrl")}
+              testId="runtime-provider-base-url"
+              mono
+              value={draft.baseUrl}
+              onChange={(baseUrl) => patch({ baseUrl })}
+              placeholder="https://api.third-party.example/v1"
+            />
+            <span className="text-[10px] text-text-faint">{t("agentRuntime.baseUrlHint")}</span>
+          </label>
+        )}
         <label className="grid gap-0.5">
           <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">
             {t("agentRuntime.model")}
