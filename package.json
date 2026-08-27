@@ -59,7 +59,7 @@
     "harness:check-integrity-single-source": "node tools/check-integrity-single-source.mjs",
     "harness:check-private-boundary": "node tools/check-private-boundary.mjs",
     "harness:check-integration-test-shards": "node tools/check-integration-test-shards.mjs",
-    "harness:check-mergify-queue-contexts": "node tools/check-mergify-queue-contexts.mjs",
+    "harness:check-mergify-queue-policy": "node tools/check-mergify-queue-policy.mjs",
     "harness:windows-first-run": "node tools/gates/windows-first-run.mjs",
     "harness:check-github-required-contexts": "node tools/check-github-required-contexts.mjs",
     "harness:check-docs-release-map": "node tools/check-docs-release-map.mjs",

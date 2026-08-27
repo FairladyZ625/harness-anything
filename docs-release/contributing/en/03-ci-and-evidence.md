@@ -71,11 +71,13 @@ responsible for immediately rebasing every pull request already in the queue and
 rerunning the required gates. The emergency merge is not complete until queued
 work has a fresh base.
 
-Queue troubleshooting starts with the PR labels:
-
-1. Check whether the PR has the `dequeued` label.
-2. Ask Mergify to refresh with `@Mergifyio refresh`.
-3. Requeue with `@Mergifyio queue` after the required checks are green.
+Mergify marks a pull request removed after a queue failure with `dequeued`. If
+the pull request still has `merge-queue`, it is requeued automatically after no
+check is failed or pending, for at most two automatic recovery attempts. After
+two unsuccessful attempts, the pull request remains `dequeued` for manual
+diagnosis. To intentionally leave the queue at any time, remove the
+`merge-queue` label; the attempt count is cleared so a later opt-in starts
+fresh.
 
 ## Evidence in the PR
 
