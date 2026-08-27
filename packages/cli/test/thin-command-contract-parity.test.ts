@@ -95,10 +95,9 @@ test("all public commands expose the canonical structured input facet", () => {
   }
 });
 
-test("daemon-effective rebuilds keep their declared positional in usage", () => {
-  // #1544: effectiveDaemonOwnedProtocolCommands rebuilds task-start and repo-bootstrap by spreading an
-  // already-built command into a second defineCliCommand call. Both declare a required positional
-  // (<task-id> / --repo-id etc.), and the rebuild must not silently drop it from the rendered usage.
+test("daemon command declarations keep their declared positional in usage", () => {
+  // Both commands declare required inputs in their defining module; those declarations must not silently
+  // drop the positional or required flags from the rendered usage.
   const taskStart = daemonProtocolCommands.find((command) => command.id === "task-start");
   assert.ok(taskStart);
   assert.match(taskStart.usage, /task start <task-id>/u);

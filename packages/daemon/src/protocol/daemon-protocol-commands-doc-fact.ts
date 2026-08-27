@@ -228,6 +228,44 @@ export const docFactProtocolCommands = Object.freeze([
         },
         { enum: ["semantic", "episodic", "procedural"] },
       ),
+      cliInput(
+        "--observed-after",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use an ISO-8601 UTC timestamp with --observed-after.",
+        },
+        {
+          regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
+        },
+      ),
+      cliInput(
+        "--observed-before",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use an ISO-8601 UTC timestamp with --observed-before.",
+        },
+        {
+          regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
+        },
+      ),
+      cliInput(
+        "--limit",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use an integer from 1 to 500 with --limit.",
+        },
+        { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
+      ),
+      cliInput("--cursor", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use the cursor returned by the previous page.",
+      }),
     ],
   }),
   defineRepoReadCommand({

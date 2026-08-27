@@ -1,6 +1,6 @@
 import { presetMethods } from "../../../preset/src/preset-command-contract.ts";
 import type { ContractVersion } from "../../../kernel/src/domain/contract-version.ts";
-import { effectiveDaemonOwnedProtocolCommands } from "./daemon-protocol-commands.ts";
+import { daemonOwnedProtocolCommands } from "./daemon-protocol-commands.ts";
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import { optionalEnum, shape } from "./daemon-protocol-gui-types.ts";
@@ -394,7 +394,7 @@ export default Object.freeze({
     "Persons-Registry",
     "PLT-TestEng-W1",
   ]),
-  commands: effectiveDaemonOwnedProtocolCommands,
+  commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([
     ...daemonProtocolMethods,
     ...runtimeInstanceMethods,

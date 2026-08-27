@@ -279,10 +279,6 @@ export const agentProtocolCommands = Object.freeze([
         code: "missing_field",
         nextAction: "Add --instance <runtime-instance-id>.",
       }),
-      cliInput("--prompt", "single", true, {
-        code: "missing_field",
-        nextAction: "Add --prompt <mission>.",
-      }),
       cliInput(
         "--effort",
         "single",
@@ -297,13 +293,21 @@ export const agentProtocolCommands = Object.freeze([
         code: "invalid_field",
         nextAction: "Use one model supported by the runtime instance.",
       }),
-      cliInput("--cwd", "single", false, {
-        code: "invalid_field",
-        nextAction: "Use a repository-relative directory; omit --cwd for the repository root.",
+      cliInput("--cwd", "single", true, {
+        code: "missing_field",
+        nextAction: "Add --cwd <repository-relative-directory> to declare the Squad write boundary.",
       }),
       cliInput("--task", "single", true, {
         code: "missing_field",
         nextAction: "Add --task <active-task-id> so every squad report is archived.",
+      }),
+      cliInput("--prompt", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use exactly one of --prompt <text> or --prompt-file <path>.",
+      }),
+      cliInput("--prompt-file", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use exactly one of --prompt <text> or --prompt-file <path>.",
       }),
     ],
   }),
@@ -382,6 +386,10 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--configure-only", "boolean", false, {
         code: "invalid_field",
         nextAction: "Use --configure-only once.",
+      }),
+      cliInput("--add-npm-scripts", "boolean", false, {
+        code: "invalid_field",
+        nextAction: "Use --add-npm-scripts once.",
       }),
     ],
   }),
