@@ -2,8 +2,14 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { changedFiles, repoRoot } from "./git.mjs";
+import { isMergifyQueueDraft } from "./mergify-queue-draft.mjs";
 
-const DEPENDENCY_SECTIONS = Object.freeze(["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]);
+const DEPENDENCY_SECTIONS = Object.freeze([
+  "dependencies",
+  "devDependencies",
+  "optionalDependencies",
+  "peerDependencies",
+]);
 const DECLARATION = /^Dependency-Change:[ \t]*(.*?)\s*$/gmu;
 
 function packageManifestPaths(rootDir) {
@@ -14,7 +20,8 @@ function packageManifestPaths(rootDir) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const fullPath = path.join(directory, entry.name);
-      if (existsSync(path.join(fullPath, "package.json"))) result.push(path.relative(rootDir, path.join(fullPath, "package.json")).split(path.sep).join("/"));
+      if (existsSync(path.join(fullPath, "package.json")))
+        result.push(path.relative(rootDir, path.join(fullPath, "package.json")).split(path.sep).join("/"));
       if (depth < 1) walk(fullPath, depth + 1);
     }
   };
@@ -41,7 +48,9 @@ export function validateLockfile(rootDir) {
       const snapshot = locked[section] ?? {};
       for (const dependency of new Set([...Object.keys(declared), ...Object.keys(snapshot)])) {
         if (declared[dependency] !== snapshot[dependency]) {
-          errors.push(`${manifestPath}: ${section}.${dependency} is ${JSON.stringify(declared[dependency])} but lockfile records ${JSON.stringify(snapshot[dependency])}`);
+          errors.push(
+            `${manifestPath}: ${section}.${dependency} is ${JSON.stringify(declared[dependency])} but lockfile records ${JSON.stringify(snapshot[dependency])}`,
+          );
         }
       }
     }
@@ -49,36 +58,56 @@ export function validateLockfile(rootDir) {
   return errors;
 }
 
-export function validateDependencyDeclaration(paths, prBody, isPullRequest = true) {
-  if (!isPullRequest) return [];
-  const dependencyChanged = paths.some((filePath) => filePath === "package-lock.json" || /(?:^|\/)package\.json$/u.test(filePath));
+export function validateDependencyDeclaration(paths, prBody, declarationRequired = true) {
+  if (!declarationRequired) return [];
+  const dependencyChanged = paths.some(
+    (filePath) => filePath === "package-lock.json" || /(?:^|\/)package\.json$/u.test(filePath),
+  );
   if (!dependencyChanged) return [];
   const declarations = [...prBody.matchAll(DECLARATION)].map((match) => match[1]);
-  if (declarations.length !== 1) return [`dependency changes require exactly one Dependency-Change: declaration; found ${declarations.length}`];
-  if (declarations[0].length === 0 || /^(?:none|n\/a)$/iu.test(declarations[0])) return ["Dependency-Change: must describe the deterministic dependency change"];
+  if (declarations.length !== 1)
+    return [`dependency changes require exactly one Dependency-Change: declaration; found ${declarations.length}`];
+  if (declarations[0].length === 0 || /^(?:none|n\/a)$/iu.test(declarations[0]))
+    return ["Dependency-Change: must describe the deterministic dependency change"];
   return [];
 }
 
-function eventContext(event) {
-  if (event?.pull_request === undefined) return { isPullRequest: false, base: null, body: "" };
+export function eventContext(event) {
+  if (event?.pull_request === undefined)
+    return { declarationRequired: false, mergifyQueueDraft: false, base: null, body: "" };
+  const mergifyQueueDraft = isMergifyQueueDraft({
+    headRefName: event.pull_request.head?.ref ?? "",
+    authorLogin: event.pull_request.user?.login ?? "",
+  });
   return {
-    isPullRequest: true,
+    declarationRequired: !mergifyQueueDraft,
+    mergifyQueueDraft,
     base: event.pull_request.base?.sha ?? null,
-    body: event.pull_request.body ?? ""
+    body: event.pull_request.body ?? "",
   };
 }
 
 export function main(argv = process.argv.slice(2)) {
-  if (argv.some((arg) => !["--lock", "--sbom"].includes(arg))) throw new Error("usage: node tools/gates/dependency-policy.mjs [--lock] [--sbom]");
+  if (argv.some((arg) => !["--lock", "--sbom"].includes(arg)))
+    throw new Error("usage: node tools/gates/dependency-policy.mjs [--lock] [--sbom]");
   const rootDir = repoRoot();
-  const event = process.env.GITHUB_EVENT_PATH && existsSync(process.env.GITHUB_EVENT_PATH)
-    ? JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"))
-    : null;
+  const event =
+    process.env.GITHUB_EVENT_PATH && existsSync(process.env.GITHUB_EVENT_PATH)
+      ? JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"))
+      : null;
   const context = eventContext(event);
   const paths = context.base === null ? [] : changedFiles(rootDir, context.base);
-  const errors = [...validateLockfile(rootDir), ...validateDependencyDeclaration(paths, context.body, context.isPullRequest)];
+  const errors = [
+    ...validateLockfile(rootDir),
+    ...validateDependencyDeclaration(paths, context.body, context.declarationRequired),
+  ];
   console.log("dependency-policy: online advisory lookup skipped (non-required; deterministic gate is offline)");
-  if (argv.includes("--sbom")) console.log("dependency-policy: SBOM reporting is not required by the P2 mission contract");
+  if (context.mergifyQueueDraft)
+    console.log(
+      "dependency-policy: declaration skipped for Mergify merge-queue verification PR (the queued PR carries the declaration).",
+    );
+  if (argv.includes("--sbom"))
+    console.log("dependency-policy: SBOM reporting is not required by the P2 mission contract");
   if (errors.length > 0) for (const error of errors) console.error(`G31 dependency-policy: ${error}`);
   else console.log("G31 dependency-policy: pass");
   return errors.length === 0 ? 0 : 1;
