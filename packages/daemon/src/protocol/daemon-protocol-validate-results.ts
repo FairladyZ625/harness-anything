@@ -285,9 +285,7 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
   return errors;
 }
 
-export type ResultValidator = (value: unknown) => readonly string[];
-
-export function serializeSchema(value: unknown, validate: ResultValidator): string {
+export function serializeSchema(value: unknown, validate: (value: unknown) => readonly string[]): string {
   const errors = validate(value);
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
   return `${JSON.stringify(value)}\n`;
@@ -295,6 +293,8 @@ export function serializeSchema(value: unknown, validate: ResultValidator): stri
 
 export const serializeDaemonTaskSnapshotList = (value: unknown): string =>
     serializeSchema(value, validateDaemonTaskSnapshotList),
+  serializeDaemonGuiCommandReceipt = (value: unknown): string =>
+    serializeSchema(value, validateDaemonGuiCommandReceipt),
   serializeObserveTailResult = (value: unknown): string => serializeSchema(value, validateObserveTailResult),
   serializeDaemonWorkspaceSummary = (value: unknown): string => serializeSchema(value, validateDaemonWorkspaceSummary),
   serializeDaemonAgenda = (value: unknown): string => serializeSchema(value, validateDaemonAgenda),

@@ -293,7 +293,7 @@ export const daemonGuiActionSchemas = Object.freeze([
     id: DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
     schema: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DAEMON_GUI_COMMAND_RECEIPT_SCHEMA",
     parser: "packages/daemon/src/protocol/daemon-protocol.contract.ts#validateDaemonGuiCommandReceipt",
-    writer: "packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer",
+    writer: "packages/daemon/src/protocol/daemon-protocol-validate-results.ts#serializeDaemonGuiCommandReceipt",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-gui-command-receipt-invalid.json"]),
   },
