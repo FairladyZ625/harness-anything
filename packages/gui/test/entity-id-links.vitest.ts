@@ -136,6 +136,7 @@ function seedRuntimeQueries(client: QueryClient): void {
         validity: "valid",
         version: "1",
         defaultProfile: null,
+        profiles: [],
         entrypoints: [],
         issues: [],
         shadows: null,
@@ -143,6 +144,7 @@ function seedRuntimeQueries(client: QueryClient): void {
     ],
     verticals: [],
     templates: [],
+    scaffolds: { task: [], repository: [] },
     adapters: [],
   });
   client.setQueryData(["catalog", REPO_ID, "preset", "preset-g10", "zh-CN"], {

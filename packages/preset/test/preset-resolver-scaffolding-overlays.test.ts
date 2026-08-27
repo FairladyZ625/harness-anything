@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   compileRepositoryScaffold,
   createCanonicalPresetResolver,
+  listGovernanceScaffoldOverlays,
 } from "../src/index.ts";
 
 import { write } from "./preset-resolver.fixtures.ts";
@@ -17,10 +18,7 @@ test("project task scaffold replaces and adds prose while base ownership, anchor
       "# Project Plan\n\n## Brief\n\nB\n\n## Goal\n\nG\n\n## Context\n\nC\n\n## Required Reading\n\nR\n\n## Entry Conditions\n\nE\n\n## Dependencies\n\nD\n\n## Execution Surface\n\nE\n\n## Constraints\n\nC\n\n## Checkpoint\n\nC\n\n## CI/Gate Authority Stop Condition\n\nS\n\n## Implementation Plan\n\nP\n\n## Deliverable Contract\n\nD\n\n## Evidence Protocol\n\nE\n\n## Verification\n\nV\n";
   try {
     write(path.join(root, "templates/plan.md"), template);
-    write(
-      path.join(root, "templates/notes.md"),
-      "# Notes\n\n## Project Notes\n\nCustom.\n",
-    );
+    write(path.join(root, "templates/notes.md"), "# Notes\n\n## Project Notes\n\nCustom.\n");
     const valid = {
       schema: "task-scaffold/v1",
       replaceTemplate: [{ slot: "task.plan", template: "templates/plan.md" }],
@@ -51,18 +49,12 @@ test("project task scaffold replaces and adds prose while base ownership, anchor
     if (applied.ok) {
       assert.equal(applied.snapshot.templates.length, 5);
       assert.equal(applied.snapshot.templates[0]?.owner, "doc-sync");
-      assert.equal(
-        applied.snapshot.templates[0]?.templateRef,
-        "project://templates/plan.md",
-      );
+      assert.equal(applied.snapshot.templates[0]?.templateRef, "project://templates/plan.md");
       assert.deepEqual(
         applied.snapshot.templates.slice(-2).map(({ slot }) => slot),
         ["project.notes", "task.code.impact.analysis"],
       );
-      assert.match(
-        String(applied.snapshot.scaffold.overlayDigest),
-        /^sha256:/u,
-      );
+      assert.match(String(applied.snapshot.scaffold.overlayDigest), /^sha256:/u);
     }
     write(
       scaffold,
@@ -73,8 +65,7 @@ test("project task scaffold replaces and adds prose while base ownership, anchor
     );
     let rejected = await resolve();
     assert.equal(rejected.ok, false);
-    if (!rejected.ok)
-      assert.equal(rejected.error.code, "invalid_task_scaffold");
+    if (!rejected.ok) assert.equal(rejected.error.code, "invalid_task_scaffold");
     write(path.join(root, "templates/plan.md"), "# Missing anchors\n");
     write(scaffold, JSON.stringify(valid));
     rejected = await resolve();
@@ -100,16 +91,11 @@ test("project task scaffold replaces and adds prose while base ownership, anchor
     );
     rejected = await resolve();
     assert.equal(rejected.ok, false);
-    if (!rejected.ok)
-      assert.equal(rejected.error.code, "invalid_task_scaffold");
-    write(
-      scaffold,
-      JSON.stringify({ ...valid, deleteDocument: ["task.plan"] }),
-    );
+    if (!rejected.ok) assert.equal(rejected.error.code, "invalid_task_scaffold");
+    write(scaffold, JSON.stringify({ ...valid, deleteDocument: ["task.plan"] }));
     rejected = await resolve();
     assert.equal(rejected.ok, false);
-    if (!rejected.ok)
-      assert.equal(rejected.error.code, "invalid_task_scaffold");
+    if (!rejected.ok) assert.equal(rejected.error.code, "invalid_task_scaffold");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -124,10 +110,7 @@ test("task and repository overlays share replace/add validation while keeping se
       path.join(authoredRoot, "templates/architecture.md"),
       "# Architecture\n\n## Purpose\n\nProject architecture entry.\n\n## Opt-in Boundary\n\nNo model is enabled by init.\n",
     );
-    write(
-      path.join(authoredRoot, "templates/project.md"),
-      "# Project Context\n\n## Project Notes\n\nCustom.\n",
-    );
+    write(path.join(authoredRoot, "templates/project.md"), "# Project Context\n\n## Project Notes\n\nCustom.\n");
     const valid = {
       schema: "repository-scaffold/v1",
       replaceTemplate: [
@@ -160,15 +143,11 @@ test("task and repository overlays share replace/add validation while keeping se
       Array(16).fill("created"),
     );
     assert.equal(
-      applied.documents.find(
-        ({ slot }) => slot === "repository.context.architecture",
-      )?.templateRef,
+      applied.documents.find(({ slot }) => slot === "repository.context.architecture")?.templateRef,
       "project://templates/architecture.md",
     );
     assert.deepEqual(
-      applied.documents
-        .filter(({ slot }) => slot.startsWith("repository.standard."))
-        .map(({ path: target }) => target),
+      applied.documents.filter(({ slot }) => slot.startsWith("repository.standard.")).map(({ path: target }) => target),
       [
         "harness/governance/standards/README.md",
         "harness/governance/standards/repository-governance.md",
@@ -178,11 +157,7 @@ test("task and repository overlays share replace/add validation while keeping se
     assert.match(String(applied.projectOverlayDigest), /^sha256:/u);
     assert.match(applied.baseScaffoldDigest, /^sha256:/u);
     write(scaffold, JSON.stringify({ ...valid, schema: "task-scaffold/v1" }));
-    assert.throws(
-      compile,
-      (error: unknown) =>
-        (error as { code?: string }).code === "invalid_repository_scaffold",
-    );
+    assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "invalid_repository_scaffold");
     write(
       scaffold,
       JSON.stringify({
@@ -190,11 +165,7 @@ test("task and repository overlays share replace/add validation while keeping se
         replaceTemplate: [{ ...valid.replaceTemplate[0], owner: "machine" }],
       }),
     );
-    assert.throws(
-      compile,
-      (error: unknown) =>
-        (error as { code?: string }).code === "invalid_repository_scaffold",
-    );
+    assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "invalid_repository_scaffold");
     write(
       scaffold,
       JSON.stringify({
@@ -207,11 +178,7 @@ test("task and repository overlays share replace/add validation while keeping se
         ],
       }),
     );
-    assert.throws(
-      compile,
-      (error: unknown) =>
-        (error as { code?: string }).code === "invalid_repository_scaffold",
-    );
+    assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "invalid_repository_scaffold");
     write(
       scaffold,
       JSON.stringify({
@@ -224,23 +191,15 @@ test("task and repository overlays share replace/add validation while keeping se
         ],
       }),
     );
-    assert.throws(
-      compile,
-      (error: unknown) => (error as { code?: string }).code === "reserved_path",
-    );
+    assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "reserved_path");
     write(
       scaffold,
       JSON.stringify({
         ...valid,
-        addDocument: [
-          { ...valid.addDocument[0], path: "harness/standards/README.md" },
-        ],
+        addDocument: [{ ...valid.addDocument[0], path: "harness/standards/README.md" }],
       }),
     );
-    assert.throws(
-      compile,
-      (error: unknown) => (error as { code?: string }).code === "reserved_path",
-    );
+    assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "reserved_path");
     write(
       scaffold,
       JSON.stringify({
@@ -253,10 +212,7 @@ test("task and repository overlays share replace/add validation while keeping se
         ],
       }),
     );
-    assert.throws(
-      compile,
-      (error: unknown) => (error as { code?: string }).code === "reserved_path",
-    );
+    assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "reserved_path");
     write(
       path.join(root, "outside/architecture.md"),
       "# Architecture\n\n## Purpose\n\nOutside.\n\n## Opt-in Boundary\n\nNo model.\n",
@@ -274,21 +230,10 @@ test("task and repository overlays share replace/add validation while keeping se
         ],
       }),
     );
-    assert.throws(
-      compile,
-      (error: unknown) =>
-        (error as { code?: string }).code === "invalid_repository_scaffold",
-    );
-    write(
-      path.join(authoredRoot, "templates/architecture.md"),
-      "# Missing anchors\n",
-    );
+    assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "invalid_repository_scaffold");
+    write(path.join(authoredRoot, "templates/architecture.md"), "# Missing anchors\n");
     write(scaffold, JSON.stringify(valid));
-    assert.throws(
-      compile,
-      (error: unknown) =>
-        (error as { code?: string }).code === "required_anchor",
-    );
+    assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "required_anchor");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -298,10 +243,7 @@ test("repository init plan consumes the declaration and composes package-local A
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repository-plan-"));
   try {
     const vertical = JSON.parse(
-        readFileSync(
-          new URL("../assets/software-coding/vertical.json", import.meta.url),
-          "utf8",
-        ),
+        readFileSync(new URL("../assets/software-coding/vertical.json", import.meta.url), "utf8"),
       ) as {
         repositoryScaffold: {
           seededDocs: Array<{ slot: string }>;
@@ -318,28 +260,16 @@ test("repository init plan consumes the declaration and composes package-local A
           verticalId: "software/coding",
           locale,
         }),
-        agents = plan.documents.find(
-          ({ slot }) => slot === "repository.agent.entry",
-        );
-      assert.deepEqual(
-        plan.documents.map(({ slot }) => slot).sort(),
-        expectedSlots,
-      );
+        agents = plan.documents.find(({ slot }) => slot === "repository.agent.entry");
+      assert.deepEqual(plan.documents.map(({ slot }) => slot).sort(), expectedSlots);
       assert.equal(agents?.path, "AGENTS.md");
       assert.match(agents?.body ?? "", /## Context Loading/u);
       assert.match(agents?.body ?? "", /## Harness CLI \(software\/coding\)/u);
       assert.match(agents?.body ?? "", /## Repository Specifics/u);
-      assert.equal(
-        agents?.requiredAnchors.includes(
-          vertical.repositoryScaffold.agentsEntry.repoSpecificsAnchor,
-        ),
-        true,
-      );
+      assert.equal(agents?.requiredAnchors.includes(vertical.repositoryScaffold.agentsEntry.repoSpecificsAnchor), true);
       assert.equal(
         plan.documents.some(
-          ({ path: target }) =>
-            target.includes("harness/standards/") ||
-            target.includes("architecture-manifest.json"),
+          ({ path: target }) => target.includes("harness/standards/") || target.includes("architecture-manifest.json"),
         ),
         false,
       );
@@ -352,13 +282,41 @@ test("repository init plan consumes the declaration and composes package-local A
           locale: "en-US",
         }),
       (error: unknown) =>
-        (error as { code?: string; message?: string }).code ===
-          "missing_vertical" &&
-        /Available vertical ids: software\/coding\./u.test(
-          (error as { message?: string }).message ?? "",
-        ),
+        (error as { code?: string; message?: string }).code === "missing_vertical" &&
+        /Available vertical ids: software\/coding\./u.test((error as { message?: string }).message ?? ""),
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("governance scaffold discovery enumerates overlay documents by declared schema, not by filename", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-scaffold-discovery-"));
+  try {
+    write(
+      path.join(root, "harness/governance/task-scaffold.json"),
+      JSON.stringify({ schema: "task-scaffold/v1", replaceTemplate: [], addDocument: [] }),
+    );
+    write(
+      path.join(root, "harness/governance/nested/repository-scaffold.json"),
+      JSON.stringify({ schema: "repository-scaffold/v1", replaceTemplate: [], addDocument: [] }),
+    );
+    // 同名但 schema 不匹配:不是合法取值,不得因为文件名像就出现在选项里。
+    write(path.join(root, "harness/governance/task-scaffold-draft.json"), JSON.stringify({ schema: "draft/v1" }));
+    // 解析失败的邻居文件不拖垮整个读面。
+    write(path.join(root, "harness/governance/broken.json"), "{ not json");
+    write(path.join(root, "harness/governance/generated/Template-Projections.json"), JSON.stringify({ rows: [] }));
+    const overlays = listGovernanceScaffoldOverlays(root);
+    assert.deepEqual(overlays.task, ["governance/task-scaffold.json"]);
+    assert.deepEqual(overlays.repository, ["governance/nested/repository-scaffold.json"]);
+    // 没有 governance 根的仓库读到的是空清单,而不是错误。
+    const bare = mkdtempSync(path.join(tmpdir(), "ha-scaffold-discovery-bare-"));
+    try {
+      assert.deepEqual(listGovernanceScaffoldOverlays(bare), { task: [], repository: [] });
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

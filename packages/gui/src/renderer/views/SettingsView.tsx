@@ -6,7 +6,8 @@ import { STATUS_META } from "../components/badges";
 import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
 import { readTimeZoneOverride, supportedTimeZones, systemTimeZone, writeTimeZoneOverride } from "../model/time.ts";
 import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
-import type { SettingsSuccess } from "../api-client.ts";
+import { useCatalogSnapshot } from "../catalog-data.ts";
+import type { CatalogPresetRow, SettingsSuccess } from "../api-client.ts";
 
 const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: "dark", label: "暗色" },
@@ -58,6 +59,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
   const [timeZoneOverride, setTimeZoneOverride] = useState(() => readTimeZoneOverride() ?? "");
   const settingsQuery = useSettingsQuery(repoId);
   const settingsMutation = useSettingsMutation(repoId);
+  const catalogQuery = useCatalogSnapshot(repoId);
   const [draft, setDraft] = useState<SettingsDraft | null>(null);
 
   useEffect(() => {
@@ -70,6 +72,68 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
     field: keyof Pick<SettingsDraft, "defaultVertical" | "defaultPreset" | "defaultProfile">,
     value: string,
   ) => setDraft((current) => (current ? { ...current, [field]: value } : current));
+
+  // 仓库设置的每个字段取值面都是可枚举的,枚举来源是 daemon 目录快照,不是手打字符串。
+  // 目录读不到时选择器停用(fail closed),不回退成自由文本输入。
+  const snapshot = catalogQuery.data,
+    catalogBlocked = catalogQuery.isPending || !!catalogQuery.error,
+    verticalOptions = selectorOptions(
+      (snapshot?.verticals ?? []).map((row) => ({
+        value: row.id,
+        label:
+          row.available && row.valid ? row.id : t("views.settingsView.catalogUnavailableOption", { value: row.id }),
+      })),
+      draft?.defaultVertical,
+    ),
+    presetOptions = selectorOptions(
+      (snapshot?.presets ?? [])
+        .filter((row) => row.verticalId === draft?.defaultVertical)
+        .map((row) => ({
+          value: row.id,
+          label: row.validity === "valid" ? `${row.id} · ${row.title}` : `${row.id} · ${row.validity}`,
+        })),
+      draft?.defaultPreset,
+    ),
+    selectedPreset = (snapshot?.presets ?? []).find(
+      (row) => row.id === draft?.defaultPreset && row.verticalId === draft?.defaultVertical,
+    ),
+    profileOptions = selectorOptions(
+      cataloguedProfiles(selectedPreset).map((profile) => ({
+        value: profile.id,
+        label: `${profile.id} · ${profile.title}`,
+      })),
+      draft?.defaultProfile,
+    ),
+    taskScaffoldOptions = selectorOptions(
+      (snapshot?.scaffolds.task ?? []).map((value) => ({ value })),
+      draft?.scaffolds.task,
+    ),
+    repositoryScaffoldOptions = selectorOptions(
+      (snapshot?.scaffolds.repository ?? []).map((value) => ({ value })),
+      draft?.scaffolds.repository,
+    );
+
+  const chooseVertical = (verticalId: string) =>
+    setDraft((current) => {
+      if (!current) return current;
+      const next = { ...current, defaultVertical: verticalId },
+        presets = (snapshot?.presets ?? []).filter((row) => row.verticalId === verticalId && row.validity === "valid"),
+        defaultPresetId = snapshot?.defaults.verticalId === verticalId ? snapshot.defaults.presetId : undefined,
+        row =
+          presets.find((candidate) => candidate.id === current.defaultPreset) ??
+          presets.find((candidate) => candidate.id === defaultPresetId) ??
+          presets[0];
+      return row ? selectPreset(next, row.id, row) : next;
+    });
+
+  const choosePreset = (presetId: string) =>
+    setDraft((current) => {
+      if (!current) return current;
+      const row = (snapshot?.presets ?? []).find(
+        (candidate) => candidate.id === presetId && candidate.verticalId === current.defaultVertical,
+      );
+      return selectPreset(current, presetId, row);
+    });
 
   const renderActivePanel = () => {
     switch (activeTab) {
@@ -108,38 +172,53 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
               </button>
             }
           >
-            <Row label="默认垂直" desc="新任务使用的垂直能力目录">
-              <SettingInput
+            <Row label="默认垂直" desc={t("views.settingsView.verticalDescription")}>
+              <SettingSelect
                 label="默认垂直"
+                testId="settings-vertical-select"
                 value={draft.defaultVertical}
-                onChange={(value) => updateDraft("defaultVertical", value)}
+                disabled={catalogBlocked}
+                options={verticalOptions}
+                onChange={chooseVertical}
               />
             </Row>
-            <Row label="默认预设" desc="新任务的 preset id">
-              <SettingInput
+            <Row label="默认预设" desc={t("views.settingsView.presetDescription")}>
+              <SettingSelect
                 label="默认预设"
+                testId="settings-preset-select"
                 value={draft.defaultPreset}
-                onChange={(value) => updateDraft("defaultPreset", value)}
+                disabled={catalogBlocked}
+                options={presetOptions}
+                onChange={choosePreset}
               />
             </Row>
-            <Row label="默认配置" desc="preset profile id">
-              <SettingInput
+            <Row label="默认配置" desc={t("views.settingsView.profileDescription")}>
+              <SettingSelect
                 label="默认配置"
+                testId="settings-profile-select"
                 value={draft.defaultProfile}
+                disabled={catalogBlocked}
+                options={profileOptions}
                 onChange={(value) => updateDraft("defaultProfile", value)}
               />
             </Row>
-            <Row label="任务脚手架" desc="settings.scaffolds.task">
-              <SettingInput
+            <Row label="任务脚手架" desc={t("views.settingsView.taskScaffoldDescription")}>
+              <SettingSelect
                 label="任务脚手架"
+                testId="settings-task-scaffold-select"
                 value={draft.scaffolds.task}
+                disabled={catalogBlocked}
+                options={taskScaffoldOptions}
                 onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, task: value } })}
               />
             </Row>
-            <Row label="仓库脚手架" desc="settings.scaffolds.repository">
-              <SettingInput
+            <Row label="仓库脚手架" desc={t("views.settingsView.repositoryScaffoldDescription")}>
+              <SettingSelect
                 label="仓库脚手架"
+                testId="settings-repository-scaffold-select"
                 value={draft.scaffolds.repository}
+                disabled={catalogBlocked}
+                options={repositoryScaffoldOptions}
                 onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, repository: value } })}
               />
             </Row>
@@ -148,6 +227,11 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 settings/{draft.settingsId} · {draft.schema}
               </span>
             </Row>
+            {catalogQuery.error ? (
+              <div className="px-3 py-2 text-[12px] text-danger">
+                {t("views.settingsView.catalogUnavailableHint", { error: String(catalogQuery.error) })}
+              </div>
+            ) : null}
             {settingsMutation.error ? (
               <div className="px-3 py-2 text-[12px] text-danger">{String(settingsMutation.error)}</div>
             ) : null}
@@ -356,24 +440,81 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
   );
 }
 
-function SettingInput({
+function SettingSelect({
   label,
+  testId,
   value,
+  options,
   onChange,
+  disabled,
 }: {
   readonly label: string;
+  readonly testId: string;
   readonly value: string;
+  readonly options: readonly SelectorOption[];
   readonly onChange: (value: string) => void;
+  readonly disabled?: boolean;
 }) {
   return (
-    <input
+    <select
       aria-label={label}
+      data-testid={testId}
+      disabled={disabled}
       className={[
         "w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1",
-        "font-mono text-[12px] text-text",
+        "font-mono text-[12px] text-text disabled:cursor-not-allowed disabled:opacity-40",
       ].join(" ")}
       value={value}
       onChange={(event) => onChange(event.currentTarget.value)}
-    />
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
   );
+}
+
+interface SelectorOption {
+  readonly value: string;
+  readonly label: string;
+}
+
+/** 目录取值面 + 当前值取并集:当前值不在目录里也照实显示并保留可提交,
+ * 否则一个指向尚未创建文件/未登记 preset 的既有设置会凭空变成空选择。 */
+function selectorOptions(
+  catalogued: ReadonlyArray<{ readonly value: string; readonly label?: string }>,
+  current: string | undefined,
+): readonly SelectorOption[] {
+  const options = catalogued.map((row) => ({ value: row.value, label: row.label ?? row.value }));
+  if (current && !options.some((option) => option.value === current))
+    options.push({ value: current, label: t("views.settingsView.catalogMissingOption", { value: current }) });
+  return options;
+}
+
+/** preset/profile 一致性只在这里收敛:vertical 与 preset 两种切换都复用同一条联动。 */
+function selectPreset(current: SettingsDraft, presetId: string, row: CatalogPresetRow | undefined): SettingsDraft {
+  const profiles = cataloguedProfiles(row),
+    keepProfile = !row || profiles.length === 0 || profiles.some((profile) => profile.id === current.defaultProfile);
+  return {
+    ...current,
+    defaultPreset: presetId,
+    defaultProfile: keepProfile ? current.defaultProfile : (row.defaultProfile ?? current.defaultProfile),
+  };
+}
+
+/** preset 行的 profile 取值面;清单为空时退到该 preset 的 defaultProfile,
+ * 两者都没有(目录行不可解析)则交由并集逻辑只保留当前值。 */
+function cataloguedProfiles(
+  row:
+    | {
+        readonly profiles: ReadonlyArray<{ readonly id: string; readonly title: string }>;
+        readonly defaultProfile: string | null;
+      }
+    | undefined,
+): ReadonlyArray<{ readonly id: string; readonly title: string }> {
+  if (!row) return [];
+  if (row.profiles.length > 0) return row.profiles;
+  return row.defaultProfile ? [{ id: row.defaultProfile, title: row.defaultProfile }] : [];
 }

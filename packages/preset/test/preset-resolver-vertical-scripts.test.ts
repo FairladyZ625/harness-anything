@@ -33,19 +33,26 @@ test("generic list, inspect, check, install, and uninstall actions share the can
       version?: string;
       kind?: string;
       defaultProfile?: string;
+      profiles?: Array<{ id: string; title: string }>;
       entrypoints?: string[];
       issues: unknown[];
       issueCount?: number;
     }>;
     assert.equal(listed.length, 12);
-    const standardRow = listed.find(({ id }) => id === "standard-task")!;
+    const standardRow = listed.find(({ id }) => id === "standard-task")!,
+      // The golden row pins the display projection; profile entries come from
+      // the same bundled manifest the catalog derives from, so a manifest
+      // profile change tracks here instead of drifting behind a second
+      // handwritten copy.
+      standardManifest = JSON.parse(
+        readFileSync(new URL("../assets/software-coding/presets/standard-task/preset.json", import.meta.url), "utf8"),
+      ) as { profiles: Array<{ id: string; title: string }> };
     assert.deepEqual(
       { ...standardRow, source: path.basename(standardRow.source) },
       {
         id: "standard-task",
         title: "Standard Task",
-        description:
-          "Create the standard planning, facts, and closeout scaffold for general software work.",
+        description: "Create the standard planning, facts, and closeout scaffold for general software work.",
         verticalId: "software/coding",
         layer: "bundled",
         source: "standard-task",
@@ -53,6 +60,10 @@ test("generic list, inspect, check, install, and uninstall actions share the can
         version: "3.0.0",
         kind: "template-content",
         defaultProfile: "baseline",
+        profiles: standardManifest.profiles.map(({ id, title }) => ({
+          id,
+          title,
+        })),
         outputShape: "repository-diff",
         completionGates: ["ci", "code-doc-reconciliation"],
         entrypoints: [],
@@ -150,8 +161,7 @@ test("generic list, inspect, check, install, and uninstall actions share the can
         rootDir,
         action: { kind: "preset-unknown", presetId: "standard-task" },
       }),
-      (error: unknown) =>
-        (error as { code?: string }).code === "unsupported_command",
+      (error: unknown) => (error as { code?: string }).code === "unsupported_command",
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -208,10 +218,7 @@ test("builtin vertical validation is closed while custom verticals stay explicit
 
 test("software coding declaration closes lifecycle, repository, projection, and discovery assets", () => {
   const vertical = JSON.parse(
-    readFileSync(
-      new URL("../assets/software-coding/vertical.json", import.meta.url),
-      "utf8",
-    ),
+    readFileSync(new URL("../assets/software-coding/vertical.json", import.meta.url), "utf8"),
   ) as {
     entityFieldExtensions?: Array<{ field: string; values: string[] }>;
     entityKinds: Array<{
@@ -296,25 +303,14 @@ test("software coding declaration closes lifecycle, repository, projection, and 
       "vertical:software-coding:decision-conformance",
     ],
   );
-  assert.ok(
-    vertical.scripts.every(
-      ({ command }) =>
-        command.startsWith("scripts/") && command.endsWith(".mjs"),
-    ),
-  );
+  assert.ok(vertical.scripts.every(({ command }) => command.startsWith("scripts/") && command.endsWith(".mjs")));
   assert.deepEqual(vertical.projectionSchemas, [
     { id: "task-frontmatter", schemaRef: "schema://task-frontmatter" },
     { id: "decision-frontmatter", schemaRef: "schema://decision-frontmatter" },
     { id: "fact-event", schemaRef: "schema://fact-event" },
   ]);
   const catalog = JSON.parse(
-      readFileSync(
-        new URL(
-          "../assets/software-coding/template-catalog.json",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
+      readFileSync(new URL("../assets/software-coding/template-catalog.json", import.meta.url), "utf8"),
     ) as { documents: Array<{ id: string; materializeAs: string }> },
     ids = new Set(catalog.documents.map(({ id }) => id));
   for (const id of [
@@ -333,8 +329,7 @@ test("software coding declaration closes lifecycle, repository, projection, and 
   assert.equal(
     catalog.documents.some(
       ({ materializeAs }) =>
-        materializeAs.includes("{{paths.authoredRoot}}/standards") ||
-        materializeAs.startsWith("harness/standards"),
+        materializeAs.includes("{{paths.authoredRoot}}/standards") || materializeAs.startsWith("harness/standards"),
     ),
     false,
   );
@@ -342,10 +337,7 @@ test("software coding declaration closes lifecycle, repository, projection, and 
 
 test("builtin script preparation binds one declared command and rejects undeclared or out-of-scope plans", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-script-prepare-"));
-  write(
-    path.join(rootDir, "harness/harness.yaml"),
-    "layout:\n  adrRoot: harness/decisions/adrs\n",
-  );
+  write(path.join(rootDir, "harness/harness.yaml"), "layout:\n  adrRoot: harness/decisions/adrs\n");
   try {
     const action = {
         schema: "vertical-script-action/v1",
@@ -362,18 +354,11 @@ test("builtin script preparation binds one declared command and rejects undeclar
       });
     assert.equal(path.basename(prepared.command), "adr-seed.mjs");
     assert.equal(
-      prepared.readRoots.some((root) =>
-        root.endsWith(
-          path.join("packages", "preset", "assets", "software-coding"),
-        ),
-      ),
+      prepared.readRoots.some((root) => root.endsWith(path.join("packages", "preset", "assets", "software-coding"))),
       true,
     );
     assert.deepEqual(prepared.writePatterns, ["decisions/adrs/**"]);
-    assert.deepEqual(prepared.producePatterns, [
-      "decisions/adrs/README.md",
-      "decisions/adrs/0000-template.md",
-    ]);
+    assert.deepEqual(prepared.producePatterns, ["decisions/adrs/README.md", "decisions/adrs/0000-template.md"]);
     const accepted = acceptBuiltinVerticalScriptPlan(
       prepared,
       JSON.stringify({
@@ -403,8 +388,7 @@ test("builtin script preparation binds one declared command and rejects undeclar
             changes: [{ ...accepted.changes[0], path: "tasks/escape.md" }],
           }),
         ),
-      (error: unknown) =>
-        (error as { code?: string }).code === "script_scope_violation",
+      (error: unknown) => (error as { code?: string }).code === "script_scope_violation",
     );
     assert.throws(
       () =>
@@ -416,8 +400,7 @@ test("builtin script preparation binds one declared command and rejects undeclar
           },
           commitSha: "a".repeat(40),
         }),
-      (error: unknown) =>
-        (error as { code?: string }).code === "script_not_found",
+      (error: unknown) => (error as { code?: string }).code === "script_not_found",
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -428,10 +411,7 @@ test("all seven declared builtin script assets emit accepted deterministic plans
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-script-assets-")),
     taskId = "task_01KZXSYDTJ3K1YE88294X33QNW",
     commitSha = "b".repeat(40);
-  write(
-    path.join(rootDir, "harness/harness.yaml"),
-    "layout:\n  adrRoot: harness/decisions/adrs\n",
-  );
+  write(path.join(rootDir, "harness/harness.yaml"), "layout:\n  adrRoot: harness/decisions/adrs\n");
   write(
     path.join(rootDir, `harness/tasks/${taskId}/INDEX.md`),
     `---\nschema: task-package/v2\ntask_id: ${taskId}\n---\n# Script task\n`,
@@ -441,11 +421,7 @@ test("all seven declared builtin script assets emit accepted deterministic plans
     "---\ndecision_id: dec_SCRIPT\nstate: active\n---\n# Script execution decision\n",
   );
   try {
-    const execute = (
-        name: string,
-        task: string | null = null,
-        inputs: Record<string, string> = {},
-      ) => {
+    const execute = (name: string, task: string | null = null, inputs: Record<string, string> = {}) => {
         const action = {
             schema: "vertical-script-action/v1",
             kind: "script-run",
@@ -472,20 +448,11 @@ test("all seven declared builtin script assets emit accepted deterministic plans
         return acceptBuiltinVerticalScriptPlan(prepared, frame);
       },
       materialize = (plan: ReturnType<typeof execute>) => {
-        for (const change of plan.changes)
-          write(path.join(rootDir, "harness", change.path), change.body);
+        for (const change of plan.changes) write(path.join(rootDir, "harness", change.path), change.body);
       };
     const init = execute("architecture-init");
     assert.equal(init.changes.length, 7);
-    assert.equal(
-      existsSync(
-        path.join(
-          rootDir,
-          "harness/context/architecture/architecture-manifest.json",
-        ),
-      ),
-      false,
-    );
+    assert.equal(existsSync(path.join(rootDir, "harness/context/architecture/architecture-manifest.json")), false);
     materialize(init);
     const snapshot = execute("architecture-snapshot", taskId);
     assert.deepEqual(

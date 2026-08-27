@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { localAdapterProviderMetadata } from "../../adapters/local/src/index.ts";
 import { multicaAdapterProviderMetadata } from "../../adapters/multica/src/index.ts";
 import type { SettingsV1 } from "../../kernel/src/index.ts";
-import { runPresetAction } from "../../preset/src/index.ts";
+import { listGovernanceScaffoldOverlays, runPresetAction } from "../../preset/src/index.ts";
 import { presetRuntimeDefaults } from "../../preset/src/preset-system.ts";
 import {
   writeCatalogPreset,
@@ -22,6 +22,7 @@ type PresetEntry = {
   readonly version?: string;
   readonly kind?: string;
   readonly defaultProfile?: string;
+  readonly profiles?: readonly { readonly id: string; readonly title: string }[];
   readonly entrypoints?: readonly string[];
   readonly issues: readonly JsonObject[];
   readonly shadows?: { readonly layer: "bundled"; readonly title: string };
@@ -63,6 +64,7 @@ export function openGuiCatalog(input: {
       version: entry.version ?? null,
       kind: entry.kind ?? null,
       defaultProfile: entry.defaultProfile ?? null,
+      profiles: entry.profiles ?? [],
       entrypoints: entry.entrypoints ?? [],
       issues: entry.issues,
       shadows: entry.shadows ?? null,
@@ -87,6 +89,8 @@ export function openGuiCatalog(input: {
         },
       ],
       templates,
+      // 仓库设置选择器的取值面:governance 根下已存在的 overlay 文档,authored-root 相对路径。
+      scaffolds: listGovernanceScaffoldOverlays(input.rootDir),
       adapters: [localAdapterProviderMetadata, multicaAdapterProviderMetadata].map((adapter) => ({
         adapterId: adapter.id,
         registered: true,

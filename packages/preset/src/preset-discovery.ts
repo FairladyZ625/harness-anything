@@ -14,6 +14,10 @@ import path from "node:path";
 type PresetCatalogDisplayEntry = PresetCatalogEntryV1 & {
   readonly outputShape?: string;
   readonly completionGates?: readonly string[];
+  /** Profile ids the manifest declares, in manifest order. Display-only facet:
+   * callers that need to enumerate a preset's legal profiles (settings
+   * selectors, GUI catalog) read it here instead of re-deriving from disk. */
+  readonly profiles?: readonly { readonly id: string; readonly title: string }[];
 };
 
 export function runBuiltinDiscoveryAction(
@@ -36,11 +40,7 @@ export function runBuiltinDiscoveryAction(
       document = assets.catalog.catalog.documents.find(
         ({ id, version }) => `template://${id}@${version}` === templateRef,
       );
-    if (!document)
-      throw presetFailure(
-        "template_not_found",
-        `Template ${templateRef} is unavailable.`,
-      );
+    if (!document) throw presetFailure("template_not_found", `Template ${templateRef} is unavailable.`);
     const selection = {
         slot: document.slot,
         templateRef,
@@ -74,9 +74,7 @@ export function runBuiltinDiscoveryAction(
       digest: `sha256:${resolverContentHash(rendered.body)}`,
     };
   }
-  const scripts = [...assets.vertical.scripts].sort((left, right) =>
-    left.id.localeCompare(right.id),
-  );
+  const scripts = [...assets.vertical.scripts].sort((left, right) => left.id.localeCompare(right.id));
   if (action.kind === "script-list")
     return scripts.map(({ id, type, metadata }) => ({
       id,
@@ -88,8 +86,7 @@ export function runBuiltinDiscoveryAction(
   if (action.kind === "script-inspect") {
     const id = requiredText(action.scriptId, "scriptId"),
       declaration = scripts.find((script) => script.id === id);
-    if (!declaration)
-      throw presetFailure("script_not_found", `Script ${id} is unavailable.`);
+    if (!declaration) throw presetFailure("script_not_found", `Script ${id} is unavailable.`);
     return {
       schema: "vertical-script-inspection/v1",
       source,
@@ -101,16 +98,10 @@ export function runBuiltinDiscoveryAction(
       },
     };
   }
-  throw presetFailure(
-    "unsupported_command",
-    `No builtin discovery contract exists for ${action.kind}.`,
-  );
+  throw presetFailure("unsupported_command", `No builtin discovery contract exists for ${action.kind}.`);
 }
 
-export function listCatalog(
-  catalog: Map<string, Candidate>,
-  verticalId: string,
-): PresetCatalogDisplayEntry[] {
+export function listCatalog(catalog: Map<string, Candidate>, verticalId: string): PresetCatalogDisplayEntry[] {
   return [...catalog.values()]
     .filter((item) => item.verticalId === verticalId)
     .map(
@@ -127,13 +118,12 @@ export function listCatalog(
               version: item.decoded.manifest.version,
               kind: item.decoded.manifest.kind,
               defaultProfile: item.decoded.manifest.defaultProfile,
+              profiles: item.decoded.manifest.profiles.map(({ id, title }) => ({ id, title })),
               outputShape: item.decoded.manifest.outputShape,
               completionGates: item.decoded.manifest.profiles.find(
                 ({ id }) => id === item.decoded?.manifest.defaultProfile,
               )!.completionGates,
-              entrypoints: Object.keys(
-                item.decoded.manifest.entrypoints ?? {},
-              ).sort(),
+              entrypoints: Object.keys(item.decoded.manifest.entrypoints ?? {}).sort(),
               issues: [],
               issueCount: 0,
             }
@@ -145,17 +135,10 @@ export function listCatalog(
               layer: item.layer,
               source: item.source,
               validity: "blocked",
-              issues: [
-                item.error ??
-                  presetFailure("invalid_package", "Invalid package"),
-              ],
+              issues: [item.error ?? presetFailure("invalid_package", "Invalid package")],
               issueCount: 1,
               errorCode: item.error?.code ?? "invalid_package",
-              ...catalogRecovery(
-                item,
-                item.error ??
-                  presetFailure("invalid_package", "Invalid package"),
-              ),
+              ...catalogRecovery(item, item.error ?? presetFailure("invalid_package", "Invalid package")),
               ...(item.shadow
                 ? {
                     shadows: {

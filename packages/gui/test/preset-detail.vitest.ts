@@ -70,6 +70,7 @@ function seedQueries(client: QueryClient): void {
         version: "3.0.0",
         kind: "template-content",
         defaultProfile: "baseline",
+        profiles: [{ id: "baseline", title: "Baseline" }],
         entrypoints: [],
         issues: [],
         shadows: null,
@@ -77,6 +78,7 @@ function seedQueries(client: QueryClient): void {
     ],
     verticals: [],
     templates: [],
+    scaffolds: { task: [], repository: [] },
     adapters: [],
   });
   client.setQueryData(catalogQueryKeys.preset(REPO_ID, PRESET_ID, "zh-CN"), {
