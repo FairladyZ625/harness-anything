@@ -45,6 +45,7 @@ export async function executeAction(
       ...(cell.input.shouldStop ? { shouldStop: cell.input.shouldStop } : {}),
     });
   if (action.kind === "projection-rebuild") {
+    cell.settingsActions.initializeFromAuthoredDocument(binding);
     const rebuilt = cell.projection.rebuild(),
       sourceRevision = cell.store.readHead()?.revision ?? 0,
       opId = cell.operationId(action, binding, cell.input.repoId, sourceRevision),
@@ -86,6 +87,7 @@ export async function executeAction(
         };
   }
   if (action.kind === "ledger-migrate") {
+    cell.settingsActions.initializeFromAuthoredDocument(binding);
     const appended = cell.store.migrateLayout({
       actor: binding.actor,
       source: binding.source,

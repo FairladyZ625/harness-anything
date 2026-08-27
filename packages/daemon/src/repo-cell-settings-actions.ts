@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   compileSettingsChangedEvent,
+  readSettingsFacet,
   resolveHarnessLayout,
   validateSettingsV1,
   writeSettingsFacet,
@@ -53,6 +54,14 @@ export function makeRepoCellSettingsActions(cell: any) {
       digest = createHash("sha256").update(`${cell.input.repoId}\0${documentBody}`).digest("hex"),
       opId = `settings-initialize-${digest}`;
     return append(settings, documentBody, documentBody, opId, revision, binding);
+  };
+
+  const initializeFromAuthoredDocument = (binding: RepoCellBinding) => {
+    if (cell.store.read().events.some((event: { readonly schema: string }) => event.schema === "settings-event/v1"))
+      return null;
+    const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml"),
+      documentBody = readFileSync(configPath, "utf8");
+    return initialize(readSettingsFacet(documentBody), documentBody, binding);
   };
 
   const update = async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
@@ -132,7 +141,7 @@ export function makeRepoCellSettingsActions(cell: any) {
     } as WriteReceipt;
   };
 
-  return { initialize, read, update };
+  return { initialize, initializeFromAuthoredDocument, read, update };
 }
 
 interface SettingsCatalogPreset {

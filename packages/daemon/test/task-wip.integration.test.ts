@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { MIGRATION_DOCUMENT_POLICY_ID, MIGRATION_IMPORT_SOURCE, makeTaskEventStore, migrationImportWritePlan, sha256Text, type ActorIdentity, type ArchivedExecutionV0 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { resolveTaskRootThreshold, resolveTaskWipLimit, TASK_ROOT_THRESHOLD_ENV, TASK_ROOT_THRESHOLD_SETTING, TASK_WIP_LIMIT_ENV } from "../src/task-wip-settings.ts";
 
 const actor: ActorIdentity = { principal: { personId: "person-wip" }, executor: null } as const;
