@@ -58,7 +58,10 @@ export function CiObservatoryView({ repoId }: { readonly repoId: string }) {
                   <div
                     className="h-full bg-accent"
                     style={{
-                      width: `${Math.min(100, (row.durationMs / Math.max(...data.shardDurations.map((entry) => entry.durationMs))) * 100)}%`,
+                      width: `${Math.min(
+                        100,
+                        (row.durationMs / Math.max(...data.shardDurations.map((entry) => entry.durationMs))) * 100,
+                      )}%`,
                     }}
                   />
                 </div>

@@ -10,20 +10,24 @@ export type ThinHelpCatalogEntry = {
 
 const publicCommands = () => daemonProtocolCommands.filter((command) => !("internal" in command && command.internal));
 
+function commandDirectory(
+  commands: ReadonlyArray<{ readonly id: string; readonly path: readonly string[] }>,
+): ReadonlyMap<string, readonly string[]> {
+  const groups = new Map<string, string[]>();
+  for (const command of commands) {
+    const domain = command.path[0];
+    if (domain) groups.set(domain, [...(groups.get(domain) ?? []), command.id]);
+  }
+  return new Map([...groups].map(([domain, ids]) => [domain, ids.sort()]));
+}
+
 export function deriveCliCapabilities(
   commands: ReadonlyArray<{
     readonly id: string;
     readonly path: readonly string[];
   }> = publicCommands(),
 ): Readonly<Record<string, readonly string[]>> {
-  const groups = new Map<string, string[]>();
-  for (const command of commands) {
-    const domain = command.path[0];
-    if (domain) groups.set(domain, [...(groups.get(domain) ?? []), command.id]);
-  }
-  return Object.fromEntries(
-    [...groups].sort(([left], [right]) => left.localeCompare(right)).map(([domain, ids]) => [domain, ids.sort()]),
-  );
+  return Object.fromEntries([...commandDirectory(commands)].sort(([left], [right]) => left.localeCompare(right)));
 }
 
 export function runtimeBatchDeclarationFields(): readonly string[] {
@@ -89,12 +93,9 @@ export function commandDomains(): readonly {
   readonly name: string;
   readonly count: number;
 }[] {
-  const counts = new Map<string, number>();
-  for (const command of publicCommands()) {
-    const domain = command.path[0];
-    if (domain) counts.set(domain, (counts.get(domain) ?? 0) + 1);
-  }
-  return [...counts].sort(([left], [right]) => left.localeCompare(right)).map(([name, count]) => ({ name, count }));
+  return [...commandDirectory(publicCommands())]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, ids]) => ({ name, count: ids.length }));
 }
 
 export function cliCommandDomains(): readonly string[] {

@@ -94,7 +94,11 @@ const settingsWriteTopology = {
             code: "invalid_field",
             nextAction: "Use --limit with an integer from 1 to 100.",
           },
-          { regex: "^(?:[1-9]|[1-9][0-9]|100)$" },
+          {
+            regex: "^(?:[1-9]|[1-9][0-9]|100)$",
+            jsonFields: ["limit"],
+            jsonAllowedFields: ["limit"],
+          },
         ),
       ],
       ...settingsWriteTopology,

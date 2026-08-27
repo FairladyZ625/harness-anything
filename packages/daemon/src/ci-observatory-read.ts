@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { CiRunObservationEventV1, TaskProjection } from "../../kernel/src/index.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
@@ -223,7 +223,9 @@ function percentile(values: readonly number[], ratio: number): number | null {
 }
 
 function readQuarantine(rootDir: string): readonly QuarantineEntry[] {
-  const value = JSON.parse(readFileSync(path.join(rootDir, "tools/test-quarantine.json"), "utf8"));
+  const file = path.join(rootDir, "tools/test-quarantine.json");
+  if (!existsSync(file)) return [];
+  const value = JSON.parse(readFileSync(file, "utf8"));
   if (!isJsonObject(value) || value.schema !== "harness-test-quarantine/v1" || !Array.isArray(value.tests))
     throw new Error("test quarantine is invalid");
   const entries: QuarantineEntry[] = [],
