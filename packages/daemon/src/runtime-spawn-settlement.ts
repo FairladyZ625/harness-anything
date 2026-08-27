@@ -138,20 +138,6 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
       `${active.dispatchOpId}-exited`,
       eventBinding,
     );
-    const outcomeEvent = await context.publishRuntimeEvent(
-      "runtime_session_outcome_observed",
-      {
-        runtimeSessionId: active.runtimeSessionId,
-        outcome,
-        exitCode: cancelled ? null : code,
-        resultRef,
-        result,
-      },
-      `${active.dispatchOpId}-outcome`,
-      eventBinding,
-      body,
-    );
-    context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
     const notification =
       active.onExitCommand === null
         ? null
@@ -180,6 +166,20 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
       resultRef,
       binding: active.binding,
     });
+    const outcomeEvent = await context.publishRuntimeEvent(
+      "runtime_session_outcome_observed",
+      {
+        runtimeSessionId: active.runtimeSessionId,
+        outcome,
+        exitCode: cancelled ? null : code,
+        resultRef,
+        result,
+      },
+      `${active.dispatchOpId}-outcome`,
+      eventBinding,
+      body,
+    );
+    context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
     if (notification) setImmediate(() => context.launchExitNotification({ ...notification, now: context.input.now }));
   } finally {
     context.exiting.delete(active.runtimeSessionId);

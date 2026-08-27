@@ -145,10 +145,10 @@ test("task-bound spawn exit keeps its released execution visible after a v7 cach
       sequence = events.map((event) => event.type),
       started = sequence.indexOf("execution_started"),
       bound = sequence.indexOf("runtime_session_task_bound"),
-      exited = sequence.indexOf("runtime_session_outcome_observed"),
-      release = sequence.indexOf("lease_released");
+      release = sequence.indexOf("lease_released"),
+      outcome = sequence.indexOf("runtime_session_outcome_observed");
     assert.ok(started >= 0 && started < bound, sequence.join(" -> "));
-    assert.ok(bound < exited && exited < release, sequence.join(" -> "));
+    assert.ok(bound < release && release < outcome, sequence.join(" -> "));
 
     const rebuilt = new DatabaseSync(cache, { readOnly: true }),
       version = rebuilt.prepare("SELECT schema_version FROM projection_meta WHERE singleton = 1").get() as {
