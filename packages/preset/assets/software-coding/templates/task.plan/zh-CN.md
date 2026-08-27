@@ -58,6 +58,8 @@ Task Contract: harness-task v1
 
 写明证据粒度、需要的阴性对照或变异检查，以及 reviewer 必须拒收的条件。这里描述如何证明，`Verification` 描述什么必须为真。
 
+在收口前闭合回环：至少用 `ha fact record --task <task-id> ...` 记录一条观察，并把回执保存在 Execution outputs 中。Fact 是 decision 的 evidence 输入，因此在接受或 reckon 该 decision 前，用 `ha decision relate <decision-id> --anchor <claim-id> --type evidenced-by --target fact/F-XXXXXXXX --rationale "<why>"` 把它挂到对应主张上。如果 proposal 还没有 fact evidence，`ha decision propose` 仍会成功，但回执会指向这两个命令。
+
 ## Verification
 
 - **停止点 = 本次改动面的定向测试全绿 + 本地 commit。完整门矩阵是 GitHub CI 的活，不是这台机器的活。** 点名本任务改动面需要的具体测试文件或 `--tier` 选择，并把 runner 的真实输出贴进本节，别只写「全绿」——输出是产物，断言不是。不要为了求安心在本机串行跑全量：一台机器顺序跑完所有 job 严格慢于 CI 并行跑，而且会占住全机槽预算、把同机其他 worker 全堵在后面。`npm run check:ci` 仍然保留，用于**刻意在本地复现某个 CI 失败**，它不是停止点。

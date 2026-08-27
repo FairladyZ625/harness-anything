@@ -58,6 +58,8 @@ State the deliverable shape, destination, recipient, first consumer, and every t
 
 State the required evidence granularity, negative controls or mutation checks, and reviewer rejection conditions. This section defines how to prove the result; `Verification` defines what must be true.
 
+Close the loop before closeout: record at least one observation with `ha fact record --task <task-id> ...` and preserve its receipt in the Execution outputs. A fact is an evidence input to a decision, so attach it to the relevant claim with `ha decision relate <decision-id> --anchor <claim-id> --type evidenced-by --target fact/F-XXXXXXXX --rationale "<why>"` before accepting or reckoning that decision. If a proposal has no fact evidence yet, `ha decision propose` still succeeds, but its receipt points to these two commands.
+
 ## Verification
 
 - **Stop point = targeted tests for the surface you touched, green, plus a local commit. The full gate matrix is GitHub CI's job, not this machine's.** Name the specific test files or `--tier` selection this task's surface requires, and paste the real runner output rather than writing "all green" — output is an artifact, an assertion is not. Do not run the whole local matrix serially to feel safe: one machine running every job in sequence is strictly slower than CI running them in parallel, and it blocks every other worker on the same machine behind the shared slot budget. `npm run check:ci` remains available for deliberately reproducing a CI failure locally; it is not the stop point.

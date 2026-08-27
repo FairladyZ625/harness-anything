@@ -47,8 +47,10 @@ propose ──▶ accept / reject / defer
    └──▶ (once active) supersede · amend · retire
 ```
 
-- **propose** — draft the choice. Proposing *must* create evidence edges linking
-  the decision's claims to the tasks and facts that support them.
+- **propose** — draft the choice. Include evidence edges linking the decision's
+  claims to the tasks and facts that support them; a proposal without a
+  `evidenced-by` edge to `fact/F-*` still succeeds, but its receipt tells you how
+  to close that gap.
 - **accept / reject / defer** — the ruling on the proposal (this is the gate).
 - **supersede** — a new decision overturns an old one; the old one is retired,
   never deleted, so the history survives.
@@ -56,6 +58,17 @@ propose ──▶ accept / reject / defer
 - **retire** — a decision whose premise no longer holds goes offline.
 - **relate** — build a typed edge between a decision and a task or fact; this is
   how evidence is attached.
+
+## The fact-to-decision handoff
+
+These commands make the evidence path explicit:
+
+1. `ha fact record --statement "<observation>" --source "<source>" --confidence high` records an immutable observation that can support a claim.
+2. `ha decision propose --json-input '<decision-packet.json contents>'` opens a proposal and returns its receipt; when no fact evidence is present, the receipt points to the next two commands without rejecting the proposal.
+3. `ha decision relate <decision-id> --anchor <claim-id> --type evidenced-by --target fact/F-XXXXXXXX --rationale "<why this fact supports the claim>"` attaches the recorded fact to the claim as a typed evidence edge.
+4. `ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/<task-id> --rationale "<why this task follows>"` records which executable task the decision derives.
+5. `ha decision accept <decision-id> --rationale "<review>"` adjudicates the proposal after its evidence and derivation paths are ready.
+6. `ha decision reckon <decision-id> --task <task-id>` checks claim coverage against the task's current facts and records the closeout observation.
 
 ## Evidence is edges, not embedded arrays
 
