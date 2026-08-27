@@ -164,7 +164,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       "repo.settings.update",
       await bridge.invoke("updateSettings", {
         ...scope,
-        defaultPreset: "strict-task",
+        defaultPreset: "docs-task",
         locale: "zh-CN",
         idempotencyKey: "gui-settings-update-1",
       }),
@@ -180,7 +180,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
           path.join(fixture.rootDir, "harness"),
           "log",
           "--all",
-          "-SdefaultPreset: strict-task",
+          "-SdefaultPreset: docs-task",
           "--format=%H",
           "--",
           "harness.yaml",
@@ -191,10 +191,10 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     }
     assert.match(settingsCommit, /^[0-9a-f]{40}$/u, "Settings update must become reachable in a daemon commit");
     const settingsAfter = parseDaemonGuiReadResult("repo.settings.read", await bridge.invoke("getSettings", scope));
-    assert.equal(settingsAfter.settings.defaultPreset, "strict-task");
+    assert.equal(settingsAfter.settings.defaultPreset, "docs-task");
     assert.equal(settingsAfter.settings.locale, "zh-CN");
     const harnessYaml = readFileSync(path.join(fixture.rootDir, "harness/harness.yaml"), "utf8");
-    assert.match(harnessYaml, /defaultPreset: strict-task/u);
+    assert.match(harnessYaml, /defaultPreset: docs-task/u);
     assert.doesNotMatch(harnessYaml, /^  locale:/mu);
     assert.deepEqual(JSON.parse(readFileSync(path.join(fixture.rootDir, ".harness/settings.local.json"), "utf8")), {
       schema: "settings-local/v1",

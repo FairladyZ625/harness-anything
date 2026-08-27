@@ -106,7 +106,6 @@ export function resolveRepoBootstrap(
       `  defaultVertical: ${INITIAL_SETTINGS_V1.defaultVertical}`,
       `  defaultPreset: ${INITIAL_SETTINGS_V1.defaultPreset}`,
       `  defaultProfile: ${INITIAL_SETTINGS_V1.defaultProfile}`,
-      `  locale: ${INITIAL_SETTINGS_V1.locale}`,
       "  tasks:",
       `    wipLimit: ${DEFAULT_TASK_WIP_LIMIT}`,
       "  scaffolds:",

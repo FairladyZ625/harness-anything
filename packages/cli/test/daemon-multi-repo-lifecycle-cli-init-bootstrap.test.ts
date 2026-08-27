@@ -9,6 +9,7 @@ import {
   compileSettingsChangedEvent,
   makeTaskEventStore,
   readSettingsFacet,
+  repositorySettings,
 } from "../../kernel/src/index.ts";
 
 import { cli, git, register, run, setup, setupEmpty, stop } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
@@ -90,6 +91,11 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       defaultConfig,
       /scaffolds:\n    task: governance\/task-scaffold\.json\n    repository: governance\/repository-scaffold\.json/u,
     );
+    assert.doesNotMatch(defaultConfig, /^  locale:/mu);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(fixture.repo, ".harness/settings.local.json"), "utf8")), {
+      schema: "settings-local/v1",
+      locale: "en-US",
+    });
     assert.match(
       architecture,
       /Opt-in Boundary[\s\S]*does not create or enable an architecture manifest, model, or generated view/iu,
@@ -136,11 +142,11 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     );
     assert.equal(stream.revision, 1);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
+    const settingsRead = run(fixture.repo, fixture.userRoot, ["settings", "read"]).settings;
+    assert.equal(settingsRead.locale, "en-US");
     assert.deepEqual(
-      run(fixture.repo, fixture.userRoot, ["settings", "read"]).settings,
-      stream.events[0]?.schema === "settings-event/v1"
-        ? stream.events[0].payload.settings
-        : null,
+      repositorySettings(settingsRead),
+      stream.events[0]?.schema === "settings-event/v1" ? stream.events[0].payload.settings : null,
     );
     const repeated = run(fixture.repo, fixture.userRoot, [
       "init",
@@ -325,10 +331,7 @@ test("center registration keeps an external ledger repository readable and writa
   const fixture = setup();
   try {
     assert.equal(existsSync(path.join(fixture.alpha, "harness/.git")), false);
-    const documentBody = readFileSync(
-        path.join(fixture.alpha, "harness/harness.yaml"),
-        "utf8",
-      ),
+    const documentBody = readFileSync(path.join(fixture.alpha, "harness/harness.yaml"), "utf8"),
       store = makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" });
     store.append(
       compileSettingsChangedEvent({
@@ -344,10 +347,7 @@ test("center registration keeps an external ledger repository readable and writa
       }),
     );
     await store.drain();
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok,
-      true,
-    );
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     register(fixture.alpha, fixture.userRoot, "center");
     const before = git(fixture.alpha, "rev-parse", "HEAD"),
       written = run(fixture.alpha, fixture.userRoot, [
