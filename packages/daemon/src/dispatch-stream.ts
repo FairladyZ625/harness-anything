@@ -38,6 +38,7 @@ export interface DispatchStreamHeader {
   readonly dispatchId: string;
   readonly taskId: string | null;
   readonly executionId: string | null;
+  readonly leaseVersion?: number;
   readonly schedule?: { readonly scheduleId: string; readonly claimFence: string };
   readonly runtimeSessionId: string;
   readonly instanceId: string;
