@@ -55,7 +55,8 @@ export function parseCodeDoc(
     ? accepted(rootDir, repoId, json, { kind: "task-code-doc-reconcile", taskId })
     : rejected(
         f.code,
-        `Run ha task code-doc reconcile ${taskId}; the submitted execution supplies execution id, commit, iteration, and paths. See ha task code-doc reconcile --help.`,
+        `Run ha task code-doc reconcile ${taskId}; the submitted execution supplies ` +
+          "execution id, commit, iteration, and paths. See ha task code-doc reconcile --help.",
         json,
       );
 }

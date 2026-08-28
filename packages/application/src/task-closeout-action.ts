@@ -446,11 +446,15 @@ function candidateRejection(
   fromFile: string,
   candidates: readonly string[],
 ): WriteReceipt {
-  const commands = candidates.map((candidate) => closeoutInvocation(taskId, fromFile, candidate));
+  const commands = candidates.map((candidate) => closeoutInvocation(taskId, fromFile, candidate)),
+    candidateList = candidates.length ? candidates.join(", ") : "none",
+    instruction = commands.length
+      ? `Choose one explicitly: ${commands.join(" or ")}.`
+      : `Run ha task submit ${taskId} --json-input '<submission-json>', then run ${closeoutInvocation(taskId, fromFile)}.`;
   return reject(
     opId,
     "ambiguous_execution",
-    `Current submitted execution candidates: ${candidates.length ? candidates.join(", ") : "none"}. ${commands.length ? `Choose one explicitly: ${commands.join(" or ")}.` : `Run ha task submit ${taskId} --json-input '<submission-json>', then run ${closeoutInvocation(taskId, fromFile)}.`}`,
+    `Current submitted execution candidates: ${candidateList}. ` + instruction,
   );
 }
 function reject(opId: string, code: string, nextAction: string): WriteReceipt {

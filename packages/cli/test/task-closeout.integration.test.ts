@@ -41,7 +41,7 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
     run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:worker");
     const submission = {
       completionClaim: "The fixture is complete.",
-      deliverables: ["task closeout command"],
+      deliverables: ["README.md"],
       outputs: ["done task"],
       verificationNotes: ["one closeout invocation"],
       knownGaps: [],

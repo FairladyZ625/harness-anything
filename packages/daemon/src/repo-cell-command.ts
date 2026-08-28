@@ -224,20 +224,24 @@ export function buildCommand(
     if (unsupported.length)
       throw cellCodedError(
         "invalid_command",
-        `Run ha task code-doc reconcile ${taskId} without ${unsupported.join(", ")}; the submitted execution supplies the witness cut.`,
+        `Run ha task code-doc reconcile ${taskId} without ${unsupported.join(", ")}; ` +
+          "the submitted execution supplies the witness cut.",
       );
     const submitted = currentSubmittedExecutions(snapshot);
     if (submitted.length !== 1)
       throw cellCodedError(
         "invalid_command",
-        `Code-doc reconcile requires exactly one current submitted execution; found ${submitted.map((value) => value.executionId).join(", ") || "none"}. Run ha task show ${taskId} and resolve the lifecycle ambiguity.`,
+        "Code-doc reconcile requires exactly one current submitted execution; found " +
+          `${submitted.map((value) => value.executionId).join(", ") || "none"}. ` +
+          `Run ha task show ${taskId} and resolve the lifecycle ambiguity.`,
       );
     const execution = submitted[0]!,
       paths = repositoryDeliverablePaths(execution.submission);
     if (!paths.length)
       throw cellCodedError(
         "invalid_command",
-        "The submitted execution names no repository deliverable paths; task-package-only submissions do not need a code-doc witness.",
+        "The submitted execution names no repository deliverable paths; " +
+          "task-package-only submissions do not need a code-doc witness.",
       );
     const witness = {
       executionId: execution.executionId,

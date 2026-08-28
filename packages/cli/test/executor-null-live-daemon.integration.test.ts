@@ -87,7 +87,7 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
       path.join(root, "submission.json"),
       JSON.stringify({
         completionClaim: "The live daemon executor recovery is complete.",
-        deliverables: ["live daemon executor recovery"],
+        deliverables: ["README.md"],
         outputs: ["README.md"],
         verificationNotes: ["live source daemon route"],
         knownGaps: [],
@@ -108,26 +108,7 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
       "applied",
     );
     assert.equal(
-      run(
-        root,
-        userRoot,
-        daemonId,
-        [
-          "task",
-          "code-doc",
-          "reconcile",
-          taskId,
-          "--execution-id",
-          executionId,
-          "--commit-sha",
-          commitSha,
-          "--iteration",
-          "0",
-          "--path",
-          "README.md",
-        ],
-        "agent:worker",
-      ).outcome,
+      run(root, userRoot, daemonId, ["task", "code-doc", "reconcile", taskId], "agent:worker").outcome,
       "applied",
     );
     writeFileSync(

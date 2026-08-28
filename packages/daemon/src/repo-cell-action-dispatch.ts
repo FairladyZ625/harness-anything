@@ -455,8 +455,10 @@ export async function lifecycleAction(
     throw cell.cellCodedError(
       "lease_conflict",
       lease.phase === "reserving"
-        ? `Task ${taskId} is being reserved by ${actorHint(lease.actor)}; wait for that reservation to publish or lapse at ${lease.expiresAt}, then retry ha task start ${taskId}.`
-        : `Task ${taskId} is held by ${actorHint(lease.actor)}; that holder must run ha task release ${taskId}. This caller must wait for release, then retry ha task start ${taskId}.`,
+        ? `Task ${taskId} is being reserved by ${actorHint(lease.actor)}; wait for that reservation to publish ` +
+            `or lapse at ${lease.expiresAt}, then retry ha task start ${taskId}.`
+        : `Task ${taskId} is held by ${actorHint(lease.actor)}; that holder must run ha task release ${taskId}. ` +
+            `This caller must wait for release, then retry ha task start ${taskId}.`,
     );
   }
   if (preview && !current.snapshot.task)
