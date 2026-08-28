@@ -9,8 +9,9 @@ import {
   makeTaskEventStore,
   serializeCanonicalEvent,
   sha256Text,
-  type FactEventDraftV1,
 } from "../../kernel/src/index.ts";
+
+type FactEventDraftV1 = Parameters<typeof compileFactWrite>[0]["event"];
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 

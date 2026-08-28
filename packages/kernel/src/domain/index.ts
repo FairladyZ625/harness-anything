@@ -96,7 +96,6 @@ export {
 } from "./decision-event.ts";
 export type {
   DecisionAmendableSnapshot,
-  DecisionEventDraftV1,
   DecisionEventV1,
   DecisionState,
 } from "./decision-event.ts";
@@ -104,11 +103,10 @@ export {
   compileFactWrite,
   factConfidenceLevels,
   factMemoryClasses,
-  factMemoryTags,
   factWritePlan,
   isFactId,
 } from "./fact-event.ts";
-export type { FactConfidence, FactEventDraftV1, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
+export type { FactConfidence, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
 
 export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";
 export type { ContractVersion } from "./contract-version.ts";
@@ -117,11 +115,13 @@ export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 export {
   createEntityKindRegistry,
   explainEntityKind,
+  getExecutableEntityAction,
   getEntityKindContract,
   requireEntityKindContract,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
 export type {
+  EntityActionContract,
   EntityKindDeclaration,
   EntityKindRegistration,
   EntityKindRegistry,
@@ -129,6 +129,10 @@ export type {
   EntityResidencyFacets,
   EntityRepositoryRootScaffold,
 } from "./entity-kind-registry.ts";
+export type {
+  EntityActionDraft,
+  EntityActionExecutionContract,
+} from "./entity-action-execution.ts";
 
 export {
   canonicalRelationIdentityInput,

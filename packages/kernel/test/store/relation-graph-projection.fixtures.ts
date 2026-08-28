@@ -1,3 +1,5 @@
+import type { FactEventDraftV1 } from "../../src/domain/fact-event.ts";
+import type { DecisionEventDraftV1 } from "../../src/domain/decision-event-types.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -12,9 +14,7 @@ import {
   makeTaskProjection,
   serializeCanonicalEvent,
   sha256Text,
-  type DecisionEventDraftV1,
   type EntityRelationRecord,
-  type FactEventDraftV1,
   type MigrationImportEventV1,
   type TaskEventV1,
 } from "../../src/index.ts";

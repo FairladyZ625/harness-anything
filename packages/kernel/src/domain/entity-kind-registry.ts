@@ -14,6 +14,13 @@ import {
   type EntityJsonSchemaNode,
 } from "./entity-json-schema.ts";
 import { deriveEntityKindIdentity } from "./entity-ref.ts";
+import {
+  compileDecisionReckonAction,
+  compileFactRecordAction,
+  decisionActionCompiler,
+  type EntityActionCompileHook,
+  type EntityActionExecutionContract,
+} from "./entity-action-execution.ts";
 import type { RelationDirection, RelationType } from "./entity-relation.ts";
 import { executionStates } from "./execution.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
@@ -132,7 +139,10 @@ export interface EntityActionContract {
     readonly refTemplate: string;
   };
   readonly sdkExposure: EntitySdkExposure;
+  readonly execution: EntityActionExecutionContract | null;
 }
+
+export type EntityActionExplanation = Omit<EntityActionContract, "execution">;
 
 export interface EntityKindExplanation {
   readonly schema: "entity-kind-explanation/v1";
@@ -149,7 +159,7 @@ export interface EntityKindExplanation {
   readonly transitions: {
     readonly catalogRef: string | null;
     readonly available: readonly string[];
-    readonly actions: readonly EntityActionContract[];
+    readonly actions: readonly EntityActionExplanation[];
   };
   readonly authoring: EntityKindContract["authoring"];
   readonly sdkExposure: EntitySdkExposure;
@@ -174,12 +184,14 @@ const entityAction = (
   identity: EntityKindContract["id"],
   id: string,
   sdkExposure: EntitySdkExposure = noSdkExposure,
+  execution: EntityActionExecutionContract | null = null,
 ): EntityActionContract =>
   Object.freeze({
     id,
     version: CONTRACT_VERSION_1_0,
     target: Object.freeze({ kind, refTemplate: identity.refTemplate }),
     sdkExposure,
+    execution,
   });
 const actionCatalog = (
   ref: string,
@@ -188,6 +200,12 @@ const actionCatalog = (
   ids: readonly string[],
   sdkExposure: EntitySdkExposure = noSdkExposure,
 ) => Object.freeze({ ref, actions: Object.freeze(ids.map((id) => entityAction(kind, identity, id, sdkExposure))) });
+
+const executionContract = (
+  ingress: string,
+  compile: EntityActionCompileHook | null,
+  read: boolean,
+): EntityActionExecutionContract => Object.freeze({ ingress, compile, read });
 const genericAuthoring = Object.freeze({ kind: "generic-entity-store" as const, contractRef: "entity-event/v1" });
 const authoredResidency = Object.freeze({ authored: "ledger" as const });
 const authoredLiveResidency = Object.freeze({ authored: "ledger" as const, live: "runtime-local" as const });
@@ -398,22 +416,68 @@ const relationsFor = (kind: string): EntityKindContract["relations"] => {
   return Object.freeze({ directions: edges.length ? (["directed"] as const) : [], edges: Object.freeze(edges) });
 };
 
+const executableAction = (
+  kind: string,
+  identity: EntityKindContract["id"],
+  id: string,
+  ingress: string,
+  compile: EntityActionCompileHook | null,
+  sdkExposure: EntitySdkExposure,
+  read = false,
+) => entityAction(kind, identity, id, sdkExposure, executionContract(ingress, compile, read));
+
+const factActionCatalog = Object.freeze({
+  ref: "kernel/fact-event/v1",
+  actions: Object.freeze([
+    executableAction("fact", factIdentity, "record", "fact-record", compileFactRecordAction, factExposure),
+    executableAction("fact", factIdentity, "search", "fact-search", null, factExposure, true),
+    executableAction("fact", factIdentity, "show", "fact-show", null, factExposure, true),
+  ]),
+});
+
+const decisionWriteAction = (id: Parameters<typeof decisionActionCompiler>[0], ingress: string) =>
+  executableAction("decision", decisionIdentity, id, ingress, decisionActionCompiler(id), decisionExposure);
+
 const decisionActionByEvent = {
-  decision_proposed: "propose",
-  decision_accepted: "accept",
-  decision_rejected: "reject",
-  decision_deferred: "defer",
-  decision_superseded: "supersede",
-  decision_retired: "retire",
-  decision_amended: "amend",
-  decision_repinned: "repin",
-  decision_claim_declared: "declare-claim",
-  decision_claim_fulfillment_declared: "fulfill-claim",
-  decision_related: "relate",
-  decision_relation_retired: "retire-relation",
-  decision_relation_replaced: "replace-relation",
-} as const satisfies Record<(typeof decisionEventTypes)[number], string>;
-const decisionActionIds = decisionEventTypes.map((type) => decisionActionByEvent[type]);
+  decision_proposed: ["propose", "decision-propose"],
+  decision_accepted: ["accept", "decision-accept"],
+  decision_rejected: ["reject", "decision-reject"],
+  decision_deferred: ["defer", "decision-defer"],
+  decision_superseded: ["supersede", "decision-supersede"],
+  decision_retired: ["retire", "decision-retire"],
+  decision_amended: ["amend", "decision-amend"],
+  decision_repinned: ["repin", "decision-repin"],
+  decision_claim_declared: ["declare-claim", "decision-claim-add"],
+  decision_claim_fulfillment_declared: ["fulfill-claim", "decision-claim-fulfill"],
+  decision_related: ["relate", "decision-relate"],
+  decision_relation_retired: ["retire-relation", "decision-relation-retire"],
+  decision_relation_replaced: ["replace-relation", "decision-relation-replace"],
+} as const satisfies Record<
+  (typeof decisionEventTypes)[number],
+  readonly [Parameters<typeof decisionActionCompiler>[0], string]
+>;
+
+const decisionActionCatalog = Object.freeze({
+  ref: "kernel/decision-event/v1",
+  actions: Object.freeze([
+    ...decisionEventTypes.map((type) => {
+      const [id, ingress] = decisionActionByEvent[type];
+      return decisionWriteAction(id, ingress);
+    }),
+    decisionWriteAction("transition", "decision-transition"),
+    executableAction(
+      "decision",
+      decisionIdentity,
+      "reckon",
+      "decision-reckon",
+      compileDecisionReckonAction,
+      decisionExposure,
+    ),
+    executableAction("decision", decisionIdentity, "validate", "decision-validate", null, decisionExposure, true),
+    executableAction("decision", decisionIdentity, "list", "decision-list", null, decisionExposure, true),
+    executableAction("decision", decisionIdentity, "show", "decision-show", null, decisionExposure, true),
+  ]),
+});
 
 export const entityKindContracts = Object.freeze([
   {
@@ -444,7 +508,7 @@ export const entityKindContracts = Object.freeze([
     relations: relationsFor("fact"),
     canonicalProjection: null,
     statusVocabulary: [{ field: "state", words: ["standing", "superseded_fact"] }],
-    actionCatalog: actionCatalog("kernel/fact-event/v1", "fact", factIdentity, ["record"], factExposure),
+    actionCatalog: factActionCatalog,
     entityStore: null,
     authoring: { kind: "fact-event", contractRef: "fact-event/v1" },
     sdkExposure: factExposure,
@@ -458,13 +522,7 @@ export const entityKindContracts = Object.freeze([
     relations: relationsFor("decision"),
     canonicalProjection: null,
     statusVocabulary: [{ field: "state", words: decisionStates }],
-    actionCatalog: actionCatalog(
-      "kernel/decision-event/v1",
-      "decision",
-      decisionIdentity,
-      decisionActionIds,
-      decisionExposure,
-    ),
+    actionCatalog: decisionActionCatalog,
     entityStore: null,
     authoring: { kind: "decision-event", contractRef: "decision-event/v1" },
     sdkExposure: decisionExposure,
@@ -717,6 +775,14 @@ export function getEntityKindContract(kind: string): EntityKindContract | undefi
   return entityKindContractByKind.get(kind);
 }
 
+export function getExecutableEntityAction(ingress: string): EntityActionContract | undefined {
+  for (const contract of entityKindContracts) {
+    const action = contract.actionCatalog?.actions.find((candidate) => candidate.execution?.ingress === ingress);
+    if (action) return action;
+  }
+  return undefined;
+}
+
 export function requireEntityKindContract(kind: string): EntityKindContract {
   const contract = getEntityKindContract(kind);
   if (!contract)
@@ -740,6 +806,8 @@ export function requireEntityStoreKindContract(kind: string): EntityStoreKindCon
 
 export function explainEntityKind(kind: string): EntityKindExplanation {
   const contract = requireEntityKindContract(kind);
+  const actions =
+    contract.actionCatalog?.actions.map(({ execution: _execution, ...action }) => Object.freeze(action)) ?? [];
   return {
     schema: "entity-kind-explanation/v1",
     kind: contract.kind,
@@ -751,8 +819,8 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
     statusVocabulary: contract.statusVocabulary ?? [],
     transitions: {
       catalogRef: contract.actionCatalog?.ref ?? null,
-      available: contract.actionCatalog?.actions.map(({ id }) => id) ?? [],
-      actions: contract.actionCatalog?.actions ?? [],
+      available: actions.map(({ id }) => id),
+      actions,
     },
     authoring: contract.authoring,
     sdkExposure: contract.sdkExposure,

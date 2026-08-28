@@ -88,8 +88,7 @@ export function createRepoCellActionContext(bindings: {
   readonly publicPublication: (value: any) => any;
   readonly getProjection: () => any;
   readonly getStore: () => any;
-  readonly getFactActions: () => any;
-  readonly getDecisionActions: () => any;
+  readonly getEntityActionExecutor: () => any;
   readonly getService: () => any;
   readonly getRecovery: () => any;
   readonly getRecoveryUncertain: () => boolean;
@@ -125,13 +124,10 @@ export function createRepoCellActionContext(bindings: {
     reviewTask: bind(reviewTaskImpl),
     publishGeneratedArtifact,
     rootDir: bindings.rootDir,
-    get factActions() {
-      return bindings.getFactActions();
+    get entityActionExecutor() {
+      return bindings.getEntityActionExecutor();
     },
     decisionProposalAction,
-    get decisionActions() {
-      return bindings.getDecisionActions();
-    },
     upgradePresetSnapshot: bind(upgradePresetSnapshotImpl),
     upsertEntity: bind(upsertEntityImpl),
     readResult: bind(readResultImpl),
