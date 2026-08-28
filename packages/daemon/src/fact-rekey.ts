@@ -595,7 +595,7 @@ function transform(
   return output;
 }
 
-function rekeyDecisionProofs(event: DecisionEventV1, current: DecisionDocumentState | null): DecisionEventV1 {
+export function rekeyDecisionProofs(event: DecisionEventV1, current: DecisionDocumentState | null): DecisionEventV1 {
   if (current === null) return event;
   const sourcePayload = event.payload as any,
     payload: Record<string, unknown> = { ...sourcePayload };
@@ -617,7 +617,7 @@ function rekeyDecisionProofs(event: DecisionEventV1, current: DecisionDocumentSt
     const reduced = reduceDecisionDocument(current, event);
     payload.contentPin = {
       ...sourcePayload.contentPin,
-      state: current.state,
+      state: reduced.state,
       digest: decisionMachineDigest(reduced),
     };
   }
