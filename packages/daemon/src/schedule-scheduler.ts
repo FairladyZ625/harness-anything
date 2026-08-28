@@ -7,6 +7,7 @@ import {
   parseScheduleListReceipt,
   type ScheduleListRow,
 } from "./protocol/daemon-protocol-validate-results.ts";
+import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoCell, RepoCellBinding } from "./repo-cell.ts";
 
 export const scheduleAdmissionWindowMs = 60_000;
@@ -175,7 +176,7 @@ export function makeScheduleScheduler(input: {
         schedules = await listSchedules(target);
       } catch (error) {
         consumeKnownError(error);
-        if (errorCode(error) === "projection_pending") {
+        if (cellErrorCode(error) === "projection_pending") {
           pending = true;
           continue;
         }
@@ -332,15 +333,6 @@ function occurrenceKey(input: DueOccurrence): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function errorCode(error: unknown): string | null {
-  return typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof (error as { readonly code?: unknown }).code === "string"
-    ? (error as { readonly code: string }).code
-    : null;
 }
 
 function isRejected(outcome: PromiseSettledResult<unknown>): outcome is PromiseRejectedResult {
