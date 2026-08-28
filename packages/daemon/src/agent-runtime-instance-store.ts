@@ -312,6 +312,7 @@ export function openRuntimeInstanceStore(input: {
     if (!secret)
       throw runtimeInstanceError("runtime_credential_unavailable", "The configured GitHub credential is unavailable.");
     return {
+      GH_TOKEN: secret,
       HARNESS_GITHUB_TOKEN: secret,
       GIT_ASKPASS_REQUIRE: "force",
       GIT_TERMINAL_PROMPT: "0",

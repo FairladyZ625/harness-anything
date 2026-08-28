@@ -94,6 +94,7 @@ test("set, unset, and show project only GitHub credential state without rebuildi
       environment = await store.prepareWorkerGitEnvironment("codex-github-worker"),
       shown = store.command({ kind: "runtime-instance-show", instanceId: "codex-github-worker" });
     assert.deepEqual(environment, {
+      GH_TOKEN: secret,
       HARNESS_GITHUB_TOKEN: secret,
       GIT_ASKPASS_REQUIRE: "force",
       GIT_TERMINAL_PROMPT: "0",
