@@ -11,7 +11,7 @@ const actor = { principal: { personId: "owner" }, executor: null } as const;
 const commitSha = "a".repeat(40);
 
 function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
-  const execution = { schema: "execution/v1", executionId: "exe-1", taskId: "task-1", state: "submitted", iteration: 0, actor, source: "local", claimedAt: "2026-08-18T00:00:00.000Z", submittedAt: "2026-08-18T00:01:00.000Z", closedAt: null, submission: { schema: "submission/v1", commitSha, summary: "done", tests: [], artifacts: [], submittedAt: "2026-08-18T00:01:00.000Z" } } as unknown as CloseoutSnapshot["executions"][number];
+  const execution = { schema: "execution/v1", executionId: "exe-1", taskId: "task-1", state: "submitted", iteration: 0, actor, source: "local", claimedAt: "2026-08-18T00:00:00.000Z", submittedAt: "2026-08-18T00:01:00.000Z", closedAt: null, submission: { completionClaim: "done", deliverables: ["packages/kernel/src/domain/task.ts"], outputs: [], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha } } as unknown as CloseoutSnapshot["executions"][number];
   const review = { schema: "review/v1", reviewId: "review-1", taskId: "task-1", executionId: "exe-1", verdict: "approved", actor, capabilityRef: "cap", reason: "approved", evidenceChecked: ["tests"], commitSha, iteration: 0, contentDigest: `sha256:${"b".repeat(64)}`, reviewedAt: "2026-08-18T00:02:00.000Z" } as const;
   return { task: { status: "in_review", iteration: 0, completionGateIds: ["ci"] }, executions: [execution], reviews: [review], consents: [{ schema: "review-consent/v1", consentId: "consent-1", taskId: "task-1", executionId: "exe-1", reviewId: "review-1", reviewDigest: reviewDigest(review), contentDigest: review.contentDigest, actor, source: "local", consentedAt: "2026-08-18T00:03:00.000Z" }], codeDocWitnesses: [], gateWitnesses: [{ schema: "completion-gate-witness/v1", witnessId: "witness-1", receiptId: "receipt-1", checkerId: "ci", gateId: "ci", result: gateResult, taskId: "task-1", executionId: "exe-1", commitSha, iteration: 0, actor, source: "local", verifiedAt: "2026-08-18T00:04:00.000Z" } as CloseoutSnapshot["gateWitnesses"][number]] };
 }
@@ -25,6 +25,32 @@ test("closeout readiness requires a passing exact-cut gate, not witness existenc
   assert.equal(closeoutReadiness({ ...stale, gateWitnesses: stale.gateWitnesses.map((witness) => ({ ...witness, commitSha: "c".repeat(40) })) }).readiness, "incomplete");
   const recovered = closeout("fail");
   assert.deepEqual(closeoutReadiness({ ...recovered, gateWitnesses: [...recovered.gateWitnesses, { ...recovered.gateWitnesses[0]!, witnessId: "witness-2", receiptId: "receipt-2", result: "pass" }] }).gates, [{ gateId: "ci", status: "passed" }]);
+});
+
+test("code-doc reconciliation is not applicable only to unambiguous task-package deliverables", () => {
+  const base = closeout("pass"),
+    withDeliverables = (deliverables: readonly string[]) => ({
+      ...base,
+      task: { ...base.task!, completionGateIds: ["code-doc-reconciliation"] },
+      executions: base.executions.map((execution) => ({
+        ...execution,
+        submission: execution.submission ? { ...execution.submission, deliverables } : null,
+      })),
+    });
+  const reportOnly = closeoutReadiness(withDeliverables(["artifacts/reports/audit.md"]));
+  assert.equal(reportOnly.readiness, "ready");
+  assert.deepEqual(reportOnly.gates, [{
+    gateId: "code-doc-reconciliation",
+    status: "passed",
+    detail: "not applicable: submission delivers task-package artifacts only",
+  }]);
+  assert.equal(closeoutReadiness(withDeliverables(["packages/kernel/src/domain/task.ts"])).blocker, "gate");
+  assert.equal(closeoutReadiness(withDeliverables([])).blocker, "gate", "an empty declaration stays fail-closed");
+  assert.equal(
+    closeoutReadiness(withDeliverables(["artifacts/report.md", "implementation complete"])).blocker,
+    "gate",
+    "an ambiguous free-form deliverable must not waive the witness",
+  );
 });
 
 test("closeout consumes the latest content-pinned consent selection and ignores other Reviews", () => {

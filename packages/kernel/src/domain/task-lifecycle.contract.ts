@@ -80,6 +80,7 @@ export {
   emptyTaskLifecycleSnapshot,
   executionExecutorDeclarationCandidates,
   heldLeaseForExecutionActor,
+  requiredGateWitnessCount,
 } from "./task-lifecycle-contract-support.ts";
 export { allowsTaskStatusMove, canStartExecution } from "./task-lifecycle-command-transitions.ts";
 export { isReadyToComplete } from "./task-lifecycle-review-transitions.ts";

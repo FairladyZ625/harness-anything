@@ -67,19 +67,16 @@ closeout readiness，最后才写入 `done`。legacy task 会重新运行 `revie
 | Execution Review | 带 Execution 的 task 必须对当前 Execution 有 approved Review | Execution completion service 报告 Review 缺失或未批准 |
 | review 占位符 | 初始 `review.md` 占位符必须被替换 | `review_placeholder` |
 | closeout 占位符 | 配置了占位符策略时，`closeout.md` 不能匹配已知模板指纹 | `closeout_placeholder` |
-| code-doc reconciliation | 解析出的契约声明 `code-doc-reconciliation` 时，task 包必须包含一份手写的 `code-doc-anchors.json`，其中有合法的承重记录，且每条记录至少有一个硬 commit 或 path 锚点 | `code_doc_reconciliation_failed`，issues 里可能包含 `code_doc_anchors_missing` |
+| code-doc reconciliation | 解析出的契约声明 `code-doc-reconciliation` 且已复核 submission 含任一公开仓交付物时，Execution 必须有已验证的 code-doc witness；非空 deliverable 列表若全部是 `artifacts/`、`tasks/` 或 `harness/tasks/` 下的任务包工件，则此门不适用 | 适用但缺 witness 时报告 `code_doc_missing` |
 | review 门轴 | 上面的 review 门通过后，completion 函数收到的 review 必须是 `passed` | `review_not_passed` |
 | CI 门轴 | 解析出的契约声明 `ci` 时，CLI 传入的 CI 门必须是 `passed`；否则无需 `--ci` | `missing_ci_gate` 或 `ci_not_passed` |
 | closeout 就绪度轴 | 投影出的 closeout readiness 必须是 `ready` 或 `passed` | `closeout_not_ready` |
 | task tree dirty 检查 | 迁移清扫之后，`tasks/<id>/` 必须足够干净，让 lifecycle writer 可以提交 | `task_tree_dirty` |
 
-解析出的契约声明这扇门时，code-doc reconciliation 文件不会由 `ha task create` 生成；它必须被
-手写进 task 包，路径是 `harness/tasks/<id>/code-doc-anchors.json`（ADR-0027 D7）。文档 schema
-是 `code-doc-reconciliation/v1`，每条
-记录命名一个 task package `ledgerPath`、一个承重 `kind`（`closeout`、`evidence`、
-`decision-claim` 或 `review`）以及一组 anchors。commit 与 path anchor 会对着本地 git 校验；PR
-anchor 只有在同时携带 SHA 时才校验，否则只是 warning。没有任何硬 commit 或 path anchor 的记录，
-即便写了 PR，也会失败。
+对于适用的 Execution，`ha task complete --path <repository-path>` 会自动取 submitted commit 与
+iteration，对着拥有该 commit 的 Git 仓库验证每个路径，再发布 typed witness。已复核的 report-only
+submission 若声明的交付物全是任务包工件，可以直接完成，不必伪造公开仓路径。空 deliverable 列表和
+自由文本声明仍属歧义，不会豁免 witness。
 
 只要任一检查失败，task 就原地不动。只有当完成路径返回一个空的问题列表后，task 才被写入 `done`——
 而且因为 `done` 是一次承重写入，这次写入本身要走[写路径](02-write-path.md)里描述的那个唯一写

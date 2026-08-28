@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { applyTransition, compileCompletionGateWitness, completionBlockers, eventObjectTarget, normalizeTaskLifecycleCommand, serializeCanonicalEvent, sha256Text, type TaskEventV1 } from "../../kernel/src/index.ts";
+import { applyTransition, canonicalGateReceipts, compileCompletionGateWitness, completionBlockers, eventObjectTarget, normalizeTaskLifecycleCommand, serializeCanonicalEvent, sha256Text, type TaskEventV1 } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskProjection, reduceTaskEvent, serializeEventHead, serializeTaskEvent, TASK_LEASE_BROKER_CONTRACT } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "../src/task-lifecycle-service.ts";
 import { lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
@@ -43,6 +43,32 @@ test("completion blocker matrix returns one canonical next for every substantive
     // The lineage blocker names the missing edge with the exact command that writes it.
     const lineage = completionBlockers(orphanMilestone, "execution-1", ready)[0]!;
     assert.equal(lineage.next.command, "ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/task-1 --rationale <why this decision authorises the task>");
+    const reportOnly = {
+      ...withGates(["code-doc-reconciliation"]),
+      executions: consented.snapshot.executions.map((execution) => ({
+        ...execution,
+        submission: execution.submission
+          ? { ...execution.submission, deliverables: ["tasks/task-1-audit/artifacts/report.md"] }
+          : null,
+      })),
+    };
+    assert.deepEqual(completionBlockers(reportOnly, "execution-1", ready), []);
+    const reportExecution = reportOnly.executions.find((execution) => execution.executionId === "execution-1")!;
+    assert.deepEqual(canonicalGateReceipts({
+      ...reportOnly,
+      codeDocWitnesses: [{
+        schema: "code-doc-witness/v1",
+        witnessId: "fabricated-before-fix",
+        taskId: "task-1",
+        executionId: "execution-1",
+        commitSha: reportExecution.submission!.commitSha,
+        iteration: 0,
+        paths: ["README.md"],
+        actor,
+        source: "local",
+        reconciledAt: "2026-08-11T00:00:00.000Z",
+      }],
+    }, reportExecution), [], "an obsolete fabricated witness is not required proof for a report-only cut");
     assert.deepEqual(completionBlockers(consented.snapshot, "execution-1", ready), []);
   } finally { harness.cleanup(); }
 });
