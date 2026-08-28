@@ -1,6 +1,10 @@
 import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import { permissionLaunchArgs, type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
+import {
+  permissionLaunchArgs,
+  type RuntimeIsolationState,
+  type RuntimePermissionMode,
+} from "./runtime-permissions.ts";
 import type {
   RuntimeInstanceKind,
   RuntimeInstanceConfig,
