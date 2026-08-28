@@ -1,14 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -28,18 +20,9 @@ import {
   installPresetPackage,
   runPresetAction as runProjectedPresetAction,
 } from "../src/index.ts";
-import {
-  createRuntime,
-  decodePresetPackageV3,
-} from "../src/preset-resolver.ts";
+import { createRuntime, decodePresetPackageV3 } from "../src/preset-resolver.ts";
 
-import {
-  git,
-  makeFixture,
-  templateCatalog,
-  write,
-  writePackage,
-} from "./preset-resolver.fixtures.ts";
+import { git, makeFixture, templateCatalog, write, writePackage } from "./preset-resolver.fixtures.ts";
 const runPresetAction = (input: Parameters<typeof runProjectedPresetAction>[0]) =>
   runProjectedPresetAction({ ...input, settings: INITIAL_SETTINGS_V1 });
 test("snapshot upgrade atomically replaces the complete snapshot and typed task contract without touching task prose", () => {
@@ -109,12 +92,7 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
     const store = makeTaskEventStore({ repoId: "preset-upgrade", rootDir });
     projection = makeTaskProjection({ rootDir, eventStore: store });
     projection.rebuild();
-    const planPath = path.join(
-        rootDir,
-        "harness",
-        bootstrap.packagePath,
-        "task_plan.md",
-      ),
+    const planPath = path.join(rootDir, "harness", bootstrap.packagePath, "task_plan.md"),
       editedPlan = "# User plan\n\nKeep this prose.\n";
     mkdirSync(path.dirname(planPath), { recursive: true });
     writeFileSync(planPath, editedPlan);
@@ -126,9 +104,7 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
     const task = projection.read(taskId).snapshot.task!,
       contractPath = `${bootstrap.packagePath}/task-contract.json`,
       contract = {
-        body: bootstrap.documents.find(
-          ({ relativePath }) => relativePath === "task-contract.json",
-        )!.body,
+        body: bootstrap.documents.find(({ relativePath }) => relativePath === "task-contract.json")!.body,
       };
     let upgraded: ReturnType<typeof compilePresetSnapshotUpgrade> | undefined;
     assert.doesNotThrow(() => {
@@ -148,32 +124,18 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
     assert.notEqual(upgraded.snapshot.digest, task.presetSnapshotDigest);
     assert.equal(upgraded.snapshot.identity.version, "3.2.0");
     assert.equal(upgraded.event.payload.taskContractClaim.path, contractPath);
+    assert.equal(Object.hasOwn(upgraded.event.payload.task.metadata ?? {}, "longRunning"), false);
     assert.equal(
-      Object.hasOwn(upgraded.event.payload.task.metadata ?? {}, "longRunning"),
-      false,
-    );
-    assert.equal(
-      JSON.parse(
-        upgraded.blobs.find(
-          ({ sha256 }) =>
-            sha256 === upgraded!.event.payload.taskContractClaim.sha256,
-        )!.body,
-      ).packagePath,
+      JSON.parse(upgraded.blobs.find(({ sha256 }) => sha256 === upgraded!.event.payload.taskContractClaim.sha256)!.body)
+        .packagePath,
       bootstrap.packagePath,
     );
     store.append(upgraded);
     projection.apply(upgraded.event, upgraded.plan);
+    assert.equal(projection.read(taskId).snapshot.task?.presetSnapshotDigest, upgraded.snapshot.digest);
+    assert.deepEqual(projection.readPresetSnapshot(upgraded.snapshot.digest).snapshot, upgraded.snapshot);
     assert.equal(
-      projection.read(taskId).snapshot.task?.presetSnapshotDigest,
-      upgraded.snapshot.digest,
-    );
-    assert.deepEqual(
-      projection.readPresetSnapshot(upgraded.snapshot.digest).snapshot,
-      upgraded.snapshot,
-    );
-    assert.equal(
-      JSON.parse(projection.readDocument(contractPath).document!.body)
-        .presetSnapshotDigest,
+      JSON.parse(projection.readDocument(contractPath).document!.body).presetSnapshotDigest,
       upgraded.snapshot.digest,
     );
     assert.equal(readFileSync(planPath, "utf8"), editedPlan);
@@ -182,8 +144,7 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
         compilePresetSnapshotUpgrade({
           userRoot,
           task: projection.read(taskId).snapshot.task!,
-          taskContractBody:
-            projection.readDocument(contractPath).document!.body,
+          taskContractBody: projection.readDocument(contractPath).document!.body,
           actor: { principal: { personId: "person-1" }, executor: null },
           source: "local",
           workspaceRevision: 3,
@@ -191,8 +152,40 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
           opId: "op-current",
           occurredAt: "2026-08-14T00:02:00.000Z",
         }),
-      (error: unknown) =>
-        (error as { code?: string }).code === "snapshot_current",
+      (error: unknown) => (error as { code?: string }).code === "snapshot_current",
+    );
+    writePackage(sourceRoot, "upgrade-task", { version: "3.2.1" });
+    installPresetPackage({
+      source: path.join(sourceRoot, "upgrade-task"),
+      userRoot,
+    });
+    const retiredContract = JSON.parse(projection.readDocument(contractPath).document!.body) as {
+      documents: Array<{ path: string }>;
+    };
+    retiredContract.documents.push({
+      ...retiredContract.documents.find(({ path: item }) => item === "task_plan.md")!,
+      path: "facts.md",
+    });
+    const dropped = compilePresetSnapshotUpgrade({
+      userRoot,
+      task: projection.read(taskId).snapshot.task!,
+      taskContractBody: JSON.stringify(retiredContract),
+      actor: { principal: { personId: "person-1" }, executor: null },
+      source: "local",
+      workspaceRevision: 3,
+      eventId: "event-document-drop",
+      opId: "op-document-drop",
+      occurredAt: "2026-08-14T00:02:30.000Z",
+    });
+    assert.equal(dropped.snapshot.identity.version, "3.2.1");
+    assert.equal(
+      (
+        JSON.parse(
+          dropped.blobs.find(({ sha256 }) => sha256 === dropped.event.payload.taskContractClaim.sha256)!.body,
+        ) as { documents: Array<{ path: string }> }
+      ).documents.some(({ path: item }) => item === "facts.md"),
+      false,
+      "a document slot the preset retired must upgrade without a migration",
     );
     const profiles = [
       {
@@ -250,8 +243,7 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
         compilePresetSnapshotUpgrade({
           userRoot,
           task: projection.read(taskId).snapshot.task!,
-          taskContractBody:
-            projection.readDocument(contractPath).document!.body,
+          taskContractBody: projection.readDocument(contractPath).document!.body,
           actor: { principal: { personId: "person-1" }, executor: null },
           source: "local",
           workspaceRevision: 3,
@@ -260,10 +252,10 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
           occurredAt: "2026-08-14T00:03:00.000Z",
         }),
       (error: unknown) =>
-        (error as { code?: string; message?: string }).code ===
-          "upgrade_document_set_changed" &&
+        (error as { code?: string; message?: string }).code === "upgrade_document_set_changed" &&
         (error as Error).message ===
-          "Preset upgrade changes the task document set and requires an explicit migration.",
+          "Preset upgrade adds documents the task package does not have (upgrade-evidence.md); " +
+            "recreate the task instead.",
     );
   } finally {
     projection?.close();
@@ -297,13 +289,9 @@ test("user template selections resolve only package-local canonical catalog bodi
           source: path.join(sourceRoot, "user-impact"),
           userRoot: fixture.userRoot,
         }),
-      (error: unknown) =>
-        (error as { code?: string }).code === "missing_template_catalog",
+      (error: unknown) => (error as { code?: string }).code === "missing_template_catalog",
     );
-    write(
-      path.join(sourceRoot, "outside.md"),
-      "# Outside\n\n## User Impact\n\nMust not be read.\n",
-    );
+    write(path.join(sourceRoot, "outside.md"), "# Outside\n\n## User Impact\n\nMust not be read.\n");
     write(
       path.join(sourceRoot, "user-impact/template-catalog.json"),
       JSON.stringify(
@@ -337,8 +325,7 @@ test("user template selections resolve only package-local canonical catalog bodi
           source: path.join(sourceRoot, "user-impact"),
           userRoot: fixture.userRoot,
         }),
-      (error: unknown) =>
-        (error as { code?: string }).code === "missing_template",
+      (error: unknown) => (error as { code?: string }).code === "missing_template",
     );
     write(
       path.join(sourceRoot, "user-impact/template-catalog.json"),
@@ -385,11 +372,7 @@ test("user template selections resolve only package-local canonical catalog bodi
       locale: "en-US",
       purpose: "task-create",
     });
-    assert.match(
-      resolved.documents.find(({ slot }) => slot === "task.user.impact")
-        ?.body ?? "",
-      /Package body/u,
-    );
+    assert.match(resolved.documents.find(({ slot }) => slot === "task.user.impact")?.body ?? "", /Package body/u);
     assert.equal(resolved.snapshot.identity.layer, "user");
   } finally {
     fixture.cleanup();
@@ -419,10 +402,7 @@ test("the same self-contained package has identical bundled and user snapshot co
       profiles: profile,
       policyPath: "policy.json",
     });
-    write(
-      path.join(packageRoot, "policy.json"),
-      JSON.stringify({ schema: "preset-policy/v1", requires: [] }),
-    );
+    write(path.join(packageRoot, "policy.json"), JSON.stringify({ schema: "preset-policy/v1", requires: [] }));
     write(
       path.join(packageRoot, "template-catalog.json"),
       JSON.stringify(
@@ -450,10 +430,7 @@ test("the same self-contained package has identical bundled and user snapshot co
         ),
       ),
     );
-    write(
-      path.join(packageRoot, "templates/local-impact.md"),
-      "# Local only\n\n## Local Impact\n\nPackage body.\n",
-    );
+    write(path.join(packageRoot, "templates/local-impact.md"), "# Local only\n\n## Local Impact\n\nPackage body.\n");
     const request = {
         presetId: "local-impact",
         verticalId: "software/coding",
@@ -483,10 +460,7 @@ test("the same self-contained package has identical bundled and user snapshot co
     assert.deepEqual(semantics(user), semantics(bundled));
     assert.equal(bundled.snapshot.identity.layer, "bundled");
     assert.equal(user.snapshot.identity.layer, "user");
-    write(
-      path.join(packageRoot, "policy.json"),
-      JSON.stringify({ schema: "preset-policy/v0", requires: [] }),
-    );
+    write(path.join(packageRoot, "policy.json"), JSON.stringify({ schema: "preset-policy/v0", requires: [] }));
     assert.equal(
       (
         (await runPresetAction({
@@ -502,8 +476,7 @@ test("the same self-contained package has identical bundled and user snapshot co
           source: packageRoot,
           userRoot: fixture.userRoot,
         }),
-      (error: unknown) =>
-        (error as { code?: string }).code === "invalid_policy",
+      (error: unknown) => (error as { code?: string }).code === "invalid_policy",
     );
   } finally {
     fixture.cleanup();
@@ -577,10 +550,7 @@ test("seed and audit dry-runs report the two-layer inventory without mutation", 
       rootDir,
       action: { kind: "preset-seed" },
     })) as { mode: string; packageCount: number };
-    assert.deepEqual(
-      { mode: seeded.mode, packageCount: seeded.packageCount },
-      { mode: "apply", packageCount: 12 },
-    );
+    assert.deepEqual({ mode: seeded.mode, packageCount: seeded.packageCount }, { mode: "apply", packageCount: 12 });
     assert.equal(readdirSync(path.join(userRoot, "active")).length, 12);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

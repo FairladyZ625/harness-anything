@@ -359,13 +359,16 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
     locale,
     slug: input.task.metadata?.slug,
   });
-  if (
-    stablePaths(compiled.documents.map(({ relativePath }) => relativePath)) !==
-    stablePaths(documents.map((item) => (item as { path: string }).path))
-  )
+  // A preset may retire a document slot (afa7f26fc retired the fact ledger document once facts became
+  // entities); the retired file stays on disk as committed prose. Only a slot the package does not have yet
+  // would need materialization, so only additions are rejected.
+  const knownPaths = new Set(documents.map((item) => (item as { path: string }).path)),
+    addedPaths = compiled.documents.map(({ relativePath }) => relativePath).filter((item) => !knownPaths.has(item));
+  if (addedPaths.length)
     throw bootstrapFailure(
       "upgrade_document_set_changed",
-      "Preset upgrade changes the task document set and requires an explicit migration.",
+      `Preset upgrade adds documents the task package does not have (${addedPaths.join(", ")}); ` +
+        "recreate the task instead.",
     );
   if (compiled.snapshot.digest === previousDigest)
     throw bootstrapFailure("snapshot_current", "Task already uses the current preset snapshot.");
@@ -487,9 +490,6 @@ function taskRelations(input: CompileTaskPackageInput): readonly EntityRelationR
   const issues = validateRelationRecordsForHost(`task/${input.taskId}`, records);
   if (issues.length) throw bootstrapFailure("invalid_relation", `${issues[0]!.message}. Fix --relation and retry.`);
   return records;
-}
-function stablePaths(paths: readonly string[]): string {
-  return JSON.stringify([...paths].sort((left, right) => left.localeCompare(right)));
 }
 function bootstrapFailure(code: string, message: string): Error & { readonly code: string } {
   return Object.assign(new Error(message), { code });
