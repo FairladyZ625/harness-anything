@@ -7,7 +7,8 @@ export function archiveTasks(cell: any, action: RepoTaskAction, binding: RepoCel
     ...new Set(
       Array.isArray(action.taskIds)
         ? cell.cellStringList(action.taskIds)
-        : cell.queryRead
+        : cell
+            .queryRead()
             .guiTasks()
             .rows.filter((row: any) => {
               const state = /^state:(.+)$/u.exec(String(action.filter ?? ""))?.[1],

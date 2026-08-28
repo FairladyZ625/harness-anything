@@ -197,9 +197,9 @@ export function createRepoCellApi(context: any): RepoCell {
       settings: context.settingsActions.read(),
     }),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
-      queryRead.guiTasks(taskListQueryFromPayload(payload)),
+      queryRead().guiTasks(taskListQueryFromPayload(payload)),
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>) =>
-      queryRead.agenda(agendaQueryFromPayload(payload)),
+      queryRead().agenda(agendaQueryFromPayload(payload)),
     "repo.triadic.relationGraph": (payload: Readonly<Record<string, unknown>>) => relationGraphFromPayload(payload),
     "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) =>
       readTaskDispatches({
@@ -389,11 +389,11 @@ export function createRepoCellApi(context: any): RepoCell {
         (payload.direction !== undefined && !["directed", "undirected"].includes(String(payload.direction)))
       )
         throw context.cellCodedError("invalid_command", "Relation graph facet selectors are invalid.");
-      return queryRead.relationGraphFacet(payload as DaemonRelationGraphFacetPayload);
+      return queryRead().relationGraphFacet(payload as DaemonRelationGraphFacetPayload);
     }
     const common = queryPayloadFacets(payload, "repo.triadic.relationGraph");
-    if (!common.explicit) return queryRead.relationGraph();
-    return queryRead.relationGraphPage({
+    if (!common.explicit) return queryRead().relationGraph();
+    return queryRead().relationGraphPage({
       ...(common.status ? { state: common.status } : {}),
       ...(common.updatedAfter ? { updatedAfter: common.updatedAfter } : {}),
       ...(common.updatedBefore ? { updatedBefore: common.updatedBefore } : {}),
@@ -452,19 +452,12 @@ export function createRepoCellApi(context: any): RepoCell {
   // The wide task queries live in task-query-read.ts so the daemon and the scale
   // harness share one real read implementation; the closeout/blocking domain
   // judgments stay consumed by the RepoCell composition root.
-  const currentQueryRead = () =>
-      makeTaskQueryReadModel({
-        rootDir: context.rootDir,
-        projection: context.projection,
-        judgments: repoCellTaskQueryJudgments,
-      }),
-    queryRead: ReturnType<typeof makeTaskQueryReadModel> = {
-      agenda: (query) => currentQueryRead().agenda(query),
-      guiTasks: (query) => currentQueryRead().guiTasks(query),
-      relationGraph: () => currentQueryRead().relationGraph(),
-      relationGraphFacet: (query) => currentQueryRead().relationGraphFacet(query),
-      relationGraphPage: (query) => currentQueryRead().relationGraphPage(query),
-    };
+  const queryRead = () =>
+    makeTaskQueryReadModel({
+      rootDir: context.rootDir,
+      projection: context.projection,
+      judgments: repoCellTaskQueryJudgments,
+    });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
   const spawnRuntime: RepoCell["spawnRuntime"] = (payload, binding) => {
     const command = commandDescriptorForAction("runtime-run"),

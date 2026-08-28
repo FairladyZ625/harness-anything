@@ -18,7 +18,6 @@
   "navHistory.back": "Back (Cmd+[ / mouse side button)",
   "navHistory.forward": "Forward (Cmd+] / mouse side button)",
   "settings.language": "Interface language",
-  "settings.languageDesc": "zh-CN / en-US; some views are bilingual, the rest stay in Chinese for now",
   "settings.title": "Settings",
   "shell.nav.decisionDetail": "Decision Detail",
   "shell.nav.factDetail": "Fact Detail",

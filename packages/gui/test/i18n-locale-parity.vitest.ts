@@ -1,17 +1,18 @@
 // harness-test-tier: integration
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { t, setActiveLocale, initialLocale } from "../src/renderer/i18n/core.ts";
 
+function catalogKeys(locale: "en-US" | "zh-CN"): string[] {
+  const directory = new URL(`../src/renderer/i18n/locales/${locale}/`, import.meta.url);
+  return readdirSync(directory)
+    .flatMap((file) => Object.keys(JSON.parse(readFileSync(new URL(file, directory), "utf8"))))
+    .sort();
+}
+
 describe("i18n bilingual catalogs (REQ-GUI-09 language switch)", () => {
-  it("resolves rebuild shell keys in both locales", () => {
-    setActiveLocale("zh-CN");
-    expect(t("shell.nav.overview")).toBe("总览");
-    expect(t("shell.nav.graph")).toBe("关系图");
-    expect(t("navHistory.back")).toContain("后退");
-    setActiveLocale("en-US");
-    expect(t("shell.nav.overview")).toBe("Overview");
-    expect(t("shell.nav.graph")).toBe("Relation Graph");
-    expect(t("navHistory.back")).toContain("Back");
+  it("keeps the full locale catalog key sets in parity", () => {
+    expect(catalogKeys("zh-CN")).toEqual(catalogKeys("en-US"));
   });
 
   it("interpolates params and picks a system locale fallback", () => {
