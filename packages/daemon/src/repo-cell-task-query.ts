@@ -28,7 +28,7 @@ export function listTasks(cell: any, action: RepoTaskAction, binding: RepoCellBi
         "page the result.",
       ].join(""),
     );
-  const read = cell.queryRead.guiTasks(query),
+  const read = cell.queryRead().guiTasks(query),
     rootSetting = resolveTaskRootThreshold(cell.rootDir),
     childCounts = cell.directChildCounts(),
     search = typeof action.search === "string" ? action.search.toLocaleLowerCase() : null;
@@ -167,7 +167,7 @@ export function directChildCounts(cell: any): Map<string, number> {
 
 export function listRelations(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
   const query = cell.relationQueryFromAction(action),
-    read = Object.keys(query).length ? cell.queryRead.relationGraphPage(query) : cell.queryRead.relationGraph(),
+    read = Object.keys(query).length ? cell.queryRead().relationGraphPage(query) : cell.queryRead().relationGraph(),
     rows = read.edges.filter(
       (edge: any) =>
         (!action.entity || edge.sourceRef === action.entity || edge.targetRef === action.entity) &&

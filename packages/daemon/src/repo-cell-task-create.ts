@@ -114,7 +114,7 @@ export function withHumanSummary(cell: any, receipt: WriteReceipt): WriteReceipt
 
 export function dependencyPath(cell: any, start: string, goal: string): boolean {
   const graph = new Map<string, string[]>();
-  for (const edge of cell.queryRead.relationGraph().edges)
+  for (const edge of cell.queryRead().relationGraph().edges)
     if (edge.state === "active" && edge.relationType === "depends-on")
       graph.set(edge.sourceRef, [...(graph.get(edge.sourceRef) ?? []), edge.targetRef]);
   const queue = [start],
