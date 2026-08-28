@@ -23,6 +23,7 @@ import {
   executionExecutorDeclarationCandidates,
   lifecycleContractIssue,
   replaceExecution,
+  requiredGateWitnessCount,
 } from "./task-lifecycle-contract-support.ts";
 import { isReadyToComplete } from "./task-lifecycle-review-transitions.ts";
 import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
@@ -408,7 +409,8 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
   if (
     event.type === "task_completed" &&
     (!isReadyToComplete(snapshot) ||
-      canonicalGateReceipts(snapshot, event.payload.execution).length !== snapshot.task?.completionGateIds.length ||
+      canonicalGateReceipts(snapshot, event.payload.execution).length !==
+        requiredGateWitnessCount(snapshot, event.payload.execution) ||
       event.payload.task.status !== "done" ||
       event.payload.execution.state !== "accepted")
   )

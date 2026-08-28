@@ -45,6 +45,7 @@ export type { LifecycleBinding, BindingInvariantResult, ImmutableBindingField } 
 export {
   closeoutReadiness,
   closeoutReadinesses,
+  completionGateRequiresWitness,
   currentExecutionCuts,
   currentSubmittedExecutions,
   isCloseoutReadiness,

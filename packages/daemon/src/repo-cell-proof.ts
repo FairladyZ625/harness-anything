@@ -2,12 +2,14 @@ import { type TaskLifecycleServiceProof } from "../../application/src/task-lifec
 import {
   canonicalGateReceipts,
   codeDocRecordId,
+  completionGateRequiresWitness,
   consentedApprovedReview,
   currentCodeDocWitness,
   deriveOwnerRoleBinding,
   heldLeaseForExecutionActor,
   makeTaskProjection,
   normalizeCommandEnvelope,
+  requiredGateWitnessCount,
   runtimeSessionIdFromActor,
   TASK_LIFECYCLE_TRANSITIONS,
   type ActorIdentity,
@@ -271,10 +273,10 @@ export function completeProof(
   );
   if (!execution?.submission) throw cellCodedError("invalid_transition", "Complete requires a submitted execution.");
   const supplied = canonicalGateReceipts(snapshot, execution);
-  if (supplied.length !== (snapshot.task?.completionGateIds.length ?? 0))
+  if (supplied.length !== requiredGateWitnessCount(snapshot, execution))
     throw cellCodedError(
       "gate_witness_missing",
-      "Every completion gate requires a canonical typed witness; local receipt files are not authoritative.",
+      "Every applicable completion gate requires a canonical typed witness; local receipt files are not authoritative.",
     );
   return {
     capability: "task-complete@v1",
@@ -360,9 +362,10 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
                 value.iteration === execution?.iteration,
             )
           : undefined;
+    const notApplicable = !completionGateRequiresWitness(gate, execution?.submission);
     return {
       gate,
-      status: codeDoc || witness ? "pass" : "blocked",
+      status: codeDoc || witness || notApplicable ? "pass" : "blocked",
       witnessRef: codeDoc ? `event:${codeDocRecordId(codeDoc)}` : witness ? `event:${witness.receiptId}` : null,
     };
   });

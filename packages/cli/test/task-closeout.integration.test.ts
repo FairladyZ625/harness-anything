@@ -88,6 +88,81 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
   }
 });
 
+test("a standard task with only task-package deliverables completes without a fabricated code-doc path", (context) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-task-closeout-report-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    taskId = "task-closeout-report",
+    executionId = "execution-closeout-report";
+  initialize(root);
+  seedSettingsEvent({ rootDir: root, repoId: "closeout-report" });
+  try {
+    startDaemon(root, userRoot);
+    run(root, userRoot, ["daemon", "repo", "register", "--repo-id", "closeout-report", "--root", root, "--no-link"]);
+    const created = run(root, userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Report Closeout"]),
+      packagePath = String(created.packagePath),
+      closeoutPath = `${packagePath}/closeout.md`,
+      reportPath = `${packagePath}/artifacts/report.md`;
+    assert.deepEqual(created.completionGates, ["ci", "code-doc-reconciliation"]);
+    run(root, userRoot, [
+      "fact",
+      "record",
+      "--task",
+      taskId,
+      "--statement",
+      "The report-only fixture has no public repository deliverable.",
+      "--source",
+      "test:task-closeout-report",
+    ]);
+    run(root, userRoot, ["task", "start", taskId, "--execution-id", executionId], "agent:worker");
+    writeFileSync(path.join(root, "harness", reportPath), "# Audit report\n\nNo public code changed.\n");
+    writeFileSync(
+      path.join(root, "harness", closeoutPath),
+      "# Closeout\n\n## Summary\n\nReport delivered.\n\n## Verification\n\nReviewed.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask-package-only delivery.\n",
+    );
+    run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:worker");
+    const submission = {
+      completionClaim: "The report-only fixture is complete.",
+      deliverables: [reportPath],
+      outputs: ["reviewed audit report"],
+      verificationNotes: ["report reviewed"],
+      knownGaps: [],
+      residualRisks: [],
+      commitSha: git(root, "rev-parse", "HEAD"),
+    };
+    writeFileSync(path.join(root, "submission.json"), JSON.stringify(submission));
+    run(root, userRoot, ["task", "submit", taskId, "--from-file", "submission.json"], "agent:worker");
+    writeFileSync(
+      path.join(root, "judgment.json"),
+      JSON.stringify({
+        submission,
+        review: {
+          verdict: "approved",
+          reason: "The task-package report is complete and no public code path exists.",
+          evidenceChecked: [reportPath],
+        },
+        consent: { approved: true },
+        completion: { ci: "passed", codeDocPaths: [] },
+      }),
+    );
+    const closeout = runMaybe(root, userRoot, ["task", "closeout", taskId, "--from-file", "judgment.json"]);
+    context.diagnostic(`closeout-report-output=${closeout.stdout}`);
+    assert.equal(closeout.status, 0, closeout.stderr || closeout.stdout);
+    const receipt = JSON.parse(closeout.stdout) as Record<string, unknown>;
+    assert.equal(receipt.outcome, "applied", closeout.stdout);
+    const shown = JSON.parse(runMaybe(root, userRoot, ["task", "show", taskId]).stdout) as Record<string, unknown>,
+      evidence = JSON.parse(String(shown.evidence)) as {
+        task: { status: string };
+        codeDocWitnesses: readonly unknown[];
+      };
+    assert.equal(evidence.task.status, "done");
+    assert.deepEqual(evidence.codeDocWitnesses, [], "report-only completion must not fabricate a witness");
+  } finally {
+    if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 function initialize(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "README.md"), "# Fixture\n");

@@ -32,6 +32,7 @@ export {
   executionExecutorDeclarationCandidates,
   heldLeaseForExecutionActor,
   normalizeTaskLifecycleCommand,
+  requiredGateWitnessCount,
   reviewDigest,
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
