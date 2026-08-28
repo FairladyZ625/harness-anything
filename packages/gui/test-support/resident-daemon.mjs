@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { startDaemon } from "../../daemon/src/runtime.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 export async function startGuiResidentDaemonFixture({
   prefix = "ha-gui-resident-daemon-",
@@ -39,6 +40,18 @@ export async function startGuiResidentDaemonFixture({
         1_000,
       );
       if (created.ok !== true) throw new Error(`GUI daemon task fixture failed: ${JSON.stringify(created)}`);
+      await realizeTaskPlanFixture(
+        rootDir,
+        String(created.packagePath),
+        (planPath) =>
+          requestDaemonJsonRpcAt(
+            daemon.endpoint,
+            "repo.task.run",
+            { repo: { repoId }, payload: { action: { kind: "doc-submit", paths: [planPath] } } },
+            1_000,
+          ),
+        task.title,
+      );
     }
     if (beforeRestart) {
       await beforeStop?.(daemon.endpoint, repoId);

@@ -8,6 +8,7 @@ import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 
 const proposer = {
   actor: {
@@ -72,6 +73,7 @@ test("Decision outcomes reject self-judgment and accept an independent reviewer"
 function decisionProposal() {
   return {
     kind: "decision-propose",
+    body: realizedDecisionBody("Review independence"),
     jsonInput: JSON.stringify({
       title: "Review independence",
       question: "Should a separate agent review this proposal?",

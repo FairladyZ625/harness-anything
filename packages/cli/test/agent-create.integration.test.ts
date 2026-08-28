@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 const ontologySquad = {
@@ -164,6 +165,9 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
       "--title",
       "Agent create",
     ]) as Record<string, unknown>;
+    const planPath = `${String(created.packagePath)}/task_plan.md`;
+    writeFileSync(path.join(root, "harness", planPath), realizedTaskPlan("Agent create"));
+    assert.equal(run(root, env, ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
     run(root, env, ["task", "start", "agent-create-task", "--execution-id", "agent-create-execution"]);
     const generated = {
       schema: "agent-declaration/v1",

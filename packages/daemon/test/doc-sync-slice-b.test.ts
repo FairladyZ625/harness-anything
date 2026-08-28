@@ -12,6 +12,7 @@ import { DOC_COMMAND_FRAME_MAX_BYTES } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const policyId = "markdown-body-replaceable/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -20,7 +21,7 @@ const assignmentSource = { kind: "assignment", nodeId: "node-one", assignmentId:
 test("local doc submit rejects the retired selection assembler", async () => {
   const fixture = await docCell("retired-selection");
   try {
-    const cut = await startLease(fixture.cell, "local");
+    const cut = await startLease(fixture.cell, fixture.rootDir, "local");
     const relativePath = "tasks/task-doc-docs/notes.md";
     writeAuthored(fixture.rootDir, relativePath, "# Notes\n");
     const result = await fixture.cell.run(
@@ -43,8 +44,8 @@ test("local selection and assignment claim normalize to the same doc event throu
   const local = await docCell("local"),
     remote = await docCell("remote");
   try {
-    await startLease(local.cell, "local");
-    const remoteCut = await startLease(remote.cell, assignmentSource);
+    await startLease(local.cell, local.rootDir, "local");
+    const remoteCut = await startLease(remote.cell, remote.rootDir, assignmentSource);
     const body = "# Notes\n\nShared candidate.\n",
       hash = sha(body),
       relativePath = "tasks/task-doc-docs/notes.md";
@@ -95,7 +96,7 @@ test("local selection and assignment claim normalize to the same doc event throu
 test("Decision prose is an explicit idempotent doc-sync region in the canonical authored document", async () => {
   const fixture = await docCell("decision-prose");
   try {
-    await startLease(fixture.cell, "local");
+    await startLease(fixture.cell, fixture.rootDir, "local");
     const binding = { actor, source: "local" as const };
     const proposed = await fixture.cell.run(
       {
@@ -235,10 +236,16 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
   try {
     seedSettingsEvent({ rootDir: fixture.rootDir, repoId: "rbac" });
     await host.admin({ kind: "register", rootDir: fixture.rootDir, repoId: "rbac" }, auth(fixture.ids.admin));
-    assert.equal(
-      (await host.run("rbac", { kind: "task-create", taskId: "task-doc", title: "Docs" }, auth(fixture.ids.writer)))
-        .outcome,
-      "applied",
+    const created = await host.run(
+      "rbac",
+      { kind: "task-create", taskId: "task-doc", title: "Docs" },
+      auth(fixture.ids.writer),
+    );
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(
+      fixture.rootDir,
+      String((created as Record<string, unknown>).packagePath),
+      (planPath) => host.run("rbac", { kind: "doc-submit", paths: [planPath] }, auth(fixture.ids.writer)),
     );
     const started = await host.run(
       "rbac",
@@ -273,7 +280,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
   let now = "2026-08-12T00:00:00.000Z";
   const expired = await docCell("expired", () => now);
   try {
-    const before = await startLease(expired.cell, "local", 30 * 60 * 1_000);
+    const before = await startLease(expired.cell, expired.rootDir, "local", 30 * 60 * 1_000);
     const relativePath = "tasks/task-doc-docs/expired.md",
       body = "# Expired\n";
     writeAuthored(expired.rootDir, relativePath, body);
@@ -292,7 +299,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
 
   const scoped = await docCell("scoped");
   try {
-    const before = await startLease(scoped.cell, assignmentSource);
+    const before = await startLease(scoped.cell, scoped.rootDir, assignmentSource);
     const body = "# Scoped\n",
       relativePath = "tasks/task-doc-docs/outside.md";
     writeClaim(scoped.rootDir, "scoped", body);
@@ -330,7 +337,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
 test("claim-check keeps large bodies out of commands and recycles missing, hash, size, and rejected claims", async () => {
   const local = await docCell("large");
   try {
-    await startLease(local.cell, "local");
+    await startLease(local.cell, local.rootDir, "local");
     const relativePath = "tasks/task-doc-docs/large.md",
       body = `# Large\n${"x".repeat(DOC_COMMAND_FRAME_MAX_BYTES + 1)}\n`;
     writeAuthored(local.rootDir, relativePath, body);
@@ -354,7 +361,7 @@ test("claim-check keeps large bodies out of commands and recycles missing, hash,
 
   const remote = await docCell("claims");
   try {
-    const before = await startLease(remote.cell, assignmentSource);
+    const before = await startLease(remote.cell, remote.rootDir, assignmentSource);
     const relativePath = "tasks/task-doc-docs/claim.md",
       body = "# Claim\n";
     const missing = await remote.cell.run(
@@ -416,12 +423,14 @@ async function docCell(repoId: string, now?: () => string) {
 }
 async function startLease(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
+  rootDir: string,
   source: RepoCellBinding["source"],
   ttlMs?: number,
 ): Promise<unknown> {
-  assert.equal(
-    (await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source })).outcome,
-    "applied",
+  const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source });
+  assert.equal(created.outcome, "applied");
+  await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+    cell.run({ kind: "doc-submit", paths: [planPath] }, { actor, source: "local" }),
   );
   const started = await cell.run(
     { kind: "task-start", taskId: "task-doc", executionId: "execution-doc", ...(ttlMs === undefined ? {} : { ttlMs }) },

@@ -12,6 +12,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
+import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 
 import {
   actor,
@@ -93,7 +94,7 @@ test("Decision read catches up an L1-only authored proposal without a body-null 
     assert.equal(listed.status, "ready");
     assert.equal(listed.watermark, 1);
     assert.equal(listed.decisions[0]?.body, null);
-    assert.equal(service.show("dec_FIXTURE").decision.body?.body, "\n# Canonical Decision\n");
+    assert.equal(service.show("dec_FIXTURE").decision.body?.body, realizedDecisionBody("Canonical Decision"));
   });
 });
 
@@ -140,7 +141,7 @@ test("Decision coverage replays all fulfillment modes, refutation, and exact tas
         decisionClass,
         chosen: [{ id: "CH1", text: "Proceed" }],
         rejected: [{ id: "RJ1", text: "Stop", whyNot: "Evidence supports proceeding" }],
-        body: `\n# ${decisionId}\n`,
+        body: realizedDecisionBody(decisionId),
         claims: [],
         fulfillments: [],
         relations: [],

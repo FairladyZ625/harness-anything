@@ -8,6 +8,7 @@ import test from "node:test";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 type TaskSnapshot = {
@@ -58,8 +59,12 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
         "--title",
         "Executor null live",
       ]),
-      closeoutPath = `${String(created.packagePath)}/closeout.md`;
+      packagePath = String(created.packagePath),
+      planPath = `${packagePath}/task_plan.md`,
+      closeoutPath = `${packagePath}/closeout.md`;
     assert.equal(created.outcome, "applied", JSON.stringify(created));
+    writeFileSync(path.join(root, "harness", planPath), realizedTaskPlan("Executor null live"));
+    assert.equal(run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
     assert.equal(
       run(root, userRoot, daemonId, [
         "fact",

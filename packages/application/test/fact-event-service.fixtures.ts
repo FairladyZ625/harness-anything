@@ -20,6 +20,7 @@ import {
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
+import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 
 export const actor = {
   principal: { personId: "person-fact" },
@@ -112,7 +113,7 @@ export function decisionEvent(
         decisionClass: "ordinary",
         chosen: [{ id: "CH1", text: "Use events", rationale: "Replayable" }],
         rejected: [{ id: "RJ1", text: "Use markdown", whyNot: "Not canonical" }],
-        body: "\n# Canonical Decision\n",
+        body: realizedDecisionBody("Canonical Decision"),
         claims: [],
         fulfillments: [],
         relations: [],

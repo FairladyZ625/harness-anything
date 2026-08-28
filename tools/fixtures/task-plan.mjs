@@ -23,6 +23,10 @@ export function realizedTaskPlan(title = "Lifecycle fixture") {
   return `# ${title}\n\n` + fixtureSections.map(([heading, body]) => `## ${heading}\n\n${body}`).join("\n\n") + "\n";
 }
 
+export function realizedDecisionBody(title = "Fixture decision") {
+  return `\n# ${title}\n\nThis fixture records concrete decision prose before exercising the canonical acceptance transition.\n`;
+}
+
 export async function realizeTaskPlanFixture(rootDir, packagePath, submit, title) {
   const planPath = `${packagePath}/task_plan.md`,
     authoredPath = path.join(rootDir, "harness", planPath),
