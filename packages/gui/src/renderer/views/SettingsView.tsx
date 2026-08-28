@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
-import { t, useI18n } from "../i18n/index.tsx";
+import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
 import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
 import { readTimeZoneOverride, supportedTimeZones, systemTimeZone, writeTimeZoneOverride } from "../model/time.ts";
@@ -9,22 +9,24 @@ import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
 import { useCatalogSnapshot } from "../catalog-data.ts";
 import type { CatalogPresetRow, SettingsSuccess } from "../api-client.ts";
 
-const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
-  { key: "dark", label: "暗色" },
-  { key: "light", label: "亮色" },
-  { key: "system", label: "跟随系统" },
+// i18n(task_bff1b8d6):设置页文案一律走 locales(同 task_9f39e256 的 tab 机制),
+// 模块级清单只留 id/key,文案键(labelKey/descKey)在渲染期经 t() 取。
+const THEME_OPTIONS: { key: ThemeMode; labelKey: MessageKey }[] = [
+  { key: "dark", labelKey: "views.settingsView.themeDark" },
+  { key: "light", labelKey: "views.settingsView.themeLight" },
+  { key: "system", labelKey: "views.settingsView.themeSystem" },
 ];
 
-const SCALE_OPTIONS: { key: UiScale; label: string }[] = [
-  { key: "compact", label: "紧凑" },
-  { key: "standard", label: "标准" },
-  { key: "comfortable", label: "宽松" },
+const SCALE_OPTIONS: { key: UiScale; labelKey: MessageKey }[] = [
+  { key: "compact", labelKey: "views.settingsView.scaleCompact" },
+  { key: "standard", labelKey: "views.settingsView.scaleStandard" },
+  { key: "comfortable", labelKey: "views.settingsView.scaleComfortable" },
 ];
 
 // 已实现的快捷键(其余 ⌘K/⌘1..5/R/X 暂未实现,已从此清单移除以免假承诺)。
-const SHORTCUTS: { keys: string[]; desc: string }[] = [
-  { keys: ["Esc"], desc: "关闭预览抽屉" },
-  { keys: ["Enter"], desc: "在列表中打开任务详情" },
+const SHORTCUTS: { keys: string[]; descKey: MessageKey }[] = [
+  { keys: ["Esc"], descKey: "views.settingsView.shortcutClosePreviewDrawer" },
+  { keys: ["Enter"], descKey: "views.settingsView.shortcutOpenTaskDetail" },
 ];
 
 type SettingsTab =
@@ -39,16 +41,26 @@ type SettingsTab =
   | "sync";
 type SettingsDraft = SettingsSuccess["settings"];
 
-const SETTINGS_TABS: { id: SettingsTab; label: string; desc: string }[] = [
-  { id: "repository", label: "仓库", desc: "默认值与脚手架" },
-  { id: "appearance", label: "外观", desc: "主题与状态色" },
-  { id: "language", label: "语言", desc: "界面文案" },
-  { id: "shortcuts", label: "快捷键", desc: "全局操作" },
-  { id: "notifications", label: "通知", desc: "封存就绪提醒" },
-  { id: "data", label: "数据", desc: "缓存与投影" },
-  { id: "terminal", label: "终端", desc: "shell 偏好" },
-  { id: "privacy", label: "隐私", desc: "本地默认" },
-  { id: "sync", label: "账号与同步", desc: "V2 能力" },
+const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; descKey: MessageKey }[] = [
+  { id: "repository", labelKey: "views.settingsView.tabRepository", descKey: "views.settingsView.tabRepositoryDesc" },
+  { id: "appearance", labelKey: "views.settingsView.tabAppearance", descKey: "views.settingsView.tabAppearanceDesc" },
+  { id: "language", labelKey: "views.settingsView.tabLanguage", descKey: "views.settingsView.tabLanguageDesc" },
+  { id: "shortcuts", labelKey: "views.settingsView.tabShortcuts", descKey: "views.settingsView.tabShortcutsDesc" },
+  {
+    id: "notifications",
+    labelKey: "views.settingsView.tabNotifications",
+    descKey: "views.settingsView.tabNotificationsDesc",
+  },
+  { id: "data", labelKey: "views.settingsView.tabData", descKey: "views.settingsView.tabDataDesc" },
+  { id: "terminal", labelKey: "views.settingsView.tabTerminal", descKey: "views.settingsView.tabTerminalDesc" },
+  { id: "privacy", labelKey: "views.settingsView.tabPrivacy", descKey: "views.settingsView.tabPrivacyDesc" },
+  { id: "sync", labelKey: "views.settingsView.tabSync", descKey: "views.settingsView.tabSyncDesc" },
+];
+
+const SYNC_FEATURE_KEYS: readonly MessageKey[] = [
+  "views.settingsView.syncFeatureMultiDevice",
+  "views.settingsView.syncFeatureRemoteAccess",
+  "views.settingsView.syncFeatureMobileReview",
 ];
 
 export function SettingsView({ repoId }: { readonly repoId: string }) {
@@ -140,19 +152,19 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
       case "repository":
         if (settingsQuery.error)
           return (
-            <Section title="仓库设置">
+            <Section title={t("views.settingsView.sectionRepository")}>
               <div className="p-4 text-danger">{String(settingsQuery.error)}</div>
             </Section>
           );
         if (settingsQuery.isPending || !draft)
           return (
-            <Section title="仓库设置">
-              <div className="p-4 text-text-faint">正在读取规范设置…</div>
+            <Section title={t("views.settingsView.sectionRepository")}>
+              <div className="p-4 text-text-faint">{t("views.settingsView.readingSettings")}</div>
             </Section>
           );
         return (
           <Section
-            title="仓库设置"
+            title={t("views.settingsView.sectionRepository")}
             action={
               <button
                 className={BTN}
@@ -167,13 +179,18 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                   })
                 }
               >
-                {settingsMutation.isPending ? "提交中…" : "提交到仓库"}
+                {settingsMutation.isPending
+                  ? t("views.settingsView.submitPending")
+                  : t("views.settingsView.submitToRepository")}
               </button>
             }
           >
-            <Row label="默认垂直" desc={t("views.settingsView.verticalDescription")}>
+            <Row
+              label={t("views.settingsView.defaultVerticalLabel")}
+              desc={t("views.settingsView.verticalDescription")}
+            >
               <SettingSelect
-                label="默认垂直"
+                label={t("views.settingsView.defaultVerticalLabel")}
                 testId="settings-vertical-select"
                 value={draft.defaultVertical}
                 disabled={catalogBlocked}
@@ -181,9 +198,9 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 onChange={chooseVertical}
               />
             </Row>
-            <Row label="默认预设" desc={t("views.settingsView.presetDescription")}>
+            <Row label={t("views.settingsView.defaultPresetLabel")} desc={t("views.settingsView.presetDescription")}>
               <SettingSelect
-                label="默认预设"
+                label={t("views.settingsView.defaultPresetLabel")}
                 testId="settings-preset-select"
                 value={draft.defaultPreset}
                 disabled={catalogBlocked}
@@ -191,9 +208,9 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 onChange={choosePreset}
               />
             </Row>
-            <Row label="默认配置" desc={t("views.settingsView.profileDescription")}>
+            <Row label={t("views.settingsView.defaultProfileLabel")} desc={t("views.settingsView.profileDescription")}>
               <SettingSelect
-                label="默认配置"
+                label={t("views.settingsView.defaultProfileLabel")}
                 testId="settings-profile-select"
                 value={draft.defaultProfile}
                 disabled={catalogBlocked}
@@ -201,9 +218,12 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 onChange={(value) => updateDraft("defaultProfile", value)}
               />
             </Row>
-            <Row label="任务脚手架" desc={t("views.settingsView.taskScaffoldDescription")}>
+            <Row
+              label={t("views.settingsView.taskScaffoldLabel")}
+              desc={t("views.settingsView.taskScaffoldDescription")}
+            >
               <SettingSelect
-                label="任务脚手架"
+                label={t("views.settingsView.taskScaffoldLabel")}
                 testId="settings-task-scaffold-select"
                 value={draft.scaffolds.task}
                 disabled={catalogBlocked}
@@ -211,9 +231,12 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, task: value } })}
               />
             </Row>
-            <Row label="仓库脚手架" desc={t("views.settingsView.repositoryScaffoldDescription")}>
+            <Row
+              label={t("views.settingsView.repositoryScaffoldLabel")}
+              desc={t("views.settingsView.repositoryScaffoldDescription")}
+            >
               <SettingSelect
-                label="仓库脚手架"
+                label={t("views.settingsView.repositoryScaffoldLabel")}
                 testId="settings-repository-scaffold-select"
                 value={draft.scaffolds.repository}
                 disabled={catalogBlocked}
@@ -221,7 +244,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, repository: value } })}
               />
             </Row>
-            <Row label="归属" desc="repository · 经事件流提交并与协作者同步">
+            <Row label={t("views.settingsView.ownershipLabel")} desc={t("views.settingsView.ownershipDescription")}>
               <span className="font-mono text-[12px] text-text-muted">
                 settings/{draft.settingsId} · {draft.schema}
               </span>
@@ -238,16 +261,27 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
         );
       case "appearance":
         return (
-          <Section title="外观">
-            <Row label="主题" desc="OKLch 双主题 · 六态状态色两主题可辨识度等价">
-              <Segmented value={mode} options={THEME_OPTIONS} onChange={setMode} />
+          <Section title={t("views.settingsView.sectionAppearance")}>
+            <Row label={t("views.settingsView.themeLabel")} desc={t("views.settingsView.themeDescription")}>
+              <Segmented
+                value={mode}
+                options={THEME_OPTIONS.map(({ key, labelKey }) => ({ key, label: t(labelKey) }))}
+                onChange={setMode}
+              />
             </Row>
-            <Row label="界面缩放" desc="按比例调整正文、标题、泳道和控件密度">
-              <Segmented value={uiScale} options={SCALE_OPTIONS} onChange={setUiScale} />
+            <Row label={t("views.settingsView.uiScaleLabel")} desc={t("views.settingsView.uiScaleDescription")}>
+              <Segmented
+                value={uiScale}
+                options={SCALE_OPTIONS.map(({ key, labelKey }) => ({ key, label: t(labelKey) }))}
+                onChange={setUiScale}
+              />
             </Row>
-            <Row label="时区" desc={`默认跟随系统（${systemTimeZone()}），仅影响本机展示`}>
+            <Row
+              label={t("views.settingsView.timeZoneLabel")}
+              desc={t("views.settingsView.timeZoneDescription", { system: systemTimeZone() })}
+            >
               <select
-                aria-label="时区"
+                aria-label={t("views.settingsView.timeZoneLabel")}
                 className="rounded border border-border bg-surface-raised px-2 py-1 font-mono text-[12px] text-text"
                 value={timeZoneOverride}
                 onChange={(event) => {
@@ -256,7 +290,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                   setTimeZoneOverride(next);
                 }}
               >
-                <option value="">跟随系统</option>
+                <option value="">{t("views.settingsView.timeZoneFollowSystem")}</option>
                 {supportedTimeZones().map((timeZone) => (
                   <option key={timeZone} value={timeZone}>
                     {timeZone}
@@ -264,7 +298,10 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 ))}
               </select>
             </Row>
-            <Row label="状态色" desc="随主题切换实时变色">
+            <Row
+              label={t("views.settingsView.statusColorsLabel")}
+              desc={t("views.settingsView.statusColorsDescription")}
+            >
               <div className="flex flex-wrap items-center justify-end gap-3">
                 {Object.entries(STATUS_META).map(([key, meta]) => (
                   <span key={key} className="inline-flex items-center gap-1">
@@ -278,10 +315,10 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
         );
       case "language":
         return (
-          <Section title="本地设置">
-            <Row label={t("settings.language")} desc="local · 仅保存在本机，不进入事件流或 Git">
+          <Section title={t("views.settingsView.sectionLanguage")}>
+            <Row label={t("settings.language")} desc={t("views.settingsView.languageDescription")}>
               <select
-                aria-label="语言"
+                aria-label={t("views.settingsView.tabLanguage")}
                 className="rounded border border-border bg-surface-raised px-2 py-1 text-[12px] text-text"
                 value={locale}
                 onChange={(event) => {
@@ -291,7 +328,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                   settingsMutation.mutate({ locale: next });
                 }}
               >
-                <option value="zh-CN">中文</option>
+                <option value="zh-CN">{t("views.settingsView.chinese")}</option>
                 <option value="en-US">{t("views.settingsView.english")}</option>
               </select>
             </Row>
@@ -303,15 +340,18 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
       case "shortcuts":
         return (
           <Section
-            title="快捷键"
+            title={t("views.settingsView.sectionShortcuts")}
             action={
-              <button disabled title="原型暂不支持" className={BTN}>
-                重绑定
+              <button disabled title={t("views.settingsView.notSupportedYet")} className={BTN}>
+                {t("views.settingsView.rebindAction")}
               </button>
             }
           >
             {SHORTCUTS.map((s) => (
-              <div key={s.desc} className="flex items-center gap-3 border-b border-border px-3 py-1.5 last:border-b-0">
+              <div
+                key={s.descKey}
+                className="flex items-center gap-3 border-b border-border px-3 py-1.5 last:border-b-0"
+              >
                 <span className="flex w-28 shrink-0 items-center gap-1">
                   {s.keys.map((k, i) => (
                     <span key={k} className="inline-flex items-center gap-1">
@@ -320,20 +360,17 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                     </span>
                   ))}
                 </span>
-                <span className="ui-meta text-text-muted">{s.desc}</span>
+                <span className="ui-meta text-text-muted">{t(s.descKey)}</span>
               </div>
             ))}
           </Section>
         );
       case "notifications":
         return (
-          <Section title="通知">
+          <Section title={t("views.settingsView.sectionNotifications")}>
             <Row
-              label="封存就绪桌面通知"
-              desc={[
-                "closeoutReadiness=ready 时发送桌面通知",
-                "（Electron Notification API 尚未接入,coming soon）",
-              ].join("")}
+              label={t("views.settingsView.notifyCloseoutReadyLabel")}
+              desc={t("views.settingsView.notifyCloseoutReadyDescription")}
             >
               <Toggle checked={notifyOnReady} onChange={setNotifyOnReady} disabled />
             </Row>
@@ -341,63 +378,69 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
         );
       case "data":
         return (
-          <Section title="数据">
-            <Row label="缓存目录" desc="本地投影缓存（SQLite）">
+          <Section title={t("views.settingsView.sectionData")}>
+            <Row
+              label={t("views.settingsView.cacheDirectoryLabel")}
+              desc={t("views.settingsView.cacheDirectoryDescription")}
+            >
               <span className="max-w-full break-all font-mono text-[11px] text-text-muted">
                 .harness/cache/task.sqlite
               </span>
             </Row>
-            <Row label="导出诊断信息" desc="打包日志与投影快照用于排查">
-              <button disabled title="原型暂不支持" className={BTN}>
-                导出
+            <Row
+              label={t("views.settingsView.exportDiagnosticsLabel")}
+              desc={t("views.settingsView.exportDiagnosticsDescription")}
+            >
+              <button disabled title={t("views.settingsView.notSupportedYet")} className={BTN}>
+                {t("views.settingsView.exportAction")}
               </button>
             </Row>
           </Section>
         );
       case "terminal":
         return (
-          <Section title="终端">
-            <Row label="默认 shell">
+          <Section title={t("views.settingsView.sectionTerminal")}>
+            <Row label={t("views.settingsView.defaultShellLabel")}>
               <span className="font-mono text-[13px] text-text-muted">/bin/zsh</span>
             </Row>
-            <Row label="字体">
+            <Row label={t("views.settingsView.fontLabel")}>
               <span className="font-mono text-[13px] text-text-muted">Geist Mono</span>
             </Row>
-            <Row label="字号">
+            <Row label={t("views.settingsView.fontSizeLabel")}>
               <span className="font-mono text-[13px] text-text-muted">15</span>
             </Row>
           </Section>
         );
       case "privacy":
         return (
-          <Section title="隐私">
-            <Row label="遥测" desc="默认关闭 · 原型不收集任何数据">
+          <Section title={t("views.settingsView.sectionPrivacy")}>
+            <Row label={t("views.settingsView.telemetryLabel")} desc={t("views.settingsView.telemetryDescription")}>
               <Toggle checked={false} disabled />
             </Row>
           </Section>
         );
       case "sync":
         return (
-          <Section title="账号与同步">
+          <Section title={t("views.settingsView.sectionSync")}>
             <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
               <CloudSlash weight="duotone" className="shrink-0 text-xl text-text-faint" />
               <p className="ui-meta min-w-0 flex-1 text-text-muted">
-                本地模式 · 多端同步与账号体系将在 V2 提供（商业版）
+                {t("views.settingsView.syncLocalModeDescription")}
               </p>
-              <button disabled title="V2 提供" className={BTN}>
-                登录
+              <button disabled title={t("views.settingsView.syncV2Title")} className={BTN}>
+                {t("views.settingsView.syncSignInAction")}
               </button>
             </div>
-            {["多设备同步", "远程项目访问", "手机端审阅"].map((f) => (
+            {SYNC_FEATURE_KEYS.map((featureKey) => (
               <div
-                key={f}
+                key={featureKey}
                 className={[
                   "ui-meta flex items-center gap-2 border-b border-border px-3 py-1.5",
                   "text-text-faint last:border-b-0",
                 ].join(" ")}
               >
                 <span className="font-mono text-[12px]">·</span>
-                {f}
+                {t(featureKey)}
               </div>
             ))}
           </Section>
@@ -409,7 +452,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
         <h1 className="ui-title font-mono font-semibold">{t("settings.title")}</h1>
-        <p className="ui-meta mt-0.5 text-text-faint">仓库约定提交到 harness.yaml；个人偏好保存在本机。</p>
+        <p className="ui-meta mt-0.5 text-text-faint">{t("views.settingsView.headerDescription")}</p>
       </header>
 
       <div
@@ -432,8 +475,8 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                   : "text-text-muted hover:bg-surface-raised/50 hover:text-text"
               }`}
             >
-              <span className="text-[14px] font-semibold">{tab.label}</span>
-              <span className="mt-0.5 hidden text-[12px] text-text-faint lg:block">{tab.desc}</span>
+              <span className="text-[14px] font-semibold">{t(tab.labelKey)}</span>
+              <span className="mt-0.5 hidden text-[12px] text-text-faint lg:block">{t(tab.descKey)}</span>
             </button>
           ))}
         </nav>
