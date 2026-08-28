@@ -462,6 +462,7 @@ export function createRepoCellApi(context: any): RepoCell {
       agenda: (query) => currentQueryRead().agenda(query),
       guiTasks: (query) => currentQueryRead().guiTasks(query),
       relationGraph: () => currentQueryRead().relationGraph(),
+      relationGraphFacet: (query) => currentQueryRead().relationGraphFacet(query),
       relationGraphPage: (query) => currentQueryRead().relationGraphPage(query),
     };
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
