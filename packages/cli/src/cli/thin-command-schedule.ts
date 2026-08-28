@@ -1,4 +1,9 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import {
+  parseScheduleListReceipt,
+  type ScheduleListRow,
+} from "../../../daemon/src/protocol/daemon-protocol-validate-results.ts";
+import { consumeKnownError } from "../daemon/client.ts";
 import { accepted, nonEmpty, optionalFlags, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
@@ -122,13 +127,19 @@ export function parseScheduleDuration(value: string): number | null {
 }
 
 export function renderScheduleList(receipt: Record<string, unknown>): string | null {
-  if (receipt.command !== "schedule-list" || !Array.isArray(receipt.schedules)) return null;
-  if (receipt.schedules.length === 0) return "No schedules.";
-  return receipt.schedules
-    .map((value) => {
-      const row = value as Record<string, unknown>,
-        status = row.status && typeof row.status === "object" ? (row.status as Record<string, unknown>) : null;
-      return [row.scheduleId, row.state, row.nextRunAt ?? "none", status?.activeRun ? "active" : "idle"]
+  if (receipt.command !== "schedule-list") return null;
+  let schedules: readonly ScheduleListRow[] | null;
+  try {
+    schedules = parseScheduleListReceipt(receipt);
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+  if (!schedules) return null;
+  if (schedules.length === 0) return "No schedules.";
+  return schedules
+    .map((row) => {
+      return [row.scheduleId, row.state, row.nextRunAt ?? "none", row.status.activeRun ? "active" : "idle"]
         .map(String)
         .join("\t");
     })
