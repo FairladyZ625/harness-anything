@@ -10,6 +10,11 @@ import {
 } from "./daemon/client.ts";
 
 type DaemonGone = { readonly kind: "daemon-gone"; readonly cause: string };
+type RuntimeStreamSignal = "terminal" | "lost";
+
+const fallbackPollBaseMs = 500,
+  fallbackPollMaxMs = 2_000,
+  settlementWaitMs = 5_000;
 
 export async function waitForRuntime(
   command: ThinCommand,
@@ -22,9 +27,13 @@ export async function waitForRuntime(
   let statusReader: Awaited<ReturnType<typeof openRuntimeStatusReader>> | undefined;
   let current: JsonObject | undefined,
     detach: (() => void) | undefined,
-    streamStarted = false;
+    streamAttempted = false,
+    finishAfterRead = false,
+    fallbackProgress: string | undefined,
+    fallbackDelayMs = fallbackPollBaseMs,
+    exitedAt: number | undefined;
   try {
-    for (let exitedPolls = 0; ; ) {
+    for (;;) {
       const next = await readDaemonSubscription(
         command,
         async () => {
@@ -49,20 +58,47 @@ export async function waitForRuntime(
       }
       if (next.ok !== true) return next;
       current = next;
-      if (stream && !streamStarted) {
-        streamStarted = true;
+      const session = (current as unknown as AgentRuntimeSessionResult).session;
+      if (session.activity.outcome !== null || finishAfterRead) break;
+      if (stream && !streamAttempted && session.attachCapability === "supported") {
+        streamAttempted = true;
+        let streamAttached = false,
+          resolveStreamSignal: (signal: RuntimeStreamSignal) => void = () => undefined;
+        const streamSignal = new Promise<RuntimeStreamSignal>((resolve) => {
+          resolveStreamSignal = resolve;
+        });
         try {
-          detach = await streamRuntimeThroughDaemon(command, runtimeSessionId, (value) =>
-            renderRuntimeFrames(value, writeActivity),
+          detach = await streamRuntimeThroughDaemon(
+            command,
+            runtimeSessionId,
+            (value) => {
+              renderRuntimeFrames(value, writeActivity);
+              streamAttached ||= runtimeStreamAttached(value);
+              const signal = runtimeStreamWakeSignal(value);
+              if (signal) resolveStreamSignal(signal);
+            },
+            () => resolveStreamSignal("lost"),
           );
         } catch (error) {
           consumeKnownError(error);
           writeActivity(`[stream] ${error instanceof Error ? error.message : String(error)}\n`);
         }
+        if (streamAttached) {
+          const signal = await streamSignal;
+          finishAfterRead = signal === "terminal";
+          continue;
+        }
       }
-      const session = (current as unknown as AgentRuntimeSessionResult).session;
-      if (session.activity.outcome !== null || (session.liveness === "exited" && ++exitedPolls >= 20)) break;
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (session.liveness === "exited") {
+        exitedAt ??= Date.now();
+        if (Date.now() - exitedAt >= settlementWaitMs) break;
+      } else exitedAt = undefined;
+      const progress = runtimePollProgress(session);
+      if (progress !== fallbackProgress) {
+        fallbackProgress = progress;
+        fallbackDelayMs = fallbackPollBaseMs;
+      } else fallbackDelayMs = Math.min(fallbackDelayMs * 2, fallbackPollMaxMs);
+      await new Promise((resolve) => setTimeout(resolve, fallbackDelayMs));
     }
   } finally {
     statusReader?.close();
@@ -295,4 +331,29 @@ export function renderRuntimeFrames(value: unknown, write: (text: string) => voi
   }
   if (record.type === "activity" && typeof record.content === "string")
     write(`[${String(record.activity)}] ${record.content}\n`);
+}
+
+function runtimeStreamAttached(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return record.ok === true && ["attached", "gap"].includes(String(record.status));
+}
+
+function runtimeStreamWakeSignal(value: unknown): RuntimeStreamSignal | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (record.type === "exit") return "terminal";
+  if (record.type === "gap" || record.status === "gap") return "lost";
+  if (Array.isArray(record.events))
+    for (const event of record.events) {
+      const signal = runtimeStreamWakeSignal(event);
+      if (signal) return signal;
+    }
+  return null;
+}
+
+function runtimePollProgress(session: AgentRuntimeSessionResult["session"]): string {
+  return [session.liveness, session.semanticState ?? "", session.streamCursor, session.activity.outcome ?? ""].join(
+    "\0",
+  );
 }
