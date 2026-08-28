@@ -60,7 +60,6 @@ export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({
       "body",
       "blobSha256",
       "worktreeBody",
-      "worktreeBlobSha256",
       "uncommitted",
       "watermark",
       "sourceRevision",

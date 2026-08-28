@@ -3,11 +3,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { SquadEntityDetail } from "../src/renderer/agent-entity-client.ts";
-import {
-  SquadCockpit,
-  squadCockpitModel,
-  type SquadCockpitRow,
-} from "../src/renderer/components/runtime/SquadCockpit.tsx";
+import { SquadCockpit, squadCockpitModel } from "../src/renderer/components/runtime/SquadCockpit.tsx";
+import type { RuntimeDockRow } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 beforeAll(() => setActiveLocale("en-US"));
@@ -22,7 +19,7 @@ const squad: SquadEntityDetail = {
   prompts: [],
 };
 
-function row(overrides: Partial<SquadCockpitRow> & { readonly runtimeSessionId: string }): SquadCockpitRow {
+function row(overrides: Partial<RuntimeDockRow> & { readonly runtimeSessionId: string }): RuntimeDockRow {
   return {
     agentId: null,
     agentName: null,
@@ -34,7 +31,6 @@ function row(overrides: Partial<SquadCockpitRow> & { readonly runtimeSessionId: 
     taskId: "task-a",
     taskTitle: "Task A",
     startedAt: "2026-08-28T00:00:00.000Z",
-    endedAt: null,
     status: "running",
     liveness: null,
     dispatchId: null,
@@ -61,7 +57,6 @@ describe("squad cockpit model", () => {
         delegatedByAgentId: "fable",
         parentRuntimeSessionId: "runtime-leader-1",
         status: "succeeded",
-        endedAt: "2026-08-28T00:05:00.000Z",
       }),
       row({
         runtimeSessionId: "runtime-leader-2",
@@ -106,7 +101,7 @@ describe("squad cockpit model", () => {
 });
 
 describe("squad cockpit page", () => {
-  const cockpit = (rows: readonly SquadCockpitRow[]) =>
+  const cockpit = (rows: readonly RuntimeDockRow[]) =>
     renderToStaticMarkup(
       createElement(SquadCockpit, {
         squad,
@@ -142,7 +137,6 @@ describe("squad cockpit page", () => {
         delegatedByAgentId: "fable",
         parentRuntimeSessionId: "runtime-leader-1",
         status: "failed",
-        endedAt: "2026-08-28T00:05:00.000Z",
       }),
     ]);
     // 三条流同屏:Commander lane 与两条 worker lane 都在 DOM 里,组织关系可读。
@@ -164,7 +158,6 @@ describe("squad cockpit page", () => {
         delegatedByAgentId: "fable",
         parentRuntimeSessionId: "runtime-leader-1",
         status: "succeeded",
-        endedAt: "2026-08-28T00:05:00.000Z",
       }),
     ]);
     expect(markup).toContain('data-testid="squad-lane-runtime-worker-done"');

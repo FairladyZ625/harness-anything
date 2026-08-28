@@ -305,7 +305,6 @@ export type DaemonGuiReadResultMap = {
     /** Live worktree view (task_e5defe69): disk content now, and whether it diverges
      * from the committed projection. Null body = no such file on disk. */
     readonly worktreeBody: string | null;
-    readonly worktreeBlobSha256: string | null;
     readonly uncommitted: boolean;
     readonly watermark: number;
     readonly sourceRevision: number;

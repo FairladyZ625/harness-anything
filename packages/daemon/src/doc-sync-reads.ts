@@ -218,7 +218,6 @@ export function readProjectedDocument(
     // now, not only the committed projection — an edited-but-unsynced plan is real work
     // and must be visible and explicitly marked as not yet committed.
     worktreeBody: worktree?.body ?? null,
-    worktreeBlobSha256: worktree?.blobSha256 ?? null,
     uncommitted: worktree !== null && worktree.blobSha256 !== (read.document?.blobSha256 ?? null),
     watermark: read.watermark,
     sourceRevision: read.sourceRevision,

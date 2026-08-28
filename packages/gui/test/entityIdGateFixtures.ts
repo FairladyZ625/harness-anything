@@ -332,7 +332,6 @@ export const FIXTURE_DOCK_ROW: RuntimeDockRow = {
   providerSessionId: null,
   eventStreamRef: null,
   startedAt: AT,
-  endedAt: null,
   outcome: null,
   status: "running",
   squad: null,

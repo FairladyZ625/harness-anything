@@ -154,7 +154,6 @@
   "agentRuntime.rosterHint": "Leader 不做能力评分,它读这份花名册用自然语言判断派谁。",
   "agentRuntime.rosterWarn": "措辞本身是承重配置 —— 写「会什么」,别写「是什么」。",
   "agentRuntime.launchSquad": "启动 Commander…",
-  "agentRuntime.launchSquadHint": "一次启动只起 Commander 会话;由 Commander 自主拆解并派发下级。",
   "agentRuntime.noSessions": "无会话",
   "agentRuntime.unattributed": "未归属",
   "agentRuntime.noTask": "未绑定任务",

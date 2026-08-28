@@ -559,7 +559,6 @@ describe("agent runtime renderer", () => {
       "Worker #1",
       "4 members",
       "Leader turn budget",
-      "One launch starts the Commander session",
     ])
       expect(squad).toContain(text);
     expect(squad).toContain('data-testid="squad-leader-turn-budget"');

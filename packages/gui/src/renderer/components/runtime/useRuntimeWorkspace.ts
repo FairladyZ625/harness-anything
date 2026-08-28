@@ -38,7 +38,6 @@ export type RuntimeDockRow = {
   readonly taskId: string | null;
   readonly taskTitle: string | null;
   readonly startedAt: string;
-  readonly endedAt: string | null;
   readonly status: string;
   readonly liveness: "live" | "stale" | "unknown" | "exited" | null;
   readonly dispatchId: string | null;
@@ -276,7 +275,6 @@ export function useAgentSquadWorkspace(
       taskId: row.taskId,
       taskTitle: relatedLabels.get(row.taskId) ?? null,
       startedAt: row.startedAt,
-      endedAt: row.endedAt ?? null,
       status: row.status,
       liveness: null,
       dispatchId: row.dispatchId,

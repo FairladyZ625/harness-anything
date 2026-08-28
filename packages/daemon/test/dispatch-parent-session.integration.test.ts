@@ -12,8 +12,7 @@ import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-const explicitParentSessionId = "runtime_0123456789abcdef01234567",
-  bindingSessionId = "runtime_89abcdef0123456789abcdef",
+const bindingSessionId = "runtime_89abcdef0123456789abcdef",
   personBinding = {
     actor: { principal: { personId: "person-parent-session" }, executor: null },
     source: "local" as const,
@@ -32,57 +31,6 @@ const explicitParentSessionId = "runtime_0123456789abcdef01234567",
     version: "1.0.0",
     observedAt: "2026-08-28T00:00:00.000Z",
   };
-
-test("a delegated dispatch records the caller-declared parent runtime session on its stream header", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-parent-session-edge-")),
-    root = path.join(parent, "repo");
-  mkdirSync(root);
-  git(root, "init", "-q");
-  git(root, "config", "user.name", "Parent Session Test");
-  git(root, "config", "user.email", "parent-session@example.invalid");
-  git(root, "commit", "--allow-empty", "-qm", "base");
-  const cell = await openRepoCell({
-    repoId: workspaceId("parent-session-edge"),
-    rootDir: canonicalRoot(root),
-    ownerId: "parent-session-test",
-    runtimeInstances: () => [runtimeInstance("codex-parent")],
-    prepareRuntimeLaunch: async (instanceId, request) => ({
-      definition: definition(instanceId, request.model ?? "codex-parent-model"),
-      installation,
-      executablePath: installation.executablePath,
-      args: ["exec", "--json", "-"],
-      env: {},
-      cwd: request.cwd,
-      prompt: request.prompt,
-    }),
-    runtimeLaunch: () => fakeProcess(7101, "success"),
-  });
-  try {
-    await installSquad(cell);
-    const receipt = await cell.spawnRuntime(
-      {
-        runtimeInstanceId: "codex-parent",
-        agentId: "parent-leader",
-        targetAgentId: "parent-worker",
-        squadId: "parent-squad",
-        parentRuntimeSessionId: explicitParentSessionId,
-        cwd: { scope: "repo-root" },
-        prompt: "Delegate one worker.",
-        taskId: null,
-        idempotencyKey: "parent-session-explicit",
-      },
-      executorBinding,
-    );
-    const stream = readDispatchStream(root, String(receipt.dispatchId));
-    assert.ok(stream, "delegated dispatch stream exists");
-    assert.equal(stream.header.parentRuntimeSessionId, explicitParentSessionId);
-    assert.equal(stream.header.delegatedByAgentId, "parent-leader");
-    assert.equal(stream.header.squadId, "parent-squad");
-  } finally {
-    await cell.close();
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
 
 test("a local binding executor names the parent runtime session when the caller passes none", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-parent-session-binding-")),
@@ -172,7 +120,6 @@ test("a leader-only squad dispatch keeps its squad attribution after settlement 
         runtimeInstanceId: "codex-parent",
         agentId: "parent-leader",
         squadId: "parent-squad",
-        parentRuntimeSessionId: explicitParentSessionId,
         cwd: { scope: "repo-root" },
         prompt: "Run as the attributed squad leader.",
         taskId,
@@ -183,7 +130,7 @@ test("a leader-only squad dispatch keeps its squad attribution after settlement 
     const stream = readDispatchStream(root, String(receipt.dispatchId));
     assert.ok(stream, "leader dispatch stream exists");
     assert.equal(stream.header.squadId, "parent-squad");
-    assert.equal(stream.header.parentRuntimeSessionId, explicitParentSessionId);
+    assert.equal(Object.hasOwn(stream.header, "parentRuntimeSessionId"), false);
     assert.equal(Object.hasOwn(stream.header, "delegatedByAgentId"), false);
     const rows = await eventually(async () => {
       const result = (await cell.read("repo.task.dispatches", { taskId })) as {
@@ -197,8 +144,9 @@ test("a leader-only squad dispatch keeps its squad attribution after settlement 
       const settled = result.dispatches.find((row) => row.endedAt !== null);
       return settled?.dispatchPath ? result.dispatches : null;
     });
-    const leaderRow = rows.find((row) => row.parentRuntimeSessionId === explicitParentSessionId);
-    assert.ok(leaderRow, "settled leader row keeps its parent session edge");
+    const leaderRow = rows.find((row) => row.squadId === "parent-squad");
+    assert.ok(leaderRow, "settled leader row keeps its squad attribution");
+    assert.equal(Object.hasOwn(leaderRow, "parentRuntimeSessionId"), false);
     assert.equal(leaderRow.squadId, "parent-squad");
     const document = (await cell.read("repo.tasks.document.read", {
         taskId,
@@ -206,7 +154,7 @@ test("a leader-only squad dispatch keeps its squad attribution after settlement 
       })) as { readonly body: string },
       archived = JSON.parse(document.body) as Record<string, unknown>;
     assert.equal(archived.squadId, "parent-squad");
-    assert.equal(archived.parentRuntimeSessionId, explicitParentSessionId);
+    assert.equal(Object.hasOwn(archived, "parentRuntimeSessionId"), false);
     assert.equal(Object.hasOwn(archived, "delegatedByAgentId"), false);
   } finally {
     await cell.close();

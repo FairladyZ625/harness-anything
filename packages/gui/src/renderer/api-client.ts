@@ -536,7 +536,6 @@ function readTaskDocumentResult(value: unknown): TaskDocumentProjectionRead {
     typeof result.path !== "string" ||
     typeof result.body !== "string" ||
     (result.worktreeBody !== null && typeof result.worktreeBody !== "string") ||
-    (result.worktreeBlobSha256 !== null && typeof result.worktreeBlobSha256 !== "string") ||
     typeof result.uncommitted !== "boolean" ||
     !Number.isInteger(result.watermark) ||
     !Number.isInteger(result.sourceRevision)

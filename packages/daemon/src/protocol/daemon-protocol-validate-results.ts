@@ -38,8 +38,6 @@ export function validateDaemonDocumentRead(value: unknown): readonly string[] {
     (value.blobSha256 !== null &&
       (typeof value.blobSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(value.blobSha256))) ||
     (value.worktreeBody !== null && typeof value.worktreeBody !== "string") ||
-    (value.worktreeBlobSha256 !== null &&
-      (typeof value.worktreeBlobSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(value.worktreeBlobSha256))) ||
     typeof value.uncommitted !== "boolean" ||
     !integer(value.watermark) ||
     !integer(value.sourceRevision)
