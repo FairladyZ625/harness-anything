@@ -106,3 +106,5 @@ Submission Packet；Review 为那一轮 Execution 记录检查过的 Evidence �
   内核的情况下加入领域概念。
 - [06 · 出处、裁决与事件账本](06-provenance-and-events.md) —— 每个实体如何被绑定到产生它的
   东西,以及"发生了什么"如何被记录。
+
+此外，[架构与项目解释页（单页 HTML，含 12 张图）](architecture-explainer.html) 用一份自包含页面把「这个项目是什么」与十个架构切面串在一起，适合一次性通读或对外分享。
