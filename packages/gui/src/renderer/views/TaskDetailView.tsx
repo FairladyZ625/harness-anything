@@ -186,7 +186,10 @@ export function TaskDetailView({
               type="button"
               data-testid="task-open-sessions"
               onClick={() => onNavigateEntity(`tasksessions/${task.taskId}`)}
-              className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 font-mono text-[10px] text-text-faint hover:text-accent"
+              className={
+                "flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 font-mono text-[10px] " +
+                "text-text-faint hover:text-accent"
+              }
             >
               {t("views.taskDetailView.openSessions")} ↗
             </button>
