@@ -9,9 +9,10 @@ import { readRelationGraphAuthoredSourceKinds } from "../../src/projection/relat
 import {
   readMarkdownSource,
   readRelationGraphSourceHashInputKinds,
-  readTaskProjectionSourceHashInputs
+  readTaskProjectionSourceHashInputs,
 } from "../../src/projection/sqlite-task-source.ts";
 import { withTempStore } from "../store/helpers.ts";
+import { realizedDecisionBody } from "../../../../tools/fixtures/task-plan.mjs";
 
 test("relation graph collection and freshness enumerate the same authored source kinds", () => {
   withTempStore((rootDir) => {
@@ -19,8 +20,8 @@ test("relation graph collection and freshness enumerate the same authored source
       relationRecord({
         source: "task/task-source",
         target: "task/task-target",
-        type: "relates"
-      })
+        type: "relates",
+      }),
     ]);
     writeIndex(rootDir, "task-target", "Task Target");
     const authoredKinds = readRelationGraphAuthoredSourceKinds({ rootDir });
@@ -41,10 +42,7 @@ test("freshness preserves task index hash input order", () => {
       .filter((input) => input.kind === "task-index")
       .map((input) => input.sourcePath);
 
-    assert.deepEqual(taskIndexPaths, [
-      "harness/tasks/task_Z/INDEX.md",
-      "harness/tasks/task_a/INDEX.md"
-    ]);
+    assert.deepEqual(taskIndexPaths, ["harness/tasks/task_Z/INDEX.md", "harness/tasks/task_a/INDEX.md"]);
   });
 });
 
@@ -52,30 +50,41 @@ test("event-backed Decision relations are absent from Markdown freshness inputs"
   withTempStore((rootDir) => {
     const before = readMarkdownSource({ rootDir }).hash;
     mkdirSync(path.join(rootDir, "harness/decisions/decision-dec_SOURCE"), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness/decisions/decision-dec_SOURCE/decision.md"), "canonical authored Decision\n");
+    writeFileSync(
+      path.join(rootDir, "harness/decisions/decision-dec_SOURCE/decision.md"),
+      realizedDecisionBody("Canonical authored Decision"),
+    );
     assert.equal(readMarkdownSource({ rootDir }).hash, before);
     assert.deepEqual(readRelationGraphSourceHashInputKinds({ rootDir }), []);
   });
 });
 
-function writeIndex(rootDir: string, taskId: string, title: string, relations: ReadonlyArray<EntityRelationRecord> = []): void {
+function writeIndex(
+  rootDir: string,
+  taskId: string,
+  title: string,
+  relations: ReadonlyArray<EntityRelationRecord> = [],
+): void {
   const taskRoot = path.join(rootDir, "harness/tasks", taskId);
   mkdirSync(taskRoot, { recursive: true });
-  writeFileSync(path.join(taskRoot, "INDEX.md"), [
-    "---",
-    "schema: task-package/v2",
-    `task_id: ${taskId}`,
-    `title: ${JSON.stringify(title)}`,
-    "status: active",
-    "packageDisposition: active",
-    "lifecycle:",
-    "  engine: local",
-    ...(relations.length > 0 ? ["relations:", ...relations.map(formatRelationFlowRecord)] : []),
-    "---",
-    "",
-    `# ${title}`,
-    ""
-  ].join("\n"));
+  writeFileSync(
+    path.join(taskRoot, "INDEX.md"),
+    [
+      "---",
+      "schema: task-package/v2",
+      `task_id: ${taskId}`,
+      `title: ${JSON.stringify(title)}`,
+      "status: active",
+      "packageDisposition: active",
+      "lifecycle:",
+      "  engine: local",
+      ...(relations.length > 0 ? ["relations:", ...relations.map(formatRelationFlowRecord)] : []),
+      "---",
+      "",
+      `# ${title}`,
+      "",
+    ].join("\n"),
+  );
 }
 
 function relationRecord(input: {
@@ -87,7 +96,7 @@ function relationRecord(input: {
     source: input.source,
     target: input.target,
     type: input.type,
-    direction: "directed" as const
+    direction: "directed" as const,
   };
   return {
     relation_id: deriveRelationId(base),
@@ -95,6 +104,6 @@ function relationRecord(input: {
     strength: "strong",
     origin: "declared",
     rationale: "Fixture relation",
-    state: "active"
+    state: "active",
   };
 }

@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { realizedDecisionBody } from "./fixtures/task-plan.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkerPath = path.join(repoRoot, "tools/check-enforcement-debt-sunset.mjs");
@@ -30,12 +31,12 @@ test("enforcement debt sunset check fails active decisions with overdue unfinish
       state: "in_effect",
       decidedAt: "2026-06-01T00:00:00.000Z",
       targetTaskId: "task_OVERDUE",
-      rationale: "ADR names an enforcement gate that must be implemented."
+      rationale: "ADR names an enforcement gate that must be implemented.",
     });
     writeTask(root, {
       taskId: "task_OVERDUE",
       title: "Implement enforcement gate for ADR",
-      status: "active"
+      status: "active",
     });
 
     const result = runChecker(root);
@@ -55,24 +56,24 @@ test("enforcement debt sunset check ignores completed enforcement tasks and ordi
       state: "in_effect",
       decidedAt: "2026-06-01T00:00:00.000Z",
       targetTaskId: "task_DONE",
-      rationale: "ADR names an enforcement gate that must be implemented."
+      rationale: "ADR names an enforcement gate that must be implemented.",
     });
     writeTask(root, {
       taskId: "task_DONE",
       title: "Implement enforcement gate for ADR",
-      status: "done"
+      status: "done",
     });
     writeDecision(root, {
       decisionId: "dec_ORDINARY",
       state: "in_effect",
       decidedAt: "2026-06-01T00:00:00.000Z",
       targetTaskId: "task_ORDINARY",
-      rationale: "Ordinary feature work."
+      rationale: "Ordinary feature work.",
     });
     writeTask(root, {
       taskId: "task_ORDINARY",
       title: "Build ordinary feature",
-      status: "active"
+      status: "active",
     });
 
     const result = runChecker(root);
@@ -93,45 +94,51 @@ function makeHarnessRoot() {
 function writeDecision(root, options) {
   const dir = path.join(root, "harness/decisions", `decision-${options.decisionId}`);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "decision.md"), [
-    "---",
-    "schema: decision-package/v1",
-    `decision_id: ${options.decisionId}`,
-    "title: Test decision",
-    `state: ${options.state}`,
-    'proposedAt: "2026-05-30T00:00:00.000Z"',
-    `decidedAt: "${options.decidedAt}"`,
-    "relations:",
-    `  - { relation_id: "rel_test", source: "decision/${options.decisionId}/CH1", target: "task/${options.targetTaskId}", type: "derives", strength: "strong", direction: "directed", origin: "declared", rationale: "${options.rationale}", state: "active" }`,
-    "---",
-    "",
-    "# Test decision"
-  ].join("\n"), "utf8");
+  writeFileSync(
+    path.join(dir, "decision.md"),
+    [
+      "---",
+      "schema: decision-package/v1",
+      `decision_id: ${options.decisionId}`,
+      "title: Test decision",
+      `state: ${options.state}`,
+      'proposedAt: "2026-05-30T00:00:00.000Z"',
+      `decidedAt: "${options.decidedAt}"`,
+      "relations:",
+      `  - { relation_id: "rel_test", source: "decision/${options.decisionId}/CH1", target: "task/${options.targetTaskId}", type: "derives", strength: "strong", direction: "directed", origin: "declared", rationale: "${options.rationale}", state: "active" }`,
+      "---",
+    ].join("\n") + realizedDecisionBody("Test decision"),
+    "utf8",
+  );
 }
 
 function writeTask(root, options) {
   const dir = path.join(root, "harness/tasks", `${options.taskId}-fixture`);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "INDEX.md"), [
-    "---",
-    "schema: task-package/v2",
-    `task_id: ${options.taskId}`,
-    `title: ${options.title}`,
-    "lifecycle:",
-    "  bindingSchema: lifecycle-binding/v1",
-    "  engine: local",
-    `  status: ${options.status}`,
-    "packageDisposition: active",
-    "---",
-    "",
-    `# ${options.title}`
-  ].join("\n"), "utf8");
+  writeFileSync(
+    path.join(dir, "INDEX.md"),
+    [
+      "---",
+      "schema: task-package/v2",
+      `task_id: ${options.taskId}`,
+      `title: ${options.title}`,
+      "lifecycle:",
+      "  bindingSchema: lifecycle-binding/v1",
+      "  engine: local",
+      `  status: ${options.status}`,
+      "packageDisposition: active",
+      "---",
+      "",
+      `# ${options.title}`,
+    ].join("\n"),
+    "utf8",
+  );
 }
 
 function runChecker(root) {
   return spawnSync(process.execPath, [checkerPath, "--root", root, "--now", now], {
     cwd: repoRoot,
     encoding: "utf8",
-    env: process.env
+    env: process.env,
   });
 }

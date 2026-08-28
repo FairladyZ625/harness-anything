@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { collectGitIgnoredFiles, evaluateLegacyIntakeReadiness } from "./check-legacy-intake-readiness.mjs";
+import { realizedTaskPlan } from "./fixtures/task-plan.mjs";
 
 test("Legacy Intake readiness rejects old runtime production references", async () => {
   await withFixtureRepo(async (root) => {
@@ -98,11 +99,10 @@ test("Legacy Intake readiness ignores git-ignored self-host harness files", asyn
     mkdirSync(path.join(root, "harness/legacy/tasks/old"), { recursive: true });
     writeFileSync(
       path.join(root, "harness/legacy/tasks/old/task_plan.md"),
-      [
-        "This private legacy evidence may mention scripts/kernel/task.",
-        "It may also mention full-cutover and coding-agent-harness compatibility.",
-        "",
-      ].join("\n"),
+      realizedTaskPlan(
+        "Ignored legacy task",
+        "This private legacy evidence may mention scripts/kernel/task.\nIt may also mention full-cutover and coding-agent-harness compatibility.",
+      ),
     );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
@@ -175,7 +175,10 @@ test("Legacy Intake readiness feeds check-ignore chunks over stdin without a liv
 test("Legacy Intake readiness still scans non-ignored harness public text", async () => {
   await withFixtureRepo(async (root) => {
     mkdirSync(path.join(root, "harness/tasks/old"), { recursive: true });
-    writeFileSync(path.join(root, "harness/tasks/old/task_plan.md"), "Use scripts/kernel/task in public docs.\n");
+    writeFileSync(
+      path.join(root, "harness/tasks/old/task_plan.md"),
+      realizedTaskPlan("Public legacy task", "Use scripts/kernel/task in public docs."),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 

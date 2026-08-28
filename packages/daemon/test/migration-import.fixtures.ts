@@ -1,14 +1,8 @@
 import { execFileSync } from "node:child_process";
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { deriveRelationId, sha256Text } from "../../kernel/src/index.ts";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 export const actor = {
   principal: { personId: "migration-owner" },
@@ -64,8 +58,7 @@ export function legacyFixture(root: string): void {
     strength: "strong",
     direction: "directed",
     origin: "declared",
-    rationale:
-      "The historical relation keeps its migrated fact endpoint resolvable.",
+    rationale: "The historical relation keeps its migrated fact endpoint resolvable.",
     state: "retired",
   };
   writeFileSync(
@@ -82,16 +75,10 @@ export function coverageGapFixture(root: string): void {
   mkdirSync(mysteryRoot, { recursive: true });
   mkdirSync(objectsRoot, { recursive: true });
   mkdirSync(presetRoot, { recursive: true });
-  writeFileSync(path.join(taskRoot, "task_plan.md"), "# Authored plan\n");
-  writeFileSync(
-    path.join(mysteryRoot, "orphan.md"),
-    "# This path has no migration rule\n",
-  );
+  writeFileSync(path.join(taskRoot, "task_plan.md"), realizedTaskPlan("Legacy done task"));
+  writeFileSync(path.join(mysteryRoot, "orphan.md"), "# This path has no migration rule\n");
   writeFileSync(path.join(objectsRoot, "blob"), "rebuildable CAS\n");
-  writeFileSync(
-    path.join(presetRoot, "preset.json"),
-    '{"schema":"harness-preset/v1"}\n',
-  );
+  writeFileSync(path.join(presetRoot, "preset.json"), '{"schema":"harness-preset/v1"}\n');
 }
 export function unfamiliarDocumentFixture(root: string): void {
   const notes = path.join(root, "harness/field-notes/2024");
@@ -105,10 +92,7 @@ export function unfamiliarDocumentFixture(root: string): void {
     "# Field observation\n\nUnknown directories are ordinary authored content.\n",
   );
 }
-export function referencedDocumentFixture(
-  root: string,
-  referencedBody: string,
-): void {
+export function referencedDocumentFixture(root: string, referencedBody: string): void {
   const hash = sha256Text(referencedBody),
     notes = path.join(root, "harness/field-notes"),
     objects = path.join(root, `harness/objects/sha256/${hash.slice(0, 2)}`);
@@ -158,26 +142,17 @@ export function coverageCompleteFixture(root: string): void {
     path.join(taskRoot, "INDEX.md"),
     "---\nschema: task-package/v2\ntask_id: task_coverage\ntitle: Coverage fixture\nlifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\nlegacyOpaque: keep-this-source-field\n---\n\n# Coverage fixture\n\n## Lifecycle Note\n\nArchived as superseded; archivedBy=person_historical\n",
   );
-  writeFileSync(path.join(taskRoot, "task_plan.md"), "# Authored plan\n");
-  writeFileSync(
-    path.join(artifactRoot, "evidence.html"),
-    "<p>historical evidence</p>\n",
-  );
+  writeFileSync(path.join(taskRoot, "task_plan.md"), realizedTaskPlan("Coverage fixture"));
+  writeFileSync(path.join(artifactRoot, "evidence.html"), "<p>historical evidence</p>\n");
   writeFileSync(path.join(artifactRoot, "INDEX.md"), "# Artifact index\n");
-  writeFileSync(
-    path.join(nestedExecutionRoot, "exe_nested.md"),
-    "# Nested fixture\n",
-  );
+  writeFileSync(path.join(nestedExecutionRoot, "exe_nested.md"), "# Nested fixture\n");
   writeFileSync(
     path.join(executionRoot, "exe_history.md"),
     `${JSON.stringify({ schema: "execution/v2", execution_id: "exe_history", task_ref: "task/task_coverage", state: "accepted", primary_actor: { principal: { personId: "person_historical" }, executor: { kind: "agent", id: "legacy-agent" }, responsibleHuman: "person:historical" }, claimed_at: "2026-01-02T00:00:00.000Z", submitted_at: "2026-01-03T00:00:00.000Z", closed_at: "2026-01-04T00:00:00.000Z", session_bindings: [], outputs: [{ evidence_id: "legacy-output", execution_ref: "execution/task_coverage/exe_history", locator: { substrate: "file", path: "artifacts/evidence.html" } }], submission: { completion_claim: "Historical work completed.", deliverables: ["evidence"], evidence_refs: ["legacy-output"], verification_notes: ["legacy verification"], known_gaps: [], residual_risks: [] } }, null, 2)}\n`,
   );
 }
 export function decisionContentFixture(root: string): void {
-  const decisionRoot = path.join(
-    root,
-    "harness/decisions/decision-dec_CONTENT",
-  );
+  const decisionRoot = path.join(root, "harness/decisions/decision-dec_CONTENT");
   mkdirSync(decisionRoot, { recursive: true });
   writeFileSync(
     path.join(root, "harness/harness.yaml"),
@@ -202,9 +177,7 @@ export const bootstrapPerson = {
     },
   ],
 } as const;
-export function bootstrapRoster(
-  people: readonly Readonly<Record<string, unknown>>[] = [bootstrapPerson],
-): string {
+export function bootstrapRoster(people: readonly Readonly<Record<string, unknown>>[] = [bootstrapPerson]): string {
   return `${JSON.stringify({ schema: "harness-people/v1", people, roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`;
 }
 export const legacyRoster = `schema: harness-people/v1
@@ -229,10 +202,7 @@ roles:
     commandClasses: [admin, repo-write, repo-read, arbiter]
 `;
 
-export function initRepo(
-  root: string,
-  roster: string = bootstrapRoster(),
-): void {
+export function initRepo(root: string, roster: string = bootstrapRoster()): void {
   mkdirSync(root, { recursive: true });
   git(root, "init", "-q");
   git(root, "config", "user.name", "Migration Test");
@@ -246,11 +216,7 @@ export function initRepo(
   git(root, "add", ".");
   git(root, "commit", "-qm", "initialized");
 }
-export function multiSourceFixture(
-  root: string,
-  label: string,
-  personId: string,
-): void {
+export function multiSourceFixture(root: string, label: string, personId: string): void {
   const taskRoot = path.join(root, `harness/tasks/task_shared-${label}`),
     decisionRoot = path.join(root, "harness/decisions/decision-dec_SHARED");
   mkdirSync(taskRoot, { recursive: true });
@@ -313,8 +279,7 @@ export function sources(root: string): readonly string[] {
     git(root, "config", "user.email", "migration-source@example.invalid");
   }
   git(root, "add", ".");
-  if (git(root, "diff", "--cached", "--name-only") !== "")
-    git(root, "commit", "-qm", "source snapshot");
+  if (git(root, "diff", "--cached", "--name-only") !== "") git(root, "commit", "-qm", "source snapshot");
   return [root];
 }
 export function snapshot(root: string): readonly string[] {
@@ -324,9 +289,7 @@ export function snapshot(root: string): readonly string[] {
       const target = path.join(dir, entry.name);
       return entry.isDirectory()
         ? walk(target)
-        : [
-            `${path.relative(root, target)}:${statSync(target).size}:${readFileSync(target, "utf8")}`,
-          ];
+        : [`${path.relative(root, target)}:${statSync(target).size}:${readFileSync(target, "utf8")}`];
     });
   return walk(root).sort();
 }
@@ -352,10 +315,7 @@ export function hierarchyFixture(root: string): void {
   );
   const frontmatter = (taskId: string, title: string, extra: string): string =>
     `---\nschema: task-package/v2\ntask_id: ${taskId}\ntitle: ${title}\n${extra}lifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\nvertical: software/coding\npreset: standard-task\nprofile: baseline\n---\n\n# ${title}\n`;
-  writeFileSync(
-    path.join(parentRoot, "INDEX.md"),
-    frontmatter("task_parent", "Parent milestone", ""),
-  );
+  writeFileSync(path.join(parentRoot, "INDEX.md"), frontmatter("task_parent", "Parent milestone", ""));
   const relation = {
     relation_id: deriveRelationId({
       source: "task/task_child",
@@ -374,11 +334,7 @@ export function hierarchyFixture(root: string): void {
   };
   writeFileSync(
     path.join(childRoot, "INDEX.md"),
-    frontmatter(
-      "task_child",
-      "Child work",
-      `parent: task_parent\nrelations: ${JSON.stringify([relation])}\n`,
-    ),
+    frontmatter("task_child", "Child work", `parent: task_parent\nrelations: ${JSON.stringify([relation])}\n`),
   );
 }
 
@@ -455,10 +411,7 @@ export function orphanEndpointFixture(root: string): void {
     path.join(goodRoot, "INDEX.md"),
     `---\nschema: task-package/v2\ntask_id: task_good\ntitle: Good task\nrelations: ${JSON.stringify([relation])}\nlifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\nvertical: software/coding\npreset: standard-task\nprofile: baseline\n---\n\n# Good task\n`,
   );
-  writeFileSync(
-    path.join(orphanRoot, "INDEX.md"),
-    "# missing frontmatter so this package cannot migrate\n",
-  );
+  writeFileSync(path.join(orphanRoot, "INDEX.md"), "# missing frontmatter so this package cannot migrate\n");
 }
 
 export function attributionFixture(root: string): void {
@@ -476,14 +429,8 @@ export function attributionFixture(root: string): void {
   );
   const pkg = (taskId: string, title: string): string =>
     `---\nschema: task-package/v2\ntask_id: ${taskId}\ntitle: ${title}\nlifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\nvertical: software/coding\npreset: standard-task\nprofile: baseline\n---\n\n# ${title}\n`;
-  writeFileSync(
-    path.join(owned, "INDEX.md"),
-    pkg("task_owned", "Task with recorded attribution"),
-  );
-  writeFileSync(
-    path.join(unowned, "INDEX.md"),
-    pkg("task_unowned", "Task with no attribution record"),
-  );
+  writeFileSync(path.join(owned, "INDEX.md"), pkg("task_owned", "Task with recorded attribution"));
+  writeFileSync(path.join(unowned, "INDEX.md"), pkg("task_unowned", "Task with no attribution record"));
   // The earliest record for an entity is its creation attribution. `principal.kind` exists in the
   // legacy shape and must be dropped: the current identity contract accepts personId only.
   const line = (at: string, executorId: string): string =>
