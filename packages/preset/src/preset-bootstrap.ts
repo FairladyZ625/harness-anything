@@ -359,9 +359,9 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
     locale,
     slug: input.task.metadata?.slug,
   });
-  // A preset may drop a document slot (afa7f26fc retired the fact ledger document once facts became entities); the retired file stays
-  // on disk as committed prose. Only a slot the package does not have yet would need materialization, so only
-  // additions are rejected.
+  // A preset may retire a document slot (afa7f26fc retired the fact ledger document once facts became
+  // entities); the retired file stays on disk as committed prose. Only a slot the package does not have yet
+  // would need materialization, so only additions are rejected.
   const knownPaths = new Set(documents.map((item) => (item as { path: string }).path)),
     addedPaths = compiled.documents.map(({ relativePath }) => relativePath).filter((item) => !knownPaths.has(item));
   if (addedPaths.length)
