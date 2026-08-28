@@ -7,7 +7,7 @@ cd "$repo_root"
 staged_paths=$(git diff --cached --name-only --diff-filter=ACMRTUXB)
 if printf '%s\n' "$staged_paths" | grep -Eq '(^|/)(artifacts|harness)(/|$)'; then
   printf 'Refusing to commit authored or task artifacts from the public repository.\n' >&2
-  printf 'Use `ha doc sync --submit --path tasks/<pkg>/artifacts/reports/<file>.md` for receipts.\n' >&2
+  printf 'Use `ha doc sync --submit --task <task-id>` for task-bound receipts.\n' >&2
   exit 1
 fi
 

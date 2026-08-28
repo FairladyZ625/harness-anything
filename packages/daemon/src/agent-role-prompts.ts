@@ -17,7 +17,7 @@ const frameworkExecutionDiscipline = [
   "- Before handoff, rebase onto the latest origin/main and rerun the evidence commands.",
   [
     "- Submit receipts only through ",
-    "`ha doc sync --submit --path tasks/<pkg>/artifacts/reports/<file>.md`; ",
+    "`ha doc sync --submit --task <task-id>`; ",
     "do not commit public-repository artifacts.",
   ].join(""),
   [

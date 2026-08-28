@@ -31,4 +31,4 @@
 - 只提交本次派活负责的文件。
 - 回报 commit、变更文件、验证结果和残余风险。
 - 交付前先 rebase 到最新 `origin/main`，再重跑证据命令。
-- 回执只经 `ha doc sync --submit --path tasks/<pkg>/artifacts/reports/<file>.md` 提交。
+- task-bound 回执只经 `ha doc sync --submit --task <task-id>` 提交。
