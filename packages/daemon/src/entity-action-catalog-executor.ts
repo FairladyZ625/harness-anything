@@ -122,7 +122,10 @@ export function makeEntityActionCatalogExecutor(input: {
     const authorizationDecision = decisionAuthorization(rawAction, binding, opId, input),
       action =
         contract.id === "amend"
-          ? prepareDecisionAmend(rawAction, decisions.show(requiredCommandText(rawAction.decisionId, "decisionId")).decision)
+          ? prepareDecisionAmend(
+              rawAction,
+              decisions.show(requiredCommandText(rawAction.decisionId, "decisionId")).decision,
+            )
           : rawAction,
       dryRun = action.dryRun === true,
       existing = dryRun ? null : input.store.readEvent(opId),
