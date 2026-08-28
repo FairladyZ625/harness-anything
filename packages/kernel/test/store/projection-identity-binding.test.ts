@@ -15,7 +15,7 @@ import { withTempStoreAsync } from "./helpers.ts";
 // produces: the whole ledger is rewritten while the head revision stays put. A projection cache
 // scanned from one ledger must not be able to impersonate the other's cache. Opening a cache
 // against a same-revision ledger with a different head eventDigest must fail closed until an
-// explicit rebuild clears it in place.
+// explicit rebuild discards it and replays the source ledger.
 test("projection cache identity mismatch is explicit and rebuild remains available", async () => {
   await withTempStoreAsync(async (rootA) => {
     await withTempStoreAsync(async (rootB) => {

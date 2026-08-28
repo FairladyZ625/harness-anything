@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -324,20 +324,28 @@ test("cold replay still rejects a missing claimed blob after batch verification"
   });
 });
 
-test("cold rebuild resets the projection in place and accepts a larger bounded replay window", async () => {
+test("cold rebuild replaces the projection database and accepts a larger bounded replay window", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ repoId: "in-place-rebuild", rootDir }),
+    const eventStore = makeTaskEventStore({ repoId: "replacement-rebuild", rootDir }),
       projection = makeTaskProjection({ rootDir, eventStore });
     const first = lifecycleFixture().events[0]!;
     eventStore.append(taskBundle(first));
     projection.apply(first, taskLifecycleWritePlan(first));
-    const before = statSync(projection.path).ino;
+    projection.close();
+    const stale = new DatabaseSync(projection.path);
+    stale.exec("CREATE TABLE stale_projection_ddl (value TEXT)");
+    stale.close();
     const rebuilt = projection.rebuild();
-    const after = statSync(projection.path).ino;
     assert.equal(rebuilt.watermark, 1);
-    assert.equal(after, before);
     assert.equal(rebuilt.metrics.maxBatchItems <= 4096, true);
+    projection.close();
+    const replacement = new DatabaseSync(projection.path, { readOnly: true });
+    assert.equal(
+      replacement.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='stale_projection_ddl'").get(),
+      undefined,
+    );
+    replacement.close();
   });
 });
 

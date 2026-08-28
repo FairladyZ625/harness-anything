@@ -1,5 +1,5 @@
-// Version 13 forces upgraded nodes to discard version-12 warm caches before
-// replaying fact-rekey ledger rewrites that preserve opId and workspaceRevision.
-// A version mismatch takes the discard-and-replay path; squad-coordinator then
-// sees its durable ready marker cleared and replays dispatch streams locally.
-export const taskProjectionSchemaVersion = 13;
+// Version 14 discards caches whose fact/fact_fts tables predate first-class,
+// optionally taskless Facts. CREATE TABLE IF NOT EXISTS cannot migrate that DDL.
+// A version mismatch takes the discard-and-replay path; explicit rebuild uses
+// the same cold path so it also repairs a cache whose version metadata is wrong.
+export const taskProjectionSchemaVersion = 14;
