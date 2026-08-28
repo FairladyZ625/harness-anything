@@ -1,18 +1,9 @@
 import { stableStringify } from "../integrity/stable-hash.ts";
-import {
-  normalizeRelativeDocumentPath,
-  type PortableDocumentPath,
-} from "../layout/portable-path.ts";
-import {
-  isOpaqueTextualMediaType,
-  OPAQUE_TEXTUAL_POLICY_ID,
-} from "./artifact-text-classification.ts";
+import { normalizeRelativeDocumentPath, type PortableDocumentPath } from "../layout/portable-path.ts";
+import { isOpaqueTextualMediaType, OPAQUE_TEXTUAL_POLICY_ID } from "./artifact-text-classification.ts";
 import { DOC_CODEC_ID, DOC_POLICY_ID } from "./doc-sync-types.ts";
 import { MIGRATION_DOCUMENT_POLICY_ID } from "./migration-import-event.ts";
-import type {
-  LedgerCutIdentity,
-  LedgerIdentity,
-} from "./receipt-domain-registry.ts";
+import type { LedgerCutIdentity, LedgerIdentity } from "./receipt-domain-registry.ts";
 import {
   hasOnlyFields,
   hasRequiredFields,
@@ -62,8 +53,7 @@ function validateDocEventIdentity(
       : ["executionId", "baseLedgerSha", "changes", "retirementReason"];
   if (
     !hasFields(value.payload, payloadFields) ||
-    (value.payload.executionId !== null &&
-      !isNonEmptyString(value.payload.executionId)) ||
+    (value.payload.executionId !== null && !isNonEmptyString(value.payload.executionId)) ||
     !identity(value.payload.baseLedgerSha, allowUnknownFields) ||
     !Array.isArray(value.payload.changes) ||
     value.payload.changes.length === 0
@@ -71,9 +61,7 @@ function validateDocEventIdentity(
     return ["doc event envelope or payload is invalid"];
   if (validateEventEnvelopeIdentity(value, allowUnknownFields).length)
     return ["doc event envelope identity is invalid"];
-  const retirements = value.payload.changes.filter(
-      (change) => isRecord(change) && change.candidate === null,
-    ),
+  const retirements = value.payload.changes.filter((change) => isRecord(change) && change.candidate === null),
     validRetirement =
       retirements.length === 0
         ? value.payload.retirementReason === undefined
@@ -81,15 +69,9 @@ function validateDocEventIdentity(
           value.payload.changes.length === 1 &&
           value.payload.executionId === null &&
           isNonEmptyString(value.payload.retirementReason),
-    valid = value.payload.changes.every((change) =>
-      validDocEventMutation(change, allowUnknownFields),
-    ),
-    paths = value.payload.changes.map((change) =>
-      isRecord(change) ? change.path : null,
-    );
-  return validRetirement && valid && new Set(paths).size === paths.length
-    ? []
-    : ["doc event change is invalid"];
+    valid = value.payload.changes.every((change) => validDocEventMutation(change, allowUnknownFields)),
+    paths = value.payload.changes.map((change) => (isRecord(change) ? change.path : null));
+  return validRetirement && valid && new Set(paths).size === paths.length ? [] : ["doc event change is invalid"];
 }
 
 export function validDocSyncClaim(value: unknown): boolean {
@@ -108,11 +90,7 @@ export function validDocSyncClaim(value: unknown): boolean {
   }
 }
 
-function validDocSyncStoredClaim(
-  value: unknown,
-  allowUnknownFields = false,
-  includesRef = false,
-): boolean {
+function validDocSyncStoredClaim(value: unknown, allowUnknownFields = false, includesRef = false): boolean {
   return (
     isRecord(value) &&
     (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
@@ -130,10 +108,7 @@ function validDocSyncStoredClaim(
   );
 }
 
-function validRegionProof(
-  value: unknown,
-  allowUnknownFields: boolean,
-): boolean {
+function validRegionProof(value: unknown, allowUnknownFields: boolean): boolean {
   return (
     isRecord(value) &&
     (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
@@ -155,22 +130,12 @@ function validRegionProof(
   );
 }
 
-function validDocEventMutation(
-  value: unknown,
-  allowUnknownFields: boolean,
-): boolean {
+function validDocEventMutation(value: unknown, allowUnknownFields: boolean): boolean {
   if (!isRecord(value)) return false;
   const fields =
       value.policyUpgrade === undefined
         ? ["path", "baseBlobSha256", "candidate", "policyId", "regionProofs"]
-        : [
-            "path",
-            "baseBlobSha256",
-            "candidate",
-            "policyId",
-            "regionProofs",
-            "policyUpgrade",
-          ],
+        : ["path", "baseBlobSha256", "candidate", "policyId", "regionProofs", "policyUpgrade"],
     hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   if (
     !hasFields(value, fields) ||
@@ -191,11 +156,8 @@ function validDocEventMutation(
     ((value.policyId === DOC_POLICY_ID &&
       policyMatchesClaim(value.policyId, value.candidate) &&
       value.regionProofs.length > 0 &&
-      value.regionProofs.every((proof) =>
-        validRegionProof(proof, allowUnknownFields),
-      ) &&
-      (value.policyUpgrade === undefined ||
-        validPolicyUpgrade(value.policyUpgrade, allowUnknownFields))) ||
+      value.regionProofs.every((proof) => validRegionProof(proof, allowUnknownFields)) &&
+      (value.policyUpgrade === undefined || validPolicyUpgrade(value.policyUpgrade, allowUnknownFields))) ||
       (value.policyId === OPAQUE_TEXTUAL_POLICY_ID &&
         value.regionProofs.length === 0 &&
         value.policyUpgrade === undefined &&
@@ -203,24 +165,15 @@ function validDocEventMutation(
   );
 }
 
-export function validDocEventChange(
-  value: unknown,
-  allowUnknownFields: boolean,
-): boolean {
+export function validDocEventChange(value: unknown, allowUnknownFields: boolean): boolean {
   return validDocEventMutation(value, allowUnknownFields);
 }
 
-function validPolicyUpgrade(
-  value: unknown,
-  allowUnknownFields: boolean,
-): boolean {
+function validPolicyUpgrade(value: unknown, allowUnknownFields: boolean): boolean {
   return (
     isRecord(value) &&
-    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
-      "from",
-      "to",
-    ]) &&
-    value.from === MIGRATION_DOCUMENT_POLICY_ID &&
+    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["from", "to"]) &&
+    (value.from === MIGRATION_DOCUMENT_POLICY_ID || value.from === OPAQUE_TEXTUAL_POLICY_ID) &&
     value.to === DOC_POLICY_ID
   );
 }
@@ -229,33 +182,20 @@ export function commitSha(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{40}$/u.test(value);
 }
 
-function ledgerIdentity(
-  value: unknown,
-  allowUnknownFields: boolean,
-): value is LedgerIdentity {
+function ledgerIdentity(value: unknown, allowUnknownFields: boolean): value is LedgerIdentity {
   return (
     ledgerCutIdentity(value, allowUnknownFields) ||
     (isRecord(value) &&
-      (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
-        "repoId",
-        "sha",
-      ]) &&
+      (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["repoId", "sha"]) &&
       /^[a-z][a-z0-9-]{0,62}$/u.test(String(value.repoId)) &&
       commitSha(value.sha))
   );
 }
 
-export function ledgerCutIdentity(
-  value: unknown,
-  allowUnknownFields = false,
-): value is LedgerCutIdentity {
+export function ledgerCutIdentity(value: unknown, allowUnknownFields = false): value is LedgerCutIdentity {
   return (
     isRecord(value) &&
-    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
-      "repoId",
-      "revision",
-      "headDigest",
-    ]) &&
+    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["repoId", "revision", "headDigest"]) &&
     /^[a-z][a-z0-9-]{0,62}$/u.test(String(value.repoId)) &&
     Number.isSafeInteger(value.revision) &&
     (value.revision as number) >= 0 &&
@@ -265,41 +205,27 @@ export function ledgerCutIdentity(
 }
 
 export function nullableBlobSha(value: unknown): boolean {
-  return (
-    value === null ||
-    (typeof value === "string" && /^[0-9a-f]{64}$/u.test(value))
-  );
+  return value === null || (typeof value === "string" && /^[0-9a-f]{64}$/u.test(value));
 }
 
 export function safeDocSyncPath(value: unknown): value is string {
   try {
-    return (
-      typeof value === "string" &&
-      normalizeRelativeDocumentPath(value) === value
-    );
+    return typeof value === "string" && normalizeRelativeDocumentPath(value) === value;
   } catch {
     return false;
   }
 }
 
-export function policyMatchesClaim(
-  policyId: string,
-  candidate: unknown,
-): boolean {
+export function policyMatchesClaim(policyId: string, candidate: unknown): boolean {
   return (
     isRecord(candidate) &&
     (policyId === DOC_POLICY_ID
-      ? candidate.mediaType === "text/markdown" ||
-        candidate.mediaType === "text/plain"
-      : policyId === OPAQUE_TEXTUAL_POLICY_ID &&
-        isOpaqueTextualMediaType(candidate.mediaType))
+      ? candidate.mediaType === "text/markdown" || candidate.mediaType === "text/plain"
+      : policyId === OPAQUE_TEXTUAL_POLICY_ID && isOpaqueTextualMediaType(candidate.mediaType))
   );
 }
 
-export function sameWriteChannel(
-  left: WriteSource,
-  right: WriteSource,
-): boolean {
+export function sameWriteChannel(left: WriteSource, right: WriteSource): boolean {
   return stableStringify(left) === stableStringify(right);
 }
 
@@ -307,9 +233,7 @@ export function taskFromPath(value: PortableDocumentPath): string | null {
   const match = /^tasks\/([^/]+)\//u.exec(value);
   if (!match) return null;
   const folder = match[1]!;
-  return /^task_[0-9A-HJKMNP-TV-Z]{26}(?:-|$)/u.test(folder)
-    ? folder.slice(0, 31)
-    : folder;
+  return /^task_[0-9A-HJKMNP-TV-Z]{26}(?:-|$)/u.test(folder) ? folder.slice(0, 31) : folder;
 }
 
 export function taskArtifactPath(value: PortableDocumentPath): boolean {

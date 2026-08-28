@@ -217,7 +217,7 @@ test("default prose route is open while typed internal routes are denied", () =>
   assert.throws(() => documentPath("../outside.md"));
 });
 
-test("textual artifacts are opaque by location while preserving their media type", () => {
+test("opaque textual paths preserve their media type", () => {
   for (const [target, mediaType] of [
     ["artifacts/summary.md", "text/markdown"],
     ["artifacts/notes.txt", "text/plain"],
@@ -233,6 +233,9 @@ test("textual artifacts are opaque by location while preserving their media type
     ["artifacts/unknown.foo", OPAQUE_TEXTUAL_MEDIA_TYPE],
     ["artifacts/NOTICE", OPAQUE_TEXTUAL_MEDIA_TYPE],
     ["artifacts/.metadata", OPAQUE_TEXTUAL_MEDIA_TYPE],
+    ["context/architecture/architecture-manifest.json", "application/json"],
+    ["context/architecture/model/model.c4", OPAQUE_TEXTUAL_MEDIA_TYPE],
+    ["context/architecture/model/views/write-path.c4", OPAQUE_TEXTUAL_MEDIA_TYPE],
   ] as const)
     assert.deepEqual(
       classifyTextualArtifactPath(target),
@@ -250,6 +253,8 @@ test("textual artifacts are opaque by location while preserving their media type
     policyId: DOC_POLICY_ID,
   });
   assert.equal(classifyTextualArtifactPath("context/report.html"), null);
+  assert.equal(classifyTextualArtifactPath("context/architecture/notes.json"), null);
+  assert.equal(classifyTextualArtifactPath("context/architecture/views/write-path.c4"), null);
 });
 
 test("doc content claims accept only the supported opaque textual media types", () => {

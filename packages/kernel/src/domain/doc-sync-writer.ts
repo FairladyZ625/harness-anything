@@ -2,7 +2,7 @@ import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Bytes, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { type PortableDocumentPath } from "../layout/portable-path.ts";
-import { OPAQUE_TEXTUAL_POLICY_ID } from "./artifact-text-classification.ts";
+import { classifyTextualArtifactPath, OPAQUE_TEXTUAL_POLICY_ID } from "./artifact-text-classification.ts";
 import { additiveProof, decisionDocumentPath, opaqueProof, touch } from "./doc-sync-regions.ts";
 import { DOC_POLICY_ID, docRouteRegistry, DocSyncContractError } from "./doc-sync-types.ts";
 import type {
@@ -136,10 +136,15 @@ export function decideDocWrite(input: DocWriteDecisionInput): DocWriteDecision {
         "run ha doc status, then ha doc sync --dry-run --path <path> for the changed document " +
           "and resubmit with a new opId",
       );
-    const policyUpgrade: DocPolicyUpgrade | null =
-      change.policyId === DOC_POLICY_ID && current !== null && current.policyId === MIGRATION_DOCUMENT_POLICY_ID
-        ? { from: MIGRATION_DOCUMENT_POLICY_ID, to: DOC_POLICY_ID }
-        : null;
+    const prosePolicyUpgradeFrom =
+        change.policyId === DOC_POLICY_ID &&
+        classifyTextualArtifactPath(change.path)?.policyId === DOC_POLICY_ID &&
+        current !== null &&
+        (current.policyId === MIGRATION_DOCUMENT_POLICY_ID || current.policyId === OPAQUE_TEXTUAL_POLICY_ID)
+          ? current.policyId
+          : null,
+      policyUpgrade: DocPolicyUpgrade | null =
+        prosePolicyUpgradeFrom === null ? null : { from: prosePolicyUpgradeFrom, to: DOC_POLICY_ID };
     if (
       (change.candidate !== null && !policyMatchesClaim(change.policyId, change.candidate)) ||
       (current !== null &&
