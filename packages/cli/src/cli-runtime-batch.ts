@@ -41,8 +41,8 @@ export async function runRuntimeBatchDeclaration(
       },
       writeActivity,
     );
-  // Concurrent task-bound entries share one execution lease, and the first of them to reach a
-  // terminal dispatch state releases it. The batch cannot predict when that lands, so a dispatch
+  // Concurrent task-bound entries keep one execution lease through their final live sibling. A
+  // worker can still reach its next entry after an earlier generation was released, so a dispatch
   // spawns first and only a runtime_task_lease_required rejection reacquires the lease and
   // resubmits once under the same idempotency key — the rejected spawn wrote no ledger event, so
   // the resubmit is not a duplicate dispatch. The resubmit, not the reacquisition receipt, decides

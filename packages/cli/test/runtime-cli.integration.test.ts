@@ -870,8 +870,15 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       true,
       JSON.stringify(batchDispatches),
     );
-    const slowBatchArchive = path.join(artifactRoot, "dispatches", `${String(batchRows[1]?.dispatchId)}.json`);
-    await eventuallyFile(slowBatchArchive);
+    const batchArchives = batchRows
+      .slice(1)
+      .map((row) => path.join(artifactRoot, "dispatches", `${String(row.dispatchId)}.json`));
+    assert.deepEqual(
+      batchArchives.filter((archive) => !existsSync(archive)),
+      [],
+      "runtime batch returned before every dispatch archive became visible",
+    );
+    const slowBatchArchive = batchArchives[0]!;
     assert.equal(
       (JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).reasoningEffort,
       "high",

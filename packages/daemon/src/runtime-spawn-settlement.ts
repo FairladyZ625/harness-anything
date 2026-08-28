@@ -135,11 +135,24 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
     }
     context.processes.delete(active.runtimeSessionId);
     active.process.release?.();
+    const completedTask = active.task,
+      terminalTask =
+        completedTask &&
+        [...(context.processes as Map<string, ActiveRuntime>).values()].some(
+          (candidate) =>
+            candidate.task?.taskId === completedTask.taskId &&
+            candidate.task.executionId === completedTask.executionId &&
+            candidate.task.leaseVersion === completedTask.leaseVersion,
+        )
+          ? null
+          : completedTask;
+    // Every sibling archives while the generation that authorized it is still held. The final
+    // live sibling alone releases that generation, after all earlier siblings made their files visible.
     await context
       .settleFallback(active, attemptOutcome, {
         runtimeSessionId: active.runtimeSessionId,
         dispatchId: active.dispatchId,
-        task: active.task,
+        task: terminalTask,
         schedule: active.schedule,
         outcome: outcome === "succeeded" ? "succeeded" : "failed",
         reason: outcome === "succeeded" ? null : attemptOutcome.reason,
