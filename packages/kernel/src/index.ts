@@ -213,7 +213,6 @@ export type { DecisionListFilters, DecisionProjectionRow } from "./projection/de
 export type { FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
 export {
   buildColdCoverage,
-  readColdRebuildSource,
   readLegacyMigrationSource,
 } from "./projection/cold-rebuild-source.ts";
 export type { ColdDecisionProjectionRow, ColdRebuildIssue } from "./projection/cold-rebuild-source.ts";

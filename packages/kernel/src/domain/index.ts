@@ -98,7 +98,6 @@ export {
 export type {
   DecisionAmendableSnapshot,
   DecisionDocumentState,
-  DecisionEventDraftV1,
   DecisionEventV1,
   DecisionState,
 } from "./decision-event.ts";
