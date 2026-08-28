@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   acquireDaemonAutostartFlight,
@@ -7,12 +8,14 @@ import {
 } from "../daemon-singleton.ts";
 import { daemonLifecycleLogPath, readDaemonLifecycleRecords } from "../lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../process-port.ts";
+import { readRegisteredRepos } from "./local-daemon-target.ts";
 export interface DaemonLaunchSpec {
   readonly command: string;
   readonly args: readonly string[];
   readonly env: NodeJS.ProcessEnv;
 }
 export const autostartFailureCodes = [
+  "daemon_start_noncanonical_checkout",
   "daemon_start_runtime_forbidden",
   "daemon_spawn_not_found",
   "daemon_spawn_permission",
@@ -60,8 +63,31 @@ export function runtimeDaemonStartRefusal(
     ].join(" "),
   };
 }
+export function daemonHostStartRefusal(input: {
+  readonly invokingRoot: string;
+  readonly userRoot: string;
+}): { readonly code: "daemon_start_noncanonical_checkout"; readonly hint: string } | null {
+  const invokingCheckout = daemonCheckoutRoot(input.invokingRoot),
+    enabled = readRegisteredRepos(input.userRoot).filter((repo) => repo.state === "enabled"),
+    canonical = enabled
+      .filter((repo) => pathContains(repo.canonicalRoot, invokingCheckout))
+      .sort(
+        (left, right) => path.resolve(right.canonicalRoot).length - path.resolve(left.canonicalRoot).length,
+      )[0]?.canonicalRoot;
+  if (enabled.length === 0 || (canonical && canonicalPath(canonical) === invokingCheckout)) return null;
+  const registeredRoot = canonicalPath(canonical ?? enabled[0]!.canonicalRoot);
+  return {
+    code: "daemon_start_noncanonical_checkout",
+    hint: [
+      `Refusing daemon start from non-canonical checkout ${JSON.stringify(invokingCheckout)}.`,
+      `The shared daemon must be hosted from the registered canonical checkout ${JSON.stringify(registeredRoot)}.`,
+      `A worktree may connect to an existing daemon but cannot host it; run \`ha daemon status --root ${JSON.stringify(registeredRoot)}\`, then retry this command.`,
+    ].join(" "),
+  };
+}
 export async function ensureLocalDaemonRunning(input: {
   readonly socketPath: string;
+  readonly invokingRoot: string;
   readonly launch: () => DaemonLaunchSpec;
   readonly readyTimeoutMs?: number;
   readonly probeIntervalMs?: number;
@@ -75,7 +101,13 @@ export async function ensureLocalDaemonRunning(input: {
     spawnDetached =
       input.spawnDetached ??
       ((launch: DaemonLaunchSpec) =>
-        startDetachedProcessChecked(launch.command, launch.args, launch.env, daemonLaunchOutputPath(launch)));
+        startDetachedProcessChecked(
+          launch.command,
+          launch.args,
+          launch.env,
+          daemonLaunchOutputPath(launch),
+          daemonCheckoutRoot(input.invokingRoot),
+        ));
   // A freshly started daemon can die between binding its socket and finishing
   // startup; confirm readiness with a second probe before declaring success.
   const ready = async () => {
@@ -93,6 +125,8 @@ export async function ensureLocalDaemonRunning(input: {
     launched = input.launch();
     const target = daemonLaunchTarget(launched);
     if (!target) throw new Error("daemon launch spec does not declare its --user-root and --daemon-id");
+    const refusal = daemonHostStartRefusal({ invokingRoot: input.invokingRoot, userRoot: target.userRoot });
+    if (refusal) return { ok: false, ...refusal, attempts: 0 };
     flight = await acquireDaemonAutostartFlight(target);
     // The probe belongs inside the claim: another caller may have bound the
     // socket between this process's initial probe and atomic lock creation.
@@ -256,4 +290,21 @@ function liveDaemonSingleton(launch: DaemonLaunchSpec): boolean {
 }
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+export function daemonCheckoutRoot(rootDir: string): string {
+  let current = canonicalPath(rootDir);
+  for (;;) {
+    if (existsSync(path.join(current, ".git"))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return canonicalPath(rootDir);
+    current = parent;
+  }
+}
+function canonicalPath(value: string): string {
+  const resolved = path.resolve(value);
+  return existsSync(resolved) ? realpathSync.native(resolved) : resolved;
+}
+function pathContains(parent: string, child: string): boolean {
+  const relative = path.relative(canonicalPath(parent), child);
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }

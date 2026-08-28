@@ -90,6 +90,7 @@ export async function bootstrapLocalRepository(
       if (!isDaemonUnreachable(connectError)) throw connectError;
       const started = await ensureLocalDaemonRunning({
         socketPath: target.socketPath,
+        invokingRoot: input.rootDir,
         launch: () => daemonServeLaunch(target, packaged),
       });
       if (!started.ok)
@@ -148,6 +149,7 @@ async function request(
       if (!isDaemonUnreachable(connectError)) throw connectError;
       const started = await ensureLocalDaemonRunning({
         socketPath: target.socketPath,
+        invokingRoot: rootDir,
         launch: () => daemonServeLaunch(target, packaged),
       });
       if (!started.ok)

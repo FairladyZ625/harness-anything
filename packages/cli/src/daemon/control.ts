@@ -13,7 +13,12 @@ import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rp
 import type { DaemonShutdownExchange } from "../../../daemon/src/client/local-json-rpc-shutdown.ts";
 import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import { ensureLocalDaemonRunning, runtimeDaemonStartRefusal } from "../../../daemon/src/client/daemon-autostart.ts";
+import {
+  DaemonAutostartError,
+  ensureLocalDaemonRunning,
+  isDaemonUnreachable,
+  runtimeDaemonStartRefusal,
+} from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 import {
   daemonProcessAlive,
@@ -35,7 +40,8 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
   const command = argv[at + 1],
     subcommand = argv[at + 2];
   const json = argv.includes("--json"),
-    userRoot = path.resolve(daemonOption(argv, "--user-root") ?? daemonUserRoot());
+    userRoot = path.resolve(daemonOption(argv, "--user-root") ?? daemonUserRoot()),
+    invokingRoot = path.resolve(daemonOption(argv, "--root") ?? process.cwd());
   const daemonId = daemonOption(argv, "--daemon-id") ?? daemonIdFromEnv(),
     finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
   try {
@@ -108,23 +114,25 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         );
       let running: Record<string, unknown> | null = null;
       try {
-        running = await status(userRoot, daemonId);
+        running = await status(userRoot, daemonId, argv);
       } catch (error) {
         consumeKnownError(error);
       }
       if (running?.ok === true) return finish(running, 0);
-      const refusal = runtimeDaemonStartRefusal();
-      if (refusal) return finish(daemonFailure("daemon-start", "daemon_start_runtime_forbidden", refusal.hint), 1);
+      const runtimeRefusal = runtimeDaemonStartRefusal();
+      if (runtimeRefusal)
+        return finish(daemonFailure("daemon-start", "daemon_start_runtime_forbidden", runtimeRefusal.hint), 1);
       const started = await ensureLocalDaemonRunning({
         socketPath: localUserDaemonEndpoint(userRoot, daemonId),
+        invokingRoot,
         launch: () => cliDaemonServeLaunch(userRoot, daemonId),
         onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
       });
       return started.ok
-        ? finish(await status(userRoot, daemonId), 0)
+        ? finish(await status(userRoot, daemonId, argv), 0)
         : finish(daemonFailure("daemon-start", started.code ?? "daemon_start_failed", started.hint), 1);
     }
-    if (command === "status") return finish(await status(userRoot, daemonId, argv), 0);
+    if (command === "status") return finish(await status(userRoot, daemonId, argv, true), 0);
     if (command === "stop") {
       const pid = readDaemonPid(userRoot, daemonId);
       if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1);
@@ -299,6 +307,7 @@ async function status(
   userRoot: string,
   daemonId: string,
   argv: readonly string[] = [],
+  autostart = false,
 ): Promise<Record<string, unknown>> {
   const root = path.resolve(daemonOption(argv, "--root") ?? process.cwd()),
     repoIdOverride = daemonOption(argv, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID;
@@ -313,7 +322,24 @@ async function status(
     }
   })();
   const endpoint = resolved?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
-    result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75);
+    request = () => requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75);
+  let result: Record<string, unknown>;
+  try {
+    result = await request();
+  } catch (error) {
+    if (!autostart || !isDaemonUnreachable(error)) throw error;
+    consumeKnownError(error);
+    const refusal = runtimeDaemonStartRefusal();
+    if (refusal) throw new DaemonAutostartError({ ok: false, ...refusal, attempts: 0 });
+    const started = await ensureLocalDaemonRunning({
+      socketPath: endpoint,
+      invokingRoot: root,
+      launch: () => cliDaemonServeLaunch(userRoot, daemonId),
+      onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
+    });
+    if (!started.ok) throw new DaemonAutostartError(started);
+    result = await request();
+  }
   const target = {
       endpoint,
       daemonId,

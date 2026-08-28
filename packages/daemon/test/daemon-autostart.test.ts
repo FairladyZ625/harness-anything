@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   DaemonAutostartError,
   daemonLaunchOutputPath,
+  daemonHostStartRefusal,
   ensureLocalDaemonRunning,
   isDaemonUnreachable,
   readDaemonStartProgress,
@@ -36,10 +37,54 @@ test("runtime start refusal requires a runtime actor", () => {
   assert.equal(absent?.code, "daemon_start_runtime_forbidden");
 });
 
+test("a worktree is refused before spawn while the registered canonical checkout is allowed", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-host-root-")),
+    canonical = path.join(parent, "repo"),
+    worktree = path.join(canonical, ".worktrees", "feature"),
+    userRoot = path.join(parent, "user");
+  try {
+    mkdirSync(path.join(canonical, ".git"), { recursive: true });
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(userRoot);
+    writeFileSync(path.join(worktree, ".git"), "gitdir: ../../.git/worktrees/feature\n", "utf8");
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [{ repoId: "canonical", canonicalRoot: canonical, state: "enabled" }] })}\n`,
+      "utf8",
+    );
+    assert.equal(daemonHostStartRefusal({ invokingRoot: path.join(canonical, "packages"), userRoot }), null);
+    const refusal = daemonHostStartRefusal({ invokingRoot: worktree, userRoot });
+    assert.equal(refusal?.code, "daemon_start_noncanonical_checkout");
+    assert.match(refusal?.hint ?? "", /A worktree may connect to an existing daemon but cannot host it/u);
+    assert.match(refusal?.hint ?? "", new RegExp(escapeRegExp(canonical), "u"));
+
+    let spawns = 0;
+    const result = await ensureLocalDaemonRunning({
+      socketPath: path.join(parent, "daemon.sock"),
+      invokingRoot: worktree,
+      launch: () => ({
+        command: "node",
+        args: ["index.ts", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "default"],
+        env: {},
+      }),
+      probe: async () => false,
+      spawnDetached: async () => {
+        spawns += 1;
+      },
+    });
+    assert.equal(result.code, "daemon_start_noncanonical_checkout");
+    assert.equal(result.attempts, 0);
+    assert.equal(spawns, 0);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("unreachable daemon is started once and the ready socket is used without a second attempt", async () => {
   let spawns = 0;
   const result = await ensureLocalDaemonRunning({
     socketPath: "/tmp/ha-autostart.sock",
+    invokingRoot: process.cwd(),
     launch,
     probe: async () => spawns > 0,
     spawnDetached: async () => {
@@ -67,6 +112,7 @@ test("concurrent callers share one autostart flight and wait for the same socket
       Array.from({ length: 12 }, () =>
         ensureLocalDaemonRunning({
           socketPath: path.join(userRoot, "daemon.sock"),
+          invokingRoot: process.cwd(),
           launch: sharedLaunch,
           probe: async () => reachable,
           spawnDetached: async () => {
@@ -101,6 +147,7 @@ test("a GUI/CLI peer that already owns the daemon singleton is awaited, not resp
     writeFileSync(daemonSingletonLockPath(userRoot, "default"), `${process.pid}\n`, "utf8");
     const result = await ensureLocalDaemonRunning({
       socketPath: path.join(userRoot, "daemon.sock"),
+      invokingRoot: process.cwd(),
       launch: sharedLaunch,
       probe: async () => false,
       spawnDetached: async () => {
@@ -122,6 +169,7 @@ test("one failed start attempt stops without spawning a second daemon", async ()
   let spawns = 0;
   const result = await ensureLocalDaemonRunning({
     socketPath: "/tmp/ha-autostart-timeout.sock",
+    invokingRoot: process.cwd(),
     launch,
     probe: async () => false,
     spawnDetached: async () => {
@@ -150,6 +198,7 @@ test("a live process with lifecycle attach progress reports starting instead of 
   try {
     const result = await ensureLocalDaemonRunning({
       socketPath: path.join(userRoot, "daemon.sock"),
+      invokingRoot: process.cwd(),
       launch: spec,
       probe: async () => false,
       probeIntervalMs: 1,
@@ -178,6 +227,7 @@ test("a launcher that is missing fails fast as daemon_spawn_not_found without a 
   let spawns = 0;
   const result = await ensureLocalDaemonRunning({
     socketPath: "/tmp/ha-autostart-enoent.sock",
+    invokingRoot: process.cwd(),
     launch,
     probe: async () => false,
     spawnDetached: async () => {
@@ -198,6 +248,7 @@ test("a launcher that is missing fails fast as daemon_spawn_not_found without a 
 test("a permission-denied launcher is classified as daemon_spawn_permission", async () => {
   const result = await ensureLocalDaemonRunning({
     socketPath: "/tmp/ha-autostart-eacces.sock",
+    invokingRoot: process.cwd(),
     launch,
     probe: async () => false,
     spawnDetached: async () => {
@@ -215,6 +266,7 @@ test("a permission-denied launcher is classified as daemon_spawn_permission", as
 test("a non-OS launcher failure is classified as daemon_start_failed", async () => {
   const result = await ensureLocalDaemonRunning({
     socketPath: "/tmp/ha-autostart-other.sock",
+    invokingRoot: process.cwd(),
     launch,
     probe: async () => false,
     spawnDetached: async () => {
@@ -312,9 +364,13 @@ test("detached stdout, stderr, and a fatal stack land in the daemon output log",
   try {
     await startDetachedProcessChecked(
       process.execPath,
-      ["-e", "console.log('stdout witness'); console.error('stderr witness'); throw new Error('fatal witness')"],
+      [
+        "-e",
+        "console.log('stdout witness'); console.log('cwd witness ' + process.cwd()); console.error('stderr witness'); throw new Error('fatal witness')",
+      ],
       process.env,
       outputPath,
+      root,
     );
     for (let attempt = 0; attempt < 100 && !readFileSync(outputPath, "utf8").includes("fatal witness"); attempt += 1)
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -322,7 +378,12 @@ test("detached stdout, stderr, and a fatal stack land in the daemon output log",
     assert.match(output, /stdout witness/u);
     assert.match(output, /stderr witness/u);
     assert.match(output, /Error: fatal witness/u);
+    assert.match(output, new RegExp(`cwd witness ${escapeRegExp(realpathSync.native(root))}`, "u"));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}

@@ -40,7 +40,7 @@ import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
-test("registered workspace CLI command auto-starts the daemon, retries, and succeeds", () => {
+test("registered canonical checkout autostarts the daemon while its worktree only connects", (context) => {
   const fixture = setup();
   try {
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
@@ -89,18 +89,43 @@ test("registered workspace CLI command auto-starts the daemon, retries, and succ
       lifecycle.some((record) => record.event === "process_exit" && record.outcome === "stop_requested"),
       true,
     );
-    // The daemon is gone; a plain CLI command must bring it back and still answer.
-    const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "task", "list"], {
+    const worktree = path.join(fixture.root, ".worktrees", "status-feature");
+    git(fixture.root, "worktree", "add", "--quiet", "--detach", worktree);
+    const refused = spawnSync(process.execPath, [cli, "--root", worktree, "--json", "daemon", "status"], {
+      encoding: "utf8",
+      env: cliEnv(worktree, fixture.userRoot),
+    });
+    assert.notEqual(refused.status, 0, `${refused.stderr}\n${refused.stdout}`);
+    const refusal = JSON.parse(refused.stdout) as { error?: { code?: string; hint?: string } };
+    assert.equal(refusal.error?.code, "daemon_start_noncanonical_checkout");
+    assert.match(refusal.error?.hint ?? "", /A worktree may connect to an existing daemon but cannot host it/u);
+    assert.match(refusal.error?.hint ?? "", new RegExp(escapeRegExp(fixture.root), "u"));
+    assert.equal(readDaemonPid(fixture.userRoot, "default"), null, "the refused worktree must not claim the daemon");
+
+    // The daemon is gone; status from the registered canonical checkout must bring it back and answer.
+    const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "status"], {
       encoding: "utf8",
       env: cliEnv(fixture.root, fixture.userRoot),
     });
     assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
-    const receipt = JSON.parse(result.stdout) as { ok: boolean; outcome: string; error?: { code: string } };
+    const receipt = JSON.parse(result.stdout) as { ok: boolean; error?: { code: string } };
     assert.equal(receipt.ok, true, JSON.stringify(receipt));
-    assert.equal(receipt.outcome, "applied");
     const restartedPid = readDaemonPid(fixture.userRoot, "default");
     assert.ok(restartedPid, "autostart must leave a resident daemon pid file");
     assert.notEqual(restartedPid, previousPid);
+    const connected = spawnSync(process.execPath, [cli, "--root", worktree, "--json", "daemon", "status"], {
+      encoding: "utf8",
+      env: cliEnv(worktree, fixture.userRoot),
+    });
+    assert.equal(connected.status, 0, `${connected.stderr}\n${connected.stdout}`);
+    assert.equal(
+      readDaemonPid(fixture.userRoot, "default"),
+      restartedPid,
+      "the worktree must reuse the resident daemon",
+    );
+    context.diagnostic(
+      `worktree refusal=${refusal.error?.code}; canonical status pid=${restartedPid}; worktree existing-daemon status=ok`,
+    );
     const restartedLifecycle = readDaemonLifecycleRecords(fixture.userRoot, "default"),
       generationStart = restartedLifecycle.findLastIndex((record) => record.event === "process_start"),
       bound = restartedLifecycle.findIndex(
