@@ -409,11 +409,18 @@ export function createRepoCellApi(context: any): RepoCell {
   // The wide task queries live in task-query-read.ts so the daemon and the scale
   // harness share one real read implementation; the closeout/blocking domain
   // judgments stay consumed by the RepoCell composition root.
-  const queryRead = makeTaskQueryReadModel({
-    rootDir: context.rootDir,
-    projection: () => context.projection,
-    judgments: repoCellTaskQueryJudgments,
-  });
+  const currentQueryRead = () =>
+      makeTaskQueryReadModel({
+        rootDir: context.rootDir,
+        projection: context.projection,
+        judgments: repoCellTaskQueryJudgments,
+      }),
+    queryRead: ReturnType<typeof makeTaskQueryReadModel> = {
+      agenda: (query) => currentQueryRead().agenda(query),
+      guiTasks: (query) => currentQueryRead().guiTasks(query),
+      relationGraph: () => currentQueryRead().relationGraph(),
+      relationGraphPage: (query) => currentQueryRead().relationGraphPage(query),
+    };
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
   const spawnRuntime: RepoCell["spawnRuntime"] = (payload, binding) => {
     const command = commandDescriptorForAction("runtime-run"),

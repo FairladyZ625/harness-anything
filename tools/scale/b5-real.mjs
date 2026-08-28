@@ -198,7 +198,7 @@ async function measureB5RealSingle(options) {
   const catchUpMs = performance.now() - projectionStarted, buildMs = performance.now() - buildStarted;
 
   const readModel = daemonQueryModule?.makeTaskQueryReadModel
-    ? daemonQueryModule.makeTaskQueryReadModel({ rootDir, projection: () => projection, judgments: { closeout: kernel.closeoutReadiness, blocking: kernel.blockingOf } })
+    ? daemonQueryModule.makeTaskQueryReadModel({ rootDir, projection, judgments: { closeout: kernel.closeoutReadiness, blocking: kernel.blockingOf } })
     : makeBaselineReadModel({ rootDir, projection, kernel, sqliteTaskProjection });
   const catalogActions = daemonActionModule?.makeEntityActionCatalogExecutor({ store: eventStore, projection, now: () => "2026-12-31T00:00:00.000Z" });
   const narrowSupported = typeof projection.readRelationQuery === "function";
@@ -365,3 +365,4 @@ async function main() {
 if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.argv[1])}`).href) {
   try { await main(); } catch (error) { console.error(error instanceof Error ? error.stack : String(error)); process.exitCode = 1; }
 }
+

@@ -46,10 +46,10 @@ type DaemonGuiReadResultForRelationGraph =
   import("./protocol/daemon-protocol.contract.ts").DaemonGuiReadResultMap["repo.triadic.relationGraph"];
 export function makeTaskQueryReadModel(input: {
   readonly rootDir: CanonicalRoot;
-  readonly projection: () => TaskProjection;
+  readonly projection: TaskProjection;
   readonly judgments: TaskQueryJudgments;
 }): TaskQueryReadModel {
-  const { rootDir, judgments } = input,
+  const { rootDir, projection, judgments } = input,
     closeout = judgments.closeout,
     blocking = judgments.blocking;
   function relationGraph(): DaemonGuiReadResultForRelationGraph {
@@ -58,8 +58,7 @@ export function makeTaskQueryReadModel(input: {
   function relationGraphFrom(
     materialized: ReturnType<typeof readRelationGraphProjection>,
   ): DaemonGuiReadResultForRelationGraph {
-    const projection = input.projection(),
-      decisions = projection.readDecisionGraph(),
+    const decisions = projection.readDecisionGraph(),
       facts = projection.readFactGraph(),
       taskRelations = projection.readTaskRelations(),
       eventTruthReady = decisions.status === "ready" && facts.status === "ready" && taskRelations.status === "ready";
@@ -121,8 +120,7 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
-    const projection = input.projection(),
-      lifecycle = projection.list(query),
+    const lifecycle = projection.list(query),
       narrow = hasNarrowFacet(query),
       materialized = narrow ? null : readRelationGraphProjection({ rootDir }),
       l2 = new Map((materialized?.taskRows ?? []).map((row) => [row.taskId, row])),
@@ -215,8 +213,7 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   function agenda(query: { readonly limit?: number; readonly cursor?: string } = {}): DaemonAgendaResult {
-    const projection = input.projection(),
-      sourceLimit = query.limit ?? 100,
+    const sourceLimit = query.limit ?? 100,
       cursor = query.cursor === undefined ? null : decodeAgendaCursor(query.cursor),
       readTaskPage = (status: "active" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) =>
         cursor?.[key] === null
@@ -323,8 +320,7 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   function narrowTaskContext(taskIds: readonly string[]) {
-    const projection = input.projection(),
-      taskRefs = taskIds.map((taskId) => `task/${taskId}`),
+    const taskRefs = taskIds.map((taskId) => `task/${taskId}`),
       blockingEdges = projection.readTaskDependencyClosure(taskRefs).rows,
       decisionEdges = projection.readTaskRelationsByTargets(taskRefs, "derives").rows,
       statusIds = new Set(taskIds);
@@ -351,8 +347,7 @@ export function makeTaskQueryReadModel(input: {
    * markdown-side cache appear in the unparameterized converged read, not here.
    */
   function relationGraphPage(query: TaskRelationQuery): DaemonGuiReadResultForRelationGraph {
-    const projection = input.projection(),
-      page: TaskRelationProjectionRead = projection.readRelationQuery(query),
+    const page: TaskRelationProjectionRead = projection.readRelationQuery(query),
       refs = new Set(page.rows.flatMap((edge) => [edge.sourceRef, edge.targetRef])),
       factRefs = [...refs].filter((ref) => ref.startsWith("fact/")),
       facts = projection.searchFacts({ refs: factRefs }),

@@ -171,7 +171,7 @@ export function projectFrozenDaemonResponses(rootDir) {
       projection.apply(event, fixtureWritePlan(event));
       projection.close();
     }
-    const model = makeTaskQueryReadModel({ rootDir: temporaryRoot, projection: () => projection, judgments: { closeout: closeoutReadiness, blocking: blockingOf } });
+    const model = makeTaskQueryReadModel({ rootDir: temporaryRoot, projection, judgments: { closeout: closeoutReadiness, blocking: blockingOf } });
     const taskRead = model.guiTasks({ limit: 100 }), decisionProjection = projection.listDecisions({}), decisionRead = { ok: true, decisions: decisionProjection.decisions, warnings: [] };
     const responses = new Map([
       ["validateDaemonTaskSnapshotList", taskRead],
