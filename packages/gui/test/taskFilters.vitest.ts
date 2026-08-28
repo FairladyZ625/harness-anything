@@ -4,6 +4,7 @@ import {
   applyTaskFilters,
   DEFAULT_TASK_FILTERS,
   hasActiveTaskFilters,
+  isTaskArchiveNoise,
   matchesTask,
   sortByFavoritesFirst,
   taskFilterSummary,
@@ -65,19 +66,52 @@ describe("taskFilters status multi-select", () => {
   });
 
   it("makes relation unknown and every projected module explicitly filterable", () => {
-    const task = makeTask({ coordinationStatus: "planned", canonicalStatus: "planned", blocking: "unknown", module: "multiple (gui, kernel)", moduleKeys: ["gui", "kernel"] });
+    const task = makeTask({
+      coordinationStatus: "planned",
+      canonicalStatus: "planned",
+      blocking: "unknown",
+      module: "multiple (gui, kernel)",
+      moduleKeys: ["gui", "kernel"],
+    });
     expect(matchesTask(task, { ...DEFAULT_TASK_FILTERS, status: ["unknown"] })).toBe(true);
     expect(matchesTask(task, { ...DEFAULT_TASK_FILTERS, module: "gui" })).toBe(true);
   });
 });
 
+/**
+ * 看板降噪判定(task_b92c5138 起与关系图领地共用同一个 isTaskArchiveNoise,
+ * 不允许第二份实现):cancelled 状态或非 active disposition 的 task 默认是噪音。
+ */
+describe("taskFilters archive-noise rule (shared with graph territory)", () => {
+  it("flags cancelled status and non-active dispositions as noise", () => {
+    expect(isTaskArchiveNoise(makeTask())).toBe(false);
+    expect(isTaskArchiveNoise(makeTask({ coordinationStatus: "cancelled" }))).toBe(true);
+    expect(isTaskArchiveNoise(makeTask({ packageDisposition: "archived" }))).toBe(true);
+    expect(isTaskArchiveNoise(makeTask({ packageDisposition: "tombstoned" }))).toBe(true);
+    // 已取消且归档的行仍然只是「一条噪音」,不会因为两个字段同时命中而变化。
+    expect(isTaskArchiveNoise(makeTask({ coordinationStatus: "cancelled", packageDisposition: "archived" }))).toBe(
+      true,
+    );
+  });
+
+  it("board hides noise under the default filters and shows it with includeArchived", () => {
+    const tasks = [
+      makeTask({ taskId: "t_live" }),
+      makeTask({ taskId: "t_cancelled", coordinationStatus: "cancelled" }),
+      makeTask({ taskId: "t_archived", packageDisposition: "archived" }),
+    ];
+    expect(applyTaskFilters(tasks, { ...DEFAULT_TASK_FILTERS }).map((t) => t.taskId)).toEqual(["t_live"]);
+    expect(applyTaskFilters(tasks, { ...DEFAULT_TASK_FILTERS, includeArchived: true }).map((t) => t.taskId)).toEqual([
+      "t_live",
+      "t_cancelled",
+      "t_archived",
+    ]);
+  });
+});
+
 describe("taskFilters favoritesOnly", () => {
   it("filters to favorites set when favoritesOnly is true", () => {
-    const tasks = [
-      makeTask({ taskId: "t1" }),
-      makeTask({ taskId: "t2" }),
-      makeTask({ taskId: "t3" }),
-    ];
+    const tasks = [makeTask({ taskId: "t1" }), makeTask({ taskId: "t2" }), makeTask({ taskId: "t3" })];
     const favorites = new Set(["t1", "t3"]);
     const filters: TaskFilters = { ...DEFAULT_TASK_FILTERS, favoritesOnly: true };
     const filtered = applyTaskFilters(tasks, filters, favorites);
@@ -105,10 +139,7 @@ describe("sortByFavoritesFirst", () => {
   });
 
   it("returns identical order when no favorites", () => {
-    const items = [
-      { id: "a" },
-      { id: "b" },
-    ];
+    const items = [{ id: "a" }, { id: "b" }];
     const sorted = sortByFavoritesFirst(items, (item) => item.id, new Set());
     expect(sorted.map((item) => item.id)).toEqual(["a", "b"]);
   });

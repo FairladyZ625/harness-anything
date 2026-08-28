@@ -16,6 +16,7 @@ import {
   taskPassesStatusFilter,
   decisionPassesStateFilter,
 } from "../src/renderer/graph/entityStatusFilter.ts";
+import { isTaskArchiveNoise } from "../src/renderer/model/taskFilters.ts";
 
 function task(overrides: Partial<TaskRow> = {}): TaskRow {
   return {
@@ -344,5 +345,37 @@ describe("territory honours the entity-status filter through the row predicates"
     const decisions = [dec(), { ...dec(), decisionId: "dec_2", state: "outcome_retired" } as DecisionRow];
     const visible = decisions.filter((row) => decisionPassesStateFilter(row, filter));
     expect(visible.map((row) => row.decisionId)).toEqual(["dec_1"]);
+  });
+});
+
+/**
+ * 领地降噪(task_b92c5138):cancelled/archived task 默认不渲染,判定与看板共用
+ * isTaskArchiveNoise。与实体状态筛选同一条行过滤路径,因此块/进度计数只数可见行
+ * —— 不会出现「进度条记了已取消的一笔、屏幕上却没有这个 chip」的空账。
+ */
+describe("territory hides cancelled/archived tasks behind the board noise rule", () => {
+  const rows = [
+    task({ taskId: "t_active", title: "Active", coordinationStatus: "active" }),
+    task({ taskId: "t_cancelled", title: "Cancelled", coordinationStatus: "cancelled" }),
+    task({ taskId: "t_archived", title: "Archived", packageDisposition: "archived" }),
+  ];
+  // GraphView taskVisible 的降噪子句原样:开关只翻转这一个谓词。
+  const visibleWithSwitch = (showArchived: boolean) => rows.filter((row) => showArchived || !isTaskArchiveNoise(row));
+
+  it("drops noise rows from chips by default and the zone progress counts only visible rows", () => {
+    const visible = visibleWithSwitch(false);
+    expect(visible.map((row) => row.taskId)).toEqual(["t_active"]);
+    const partition = partitionForSkel("task", visible, [], [], [], [], []);
+    const chips = [...partition.zones.flatMap((zone) => zone.chips), ...partition.landing];
+    expect(chips.map((chip) => chip.navRef)).toEqual(["task/t_active"]);
+    // 进度/总数跟可见行走,不把已取消的行记进块的「N/total」。
+    expect(partition.zones[0]!.progress?.total).toBe(1);
+  });
+
+  it("keeps the full set when the switch is on (显示已归档)", () => {
+    const visible = visibleWithSwitch(true);
+    const partition = partitionForSkel("task", visible, [], [], [], [], []);
+    const chips = [...partition.zones.flatMap((zone) => zone.chips), ...partition.landing];
+    expect(chips.map((chip) => chip.navRef).sort()).toEqual(["task/t_active", "task/t_archived", "task/t_cancelled"]);
   });
 });

@@ -37,14 +37,20 @@ export const hasActiveTaskFilters = (filters: TaskFilters) =>
   filters.includeArchived ||
   filters.favoritesOnly;
 
+/**
+ * 看板降噪判定(唯一实现,看板与关系图领地共用,不第二份):
+ * status=cancelled 或 package disposition 非 active(archived/tombstoned)的 task
+ * 默认算噪音。看板入口 = matchesTask 的 !includeArchived 分支;关系图领地入口 =
+ * GraphView territory 的「显示已归档」开关(默认关 = 隐藏,task_b92c5138)。
+ */
+export const isTaskArchiveNoise = (task: Pick<TaskRow, "packageDisposition" | "coordinationStatus">): boolean =>
+  /* @gate-identity check-gui-status-judgments/gui-status-033 */
+  task.packageDisposition !== "active" ||
+  /* @gate-identity check-gui-status-judgments/gui-status-034 */
+  task.coordinationStatus === "cancelled";
+
 export function matchesTask(task: TaskRow, filters: TaskFilters, favorites?: ReadonlySet<string>): boolean {
-  if (
-    !filters.includeArchived &&
-    /* @gate-identity check-gui-status-judgments/gui-status-033 */
-    (task.packageDisposition !== "active" ||
-      /* @gate-identity check-gui-status-judgments/gui-status-034 */
-      task.coordinationStatus === "cancelled")
-  ) {
+  if (!filters.includeArchived && isTaskArchiveNoise(task)) {
     return false;
   }
 
