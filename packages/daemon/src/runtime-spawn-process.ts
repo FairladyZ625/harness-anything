@@ -168,15 +168,14 @@ type PosixProcessRow = {
   readonly pid: number;
   readonly parentPid: number;
   readonly processGroupId: number;
-  readonly state: string;
 };
 
 async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
-  const output = await runProcessTextAsync("ps", ["-axo", "pid=,ppid=,pgid=,stat="]);
+  const output = await runProcessTextAsync("ps", ["-axo", "pid=,ppid=,pgid="]);
   return output.split(/\r?\n/u).flatMap((line) => {
-    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)/u.exec(line);
+    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)/u.exec(line);
     if (!match) return [];
-    return [{ pid: Number(match[1]), parentPid: Number(match[2]), processGroupId: Number(match[3]), state: match[4]! }];
+    return [{ pid: Number(match[1]), parentPid: Number(match[2]), processGroupId: Number(match[3]) }];
   });
 }
 
@@ -215,7 +214,7 @@ function signalRuntimeTargets(
 
 async function survivingRuntimePids(pids: readonly number[]): Promise<readonly number[]> {
   const wanted = new Set(pids), rows = await readPosixProcessRows();
-  return rows.filter(({ pid, state }) => wanted.has(pid) && !state.startsWith("Z")).map(({ pid }) => pid);
+  return rows.filter(({ pid }) => wanted.has(pid)).map(({ pid }) => pid);
 }
 
 async function awaitRuntimeProcessExit(pids: readonly number[], timeoutMs: number): Promise<readonly number[]> {
