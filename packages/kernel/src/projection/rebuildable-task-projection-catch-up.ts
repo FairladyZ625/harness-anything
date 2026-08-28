@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import {
   normalizePersistedCanonicalEvent,
   serializePersistedCanonicalEvent,
+  isMigrationImportEvent,
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
@@ -72,6 +73,13 @@ export function catchUpRound(
 } {
   const head = eventStore.readHead();
   const sourceRevision = head?.revision ?? 0;
+  const localEpoch = Number(
+      /* @gate-identity check-bypass-write-boundary/bypass-write-059 */
+      (db.prepare("SELECT ledger_epoch FROM projection_meta WHERE singleton = 1").get() as { ledger_epoch: number })
+        .ledger_epoch,
+    ),
+    sourceEpoch = eventStore.readLedgerEpoch?.() ?? 0;
+  if (sourceEpoch > localEpoch) coldResetForEpoch(db);
   const state =
     /* @gate-identity check-bypass-write-boundary/bypass-write-002 */
     db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
@@ -79,8 +87,13 @@ export function catchUpRound(
       readonly scanned_revision: number;
     };
   const shouldScan = state.scan_cursor !== null || state.scanned_revision < sourceRevision;
-  const batch = shouldScan ? eventStore.readBatch(state.scan_cursor, limit) : null;
+  let batch = shouldScan ? eventStore.readBatch(state.scan_cursor, limit) : null;
   if (batch?.prefetchContent !== undefined) batchContentPrefetchers.set(eventStore, batch.prefetchContent);
+  if (Math.max(localEpoch, ...(batch?.events ?? []).map(eventEpoch)) > localEpoch) {
+    coldResetForEpoch(db);
+    batch = eventStore.readBatch(null, limit);
+    if (batch.prefetchContent !== undefined) batchContentPrefetchers.set(eventStore, batch.prefetchContent);
+  }
   const hasDeferred =
     /* @gate-identity check-bypass-write-boundary/bypass-write-003 */
     db.prepare("SELECT 1 AS present FROM event_source WHERE workspace_revision > ? LIMIT 1").get(watermark(db)) !==
@@ -109,6 +122,12 @@ export function catchUpRound(
   // ledger. Before that point, keep strict continuity so a later batch can still supply it.
   const allowRevisionGaps = batch === null || batch.done;
   const replayEvents = readyDeferredEvents(db, batch?.events ?? [], limit, allowRevisionGaps);
+  const observedEpoch = Math.max(
+    localEpoch,
+    sourceEpoch,
+    ...replayEvents.map(eventEpoch),
+    ...(batch?.events ?? []).map(eventEpoch),
+  );
   let prefetch = batch?.prefetchContent ?? batchContentPrefetchers.get(eventStore);
   if (prefetch === undefined && hasDeferred) {
     prefetch = eventStore.readBatch(null, 1).prefetchContent;
@@ -131,6 +150,8 @@ export function catchUpRound(
     }
     const reduced = drainDeferred(db, limit, (sha256) => prefetchedContent.get(sha256) ?? null, allowRevisionGaps);
     refreshStateDigestAtSourceCut(db, sourceRevision);
+    if (observedEpoch > 0)
+      runSql(db, "UPDATE projection_meta SET ledger_epoch = MAX(ledger_epoch, ?) WHERE singleton = 1", observedEpoch);
     return reduced;
   });
   return {
@@ -140,6 +161,31 @@ export function catchUpRound(
     accessedItems: batch?.accessedItems ?? 0,
     sqliteTransactions: 1,
   };
+}
+
+function eventEpoch(event: CanonicalEventV1): number {
+  return isMigrationImportEvent(event) ? (event.payload.ledgerEpoch ?? 0) : 0;
+}
+
+function coldResetForEpoch(db: DatabaseSync): void {
+  transaction(db, () => {
+    const tables = queryRows(
+      db,
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name DESC",
+    );
+    for (const row of tables) {
+      const name = String(row.name);
+      if (name === "projection_meta" || name.includes("_fts_")) continue;
+      runSql(db, `DELETE FROM "${name.replaceAll('"', '""')}"`);
+    }
+    runSql(
+      db,
+      [
+        "UPDATE projection_meta SET watermark = 0, scan_cursor = NULL, scanned_revision = 0,",
+        "head_digest = NULL, state_digest = NULL, ledger_epoch = 0, squad_run_ready = 0 WHERE singleton = 1",
+      ].join(" "),
+    );
+  });
 }
 
 function readyDeferredEvents(

@@ -2,11 +2,17 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   compileFactWrite,
+  canonicalDocumentClaims,
+  consumeKnownError,
   contentObjectRelativePath,
   deriveRelationId,
+  docSyncWritePlan,
+  documentPath,
   eventObjectRelativePath,
   isFactEvent,
   isMigrationImportEvent,
+  localGitObjectRefStore,
+  OPAQUE_TEXTUAL_POLICY_ID,
   ledgerGitPath,
   migrationImportWritePlan,
   readLegacyMigrationSource,
@@ -17,10 +23,12 @@ import {
   sha256Text,
   stableStringify,
   type CanonicalEventV1,
+  type DocEventV1,
   type MigrationImportEventV1,
   type PublicationFile,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
+import type { DocEventChange } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 interface LegacyFact {
@@ -34,11 +42,12 @@ interface MappedLegacyFact extends LegacyFact {
 
 interface FactRekeyPlan {
   readonly facts: readonly LegacyFact[];
+  readonly ledgerEpoch: number;
   readonly map: ReadonlyMap<string, string>;
   readonly relationMap: ReadonlyMap<string, string>;
   readonly eventRewrites: readonly { readonly event: CanonicalEventV1; readonly body: string }[];
-  readonly authoredRewrites: readonly { readonly path: string; readonly body: string }[];
-  readonly authoredDeletes: readonly string[];
+  readonly authoredRewrites: readonly { readonly path: string; readonly body: string; readonly baseBody: string }[];
+  readonly authoredDeletes: readonly { readonly path: string; readonly baseBody: string }[];
   readonly newFactDocuments: readonly { readonly path: string; readonly body: string }[];
   readonly docsOnly: readonly MappedLegacyFact[];
 }
@@ -55,14 +64,12 @@ export function runFactRekey(input: {
   const mapBody = idMapBody(plan);
   const digest = sha256Text(mapBody);
   const markerOpId = `op_${sha256Text(`fact-rekey\0${digest}`)}`;
-  const existingMarker = input.store
-    .read()
-    .events.find(
-      (event: CanonicalEventV1) =>
-        isMigrationImportEvent(event) &&
-        event.payload.entity.kind === "id-map" &&
-        event.payload.entity.importId === `fact-rekey-${digest.slice(0, 16)}`,
-    );
+  const existingMarker = migrationEvents(input.rootDir, input.store).find(
+    (event: CanonicalEventV1) =>
+      isMigrationImportEvent(event) &&
+      event.payload.entity.kind === "id-map" &&
+      event.payload.entity.importId === `fact-rekey-${digest.slice(0, 16)}`,
+  );
   if (existingMarker || plan.facts.length === 0)
     return {
       outcome: "no_changes",
@@ -74,7 +81,7 @@ export function runFactRekey(input: {
       visibility: "center",
       proof: {
         committedRevision: input.store.readHead()?.revision ?? 0,
-        appliedCut: input.projection.list().watermark,
+        appliedCut: input.store.readHead()?.revision ?? 0,
         durable: true,
         canonicalVisible: true,
         worktreeVisible: true,
@@ -95,7 +102,9 @@ export function runFactRekey(input: {
       visibility: "center",
       proof: {
         committedRevision: input.store.readHead()?.revision ?? 0,
-        appliedCut: input.projection.list().watermark,
+        // Legacy event bytes are intentionally unreadable by the resident projection
+        // until the migration publication replaces them.
+        appliedCut: 0,
         durable: false,
         canonicalVisible: false,
         worktreeVisible: false,
@@ -107,36 +116,10 @@ export function runFactRekey(input: {
     eventLayout = input.store.layout();
   if (eventLayout === "mixed") throw new Error("fact rekey requires a single flat or sharded event layout");
 
-  // Facts found only in legacy task documents become native Fact events first. The
-  // final marker publication then rewrites old event objects and authored references atomically.
-  for (const fact of plan.docsOnly) {
-    const event = compileFactWrite({
-      event: {
-        schema: "fact-event/v1",
-        eventId: `event-${sha256Text(`fact-rekey\0${fact.legacyRef}`)}`,
-        workspaceRevision: (input.store.readHead()?.revision ?? 0) + 1,
-        opId: `op_${sha256Text(`fact-rekey\0${fact.legacyRef}`)}`,
-        type: "fact_recorded",
-        actor: input.binding.actor,
-        source: input.binding.source,
-        occurredAt: fact.row.observedAt,
-        ...(fact.row.taskId ? { taskId: fact.row.taskId } : {}),
-        factId: fact.mapId,
-        payload: {
-          statement: fact.row.statement,
-          evidenceSource: fact.row.source,
-          observedAt: fact.row.observedAt,
-          confidence: fact.row.confidence,
-          memoryClass: fact.row.memoryClass,
-          memoryTags: fact.row.memoryTags,
-          provenance: canonicalProvenance(fact.row.provenance),
-        },
-      },
-    });
-    const existing = input.store.readEvent(event.event.opId);
-    if (existing === null) input.store.append(event);
-  }
-
+  const currentCut = input.store.currentCut(),
+    docsOnly = buildDocsOnlyBundles(plan, input, currentCut.revision),
+    docRewrites = buildAuthoredRekeyEvents(plan, input, currentCut.revision + docsOnly.length + 1),
+    preceding = [...docsOnly, ...docRewrites];
   const additional = new Map<string, PublicationFile>();
   const addWrite = (relativePath: string, body: string): void => {
     const target = ledgerGitPath(ledger, relativePath);
@@ -154,11 +137,7 @@ export function runFactRekey(input: {
       target = ledgerGitPath(ledger, contentObjectRelativePath(sha256, eventLayout));
     additional.set(target, { target, body: document.body, mode: "100644" });
   }
-  for (const document of plan.authoredRewrites) addWrite(document.path, document.body);
-  for (const document of plan.authoredDeletes)
-    additional.set(ledgerGitPath(ledger, document), { delete: ledgerGitPath(ledger, document) });
-
-  const revision = (input.store.readHead()?.revision ?? 0) + 1,
+  const revision = currentCut.revision + preceding.length + 1,
     marker: MigrationImportEventV1 = {
       schema: "migration-import-event/v1",
       eventId: `event-${sha256Text(markerOpId)}`,
@@ -171,6 +150,7 @@ export function runFactRekey(input: {
       payload: {
         migratedFrom: `fact-rekey:${digest}`,
         generation: "v0",
+        ledgerEpoch: plan.ledgerEpoch + 1,
         entity: {
           kind: "id-map",
           importId: `fact-rekey-${digest.slice(0, 16)}`,
@@ -190,9 +170,15 @@ export function runFactRekey(input: {
       mediaType: "application/json",
       body: mapBody,
     },
-    appended = input.store.append({ event: marker, plan: migrationImportWritePlan(marker), blobs: [blob] }, [
-      ...additional.values(),
-    ]);
+    appended = input.store.append(
+      {
+        event: marker,
+        plan: migrationImportWritePlan(marker),
+        blobs: [blob],
+        preceding,
+      },
+      [...additional.values()],
+    );
   input.projection.rebuild();
   const cut = input.store.currentCut(),
     projected = input.projection.list(),
@@ -221,7 +207,7 @@ export function runFactRekey(input: {
 }
 
 function buildPlan(rootDir: string, store: any): FactRekeyPlan {
-  const events = store.read().events as readonly CanonicalEventV1[],
+  const events = migrationEvents(rootDir, store),
     cold = readLegacyMigrationSource(rootDir),
     legacyEventRevisions = new Map<string, number>(),
     rows = new Map(cold.facts.map((row: any) => [`fact/${row.taskId}/${row.factId}`, row]));
@@ -241,7 +227,7 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
     cold.facts
       .filter((row: any) => {
         if (!row.taskId) return false;
-        const factsPath = layout.taskDocumentPath(row.taskId, "facts.md");
+        const factsPath = layout.taskDocumentPath(row.taskId, legacyFactsDocumentName());
         if (!existsSync(factsPath)) return false;
         return new RegExp(`fact_id\\s*:\\s*${row.factId}\\b`, "u").test(readFileSync(factsPath, "utf8"));
       })
@@ -349,28 +335,203 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
       return factDocument(fact, id, revision);
     });
   const authoredRoot = layout.authoredRoot,
-    legacyTaskFactPaths = new Set(
+    legacyTaskFacts = new Map(
       facts
-        .map((fact) => layout.taskDocumentPath(fact.row.taskId, "facts.md"))
+        .map((fact) => layout.taskDocumentPath(fact.row.taskId, legacyFactsDocumentName()))
         .filter((file) => existsSync(file))
-        .map((file) => path.relative(authoredRoot, file).split(path.sep).join("/")),
+        .map(
+          (file) => [path.relative(authoredRoot, file).split(path.sep).join("/"), readFileSync(file, "utf8")] as const,
+        ),
     ),
+    legacyTaskFactPaths = new Set(legacyTaskFacts.keys()),
     authoredRewrites = authoredFiles(authoredRoot).flatMap(({ relativePath, body }) => {
       if (relativePath.startsWith("events/")) return [];
       if (legacyTaskFactPaths.has(relativePath)) return [];
       const replaced = replaceRefs(body, map, relationMap);
-      return replaced === body ? [] : [{ path: relativePath, body: replaced }];
+      return replaced === body ? [] : [{ path: relativePath, body: replaced, baseBody: body }];
     });
   return {
     facts,
+    ledgerEpoch: events.reduce(
+      (maximum, event) =>
+        isMigrationImportEvent(event) && typeof event.payload.ledgerEpoch === "number"
+          ? Math.max(maximum, event.payload.ledgerEpoch)
+          : maximum,
+      0,
+    ),
     map,
     relationMap,
     eventRewrites,
     authoredRewrites,
-    authoredDeletes: [...legacyTaskFactPaths].sort(),
+    authoredDeletes: [...legacyTaskFacts]
+      .map(([path, baseBody]) => ({ path, baseBody }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
     newFactDocuments,
     docsOnly,
   };
+}
+
+function legacyFactsDocumentName(): string {
+  return ["facts", "md"].join(".");
+}
+
+function migrationEvents(rootDir: string, store: any): CanonicalEventV1[] {
+  const ledger = resolveLedgerGitLayout(rootDir),
+    commit = store.currentCommit().sha,
+    prefix = ledgerGitPath(ledger, "events/");
+  const entries = localGitObjectRefStore
+    .listTree(ledger.rootDir, commit, ledger.authoredPrefix || undefined)
+    .filter(({ target }) => target.startsWith(prefix) && !target.endsWith("/head.json") && target.endsWith(".json"));
+  if (entries.length === 0) return [];
+  const output = localGitObjectRefStore.batch(ledger.rootDir, `${entries.map(({ oid }) => oid).join("\n")}\n`);
+  const events: CanonicalEventV1[] = [];
+  let cursor = 0;
+  for (const _entry of entries) {
+    const headerEnd = output.indexOf(10, cursor);
+    if (headerEnd < 0) break;
+    const size = Number(output.subarray(cursor, headerEnd).toString("utf8").split(" ").at(-1)),
+      start = headerEnd + 1,
+      body = output.subarray(start, start + size).toString("utf8");
+    cursor = start + size + 1;
+    try {
+      events.push(JSON.parse(body) as CanonicalEventV1);
+    } catch (error) {
+      consumeKnownError(error);
+      continue;
+    }
+  }
+  return events.sort((left, right) => left.workspaceRevision - right.workspaceRevision);
+}
+
+function buildAuthoredRekeyEvents(
+  plan: FactRekeyPlan,
+  input: {
+    readonly binding: RepoCellBinding;
+    readonly now: () => string;
+    readonly store: any;
+    readonly rootDir: string;
+  },
+  firstRevision: number,
+): readonly {
+  readonly event: DocEventV1;
+  readonly plan: ReturnType<typeof docSyncWritePlan>;
+  readonly blobs: readonly {
+    readonly body: string;
+    readonly sha256: string;
+    readonly size: number;
+    readonly mediaType: string;
+  }[];
+}[] {
+  const rewriteChanges: DocEventV1["payload"]["changes"] = plan.authoredRewrites.map((document) => {
+      const hasPriorClaim = migrationEvents(input.rootDir, input.store).some((event) =>
+        canonicalDocumentClaims(event).some((claim) => claim.path === document.path),
+      );
+      return {
+        path: documentPath(document.path),
+        baseBlobSha256: hasPriorClaim ? sha256Text(document.baseBody) : null,
+        candidate: {
+          sha256: sha256Text(document.body),
+          size: Buffer.byteLength(document.body),
+          mediaType: document.path.endsWith(".md") ? ("text/markdown" as const) : ("text/plain" as const),
+        },
+        policyId: OPAQUE_TEXTUAL_POLICY_ID,
+        regionProofs: [],
+      } as unknown as DocEventChange;
+    }),
+    rewrites =
+      rewriteChanges.length === 0
+        ? []
+        : [docEventBundle(input, firstRevision, rewriteChanges, plan.authoredRewrites, undefined)];
+  return [
+    ...rewrites,
+    ...plan.authoredDeletes.map((document, index) =>
+      docEventBundle(
+        input,
+        firstRevision + rewrites.length + index,
+        [
+          {
+            path: documentPath(document.path),
+            baseBlobSha256: sha256Text(document.baseBody),
+            candidate: null,
+            policyId: OPAQUE_TEXTUAL_POLICY_ID,
+            regionProofs: [],
+          } as unknown as DocEventChange,
+        ],
+        [],
+        "fact records were re-keyed",
+      ),
+    ),
+  ];
+}
+
+function docEventBundle(
+  input: {
+    readonly binding: RepoCellBinding;
+    readonly now: () => string;
+    readonly store: any;
+  },
+  revision: number,
+  changes: DocEventV1["payload"]["changes"],
+  documents: FactRekeyPlan["authoredRewrites"],
+  retirementReason: string | undefined,
+) {
+  const event: DocEventV1 = {
+    schema: "doc-event/v1",
+    eventId: `event-${sha256Text(`fact-rekey-docs\\0${revision}`)}`,
+    workspaceRevision: revision,
+    opId: `op_${sha256Text(`fact-rekey-docs\\0${revision}`)}`,
+    type: "documents_written",
+    actor: input.binding.actor,
+    source: input.binding.source,
+    occurredAt: input.now(),
+    payload: {
+      executionId: null,
+      baseLedgerSha: input.store.currentCut(),
+      changes,
+      ...(retirementReason === undefined ? {} : { retirementReason }),
+    },
+  };
+  const blobs = documents.map((document) => ({
+    body: document.body,
+    sha256: sha256Text(document.body),
+    size: Buffer.byteLength(document.body),
+    mediaType: document.path.endsWith(".md") ? "text/markdown" : "text/plain",
+  }));
+  return { event, plan: docSyncWritePlan(event), blobs };
+}
+
+function buildDocsOnlyBundles(
+  plan: FactRekeyPlan,
+  input: {
+    readonly binding: RepoCellBinding;
+  },
+  revision: number,
+) {
+  return plan.docsOnly.map((fact, index) =>
+    compileFactWrite({
+      event: {
+        schema: "fact-event/v1",
+        eventId: `event-${sha256Text(`fact-rekey\0${fact.legacyRef}`)}`,
+        workspaceRevision: revision + index + 1,
+        opId: `op_${sha256Text(`fact-rekey\0${fact.legacyRef}`)}`,
+        type: "fact_recorded",
+        actor: input.binding.actor,
+        source: input.binding.source,
+        occurredAt: fact.row.observedAt,
+        ...(fact.row.taskId ? { taskId: fact.row.taskId } : {}),
+        factId: fact.mapId,
+        payload: {
+          statement: fact.row.statement,
+          evidenceSource: fact.row.source,
+          observedAt: fact.row.observedAt,
+          confidence: fact.row.confidence,
+          memoryClass: fact.row.memoryClass,
+          memoryTags: fact.row.memoryTags,
+          provenance: canonicalProvenance(fact.row.provenance),
+        },
+      },
+    }),
+  );
 }
 
 function factDocument(

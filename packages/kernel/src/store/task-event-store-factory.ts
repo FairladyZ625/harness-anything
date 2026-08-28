@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isMigrationImportEvent } from "../domain/doc-sync.contract.ts";
 import type { CanonicalEventStore } from "./task-event-store-types.ts";
 import { CANONICAL_EVENT_REF, TaskEventStoreError } from "./task-event-store-types.ts";
 import { createStoreRuntime, type StoreRuntime } from "./task-event-store-runtime.ts";
@@ -7,6 +8,7 @@ import {
   canonicalEventCut,
   canonicalLedgerCut,
   canonicalRevisionAt,
+  ledgerEpochAt,
   readBatch,
   readStream,
 } from "./task-event-store-reads.ts";
@@ -20,6 +22,23 @@ export function makeTaskEventStore(options: Parameters<typeof createStoreRuntime
   return storeApi(runtime, publication);
 }
 function storeApi(runtime: StoreRuntime, publication: ReturnType<typeof createPublicationApi>): CanonicalEventStore {
+  let epochCache: { readonly commit: string; readonly epoch: number } | null = null;
+  const readLedgerEpoch = (): number => {
+    if (epochCache?.commit === runtime.canonicalCommit) return epochCache.epoch;
+    const epoch = ledgerEpochAt(runtime.ledger, runtime.canonicalCommit);
+    epochCache = { commit: runtime.canonicalCommit, epoch };
+    return epoch;
+  };
+  const append: CanonicalEventStore["append"] = (bundle, additionalFiles) => {
+    const receipt = publication.publish(bundle, additionalFiles),
+      eventEpoch = eventLedgerEpoch(bundle.event);
+    if (eventEpoch > 0 || epochCache !== null)
+      epochCache = {
+        commit: runtime.canonicalCommit,
+        epoch: Math.max(epochCache?.epoch ?? 0, eventEpoch),
+      };
+    return receipt;
+  };
   return {
     canonicalRef: CANONICAL_EVENT_REF,
     currentCommit: runtime.currentCommit,
@@ -29,6 +48,7 @@ function storeApi(runtime: StoreRuntime, publication: ReturnType<typeof createPu
       cut: canonicalEventCut(runtime.repoId, event),
     }),
     readHead: runtime.readHead,
+    readLedgerEpoch,
     readEvent: runtime.readEvent,
     readTaskEvent: runtime.readTaskEvent,
     readContentBlob: runtime.readContentBlob,
@@ -70,9 +90,13 @@ function storeApi(runtime: StoreRuntime, publication: ReturnType<typeof createPu
     },
     materialize: () =>
       materialize(runtime.ledger, runtime.repoId, runtime.canonicalCommit, runtime.readHead(), runtime.authoredRef),
-    append: (bundle, additionalFiles) => publication.publish(bundle, additionalFiles),
+    append,
     migrateLayout: publication.migrateLayout,
     recover: publication.recover,
     drain: async () => {},
   };
+}
+
+function eventLedgerEpoch(event: Parameters<CanonicalEventStore["publication"]>[0]): number {
+  return isMigrationImportEvent(event) ? (event.payload.ledgerEpoch ?? 0) : 0;
 }

@@ -11,7 +11,7 @@ import {
   deriveRelationId,
   eventObjectRelativePath,
   makeTaskEventStore,
-  migrationImportWritePlan,
+  makeTaskProjection,
   serializeEventHead,
   serializePersistedCanonicalEvent,
   sha256Text,
@@ -26,22 +26,34 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     legacyFixture(scratch);
+    const legacyFactsPath = path.join(scratch, "harness/tasks/task_legacy-old/facts.md");
+    writeFileSync(
+      legacyFactsPath,
+      `${readFileSync(legacyFactsPath, "utf8")}\n- {fact_id: F-CDEFGHJK, statement: Document-only observation, source: legacy-test, observedAt: 2026-01-04T00:00:00.000Z, confidence: medium, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: codex, sessionId: docs-only, boundAt: 2026-01-04T00:00:00.000Z}]}\n`,
+    );
+    const crossTaskFactsPath = path.join(scratch, "harness/tasks/task_other-old/facts.md");
+    mkdirSync(path.dirname(crossTaskFactsPath), { recursive: true });
+    writeFileSync(path.join(path.dirname(crossTaskFactsPath), "INDEX.md"), "---\ntask_id: task_other\n---\n");
+    writeFileSync(
+      crossTaskFactsPath,
+      "# Facts\n\n- {fact_id: F-DEFGHJKM, statement: Cross-task target, source: legacy-test, observedAt: 2026-01-04T01:00:00.000Z, confidence: medium, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: codex, sessionId: docs-only, boundAt: 2026-01-04T01:00:00.000Z}]}\n",
+    );
     initRepo(scratch);
     const seedStore = makeTaskEventStore({ repoId: "fact-rekey-fixture", rootDir: scratch });
     const compiled = compileFactWrite({
       event: {
         schema: "fact-event/v1",
-        eventId: "event-legacy-fact",
+        eventId: "event-legacy-target",
         workspaceRevision: 1,
-        opId: "op-legacy-fact",
+        opId: "op-legacy-target",
         type: "fact_recorded",
         actor,
         source: "local",
         occurredAt: "2026-01-02T00:00:00.000Z",
-        taskId: "task_legacy",
-        factId: "F-ABCDEFGH",
+        taskId: "task_other",
+        factId: "F-DEFGHJKM",
         payload: {
-          statement: "Observed migration",
+          statement: "Cross-task target",
           evidenceSource: "legacy-test",
           observedAt: "2026-01-02T00:00:00.000Z",
           confidence: "high",
@@ -62,7 +74,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const legacyRelationEvent: MigrationImportEventV1 = {
       schema: "migration-import-event/v1",
       eventId: "event-legacy-relation",
-      workspaceRevision: 2,
+      workspaceRevision: 3,
       opId: "op-legacy-relation",
       type: "entity_migrated",
       actor,
@@ -93,17 +105,47 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
         },
       },
     };
-    seedStore.append({ event: legacyRelationEvent, plan: migrationImportWritePlan(legacyRelationEvent), blobs: [] });
     await seedStore.drain();
     const legacyFactBody = readFileSync(path.join(scratch, "harness/tasks/task_legacy-old/facts.md"), "utf8");
     const legacyFactSha = sha256Text(legacyFactBody);
+    const crossTaskFactBody = readFileSync(crossTaskFactsPath, "utf8");
+    const crossTaskFactSha = sha256Text(crossTaskFactBody);
     const legacyBlobPath = path.join(scratch, "harness", contentObjectRelativePath(legacyFactSha, seedStore.layout()));
     mkdirSync(path.dirname(legacyBlobPath), { recursive: true });
     writeFileSync(legacyBlobPath, legacyFactBody);
-    const legacyEvent = {
+    const crossTaskBlobPath = path.join(
+      scratch,
+      "harness",
+      contentObjectRelativePath(crossTaskFactSha, seedStore.layout()),
+    );
+    mkdirSync(path.dirname(crossTaskBlobPath), { recursive: true });
+    writeFileSync(crossTaskBlobPath, crossTaskFactBody);
+    const legacyTarget = {
       ...compiled.event,
       payload: {
         ...compiled.event.payload,
+        factsDocumentClaim: {
+          ...compiled.event.payload.factsDocumentClaim,
+          path: "tasks/task_other-old/facts.md",
+          sha256: crossTaskFactSha,
+          size: Buffer.byteLength(crossTaskFactBody),
+        },
+      },
+    };
+    const legacyEvent = {
+      ...compiled.event,
+      eventId: "event-legacy-fact",
+      workspaceRevision: 2,
+      opId: "op-legacy-fact",
+      taskId: "task_legacy",
+      factId: "F-ABCDEFGH",
+      payload: {
+        ...compiled.event.payload,
+        statement: "Observed migration",
+        supersedes: {
+          factRef: "fact/task_other/F-DEFGHJKM",
+          rationale: "The legacy fact supersedes a fact owned by another task.",
+        },
         provenance: [{ runtime: "codex", sessionId: "legacy-session", boundAt: "2026-01-02T00:00:00.000Z" }] as never,
         factsDocumentClaim: {
           ...compiled.event.payload.factsDocumentClaim,
@@ -116,7 +158,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const importedFactEvent: MigrationImportEventV1 = {
       schema: "migration-import-event/v1",
       eventId: "event-imported-legacy-fact",
-      workspaceRevision: 3,
+      workspaceRevision: 4,
       opId: "op-imported-legacy-fact",
       type: "entity_migrated",
       actor,
@@ -154,9 +196,15 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
         },
       },
     };
-    const legacyBody = serializePersistedCanonicalEvent(legacyEvent);
+    const legacyBody = `${JSON.stringify(legacyEvent)}\n`;
+    const targetEventPath = path.join(
+      scratch,
+      "harness",
+      eventObjectRelativePath(legacyTarget.opId, seedStore.layout()),
+    );
     const eventPath = path.join(scratch, "harness", eventObjectRelativePath(legacyEvent.opId, seedStore.layout()));
     mkdirSync(path.dirname(eventPath), { recursive: true });
+    writeFileSync(targetEventPath, `${JSON.stringify(legacyTarget)}\n`);
     writeFileSync(eventPath, legacyBody);
     const persistedRelationEvent = {
         ...legacyRelationEvent,
@@ -168,6 +216,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
         "harness",
         eventObjectRelativePath(legacyRelationEvent.opId, seedStore.layout()),
       );
+    mkdirSync(path.dirname(relationEventPath), { recursive: true });
     writeFileSync(relationEventPath, persistedRelationBody);
     const importedFactBody = serializePersistedCanonicalEvent(importedFactEvent),
       importedFactEventPath = path.join(
@@ -180,7 +229,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     writeFileSync(
       path.join(scratch, "harness/events/head.json"),
       serializeEventHead({
-        revision: 3,
+        revision: 4,
         opId: importedFactEvent.opId,
         eventDigest: `sha256:${sha256Text(importedFactBody)}`,
       }),
@@ -196,17 +245,22 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       now: () => "2026-08-28T00:00:00.000Z",
     });
     const binding = { actor, source: "local" as const };
+    const blockedRead = (await cell.run({ kind: "task-list" }, binding)) as Record<string, unknown>;
+    assert.equal(blockedRead.outcome, "op_rejected", JSON.stringify(blockedRead));
+    assert.equal(cell.status().state, "unavailable");
     const preview = (await cell.run({ kind: "fact-rekey", dryRun: true }, binding)) as Record<string, unknown>;
     assert.equal(preview.outcome, "pending", JSON.stringify(preview));
     const previewEvidence = JSON.parse(String(preview.evidence)) as { readonly counts: Record<string, number> };
-    assert.equal(previewEvidence.counts.rekeyedFacts, 2);
-    assert.equal(previewEvidence.counts.producesEdges, 2);
+    assert.equal(previewEvidence.counts.rekeyedFacts, 4);
+    assert.equal(previewEvidence.counts.producesEdges, 4);
     assert.equal(previewEvidence.counts.retargetedRelations, 2);
 
     const applied = (await cell.run({ kind: "fact-rekey" }, binding)) as Record<string, unknown>;
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
     assert.equal(existsSync(path.join(scratch, "harness/facts/F-ABCDEFGH.md")), true);
     assert.equal(existsSync(path.join(scratch, "harness/facts/F-BCDEFGHJ.md")), true);
+    assert.equal(existsSync(path.join(scratch, "harness/facts/F-CDEFGHJK.md")), true);
+    assert.equal(existsSync(path.join(scratch, "harness/facts/F-DEFGHJKM.md")), true);
     assert.equal(existsSync(path.join(scratch, "harness/tasks/task_legacy-old/facts.md")), false);
     assert.doesNotMatch(
       readFileSync(path.join(scratch, "harness/decisions/decision-dec_LEGACY/decision.md"), "utf8"),
@@ -217,13 +271,42 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       /fact\/F-ABCDEFGH/u,
     );
     const store = makeTaskEventStore({ repoId: "fact-rekey-fixture", rootDir: scratch });
-    const fact = store.read().events.find((event) => event.schema === "fact-event/v1");
+    const stream = store.read();
+    const marker = stream.events.find(
+      (event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "id-map",
+    );
+    assert.equal(marker?.workspaceRevision, 9);
+    assert.equal(marker?.schema === "migration-import-event/v1" ? marker.payload.ledgerEpoch : undefined, 1);
+    assert.equal(
+      stream.events.some((event) => event.schema === "doc-event/v1" && event.workspaceRevision === 6),
+      true,
+    );
+    assert.equal(stream.events.filter((event) => event.schema === "doc-event/v1").length, 3);
+    assert.equal(
+      stream.events.some((event) => event.schema === "fact-event/v1" && event.factId === "F-CDEFGHJK"),
+      true,
+    );
+    const projection = makeTaskProjection({ rootDir: scratch, eventStore: store });
+    try {
+      const projected = projection.readDocument("decisions/decision-dec_LEGACY/decision.md");
+      assert.equal(projected.status, "ready");
+      assert.equal(projected.document?.workspaceRevision, 6);
+      assert.equal(
+        projected.document?.body,
+        readFileSync(path.join(scratch, "harness/decisions/decision-dec_LEGACY/decision.md"), "utf8"),
+      );
+      assert.match(projected.document?.body ?? "", /fact\/F-ABCDEFGH/u);
+    } finally {
+      projection.close();
+    }
+    const fact = store.read().events.find((event) => event.schema === "fact-event/v1" && event.factId === "F-ABCDEFGH");
     assert.equal(fact?.schema, "fact-event/v1");
     if (fact?.schema === "fact-event/v1") {
       assert.equal(fact.payload.factsDocumentClaim.path, "facts/F-ABCDEFGH.md");
       assert.equal(fact.payload.provenance[0]?.transcriptReachability, "by_session_id");
       const body = readFileSync(path.join(scratch, "harness/facts/F-ABCDEFGH.md"), "utf8");
       assert.equal(sha256Text(body), fact.payload.factsDocumentClaim.sha256);
+      assert.equal(fact.payload.supersedes?.factRef, "fact/F-DEFGHJKM");
     }
     const relationEvent = store.readEvent(legacyRelationEvent.opId);
     assert.equal(relationEvent?.schema, "migration-import-event/v1");
@@ -242,9 +325,10 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
 
     const repeat = (await cell.run({ kind: "fact-rekey" }, binding)) as Record<string, unknown>;
     assert.equal(repeat.outcome, "no_changes", JSON.stringify(repeat));
-    assert.equal(store.readHead()?.revision, 4);
+    assert.equal(store.readHead()?.revision, 9);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    if (process.env.KEEP_FACT_REKEY_FIXTURE === "1") console.error(`fact-rekey fixture: ${scratch}`);
+    else rmSync(scratch, { recursive: true, force: true });
   }
 });

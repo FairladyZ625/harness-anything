@@ -130,28 +130,10 @@ export function projectFact(
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
   const claim = event.payload.factsDocumentClaim,
-    bytes = readBlob(claim.sha256),
-    legacyTaskLocalPath =
-      event.taskId !== undefined &&
-      new RegExp(`^tasks/${escapeRegExp(event.taskId)}-[^/]+/facts\\.md$`, "u").test(claim.path);
-  // Legacy task-local fact events must remain replayable long enough for the
-  // migration command to run. The rekey publication rewrites this claim to the
-  // strict facts/<F-id>.md shape; no new writes can use this branch.
-  if ((claim.path !== `facts/${event.factId}.md` && !legacyTaskLocalPath) || !bytes || bytes.byteLength !== claim.size)
+    bytes = readBlob(claim.sha256);
+  if (claim.path !== `facts/${event.factId}.md` || !bytes || bytes.byteLength !== claim.size)
     throw new Error(`fact document path or blob mismatch for ${event.factId}`);
-  const superseded = event.payload.supersedes
-      ? /^fact\/[^/]+\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(event.payload.supersedes.factRef)
-      : null,
-    replayEvent = superseded
-      ? {
-          ...event,
-          payload: {
-            ...event.payload,
-            supersedes: { ...event.payload.supersedes!, factRef: `fact/${superseded[1]}` },
-          },
-        }
-      : event;
-  reduceFactEvent(db, replayEvent);
+  reduceFactEvent(db, event);
   const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   if (sha256Text(body) !== claim.sha256) throw new Error(`fact document projection mismatch for task ${event.taskId}`);
   const document: DocumentState = {
@@ -172,10 +154,6 @@ export function projectFact(
     eventJson,
   );
   runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 export function projectDecision(

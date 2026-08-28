@@ -25,6 +25,10 @@ export type {
   TaskRelationProjectionRead,
   TaskRelationQuery,
 } from "../projection/rebuildable-task-projection.ts";
-export { configureLedgerMaintenance, makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
+export {
+  configureLedgerMaintenance,
+  localGitObjectRefStore,
+  makeLocalVersionControlSystem,
+} from "../store/local-version-control-system.ts";
 export { createEntityStore, openEntityStore } from "../store/entity-store.ts";
 export type { EntityStore } from "../store/entity-store.ts";

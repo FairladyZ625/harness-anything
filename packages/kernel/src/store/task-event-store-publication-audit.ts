@@ -4,6 +4,7 @@ import {
   isDocEvent,
   isMigrationImportEvent,
   parseCanonicalEvent,
+  serializePersistedCanonicalEvent,
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
 import { isLedgerLayoutMigrationEvent } from "../domain/ledger-layout-migration-event.ts";
@@ -20,9 +21,10 @@ import {
 } from "./local-version-control-system.ts";
 import type { PublicationFile, PublicationRename } from "./task-event-store-types.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
-import { blobObjectPath, eventObjectPath, eventObjectPaths } from "./task-event-store-layout.ts";
+import { blobObjectPath, eventObjectPath } from "./task-event-store-layout.ts";
 import { canonicalDocumentRetirements, commitParent, stripLedgerPrefix } from "./task-event-store-claims-layout.ts";
 import { publicationModes, showBytes, showText } from "./task-event-store-materialization.ts";
+import { readHeadAt } from "./task-event-store-reads.ts";
 
 // Prepared-publication inspection, replacement authorization, and Git diff reads.
 export function changedPublication(
@@ -32,21 +34,39 @@ export function changedPublication(
   readonly parent: string;
   readonly head: EventHead;
   readonly event: CanonicalEventV1;
+  readonly events: readonly CanonicalEventV1[];
+  readonly changedEvents: readonly CanonicalEventV1[];
   readonly files: readonly PublicationFile[];
 } {
   const parent = commitParent(ledger.rootDir, commit);
   const changes = changedPaths(ledger.rootDir, parent, commit);
-  const headBody = showText(ledger.rootDir, commit, ledgerGitPath(ledger, "events/head.json"));
+  const headPath = ledgerGitPath(ledger, "events/head.json"),
+    headBody = showText(ledger.rootDir, commit, headPath);
   if (!headBody) throw new TaskEventStoreError("invalid_store", "prepared commit has no event head");
   const head = JSON.parse(headBody) as EventHead;
   if (serializeEventHead(head) !== headBody)
     throw new TaskEventStoreError("invalid_store", "prepared event head is not canonical");
-  const eventBody =
-    eventObjectPaths(ledger, head.opId)
-      .map((target) => showText(ledger.rootDir, commit, target))
-      .find((body) => body !== null) ?? null;
-  if (!eventBody) throw new TaskEventStoreError("invalid_store", "prepared commit has no changed event");
-  const event = parseCanonicalEvent(eventBody);
+  const parentRevision = readHeadAt(ledger, parent)?.revision ?? 0,
+    eventPrefix = ledgerGitPath(ledger, "events/"),
+    changedEvents = changes
+      .filter(({ status, target }) => status !== "D" && target.startsWith(eventPrefix) && target !== headPath)
+      .map(({ target }) => {
+        const body = showText(ledger.rootDir, commit, target);
+        if (body === null) throw new TaskEventStoreError("invalid_store", `prepared event ${target} disappeared`);
+        const event = parseCanonicalEvent(body);
+        if (event.opId !== path.posix.basename(target).slice(0, -5))
+          throw new TaskEventStoreError("invalid_store", "prepared event object name does not match canonical bytes");
+        return event;
+      })
+      .sort((left, right) => left.workspaceRevision - right.workspaceRevision),
+    events = changedEvents.filter((event) => event.workspaceRevision > parentRevision);
+  if (
+    events.length !== head.revision - parentRevision ||
+    events.some((event, index) => event.workspaceRevision !== parentRevision + index + 1) ||
+    events.at(-1)?.opId !== head.opId
+  )
+    throw new TaskEventStoreError("invalid_store", "prepared event bundle is not a contiguous extension of its parent");
+  const event = events.at(-1)!;
   if (isLedgerLayoutMigrationEvent(event)) {
     const added = new Set(changes.filter(({ status }) => status === "A").map(({ target }) => target));
     const renames: PublicationRename[] = [];
@@ -78,15 +98,19 @@ export function changedPublication(
       parent,
       head,
       event,
+      events,
+      changedEvents,
       files: [
-        { target: eventPath, body: eventBody, mode: "100644" },
+        { target: eventPath, body: serializePersistedCanonicalEvent(event), mode: "100644" },
         { target: headPath, body: headBody, mode: "100644" },
         ...renames,
       ],
     };
   }
   const expectedDeletes = new Set(
-      canonicalDocumentRetirements(event).map(({ path: target }) => ledgerGitPath(ledger, target)),
+      events
+        .flatMap((event) => canonicalDocumentRetirements(event))
+        .map(({ path: target }) => ledgerGitPath(ledger, target)),
     ),
     actualDeletes = changes.filter(({ status }) => status === "D").map(({ target }) => target);
   if (
@@ -104,7 +128,9 @@ export function changedPublication(
     parent,
     head,
     event,
-    files: [...publicationModes(ledger, writes, event), ...actualDeletes.map((target) => ({ delete: target }))],
+    events,
+    changedEvents,
+    files: [...publicationModes(ledger, writes, changedEvents), ...actualDeletes.map((target) => ({ delete: target }))],
   };
 }
 export function changedPaths(

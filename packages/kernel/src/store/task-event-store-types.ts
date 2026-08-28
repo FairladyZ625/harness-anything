@@ -59,10 +59,18 @@ export interface CanonicalContentBlob {
   readonly mediaType: string;
   readonly body: string;
 }
-export interface CanonicalWriteBundle {
+export interface CanonicalEventWriteBundle {
   readonly event: CanonicalEventV1;
   readonly plan: FrozenWritePlan;
   readonly blobs: readonly CanonicalContentBlob[];
+}
+export interface CanonicalWriteBundle extends CanonicalEventWriteBundle {
+  /**
+   * Events that must land immediately before this event in the same publication.
+   * Each member has its own complete write declaration; nesting is intentionally
+   * unavailable so a publication has one explicit, contiguous event sequence.
+   */
+  readonly preceding?: readonly CanonicalEventWriteBundle[];
 }
 export type GitFileMode = "100644" | "120000";
 export interface PublicationWrite {
@@ -114,6 +122,7 @@ export interface CanonicalEventStore {
   readonly canonicalRef: string;
   readonly read: () => CanonicalEventStreamV1;
   readonly readHead: () => EventHead | null;
+  readonly readLedgerEpoch: () => number;
   readonly currentCut: () => LedgerCutIdentity;
   readonly currentCommit: () => LedgerCommitSha;
   readonly publication: (event: CanonicalEventV1) => CanonicalPublicationIdentity;

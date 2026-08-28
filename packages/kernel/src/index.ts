@@ -122,7 +122,11 @@ export {
   parseDocWriteIntent,
   resolveDocRoute,
 } from "./domain/doc-sync.contract.ts";
-export { classifyTextualArtifactPath, type OpaqueTextualMediaType } from "./domain/artifact-text-classification.ts";
+export {
+  classifyTextualArtifactPath,
+  OPAQUE_TEXTUAL_POLICY_ID,
+  type OpaqueTextualMediaType,
+} from "./domain/artifact-text-classification.ts";
 export {
   parseCanonicalEvent,
   serializeCanonicalEvent,
@@ -226,6 +230,7 @@ export {
   canonicalEventCut,
   canonicalEventWritePlan,
   configureLedgerMaintenance,
+  localGitObjectRefStore,
   createEntityStore,
   ledgerGitPath,
   openEntityStore,

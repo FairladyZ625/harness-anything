@@ -1,4 +1,4 @@
-import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
+import { isMigrationImportEvent, serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
 import type { ActorIdentity, EventHead } from "../domain/write-chain.contract.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
@@ -282,7 +282,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     bundle: CanonicalWriteBundle,
     additionalFiles: readonly PublicationFile[] = [],
   ): CanonicalEventAppendReceipt => {
-    if (additionalFiles.length > 0) {
+    if (additionalFiles.length > 0 || (bundle.preceding?.length ?? 0) > 0) {
       if (!runFlush("fact rekey"))
         throw new TaskEventStoreError("publication_indeterminate", "WAL must drain before an atomic ledger rewrite");
       const receipt = git.append(bundle, additionalFiles);
@@ -449,6 +449,13 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     layout: () => gitLayout,
     read: stream,
     readHead,
+    readLedgerEpoch: () =>
+      Math.max(
+        git.readLedgerEpoch(),
+        ...wal
+          .records()
+          .map((record) => (isMigrationImportEvent(record.event) ? (record.event.payload.ledgerEpoch ?? 0) : 0)),
+      ),
     readEvent: (opId) =>
       wal.records().find((record) => record.opId === opId)?.event ??
       (gitBaseline.eventOids.has(opId) ? git.readEvent(opId) : null),

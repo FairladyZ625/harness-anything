@@ -145,7 +145,8 @@ function projectionDatabaseOwner(
         db!,
         [
           "UPDATE projection_meta SET watermark = 0, scan_cursor = NULL, scanned_revision = 0,",
-          "head_digest = NULL, state_digest = NULL, squad_run_ready = 0 WHERE singleton = 1",
+          "head_digest = NULL, state_digest = NULL, ledger_epoch = 0,",
+          "squad_run_ready = 0 WHERE singleton = 1",
         ].join(" "),
       );
     });
@@ -230,11 +231,13 @@ function createTables(db: DatabaseSync): void {
       scanned_revision INTEGER NOT NULL,
       head_digest TEXT,
       state_digest TEXT,
+      ledger_epoch INTEGER NOT NULL,
       squad_run_ready INTEGER NOT NULL CHECK(squad_run_ready IN (0, 1))
     );
     INSERT OR IGNORE INTO projection_meta(
-      singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest, state_digest, squad_run_ready
-    ) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL, 0);
+      singleton, schema_version, watermark, scan_cursor, scanned_revision,
+      head_digest, state_digest, ledger_epoch, squad_run_ready
+    ) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL, 0, 0);
     CREATE TABLE IF NOT EXISTS event_source (
       workspace_revision INTEGER PRIMARY KEY,
       op_id TEXT NOT NULL UNIQUE,

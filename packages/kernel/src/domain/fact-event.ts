@@ -250,21 +250,11 @@ function factEventFields(value: Readonly<Record<string, unknown>>, allowUnknownF
 function validFactsClaim(
   value: unknown,
   factId: unknown,
-  taskId: unknown,
+  _taskId: unknown,
   allowUnknownFields: boolean,
 ): value is FactsDocumentClaim {
   const pathIsCanonical =
     typeof factId === "string" && String(value && isRecord(value) ? value.path : "") === `facts/${factId}.md`;
-  const pathIsHistoricalTaskLocal =
-    allowUnknownFields &&
-    typeof taskId === "string" &&
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as Record<string, unknown>).path === "string" &&
-    new RegExp(`^tasks/${escapeRegExp(taskId)}-[^/]+/facts\\.md$`, "u").test(
-      (value as Record<string, unknown>).path as string,
-    );
   if (
     !isRecord(value) ||
     !matchesFields(value, ["path", "sha256", "size", "mediaType", "policyId"], allowUnknownFields) ||
@@ -274,7 +264,7 @@ function validFactsClaim(
     value.mediaType !== "text/markdown" ||
     value.policyId !== FACT_DOCUMENT_POLICY_ID ||
     typeof factId !== "string" ||
-    (!pathIsCanonical && !pathIsHistoricalTaskLocal)
+    !pathIsCanonical
   )
     return false;
   try {
@@ -284,9 +274,6 @@ function validFactsClaim(
   }
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-}
 function escapeFactDocumentScalar(value: string): string {
   return JSON.stringify(value).slice(1, -1);
 }

@@ -30,9 +30,11 @@ There are two migration inputs and exactly one command for each:
 | Legacy repository whose ledger predates the current generation         | `ha migrate import --source <source>` | Freeze writers, stop the source daemon, and use a committed source snapshot. Run `--dry-run` first.    | Five-category reconciliation has old == new, `skipped=0`, no authored `required` rows, and PASS.                                                          |
 | Already-canonical repository with task-local `fact/<task>/F-*` records | `ha migrate rekey-facts`              | Stop the repository daemon/writers and run against the committed canonical cut. Run `--dry-run` first. | Re-keyed facts and `produces` edges match the dry-run id-map; SQLite fact/relation counts are stable; `ha fact search` and `ha fact show <F-id>` succeed. |
 
-Run the fact-only path once at the fleet center. Edge nodes consume the new
-canonical cut through their normal event replay/projection rebuild; they do not
-run a second rekey or invent replacement refs.
+Run the fact-only path once at the fleet center. The marker carries a ledger
+epoch. Edge nodes and replicas must compare that epoch with their local
+projection before replaying; when it is newer, they discard the projection and
+perform a complete cold rebuild from the canonical cut. They do not run a
+second rekey or invent replacement refs.
 
 For anything beyond what this page states, run `ha migrate --help`.
 

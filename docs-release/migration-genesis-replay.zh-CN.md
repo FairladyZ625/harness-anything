@@ -26,8 +26,10 @@ ha migrate import --source <source> [--resolve <仓库相对路径>=destination|
 | 早于当前代际的老仓                  | `ha migrate import --source <source>` | 冻结写入、停止源 daemon，源必须是 committed snapshot；先跑 `--dry-run`。 | 五类对账 old == new、`skipped=0`、无 authored `required`、PASS。                                                       |
 | 已 canonical 但有 `fact/<task>/F-*` | `ha migrate rekey-facts`              | 停止该仓 daemon/写入者，在 committed canonical cut 上先跑 `--dry-run`。  | id-map 中 fact 与 `produces` 数量一致；SQLite fact/relation 计数稳定；`ha fact search` 与 `ha fact show <F-id>` 成功。 |
 
-fact-only 路径只在 fleet center 执行一次。边缘节点通过正常的 canonical
-cut 重放、projection rebuild 消费新 ref，不再次 rekey，也不自行生成替代 ref。
+fact-only 路径只在 fleet center 执行一次。marker 携带 ledger epoch；边缘节点
+和 replica 在重放前必须将该 epoch 与本地 projection 比较，发现更高 epoch
+就丢弃 projection，按 canonical cut 做完整 cold rebuild。它们不再次 rekey，
+也不自行生成替代 ref。
 
 本页之外的内容，运行 `ha migrate --help` 查看权威描述。
 
