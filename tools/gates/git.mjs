@@ -5,7 +5,7 @@ export function git(rootDir, args, options = {}) {
     cwd: rootDir,
     encoding: options.encoding ?? "utf8",
     maxBuffer: 64 * 1024 * 1024,
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
 }
 
@@ -23,7 +23,7 @@ export function pathExistsAt(rootDir, revision, filePath) {
 }
 
 export function changedFiles(rootDir, base, head = "HEAD") {
-  return git(rootDir, ["diff", "--name-only", "-z", base, head, "--"])
+  return git(rootDir, ["diff", "--name-only", "-z", `${base}...${head}`, "--"])
     .split("\0")
     .filter(Boolean);
 }
