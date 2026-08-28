@@ -411,7 +411,7 @@ export function createRepoCellApi(context: any): RepoCell {
   // judgments stay consumed by the RepoCell composition root.
   const queryRead = makeTaskQueryReadModel({
     rootDir: context.rootDir,
-    projection: context.projection,
+    projection: () => context.projection,
     judgments: repoCellTaskQueryJudgments,
   });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });

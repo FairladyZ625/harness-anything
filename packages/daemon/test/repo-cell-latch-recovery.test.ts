@@ -89,6 +89,78 @@ test("an invalid_store latch re-attaches on the next command after the ledger is
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
+test("relation reads use the rebound ledger head after an in-place projection rebuild", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-rebound-head-"));
+  let cell: RepoCell | undefined,
+    clock = "2026-08-18T00:00:00.000Z";
+  const repoId = "relation-rebound-head",
+    binding = { actor, source: "local" as const };
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "relation-rebound-head-seed",
+      now: () => clock,
+    });
+    assert.equal(
+      (await cell.run({ kind: "task-create", taskId: "task_relation_seed", title: "Relation seed" }, binding)).outcome,
+      "applied",
+    );
+    await cell.close();
+    cell = undefined;
+
+    await appendRawEvent(rootDir, repoId, "task_relation_lagging");
+    const stray = "harness/events/migration-stray.json";
+    writeFileSync(path.join(rootDir, stray), "{}\n");
+    git(rootDir, "add", stray);
+    git(rootDir, "commit", "-qm", "corrupt: force relation reader recovery");
+    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+
+    cell = await openRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "relation-rebound-head-live",
+      now: () => clock,
+    });
+    const latched = await cell.run({ kind: "task-list" }, binding);
+    assert.equal(latched.outcome, "op_rejected");
+    assert.equal(cell.status().state, "unavailable");
+
+    git(rootDir, "rm", "-q", stray);
+    git(rootDir, "commit", "-qm", "repair: restore relation reader ledger");
+    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+    clock = "2026-08-18T00:00:06.000Z";
+    assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
+    const staleReadHead = makeTaskEventStore({ repoId, rootDir }).readHead();
+
+    const advanced = await cell.run(
+      { kind: "task-create", taskId: "task_relation_advanced", title: "Relation head advanced" },
+      binding,
+    );
+    assert.equal(advanced.outcome, "applied", JSON.stringify(advanced));
+    const currentReadHead = makeTaskEventStore({ repoId, rootDir }).readHead(),
+      relationBeforeRebuild = await cell.run({ kind: "relation-list" }, binding),
+      rebuilt = await cell.run({ kind: "projection-rebuild" }, binding),
+      relationAfterRebuild = await cell.run({ kind: "relation-list" }, binding);
+    t.diagnostic(
+      JSON.stringify({
+        staleReadHead,
+        currentReadHead,
+        relationBeforeRebuild,
+        rebuilt,
+        relationAfterRebuild,
+      }),
+    );
+    assert.equal(relationBeforeRebuild.outcome, "applied", JSON.stringify(relationBeforeRebuild));
+    assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
+    assert.equal(relationAfterRebuild.outcome, "applied", JSON.stringify(relationAfterRebuild));
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("the latch re-probe is throttled to one attempt per interval", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-throttle-")); let clock = "2026-08-18T00:00:00.000Z"; let cell: RepoCell | undefined;
   try {
