@@ -106,14 +106,22 @@ export function useTasksQuery(repoId: string | null) {
   });
 }
 
+/**
+ * 台账切面变化时只重取「当前挂载的视图正在观察」的查询(task_9d53606292)。
+ *
+ * `refetchType: "active"` 是 react-query v5 的默认值,这里写死是把它钉成契约:
+ * 无观察者的查询只标记为 stale,下次真正挂载时才读,绝不在后台替没人看的视图
+ * 掏一次全量投影。哪个查询该读由挂载点决定,不由这里的失效面决定。
+ */
 export async function invalidateLedgerDependents(queryClient: QueryClient, repoId: string): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({
       queryKey: taskQueryKeys.all(repoId),
       predicate: (query) => query.queryKey[2] !== "list",
+      refetchType: "active",
     }),
-    queryClient.invalidateQueries({ queryKey: ["triadic", repoId] }),
-    queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId) }),
+    queryClient.invalidateQueries({ queryKey: ["triadic", repoId], refetchType: "active" }),
+    queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId), refetchType: "active" }),
   ]);
 }
 
