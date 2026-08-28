@@ -33,6 +33,7 @@ export const guiVitestManifest = [
   "packages/gui/test/decision-pool-grouping.vitest.ts",
   "packages/gui/test/decision-state-vocabulary.vitest.ts",
   "packages/gui/test/i18n-locale-parity.vitest.ts",
+  "packages/gui/test/first-run-wizard.vitest.tsx",
   "packages/gui/test/overview-streams.vitest.ts",
   "packages/gui/test/triadic-decision-queue.vitest.ts",
   "packages/gui/test/runtime-health.vitest.ts",

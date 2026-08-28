@@ -11,10 +11,15 @@ Harness Anything 是 AI agent 的问责层（accountability layer）：agent 产
 让虚假的“完成”无法维持。我们在自用（self-involving）中看到的是：没有门禁
 的路径会被 100% 旁路。没有 gate，就等于一定被绕过。
 
-## 先跑 30 秒证明
+## 安装 0.0.1 发布候选版
 
-当前公开路径仍然是源码 checkout。现在还没有公开 npm package，所以不要把
-`npx harness-anything init` 当成今天可用的公开入口。
+macOS Local v1 发布候选版的文件名是
+`Harness-Anything-0.0.1-arm64.dmg`。它会作为未签名的 Apple silicon
+构建发布到 GitHub Releases；在 release tag 真正发布前，请使用本地构建
+的产物或下面的源码路径。Gatekeeper、Homebrew、CLI 与卸载步骤见
+[install guide](start/zh/01-install.md)。
+
+如果要跑源码 proof：
 
 ```bash
 git clone https://github.com/FairladyZ625/harness-anything
@@ -48,14 +53,15 @@ error code=terminal_status_requires_task_complete
 要求最低 Fact 数量：Fact 是 `0..N` 的显式晋升，submit、review 或 complete 都不会
 自动生成 Fact（依据 `dec_mrg3z1we/CH4`、ADR-0027 D7）。
 
-等 0.1 package 发布到 npm 之后，初见入口会变成：
+version 0.0.1 发布到 npm 后，使用 scoped CLI：
 
 ```bash
-npx harness-anything init
+npm install --global @harness-anything/cli@0.0.1
+ha --help
 ```
 
-在发布真正存在之前，请使用上面的源码路径，或构建后用
-`npm install -g ./packages/cli` 安装本地 `ha`。
+不支持 unscoped 的 `npx harness-anything init`。在这个 npm 包真正存在前，
+请使用上面的源码路径，或安装本地打包的 scoped CLI。
 
 ## 三个原语
 

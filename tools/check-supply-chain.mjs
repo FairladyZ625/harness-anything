@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   harnessSupplyChainReleaseReadiness,
-  validateSupplyChainReleaseReadiness
+  validateSupplyChainReleaseReadiness,
 } from "../packages/gui/src/distribution/supply-chain-release-readiness.ts";
 import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 
@@ -43,7 +43,7 @@ function run(command) {
     // fails to launch, and the gate reports that as "audit failed" -- a launch
     // error wearing the costume of a real finding. No argument below contains a
     // space, so the shell re-parse cannot change what npm receives.
-    shell: process.platform === "win32"
+    shell: process.platform === "win32",
   });
 
   if (result.status !== 0) {
@@ -94,10 +94,16 @@ function validatePackageMetadata() {
       validateCliPublishPreflightMetadata(packagePath, packageJson);
     } else {
       if (packageJson.private !== true) {
-        record(`${packagePath} must remain private; only ${policy.npmPublishDryRun.packageName} is allowed into npm dry-run preflight`);
+        record(
+          `${packagePath} must remain private; only ${policy.npmPublishDryRun.packageName} is allowed into npm dry-run preflight`,
+        );
       }
-      if (packageJson.version !== policy.releaseBoundary.privateWorkspaceVersion) {
-        record(`${packagePath} must remain version ${policy.releaseBoundary.privateWorkspaceVersion} before explicit package release planning`);
+      const expectedVersion =
+        packagePath === "package.json" || packagePath === "packages/gui/package.json"
+          ? policy.releaseBoundary.productVersion
+          : policy.releaseBoundary.internalWorkspaceVersion;
+      if (packageJson.version !== expectedVersion) {
+        record(`${packagePath} must use version ${expectedVersion}`);
       }
       if (packageJson.publishConfig) {
         record(`${packagePath} must not define publishConfig before explicit package release planning`);
@@ -135,10 +141,18 @@ function validateCliPublishPreflightMetadata(packagePath, packageJson) {
   if (packageJson.engines?.node !== ">=24") {
     record(`${packagePath} must declare Node >=24 runtime support`);
   }
-  if (packageJson.bin?.["harness-anything"] !== "dist/cli/src/index.js" || packageJson.bin?.ha !== "dist/cli/src/index.js") {
+  if (
+    packageJson.bin?.["harness-anything"] !== "dist/cli/src/index.js" ||
+    packageJson.bin?.ha !== "dist/cli/src/index.js"
+  ) {
     record(`${packagePath} must expose harness-anything and ha bins from dist/cli/src/index.js`);
   }
-  if (!Array.isArray(packageJson.files) || !packageJson.files.includes("dist") || !packageJson.files.includes("README.md") || !packageJson.files.includes("package.json")) {
+  if (
+    !Array.isArray(packageJson.files) ||
+    !packageJson.files.includes("dist") ||
+    !packageJson.files.includes("README.md") ||
+    !packageJson.files.includes("package.json")
+  ) {
     record(`${packagePath} files must publish dist, README.md, and package.json only`);
   }
 }
@@ -164,7 +178,9 @@ function validatePackageLock() {
     if (!packagePath.startsWith("node_modules/")) continue;
     if (isWorkspaceLink(packagePath)) continue;
     if (!metadata.resolved || !metadata.integrity) {
-      record(`package-lock.json entry ${packagePath} must include resolved URL and integrity for release SBOM traceability`);
+      record(
+        `package-lock.json entry ${packagePath} must include resolved URL and integrity for release SBOM traceability`,
+      );
     }
     const packageName = packageNameFromNodeModules(packagePath);
     if (!metadata.license) {
@@ -188,7 +204,9 @@ function validateDependabot() {
   const body = read(".github/dependabot.yml");
   const entries = parseDependabotEntries(body);
   for (const directory of policy.dependabot.directories) {
-    const entry = entries.find((candidate) => candidate.directory === directory && candidate.packageEcosystem === policy.dependabot.ecosystem);
+    const entry = entries.find(
+      (candidate) => candidate.directory === directory && candidate.packageEcosystem === policy.dependabot.ecosystem,
+    );
     if (!entry) {
       record(`.github/dependabot.yml must cover ${policy.dependabot.ecosystem} directory ${directory}`);
       continue;
@@ -209,7 +227,11 @@ function validateDocsAndWorkflow() {
     requireIncludes(supplyDoc, policy.osv.liveScanCommand, "OSV live scan command");
     requireIncludes(supplyDoc, policy.osv.releaseEvidencePath, "OSV release evidence path");
     requireIncludes(supplyDoc, "not part of the default local gate", "OSV default-gate boundary");
-    requireIncludes(supplyDoc, "AGPL network-service release note checklist", "AGPL network-service release note checklist");
+    requireIncludes(
+      supplyDoc,
+      "AGPL network-service release note checklist",
+      "AGPL network-service release note checklist",
+    );
     for (const checklistItem of policy.licensePolicy.networkServiceReleaseChecklist) {
       requireChecklistItem(supplyDoc, checklistItem);
     }
@@ -232,8 +254,10 @@ function packageScriptRunsCommand(packageJson, scriptName, requiredCommand) {
 }
 
 function workflowCoversCommand(workflowBody, requiredCommand) {
-  return workflowBody.includes(requiredCommand) || workflowRunCommands(workflowBody)
-    .some((command) => manifestRunnerCommands(command).includes(requiredCommand));
+  return (
+    workflowBody.includes(requiredCommand) ||
+    workflowRunCommands(workflowBody).some((command) => manifestRunnerCommands(command).includes(requiredCommand))
+  );
 }
 
 function workflowRunCommands(workflowBody) {
@@ -263,7 +287,7 @@ function parseManifestRunnerCommand(command) {
   const invocation = {
     packageSurface: null,
     workflowJob: null,
-    exclude: new Set()
+    exclude: new Set(),
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -326,7 +350,11 @@ function validateSbom(output) {
     return;
   }
 
-  if (parsed.bomFormat !== policy.sbom.format || parsed.specVersion !== policy.sbom.specVersion || !Array.isArray(parsed.components)) {
+  if (
+    parsed.bomFormat !== policy.sbom.format ||
+    parsed.specVersion !== policy.sbom.specVersion ||
+    !Array.isArray(parsed.components)
+  ) {
     record(`npm sbom output must be ${policy.sbom.format} ${policy.sbom.specVersion} with a component list`);
     return;
   }
@@ -341,7 +369,11 @@ function validateSbom(output) {
     if (policy.sbom.requiresComponentPurl && !component.purl) {
       record(`SBOM component ${component.name ?? "<unknown>"} must include purl`);
     }
-    if (!isWorkspace && policy.sbom.requiresComponentHash && (!Array.isArray(component.hashes) || component.hashes.length === 0)) {
+    if (
+      !isWorkspace &&
+      policy.sbom.requiresComponentHash &&
+      (!Array.isArray(component.hashes) || component.hashes.length === 0)
+    ) {
       record(`SBOM component ${component.name ?? "<unknown>"} must include at least one hash`);
     }
     const licenseId = component.licenses?.[0]?.license?.id;
@@ -355,20 +387,19 @@ function validateSbom(output) {
 
 function isAllowedDependencyLicense(packageName, declaredLicense) {
   if (policy.licensePolicy.allowedDependencyLicenses.includes(declaredLicense)) return true;
-  const review = policy.licensePolicy.reviewedDependencyLicenseChoices.find((choice) =>
-    choice.packageName === packageName &&
-    choice.declaredLicenseExpression === declaredLicense &&
-    choice.electedLicense.length > 0 &&
-    choice.rationale.length > 0
+  const review = policy.licensePolicy.reviewedDependencyLicenseChoices.find(
+    (choice) =>
+      choice.packageName === packageName &&
+      choice.declaredLicenseExpression === declaredLicense &&
+      choice.electedLicense.length > 0 &&
+      choice.rationale.length > 0,
   );
   return Boolean(review);
 }
 
 function hasReviewedDependencyLicenseChoice(packageName) {
-  return policy.licensePolicy.reviewedDependencyLicenseChoices.some((choice) =>
-    choice.packageName === packageName &&
-    choice.electedLicense.length > 0 &&
-    choice.rationale.length > 0
+  return policy.licensePolicy.reviewedDependencyLicenseChoices.some(
+    (choice) => choice.packageName === packageName && choice.electedLicense.length > 0 && choice.rationale.length > 0,
   );
 }
 
@@ -433,13 +464,15 @@ function escapeRegExp(value) {
 }
 
 function collectReleaseOverclaims() {
-  const shippedClaim = /\b(shipped|available|implemented|complete|completed|ready|production-ready|supported|released|published)\b/i;
-  const negativeOrFuture = /\b(no|not|never|without|unshipped|planned|future|later|requires|remain|remains|before|deferred|placeholder|not part of)\b/i;
+  const shippedClaim =
+    /\b(shipped|available|implemented|complete|completed|ready|production-ready|supported|released|published)\b/i;
+  const negativeOrFuture =
+    /\b(no|not|never|without|unshipped|planned|future|later|requires|remain|remains|before|deferred|placeholder|not part of)\b/i;
   const riskySubjects = [
     { name: "npm release", subject: /\bnpm\b[^.!?\n;|]*\brelease\b/i },
     { name: "release artifact", subject: /\brelease\b[^.!?\n;|]*\bartifacts?\b/i },
     { name: "signed installer", subject: /\bsigned\b[^.!?\n;|]*\binstallers?\b/i },
-    { name: "auto-update", subject: /\bauto-?update\b/i }
+    { name: "auto-update", subject: /\bauto-?update\b/i },
   ];
 
   for (const docPath of ["README.md", ...listMarkdown("docs-release")]) {

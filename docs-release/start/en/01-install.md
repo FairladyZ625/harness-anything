@@ -1,90 +1,116 @@
 # Install
 
-## Prerequisites
+Version 0.0.1 is the first macOS Local release candidate. It runs the desktop
+app and daemon on your Mac; it does not require a Harness Anything server or a
+source checkout.
 
-- **Node.js 24 or newer.** The CLI is tested on Node 24 and 26.
-- **git.** Harness Anything stores authored ledger files in a private nested git repository under `harness/`.
+## macOS requirements
 
-Check your Node version:
+- Apple silicon Mac (arm64), macOS 12 or newer.
+- `git`. Run `git --version`; if macOS prompts for Command Line Tools, install
+  them before first launch.
+- An existing git repository you can initialize during the first-run wizard.
 
-```bash
-node --version   # must be >= 24
-```
+The desktop app bundles its own Node.js runtime. Node.js 24 is required only
+when installing the separate npm CLI.
 
-## Fastest path: run the smoke demo
+## Install the DMG from GitHub Releases
 
-There is no public npm package yet. The fastest honest path today is to clone
-the source checkout and run the quickstart smoke:
+1. Download `Harness-Anything-0.0.1-arm64.dmg` and
+   `SHA256SUMS-macos-arm64.txt` from the `gui-v0.0.1` GitHub Release.
+2. Verify the checksum:
 
-```bash
-git clone https://github.com/FairladyZ625/harness-anything
-cd harness-anything
-npm ci
-npm run quickstart:demo
-```
+   ```bash
+   shasum -a 256 Harness-Anything-0.0.1-arm64.dmg
+   ```
 
-The demo builds the CLI, creates a temporary git workspace, runs `ha init`,
-creates a task, records a fact, lists the fact back, and renders a relation
-graph. It is the 30-second proof that the accountability loop is real.
-The demo uses explicit demo attribution (`system:quickstart-demo`) for that
-throwaway workspace only. When you run `ha` write commands in your own repo, set
-your real write attribution as shown in the first loop.
+3. Open the DMG and drag **Harness Anything** into **Applications**.
+4. Because 0.0.1 is intentionally unsigned and unnotarized, do not double-click
+   it on first launch. In Finder, open Applications, Control-click or
+   right-click **Harness Anything**, choose **Open**, then choose **Open** again.
+5. If macOS still blocks it, open **System Settings → Privacy & Security**, find
+   the blocked Harness Anything message, choose **Open Anyway**, authenticate,
+   and confirm **Open**.
 
-If you want to see the fail-closed path, run the intentionally broken variant:
+Only use the GitHub Release or the documented Homebrew tap. Do not remove the
+quarantine attribute from an app obtained from an unknown source.
 
-```bash
-npm run quickstart:demo:fail-closed
-```
+## Complete first run
 
-That command exits non-zero when the fact-recording step cannot produce valid
-evidence. The point is the same as the product: no evidence, no quiet success.
+The first-run wizard uses three steps:
 
-## Install the CLI locally
+1. Choose your git repository, set its repository id, and enter the owner
+   identity that will be recorded in the local ledger. Select **Initialize
+   repository**. This creates `harness/`, registers the repository, and starts
+   the bundled local daemon.
+2. In **Provider**, add a detected Claude, Codex, or AGY installation and choose
+   its model. You may continue and configure it later.
+3. In **Agent · Squad**, create an Agent declaration and set its runtime
+   preferences. Choose **Finish setup** when the GUI is ready for normal use.
 
-There is no public npm release yet — the current distribution is a **local global install** from the source checkout. From the repository root:
+Harness Anything writes daemon state under `~/.harness` by default. Repository
+ledger files stay in the selected repository. No application server is used.
 
-```bash
-npm ci
-npm run build -w @harness-anything/cli
-npm install -g ./packages/cli    # installs the `ha` command (and its `harness-anything` alias)
-```
+## Install with Homebrew
 
-Confirm it's on your PATH:
-
-```bash
-$ ha --version
-harness-anything 0.0.0
-```
-
-`ha` and `harness-anything` are the same command; `ha` is the short alias used throughout these docs.
-
-## Future npm path
-
-After the 0.1 package publication to npm, first contact moves to:
+The in-repository cask is `packaging/homebrew/harness-anything.rb`. After the
+tap repository is published, install it with:
 
 ```bash
-npx harness-anything init
+brew tap FairladyZ625/harness-anything
+brew install --cask harness-anything
 ```
 
-That command is forward-looking today. Until the package is published, use
-`npm run quickstart:demo` for the fastest proof and `npm install -g ./packages/cli`
-when you need `ha` on your PATH.
-
-## Check your environment
-
-`ha doctor` is a read-only diagnostic. It reports your Node version, whether you're inside a git worktree, whether authored `harness/` state exists, and what to run next. It never creates or edits anything.
+To publish or test the cask from this checkout:
 
 ```bash
-$ ha doctor
-ok command=doctor summary="completed doctor"
+brew tap-new FairladyZ625/harness-anything
+cp packaging/homebrew/harness-anything.rb \
+  "$(brew --repository FairladyZ625/harness-anything)/Casks/harness-anything.rb"
+brew install --cask --no-quarantine harness-anything
 ```
 
-Add `--json` for the full structured report.
+`--no-quarantine` is limited to local cask validation. Normal users should keep
+Gatekeeper enabled and use the right-click → Open flow above.
+
+## Install the npm CLI
+
+When published, the separate CLI package requires Node.js 24 or newer:
+
+```bash
+npm install --global @harness-anything/cli@0.0.1
+ha --version
+# 0.0.1
+```
+
+`ha` and `harness-anything` are aliases for the same command. Run
+`ha capabilities --json` after installation to verify the CLI entry point.
+
+## Source demo and release recording
+
+Contributors can still run `npm run quickstart:demo`. Release maintainers can
+prepare an isolated demo repository and start the macOS recording flow with:
+
+```bash
+npm run release:demo:record
+```
+
+## Uninstall
+
+Quit Harness Anything, move `/Applications/Harness Anything.app` to Trash (or
+run `brew uninstall --cask harness-anything`), then remove `~/.harness` only if
+you intentionally want to delete local daemon registry and cache state. The
+selected repository's `harness/` ledger is not removed automatically.
 
 ## Troubleshooting
 
-- **`ha: command not found`** — the global bin directory isn't on your PATH. Run `npm bin -g` to find it and add it to your shell profile.
-- **Node too old** — you'll see runtime errors on startup. Upgrade to Node 24+ and re-run `ha --version`.
-- **Anything else** — run `ha doctor --json` first; it usually points straight at the problem.
+- **“App is damaged” or cannot be opened** — download the DMG again from the
+  GitHub Release, verify SHA-256, then use right-click → Open.
+- **Daemon unavailable** — quit and reopen the app. If it persists, inspect
+  `~/.harness/logs/` and include the log excerpt in a bug report.
+- **Provider not detected** — install its CLI, ensure it is on your shell PATH,
+  then reopen Provider and refresh discovery.
+- **`ha: command not found`** — reinstall the npm CLI and ensure npm's global bin
+  directory is on PATH.
 
 Next: **[Your first loop](02-first-loop.md)**

@@ -1,9 +1,9 @@
-import { app, BrowserWindow, ipcMain, session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
-import { createLocalGuiServiceBridge } from "./local-composition-root.ts";
+import { bootstrapLocalRepository, createLocalGuiServiceBridge } from "./local-composition-root.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
 import { resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
@@ -14,8 +14,10 @@ import {
   evaluatePermissionRequest,
   evaluateWindowOpenRequest,
   HTML_ARTIFACT_PARTITION,
+  type IpcWebContentsTrustPolicy,
 } from "./security-policy.ts";
 import { assertDevRendererUrl, createGuiContentSecurityPolicy } from "./window-config.ts";
+import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -124,14 +126,29 @@ export async function startGuiApp(): Promise<void> {
       target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }),
       clientBuildCommit: daemonBuildStamp().commit,
       ...(packaged ? { packaged } : {}),
-    });
-  registerHarnessIpcHandlers(ipcMain, controlled, {
-    isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
-    rendererUrl: {
-      packagedRendererUrl: createLocalPackagedRendererUrl(),
-      allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL),
+    }),
+    trustPolicy: IpcWebContentsTrustPolicy = {
+      isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
+      rendererUrl: {
+        packagedRendererUrl: createLocalPackagedRendererUrl(),
+        allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL),
+      },
+    };
+  registerHarnessIpcHandlers(ipcMain, controlled, trustPolicy);
+  registerFirstRunIpcHandlers(
+    ipcMain,
+    {
+      chooseRepository: async () => {
+        const selected = await dialog.showOpenDialog({
+          title: "Choose a git repository",
+          properties: ["openDirectory", "createDirectory"],
+        });
+        return selected.canceled ? null : (selected.filePaths[0] ?? null);
+      },
+      bootstrap: (input) => bootstrapLocalRepository(input, packaged),
     },
-  });
+    trustPolicy,
+  );
   createTrustedMainWindow(trustedWebContentsIds);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createTrustedMainWindow(trustedWebContentsIds);

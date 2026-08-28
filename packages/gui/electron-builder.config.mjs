@@ -11,12 +11,12 @@ const config = {
   forceCodeSigning: false,
   directories: {
     app: "../..",
-    output: outputDir
+    output: outputDir,
   },
   extraMetadata: {
     name: "harness-anything-gui",
-    version: "0.0.0",
-    main: "packages/gui/src/main/electron-main.ts"
+    version: "0.0.1",
+    main: "packages/gui/src/main/electron-main.ts",
   },
   files: [
     "package.json",
@@ -27,49 +27,51 @@ const config = {
     "packages/daemon/src/**/*",
     "packages/adapters/local/src/**/*",
     "packages/adapters/multica/src/**/*",
+    "packages/application/src/**/*",
     "packages/kernel/src/**/*",
+    "packages/kernel/schemas/**/*",
+    "packages/preset/src/**/*",
+    "packages/preset/assets/**/*",
     "packages/cli/package.json",
     "packages/cli/dist/**/*",
     "!**/*.map",
     "!**/*.tsbuildinfo",
-    "!**/node_modules/**/*"
+    "!**/node_modules/**/*",
   ],
   extraResources: [
     {
       from: "build-resources/node",
       to: "node",
-      filter: ["**/*"]
+      filter: ["**/*"],
     },
     {
       from: "build-resources/app-node_modules",
       to: "app/node_modules",
-      filter: ["**/*"]
-    }
+      filter: ["**/*"],
+    },
   ],
   mac: {
     target: [
       { target: "dmg", arch: ["arm64"] },
-      { target: "zip", arch: ["arm64"] }
+      { target: "zip", arch: ["arm64"] },
     ],
     category: "public.app-category.developer-tools",
     identity: null,
-    artifactName: "Harness-Anything-GUI-${version}-mac-${arch}.${ext}"
+    artifactName: "Harness-Anything-${version}-${arch}.${ext}",
   },
   win: {
-    target: [
-      { target: "nsis", arch: ["x64"] }
-    ],
+    target: [{ target: "nsis", arch: ["x64"] }],
     signExecutable: false,
-    artifactName: "Harness-Anything-GUI-Setup-${version}-win-${arch}.${ext}"
+    artifactName: "Harness-Anything-GUI-Setup-${version}-win-${arch}.${ext}",
   },
   linux: {
     target: [
       { target: "AppImage", arch: ["x64"] },
-      { target: "deb", arch: ["x64"] }
+      { target: "deb", arch: ["x64"] },
     ],
     category: "Development",
-    artifactName: "Harness-Anything-GUI-${version}-linux-${arch}.${ext}"
-  }
+    artifactName: "Harness-Anything-GUI-${version}-linux-${arch}.${ext}",
+  },
 };
 
 export default config;

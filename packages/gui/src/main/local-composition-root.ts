@@ -20,6 +20,7 @@ import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { daemonServeLaunch, type PackagedRuntime } from "./daemon-serve-launch.ts";
 import { streamDaemonFacetAt } from "./agent-runtime-stream-client.ts";
+import type { FirstRunBootstrapInput } from "../api/first-run-contract.ts";
 type JsonObject = { readonly [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<JsonValue>;
 interface DaemonClient {
@@ -68,6 +69,44 @@ export function createLocalGuiServiceBridge(
       });
     },
   );
+}
+export async function bootstrapLocalRepository(
+  input: FirstRunBootstrapInput,
+  packaged?: PackagedRuntime,
+): Promise<JsonObject> {
+  const target = globalTarget();
+  try {
+    const daemon = await loadClient();
+    const invoke = () =>
+      daemon.requestLocalDaemonJsonRpcForTarget(
+        target,
+        "daemon.repo.bootstrap",
+        input as unknown as JsonObject,
+        75_000,
+      );
+    try {
+      return await invoke();
+    } catch (connectError) {
+      if (!isDaemonUnreachable(connectError)) throw connectError;
+      const started = await ensureLocalDaemonRunning({
+        socketPath: target.socketPath,
+        launch: () => daemonServeLaunch(target, packaged),
+      });
+      if (!started.ok)
+        return daemonProtocolError(
+          "init",
+          started.code ?? "daemon_start_failed",
+          started.hint,
+        ) as unknown as JsonObject;
+      return await invoke();
+    }
+  } catch (error) {
+    return daemonProtocolError(
+      "init",
+      "daemon_unavailable",
+      `Repository setup failed. Cause: ${error instanceof Error ? error.message : String(error)}`,
+    ) as unknown as JsonObject;
+  }
 }
 // Owner decision (autostart, plan A): when the daemon is unreachable the trusted
 // main process starts it (bounded: two attempts), then retries the request once.

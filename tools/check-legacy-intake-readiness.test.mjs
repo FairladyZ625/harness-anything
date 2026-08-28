@@ -14,7 +14,10 @@ test("Legacy Intake readiness rejects old runtime production references", async 
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("retired old runtime")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("retired old runtime")),
+      true,
+    );
   });
 });
 
@@ -22,16 +25,23 @@ test("Legacy Intake readiness rejects each forbidden runtime-control API symbol 
   await withFixtureRepo(async (root) => {
     for (const [index, symbol] of ["requestTransition", "runtimeQueue", "providerNeutralTransition"].entries()) {
       mkdirSync(path.join(root, `packages/kernel/src/forbidden-${index}`), { recursive: true });
-      writeFileSync(path.join(root, `packages/kernel/src/forbidden-${index}/api.ts`), `export const api = { ${symbol}: () => {} };\n`);
+      writeFileSync(
+        path.join(root, `packages/kernel/src/forbidden-${index}/api.ts`),
+        `export const api = { ${symbol}: () => {} };\n`,
+      );
     }
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
     for (const [index, symbol] of ["requestTransition", "runtimeQueue", "providerNeutralTransition"].entries()) {
       assert.equal(
-        violations.some((violation) => violation.startsWith(`packages/kernel/src/forbidden-${index}/api.ts:`) && violation.includes("exposes forbidden runtime-control API surface")),
+        violations.some(
+          (violation) =>
+            violation.startsWith(`packages/kernel/src/forbidden-${index}/api.ts:`) &&
+            violation.includes("exposes forbidden runtime-control API surface"),
+        ),
         true,
-        `expected a forbidden API violation for ${symbol}, got: ${violations.join(" | ")}`
+        `expected a forbidden API violation for ${symbol}, got: ${violations.join(" | ")}`,
       );
     }
   });
@@ -39,7 +49,10 @@ test("Legacy Intake readiness rejects each forbidden runtime-control API symbol 
 
 test("Legacy Intake readiness does not flag Object.assign member calls as API definitions", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "packages/kernel/src/index.ts"), "export const coded = Object.assign(new Error('x'), { code: 'E' });\n");
+    writeFileSync(
+      path.join(root, "packages/kernel/src/index.ts"),
+      "export const coded = Object.assign(new Error('x'), { code: 'E' });\n",
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
@@ -62,12 +75,15 @@ test("Legacy Intake readiness allows old runtime references in tests and behavio
 test("Legacy Intake readiness ignores private harness files inside local worktrees", async () => {
   await withFixtureRepo(async (root) => {
     mkdirSync(path.join(root, ".worktrees/gui-prototype-private-context/.harness-private"), { recursive: true });
-    writeFileSync(path.join(root, ".worktrees/gui-prototype-private-context/.harness-private/AGENTS.md"), [
-      "Local-only harness note.",
-      "It may mention scripts/kernel/task and requestTransition because it is not public surface.",
-      "It may also mention coding-agent-harness compatibility.",
-      ""
-    ].join("\n"));
+    writeFileSync(
+      path.join(root, ".worktrees/gui-prototype-private-context/.harness-private/AGENTS.md"),
+      [
+        "Local-only harness note.",
+        "It may mention scripts/kernel/task and requestTransition because it is not public surface.",
+        "It may also mention coding-agent-harness compatibility.",
+        "",
+      ].join("\n"),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
@@ -80,11 +96,14 @@ test("Legacy Intake readiness ignores git-ignored self-host harness files", asyn
     runGit(root, "init");
     writeFileSync(path.join(root, ".gitignore"), "/harness/\n", "utf8");
     mkdirSync(path.join(root, "harness/legacy/tasks/old"), { recursive: true });
-    writeFileSync(path.join(root, "harness/legacy/tasks/old/task_plan.md"), [
-      "This private legacy evidence may mention scripts/kernel/task.",
-      "It may also mention full-cutover and coding-agent-harness compatibility.",
-      ""
-    ].join("\n"));
+    writeFileSync(
+      path.join(root, "harness/legacy/tasks/old/task_plan.md"),
+      [
+        "This private legacy evidence may mention scripts/kernel/task.",
+        "It may also mention full-cutover and coding-agent-harness compatibility.",
+        "",
+      ].join("\n"),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
@@ -113,18 +132,17 @@ test("Legacy Intake readiness batches git check-ignore input and reports spawn e
     runGit(root, "init");
     writeFileSync(path.join(root, ".gitignore"), "/harness/\n", "utf8");
 
-    const ignored = collectGitIgnoredFiles(root, [
-      "harness/private-a.md",
-      "public.md",
-      "harness/private-b.md"
-    ], { maxInputBytes: 24 });
+    const ignored = collectGitIgnoredFiles(root, ["harness/private-a.md", "public.md", "harness/private-b.md"], {
+      maxInputBytes: 24,
+    });
 
     assert.deepEqual([...ignored].sort(), ["harness/private-a.md", "harness/private-b.md"]);
     assert.throws(
-      () => collectGitIgnoredFiles(root, ["harness/private-a.md"], {
-        spawnSync: () => ({ error: new Error("spawn ENOBUFS") })
-      }),
-      /spawn ENOBUFS/u
+      () =>
+        collectGitIgnoredFiles(root, ["harness/private-a.md"], {
+          spawnSync: () => ({ error: new Error("spawn ENOBUFS") }),
+        }),
+      /spawn ENOBUFS/u,
     );
   });
 });
@@ -135,11 +153,9 @@ test("Legacy Intake readiness feeds check-ignore chunks over stdin without a liv
     writeFileSync(path.join(root, ".gitignore"), "/harness/\n", "utf8");
 
     // Real git over the default (temp-file fd) stdin path: no EPIPE, correct result.
-    const ignored = collectGitIgnoredFiles(root, [
-      "harness/private-a.md",
-      "public.md",
-      "harness/private-b.md"
-    ], { maxInputBytes: 24 });
+    const ignored = collectGitIgnoredFiles(root, ["harness/private-a.md", "public.md", "harness/private-b.md"], {
+      maxInputBytes: 24,
+    });
     assert.deepEqual([...ignored].sort(), ["harness/private-a.md", "harness/private-b.md"]);
 
     // Injected spawnSync still receives the paths as NUL-delimited stdin input.
@@ -149,7 +165,7 @@ test("Legacy Intake readiness feeds check-ignore chunks over stdin without a liv
       spawnSync: (command, args, spawnOptions) => {
         calls.push(spawnOptions.input);
         return { status: 1, stdout: "" };
-      }
+      },
     });
     assert.ok(calls.length > 0);
     assert.ok(calls.every((input) => typeof input === "string" && input.endsWith("\0")));
@@ -163,25 +179,37 @@ test("Legacy Intake readiness still scans non-ignored harness public text", asyn
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("harness/tasks/old/task_plan.md")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("harness/tasks/old/task_plan.md")),
+      true,
+    );
   });
 });
 
 test("Legacy Intake readiness requires the harness-anything CLI package artifact bin surface", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "packages/cli/package.json"), JSON.stringify({
-      name: "@harness-anything/cli",
-      version: "0.1.0",
-      publishConfig: {
-        access: "public"
-      },
-      type: "module"
-    }));
+    writeFileSync(
+      path.join(root, "packages/cli/package.json"),
+      JSON.stringify({
+        name: "@harness-anything/cli",
+        version: "0.0.1",
+        publishConfig: {
+          access: "public",
+        },
+        type: "module",
+      }),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("bin.harness-anything")), true);
-    assert.equal(violations.some((violation) => violation.includes("bin.ha")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("bin.harness-anything")),
+      true,
+    );
+    assert.equal(
+      violations.some((violation) => violation.includes("bin.ha")),
+      true,
+    );
   });
 });
 
@@ -191,46 +219,63 @@ test("Legacy Intake readiness dynamically rejects public legacy compatibility pr
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("PUBLIC-COMPAT.md")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("PUBLIC-COMPAT.md")),
+      true,
+    );
   });
 });
 
 test("Legacy Intake readiness rejects retired runtime paths in root package scripts", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "package.json"), JSON.stringify({
-      name: "harness-anything",
-      private: true,
-      scripts: {
-        legacy: "node scripts-refactor/run.mjs"
-      },
-      dependencies: {
-        effect: "3.21.2"
-      }
-    }));
+    writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        name: "harness-anything",
+        private: true,
+        scripts: {
+          legacy: "node scripts-refactor/run.mjs",
+        },
+        dependencies: {
+          effect: "3.21.2",
+        },
+      }),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("package.json") && violation.includes("retired old runtime")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("package.json") && violation.includes("retired old runtime")),
+      true,
+    );
   });
 });
 
 test("Legacy Intake readiness rejects retired full-cutover package script gate names", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "package.json"), JSON.stringify({
-      name: "harness-anything",
-      private: true,
-      scripts: {
-        "harness:smoke-full-cutover": "node tools/smoke-full-cutover.mjs",
-        "harness:check-cutover-readiness": "node tools/check-cutover-readiness.mjs"
-      },
-      dependencies: {
-        effect: "3.21.2"
-      }
-    }));
+    writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        name: "harness-anything",
+        private: true,
+        scripts: {
+          "harness:smoke-full-cutover": "node tools/smoke-full-cutover.mjs",
+          "harness:check-cutover-readiness": "node tools/check-cutover-readiness.mjs",
+        },
+        dependencies: {
+          effect: "3.21.2",
+        },
+      }),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("smoke-full-cutover") || violation.includes("check-cutover-readiness")), true);
+    assert.equal(
+      violations.some(
+        (violation) => violation.includes("smoke-full-cutover") || violation.includes("check-cutover-readiness"),
+      ),
+      true,
+    );
   });
 });
 
@@ -240,42 +285,61 @@ test("Legacy Intake readiness rejects forbidden runtime APIs in public markdown"
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("README.md") && violation.includes("forbidden runtime-control")), true);
+    assert.equal(
+      violations.some(
+        (violation) => violation.includes("README.md") && violation.includes("forbidden runtime-control"),
+      ),
+      true,
+    );
   });
 });
 
 test("Legacy Intake readiness rejects active cutover guidance in public markdown", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "README.md"), [
-      "## Roadmap",
-      "",
-      "M2 - coding vertical cutover",
-      "",
-      "Run harness-anything migrate-verify session.json --full-cutover --json as the release gate.",
-      ""
-    ].join("\n"));
+    writeFileSync(
+      path.join(root, "README.md"),
+      [
+        "## Roadmap",
+        "",
+        "M2 - coding vertical cutover",
+        "",
+        "Run harness-anything migrate-verify session.json --full-cutover --json as the release gate.",
+        "",
+      ].join("\n"),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("README.md") && violation.includes("active guidance")), true);
-    assert.equal(violations.some((violation) => violation.includes("README.md:5") && violation.includes("without historical/deprecated context")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("README.md") && violation.includes("active guidance")),
+      true,
+    );
+    assert.equal(
+      violations.some(
+        (violation) => violation.includes("README.md:5") && violation.includes("without historical/deprecated context"),
+      ),
+      true,
+    );
   });
 });
 
 test("Legacy Intake readiness allows explicitly historical full-cutover evidence in public markdown", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "README.md"), [
-      "# Historical Final Cutover Evidence",
-      "",
-      "Historical M2 evidence used the now-retired full-cutover flag:",
-      "",
-      "```bash",
-      "harness-anything migrate-verify session.json --full-cutover --json",
-      "```",
-      "",
-      "Future work should not use full cutover as an exit gate.",
-      ""
-    ].join("\n"));
+    writeFileSync(
+      path.join(root, "README.md"),
+      [
+        "# Historical Final Cutover Evidence",
+        "",
+        "Historical M2 evidence used the now-retired full-cutover flag:",
+        "",
+        "```bash",
+        "harness-anything migrate-verify session.json --full-cutover --json",
+        "```",
+        "",
+        "Future work should not use full cutover as an exit gate.",
+        "",
+      ].join("\n"),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
@@ -286,114 +350,148 @@ test("Legacy Intake readiness allows explicitly historical full-cutover evidence
 test("Legacy Intake readiness rejects retired runtime paths in GitHub workflow config", async () => {
   await withFixtureRepo(async (root) => {
     mkdirSync(path.join(root, ".github/workflows"), { recursive: true });
-    writeFileSync(path.join(root, ".github/workflows/rewrite-ci.yml"), [
-      "name: rewrite-ci",
-      "jobs:",
-      "  legacy:",
-      "    runs-on: ubuntu-latest",
-      "    steps:",
-      "      - run: node scripts/kernel/task/check.mjs",
-      ""
-    ].join("\n"));
+    writeFileSync(
+      path.join(root, ".github/workflows/rewrite-ci.yml"),
+      [
+        "name: rewrite-ci",
+        "jobs:",
+        "  legacy:",
+        "    runs-on: ubuntu-latest",
+        "    steps:",
+        "      - run: node scripts/kernel/task/check.mjs",
+        "",
+      ].join("\n"),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes(".github/workflows/rewrite-ci.yml") && violation.includes("retired old runtime")), true);
+    assert.equal(
+      violations.some(
+        (violation) =>
+          violation.includes(".github/workflows/rewrite-ci.yml") && violation.includes("retired old runtime"),
+      ),
+      true,
+    );
   });
 });
 
 test("Legacy Intake readiness requires machine-checkable behavior corpus input", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"), JSON.stringify({
-      categories: {
-        preserve: 0,
-        "intentional-change": 0,
-        "old-bug": 0,
-        "unsupported-input": 0,
-        "needs-decision": 1
-      }
-    }));
+    writeFileSync(
+      path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"),
+      JSON.stringify({
+        categories: {
+          preserve: 0,
+          "intentional-change": 0,
+          "old-bug": 0,
+          "unsupported-input": 0,
+          "needs-decision": 1,
+        },
+      }),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("needs-decision")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("needs-decision")),
+      true,
+    );
   });
 });
 
 test("Legacy Intake readiness requires behavior item counts to match categories", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"), JSON.stringify({
-      categories: {
-        preserve: 1,
-        "intentional-change": 0,
-        "old-bug": 0,
-        "unsupported-input": 0,
-        "needs-decision": 0
-      },
-      items: []
-    }));
+    writeFileSync(
+      path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"),
+      JSON.stringify({
+        categories: {
+          preserve: 1,
+          "intentional-change": 0,
+          "old-bug": 0,
+          "unsupported-input": 0,
+          "needs-decision": 0,
+        },
+        items: [],
+      }),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("does not match")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("does not match")),
+      true,
+    );
   });
 });
 
 test("Legacy Intake readiness requires a non-trivial behavior corpus", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.md"), [
-      "# Behavior Corpus Classification",
-      "",
-      "Machine-checkable source: `behavior-corpus-classification.json`.",
-      "",
-      "| Classification | Count | Notes |",
-      "| --- | ---: | --- |",
-      "| preserve | 1 | too small |",
-      "| intentional-change | 0 | none |",
-      "| old-bug | 0 | none |",
-      "| unsupported-input | 0 | none |",
-      "| needs-decision | 0 | none |",
-      ""
-    ].join("\n"));
-    writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"), JSON.stringify({
-      categories: {
-        preserve: 1,
-        "intentional-change": 0,
-        "old-bug": 0,
-        "unsupported-input": 0,
-        "needs-decision": 0
-      },
-      items: [
-        { classification: "preserve", summary: "too small" }
-      ]
-    }));
+    writeFileSync(
+      path.join(root, "tools/legacy-intake/behavior-corpus-classification.md"),
+      [
+        "# Behavior Corpus Classification",
+        "",
+        "Machine-checkable source: `behavior-corpus-classification.json`.",
+        "",
+        "| Classification | Count | Notes |",
+        "| --- | ---: | --- |",
+        "| preserve | 1 | too small |",
+        "| intentional-change | 0 | none |",
+        "| old-bug | 0 | none |",
+        "| unsupported-input | 0 | none |",
+        "| needs-decision | 0 | none |",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"),
+      JSON.stringify({
+        categories: {
+          preserve: 1,
+          "intentional-change": 0,
+          "old-bug": 0,
+          "unsupported-input": 0,
+          "needs-decision": 0,
+        },
+        items: [{ classification: "preserve", summary: "too small" }],
+      }),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("at least 15 classified items")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("at least 15 classified items")),
+      true,
+    );
   });
 });
 
 test("Legacy Intake readiness requires Markdown counts to match JSON categories", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.md"), [
-      "# Behavior Corpus Classification",
-      "",
-      "Machine-checkable source: `behavior-corpus-classification.json`.",
-      "",
-      "| Classification | Count | Notes |",
-      "| --- | ---: | --- |",
-      "| preserve | 1 | stale count |",
-      "| intentional-change | 0 | none |",
-      "| old-bug | 0 | none |",
-      "| unsupported-input | 0 | none |",
-      "| needs-decision | 0 | none |",
-      ""
-    ].join("\n"));
+    writeFileSync(
+      path.join(root, "tools/legacy-intake/behavior-corpus-classification.md"),
+      [
+        "# Behavior Corpus Classification",
+        "",
+        "Machine-checkable source: `behavior-corpus-classification.json`.",
+        "",
+        "| Classification | Count | Notes |",
+        "| --- | ---: | --- |",
+        "| preserve | 1 | stale count |",
+        "| intentional-change | 0 | none |",
+        "| old-bug | 0 | none |",
+        "| unsupported-input | 0 | none |",
+        "| needs-decision | 0 | none |",
+        "",
+      ].join("\n"),
+    );
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("category preserve count")), true);
+    assert.equal(
+      violations.some((violation) => violation.includes("category preserve count")),
+      true,
+    );
   });
 });
 
@@ -403,39 +501,41 @@ async function withFixtureRepo(fn) {
     mkdirSync(path.join(root, "packages/kernel/src"), { recursive: true });
     mkdirSync(path.join(root, "packages/cli"), { recursive: true });
     mkdirSync(path.join(root, "tools/legacy-intake"), { recursive: true });
-    writeFileSync(path.join(root, "package.json"), JSON.stringify({
-      name: "harness-anything",
-      private: true,
-      dependencies: {
-        effect: "3.21.2"
-      }
-    }));
-    writeFileSync(path.join(root, "packages/cli/package.json"), JSON.stringify({
-      name: "@harness-anything/cli",
-      version: "0.1.0",
-      type: "module",
-      publishConfig: {
-        access: "public"
-      },
-      scripts: {
-        build: "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs"
-      },
-      bin: {
-        "harness-anything": "dist/cli/src/index.js",
-        ha: "dist/cli/src/index.js"
-      },
-      exports: {
-        ".": "./dist/cli/src/index.js"
-      },
-      files: [
-        "dist",
-        "README.md",
-        "package.json"
-      ],
-      dependencies: {
-        effect: "3.21.2"
-      }
-    }));
+    writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        name: "harness-anything",
+        private: true,
+        dependencies: {
+          effect: "3.21.2",
+        },
+      }),
+    );
+    writeFileSync(
+      path.join(root, "packages/cli/package.json"),
+      JSON.stringify({
+        name: "@harness-anything/cli",
+        version: "0.0.1",
+        type: "module",
+        publishConfig: {
+          access: "public",
+        },
+        scripts: {
+          build: "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
+        },
+        bin: {
+          "harness-anything": "dist/cli/src/index.js",
+          ha: "dist/cli/src/index.js",
+        },
+        exports: {
+          ".": "./dist/cli/src/index.js",
+        },
+        files: ["dist", "README.md", "package.json"],
+        dependencies: {
+          effect: "3.21.2",
+        },
+      }),
+    );
     writeFileSync(path.join(root, "README.md"), "# Harness Anything\n");
     writeValidBehaviorCorpus(root);
 
@@ -446,36 +546,45 @@ async function withFixtureRepo(fn) {
 }
 
 function writeValidBehaviorCorpus(root) {
-  writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.md"), [
-    "# Behavior Corpus Classification",
-    "",
-    "Machine-checkable source: `behavior-corpus-classification.json`.",
-    "",
-    "| Classification | Count | Notes |",
-    "| --- | ---: | --- |",
-    "| preserve | 7 | preserved behavior |",
-    "| intentional-change | 5 | intentional differences |",
-    "| old-bug | 1 | old bug |",
-    "| unsupported-input | 2 | unsupported inputs |",
-    "| needs-decision | 0 | none |",
-    ""
-  ].join("\n"));
-  writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"), JSON.stringify({
-    categories: {
-      preserve: 7,
-      "intentional-change": 5,
-      "old-bug": 1,
-      "unsupported-input": 2,
-      "needs-decision": 0
-    },
-    items: [
-      ...Array.from({ length: 7 }, (_, index) => ({ classification: "preserve", summary: `preserve ${index}` })),
-      ...Array.from({ length: 5 }, (_, index) => ({ classification: "intentional-change", summary: `intentional ${index}` })),
-      { classification: "old-bug", summary: "old compatibility promise" },
-      { classification: "unsupported-input", summary: "conflicting legacy tree" },
-      { classification: "unsupported-input", summary: "npm publishing deferred" }
-    ]
-  }));
+  writeFileSync(
+    path.join(root, "tools/legacy-intake/behavior-corpus-classification.md"),
+    [
+      "# Behavior Corpus Classification",
+      "",
+      "Machine-checkable source: `behavior-corpus-classification.json`.",
+      "",
+      "| Classification | Count | Notes |",
+      "| --- | ---: | --- |",
+      "| preserve | 7 | preserved behavior |",
+      "| intentional-change | 5 | intentional differences |",
+      "| old-bug | 1 | old bug |",
+      "| unsupported-input | 2 | unsupported inputs |",
+      "| needs-decision | 0 | none |",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(
+    path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"),
+    JSON.stringify({
+      categories: {
+        preserve: 7,
+        "intentional-change": 5,
+        "old-bug": 1,
+        "unsupported-input": 2,
+        "needs-decision": 0,
+      },
+      items: [
+        ...Array.from({ length: 7 }, (_, index) => ({ classification: "preserve", summary: `preserve ${index}` })),
+        ...Array.from({ length: 5 }, (_, index) => ({
+          classification: "intentional-change",
+          summary: `intentional ${index}`,
+        })),
+        { classification: "old-bug", summary: "old compatibility promise" },
+        { classification: "unsupported-input", summary: "conflicting legacy tree" },
+        { classification: "unsupported-input", summary: "npm publishing deferred" },
+      ],
+    }),
+  );
 }
 
 function runGit(root, ...args) {

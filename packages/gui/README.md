@@ -14,10 +14,10 @@ layer; GUI does not parse or control agent runtime sessions.
 
 ## Distribution Status
 
-Current status is source checkout plus package smoke validation only. The GUI
-package defines a distribution/update policy contract for future desktop and
-daemon release work, but signed installers, notarized builds, and auto-update
-are not shipped capabilities yet.
+Version 0.0.1 is the macOS Local v1 release candidate. The Apple-silicon DMG
+bundles the GUI, Node 24 runtime, CLI, and local daemon, and its first-run wizard
+bootstraps a selected git repository. It is deliberately unsigned and
+unnotarized; signing, notarization, and auto-update are not shipped capabilities.
 
 The policy separates:
 
@@ -26,6 +26,5 @@ The policy separates:
 - remote daemon bootstrap/update over the existing system SSH tunnel and daemon
   API contract.
 
-Unsigned artifacts are development-only. Production desktop or daemon
-distribution must define platform signing policy first, and macOS production
-distribution must include notarization policy.
+The unsigned candidate is installed manually with the documented macOS
+right-click Open flow. It is not a claim of signed production distribution.

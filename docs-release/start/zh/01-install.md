@@ -1,89 +1,108 @@
 # 安装
 
-## 前置条件
+0.0.1 是第一个 macOS Local 发布候选版。桌面应用和 daemon 都只在你的 Mac
+上运行；不需要 Harness Anything 服务器，也不需要拉取源码。
 
-- **Node.js 24 或更新版本。** CLI 在 Node 24 和 26 上测试过。
-- **git。** Harness Anything 把已撰写的账本文件存进 `harness/` 下的私有嵌套 git 仓。
+## macOS 要求
 
-查看你的 Node 版本：
+- Apple 芯片 Mac（arm64），macOS 12 或更新版本。
+- `git`。先运行 `git --version`；如果 macOS 提示安装 Command Line Tools，请在
+  首次启动前完成安装。
+- 一个已有、且你有权初始化的 git 仓库。
 
-```bash
-node --version   # must be >= 24
-```
+桌面应用自带 Node.js runtime。只有安装独立 npm CLI 时才要求 Node.js 24。
 
-## 最快路径：运行 smoke demo
+## 从 GitHub Releases 安装 DMG
 
-目前还没有公开 npm package。今天最快、诚实的路径是 clone 源码 checkout 并运行
-quickstart smoke：
+1. 从 `gui-v0.0.1` GitHub Release 下载
+   `Harness-Anything-0.0.1-arm64.dmg` 与 `SHA256SUMS-macos-arm64.txt`。
+2. 校验 checksum：
 
-```bash
-git clone https://github.com/FairladyZ625/harness-anything
-cd harness-anything
-npm ci
-npm run quickstart:demo
-```
+   ```bash
+   shasum -a 256 Harness-Anything-0.0.1-arm64.dmg
+   ```
 
-这条 demo 会构建 CLI、创建一个临时 git workspace、运行 `ha init`、创建 task、
-记录 fact、再把 fact 查回来，并渲染 relation graph。这就是 30 秒证明：问责
-循环是真能跑的。
-这条 demo 只为临时 workspace 使用显式 demo 归属（`system:quickstart-demo`）。
-你在自己的仓库里运行 `ha` 写命令时，要按第一个循环里的方式设置真实写入归属。
+3. 打开 DMG，把 **Harness Anything** 拖入**应用程序**。
+4. 0.0.1 按裁决有意不签名、也不公证。第一次不要直接双击：在 Finder 的
+   “应用程序”里按住 Control 点击或右键点击 **Harness Anything**，选择
+   **打开**，然后再次确认**打开**。
+5. 如果 macOS 仍然拦截，打开**系统设置 → 隐私与安全性**，找到 Harness
+   Anything 被阻止的提示，选择**仍要打开**，完成认证并再次确认。
 
-如果想看 fail-closed 路径，可以运行刻意破坏的变体：
+只使用 GitHub Release 或文档列出的 Homebrew tap。不要对来源不明的应用移除
+quarantine 属性。
 
-```bash
-npm run quickstart:demo:fail-closed
-```
+## 完成首启向导
 
-当 fact-recording 步骤无法产生有效证据时，这条命令会以非零状态退出。产品含义
-也一样：没有证据，就没有静默成功。
+首启向导有三步：
 
-## 本地安装 CLI
+1. 选择 git 仓库，设置仓库 ID，并填写要写入本地账本的 owner 身份。点击
+   **初始化仓库**；应用会创建 `harness/`、注册仓库并启动自带的本地 daemon。
+2. 在 **Provider** 工作区添加检测到的 Claude、Codex 或 AGY 安装，并选择模型；
+   也可以先继续，以后再设置。
+3. 在 **Agent · 含 Squad** 工作区创建 Agent 声明并设置 runtime 偏好。GUI 可正常
+   使用后点击**完成设置**。
 
-目前还没有公开的 npm 发布——当前分发是从源代码检出的**本地全局安装**。从仓库根目录：
+Harness Anything 默认把 daemon 状态写到 `~/.harness`。仓库账本留在所选仓库
+内；整个流程不使用应用服务器。
 
-```bash
-npm ci
-npm run build -w @harness-anything/cli
-npm install -g ./packages/cli    # installs the `ha` command (and its `harness-anything` alias)
-```
+## 用 Homebrew 安装
 
-确认它在你的 PATH 上：
-
-```bash
-$ ha --version
-harness-anything 0.0.0
-```
-
-`ha` 和 `harness-anything` 是同一条命令；`ha` 是这些文档里用的短别名。
-
-## 未来 npm 路径
-
-等 0.1 package 发布到 npm 之后，初见入口会变成：
+仓内 cask 位于 `packaging/homebrew/harness-anything.rb`。tap 仓库发布后运行：
 
 ```bash
-npx harness-anything init
+brew tap FairladyZ625/harness-anything
+brew install --cask harness-anything
 ```
 
-这条命令今天仍是前瞻说明。在 package 真正发布之前，用
-`npm run quickstart:demo` 做最快证明；需要把 `ha` 放进 PATH 时，再用
-`npm install -g ./packages/cli`。
-
-## 检查你的环境
-
-`ha doctor` 是一个只读诊断。它报告你的 Node 版本、你是否在 git worktree 内、是否存在 `harness/` 状态、以及下一步运行什么。它永远不会创建或编辑任何东西。
+从当前 checkout 发布或验证 cask：
 
 ```bash
-$ ha doctor
-ok command=doctor summary="completed doctor"
+brew tap-new FairladyZ625/harness-anything
+cp packaging/homebrew/harness-anything.rb \
+  "$(brew --repository FairladyZ625/harness-anything)/Casks/harness-anything.rb"
+brew install --cask --no-quarantine harness-anything
 ```
 
-加 `--json` 看完整的结构化报告。
+`--no-quarantine` 只用于本地 cask 验证。普通用户应保留 Gatekeeper，并使用上面的
+右键 → 打开流程。
+
+## 安装 npm CLI
+
+CLI 包发布后要求 Node.js 24 或更新版本：
+
+```bash
+npm install --global @harness-anything/cli@0.0.1
+ha --version
+# 0.0.1
+```
+
+`ha` 和 `harness-anything` 是同一条命令的两个名字。安装后运行
+`ha capabilities --json` 验证 CLI 入口。
+
+## 源码 demo 与发布录像
+
+贡献者仍可运行 `npm run quickstart:demo`。发布维护者可以用下面的命令准备隔离
+demo 仓库并启动 macOS 录屏流程：
+
+```bash
+npm run release:demo:record
+```
+
+## 卸载
+
+退出 Harness Anything，把 `/Applications/Harness Anything.app` 移到废纸篓
+（或运行 `brew uninstall --cask harness-anything`）。只有明确要删除本地 daemon
+注册表和缓存时才删除 `~/.harness`；所选仓库内的 `harness/` 账本不会自动删除。
 
 ## 故障排查
 
-- **`ha: command not found`**——全局 bin 目录不在你的 PATH 上。运行 `npm bin -g` 找到它并加到你的 shell 配置里。
-- **Node 太旧**——你会在启动时看到运行时错误。升级到 Node 24+ 并重新运行 `ha --version`。
-- **其他任何问题**——先运行 `ha doctor --json`；它通常直指问题。
+- **“App 已损坏”或无法打开**——从 GitHub Release 重新下载，校验 SHA-256，
+  然后使用右键 → 打开。
+- **daemon unavailable**——退出并重开应用；仍然失败时查看 `~/.harness/logs/`，
+  报 bug 时附上日志片段。
+- **未检测到 Provider**——安装对应 CLI，确认它在 shell PATH 上，然后回到
+  Provider 工作区刷新探测。
+- **`ha: command not found`**——重新安装 npm CLI，并确认 npm global bin 在 PATH 中。
 
 下一步：**[你的第一个循环](02-first-loop.md)**

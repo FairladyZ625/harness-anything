@@ -28,7 +28,7 @@ export interface OsvContract {
 export interface NpmPublishDryRunContract {
   readonly packageName: "@harness-anything/cli";
   readonly packagePath: "packages/cli/package.json";
-  readonly version: "0.1.0";
+  readonly version: "0.0.1";
   readonly command: "npm publish --dry-run --workspace @harness-anything/cli --access public";
   readonly publishablePackages: readonly ["@harness-anything/cli"];
   readonly actualPublishPermitted: false;
@@ -82,8 +82,9 @@ export interface ElectronUpgradeContract {
 
 export interface SupplyChainReleaseBoundaryContract {
   readonly packagesPrivateExceptCli: true;
-  readonly privateWorkspaceVersion: "0.0.0";
-  readonly cliPublishDryRunVersion: "0.1.0";
+  readonly internalWorkspaceVersion: "0.0.0";
+  readonly productVersion: "0.0.1";
+  readonly cliPublishDryRunVersion: "0.0.1";
   readonly npmReleaseClaimed: false;
   readonly releaseArtifactsPublished: false;
   readonly signedInstallersShipped: false;
@@ -180,7 +181,7 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
   npmPublishDryRun: {
     packageName: "@harness-anything/cli",
     packagePath: "packages/cli/package.json",
-    version: "0.1.0",
+    version: "0.0.1",
     command: "npm publish --dry-run --workspace @harness-anything/cli --access public",
     publishablePackages: ["@harness-anything/cli"],
     actualPublishPermitted: false,
@@ -279,8 +280,9 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
   },
   releaseBoundary: {
     packagesPrivateExceptCli: true,
-    privateWorkspaceVersion: "0.0.0",
-    cliPublishDryRunVersion: "0.1.0",
+    internalWorkspaceVersion: "0.0.0",
+    productVersion: "0.0.1",
+    cliPublishDryRunVersion: "0.0.1",
     npmReleaseClaimed: false,
     releaseArtifactsPublished: false,
     signedInstallersShipped: false,
@@ -343,7 +345,7 @@ export function validateSupplyChainReleaseReadiness(
   if (
     policy.npmPublishDryRun.packageName !== "@harness-anything/cli" ||
     policy.npmPublishDryRun.packagePath !== "packages/cli/package.json" ||
-    policy.npmPublishDryRun.version !== "0.1.0" ||
+    policy.npmPublishDryRun.version !== "0.0.1" ||
     policy.npmPublishDryRun.command !== "npm publish --dry-run --workspace @harness-anything/cli --access public" ||
     policy.npmPublishDryRun.publishablePackages.length !== 1 ||
     !policy.npmPublishDryRun.publishablePackages.includes("@harness-anything/cli") ||
@@ -398,8 +400,9 @@ export function validateSupplyChainReleaseReadiness(
   const boundary = policy.releaseBoundary;
   if (
     boundary.packagesPrivateExceptCli !== true ||
-    boundary.privateWorkspaceVersion !== "0.0.0" ||
-    boundary.cliPublishDryRunVersion !== "0.1.0" ||
+    boundary.internalWorkspaceVersion !== "0.0.0" ||
+    boundary.productVersion !== "0.0.1" ||
+    boundary.cliPublishDryRunVersion !== "0.0.1" ||
     boundary.npmReleaseClaimed !== false ||
     boundary.releaseArtifactsPublished !== false ||
     boundary.signedInstallersShipped !== false ||

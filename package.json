@@ -1,6 +1,6 @@
 {
   "name": "harness-anything",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "The accountability layer for AI agents — every decision, task, and fact becomes auditable structure on git, and \"done\" has to get past a gate with evidence.",
@@ -40,6 +40,7 @@
     "test:list": "node tools/run-node-tests.mjs --list",
     "quickstart:demo": "npm -w @harness-anything/cli run build && node scripts/quickstart-demo.mjs",
     "quickstart:demo:fail-closed": "npm -w @harness-anything/cli run build && node scripts/quickstart-demo.mjs --break-step fact-record",
+    "release:demo:record": "bash scripts/record-macos-v1-demo.sh",
     "check:pr": "npm run typecheck && npm run lint && npm run test:fast && npm run test:contract && npm run test:integration && npm run test:gui && node tools/run-manifest-gates.mjs --package-surface checkPr --exclude typecheck,lint,test-fast,test-contract,test-integration,test-gui",
     "check:local": "node tools/run-local-check.mjs",
     "check:local:derived-contracts": "node tools/gates/derived-contracts.mjs --check",
