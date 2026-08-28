@@ -11,7 +11,7 @@ import type {
   TaskProjectionListRead,
   TaskProjectionRead,
 } from "./projection-reads.ts";
-import { resetDatabase, withDatabase } from "./rebuildable-task-projection-database.ts";
+import { discardDatabase, withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { markRuntimeSessionsUnknown, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import {
@@ -51,26 +51,26 @@ export function listProjection(
       const rows =
         /* @gate-identity check-bypass-write-boundary/bypass-write-012 */
         db
-        .prepare(
-          [
-            "SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path,",
-            "COALESCE(task_generation.generation, 'v1') AS generation,",
-            "task_snapshot.workspace_revision AS workspace_revision,",
-            `${taskCreatedAtSql("task_snapshot.task_id")} AS created_at,`,
-            "event_index.event_json AS event_json FROM task_snapshot",
-            "LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)",
-            "JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision",
-            "ORDER BY task_snapshot.task_id",
-          ].join(" "),
-        )
-        .all() as unknown as readonly {
-        readonly task_id: string;
-        readonly package_path: string | null;
-        readonly generation: "v0" | "v1";
-        readonly workspace_revision: number;
-        readonly created_at: string | null;
-        readonly event_json: string;
-      }[];
+          .prepare(
+            [
+              "SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path,",
+              "COALESCE(task_generation.generation, 'v1') AS generation,",
+              "task_snapshot.workspace_revision AS workspace_revision,",
+              `${taskCreatedAtSql("task_snapshot.task_id")} AS created_at,`,
+              "event_index.event_json AS event_json FROM task_snapshot",
+              "LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)",
+              "JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision",
+              "ORDER BY task_snapshot.task_id",
+            ].join(" "),
+          )
+          .all() as unknown as readonly {
+          readonly task_id: string;
+          readonly package_path: string | null;
+          readonly generation: "v0" | "v1";
+          readonly workspace_revision: number;
+          readonly created_at: string | null;
+          readonly event_json: string;
+        }[];
       return {
         status: current === round.sourceRevision ? "ready" : "pending",
         rows: rows.map((row) => ({
@@ -120,8 +120,8 @@ export function readDocument(
       row =
         /* @gate-identity check-bypass-write-boundary/bypass-write-013 */
         db.prepare("SELECT value_json FROM document WHERE path = ?").get(documentPath) as
-        | { readonly value_json: string }
-        | undefined;
+          | { readonly value_json: string }
+          | undefined;
     return {
       status: current === round.sourceRevision ? "ready" : "pending",
       document: row ? (JSON.parse(row.value_json) as DocumentState) : null,
@@ -143,8 +143,8 @@ export function readPresetSnapshot(
       row =
         /* @gate-identity check-bypass-write-boundary/bypass-write-014 */
         db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as
-        | { readonly value_json: string }
-        | undefined;
+          | { readonly value_json: string }
+          | undefined;
     return {
       status: current === round.sourceRevision ? "ready" : "pending",
       snapshot: row ? JSON.parse(row.value_json) : null,
@@ -170,8 +170,8 @@ export function readProjection(
       status: current === round.sourceRevision ? "ready" : "pending",
       snapshot: readSnapshot(db, taskId, now()),
       packagePath:
+        /* @gate-identity check-bypass-write-boundary/bypass-write-015 */
         (
-          /* @gate-identity check-bypass-write-boundary/bypass-write-015 */
           db.prepare("SELECT package_path FROM task_package WHERE task_id = ?").get(taskId) as
             | { readonly package_path: string }
             | undefined
@@ -194,7 +194,10 @@ export function rebuildProjection(
   eventStore: EventStreamPort,
   limit: number,
 ): ProjectionRebuildReceipt {
-  resetDatabase(projectionPath, readHead);
+  // Rebuild is a schema repair boundary as well as a data replay. Deleting the disposable
+  // database ensures CREATE TABLE materializes current DDL instead of retaining any table
+  // whose shape changed while its version metadata was stale or incorrect.
+  discardDatabase(projectionPath, readHead);
   let transactions = 0,
     reducedItems = 0,
     maxBatchItems = 0;

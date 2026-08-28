@@ -15,10 +15,10 @@ import { withTempStoreAsync } from "./helpers.ts";
 
 const actor = { principal: { personId: "person-schedule" }, executor: null } as const;
 
-test("Schedule definition and run view share one canonical stream and rebuild exactly without an additional schema bump", async () => {
+test("Schedule definition and run view share one canonical stream and rebuild exactly", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    assert.equal(taskProjectionSchemaVersion, 13);
+    assert.equal(taskProjectionSchemaVersion, 14);
     const eventStore = makeTaskEventStore({ repoId: "schedule-projection", rootDir }),
       projection = makeTaskProjection({ rootDir, eventStore }),
       schedule = baseSchedule(),

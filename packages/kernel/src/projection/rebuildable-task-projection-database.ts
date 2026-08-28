@@ -8,7 +8,7 @@ import { createRelationGraphProjectionTables } from "./relation-graph-projection
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
-import { queryRows, runSql, transaction } from "./rebuildable-task-projection-sql.ts";
+import { queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -16,7 +16,6 @@ export type { TaskProjection } from "./task-projection-port.ts";
 interface ProjectionDatabaseOwner {
   readonly use: <A>(operation: (db: DatabaseSync) => A) => A;
   readonly discard: () => void;
-  readonly reset: () => void;
   readonly close: () => void;
 }
 
@@ -73,9 +72,6 @@ export function withDatabase<A>(
 export function discardDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void {
   projectionDatabaseOwner(projectionPath, readHead).discard();
 }
-export function resetDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void {
-  projectionDatabaseOwner(projectionPath, readHead).reset();
-}
 // close() shares discard()'s invariant: callers close a projection so they can remove its file, and
 // a handle held by any other owner blocks that on Windows. Closing only the caller's owner made
 // `projection.close(); rm(projection.path)` -- the documented teardown -- fail there.
@@ -128,28 +124,6 @@ function projectionDatabaseOwner(
     closeProjectionHandlesAt(resolvedProjectionPath);
     localRuntimeStateFileSystem.remove(projectionPath);
   };
-  const reset = () => {
-    closeProjectionHandlesAt(resolvedProjectionPath);
-    initialize();
-    transaction(db!, () => {
-      const tables = queryRows(
-        db!,
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name DESC",
-      );
-      for (const row of tables) {
-        const name = String(row.name);
-        if (name === "projection_meta" || name.includes("_fts_")) continue;
-        runSql(db!, `DELETE FROM "${name.replaceAll('"', '""')}"`);
-      }
-      runSql(
-        db!,
-        [
-          "UPDATE projection_meta SET watermark = 0, scan_cursor = NULL, scanned_revision = 0,",
-          "head_digest = NULL, state_digest = NULL, squad_run_ready = 0 WHERE singleton = 1",
-        ].join(" "),
-      );
-    });
-  };
   const initialize = () => {
     open();
     const observed = projectionSchemaVersion(db!);
@@ -172,7 +146,7 @@ function projectionDatabaseOwner(
     if (!matchesLedgerIdentity(db!, readHead())) throw new ProjectionIdentityMismatchError();
     return operation(db!);
   };
-  const owner = { use, discard, reset, close };
+  const owner = { use, discard, close };
   owners.set(projectionPath, owner);
   return owner;
 }
