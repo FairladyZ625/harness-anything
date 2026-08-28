@@ -26,7 +26,8 @@ import { isExternal } from "../model/types.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import { t } from "../i18n/index.tsx";
 
-// 密度重做(task_9f39e256):tab 文案走 locales,定义只留 id/icon,label 渲染期取。
+// 密度重做(task_9f39e256):tab 文案走 locales,
+// 定义只留 id/icon,label 渲染期取。
 const tabs = [
   { id: "overview", labelKey: "views.taskDetailView.tabOverview", icon: CirclesFour },
   { id: "dispatch", labelKey: "views.taskDetailView.tabDispatch", icon: ShareNetwork },
