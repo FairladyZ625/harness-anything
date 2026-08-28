@@ -24,7 +24,7 @@ const definition: AgentDefinitionSnapshot = {
   baseUrl: "https://api.example.test/",
   authMode: "subscription",
 };
-test("task-bound spawn exit keeps its released execution visible after a v7 cache restart", async () => {
+test("task-bound spawn exit keeps its released execution visible after a v12 cache restart", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-lease-reservation-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -128,7 +128,7 @@ test("task-bound spawn exit keeps its released execution visible after a v7 cach
 
   const cache = path.join(root, ".harness/cache/task.sqlite"),
     stale = new DatabaseSync(cache);
-  stale.exec("UPDATE projection_meta SET schema_version = 7 WHERE singleton = 1");
+  stale.exec("UPDATE projection_meta SET schema_version = 12 WHERE singleton = 1");
   stale.prepare("DELETE FROM entity_projection WHERE entity_kind = 'execution' AND task_id = ?").run(taskId);
   stale.close();
 
@@ -154,7 +154,7 @@ test("task-bound spawn exit keeps its released execution visible after a v7 cach
         .prepare("SELECT entity_id FROM entity_projection WHERE entity_kind = 'execution' AND task_id = ?")
         .get(taskId) as { readonly entity_id: string } | undefined;
     rebuilt.close();
-    assert.equal(version.schema_version, 12); // taskProjectionSchemaVersion in kernel projection-schema.ts
+    assert.equal(version.schema_version, 13); // taskProjectionSchemaVersion in kernel projection-schema.ts
     assert.equal(execution?.entity_id, executionId);
   } finally {
     await host.close();

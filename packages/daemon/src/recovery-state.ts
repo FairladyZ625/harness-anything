@@ -5,6 +5,7 @@ export interface RecoveryCommandPolicy {
 }
 
 const recoveryCommands: Readonly<Record<string, RecoveryCommandPolicy>> = Object.freeze({
+  "fact-rekey": Object.freeze({ causes: Object.freeze(["data-shape"] as const), settlesLatch: true }),
   "ledger-migrate": Object.freeze({ causes: Object.freeze(["data-shape"] as const), settlesLatch: true }),
   "projection-rebuild": Object.freeze({ causes: Object.freeze(["projection"] as const), settlesLatch: true }),
   "receipt-show": Object.freeze({

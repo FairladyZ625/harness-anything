@@ -20,6 +20,7 @@ import type {
   CanonicalWriteBundle,
   CanonicalEventAppendReceipt,
   CanonicalEventStore,
+  CanonicalEventWriteBundle,
   EventRecoveryReceipt,
   PublicationDelete,
   PublicationFile,
@@ -62,10 +63,13 @@ import { documentMode, messageOf, settleFiles, showText, workspacePath } from ".
 export function createPublicationApi(runtime: StoreRuntime) {
   const publish = (
     bundle: CanonicalWriteBundle,
-    additionalFiles: readonly PublicationRename[] = [],
+    additionalFiles: readonly PublicationFile[] = [],
   ): CanonicalEventAppendReceipt => {
-    const { event, blobs } = bundle;
-    assertBundle(bundle);
+    const { event } = bundle,
+      members: readonly CanonicalEventWriteBundle[] = [...(bundle.preceding ?? []), bundle];
+    for (const member of members) assertBundle(member);
+    if (new Set(members.map((member) => member.event.opId)).size !== members.length)
+      throw new TaskEventStoreError("invalid_write_plan", "atomic event publication contains duplicate opIds");
     const started = gitObjects.processCount();
     const eventBytes = checkedEventBytes(event);
     const parent = runtime.currentCommit();
@@ -90,49 +94,72 @@ export function createPublicationApi(runtime: StoreRuntime) {
         throw new TaskEventStoreError("op_conflict", `opId ${event.opId} already names different event bytes`);
       return receipt(event, parent, started, []);
     }
-    if (isDecisionEvent(event)) {
-      const current = showText(
-        runtime.repoRoot,
-        parent.sha,
-        ledgerGitPath(runtime.ledger, event.payload.decisionDocumentClaim.path),
-      );
-      const base = current === null ? null : sha256Text(current);
-      if (event.payload.baseDocumentSha256 !== base)
-        throw new TaskEventStoreError("revision_conflict", `Decision ${event.decisionId} document base changed`);
+    for (const preceding of members.slice(0, -1)) {
+      const existingPreceding =
+        runtime.recentEvents.get(preceding.event.opId) ??
+        (runtime.knownOpIds !== null && !runtime.knownOpIds.has(preceding.event.opId)
+          ? null
+          : readEventAt(runtime.ledger, parent.sha, preceding.event.opId));
+      if (existingPreceding !== null)
+        throw new TaskEventStoreError(
+          "op_conflict",
+          `atomic prior event ${preceding.event.opId} already exists without its final event`,
+        );
     }
-    if (event.workspaceRevision !== (previousHead?.revision ?? 0) + 1)
-      throw new TaskEventStoreError(
-        "revision_conflict",
-        `workspace revision ${event.workspaceRevision} must follow ${previousHead?.revision ?? 0}`,
-      );
-    const replacementClaim = isSettingsEvent(event)
-        ? event.payload.harnessDocumentClaim
-        : isPeopleEvent(event)
-          ? event.payload.peopleDocumentClaim
-          : null,
-      replacementCandidate = replacementClaim
-        ? blobs.find((blob) => blob.sha256 === replacementClaim.sha256)?.body
-        : undefined;
-    assertAuthorizedReplacement(runtime.ledger, parent.sha, event, false, replacementCandidate);
-    if (
-      isDocEvent(event) &&
-      stableStringify(event.payload.baseLedgerSha) !== stableStringify(canonicalLedgerCut(runtime.repoId, previousHead))
-    )
-      throw new TaskEventStoreError(
-        "repo_mismatch",
-        "doc event base cut must equal its repo-bound canonical event cut",
-      );
+    const previousRevision = previousHead?.revision ?? 0;
+    for (const [index, member] of members.entries())
+      if (member.event.workspaceRevision !== previousRevision + index + 1)
+        throw new TaskEventStoreError(
+          "revision_conflict",
+          `workspace revision ${member.event.workspaceRevision} must follow ${previousRevision + index}`,
+        );
+    const assertWriteAuthorization = (): void => {
+      for (const member of members) {
+        const replacementClaim = isSettingsEvent(member.event)
+            ? member.event.payload.harnessDocumentClaim
+            : isPeopleEvent(member.event)
+              ? member.event.payload.peopleDocumentClaim
+              : null,
+          replacementCandidate = replacementClaim
+            ? member.blobs.find((blob) => blob.sha256 === replacementClaim.sha256)?.body
+            : undefined;
+        assertAuthorizedReplacement(runtime.ledger, parent.sha, member.event, false, replacementCandidate);
+        if (
+          isDocEvent(member.event) &&
+          stableStringify(member.event.payload.baseLedgerSha) !==
+            stableStringify(canonicalLedgerCut(runtime.repoId, previousHead))
+        )
+          throw new TaskEventStoreError(
+            "repo_mismatch",
+            "doc event base cut must equal its repo-bound canonical event cut",
+          );
+        if (isDecisionEvent(member.event)) {
+          const current = showText(
+              runtime.repoRoot,
+              parent.sha,
+              ledgerGitPath(runtime.ledger, member.event.payload.decisionDocumentClaim.path),
+            ),
+            base = current === null ? null : sha256Text(current);
+          if (member.event.payload.baseDocumentSha256 !== base)
+            throw new TaskEventStoreError(
+              "revision_conflict",
+              `Decision ${member.event.decisionId} document base changed`,
+            );
+        }
+      }
+    };
+    assertWriteAuthorization();
     const head = {
       revision: event.workspaceRevision,
       opId: event.opId,
       eventDigest: `sha256:${sha256Text(eventBytes)}` as const,
     };
     const files: PublicationFile[] = [
-      {
-        target: eventObjectPath(runtime.ledger, event.opId, writeLayout),
-        body: eventBytes,
-        mode: "100644",
-      },
+      ...members.map((member) => ({
+        target: eventObjectPath(runtime.ledger, member.event.opId, writeLayout),
+        body: checkedEventBytes(member.event),
+        mode: "100644" as const,
+      })),
       {
         target: ledgerGitPath(runtime.ledger, "events/head.json"),
         body: serializeEventHead(head),
@@ -140,7 +167,16 @@ export function createPublicationApi(runtime: StoreRuntime) {
       },
       ...additionalFiles,
     ];
-    const uncached = blobs.filter((blob) => !runtime.recentContent.has(blob.sha256)).map((blob) => blob.sha256);
+    const contentBySha256 = new Map<string, CanonicalEventWriteBundle["blobs"][number]>();
+    for (const member of members)
+      for (const blob of member.blobs) {
+        const prior = contentBySha256.get(blob.sha256);
+        if (prior !== undefined && prior.body !== blob.body)
+          throw new TaskEventStoreError("invalid_write_plan", `content blob ${blob.sha256} has conflicting bytes`);
+        contentBySha256.set(blob.sha256, blob);
+      }
+    const blobs = [...contentBySha256.values()],
+      uncached = blobs.filter((blob) => !runtime.recentContent.has(blob.sha256)).map((blob) => blob.sha256);
     const existingBlobs = readBlobsAt(runtime.ledger, parent.sha, uncached);
     for (const claim of blobs) {
       const existingBlob = runtime.recentContent.get(claim.sha256) ?? existingBlobs.get(claim.sha256) ?? null;
@@ -155,18 +191,20 @@ export function createPublicationApi(runtime: StoreRuntime) {
         });
       }
     }
-    for (const claim of canonicalDocumentClaims(event)) {
-      const blob = blobs.find((candidate) => candidate.sha256 === claim.sha256);
-      if (!blob)
-        throw new TaskEventStoreError("invalid_write_plan", `authored file ${claim.path} has no content input`);
-      files.push({
-        target: ledgerGitPath(runtime.ledger, claim.path),
-        body: blob.body,
-        mode: documentMode(event, claim.path),
-      });
+    for (const member of members) {
+      for (const claim of canonicalDocumentClaims(member.event)) {
+        const blob = contentBySha256.get(claim.sha256);
+        if (!blob)
+          throw new TaskEventStoreError("invalid_write_plan", `authored file ${claim.path} has no content input`);
+        files.push({
+          target: ledgerGitPath(runtime.ledger, claim.path),
+          body: blob.body,
+          mode: documentMode(member.event, claim.path),
+        });
+      }
+      for (const retirement of canonicalDocumentRetirements(member.event))
+        files.push({ delete: ledgerGitPath(runtime.ledger, retirement.path) });
     }
-    for (const retirement of canonicalDocumentRetirements(event))
-      files.push({ delete: ledgerGitPath(runtime.ledger, retirement.path) });
     const changedPaths = files
       .flatMap((file) => ("target" in file ? [file.target] : "from" in file ? [file.from, file.to] : [file.delete]))
       .map((target) => workspacePath(runtime.layout.rootDir, runtime.layout.authoredRoot, runtime.ledger, target))
@@ -183,7 +221,7 @@ export function createPublicationApi(runtime: StoreRuntime) {
       nodeSyncs = settleFiles(runtime.repoRoot, preparedSha, files, runtime.options.killpoint, () => {
         const finalize = () => {
           runtime.options.beforeAppend?.();
-          assertAuthorizedReplacement(runtime.ledger, parent.sha, event, false, replacementCandidate);
+          assertWriteAuthorization();
           try {
             finalizeRefs(runtime.repoRoot, runtime.authoredRef, preparedSha, parent.sha);
           } catch (error) {
@@ -209,7 +247,7 @@ export function createPublicationApi(runtime: StoreRuntime) {
           runtime.canonicalCommit = preparedSha;
           runtime.authoredCommit = preparedSha;
           runtime.canonicalHead = head;
-          runtime.rememberEvents([event]);
+          runtime.rememberEvents(members.map((member) => member.event));
           if (blobs.length) runtime.recentContent = new Map(blobs.map((blob) => [blob.sha256, Buffer.from(blob.body)]));
           runtime.options.killpoint?.("after_git_commit");
         };
@@ -387,28 +425,11 @@ export function createPublicationApi(runtime: StoreRuntime) {
     const [ref, sha] = prepared[0]!;
     try {
       const changed = changedPublication(runtime.ledger, sha);
-      validatePrepared(runtime.ledger, sha, changed.files, changed.head);
+      validatePrepared(runtime.ledger, sha, changed.head, changed.events);
       if (runtime.canonicalCommit === sha && runtime.authoredCommit === sha) {
-        assertAuthorizedReplacement(
-          runtime.ledger,
-          changed.parent,
-          changed.event,
-          true,
-          isSettingsEvent(changed.event) || isPeopleEvent(changed.event)
-            ? (showText(
-                runtime.repoRoot,
-                sha,
-                ledgerGitPath(
-                  runtime.ledger,
-                  isSettingsEvent(changed.event)
-                    ? changed.event.payload.harnessDocumentClaim.path
-                    : changed.event.payload.peopleDocumentClaim.path,
-                ),
-              ) ?? undefined)
-            : undefined,
-        );
+        assertRecoveredWriteAuthorization(runtime, changed.parent, sha, changed.events, true);
         runtime.canonicalHead = changed.head;
-        runtime.rememberEvents([changed.event]);
+        runtime.rememberEvents(changed.events);
         settleFiles(runtime.repoRoot, sha, changed.files);
         deleteRef(runtime.repoRoot, ref);
         return {
@@ -418,30 +439,13 @@ export function createPublicationApi(runtime: StoreRuntime) {
         };
       }
       if (runtime.canonicalCommit === changed.parent && runtime.authoredCommit === changed.parent) {
-        assertAuthorizedReplacement(
-          runtime.ledger,
-          changed.parent,
-          changed.event,
-          false,
-          isSettingsEvent(changed.event) || isPeopleEvent(changed.event)
-            ? (showText(
-                runtime.repoRoot,
-                sha,
-                ledgerGitPath(
-                  runtime.ledger,
-                  isSettingsEvent(changed.event)
-                    ? changed.event.payload.harnessDocumentClaim.path
-                    : changed.event.payload.peopleDocumentClaim.path,
-                ),
-              ) ?? undefined)
-            : undefined,
-        );
+        assertRecoveredWriteAuthorization(runtime, changed.parent, sha, changed.events, false);
         settleFiles(runtime.repoRoot, sha, changed.files);
         finalizeRefs(runtime.repoRoot, runtime.authoredRef, sha, changed.parent, [ref, sha]);
         runtime.canonicalCommit = sha;
         runtime.authoredCommit = sha;
         runtime.canonicalHead = changed.head;
-        runtime.rememberEvents([changed.event]);
+        runtime.rememberEvents(changed.events);
         return {
           status: "committed",
           publications: 1,
@@ -462,4 +466,29 @@ export function createPublicationApi(runtime: StoreRuntime) {
     };
   };
   return { publish, migrateLayout, recover };
+}
+
+function assertRecoveredWriteAuthorization(
+  runtime: StoreRuntime,
+  parent: string,
+  prepared: string,
+  events: readonly CanonicalEventWriteBundle["event"][],
+  acceptPublished: boolean,
+): void {
+  for (const event of events) {
+    const claim = isSettingsEvent(event)
+      ? event.payload.harnessDocumentClaim
+      : isPeopleEvent(event)
+        ? event.payload.peopleDocumentClaim
+        : null;
+    assertAuthorizedReplacement(
+      runtime.ledger,
+      parent,
+      event,
+      acceptPublished,
+      claim === null
+        ? undefined
+        : (showText(runtime.repoRoot, prepared, ledgerGitPath(runtime.ledger, claim.path)) ?? undefined),
+    );
+  }
 }

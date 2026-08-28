@@ -23,6 +23,7 @@ import {
   type EventFileBatch,
   type EventRecoveryReceipt,
   type MaterializationReceipt,
+  type PublicationFile,
   validateCanonicalWriteBundle,
 } from "./task-event-store.ts";
 import { openWalEventLog, type WalEventLog, type WalEventRecord } from "./wal-event-log.ts";
@@ -277,7 +278,21 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
               ),
     };
   };
-  const append = (bundle: CanonicalWriteBundle): CanonicalEventAppendReceipt => {
+  const append = (
+    bundle: CanonicalWriteBundle,
+    additionalFiles: readonly PublicationFile[] = [],
+  ): CanonicalEventAppendReceipt => {
+    if (additionalFiles.length > 0 || (bundle.preceding?.length ?? 0) > 0) {
+      if (!runFlush("fact rekey"))
+        throw new TaskEventStoreError("publication_indeterminate", "WAL must drain before an atomic ledger rewrite");
+      const receipt = git.append(bundle, additionalFiles);
+      reloadGit();
+      notifyAfterFlush(
+        new Set(additionalFiles.flatMap((file) => ("target" in file ? [file.target] : []))),
+        bundle.event.actor,
+      );
+      return receipt;
+    }
     validateCanonicalWriteBundle(bundle);
     const records = wal.records();
     const pendingEvents = records.map((record) => record.event);

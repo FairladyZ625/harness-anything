@@ -132,7 +132,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
   additionalProperties: false,
 };
 
-/** Event/projection shape. The legacy optional locale is accepted only for replay compatibility. */
+/** Event/projection shape containing repository-owned settings only. */
 export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositorySettingsV1> = {
   $id: "SettingsRepository/v1",
   $schema: "https://json-schema.org/draft/2020-12/schema",

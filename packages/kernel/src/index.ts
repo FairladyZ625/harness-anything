@@ -117,11 +117,16 @@ export {
   docSyncWritePlan,
   documentPath,
   isDocEvent,
+  isFactEvent,
   isTaskEvent,
   parseDocWriteIntent,
   resolveDocRoute,
 } from "./domain/doc-sync.contract.ts";
-export { classifyTextualArtifactPath, type OpaqueTextualMediaType } from "./domain/artifact-text-classification.ts";
+export {
+  classifyTextualArtifactPath,
+  OPAQUE_TEXTUAL_POLICY_ID,
+  type OpaqueTextualMediaType,
+} from "./domain/artifact-text-classification.ts";
 export {
   parseCanonicalEvent,
   serializeCanonicalEvent,
@@ -152,7 +157,11 @@ export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
 export * from "./entity/registry.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
-export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
+export {
+  contentObjectRelativePath,
+  eventObjectRelativePath,
+  eventObjectTarget,
+} from "./layout/ledger-object-layout.ts";
 export { isLedgerLayoutMigrationEvent } from "./domain/ledger-layout-migration-event.ts";
 export {
   assertNoPortablePathCollisions,
@@ -202,7 +211,7 @@ export type {
 export { projectDecisionReadiness } from "./projection/decision-readiness-projection.ts";
 export type { DecisionListFilters, DecisionProjectionRow } from "./projection/decision-event-projection.ts";
 export type { FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
-export { buildColdCoverage, readColdRebuildSource } from "./projection/cold-rebuild-source.ts";
+export { buildColdCoverage, readLegacyMigrationSource } from "./projection/cold-rebuild-source.ts";
 export type { ColdDecisionProjectionRow, ColdRebuildIssue } from "./projection/cold-rebuild-source.ts";
 export { readMarkdownSource, taskEntryToRow } from "./projection/sqlite-task-source.ts";
 export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
@@ -214,9 +223,11 @@ export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {
   canonicalDocumentClaims,
+  canonicalDocumentRetirements,
   canonicalEventCut,
   canonicalEventWritePlan,
   configureLedgerMaintenance,
+  localGitObjectRefStore,
   createEntityStore,
   ledgerGitPath,
   openEntityStore,
@@ -231,6 +242,7 @@ export type {
   CanonicalEventCut,
   CanonicalEventStore,
   CanonicalWriteBundle,
+  PublicationFile,
   EntityStore,
   EventPublicationKillpoint,
   ProjectionPage,

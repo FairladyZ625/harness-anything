@@ -381,8 +381,17 @@ export function applyEvent(
         runSql(db, "DELETE FROM document WHERE path = ?", change.path);
         continue;
       }
-      if (change.baseBlobSha256 !== (base?.blobSha256 ?? null))
+      if (change.baseBlobSha256 !== (base?.blobSha256 ?? null)) {
+        if (
+          base !== null &&
+          change.candidate.sha256 === base.blobSha256 &&
+          change.candidate.size === base.size &&
+          change.candidate.mediaType === base.mediaType &&
+          change.policyId === base.policyId
+        )
+          continue;
         throw new Error(`document base mismatch for ${change.path}`);
+      }
       const bytes = readBlob(change.candidate.sha256);
       if (!bytes || bytes.byteLength !== change.candidate.size)
         throw new Error(`document blob ${change.candidate.sha256} is unavailable`);

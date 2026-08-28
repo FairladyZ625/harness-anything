@@ -250,21 +250,11 @@ function factEventFields(value: Readonly<Record<string, unknown>>, allowUnknownF
 function validFactsClaim(
   value: unknown,
   factId: unknown,
-  taskId: unknown,
+  _taskId: unknown,
   allowUnknownFields: boolean,
 ): value is FactsDocumentClaim {
   const pathIsCanonical =
     typeof factId === "string" && String(value && isRecord(value) ? value.path : "") === `facts/${factId}.md`;
-  const pathIsHistoricalTaskLocal =
-    allowUnknownFields &&
-    typeof taskId === "string" &&
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as Record<string, unknown>).path === "string" &&
-    new RegExp(`^tasks/${escapeRegExp(taskId)}-[^/]+/facts\\.md$`, "u").test(
-      (value as Record<string, unknown>).path as string,
-    );
   if (
     !isRecord(value) ||
     !matchesFields(value, ["path", "sha256", "size", "mediaType", "policyId"], allowUnknownFields) ||
@@ -274,7 +264,7 @@ function validFactsClaim(
     value.mediaType !== "text/markdown" ||
     value.policyId !== FACT_DOCUMENT_POLICY_ID ||
     typeof factId !== "string" ||
-    (!pathIsCanonical && !pathIsHistoricalTaskLocal)
+    !pathIsCanonical
   )
     return false;
   try {
@@ -284,9 +274,6 @@ function validFactsClaim(
   }
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-}
 function escapeFactDocumentScalar(value: string): string {
   return JSON.stringify(value).slice(1, -1);
 }
@@ -311,19 +298,13 @@ function uniqueProvenance(values: readonly unknown[]): boolean {
   return new Set(keys).size === keys.length;
 }
 function supersedes(value: unknown, allowUnknownFields: boolean): boolean {
-  if (
-    !isRecord(value) ||
-    !matchesFields(value, ["factRef", "rationale"], allowUnknownFields) ||
-    typeof value.factRef !== "string" ||
-    !codePoints(value.rationale, 1, 199)
-  ) {
-    return false;
-  }
-  // Pre-fact-first-class events recorded supersedes against the task-scoped
-  // identity `fact/<owning-task-id>/F-<id>`; readers accept it until the
-  // ledger is rekeyed, the current writer stays canonical-only.
-  const historicalTaskScoped = allowUnknownFields && /^fact\/[^/]+\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value.factRef);
-  return /^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value.factRef) || historicalTaskScoped;
+  return (
+    isRecord(value) &&
+    matchesFields(value, ["factRef", "rationale"], allowUnknownFields) &&
+    typeof value.factRef === "string" &&
+    /^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(value.factRef) &&
+    codePoints(value.rationale, 1, 199)
+  );
 }
 function safeId(value: unknown): value is string {
   return isNonEmptyString(value) && !/[\\/]/u.test(value);

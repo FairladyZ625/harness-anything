@@ -264,6 +264,35 @@ test("a synthetic third contract drives the same embedded projection interpreter
   assert.equal(getEntityKindContract("runtime-session")?.relations.edges[0]?.projection, undefined);
 });
 
+test("embedded settings projections reject the retired authored locale", () => {
+  const contract = getEntityKindContract("settings");
+  assert.ok(contract);
+  assert.throws(
+    () =>
+      interpretEmbeddedEntityProjections(contract, {
+        schema: "settings-event/v1",
+        type: "settings_changed",
+        opId: "op-settings-history",
+        workspaceRevision: 18,
+        payload: {
+          settings: {
+            schema: "settings/v1",
+            settingsId: "repository",
+            defaultVertical: "software/coding",
+            defaultPreset: "standard-task",
+            defaultProfile: "baseline",
+            locale: "zh-CN",
+            scaffolds: {
+              task: "governance/task-scaffold.json",
+              repository: "governance/repository-scaffold.json",
+            },
+          },
+        },
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "invalid_entity_contract",
+  );
+});
+
 function containsFunction(value: unknown): boolean {
   if (typeof value === "function") return true;
   if (Array.isArray(value)) return value.some(containsFunction);

@@ -36,6 +36,7 @@ export const agentProtocolCommands = Object.freeze([
     path: ["migrate", "import"],
     summary: [
       "Merge one or more complete Git Harness repositories in --source order; ",
+      "source writers must be stopped and the source must be a committed snapshot; ",
       "id collisions are deterministically remapped and recorded.",
     ].join(""),
     method: "repo.task.run",
@@ -60,6 +61,23 @@ export const agentProtocolCommands = Object.freeze([
         },
         { regex: "^.+=(?:destination|source)$" },
       ),
+      cliInput(
+        "--dry-run",
+        "boolean",
+        false,
+        { code: "invalid_field", nextAction: "Use --dry-run once." },
+        { field: "dryRun" },
+      ),
+    ],
+  }),
+  defineLedgerWriteCommand({
+    id: "fact-rekey",
+    phase: "Migration-A",
+    path: ["migrate", "rekey-facts"],
+    summary:
+      "Re-key facts in a committed canonical repository; stop daemon writers first and use --dry-run before applying.",
+    method: "repo.task.run",
+    inputs: [
       cliInput(
         "--dry-run",
         "boolean",

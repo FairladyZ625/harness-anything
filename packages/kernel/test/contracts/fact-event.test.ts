@@ -70,13 +70,6 @@ test("Fact event reader ignores unknown fields while the current writer stays st
         provenance: [{ ...event.payload.provenance[0]!, token: "future field" }],
       },
     },
-    {
-      ...event,
-      payload: {
-        ...event.payload,
-        supersedes: { factRef: "fact/task_some_other_task/F-12345678", rationale: "pre-rekey task-scoped ref" },
-      },
-    },
   ];
   for (const future of additive) {
     assert.deepEqual(validateFactEvent(future), [], JSON.stringify(future));
@@ -103,6 +96,13 @@ test("Fact event reader ignores unknown fields while the current writer stays st
             boundAt: "2026-08-13T00:00:01.000Z",
           },
         ],
+      },
+    },
+    {
+      ...event,
+      payload: {
+        ...event.payload,
+        supersedes: { factRef: "fact/task_some_other_task/F-12345678", rationale: "pre-rekey task-scoped ref" },
       },
     },
     {

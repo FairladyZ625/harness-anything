@@ -206,7 +206,7 @@ export function decisionDocumentProse(body: string): string {
   if (!match) throw new Error("decision document frontmatter is invalid");
   return body.slice(match[0].length);
 }
-function reduceDecisionDocument(
+export function reduceDecisionDocument(
   current: DecisionDocumentState | null,
   event: DecisionEventDraftV1,
 ): DecisionDocumentState {

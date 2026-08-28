@@ -113,15 +113,26 @@ interface AuthoredEventRead {
   readonly issues: readonly ColdRebuildIssue[];
 }
 
-export function readColdRebuildSource(
-  rootInput: HarnessLayoutInput,
-  options: { readonly includeLegacyTaskFacts?: boolean } = {},
-): ColdRebuildSource {
+/** Read only the canonical projection surface. Legacy task-local facts are not
+ * part of normal projection/rebuild semantics. Migration callers must opt into
+ * the explicitly migration-scoped reader below. */
+export function readColdRebuildSource(rootInput: HarnessLayoutInput): ColdRebuildSource {
+  return readColdRebuildSourceInternal(rootInput, false);
+}
+
+/** Migration-only source reader for pre-canonical task-local fact documents and
+ * event envelopes. This boundary keeps the legacy parser out of resident
+ * projection and post-merge paths. */
+export function readLegacyMigrationSource(rootInput: HarnessLayoutInput): ColdRebuildSource {
+  return readColdRebuildSourceInternal(rootInput, true);
+}
+
+function readColdRebuildSourceInternal(rootInput: HarnessLayoutInput, migrationMode: boolean): ColdRebuildSource {
   const layout = resolveHarnessLayout(rootInput),
     taskDirs = listDirs(layout.tasksRoot),
     taskIds = new Set(taskDirs.map(readTaskId));
   const decisionRead = readDecisions(layout.rootDir, layout.decisionsRoot),
-    eventRead = readAuthoredEvents(layout.rootDir, layout.authoredRoot, options.includeLegacyTaskFacts === true),
+    eventRead = readAuthoredEvents(layout.rootDir, layout.authoredRoot, migrationMode),
     eventFacts = eventRead.rows,
     factRows = new Map(eventFacts.map(({ identityRef, row }) => [identityRef, row])),
     knownFactRefs = new Set(factRows.keys()),
@@ -138,7 +149,7 @@ export function readColdRebuildSource(
       indexBody = readTextFileIfPresent(indexPath),
       indexFrontmatter = indexBody === null ? null : readFrontmatter(indexBody),
       factsPath = layout.taskDocumentPath(taskId, "facts.md"),
-      body = options.includeLegacyTaskFacts === true ? readTextFileIfPresent(factsPath) : null;
+      body = migrationMode ? readTextFileIfPresent(factsPath) : null;
     if (body !== null) {
       const parsed = parseLegacyFacts(taskId, sourcePath(layout.rootDir, factsPath), body);
       complete &&= parsed.complete;

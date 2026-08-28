@@ -32,10 +32,7 @@ export function runPostMergeChecks(
 ): ReadonlyArray<ProjectionWarning> {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const source = readMarkdownSource(rootInput),
-    relationTruth = convergeTruth(
-      readColdRebuildSource(rootInput, { includeLegacyTaskFacts: true }).truth,
-      eventTruth ?? emptyEventTruth(),
-    );
+    relationTruth = convergeTruth(readColdRebuildSource(rootInput).truth, eventTruth ?? emptyEventTruth());
   const warnings: ProjectionWarning[] = [];
   if (eventTruth === null)
     warnings.push(

@@ -8,6 +8,7 @@ import { contentClaims } from "./task-event-store-claims-layout.ts";
 // Public bundle validation and canonical declared-write-plan construction.
 export function validateCanonicalWriteBundle(bundle: CanonicalWriteBundle): void {
   assertBundle(bundle);
+  for (const preceding of bundle.preceding ?? []) assertBundle(preceding);
 }
 export function canonicalEventContentClaims(event: CanonicalEventV1): readonly {
   readonly sha256: string;

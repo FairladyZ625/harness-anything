@@ -1,7 +1,7 @@
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
-  readColdRebuildSource,
+  readLegacyMigrationSource,
   readMarkdownSource,
   readScalar,
   resolveHarnessLayout,
@@ -145,7 +145,7 @@ export async function runSingleMigrationImport(
       ),
       allAuthoredEntries.length - authoredEntries.length,
     ),
-    cold = readColdRebuildSource(sourceRoot, { includeLegacyTaskFacts: true }),
+    cold = readLegacyMigrationSource(sourceRoot),
     skips: Skip[] = cold.issues.map(fromColdIssue),
     validEntries = new Set(taskRead.entries.map((entry) => path.resolve(entry.indexPath)));
   for (const indexPath of taskIndexPaths(sourceLayout.tasksRoot))

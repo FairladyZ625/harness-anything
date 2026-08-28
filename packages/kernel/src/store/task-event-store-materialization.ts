@@ -112,10 +112,15 @@ export const documentMode = canonicalDocumentMode;
 export function publicationModes(
   ledger: LedgerGitLayout,
   files: readonly { readonly target: string; readonly body: string }[],
-  event: CanonicalEventV1,
+  events: readonly CanonicalEventV1[],
 ): readonly PublicationFile[] {
   const modes = new Map(
-    canonicalDocumentClaims(event).map((claim) => [ledgerGitPath(ledger, claim.path), documentMode(event, claim.path)]),
+    events.flatMap((event) =>
+      canonicalDocumentClaims(event).map((claim) => [
+        ledgerGitPath(ledger, claim.path),
+        documentMode(event, claim.path),
+      ]),
+    ),
   );
   return files.map((file) => ({
     ...file,

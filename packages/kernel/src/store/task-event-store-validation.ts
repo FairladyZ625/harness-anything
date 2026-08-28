@@ -6,9 +6,10 @@ import {
   isFactEvent,
   isMigrationImportEvent,
   isTaskEvent,
-  parseCanonicalEvent,
+  serializePersistedCanonicalEvent,
   validateCurrentCanonicalEvent,
   validateCurrentDocEvent,
+  type CanonicalEventV1,
   type DocEventV1,
 } from "../domain/doc-sync.contract.ts";
 import { assertMigrationImportWritePlan } from "../domain/migration-import-event.ts";
@@ -39,25 +40,20 @@ import {
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { assertPublishableOpId, eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { type LedgerGitLayout } from "./ledger-git-layout.ts";
-import type {
-  CanonicalContentBlob,
-  CanonicalWriteBundle,
-  PublicationFile,
-  PublicationWrite,
-} from "./task-event-store-types.ts";
+import type { CanonicalContentBlob, CanonicalEventWriteBundle } from "./task-event-store-types.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
 import { canonicalDocumentClaims, contentClaims, targetShape } from "./task-event-store-claims-layout.ts";
-import { eventObjectPaths } from "./task-event-store-layout.ts";
 import { validateEventBlobs } from "./task-event-store-reads.ts";
 
 // Bundle, plan, content-input, and prepared-publication validation.
-export function assertBundle(bundle: CanonicalWriteBundle): void {
+export function assertBundle(bundle: CanonicalEventWriteBundle): void {
   const { event, plan, blobs } = bundle;
   assertPublishableOpId(event.opId);
   if (!isFrozenWritePlan(plan))
     throw new TaskEventStoreError("invalid_write_plan", "canonical write bundle requires one frozen write plan");
   if (isDocEvent(event)) {
-    if (validateCurrentDocEvent(event).length)
+    const docErrors = validateCurrentDocEvent(event);
+    if (docErrors.length)
       throw new TaskEventStoreError("invalid_write_plan", "doc event write requires the current cut identity");
     assertDocWritePlan(event, plan, blobs);
   }
@@ -294,21 +290,15 @@ export function assertContentInputs(
 export function validatePrepared(
   ledger: LedgerGitLayout,
   commit: string,
-  files: readonly PublicationFile[],
   head: EventHead,
+  events: readonly CanonicalEventV1[],
 ): void {
-  const body = files.find(
-    (file): file is PublicationWrite =>
-      "target" in file && (eventObjectPaths(ledger, head.opId) as readonly string[]).includes(file.target),
-  )?.body;
-  if (!body) throw new Error("prepared commit has no changed event");
-  const event = parseCanonicalEvent(body);
-  validateEventBlobs(
-    ledger,
-    commit,
-    event,
-    files.filter((file): file is PublicationWrite => "target" in file),
-  );
-  if (event.workspaceRevision !== head.revision || head.eventDigest !== `sha256:${sha256Text(body)}`)
+  const event = events.find((candidate) => candidate.opId === head.opId);
+  if (!event) throw new Error("prepared commit has no changed head event");
+  for (const changed of events) validateEventBlobs(ledger, commit, changed);
+  if (
+    event.workspaceRevision !== head.revision ||
+    head.eventDigest !== `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`
+  )
     throw new Error("prepared event/head mismatch");
 }

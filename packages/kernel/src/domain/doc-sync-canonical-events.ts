@@ -146,9 +146,9 @@ export function parseCanonicalEvent(body: string): CanonicalEventV1 {
     entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
     errors = entry?.validate(normalized) ?? ["canonical event schema is unknown"];
   if (errors.length) throw new Error(errors.join("; "));
-  const event = value as unknown as CanonicalEventV1;
-  if (canonicalEventBytes(event) !== body) throw new Error("canonical event bytes are not canonical");
-  return event;
+  if (canonicalEventBytes(value as unknown as CanonicalEventV1) !== body)
+    throw new Error("canonical event bytes are not canonical");
+  return value as unknown as CanonicalEventV1;
 }
 
 export function normalizePersistedCanonicalEvent(event: CanonicalEventV1): CanonicalEventV1 {

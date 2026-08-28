@@ -70,7 +70,7 @@ function storeApi(runtime: StoreRuntime, publication: ReturnType<typeof createPu
     },
     materialize: () =>
       materialize(runtime.ledger, runtime.repoId, runtime.canonicalCommit, runtime.readHead(), runtime.authoredRef),
-    append: (bundle) => publication.publish(bundle),
+    append: publication.publish,
     migrateLayout: publication.migrateLayout,
     recover: publication.recover,
     drain: async () => {},

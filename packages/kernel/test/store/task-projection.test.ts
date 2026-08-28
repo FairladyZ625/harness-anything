@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -32,6 +32,7 @@ import {
   migrationImportWritePlan,
   type MigrationImportEventV1,
 } from "../../src/domain/migration-import-event.ts";
+import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -88,6 +89,20 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     assert.equal(first.status, "ready");
     assert.equal(first.document?.body, body);
     assert.equal(first.document?.blobSha256, hash);
+    const duplicate = {
+      ...event,
+      eventId: "duplicate-doc-event",
+      opId: "duplicate-doc-op",
+      workspaceRevision: 2,
+      payload: { ...event.payload, baseLedgerSha: eventStore.currentCut() },
+    } satisfies DocEventV1;
+    eventStore.append({
+      event: duplicate,
+      plan: docSyncWritePlan(duplicate),
+      blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }],
+    });
+    projection.apply(duplicate, docSyncWritePlan(duplicate));
+    assert.equal(projection.readDocument("context/notes.md").document?.body, body);
     assert.equal(projection.readOperation(event.opId)?.event.schema, "doc-event/v1");
     projection.close();
     rmSync(projection.path, { force: true });
@@ -97,8 +112,78 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     projection.close();
     rmSync(projection.path, { force: true });
     const rebuilt = projection.rebuild();
-    assert.equal(rebuilt.watermark, 1);
+    assert.equal(rebuilt.watermark, 2);
     assert.deepEqual(projection.readDocument("context/notes.md").document, first.document);
+  });
+});
+
+test("document retirement rejects a base derived from worktree drift instead of projection state", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "stale-retirement", rootDir }),
+      documentPath = "tasks/task-1/facts.md",
+      body = "# Legacy facts\n",
+      hash = sha256Text(body),
+      physicalBody = "# Facts changed outside the event stream\n",
+      physicalPath = path.join(rootDir, "harness", documentPath),
+      seed: DocEventV1 = {
+        schema: "doc-event/v1",
+        eventId: "retirement-seed",
+        workspaceRevision: 1,
+        opId: "retirement-seed-op",
+        type: "documents_written",
+        actor: { principal: { personId: "person-1" }, executor: null },
+        source: "local",
+        occurredAt: "2026-08-11T00:00:00.000Z",
+        payload: {
+          executionId: null,
+          baseLedgerSha: eventStore.currentCut(),
+          changes: [
+            {
+              path: documentPath,
+              baseBlobSha256: null,
+              candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" },
+              policyId: OPAQUE_TEXTUAL_POLICY_ID,
+              regionProofs: [],
+            },
+          ],
+        },
+      };
+    eventStore.append({
+      event: seed,
+      plan: docSyncWritePlan(seed),
+      blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }],
+    });
+    mkdirSync(path.dirname(physicalPath), { recursive: true });
+    writeFileSync(physicalPath, physicalBody);
+    git(rootDir, "add", "harness");
+    git(rootDir, "commit", "--quiet", "-m", "physical facts update");
+    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+    const retirementStore = makeTaskEventStore({ repoId: "stale-retirement", rootDir }),
+      retirement: DocEventV1 = {
+        ...seed,
+        eventId: "stale-retirement",
+        workspaceRevision: 2,
+        opId: "stale-retirement-op",
+        payload: {
+          executionId: null,
+          baseLedgerSha: retirementStore.currentCut(),
+          changes: [
+            {
+              path: documentPath,
+              baseBlobSha256: sha256Text(physicalBody),
+              candidate: null,
+              policyId: OPAQUE_TEXTUAL_POLICY_ID,
+              regionProofs: [],
+            },
+          ],
+          retirementReason: "legacy records were migrated",
+        },
+      };
+    retirementStore.append({ event: retirement, plan: docSyncWritePlan(retirement), blobs: [] });
+    const projection = makeTaskProjection({ rootDir, eventStore: retirementStore });
+    assert.throws(() => projection.rebuild(), /document retirement mismatch/u);
+    projection.close();
   });
 });
 
