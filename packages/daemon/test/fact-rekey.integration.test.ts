@@ -8,13 +8,17 @@ import test from "node:test";
 import {
   compileFactWrite,
   contentObjectRelativePath,
+  decisionMachineDigest,
   deriveRelationId,
   eventObjectRelativePath,
   makeTaskEventStore,
   makeTaskProjection,
+  renderDecisionDocument,
   serializeEventHead,
   serializePersistedCanonicalEvent,
   sha256Text,
+  type DecisionDocumentState,
+  type DecisionEventV1,
   type MigrationImportEventV1,
 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -196,6 +200,89 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
         },
       },
     };
+    const importedDecision: DecisionDocumentState = {
+      decisionId: "dec_IMPORTED_REKEY",
+      state: "in_effect",
+      title: "Imported decision",
+      question: "Should imported decisions retain valid proof pins?",
+      riskTier: "low",
+      urgency: "low",
+      vertical: "software/coding",
+      preset: "standard-task",
+      decisionClass: "ordinary",
+      appliesTo: { modules: ["kernel"], productLines: [] },
+      proposer: actor,
+      arbiter: actor,
+      proposedAt: "2026-01-01T00:00:00.000Z",
+      decidedAt: "2026-01-02T00:00:00.000Z",
+      workspaceRevision: 5,
+      chosen: [{ id: "CH1", text: "Retain valid proof pins" }],
+      rejected: [{ id: "RJ1", text: "Drop proof pins", whyNot: "The projection rejects stale proof" }],
+      claims: [{ id: "C1", text: "Imported proof remains valid", loadBearing: true, fulfillment: null }],
+      relations: [],
+      provenance: [],
+      judgmentConsents: [],
+    };
+    const importedDecisionBody = renderDecisionDocument(
+        importedDecision,
+        null,
+        "# Imported decision\n\nHistorical body.\n",
+      ),
+      importedDecisionClaim = {
+        path: "decisions/decision-dec_IMPORTED_REKEY/decision.md",
+        sha256: sha256Text(importedDecisionBody),
+        size: Buffer.byteLength(importedDecisionBody),
+        mediaType: "text/markdown" as const,
+        policyId: "typed-migration-import/v1" as const,
+      },
+      retiredDecisionClaim = {
+        ...importedDecisionClaim,
+        policyId: "markdown-body-replaceable/v1" as const,
+      },
+      importedDecisionEvent: MigrationImportEventV1 = {
+        schema: "migration-import-event/v1",
+        eventId: "event-imported-decision",
+        workspaceRevision: 5,
+        opId: "op-imported-decision",
+        type: "entity_migrated",
+        actor,
+        source: "migration-import/v1",
+        occurredAt: "2026-01-02T00:00:00.000Z",
+        payload: {
+          migratedFrom: importedDecision.decisionId,
+          generation: "v0",
+          entity: { kind: "decision", decision: importedDecision, documentClaim: importedDecisionClaim },
+        },
+      };
+    const retiredEventBase = {
+      schema: "decision-event/v1" as const,
+      eventId: "event-retire-imported-decision",
+      workspaceRevision: 6,
+      opId: "op-retire-imported-decision",
+      type: "decision_retired" as const,
+      actor,
+      source: "local" as const,
+      occurredAt: "2026-01-03T00:00:00.000Z",
+      decisionId: importedDecision.decisionId,
+      payload: {
+        reason: "Retired during legacy migration",
+        baseDocumentSha256: importedDecisionClaim.sha256,
+        decisionDocumentClaim: retiredDecisionClaim,
+        contentPin: {
+          schema: "decision-content-pin/v1" as const,
+          pinId: `dcp_${sha256Text("op-retire-imported-decision").slice(0, 26)}`,
+          action: "retire" as const,
+          state: importedDecision.state,
+          pinnedAt: "2026-01-03T00:00:00.000Z",
+          evidence: "Retired during legacy migration",
+          actor,
+          digest: decisionMachineDigest(importedDecision),
+        },
+      },
+    } as unknown as DecisionEventV1;
+    // The source event intentionally carries the pre-migration pin. Rekey must repin it
+    // from the imported snapshot before projection admission validates the retired outcome.
+    const retiredEvent = retiredEventBase;
     const legacyBody = `${JSON.stringify(legacyEvent)}\n`;
     const targetEventPath = path.join(
       scratch,
@@ -226,12 +313,31 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       );
     mkdirSync(path.dirname(importedFactEventPath), { recursive: true });
     writeFileSync(importedFactEventPath, importedFactBody);
+    const importedDecisionBodyEvent = serializePersistedCanonicalEvent(importedDecisionEvent),
+      importedDecisionEventPath = path.join(
+        scratch,
+        "harness",
+        eventObjectRelativePath(importedDecisionEvent.opId, seedStore.layout()),
+      ),
+      retiredBody = serializePersistedCanonicalEvent(retiredEvent),
+      retiredEventPath = path.join(scratch, "harness", eventObjectRelativePath(retiredEvent.opId, seedStore.layout())),
+      importedDecisionContentPath = path.join(
+        scratch,
+        "harness",
+        contentObjectRelativePath(importedDecisionClaim.sha256, seedStore.layout()),
+      );
+    mkdirSync(path.dirname(importedDecisionEventPath), { recursive: true });
+    mkdirSync(path.dirname(retiredEventPath), { recursive: true });
+    writeFileSync(importedDecisionEventPath, importedDecisionBodyEvent);
+    writeFileSync(retiredEventPath, retiredBody);
+    mkdirSync(path.dirname(importedDecisionContentPath), { recursive: true });
+    writeFileSync(importedDecisionContentPath, importedDecisionBody);
     writeFileSync(
       path.join(scratch, "harness/events/head.json"),
       serializeEventHead({
-        revision: 4,
-        opId: importedFactEvent.opId,
-        eventDigest: `sha256:${sha256Text(importedFactBody)}`,
+        revision: 6,
+        opId: retiredEvent.opId,
+        eventDigest: `sha256:${sha256Text(retiredBody)}`,
       }),
     );
     execFileSync("git", ["-C", scratch, "add", "harness/events", "harness/objects"]);
@@ -275,13 +381,29 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const marker = stream.events.find(
       (event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "id-map",
     );
-    assert.equal(marker?.workspaceRevision, 9);
+    assert.equal(marker?.workspaceRevision, 11);
     assert.equal(marker?.schema === "migration-import-event/v1" ? marker.payload.ledgerEpoch : undefined, 1);
     assert.equal(
-      stream.events.some((event) => event.schema === "doc-event/v1" && event.workspaceRevision === 6),
+      stream.events.some((event) => event.schema === "doc-event/v1" && event.workspaceRevision === 8),
       true,
     );
     assert.equal(stream.events.filter((event) => event.schema === "doc-event/v1").length, 3);
+    const rewrittenRetired = stream.events.find(
+      (event) => event.schema === "decision-event/v1" && event.opId === retiredEvent.opId,
+    );
+    assert.equal(rewrittenRetired?.schema, "decision-event/v1");
+    if (rewrittenRetired?.schema === "decision-event/v1") {
+      assert.equal(rewrittenRetired.payload.contentPin?.state, "outcome_retired");
+      assert.equal(
+        rewrittenRetired.payload.contentPin?.digest,
+        decisionMachineDigest({
+          ...importedDecision,
+          state: "outcome_retired",
+          decidedAt: retiredEvent.occurredAt,
+          workspaceRevision: retiredEvent.workspaceRevision,
+        }),
+      );
+    }
     assert.equal(
       stream.events.some((event) => event.schema === "fact-event/v1" && event.factId === "F-CDEFGHJK"),
       true,
@@ -290,7 +412,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     try {
       const projected = projection.readDocument("decisions/decision-dec_LEGACY/decision.md");
       assert.equal(projected.status, "ready");
-      assert.equal(projected.document?.workspaceRevision, 6);
+      assert.equal(projected.document?.workspaceRevision, 8);
       assert.equal(
         projected.document?.body,
         readFileSync(path.join(scratch, "harness/decisions/decision-dec_LEGACY/decision.md"), "utf8"),
@@ -325,7 +447,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
 
     const repeat = (await cell.run({ kind: "fact-rekey" }, binding)) as Record<string, unknown>;
     assert.equal(repeat.outcome, "no_changes", JSON.stringify(repeat));
-    assert.equal(store.readHead()?.revision, 9);
+    assert.equal(store.readHead()?.revision, 11);
   } finally {
     await cell?.close();
     if (process.env.KEEP_FACT_REKEY_FIXTURE === "1") console.error(`fact-rekey fixture: ${scratch}`);

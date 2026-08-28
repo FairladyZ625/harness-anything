@@ -326,6 +326,9 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
         );
       } else next = transform(event, mapRef, relationMap);
     } else next = transform(event, mapRef, relationMap);
+    if (next?.schema === "migration-import-event/v1" && next.payload.entity.kind === "decision") {
+      decisionStates.set(next.payload.entity.decision.decisionId, next.payload.entity.decision);
+    }
     if (next?.schema === "decision-event/v1") {
       const current = decisionStates.get(next.decisionId) ?? null;
       next = rekeyDecisionProofs(next as DecisionEventV1, current);
