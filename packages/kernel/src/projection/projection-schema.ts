@@ -1,6 +1,5 @@
-// Version 12 combines the rebuildable squad-run projection added in version 11
-// with UTC ISO-8601 Z materialized timestamps. Immutable event bytes retain their
-// historical offset spelling. A version mismatch takes the discard-and-replay
-// path in rebuildable-task-projection.ts; squad-coordinator then sees its durable
-// ready marker cleared and replays dispatch streams into the local-only table.
-export const taskProjectionSchemaVersion = 12;
+// Version 13 forces upgraded nodes to discard version-12 warm caches before
+// replaying fact-rekey ledger rewrites that preserve opId and workspaceRevision.
+// A version mismatch takes the discard-and-replay path; squad-coordinator then
+// sees its durable ready marker cleared and replays dispatch streams locally.
+export const taskProjectionSchemaVersion = 13;
