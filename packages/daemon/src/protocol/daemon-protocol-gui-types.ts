@@ -302,6 +302,11 @@ export type DaemonGuiReadResultMap = {
     readonly path: string;
     readonly body: string;
     readonly blobSha256: string | null;
+    /** Live worktree view (task_e5defe69): disk content now, and whether it diverges
+     * from the committed projection. Null body = no such file on disk. */
+    readonly worktreeBody: string | null;
+    readonly worktreeBlobSha256: string | null;
+    readonly uncommitted: boolean;
     readonly watermark: number;
     readonly sourceRevision: number;
   };
@@ -473,6 +478,9 @@ export interface TaskDocumentListEntryRow {
   readonly blobSha256: string;
   readonly size: number;
   readonly mediaType: string;
+  /** True when the worktree file diverges from the committed projection (or exists only
+   * in the worktree): the GUI marks these documents as not yet committed. */
+  readonly uncommitted: boolean;
 }
 
 export type DaemonTaskDocumentListResult = {

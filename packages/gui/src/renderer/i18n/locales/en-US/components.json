@@ -53,6 +53,7 @@
   "components.badges.urgentQueueQueue": "Urgent → queue order",
   "components.docTree.missing": "Missing",
   "components.docTree.required": "required",
+  "components.docTree.uncommitted": "uncommitted",
   "components.factInspector.checkingSourceSupportingRelationshipsContradictionsSupersedeStatus": "Checking the source, supporting relationships, contradictions and supersede status of this fact",
   "components.factInspector.closeFactInspector": "Close Fact Inspector",
   "components.factInspector.confidenceValue": "confidence {confidence}",

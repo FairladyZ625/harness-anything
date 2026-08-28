@@ -1,11 +1,12 @@
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import { consumeKnownError, type TaskProjection } from "../../kernel/src/index.ts";
 import {
   canonicalEventCut,
   documentPath,
   resolveDocRoute,
   resolveHarnessLayout,
+  sha256Bytes,
   stableStringify,
   type DocEventV1,
   type DocSyncReceiptDetail,
@@ -194,12 +195,18 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
       };
 }
 
-export function readProjectedDocument(projection: TaskProjection, payload: Readonly<Record<string, unknown>>) {
+export function readProjectedDocument(
+  rootDir: string,
+  projection: TaskProjection,
+  payload: Readonly<Record<string, unknown>>,
+) {
   const taskId = requiredDocSyncText(payload.taskId, "taskId"),
     requested = requiredDocSyncText(payload.path, "path"),
     task = projection.read(taskId);
   if (!task.packagePath) throw docSyncError("task_not_found", `Task ${taskId} has no projected package path.`);
-  const read = projection.readDocument(documentPath(`${task.packagePath}/${requested}`));
+  const read = projection.readDocument(documentPath(`${task.packagePath}/${requested}`)),
+    packageRoot = taskPackageWorktreeRoot(rootDir, task.packagePath),
+    worktree = readWorktreeDocument(packageRoot, requested);
   return {
     ok: true as const,
     status: read.status,
@@ -207,14 +214,22 @@ export function readProjectedDocument(projection: TaskProjection, payload: Reado
     path: requested,
     body: read.document?.body ?? "",
     blobSha256: read.document?.blobSha256 ?? null,
+    // Live worktree view (task_e5defe69): the GUI file surface must show what is on disk
+    // now, not only the committed projection — an edited-but-unsynced plan is real work
+    // and must be visible and explicitly marked as not yet committed.
+    worktreeBody: worktree?.body ?? null,
+    worktreeBlobSha256: worktree?.blobSha256 ?? null,
+    uncommitted: worktree !== null && worktree.blobSha256 !== (read.document?.blobSha256 ?? null),
     watermark: read.watermark,
     sourceRevision: read.sourceRevision,
   };
 }
 
 /** GUI read repo.tasks.documents.list: projected documents under one task package,
- * with paths relative to the package root. */
+ * with paths relative to the package root. Files that exist only in the worktree (created
+ * but never doc-synced) are listed too, flagged uncommitted, so they are visible at all. */
 export function listProjectedTaskDocuments(
+  rootDir: string,
   projection: TaskProjection,
   payload: Readonly<Record<string, unknown>>,
 ): import("./protocol/daemon-protocol.contract.ts").DaemonTaskDocumentListResult {
@@ -223,15 +238,24 @@ export function listProjectedTaskDocuments(
   if (!task.packagePath) throw docSyncError("task_not_found", `Task ${taskId} has no projected package path.`);
   const prefix = `${task.packagePath}/`,
     basis = projection.readReplicaBasis(null),
-    documents = basis.documents
-      .filter((row) => row.path.startsWith(prefix))
-      .map((row) => ({
-        path: row.path.slice(prefix.length),
-        blobSha256: row.blobSha256,
-        size: row.size,
-        mediaType: row.mediaType,
-      }))
-      .sort((left, right) => left.path.localeCompare(right.path));
+    worktree = worktreeDocumentIndex(taskPackageWorktreeRoot(rootDir, task.packagePath)),
+    worktreeByPath = new Map(worktree.map((row) => [row.path, row])),
+    documents = [
+      ...basis.documents
+        .filter((row) => row.path.startsWith(prefix))
+        .map((row) => {
+          const relative = row.path.slice(prefix.length),
+            live = worktreeByPath.get(relative);
+          return {
+            path: relative,
+            blobSha256: row.blobSha256,
+            size: row.size,
+            mediaType: row.mediaType,
+            uncommitted: live !== undefined && live.blobSha256 !== row.blobSha256,
+          };
+        }),
+      ...worktree.filter((row) => !basis.documents.some((projected) => projected.path === `${prefix}${row.path}`)),
+    ].sort((left, right) => left.path.localeCompare(right.path));
   return {
     ok: true,
     status: task.status,
@@ -240,4 +264,122 @@ export function listProjectedTaskDocuments(
     watermark: basis.watermark,
     sourceRevision: basis.sourceRevision,
   };
+}
+
+const worktreeDocumentMaxBytes = 2 * 1024 * 1024,
+  worktreeDocumentMaxEntries = 2000,
+  worktreeDocumentExtensions = new Set([".md", ".json", ".yaml", ".yml", ".txt", ".html", ".htm"]);
+
+type WorktreeDocumentRow = {
+  readonly path: string;
+  readonly blobSha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+  readonly uncommitted: true;
+};
+
+/** Task packages live under the authored harness root (harness/tasks/<package>), which is
+ * where doc-sync writes and where the live working copy the GUI must show resides. */
+function taskPackageWorktreeRoot(rootDir: string, packagePath: string): string | null {
+  const authoredRoot = path.resolve(resolveHarnessLayout(rootDir).authoredRoot),
+    packageRoot = path.resolve(authoredRoot, packagePath);
+  return packageRoot.startsWith(`${authoredRoot}${path.sep}`) ? packageRoot : null;
+}
+
+function resolveWorktreeDocumentPath(packageRoot: string | null, relative: string): string | null {
+  if (packageRoot === null || statLinkSync(packageRoot)?.isSymbolicLink()) return null;
+  const target = path.resolve(packageRoot, relative);
+  if (target !== packageRoot && !target.startsWith(`${packageRoot}${path.sep}`)) return null;
+  let cursor = packageRoot;
+  for (const segment of path.relative(packageRoot, target).split(path.sep)) {
+    cursor = path.join(cursor, segment);
+    if (statLinkSync(cursor)?.isSymbolicLink()) return null;
+  }
+  return target;
+}
+
+function worktreeDocumentMediaType(relative: string): string {
+  const extension = path.extname(relative).toLowerCase();
+  return extension === ".json"
+    ? "application/json"
+    : extension === ".html" || extension === ".htm"
+      ? "text/html"
+      : extension === ".yaml" || extension === ".yml"
+        ? "application/yaml"
+        : extension === ".md"
+          ? "text/markdown"
+          : "text/plain";
+}
+
+/** One live file from the task package's working copy, or null when it is absent. */
+function readWorktreeDocument(
+  packageRoot: string | null,
+  relative: string,
+): { readonly body: string; readonly blobSha256: string } | null {
+  const target = resolveWorktreeDocumentPath(packageRoot, relative);
+  if (target === null) return null;
+  const stat = statFileSync(target);
+  if (stat === null || !stat.isFile() || stat.size > worktreeDocumentMaxBytes) return null;
+  const bytes = readFileSync(target);
+  return { body: bytes.toString("utf8"), blobSha256: sha256Bytes(bytes) };
+}
+
+/** Document-shaped files currently on disk under the task package. The worktree is the
+ * truth for "what exists now"; the projection is the truth for "what is committed". */
+function worktreeDocumentIndex(packageRoot: string | null): readonly WorktreeDocumentRow[] {
+  if (packageRoot === null) return [];
+  const root = packageRoot,
+    rows: WorktreeDocumentRow[] = [];
+  if (!existsSync(root) || statLinkSync(root)?.isSymbolicLink() || !statFileSync(root)?.isDirectory()) return rows;
+  const queue: string[] = [root];
+  let visited = 0;
+  while (queue.length > 0 && rows.length < worktreeDocumentMaxEntries && visited < worktreeDocumentMaxEntries * 4) {
+    const directory = queue.shift()!;
+    let entries: readonly import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch (error) {
+      consumeKnownError(error);
+      continue;
+    }
+    for (const entry of entries) {
+      visited += 1;
+      if (entry.name.startsWith(".")) continue;
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        queue.push(target);
+        continue;
+      }
+      if (!entry.isFile() || !worktreeDocumentExtensions.has(path.extname(entry.name).toLowerCase())) continue;
+      const stat = statFileSync(target);
+      if (stat === null || stat.size > worktreeDocumentMaxBytes) continue;
+      const bytes = readFileSync(target);
+      rows.push({
+        path: path.relative(root, target).split(path.sep).join("/"),
+        blobSha256: sha256Bytes(bytes),
+        size: stat.size,
+        mediaType: worktreeDocumentMediaType(entry.name),
+        uncommitted: true,
+      });
+    }
+  }
+  return rows.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function statFileSync(target: string): import("node:fs").Stats | null {
+  try {
+    return statSync(target);
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
+
+function statLinkSync(target: string): import("node:fs").Stats | null {
+  try {
+    return lstatSync(target);
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
 }

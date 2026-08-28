@@ -53,6 +53,7 @@
   "components.badges.urgentQueueQueue": "紧急 → 队列排队",
   "components.docTree.missing": "缺失",
   "components.docTree.required": "必需",
+  "components.docTree.uncommitted": "未提交",
   "components.factInspector.checkingSourceSupportingRelationshipsContradictionsSupersedeStatus": "正在检查此 fact 的来源、支撑关系、矛盾与 supersede 状态",
   "components.factInspector.closeFactInspector": "关闭 Fact Inspector",
   "components.factInspector.confidenceValue": "置信度 {confidence}",

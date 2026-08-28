@@ -179,8 +179,14 @@ export function projectFrozenDaemonResponses(rootDir) {
       ["validateDaemonAgenda", model.agenda({ limit: 100 })],
       ["validateDaemonRelationGraph", model.relationGraph()],
       ["validateDaemonDecisionList", decisionRead],
-      ["validateDaemonDocumentRead", readProjectedDocument(projection, { taskId: DISPATCH_TASK_ID, path: "INDEX.md" })],
-      ["validateDaemonTaskDocumentList", listProjectedTaskDocuments(projection, { taskId: DISPATCH_TASK_ID })],
+      [
+        "validateDaemonDocumentRead",
+        readProjectedDocument(temporaryRoot, projection, { taskId: DISPATCH_TASK_ID, path: "INDEX.md" })
+      ],
+      [
+        "validateDaemonTaskDocumentList",
+        listProjectedTaskDocuments(temporaryRoot, projection, { taskId: DISPATCH_TASK_ID })
+      ],
       ["validateDaemonTaskDispatches", readTaskDispatches({ rootDir: temporaryRoot, projection, taskId: DISPATCH_TASK_ID })]
     ]);
     return [...responses].map(([name, value]) => ({ name, value, sourceEventIds: sourceEventIds(name) }));

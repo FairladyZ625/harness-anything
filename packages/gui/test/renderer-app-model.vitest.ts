@@ -344,6 +344,9 @@ describe("renderer app model", () => {
       path,
       body: "# Canonical task plan",
       blobSha256: "sha256:canonical",
+      worktreeBody: null,
+      worktreeBlobSha256: null,
+      uncommitted: false,
       watermark: 7,
       sourceRevision: 7,
     }));

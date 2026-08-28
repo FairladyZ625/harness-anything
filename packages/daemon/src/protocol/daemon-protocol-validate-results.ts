@@ -37,6 +37,10 @@ export function validateDaemonDocumentRead(value: unknown): readonly string[] {
     typeof value.body !== "string" ||
     (value.blobSha256 !== null &&
       (typeof value.blobSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(value.blobSha256))) ||
+    (value.worktreeBody !== null && typeof value.worktreeBody !== "string") ||
+    (value.worktreeBlobSha256 !== null &&
+      (typeof value.worktreeBlobSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(value.worktreeBlobSha256))) ||
+    typeof value.uncommitted !== "boolean" ||
     !integer(value.watermark) ||
     !integer(value.sourceRevision)
   )
@@ -53,13 +57,14 @@ export function validateDaemonTaskDocumentList(value: unknown): readonly string[
     !Array.isArray(value.documents) ||
     value.documents.some(
       (row) =>
-        !exactRecord(row, ["path", "blobSha256", "size", "mediaType"]) ||
+        !exactRecord(row, ["path", "blobSha256", "size", "mediaType", "uncommitted"]) ||
         !nonEmpty(row.path) ||
         row.path.startsWith("/") ||
         row.path.split("/").includes("..") ||
         !/^[0-9a-f]{64}$/u.test(String(row.blobSha256)) ||
         !integer(row.size) ||
-        !nonEmpty(row.mediaType),
+        !nonEmpty(row.mediaType) ||
+        typeof row.uncommitted !== "boolean",
     ) ||
     !integer(value.watermark) ||
     !integer(value.sourceRevision)

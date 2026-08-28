@@ -1,10 +1,6 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
-import {
-  buildDocTree,
-  collectDirectoryPaths,
-  projectedDocuments,
-} from "../src/renderer/model/docTree.ts";
+import { buildDocTree, collectDirectoryPaths, projectedDocuments } from "../src/renderer/model/docTree.ts";
 import type { DocEntry } from "../src/renderer/model/types.ts";
 
 /**
@@ -28,10 +24,7 @@ function doc(path: string, overrides: Partial<DocEntry> = {}): DocEntry {
 
 describe("buildDocTree basic structure", () => {
   it("renders flat files as root-level leaves", () => {
-    const tree = buildDocTree([
-      doc("INDEX.md"),
-      doc("progress.md"),
-    ]);
+    const tree = buildDocTree([doc("INDEX.md"), doc("progress.md")]);
     expect(tree).toHaveLength(2);
     expect(tree.every((n) => !n.isDir)).toBe(true);
     expect(tree.map((n) => n.path)).toEqual(["INDEX.md", "progress.md"]);
@@ -44,18 +37,12 @@ describe("buildDocTree basic structure", () => {
 
 describe("buildDocTree ignores .gitkeep placeholders", () => {
   it("drops a root-level .gitkeep", () => {
-    const tree = buildDocTree([
-      doc("INDEX.md"),
-      doc(".gitkeep"),
-    ]);
+    const tree = buildDocTree([doc("INDEX.md"), doc(".gitkeep")]);
     expect(tree.map((n) => n.path)).toEqual(["INDEX.md"]);
   });
 
   it("drops a nested .gitkeep but keeps its siblings and directory", () => {
-    const tree = buildDocTree([
-      doc("artifacts/keymgmt-design/.gitkeep"),
-      doc("artifacts/keymgmt-design/design.md"),
-    ]);
+    const tree = buildDocTree([doc("artifacts/keymgmt-design/.gitkeep"), doc("artifacts/keymgmt-design/design.md")]);
     const artifacts = tree[0];
     const keymgmt = artifacts.children[0];
     expect(keymgmt.name).toBe("keymgmt-design");
@@ -63,10 +50,7 @@ describe("buildDocTree ignores .gitkeep placeholders", () => {
   });
 
   it("removes a directory that only held a .gitkeep", () => {
-    const tree = buildDocTree([
-      doc("INDEX.md"),
-      doc("artifacts/empty-dir/.gitkeep"),
-    ]);
+    const tree = buildDocTree([doc("INDEX.md"), doc("artifacts/empty-dir/.gitkeep")]);
     expect(tree.map((n) => n.name)).toEqual(["INDEX.md"]);
   });
 });
@@ -83,26 +67,15 @@ describe("buildDocTree nested directories", () => {
 
   it("groups files under their parent directories", () => {
     // Root: 2 dirs (artifacts, plan) + 2 files (INDEX, progress) — dirs first
-    expect(tree.map((n) => n.name)).toEqual([
-      "artifacts",
-      "plan",
-      "INDEX.md",
-      "progress.md",
-    ]);
+    expect(tree.map((n) => n.name)).toEqual(["artifacts", "plan", "INDEX.md", "progress.md"]);
 
     const artifacts = tree[0];
     expect(artifacts.isDir).toBe(true);
-    expect(artifacts.children.map((n) => n.name)).toEqual([
-      "orchestration",
-      "findings.md",
-    ]);
+    expect(artifacts.children.map((n) => n.name)).toEqual(["orchestration", "findings.md"]);
 
     const orchestration = artifacts.children[0];
     expect(orchestration.isDir).toBe(true);
-    expect(orchestration.children.map((n) => n.name)).toEqual([
-      "notes.md",
-      "report.md",
-    ]);
+    expect(orchestration.children.map((n) => n.name)).toEqual(["notes.md", "report.md"]);
   });
 
   it("preserves DocEntry on leaf nodes (present/required/title)", () => {
@@ -135,11 +108,7 @@ describe("buildDocTree nested directories", () => {
 
 describe("buildDocTree deep nesting", () => {
   it("handles arbitrarily deep paths (4+ levels)", () => {
-    const tree = buildDocTree([
-      doc("a/b/c/d/e.md"),
-      doc("a/b/f.md"),
-      doc("a/g.md"),
-    ]);
+    const tree = buildDocTree([doc("a/b/c/d/e.md"), doc("a/b/f.md"), doc("a/g.md")]);
 
     expect(tree).toHaveLength(1);
     const a = tree[0];
@@ -158,10 +127,7 @@ describe("buildDocTree deep nesting", () => {
   });
 
   it("merges files at different depths under the same ancestor", () => {
-    const tree = buildDocTree([
-      doc("artifacts/top.md"),
-      doc("artifacts/deep/inner.md"),
-    ]);
+    const tree = buildDocTree([doc("artifacts/top.md"), doc("artifacts/deep/inner.md")]);
 
     const artifacts = tree[0];
     expect(artifacts.children.map((n) => n.name)).toEqual(["deep", "top.md"]);
@@ -171,9 +137,7 @@ describe("buildDocTree deep nesting", () => {
 
 describe("buildDocTree title display", () => {
   it("uses DocEntry.title for file display name, not raw filename", () => {
-    const tree = buildDocTree([
-      doc("plan/task-plan.md", { title: "任务计划" }),
-    ]);
+    const tree = buildDocTree([doc("plan/task-plan.md", { title: "任务计划" })]);
     const plan = tree[0];
     expect(plan.name).toBe("plan"); // directory uses segment name
     expect(plan.children[0].name).toBe("任务计划"); // file uses title
@@ -182,10 +146,7 @@ describe("buildDocTree title display", () => {
 
 describe("collectDirectoryPaths", () => {
   it("collects directory paths up to maxDepth", () => {
-    const tree = buildDocTree([
-      doc("a/b.md"),
-      doc("x/y/z.md"),
-    ]);
+    const tree = buildDocTree([doc("a/b.md"), doc("x/y/z.md")]);
 
     // depth 0: top-level dirs only
     expect(collectDirectoryPaths(tree, 0).sort()).toEqual(["a", "x"]);
@@ -195,22 +156,23 @@ describe("collectDirectoryPaths", () => {
   });
 
   it("with maxDepth=0 returns only root directories (for default expand)", () => {
-    const tree = buildDocTree([
-      doc("artifacts/inner/deep.md"),
-      doc("plan/task.md"),
-    ]);
+    const tree = buildDocTree([doc("artifacts/inner/deep.md"), doc("plan/task.md")]);
     const rootDirs = collectDirectoryPaths(tree, 0);
     expect(rootDirs.sort()).toEqual(["artifacts", "plan"]);
   });
 });
 
-
 describe("projectedDocuments", () => {
   it("titles each entry by basename and groups artifacts/ apart from the rest", () => {
-    const entries = projectedDocuments(["task_plan.md", "artifacts/report.md", "artifacts/orchestration/notes.md"]);
+    const entries = projectedDocuments([
+      { path: "task_plan.md" },
+      { path: "artifacts/report.md", uncommitted: true },
+      { path: "artifacts/orchestration/notes.md" },
+    ]);
     expect(entries.map((entry) => entry.title)).toEqual(["task_plan.md", "report.md", "notes.md"]);
     expect(entries.map((entry) => entry.group)).toEqual(["进度", "证据", "证据"]);
     expect(entries.every((entry) => entry.present && !entry.required)).toBe(true);
+    expect(entries.map((entry) => entry.uncommitted ?? false)).toEqual([false, true, false]);
   });
 
   it("returns nothing for an empty projection", () => {

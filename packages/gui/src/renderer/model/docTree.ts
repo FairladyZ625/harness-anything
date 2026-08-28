@@ -30,14 +30,17 @@ interface TrieNode {
 }
 
 /** 投影清单 → 文档条目。投影列出的文件都在磁盘上,所以恒为 present 且非 required。 */
-export function projectedDocuments(projectedPaths: ReadonlyArray<string>): DocEntry[] {
-  return projectedPaths.map((path) => ({
+export function projectedDocuments(
+  projected: ReadonlyArray<{ readonly path: string; readonly uncommitted?: boolean }>,
+): DocEntry[] {
+  return projected.map(({ path, uncommitted }) => ({
     path,
     title: path.split("/").at(-1) ?? path,
     group: inferDocGroup(path),
     required: false,
     present: true,
     presence: "present" as const,
+    ...(uncommitted ? { uncommitted: true } : {}),
   }));
 }
 

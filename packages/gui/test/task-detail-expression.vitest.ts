@@ -285,6 +285,17 @@ describe("Task detail expression", () => {
     expect(byTestId("task-files-tab").textContent).toContain("Canonical plan body");
   });
 
+  it("renders live worktree content and marks an unsynced task document", async () => {
+    installBridge({ uncommittedPlan: true });
+    await mount();
+
+    await clickTab("文件");
+    expect(byTestId("task-files-tab").textContent).toContain("Live worktree plan body");
+    expect(byTestId("task-files-tab").textContent).not.toContain("Canonical plan body");
+    expect(byTestId("task-document-uncommitted").textContent).toContain("工作树内容尚未提交");
+    expect(byTestId("doc-uncommitted-task_plan.md").textContent).toContain("未提交");
+  });
+
   it("adapts the detail card and reader to container width; manual layout controls still override", async () => {
     installBridge();
     await mount();
@@ -360,7 +371,7 @@ describe("Task detail expression", () => {
   });
 });
 
-function installBridge() {
+function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?: boolean } = {}) {
   const bridge = {
     getTaskDocument: vi.fn(async ({ taskId, path }: { taskId: string; path: string }) => ({
       ok: true,
@@ -374,6 +385,9 @@ function installBridge() {
             ? '<style>body{color:#123}</style><h1>Night report</h1><script>window.open("https://example.invalid")</script>'
             : `# ${path}`,
       blobSha256: `sha256:${"d".repeat(64)}`,
+      worktreeBody: uncommittedPlan && path === "task_plan.md" ? "# Live worktree plan body" : null,
+      worktreeBlobSha256: uncommittedPlan && path === "task_plan.md" ? "e".repeat(64) : null,
+      uncommitted: uncommittedPlan && path === "task_plan.md",
       watermark: 7,
       sourceRevision: 7,
     })),
@@ -382,10 +396,28 @@ function installBridge() {
       status: "ready",
       taskId: "task-w3",
       documents: [
-        { path: "task_plan.md", blobSha256: "d".repeat(64), size: 20, mediaType: "text/markdown" },
-        { path: "INDEX.md", blobSha256: "e".repeat(64), size: 20, mediaType: "text/markdown" },
-        { path: "artifacts/report.md", blobSha256: "f".repeat(64), size: 20, mediaType: "text/markdown" },
-        { path: "artifacts/reports/night.html", blobSha256: "a".repeat(64), size: 120, mediaType: "text/html" },
+        {
+          path: "task_plan.md",
+          blobSha256: "d".repeat(64),
+          size: 20,
+          mediaType: "text/markdown",
+          uncommitted: uncommittedPlan,
+        },
+        { path: "INDEX.md", blobSha256: "e".repeat(64), size: 20, mediaType: "text/markdown", uncommitted: false },
+        {
+          path: "artifacts/report.md",
+          blobSha256: "f".repeat(64),
+          size: 20,
+          mediaType: "text/markdown",
+          uncommitted: false,
+        },
+        {
+          path: "artifacts/reports/night.html",
+          blobSha256: "a".repeat(64),
+          size: 120,
+          mediaType: "text/html",
+          uncommitted: false,
+        },
       ],
       watermark: 7,
       sourceRevision: 7,
