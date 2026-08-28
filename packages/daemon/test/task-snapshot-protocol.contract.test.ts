@@ -45,6 +45,7 @@ const row = {
   placement: {
     moduleKeys: [],
     productLines: [],
+    spawningDecisionIds: [],
     parentTaskId: null,
     origin: "native",
     engine: "kernel/task-lifecycle/v1",

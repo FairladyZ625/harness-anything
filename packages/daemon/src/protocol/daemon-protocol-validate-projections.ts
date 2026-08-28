@@ -80,101 +80,152 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
 }
 
 export function validateDaemonRelationGraph(value: unknown): readonly string[] {
+  if (!recordWith(value, DAEMON_RELATION_GRAPH_SCHEMA.required)) return ["daemon relation graph is invalid"];
+  const full = value.facet === undefined,
+    topFields = [
+      ...DAEMON_RELATION_GRAPH_SCHEMA.required,
+      ...(full && value.page !== undefined ? ["page"] : []),
+      ...(full ? [] : ["facet"]),
+    ];
   if (
-    !recordWith(value, DAEMON_RELATION_GRAPH_SCHEMA.required) ||
+    !exactRecord(value, topFields) ||
     value.ok !== true ||
     !warningArray(value.warnings) ||
-    (value.page !== undefined && !queryPageRow(value.page)) ||
+    (full && value.page !== undefined && !queryPageRow(value.page)) ||
     !Array.isArray(value.edges) ||
-    value.edges.some(
-      (edge) =>
-        !recordWith(edge, [
-          "relationId",
-          "sourceRef",
-          "targetRef",
-          "relationType",
-          "direction",
-          "strength",
-          "origin",
-          "state",
-          "rationale",
-          "ownerRef",
-          "sourcePath",
-          "recordIndex",
-        ]) ||
-        !integer(edge.recordIndex) ||
-        [
-          "relationId",
-          "sourceRef",
-          "targetRef",
-          "relationType",
-          "direction",
-          "strength",
-          "origin",
-          "state",
-          "rationale",
-          "ownerRef",
-          "sourcePath",
-        ].some((field) => !nonEmpty(edge[field])),
-    ) ||
     !Array.isArray(value.coverageRows) ||
-    value.coverageRows.some(
-      (row) =>
-        !recordWith(row, ["decisionRef", "claimRef", "status", "fulfillment", "relationPath"]) ||
-        !nonEmpty(row.decisionRef) ||
-        !nonEmpty(row.claimRef) ||
-        (row.status !== "covered" && row.status !== "uncovered") ||
-        (row.fulfillment !== null &&
-          !["evidenced", "delivered", "standing-policy"].includes(String(row.fulfillment))) ||
-        (row.refutingFactRefs !== undefined && !stringArray(row.refutingFactRefs)) ||
-        !stringArray(row.relationPath) ||
-        (row.basisRevision !== undefined && !integer(row.basisRevision)) ||
-        (row.coveringFactRef !== undefined && !nonEmpty(row.coveringFactRef)) ||
-        (row.freshnessReason !== undefined &&
-          !["refuted", "no-live-evidence", "fulfillment-undeclared"].includes(String(row.freshnessReason))),
-    ) ||
     !Array.isArray(value.factAnchors) ||
-    value.factAnchors.some(
-      (row) =>
-        !recordWith(row, ["factRef", "factId", "sourcePath"]) ||
-        ["factRef", "factId", "sourcePath"].some((field) => !nonEmpty(row[field])) ||
-        (row.taskId !== undefined && !nonEmpty(row.taskId)),
-    ) ||
-    !Array.isArray(value.facts) ||
-    value.facts.some(
-      (row) =>
-        !recordWith(row, [
-          "schema",
-          "ref",
-          "factId",
-          "statement",
-          "source",
-          "observedAt",
-          "confidence",
-          "memoryClass",
-          "memoryTags",
-          "provenance",
-          "liveness",
-        ]) ||
-        row.schema !== "task-fact-row/v1" ||
-        !["standing", "superseded_fact"].includes(String(row.liveness)) ||
-        !["low", "medium", "high"].includes(String(row.confidence)) ||
-        !["semantic", "episodic", "procedural"].includes(String(row.memoryClass)) ||
-        !stringArray(row.memoryTags) ||
-        !Array.isArray(row.provenance) ||
-        row.provenance.some(
-          (entry) =>
-            !recordWith(entry, ["runtime", "sessionId", "boundAt"]) ||
-            !nonEmpty(entry.runtime) ||
-            !nonEmpty(entry.sessionId) ||
-            !nonEmpty(entry.boundAt),
-        ) ||
-        ["ref", "factId", "statement", "source", "observedAt"].some((field) => !nonEmpty(row[field])) ||
-        (row.taskId !== undefined && !nonEmpty(row.taskId)),
+    !Array.isArray(value.facts)
+  )
+    return ["daemon relation graph is invalid"];
+  if (full) {
+    if (
+      value.edges.some(relationEdgeInvalid) ||
+      value.coverageRows.some(coverageRowInvalid) ||
+      value.factAnchors.some(factAnchorInvalid) ||
+      value.facts.some(fullFactInvalid)
     )
+      return ["daemon relation graph is invalid"];
+    return [];
+  }
+  if (!["edges", "facts", "coverageRows", "factAnchors"].includes(String(value.facet)))
+    return ["daemon relation graph is invalid"];
+  const unselected = [
+    ...(value.facet === "edges" ? [] : [value.edges]),
+    ...(value.facet === "coverageRows" ? [] : [value.coverageRows]),
+    ...(value.facet === "factAnchors" ? [] : [value.factAnchors]),
+    ...(value.facet === "facts" ? [] : [value.facts]),
+  ];
+  if (
+    unselected.some((rows) => rows.length !== 0) ||
+    (value.facet === "edges" && value.edges.some(relationEdgeInvalid)) ||
+    (value.facet === "coverageRows" && value.coverageRows.some(coverageRowInvalid)) ||
+    (value.facet === "factAnchors" && value.factAnchors.some(factAnchorInvalid)) ||
+    (value.facet === "facts" && value.facts.some(factSummaryInvalid))
   )
     return ["daemon relation graph is invalid"];
   return [];
+}
+
+function relationEdgeInvalid(edge: unknown): boolean {
+  return (
+    !recordWith(edge, [
+      "relationId",
+      "sourceRef",
+      "targetRef",
+      "relationType",
+      "direction",
+      "strength",
+      "origin",
+      "state",
+      "rationale",
+      "ownerRef",
+      "sourcePath",
+      "recordIndex",
+    ]) ||
+    !integer(edge.recordIndex) ||
+    [
+      "relationId",
+      "sourceRef",
+      "targetRef",
+      "relationType",
+      "direction",
+      "strength",
+      "origin",
+      "state",
+      "rationale",
+      "ownerRef",
+      "sourcePath",
+    ].some((field) => !nonEmpty(edge[field]))
+  );
+}
+
+function coverageRowInvalid(row: unknown): boolean {
+  return (
+    !recordWith(row, ["decisionRef", "claimRef", "status", "fulfillment", "relationPath"]) ||
+    !nonEmpty(row.decisionRef) ||
+    !nonEmpty(row.claimRef) ||
+    (row.status !== "covered" && row.status !== "uncovered") ||
+    (row.fulfillment !== null && !["evidenced", "delivered", "standing-policy"].includes(String(row.fulfillment))) ||
+    (row.refutingFactRefs !== undefined && !stringArray(row.refutingFactRefs)) ||
+    !stringArray(row.relationPath) ||
+    (row.basisRevision !== undefined && !integer(row.basisRevision)) ||
+    (row.coveringFactRef !== undefined && !nonEmpty(row.coveringFactRef)) ||
+    (row.freshnessReason !== undefined &&
+      !["refuted", "no-live-evidence", "fulfillment-undeclared"].includes(String(row.freshnessReason)))
+  );
+}
+
+function factAnchorInvalid(row: unknown): boolean {
+  return (
+    !recordWith(row, ["factRef", "factId", "sourcePath"]) ||
+    ["factRef", "factId", "sourcePath"].some((field) => !nonEmpty(row[field])) ||
+    (row.taskId !== undefined && !nonEmpty(row.taskId))
+  );
+}
+
+function fullFactInvalid(row: unknown): boolean {
+  return (
+    !recordWith(row, [
+      "schema",
+      "ref",
+      "factId",
+      "statement",
+      "source",
+      "observedAt",
+      "confidence",
+      "memoryClass",
+      "memoryTags",
+      "provenance",
+      "liveness",
+    ]) ||
+    row.schema !== "task-fact-row/v1" ||
+    !["standing", "superseded_fact"].includes(String(row.liveness)) ||
+    !["low", "medium", "high"].includes(String(row.confidence)) ||
+    !["semantic", "episodic", "procedural"].includes(String(row.memoryClass)) ||
+    !stringArray(row.memoryTags) ||
+    !Array.isArray(row.provenance) ||
+    row.provenance.some(
+      (entry) =>
+        !recordWith(entry, ["runtime", "sessionId", "boundAt"]) ||
+        !nonEmpty(entry.runtime) ||
+        !nonEmpty(entry.sessionId) ||
+        !nonEmpty(entry.boundAt),
+    ) ||
+    ["ref", "factId", "statement", "source", "observedAt"].some((field) => !nonEmpty(row[field])) ||
+    (row.taskId !== undefined && !nonEmpty(row.taskId))
+  );
+}
+
+function factSummaryInvalid(row: unknown): boolean {
+  return (
+    !recordWith(row, ["anchor", "text", "category"]) ||
+    Object.keys(row).some((field) => !["anchor", "text", "category", "taskId"].includes(field)) ||
+    !nonEmpty(row.anchor) ||
+    !nonEmpty(row.text) ||
+    !["lesson", "finding", "progress"].includes(String(row.category)) ||
+    (row.taskId !== undefined && !nonEmpty(row.taskId))
+  );
 }
 
 export function readiness(value: unknown): boolean {
@@ -202,6 +253,26 @@ export function readiness(value: unknown): boolean {
 }
 
 export function validateDaemonDecisionList(value: unknown): readonly string[] {
+  if (isJsonObject(value) && value.projection === "summary") {
+    if (
+      !exactRecord(value, ["ok", "projection", "decisions", "warnings"]) ||
+      value.ok !== true ||
+      !warningArray(value.warnings) ||
+      !Array.isArray(value.decisions) ||
+      value.decisions.some(
+        (row) =>
+          !exactRecord(row, ["decisionId", "title", "state", "appliesTo"]) ||
+          !nonEmpty(row.decisionId) ||
+          !nonEmpty(row.title) ||
+          !statusWord(decisionStateWords, row.state) ||
+          !exactRecord(row.appliesTo, ["modules", "productLines"]) ||
+          !stringArray(row.appliesTo.modules) ||
+          !stringArray(row.appliesTo.productLines),
+      )
+    )
+      return ["daemon decision list is invalid"];
+    return [];
+  }
   const fields = [
       "schema",
       "decisionId",
@@ -253,9 +324,14 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
               !isJsonObject(entry.actor) ||
               !/^sha256:[0-9a-f]{64}$/u.test(String(entry.digest)),
           )));
+  const topFields = [
+    ...DAEMON_DECISION_LIST_SCHEMA.required,
+    ...(isJsonObject(value) && value.projection === "full" ? ["projection"] : []),
+  ];
   if (
     !recordWith(value, DAEMON_DECISION_LIST_SCHEMA.required) ||
-    Object.keys(value).some((key) => !DAEMON_DECISION_LIST_SCHEMA.required.includes(key as never)) ||
+    !exactRecord(value, topFields) ||
+    (value.projection !== undefined && value.projection !== "full") ||
     value.ok !== true ||
     !warningArray(value.warnings) ||
     !Array.isArray(value.decisions) ||

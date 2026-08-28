@@ -1,4 +1,4 @@
-import { shape } from "./daemon-protocol-gui-types.ts";
+import { optionalEnum, shape } from "./daemon-protocol-gui-types.ts";
 
 export const DAEMON_TASK_SNAPSHOT_LIST_SCHEMA = Object.freeze({
   id: "daemon.task-snapshot-list/v1",
@@ -181,11 +181,19 @@ export const daemonTaskQueryPayloadShape = shape({
 });
 
 export const daemonRelationQueryPayloadShape = shape({
+  facet: optionalEnum(["edges", "facts", "coverageRows", "factAnchors"]),
+  relationType: "string?",
+  state: "string?",
+  direction: optionalEnum(["directed", "undirected"]),
   status: "string?",
   updatedAfter: "string?",
   updatedBefore: "string?",
   limit: "number?",
   cursor: "string?",
+});
+
+export const daemonDecisionListPayloadShape = shape({
+  projection: optionalEnum(["summary", "full"]),
 });
 
 export const daemonAgendaPayloadShape = shape({

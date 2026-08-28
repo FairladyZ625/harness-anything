@@ -212,6 +212,18 @@ test("relation graph contract accepts the materialized ledger row schema and rej
   assert.deepEqual(validateDaemonRelationGraph({ ...payload, coverageRows: [{ ...payload.coverageRows[0], status: "uncovered", fulfillment: null, freshnessReason: "refuted", refutingFactRefs: ["fact/F-REAL"] }] }), []);
   assert.deepEqual(validateDaemonRelationGraph({ ...payload, coverageRows: [{ ...payload.coverageRows[0], status: "uncovered", fulfillment: null, freshnessReason: "stale" }] }), ["daemon relation graph is invalid"]);
   const { observedAt: _observedAt, ...missingObservedAt } = payload.facts[0]; assert.deepEqual(validateDaemonRelationGraph({ ...payload, facts: [missingObservedAt] }), ["daemon relation graph is invalid"]);
+  const empty = { edges: [], coverageRows: [], factAnchors: [], facts: [] };
+  const facets = [
+    { ok: true, facet: "edges", ...empty, edges: payload.edges, warnings: [] },
+    { ok: true, facet: "facts", ...empty, facts: [{ anchor: "fact/F-REAL", text: "Real observation.", category: "lesson", taskId: "task_REAL" }], warnings: [] },
+    { ok: true, facet: "coverageRows", ...empty, coverageRows: payload.coverageRows, warnings: [] },
+    { ok: true, facet: "factAnchors", ...empty, factAnchors: payload.factAnchors, warnings: [] },
+  ];
+  for (const facet of facets) assert.deepEqual(validateDaemonRelationGraph(facet), [], String(facet.facet));
+  assert.deepEqual(validateDaemonRelationGraph({ ...facets[0], facet: "unknown" }), ["daemon relation graph is invalid"]);
+  assert.deepEqual(validateDaemonRelationGraph({ ...facets[1], extra: true }), ["daemon relation graph is invalid"]);
+  assert.deepEqual(validateDaemonRelationGraph({ ...facets[2], facts: facets[1]!.facts }), ["daemon relation graph is invalid"]);
+  assert.deepEqual(validateDaemonRelationGraph({ ...facets[1], facts: [{ ...facets[1]!.facts[0], category: "semantic" }] }), ["daemon relation graph is invalid"]);
 });
 
 // prettier-ignore
@@ -219,6 +231,7 @@ test("relation graph contract accepts the materialized ledger row schema and rej
 test("wide GUI read contracts accept only their explicit narrow and page facets", () => {
   const task = (payload: Record<string, unknown>) => parseDaemonRpcParams("repo.tasks.list", { repo: { repoId: "alpha" }, payload });
   const graph = (payload: Record<string, unknown>) => parseDaemonRpcParams("repo.triadic.relationGraph", { repo: { repoId: "alpha" }, payload });
+  const decisions = (payload: Record<string, unknown>) => parseDaemonRpcParams("repo.decisions.list", { repo: { repoId: "alpha" }, payload });
   assert.equal(task({ status: "blocked", updatedAfter: "2026-08-01T00:00:00.000Z", updatedBefore: "2026-08-31T00:00:00.000Z", limit: 25, cursor: "WyJ0YXNrLTEiXQ" }).ok, true);
   assert.equal(graph({ status: "edge_retired", limit: 25 }).ok, true);
   assert.equal(task({ status: "edge_retired" }).ok, false);
@@ -226,6 +239,15 @@ test("wide GUI read contracts accept only their explicit narrow and page facets"
   assert.equal(task({ limit: 0 }).ok, false);
   assert.equal(graph({ updatedAfter: "later", updatedBefore: "earlier" }).ok, false);
   assert.equal(task({ unexpected: true }).ok, false);
+  assert.equal(graph({ facet: "edges", relationType: "derives", state: "active", direction: "directed" }).ok, true);
+  for (const facet of ["facts", "coverageRows", "factAnchors"]) assert.equal(graph({ facet }).ok, true, facet);
+  assert.equal(graph({ facet: "unknown" }).ok, false);
+  assert.equal(graph({ facet: "facts", relationType: "derives" }).ok, false);
+  assert.equal(graph({ relationType: "derives" }).ok, false);
+  assert.equal(decisions({ projection: "summary" }).ok, true);
+  assert.equal(decisions({ projection: "full" }).ok, true);
+  assert.equal(decisions({ projection: "compact" }).ok, false);
+  assert.equal(decisions({ projection: "summary", extra: true }).ok, false);
 });
 
 // prettier-ignore
@@ -284,7 +306,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
 test("GUI command receipts and task supplements reject unknown, missing, and mistyped fields", () => {
   const proof = { committedRevision: 0, appliedCut: 0, durable: true, canonicalVisible: true, worktreeVisible: null }, receipt = { schema: "command-receipt/v2", ok: true, command: "decision-list", outcome: "applied", opId: "read:decision-list", revision: 0, evidence: "{}", visibility: "center", proof };
   assert.deepEqual(validateDaemonGuiCommandReceipt(receipt), []); assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, extra: true }), []); const { schema: _schema, ...missing } = receipt; assert.notDeepEqual(validateDaemonGuiCommandReceipt(missing), []); assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, revision: "0" }), []);
-  const availability = { consents: "unknown", codeDocWitnesses: "unknown", gateWitnesses: "unknown" }, placement = { moduleKeys: [], productLines: [], parentTaskId: null, origin: "native", engine: "kernel/task-lifecycle/v1", packageDisposition: "active", provenance: [{ kind: "canonical-event", ref: "task/task-old" }] }, old = { ok: true, status: "ready", watermark: 0, sourceRevision: 0, warnings: [], rows: [{ taskId: "task-old", packagePath: null, generation: "v1", workspaceRevision: 0, createdAt: null, updatedAt: "2026-08-14T00:00:00.000Z", snapshot: { revision: 0, task: null, executions: [], reviews: [], edgesTaken: [], lease: null, decisionRelations: [] }, coordinationStatus: "unknown", snapshotAvailability: availability, closeoutAssessment: { readiness: "missing", blocker: "execution", gates: [] }, blockingAssessment: { taskId: "task-old", state: "clear", blockers: [], warnings: [] }, placement, executionEvidence: [] }] };
+  const availability = { consents: "unknown", codeDocWitnesses: "unknown", gateWitnesses: "unknown" }, placement = { moduleKeys: [], productLines: [], spawningDecisionIds: [], parentTaskId: null, origin: "native", engine: "kernel/task-lifecycle/v1", packageDisposition: "active", provenance: [{ kind: "canonical-event", ref: "task/task-old" }] }, old = { ok: true, status: "ready", watermark: 0, sourceRevision: 0, warnings: [], rows: [{ taskId: "task-old", packagePath: null, generation: "v1", workspaceRevision: 0, createdAt: null, updatedAt: "2026-08-14T00:00:00.000Z", snapshot: { revision: 0, task: null, executions: [], reviews: [], edgesTaken: [], lease: null, decisionRelations: [] }, coordinationStatus: "unknown", snapshotAvailability: availability, closeoutAssessment: { readiness: "missing", blocker: "execution", gates: [] }, blockingAssessment: { taskId: "task-old", state: "clear", blockers: [], warnings: [] }, placement, executionEvidence: [] }] };
   assert.deepEqual(validateDaemonTaskSnapshotList(old), []); assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...old, rows: [{ ...old.rows[0]!, unknown: true }] }), []); const { placement: _placement, ...withoutPlacement } = old.rows[0]!; assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...old, rows: [withoutPlacement] }), []); assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...old, rows: [{ ...old.rows[0]!, executionEvidence: [{ executionId: 1, origin: "native", outputs: [] }] }] }), []);
   const metadata = { idempotencyKey: null, parentTaskId: null, workKind: "feat", riskTier: "medium", urgency: "high", verticalId: "software/coding", presetId: "standard-task", profileId: "default", moduleKey: "daemon", slug: "current-task", surfaces: ["cli"], longRunning: false, fromLegacyId: null }, provenance = [{ runtime: "unavailable", sessionId: null, transcriptReachability: "unavailable", boundAt: "2026-08-14T00:00:00.000Z" }], relation = { relation_id: "rel_0123456789abcdef", source: "task/task-current", target: "task/task-old", type: "depends-on", strength: "strong", direction: "directed", origin: "declared", rationale: "Required first", state: "active" }, currentTask = { schema: "task/v1", taskId: "task-current", title: "Current task", taskClass: "standard", status: "blocked", graph: {}, currentNode: "implementation", iteration: 0, createdBy: { principal: { personId: "person-owner" }, executor: null }, completionGateIds: [], presetSnapshotDigest: null, provenance, pinned: true, metadata, relations: [relation], packageDisposition: "archived", supersededBy: "task-next", contractVersion: 1 }, current = { ...old, rows: [{ ...old.rows[0]!, taskId: "task-current", coordinationStatus: "blocked", snapshot: { ...old.rows[0]!.snapshot, task: currentTask } }] };
   assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...old, rows: [{ ...old.rows[0]!, coordinationStatus: "weird" }] }), []);
@@ -1125,6 +1147,11 @@ test("decision readiness survives the wire when the canonical Git cut is unavail
   assert.equal(noCut[0]?.basisCommitSha, "");
   assert.equal(noCut[0]?.appliesToDrift.state, "unknown");
   assert.deepEqual(validateDaemonDecisionList(decisionList(noCut[0]!)), []);
+  assert.deepEqual(validateDaemonDecisionList({ ...decisionList(noCut[0]!), projection: "full" }), []);
+  const summary = { ok: true, projection: "summary", decisions: [{ decisionId: "dec_1", title: "Title", state: "in_effect", appliesTo: { modules: ["daemon"], productLines: ["gui"] } }], warnings: [] };
+  assert.deepEqual(validateDaemonDecisionList(summary), []);
+  assert.deepEqual(validateDaemonDecisionList({ ...summary, decisions: [{ ...summary.decisions[0]!, readiness: noCut[0] }] }), ["daemon decision list is invalid"]);
+  assert.deepEqual(validateDaemonDecisionList({ ...summary, decisions: [{ ...summary.decisions[0]!, state: "unknown" }] }), ["daemon decision list is invalid"]);
 
   const verdictWithoutBasis = { ...noCut[0]!, appliesToDrift: { ...noCut[0]!.appliesToDrift, state: "clear" as const } };
   assert.deepEqual(validateDaemonDecisionList(decisionList(verdictWithoutBasis)), ["daemon decision list is invalid"]);
