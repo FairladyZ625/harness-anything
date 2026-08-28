@@ -1,6 +1,6 @@
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
-import type { ActorAxes, ContractValidationIssue } from "./task.ts";
+import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
@@ -292,6 +292,10 @@ function sameReleasedLease(current: LeaseV1, released: LeaseV1): boolean {
     stableStringify({ ...released, phase: "held" }) === stableStringify(current)
   );
 }
+function sameReplayTask(current: TaskLifecycleSnapshot["task"], recorded: TaskLifecycleSnapshot["task"]): boolean {
+  if (!current || !recorded) return current === recorded;
+  return stableStringify(currentTaskForWrite(current)) === stableStringify(currentTaskForWrite(recorded));
+}
 function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next: TaskLifecycleSnapshot): void {
   if (event.type === "code_doc_repointed") {
     const target = snapshot.codeDocWitnesses.find(
@@ -331,7 +335,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
       !snapshot.lease ||
       !sameReleasedLease(snapshot.lease, event.payload.releasedLease) ||
       event.payload.execution.executionId !== snapshot.lease.executionId ||
-      stableStringify(event.payload.task) !== stableStringify(expectedTask) ||
+      !sameReplayTask(event.payload.task, expectedTask) ||
       (changesStatus && (!snapshot.task || !explainStatusTransition(snapshot.task.status, "blocked").allowed)) ||
       next.lease !== null
     )
@@ -345,7 +349,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
       expectedTask = snapshot.task ? { ...snapshot.task, status: "in_review" as const } : null;
     if (
       !current ||
-      stableStringify(event.payload.task) !== stableStringify(expectedTask) ||
+      !sameReplayTask(event.payload.task, expectedTask) ||
       stableStringify(event.payload.previousActor) !== stableStringify(current.actor) ||
       stableStringify(event.payload.execution) !== stableStringify(expected) ||
       current.actor.executor !== null ||
