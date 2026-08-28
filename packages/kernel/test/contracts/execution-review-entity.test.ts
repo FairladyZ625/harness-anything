@@ -264,32 +264,33 @@ test("a synthetic third contract drives the same embedded projection interpreter
   assert.equal(getEntityKindContract("runtime-session")?.relations.edges[0]?.projection, undefined);
 });
 
-test("historical settings snapshots discard the retired authored locale on read", () => {
+test("embedded settings projections reject the retired authored locale", () => {
   const contract = getEntityKindContract("settings");
   assert.ok(contract);
-  const [projection] = interpretEmbeddedEntityProjections(contract, {
-    schema: "settings-event/v1",
-    type: "settings_changed",
-    opId: "op-settings-history",
-    workspaceRevision: 18,
-    payload: {
-      settings: {
-        schema: "settings/v1",
-        settingsId: "repository",
-        defaultVertical: "software/coding",
-        defaultPreset: "standard-task",
-        defaultProfile: "baseline",
-        locale: "zh-CN",
-        scaffolds: {
-          task: "governance/task-scaffold.json",
-          repository: "governance/repository-scaffold.json",
+  assert.throws(
+    () =>
+      interpretEmbeddedEntityProjections(contract, {
+        schema: "settings-event/v1",
+        type: "settings_changed",
+        opId: "op-settings-history",
+        workspaceRevision: 18,
+        payload: {
+          settings: {
+            schema: "settings/v1",
+            settingsId: "repository",
+            defaultVertical: "software/coding",
+            defaultPreset: "standard-task",
+            defaultProfile: "baseline",
+            locale: "zh-CN",
+            scaffolds: {
+              task: "governance/task-scaffold.json",
+              repository: "governance/repository-scaffold.json",
+            },
+          },
         },
-      },
-    },
-  });
-  assert.ok(projection);
-  assert.equal(Object.hasOwn(projection.value, "locale"), false);
-  assert.equal(projection.value.defaultPreset, "standard-task");
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "invalid_entity_contract",
+  );
 });
 
 function containsFunction(value: unknown): boolean {

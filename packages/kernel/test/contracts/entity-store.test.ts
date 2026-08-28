@@ -154,7 +154,7 @@ test("one EntityStore implementation upserts, gets, and lists every registered d
   assert.equal(store.get("agent", "missing"), null);
 });
 
-test("EntityStore reads historical agent fallback fields through the current schema", () => {
+test("EntityStore get isolates current-schema rejection to the requested declaration", () => {
   const stale = {
       ...agent,
       id: "glm-5-3",
@@ -177,8 +177,10 @@ test("EntityStore reads historical agent fallback fields through the current sch
     });
 
   assert.equal(store.get<{ readonly name: string }>("agent", "terra")?.value.name, "Terra");
-  const read = store.get("agent", "glm-5-3");
-  assert.deepEqual(read?.value.fallback, { chain: [{ instance: "provider-a" }], backoff: { baseMs: 25, maxMs: 100 } });
+  assert.throws(
+    () => store.get("agent", "glm-5-3"),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "invalid_entity_contract",
+  );
 });
 
 test("EntityStore rejects pre-budget squad declarations at the schema boundary", () => {

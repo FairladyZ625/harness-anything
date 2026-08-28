@@ -17,6 +17,8 @@ import {
   serializeEventHead,
   serializePersistedCanonicalEvent,
   sha256Text,
+  validateCurrentCanonicalEvent,
+  type CanonicalEventV1,
   type DecisionDocumentState,
   type DecisionEventV1,
   type MigrationImportEventV1,
@@ -226,7 +228,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const importedDecisionBody = renderDecisionDocument(
         importedDecision,
         null,
-        "# Imported decision\n\nHistorical body.\n",
+        "# Imported decision\n\nHistorical body cites fact/task_legacy/F-ABCDEFGH.\n",
       ),
       importedDecisionClaim = {
         path: "decisions/decision-dec_IMPORTED_REKEY/decision.md",
@@ -316,7 +318,77 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     } as unknown as DecisionEventV1;
     // The source event intentionally carries the pre-migration pin. Rekey must repin it
     // from the imported snapshot before projection admission validates the retired outcome.
-    const retiredEvent = retiredEventBase;
+    const retiredEvent = retiredEventBase,
+      legacyAgent = {
+        schema: "agent-declaration/v1",
+        id: "legacy-agent",
+        name: "Legacy Agent",
+        instructions: "Exercise the migration boundary.",
+        runtime_type: "codex",
+        fallback: {
+          enabled: true,
+          chain: [{ instance: "provider-a" }],
+          backoff: { baseMs: 25, maxMs: 100, maxAttempts: 3 },
+        },
+      },
+      legacyAgentBody = `${JSON.stringify(legacyAgent, null, 2)}\n`,
+      legacyAgentSha = sha256Text(legacyAgentBody),
+      legacyAgentEvent = {
+        schema: "agent-entity-event/v1",
+        eventId: "event-legacy-agent",
+        workspaceRevision: 8,
+        opId: "op-legacy-agent",
+        type: "agent_entity_written",
+        actor,
+        source: "local",
+        occurredAt: "2026-01-04T00:00:00.000Z",
+        payload: {
+          entityKind: "agent",
+          entityId: legacyAgent.id,
+          declarationDocumentClaim: {
+            path: `agents/${legacyAgent.id}.json`,
+            sha256: legacyAgentSha,
+            size: Buffer.byteLength(legacyAgentBody),
+            mediaType: "application/json",
+            policyId: "typed-agent-entity/v1",
+          },
+        },
+      } as const,
+      settingsBody = readFileSync(path.join(scratch, "harness/harness.yaml"), "utf8"),
+      settingsSha = sha256Text(settingsBody),
+      legacySettingsEvent = {
+        schema: "settings-event/v1",
+        eventId: "event-legacy-settings",
+        workspaceRevision: 9,
+        opId: "op-legacy-settings",
+        entity: { kind: "settings", id: "repository" },
+        type: "settings_changed",
+        actor,
+        source: "local",
+        occurredAt: "2026-01-04T01:00:00.000Z",
+        payload: {
+          settings: {
+            schema: "settings/v1",
+            settingsId: "repository",
+            defaultVertical: "software/coding",
+            defaultPreset: "standard-task",
+            defaultProfile: "baseline",
+            locale: "en-US",
+            scaffolds: {
+              task: "governance/task-scaffold.json",
+              repository: "governance/repository-scaffold.json",
+            },
+          },
+          harnessDocumentClaim: {
+            path: "harness.yaml",
+            sha256: settingsSha,
+            size: Buffer.byteLength(settingsBody),
+            mediaType: "application/yaml",
+            policyId: "settings-facet/v1",
+          },
+          baseDocumentSha256: settingsSha,
+        },
+      } as const;
     const legacyBody = `${JSON.stringify(legacyEvent)}\n`;
     const targetEventPath = path.join(
       scratch,
@@ -373,18 +445,56 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     writeFileSync(retiredEventPath, retiredBody);
     mkdirSync(path.dirname(importedDecisionContentPath), { recursive: true });
     writeFileSync(importedDecisionContentPath, importedDecisionBody);
+    const legacyAgentEventBody = serializePersistedCanonicalEvent(legacyAgentEvent as unknown as CanonicalEventV1),
+      legacyAgentEventPath = path.join(
+        scratch,
+        "harness",
+        eventObjectRelativePath(legacyAgentEvent.opId, seedStore.layout()),
+      ),
+      legacySettingsEventBody = serializePersistedCanonicalEvent(legacySettingsEvent as unknown as CanonicalEventV1),
+      legacySettingsEventPath = path.join(
+        scratch,
+        "harness",
+        eventObjectRelativePath(legacySettingsEvent.opId, seedStore.layout()),
+      ),
+      legacyAgentContentPath = path.join(
+        scratch,
+        "harness",
+        contentObjectRelativePath(legacyAgentSha, seedStore.layout()),
+      ),
+      settingsContentPath = path.join(scratch, "harness", contentObjectRelativePath(settingsSha, seedStore.layout())),
+      authoredAgentPath = path.join(scratch, "harness", legacyAgentEvent.payload.declarationDocumentClaim.path);
+    for (const target of [
+      legacyAgentEventPath,
+      legacySettingsEventPath,
+      legacyAgentContentPath,
+      settingsContentPath,
+      authoredAgentPath,
+    ])
+      mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(legacyAgentEventPath, legacyAgentEventBody);
+    writeFileSync(legacySettingsEventPath, legacySettingsEventBody);
+    writeFileSync(legacyAgentContentPath, legacyAgentBody);
+    writeFileSync(settingsContentPath, settingsBody);
+    writeFileSync(authoredAgentPath, legacyAgentBody);
     writeFileSync(
       path.join(scratch, "harness/events/head.json"),
       serializeEventHead({
-        revision: 7,
-        opId: retiredEvent.opId,
-        eventDigest: `sha256:${sha256Text(retiredBody)}`,
+        revision: 9,
+        opId: legacySettingsEvent.opId,
+        eventDigest: `sha256:${sha256Text(legacySettingsEventBody)}`,
       }),
     );
-    execFileSync("git", ["-C", scratch, "add", "harness/events", "harness/objects"]);
+    execFileSync("git", ["-C", scratch, "add", "harness/events", "harness/objects", "harness/agents"]);
     execFileSync("git", ["-C", scratch, "commit", "-qm", "legacy fact event fixture"]);
     const legacyCommit = execFileSync("git", ["-C", scratch, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     execFileSync("git", ["-C", scratch, "update-ref", "refs/ha/canonical", legacyCommit]);
+    const legacyFactsDriftBody = `${legacyFactBody}\n# Worktree-only drift\n`,
+      importedDecisionPath = path.join(scratch, "harness", importedDecisionClaim.path),
+      importedDecisionDriftBody = `${importedDecisionBody}\nWorktree-only drift cites fact/task_legacy/F-ABCDEFGH.\n`;
+    writeFileSync(legacyFactsPath, legacyFactsDriftBody);
+    mkdirSync(path.dirname(importedDecisionPath), { recursive: true });
+    writeFileSync(importedDecisionPath, importedDecisionDriftBody);
     cell = await openRepoCell({
       repoId: workspaceId("fact-rekey-fixture"),
       rootDir: canonicalRoot(scratch),
@@ -401,6 +511,8 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     assert.equal(previewEvidence.counts.rekeyedFacts, 4);
     assert.equal(previewEvidence.counts.producesEdges, 4);
     assert.equal(previewEvidence.counts.retargetedRelations, 3);
+    assert.equal(previewEvidence.counts.rewrittenAgentEvents, 1);
+    assert.equal(previewEvidence.counts.rewrittenSettingsEvents, 1);
 
     const applied = (await cell.run({ kind: "fact-rekey" }, binding)) as Record<string, unknown>;
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
@@ -422,13 +534,28 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const marker = stream.events.find(
       (event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "id-map",
     );
-    assert.equal(marker?.workspaceRevision, 12);
+    assert.equal(marker?.workspaceRevision, 14);
     assert.equal(marker?.schema === "migration-import-event/v1" ? marker.payload.ledgerEpoch : undefined, 1);
     assert.equal(
-      stream.events.some((event) => event.schema === "doc-event/v1" && event.workspaceRevision === 9),
+      stream.events.some((event) => event.schema === "doc-event/v1" && event.workspaceRevision === 11),
       true,
     );
     assert.equal(stream.events.filter((event) => event.schema === "doc-event/v1").length, 3);
+    const authoredRewrite = stream.events.find(
+        (event) => event.schema === "doc-event/v1" && event.workspaceRevision === 11,
+      ),
+      importedDecisionRewrite =
+        authoredRewrite?.schema === "doc-event/v1"
+          ? authoredRewrite.payload.changes.find((change) => change.path === importedDecisionClaim.path)
+          : undefined,
+      legacyFactsRetirement = stream.events
+        .filter((event) => event.schema === "doc-event/v1")
+        .flatMap((event) => (event.schema === "doc-event/v1" ? event.payload.changes : []))
+        .find((change) => change.path === "tasks/task_legacy-old/facts.md" && change.candidate === null);
+    assert.equal(importedDecisionRewrite?.baseBlobSha256, importedDecisionClaim.sha256);
+    assert.notEqual(importedDecisionRewrite?.baseBlobSha256, sha256Text(importedDecisionDriftBody));
+    assert.equal(legacyFactsRetirement?.baseBlobSha256, legacyFactSha);
+    assert.notEqual(legacyFactsRetirement?.baseBlobSha256, sha256Text(legacyFactsDriftBody));
     const rewrittenRetired = stream.events.find(
       (event) => event.schema === "decision-event/v1" && event.opId === retiredEvent.opId,
     );
@@ -465,7 +592,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     try {
       const projected = projection.readDocument("decisions/decision-dec_LEGACY/decision.md");
       assert.equal(projected.status, "ready");
-      assert.equal(projected.document?.workspaceRevision, 9);
+      assert.equal(projected.document?.workspaceRevision, 11);
       assert.equal(
         projected.document?.body,
         readFileSync(path.join(scratch, "harness/decisions/decision-dec_LEGACY/decision.md"), "utf8"),
@@ -498,9 +625,30 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       assert.equal(sha256Text(body), importedFact.payload.entity.documentClaim.sha256);
     }
 
+    const rewrittenAgentEvent = store.readEvent(legacyAgentEvent.opId);
+    assert.equal(rewrittenAgentEvent?.schema, "entity-event/v1");
+    assert.deepEqual(validateCurrentCanonicalEvent(rewrittenAgentEvent), []);
+    if (rewrittenAgentEvent?.schema === "entity-event/v1") {
+      const claim = rewrittenAgentEvent.payload.declarationDocumentClaim,
+        bytes = store.readContentBlob(claim.sha256);
+      assert.ok(bytes);
+      const rewrittenAgentBody = Buffer.from(bytes).toString("utf8"),
+        rewrittenAgent = JSON.parse(rewrittenAgentBody) as {
+          readonly fallback: { readonly enabled?: boolean; readonly backoff: { readonly maxAttempts?: number } };
+        };
+      assert.equal(Object.hasOwn(rewrittenAgent.fallback, "enabled"), false);
+      assert.equal(Object.hasOwn(rewrittenAgent.fallback.backoff, "maxAttempts"), false);
+      assert.equal(readFileSync(authoredAgentPath, "utf8"), rewrittenAgentBody);
+    }
+    const rewrittenSettingsEvent = store.readEvent(legacySettingsEvent.opId);
+    assert.equal(rewrittenSettingsEvent?.schema, "settings-event/v1");
+    assert.deepEqual(validateCurrentCanonicalEvent(rewrittenSettingsEvent), []);
+    if (rewrittenSettingsEvent?.schema === "settings-event/v1")
+      assert.equal(Object.hasOwn(rewrittenSettingsEvent.payload.settings, "locale"), false);
+
     const repeat = (await cell.run({ kind: "fact-rekey" }, binding)) as Record<string, unknown>;
     assert.equal(repeat.outcome, "no_changes", JSON.stringify(repeat));
-    assert.equal(store.readHead()?.revision, 12);
+    assert.equal(store.readHead()?.revision, 14);
   } finally {
     await cell?.close();
     if (process.env.KEEP_FACT_REKEY_FIXTURE === "1") console.error(`fact-rekey fixture: ${scratch}`);

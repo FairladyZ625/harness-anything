@@ -1,8 +1,10 @@
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  compileEntityUpsert,
   compileFactWrite,
   canonicalDocumentClaims,
+  canonicalDocumentRetirements,
   consumeKnownError,
   contentObjectRelativePath,
   deriveRelationId,
@@ -11,6 +13,7 @@ import {
   documentPath,
   eventObjectRelativePath,
   isFactEvent,
+  isEntityEvent,
   isMigrationImportEvent,
   localGitObjectRefStore,
   OPAQUE_TEXTUAL_POLICY_ID,
@@ -60,6 +63,13 @@ interface LegacyEntityEventSnapshot {
     readonly declarationDocumentClaim: EntityDeclarationClaimSnapshot;
   };
 }
+interface MigrationDocumentState {
+  readonly blobSha256: string;
+}
+interface RewrittenEntityBlob {
+  readonly sha256: string;
+  readonly body: string;
+}
 
 interface FactRekeyPlan {
   readonly facts: readonly LegacyFact[];
@@ -67,9 +77,21 @@ interface FactRekeyPlan {
   readonly map: ReadonlyMap<string, string>;
   readonly relationMap: ReadonlyMap<string, string>;
   readonly eventRewrites: readonly { readonly event: CanonicalEventV1; readonly body: string }[];
-  readonly authoredRewrites: readonly { readonly path: string; readonly body: string; readonly baseBody: string }[];
-  readonly authoredDeletes: readonly { readonly path: string; readonly baseBody: string }[];
+  readonly authoredRewrites: readonly {
+    readonly path: string;
+    readonly body: string;
+    readonly baseBlobSha256: string | null;
+  }[];
+  readonly authoredDeletes: readonly {
+    readonly path: string;
+    readonly body: string;
+    readonly baseBlobSha256: string | null;
+  }[];
   readonly newFactDocuments: readonly { readonly path: string; readonly body: string }[];
+  readonly rewrittenEntityBlobs: readonly RewrittenEntityBlob[];
+  readonly rewrittenEntityDocuments: readonly { readonly path: string; readonly body: string }[];
+  readonly rewrittenAgentEvents: number;
+  readonly rewrittenSettingsEvents: number;
   readonly docsOnly: readonly MappedLegacyFact[];
 }
 
@@ -91,7 +113,7 @@ export function runFactRekey(input: {
       event.payload.entity.kind === "id-map" &&
       event.payload.entity.importId === `fact-rekey-${digest.slice(0, 16)}`,
   );
-  if (existingMarker || plan.facts.length === 0)
+  if (existingMarker || !hasChanges(plan))
     return {
       outcome: "no_changes",
       opId: `noop:fact-rekey:${digest.slice(0, 16)}`,
@@ -107,7 +129,7 @@ export function runFactRekey(input: {
         canonicalVisible: true,
         worktreeVisible: true,
       },
-      nextAction: "All facts already use fact/F-* refs and canonical facts documents.",
+      nextAction: "All migrated records already use current fact, entity, and settings shapes.",
     };
   if (input.action.dryRun === true)
     return {
@@ -158,6 +180,11 @@ export function runFactRekey(input: {
       target = ledgerGitPath(ledger, contentObjectRelativePath(sha256, eventLayout));
     additional.set(target, { target, body: document.body, mode: "100644" });
   }
+  for (const blob of plan.rewrittenEntityBlobs) {
+    const target = ledgerGitPath(ledger, contentObjectRelativePath(blob.sha256, eventLayout));
+    additional.set(target, { target, body: blob.body, mode: "100644" });
+  }
+  for (const document of plan.rewrittenEntityDocuments) addWrite(document.path, document.body);
   const revision = currentCut.revision + preceding.length + 1,
     marker: MigrationImportEventV1 = {
       schema: "migration-import-event/v1",
@@ -229,6 +256,7 @@ export function runFactRekey(input: {
 
 function buildPlan(rootDir: string, store: any): FactRekeyPlan {
   const events = migrationEvents(rootDir, store),
+    projectedDocuments = projectDocumentStates(events),
     cold = readLegacyMigrationSource(rootDir),
     legacyEventRevisions = new Map<string, number>(),
     rows = new Map(cold.facts.map((row: any) => [`fact/${row.taskId}/${row.factId}`, row]));
@@ -287,8 +315,11 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
     if (event.schema === "entity-event/v1" && event.payload.entityKind === "squad")
       currentSquadClaims.set(event.payload.entityId, event.payload.declarationDocumentClaim);
   const eventRewrites: { event: CanonicalEventV1; body: string }[] = [],
+    rewrittenEntityBlobs = new Map<string, RewrittenEntityBlob>(),
+    rewrittenEntityPaths = new Set<string>(),
     decisionStates = new Map<string, DecisionDocumentState>(),
     decisionRelations = new Map<string, DecisionDocumentState["relations"]>(),
+    rewriteCounts = { agent: 0, settings: 0 },
     legacyEvents = new Set(
       events
         .filter(
@@ -298,8 +329,14 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
         .map((event) => event.opId),
     );
   for (const event of events) {
+    const agentRewrite = rewriteRetiredAgentEntity(event, store);
     let next: any;
-    if (isFactEvent(event) && event.taskId && legacyEvents.has(event.opId)) {
+    if (agentRewrite !== null) {
+      next = transform(agentRewrite.event, mapRef, relationMap);
+      rewrittenEntityBlobs.set(agentRewrite.blob.sha256, agentRewrite.blob);
+      rewrittenEntityPaths.add(agentRewrite.path);
+      rewriteCounts.agent += 1;
+    } else if (isFactEvent(event) && event.taskId && legacyEvents.has(event.opId)) {
       const target = map.get(`fact/${event.taskId}/${event.factId}`);
       if (!target) continue;
       const factId = target.slice("fact/".length),
@@ -348,6 +385,11 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
         );
       } else next = transform(event, mapRef, relationMap);
     } else next = transform(event, mapRef, relationMap);
+    if (next?.schema === "settings-event/v1" && Object.hasOwn(next.payload.settings, "locale")) {
+      const { locale: _locale, ...settings } = next.payload.settings;
+      next = { ...next, payload: { ...next.payload, settings } };
+      rewriteCounts.settings += 1;
+    }
     if (next?.schema === "migration-import-event/v1" && next.payload.entity.kind === "decision") {
       const decision = next.payload.entity.decision,
         importedRelations = decisionRelations.get(decision.decisionId) ?? [];
@@ -413,8 +455,29 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
       if (relativePath.startsWith("events/")) return [];
       if (legacyTaskFactPaths.has(relativePath)) return [];
       const replaced = replaceRefs(body, map, relationMap);
-      return replaced === body ? [] : [{ path: relativePath, body: replaced, baseBody: body }];
-    });
+      return replaced === body
+        ? []
+        : [
+            {
+              path: relativePath,
+              body: replaced,
+              baseBlobSha256: projectedDocuments.get(relativePath)?.blobSha256 ?? null,
+            },
+          ];
+    }),
+    eventRewriteByOpId = new Map(eventRewrites.map(({ event }) => [event.opId, event])),
+    effectiveDocuments = projectDocumentStates(events.map((event) => eventRewriteByOpId.get(event.opId) ?? event)),
+    rewrittenEntityDocuments = [...rewrittenEntityPaths]
+      .map((documentPath) => {
+        const state = effectiveDocuments.get(documentPath);
+        if (state === undefined) return null;
+        const rewritten = rewrittenEntityBlobs.get(state.blobSha256),
+          bytes = rewritten === undefined ? store.readContentBlob(state.blobSha256) : null,
+          body = rewritten?.body ?? (bytes === null ? null : new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+        if (body === null) throw new Error(`rewritten entity document ${state.blobSha256} is unavailable`);
+        return { path: documentPath, body };
+      })
+      .filter((document): document is { readonly path: string; readonly body: string } => document !== null);
   return {
     facts,
     ledgerEpoch: events.reduce(
@@ -429,11 +492,91 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
     eventRewrites,
     authoredRewrites,
     authoredDeletes: [...legacyTaskFacts]
-      .map(([path, baseBody]) => ({ path, baseBody }))
+      .map(([path, body]) => ({
+        path,
+        body,
+        baseBlobSha256: projectedDocuments.get(path)?.blobSha256 ?? null,
+      }))
       .sort((left, right) => left.path.localeCompare(right.path)),
     newFactDocuments,
+    rewrittenEntityBlobs: [...rewrittenEntityBlobs.values()],
+    rewrittenEntityDocuments,
+    rewrittenAgentEvents: rewriteCounts.agent,
+    rewrittenSettingsEvents: rewriteCounts.settings,
     docsOnly,
   };
+}
+
+function projectDocumentStates(events: readonly CanonicalEventV1[]): ReadonlyMap<string, MigrationDocumentState> {
+  const states = new Map<string, MigrationDocumentState>();
+  for (const event of events) {
+    for (const retirement of canonicalDocumentRetirements(event)) states.delete(retirement.path);
+    for (const claim of canonicalDocumentClaims(event)) states.set(claim.path, { blobSha256: claim.sha256 });
+  }
+  return states;
+}
+
+function rewriteRetiredAgentEntity(
+  event: CanonicalEventV1,
+  store: any,
+): { readonly event: CanonicalEventV1; readonly path: string; readonly blob: RewrittenEntityBlob } | null {
+  if (!isEntityEvent(event) || event.payload.entityKind !== "agent") return null;
+  const claim = event.payload.declarationDocumentClaim,
+    bytes = store.readContentBlob(claim.sha256);
+  if (bytes === null || bytes.byteLength !== claim.size)
+    throw new Error(`agent declaration blob ${claim.sha256} is unavailable`);
+  const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  if (sha256Text(body) !== claim.sha256) throw new Error(`agent declaration blob ${claim.sha256} hash mismatch`);
+  const value = JSON.parse(body) as unknown,
+    rewritten = removeRetiredAgentFields(value);
+  if (rewritten === value) return null;
+  const compiled = compileEntityUpsert({
+    entityKind: "agent",
+    entity: rewritten,
+    eventId: event.eventId,
+    opId: event.opId,
+    workspaceRevision: event.workspaceRevision,
+    actor: event.actor,
+    source: event.source,
+    occurredAt: event.occurredAt,
+  });
+  return {
+    event: compiled.event,
+    path: compiled.event.payload.declarationDocumentClaim.path,
+    blob: { sha256: compiled.blobs[0].sha256, body: compiled.blobs[0].body },
+  };
+}
+
+function removeRetiredAgentFields(value: unknown): unknown {
+  if (!isRekeyRecord(value) || !isRekeyRecord(value.fallback)) return value;
+  const fallback = value.fallback,
+    backoff = fallback.backoff,
+    hasEnabled = Object.hasOwn(fallback, "enabled"),
+    hasMaxAttempts = isRekeyRecord(backoff) && Object.hasOwn(backoff, "maxAttempts");
+  if (!hasEnabled && !hasMaxAttempts) return value;
+  const rewrittenFallback = { ...fallback };
+  delete rewrittenFallback.enabled;
+  if (hasMaxAttempts) {
+    const rewrittenBackoff = { ...backoff };
+    delete rewrittenBackoff.maxAttempts;
+    rewrittenFallback.backoff = rewrittenBackoff;
+  }
+  return { ...value, fallback: rewrittenFallback };
+}
+
+function isRekeyRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasChanges(plan: FactRekeyPlan): boolean {
+  return (
+    plan.facts.length > 0 ||
+    plan.eventRewrites.length > 0 ||
+    plan.authoredRewrites.length > 0 ||
+    plan.authoredDeletes.length > 0 ||
+    plan.newFactDocuments.length > 0 ||
+    plan.rewrittenEntityBlobs.length > 0
+  );
 }
 
 function mergeDecisionRelations(
@@ -498,36 +641,61 @@ function buildAuthoredRekeyEvents(
     readonly mediaType: string;
   }[];
 }[] {
-  const rewriteChanges: DocEventV1["payload"]["changes"] = plan.authoredRewrites.map((document) => {
-      const hasPriorClaim = migrationEvents(input.rootDir, input.store).some((event) =>
-        canonicalDocumentClaims(event).some((claim) => claim.path === document.path),
+  const rewriteChanges: DocEventV1["payload"]["changes"] = plan.authoredRewrites.map(
+      (document) =>
+        ({
+          path: documentPath(document.path),
+          baseBlobSha256: document.baseBlobSha256,
+          candidate: {
+            sha256: sha256Text(document.body),
+            size: Buffer.byteLength(document.body),
+            mediaType: document.path.endsWith(".md") ? ("text/markdown" as const) : ("text/plain" as const),
+          },
+          policyId: OPAQUE_TEXTUAL_POLICY_ID,
+          regionProofs: [],
+        }) as unknown as DocEventChange,
+    ),
+    bundles: ReturnType<typeof docEventBundle>[] = [];
+  let revision = firstRevision;
+  if (rewriteChanges.length > 0) {
+    bundles.push(docEventBundle(input, revision, rewriteChanges, plan.authoredRewrites, undefined));
+    revision += 1;
+  }
+  for (const document of plan.authoredDeletes) {
+    let baseBlobSha256 = document.baseBlobSha256;
+    if (baseBlobSha256 === null) {
+      baseBlobSha256 = sha256Text(document.body);
+      bundles.push(
+        docEventBundle(
+          input,
+          revision,
+          [
+            {
+              path: documentPath(document.path),
+              baseBlobSha256: null,
+              candidate: {
+                sha256: baseBlobSha256,
+                size: Buffer.byteLength(document.body),
+                mediaType: "text/markdown",
+              },
+              policyId: OPAQUE_TEXTUAL_POLICY_ID,
+              regionProofs: [],
+            } as unknown as DocEventChange,
+          ],
+          [document],
+          undefined,
+        ),
       );
-      return {
-        path: documentPath(document.path),
-        baseBlobSha256: hasPriorClaim ? sha256Text(document.baseBody) : null,
-        candidate: {
-          sha256: sha256Text(document.body),
-          size: Buffer.byteLength(document.body),
-          mediaType: document.path.endsWith(".md") ? ("text/markdown" as const) : ("text/plain" as const),
-        },
-        policyId: OPAQUE_TEXTUAL_POLICY_ID,
-        regionProofs: [],
-      } as unknown as DocEventChange;
-    }),
-    rewrites =
-      rewriteChanges.length === 0
-        ? []
-        : [docEventBundle(input, firstRevision, rewriteChanges, plan.authoredRewrites, undefined)];
-  return [
-    ...rewrites,
-    ...plan.authoredDeletes.map((document, index) =>
+      revision += 1;
+    }
+    bundles.push(
       docEventBundle(
         input,
-        firstRevision + rewrites.length + index,
+        revision,
         [
           {
             path: documentPath(document.path),
-            baseBlobSha256: sha256Text(document.baseBody),
+            baseBlobSha256,
             candidate: null,
             policyId: OPAQUE_TEXTUAL_POLICY_ID,
             regionProofs: [],
@@ -536,8 +704,10 @@ function buildAuthoredRekeyEvents(
         [],
         "fact records were re-keyed",
       ),
-    ),
-  ];
+    );
+    revision += 1;
+  }
+  return bundles;
 }
 
 function docEventBundle(
@@ -548,7 +718,7 @@ function docEventBundle(
   },
   revision: number,
   changes: DocEventV1["payload"]["changes"],
-  documents: FactRekeyPlan["authoredRewrites"],
+  documents: readonly { readonly path: string; readonly body: string }[],
   retirementReason: string | undefined,
 ) {
   const event: DocEventV1 = {
@@ -781,5 +951,7 @@ function counts(plan: FactRekeyPlan): Record<string, number> {
     factEvents: plan.eventRewrites.filter(({ event }) => isFactEvent(event)).length + plan.docsOnly.length,
     producesEdges: plan.facts.filter((fact) => fact.row.taskId).length,
     retargetedRelations: [...plan.relationMap].filter(([from, to]) => from !== to).length,
+    rewrittenAgentEvents: plan.rewrittenAgentEvents,
+    rewrittenSettingsEvents: plan.rewrittenSettingsEvents,
   };
 }

@@ -1,5 +1,6 @@
 export {
   canonicalDocumentClaims,
+  canonicalDocumentRetirements,
   canonicalEventCut,
   canonicalEventWritePlan,
   TaskEventStoreError,

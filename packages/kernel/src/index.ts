@@ -211,10 +211,7 @@ export type {
 export { projectDecisionReadiness } from "./projection/decision-readiness-projection.ts";
 export type { DecisionListFilters, DecisionProjectionRow } from "./projection/decision-event-projection.ts";
 export type { FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
-export {
-  buildColdCoverage,
-  readLegacyMigrationSource,
-} from "./projection/cold-rebuild-source.ts";
+export { buildColdCoverage, readLegacyMigrationSource } from "./projection/cold-rebuild-source.ts";
 export type { ColdDecisionProjectionRow, ColdRebuildIssue } from "./projection/cold-rebuild-source.ts";
 export { readMarkdownSource, taskEntryToRow } from "./projection/sqlite-task-source.ts";
 export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
@@ -226,6 +223,7 @@ export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {
   canonicalDocumentClaims,
+  canonicalDocumentRetirements,
   canonicalEventCut,
   canonicalEventWritePlan,
   configureLedgerMaintenance,

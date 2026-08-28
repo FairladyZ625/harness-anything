@@ -217,10 +217,10 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
   });
 });
 
-test("fact-rekey retirement deletes a facts document when its historical base claim is stale", async () => {
+test("document retirement rejects a base derived from worktree drift instead of projection state", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ repoId: "fact-rekey-retirement", rootDir }),
+    const eventStore = makeTaskEventStore({ repoId: "stale-retirement", rootDir }),
       documentPath = "tasks/task-1/facts.md",
       body = "# Legacy facts\n",
       hash = sha256Text(body),
@@ -228,9 +228,9 @@ test("fact-rekey retirement deletes a facts document when its historical base cl
       physicalPath = path.join(rootDir, "harness", documentPath),
       seed: DocEventV1 = {
         schema: "doc-event/v1",
-        eventId: "fact-rekey-seed",
+        eventId: "retirement-seed",
         workspaceRevision: 1,
-        opId: "fact-rekey-seed-op",
+        opId: "retirement-seed-op",
         type: "documents_written",
         actor: { principal: { personId: "person-1" }, executor: null },
         source: "local",
@@ -259,13 +259,12 @@ test("fact-rekey retirement deletes a facts document when its historical base cl
     git(rootDir, "add", "harness");
     git(rootDir, "commit", "--quiet", "-m", "physical facts update");
     git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
-    const retirementStore = makeTaskEventStore({ repoId: "fact-rekey-retirement", rootDir });
-    const retirementId = sha256Text("fact-rekey-docs\\02"),
+    const retirementStore = makeTaskEventStore({ repoId: "stale-retirement", rootDir }),
       retirement: DocEventV1 = {
         ...seed,
-        eventId: `event-${retirementId}`,
+        eventId: "stale-retirement",
         workspaceRevision: 2,
-        opId: `op_${retirementId}`,
+        opId: "stale-retirement-op",
         payload: {
           executionId: null,
           baseLedgerSha: retirementStore.currentCut(),
@@ -278,15 +277,13 @@ test("fact-rekey retirement deletes a facts document when its historical base cl
               regionProofs: [],
             },
           ],
-          retirementReason: "fact records were re-keyed",
+          retirementReason: "legacy records were migrated",
         },
       };
     retirementStore.append({ event: retirement, plan: docSyncWritePlan(retirement), blobs: [] });
     const projection = makeTaskProjection({ rootDir, eventStore: retirementStore });
+    assert.throws(() => projection.rebuild(), /document retirement mismatch/u);
     projection.close();
-    rmSync(projection.path, { force: true });
-    assert.equal(projection.rebuild().watermark, 2);
-    assert.equal(projection.readDocument(documentPath).document, null);
   });
 });
 

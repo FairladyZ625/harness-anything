@@ -101,13 +101,7 @@ export type {
   DecisionEventV1,
   DecisionState,
 } from "./decision-event.ts";
-export {
-  compileFactWrite,
-  factConfidenceLevels,
-  factMemoryClasses,
-  factWritePlan,
-  isFactId,
-} from "./fact-event.ts";
+export { compileFactWrite, factConfidenceLevels, factMemoryClasses, factWritePlan, isFactId } from "./fact-event.ts";
 export type { FactConfidence, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
 
 export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";
@@ -131,10 +125,7 @@ export type {
   EntityResidencyFacets,
   EntityRepositoryRootScaffold,
 } from "./entity-kind-registry.ts";
-export type {
-  EntityActionDraft,
-  EntityActionExecutionContract,
-} from "./entity-action-execution.ts";
+export type { EntityActionDraft, EntityActionExecutionContract } from "./entity-action-execution.ts";
 
 export {
   canonicalRelationIdentityInput,
@@ -226,7 +217,7 @@ export type {
 } from "./agent-squad-schema.ts";
 export { EntitySchemaContractError } from "./entity-json-schema.ts";
 
-export { isEntityEvent } from "./entity-event.ts";
+export { compileEntityUpsert, isEntityEvent } from "./entity-event.ts";
 export type { CiRunObservationEventV1 } from "./ci-run-observation-event.ts";
 export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";
 

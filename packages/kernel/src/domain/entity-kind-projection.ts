@@ -47,35 +47,11 @@ export function interpretEntityValue(
   value: unknown,
   label = `${contract.kind} declaration`,
 ): InterpretedEntityValue {
-  const parsed = parseEntityJsonSchema(contract.schema, readCompatibleEntityValue(contract.kind, value), label);
+  const parsed = parseEntityJsonSchema(contract.schema, value, label);
   if (!isEntityRecord(parsed)) throw new Error(`${label} must be an object`);
   const id = parsed[contract.id.field];
   if (typeof id !== "string") throw new Error(`${label} has no string identity`);
   return { kind: contract.kind, id, value: parsed };
-}
-
-// Entity blobs are immutable history. Keep current writers strict while allowing the
-// projection/entity-store read path to discard fields retired from the agent schema.
-function readCompatibleEntityValue(kind: string, value: unknown): unknown {
-  if (!isEntityRecord(value)) return value;
-  if (kind === "settings" && Object.hasOwn(value, "locale")) {
-    const normalized = { ...value };
-    delete normalized.locale;
-    return normalized;
-  }
-  if (kind !== "agent") return value;
-  const fallback = value.fallback;
-  if (!isEntityRecord(fallback)) return value;
-  const backoff = fallback.backoff;
-  if (!Object.hasOwn(fallback, "enabled") && !(isEntityRecord(backoff) && Object.hasOwn(backoff, "maxAttempts")))
-    return value;
-  const normalizedFallback = { ...fallback } as Record<string, unknown>;
-  delete normalizedFallback.enabled;
-  if (isEntityRecord(backoff) && Object.hasOwn(backoff, "maxAttempts")) {
-    normalizedFallback.backoff = { ...backoff } as Record<string, unknown>;
-    delete (normalizedFallback.backoff as Record<string, unknown>).maxAttempts;
-  }
-  return { ...value, fallback: normalizedFallback };
 }
 
 export function interpretEntityProjection(
