@@ -51,9 +51,8 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
       [
         "fact",
         "record",
-        "--task",
         "task-interactive-session",
-        "--statement",
+        "--text",
         "Interactive writes retain session identity.",
         "--source",
         "cli-e2e",
@@ -83,7 +82,7 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
       fulfillments: [],
       relations: [],
     });
-    const proposed = run(fixture, ["decision", "propose", "--json-input", proposal], claude),
+    const proposed = run(fixture, ["decision", "propose", "--json-input", "@-"], claude, proposal),
       proposedEvidence = evidence(proposed),
       decisionId = String(proposedEvidence.decisionId);
 
@@ -155,10 +154,12 @@ function run(
   fixture: { root: string; userRoot: string },
   args: readonly string[],
   session: Readonly<Record<string, string>> = {},
+  input?: string,
 ): Record<string, unknown> {
   const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", ...args], {
     encoding: "utf8",
     env: cliEnv(fixture.root, fixture.userRoot, session),
+    ...(input === undefined ? {} : { input }),
   });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;

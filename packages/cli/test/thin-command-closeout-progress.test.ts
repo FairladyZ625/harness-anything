@@ -1,11 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  firstCliCommand,
-  firstCliCommandIndex,
-  parseThinCommand,
-} from "../src/cli/thin-command.ts";
+import { firstCliCommand, firstCliCommandIndex, parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("lifecycle CLI maps explicit selectors and accepts every derivable execution or Review selector", () => {
   const submit = parseThinCommand([
@@ -159,13 +155,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--reason",
       "Recover omitted executor attribution",
     ]),
-    derivedSubmit = parseThinCommand([
-      "task",
-      "submit",
-      "task-1",
-      "--from-file",
-      "submission.json",
-    ]),
+    derivedSubmit = parseThinCommand(["task", "submit", "task-1", "--from-file", "submission.json"]),
     derivedReview = parseThinCommand([
       "task",
       "review-execution",
@@ -175,13 +165,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--from-file",
       "review.json",
     ]),
-    derivedPairConsent = parseThinCommand([
-      "task",
-      "review-consent",
-      "task-1",
-      "--consent-id",
-      "consent-1",
-    ]),
+    derivedPairConsent = parseThinCommand(["task", "review-consent", "task-1", "--consent-id", "consent-1"]),
     derivedComplete = parseThinCommand([
       "task",
       "complete",
@@ -191,13 +175,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--path",
       "packages/kernel/src/domain/task.ts",
     ]);
-  for (const parsed of [
-    derivedDeclare,
-    derivedSubmit,
-    derivedReview,
-    derivedPairConsent,
-    derivedComplete,
-  ])
+  for (const parsed of [derivedDeclare, derivedSubmit, derivedReview, derivedPairConsent, derivedComplete])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (derivedDeclare.ok)
     assert.deepEqual(derivedDeclare.command.action, {
@@ -237,48 +215,16 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       ci: "passed",
       paths: ["packages/kernel/src/domain/task.ts"],
     });
+  assert.equal(parseThinCommand(["task", "submit", "task-1", "--execution-id", "execution-1"]).ok, false);
+  assert.equal(parseThinCommand(["task", "declare-executor", "task-1", "--execution-id", "execution-1"]).ok, false);
   assert.equal(
-    parseThinCommand([
-      "task",
-      "submit",
-      "task-1",
-      "--execution-id",
-      "execution-1",
-    ]).ok,
+    parseThinCommand(["task", "review-execution", "task-1", "--execution-id", "execution-1", "--review-id", "review-1"])
+      .ok,
     false,
   );
   assert.equal(
-    parseThinCommand([
-      "task",
-      "declare-executor",
-      "task-1",
-      "--execution-id",
-      "execution-1",
-    ]).ok,
-    false,
-  );
-  assert.equal(
-    parseThinCommand([
-      "task",
-      "review-execution",
-      "task-1",
-      "--execution-id",
-      "execution-1",
-      "--review-id",
-      "review-1",
-    ]).ok,
-    false,
-  );
-  assert.equal(
-    parseThinCommand([
-      "task",
-      "review-consent",
-      "task-1",
-      "--execution-id",
-      "execution-1",
-      "--review-id",
-      "review-1",
-    ]).ok,
+    parseThinCommand(["task", "review-consent", "task-1", "--execution-id", "execution-1", "--review-id", "review-1"])
+      .ok,
     false,
   );
   assert.equal(
@@ -299,15 +245,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
     false,
   );
   assert.equal(
-    parseThinCommand([
-      "task",
-      "complete",
-      "task-1",
-      "--execution-id",
-      "execution-1",
-      "--ci",
-      "failed",
-    ]).ok,
+    parseThinCommand(["task", "complete", "task-1", "--execution-id", "execution-1", "--ci", "failed"]).ok,
     false,
   );
   const pathOnlyComplete = parseThinCommand([
@@ -330,15 +268,8 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       paths: ["packages/kernel/src/domain/task.ts"],
     });
   assert.equal(
-    parseThinCommand([
-      "task",
-      "complete",
-      "task-1",
-      "--execution-id",
-      "execution-1",
-      "--commit-sha",
-      "a".repeat(40),
-    ]).ok,
+    parseThinCommand(["task", "complete", "task-1", "--execution-id", "execution-1", "--commit-sha", "a".repeat(40)])
+      .ok,
     false,
   );
 });
@@ -367,23 +298,44 @@ test("progress append preserves ordered duplicate evidence in its closed daemon 
         { type: "test", path: "reports/result.txt", summary: "same" },
       ],
     });
-  assert.equal(
-    parseThinCommand([
+  const invalidEvidence = parseThinCommand([
+    "task",
+    "progress",
+    "append",
+    "task-1",
+    "--text",
+    "x",
+    "--evidence",
+    "bad",
+  ]);
+  assert.equal(invalidEvidence.ok, false);
+  if (!invalidEvidence.ok)
+    assert.equal(
+      invalidEvidence.nextAction,
+      'Use --evidence <type>:<path>:<summary> with a canonical relative path. Received "bad".',
+    );
+  const oldNote = parseThinCommand(["task", "progress", "append", "task-1", "--note=legacy"]),
+    oldEvidence = parseThinCommand([
       "task",
       "progress",
       "append",
       "task-1",
       "--text",
       "x",
-      "--evidence",
-      "bad",
-    ]).ok,
-    false,
-  );
-  assert.equal(
-    parseThinCommand(["task", "progress", "append", "task-1"]).ok,
-    false,
-  );
+      "--evidence-source",
+      "legacy",
+    ]);
+  for (const [result, hint] of [
+    [oldNote, "--note was removed. Use --text <progress-text>."],
+    [oldEvidence, "--evidence-source was removed. Use --evidence <type>:<path>:<summary>."],
+  ] as const) {
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.code, "unknown_field");
+      assert.equal(result.nextAction, hint);
+    }
+  }
+  assert.equal(parseThinCommand(["task", "progress", "append", "task-1"]).ok, false);
 });
 test("artifact add emits only a source-to-destination descriptor", () => {
   const parsed = parseThinCommand([
@@ -455,25 +407,14 @@ test("the command token is a position, not an argv membership test", () => {
     [["--repo", "daemon", "task", "list"], "task"],
     [["--json"], undefined],
   ] as const)
-    assert.equal(
-      firstCliCommand(argv as readonly string[]),
-      expected,
-      JSON.stringify(argv),
-    );
+    assert.equal(firstCliCommand(argv as readonly string[]), expected, JSON.stringify(argv));
   assert.equal(firstCliCommandIndex(["--repo", "daemon", "task", "list"]), 2);
   assert.equal(firstCliCommandIndex(["--json"]), -1);
 });
 
 test("a flag value that spells a command still parses as its real command", () => {
   for (const value of ["daemon", "gui"]) {
-    const parsed = parseThinCommand([
-      "task",
-      "create",
-      "--title",
-      "Wave",
-      "--module",
-      value,
-    ]);
+    const parsed = parseThinCommand(["task", "create", "--title", "Wave", "--module", value]);
     assert.equal(parsed.ok, true, `--module ${value}`);
     if (parsed.ok) assert.equal(parsed.command.action.kind, "task-create");
   }

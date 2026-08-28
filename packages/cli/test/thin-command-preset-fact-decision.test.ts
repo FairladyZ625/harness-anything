@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { materializeDecisionStdin } from "../src/index.ts";
 
 test("thin parser derives builtin vertical, template, and script discovery actions", () => {
   const vertical = parseThinCommand(["vertical", "validate", "--source", "software/coding"]),
@@ -35,7 +36,7 @@ test("thin parser derives builtin vertical, template, and script discovery actio
     "script",
     "run",
     "vertical:software-coding:architecture-check",
-    "--task-id",
+    "--task",
     "task-1",
     "--inputs",
     '{"locale":"en-US"}',
@@ -57,6 +58,10 @@ test("thin parser derives builtin vertical, template, and script discovery actio
       },
     });
   assert.equal(parseThinCommand(["script", "run", "user-canary/check"]).ok, false);
+  assert.equal(
+    parseThinCommand(["script", "run", "vertical:software-coding:architecture-check", "--task-id", "task-1"]).ok,
+    false,
+  );
   assert.equal(parseThinCommand(["preset", "run", "standard-task"]).ok, false);
   assert.equal(parseThinCommand(["preset", "action", "standard-task"]).ok, false);
 });
@@ -93,6 +98,26 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
       memoryClass: "semantic",
       memoryTags: ["pattern"],
     });
+  const migrated = parseThinCommand([
+    "fact",
+    "record",
+    "task-2",
+    "--text",
+    "Observed through the migrated shape",
+    "--source",
+    "test:migrated",
+  ]);
+  assert.equal(migrated.ok, true, JSON.stringify(migrated));
+  if (migrated.ok)
+    assert.deepEqual(migrated.command.action, {
+      kind: "fact-record",
+      taskId: "task-2",
+      statement: "Observed through the migrated shape",
+      evidenceSource: "test:migrated",
+      confidence: "medium",
+      memoryClass: "episodic",
+      memoryTags: [],
+    });
   const failures = [
     parseThinCommand(["fact", "record", "--task", "a", "--task", "b", "--statement", "x", "--source", "s"]),
     parseThinCommand(["fact", "show", "--id", "bad"]),
@@ -119,6 +144,22 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
     "x".repeat(200),
   ]);
   assert.equal(excessiveRationale.ok ? "ok" : excessiveRationale.code, "invalid_field");
+  for (const retired of ["--kind", "--summary", "--detail"]) {
+    const rejected = parseThinCommand(["fact", "record", "task-1", retired, "legacy"]);
+    assert.equal(rejected.ok, false);
+    if (!rejected.ok) {
+      assert.equal(rejected.code, "unknown_field");
+      assert.equal(
+        rejected.nextAction,
+        `${retired} was removed. Use ha fact record <task-id> --statement <observation> --source <source>.`,
+      );
+    }
+  }
+  assert.equal(
+    parseThinCommand(["fact", "record", "task-1", "--task", "task-2", "--statement", "x", "--source", "s"]).ok,
+    false,
+  );
+  assert.equal(parseThinCommand(["fact", "record", "--statement", "x", "--text", "y", "--source", "s"]).ok, false);
 });
 
 test("Fact search CLI forwards observed-time windows and keyset pagination", () => {
@@ -174,6 +215,7 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       "--body",
       "# Canonical\n\nInitial prose.\n",
     ]),
+    stdin = parseThinCommand(["decision", "propose", "--json-input", "@-"]),
     accept = parseThinCommand([
       "decision",
       "accept",
@@ -227,7 +269,7 @@ test("Decision CLI maps every canonical command and keeps the five local error c
     ]),
     show = parseThinCommand(["decision", "show", "E12", "--include-body"]);
   assert.equal(
-    [propose, accept, claim, fulfill, relate, retireRelation, reckon, list, show].every((result) => result.ok),
+    [propose, stdin, accept, claim, fulfill, relate, retireRelation, reckon, list, show].every((result) => result.ok),
     true,
   );
   if (propose.ok)
@@ -235,6 +277,11 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       kind: "decision-propose",
       jsonInput: packet,
       body: "# Canonical\n\nInitial prose.\n",
+    });
+  if (stdin.ok)
+    assert.deepEqual(materializeDecisionStdin(stdin.command, () => packet).action, {
+      kind: "decision-propose",
+      jsonInput: packet,
     });
   if (accept.ok)
     assert.deepEqual(accept.command.action, {

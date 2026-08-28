@@ -1,14 +1,6 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  accepted,
-  nonEmpty,
-  readFlags,
-  rejected,
-} from "./thin-command-flags.ts";
-import type {
-  ThinCliInputDirectory,
-  ThinParseResult,
-} from "./thin-command-types.ts";
+import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
+import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseProgress(
   rootDir: SafePath,
@@ -18,14 +10,21 @@ export function parseProgress(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   const taskId = args[3],
-    f = readFlags("task-progress-append", args.slice(4), inputs);
-  if (!nonEmpty(taskId))
+    tokens = args.slice(4),
+    renamed = tokens
+      .map((token) => token.split("=", 1)[0])
+      .find((token) => token === "--note" || token === "--evidence-source");
+  if (!nonEmpty(taskId)) return rejected("missing_field", "Run ha task progress append <task-id>.", json);
+  if (renamed === "--note") return rejected("unknown_field", "--note was removed. Use --text <progress-text>.", json);
+  if (renamed === "--evidence-source")
+    return rejected("unknown_field", "--evidence-source was removed. Use --evidence <type>:<path>:<summary>.", json);
+  const f = readFlags("task-progress-append", tokens, inputs);
+  if (!f.ok)
     return rejected(
-      "missing_field",
-      "Run ha task progress append <task-id>.",
+      f.code,
+      f.offendingValue === undefined ? f.nextAction : `${f.nextAction} Received ${JSON.stringify(f.offendingValue)}.`,
       json,
     );
-  if (!f.ok) return rejected(f.code, f.nextAction, json);
   const evidence = (f.many.get("--evidence") ?? []).map((value) => {
     const first = value.indexOf(":"),
       second = value.indexOf(":", first + 1);

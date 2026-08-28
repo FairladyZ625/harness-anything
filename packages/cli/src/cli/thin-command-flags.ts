@@ -21,7 +21,12 @@ export function readFlags(
       readonly many: Map<string, string[]>;
       readonly booleans: Set<string>;
     }
-  | { readonly ok: false; readonly code: string; readonly nextAction: string } {
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly nextAction: string;
+      readonly offendingValue?: string;
+    } {
   const descriptor = directory.get(commandId)!,
     inputs = descriptor.inputs,
     singles = new Set<string>(),
@@ -86,14 +91,18 @@ export function readFlags(
             ? [input.name]
             : [];
     if (input.required && values.length === 0) return { ok: false, ...input.error };
-    if (
-      values.some(
-        (value) =>
-          (input.enum !== undefined && !input.enum.includes(value)) ||
-          (input.regex !== undefined && !new RegExp(input.regex, "u").test(value)),
-      )
-    )
-      return { ok: false, ...input.error };
+    const invalidValue = values.find(
+      (value) =>
+        (input.enum !== undefined && !input.enum.includes(value)) ||
+        (input.regex !== undefined && !new RegExp(input.regex, "u").test(value)),
+    );
+    if (invalidValue !== undefined)
+      return {
+        ok: false,
+        code: input.error.code,
+        nextAction: input.error.nextAction,
+        offendingValue: invalidValue,
+      };
   }
   return { ok: true, one, many, booleans: flags };
 }
