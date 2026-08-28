@@ -26,9 +26,9 @@ docs should link here instead of restating status tables.
 | Source CLI write path                             | Shipped      | The thin CLI parses, transports, and renders only. Its contracted task lifecycle writes go through the resident daemon, which the CLI starts automatically when unreachable (bounded to two attempts, then a classified error); it has no local fallback. Evidence: `packages/cli/src/cli/thin-command.ts` and `packages/daemon/src/client/daemon-autostart.ts`.                                                                                                                                                 |
 | Task lifecycle                                    | Shipped      | The rebuild catalog supports task create, start, submit, review-execution, complete, and show. Uncontracted hierarchy, relation, fact, decision, session, doc-write, migration, extension, and preset commands are not part of this product surface. Evidence: `packages/cli/src/cli/thin-command.ts`.                                                                                                                                                 |
 | Local daemon, including single-machine multi-repo | Shipped      | `ha daemon start --service`, workspace bootstrap, repo registration, per-repository RepoCell isolation, and repo-scoped CLI routing are supported. CLI and GUI clients auto-start the daemon when unreachable; a daemon that cannot be started rejects without writing. Evidence: `packages/daemon/src/daemon-host.ts` and `packages/daemon/src/repo-cell.ts`.                                                                                                                                                               |
-| Desktop GUI source surface                        | Foundation   | The GUI can be built and run from source and can read real ledger data for several views, but status changes, review, progress append, archive, decision adjudication, terminal, presets, adapters, and parts of relations are either state-only, read-only, deferred, or mock-backed. The repository declares this as `source-checkout-and-package-smoke-only`. Evidence: canon 1.2.                                                             |
+| Desktop GUI local surface                         | Foundation   | Version 0.0.1 has an unsigned Apple-silicon DMG release candidate with a bundled Node runtime and daemon plus first-run repository bootstrap. Several product views remain read-only, deferred, or mock-backed, so this is a local v1 rather than a full desktop workflow. Evidence: the packaged-app smoke and first-run tests.                                                                                                                           |
 | Remote/Fleet daemon mode                          | Planned      | W3 keeps only the transport-bound `source=assignment` seam. Fleet wire, SSH relay, tunnels, TCP, HTTP, WebSocket, and remote daemon products are not shipped.                                                                                                                                                                                                                                                                                       |
-| Runtime/release readiness                         | Foundation   | Source checkout, Node 24 and Node 26 CI, package smoke, and GUI build checks are executable gates. Release artifacts remain unshipped. Evidence: `packages/gui/src/distribution/runtime-release-readiness.ts:50-60` and canon 1.2.                                                                                                                                                                                                                |
+| Runtime/release readiness                         | Foundation   | Source checkout, Node 24 and Node 26 CI, CLI package smoke, and the exact arm64 DMG build are executable checks. The 0.0.1 assets are prepared locally but are not published by this change. Evidence: `packages/gui/src/distribution/runtime-release-readiness.ts` and the task release evidence.                                                                                                                                                  |
 | Supply-chain/license gate                         | Foundation   | npm audit, SBOM validation, OSV evidence path checks, license policy, Dependabot coverage, and AGPL network-service release-note checklist are gates or packet-checkable policy. Release artifacts remain unshipped. Evidence: `package.json:71` and `tools/check-supply-chain.mjs:51-74`.                                                                                                                                                        |
 | M3-M7 backlog                                     | Planned      | External adapter implementations, full GUI product behavior, and release hardening are not shipped. Placeholder adapter packages, page-only GUI code, unsigned artifacts, and release-policy prose must not be inherited as shipped product state.                                                                                                                                                                                                |
 
@@ -56,15 +56,15 @@ The GUI/daemon track has real foundation slices:
 
 - local daemon reads and writes through the method registry;
 - local daemon repo registration and multi-repo routing;
-- GUI source checkout that reads real ledger data in the supported read paths;
+- unsigned macOS arm64 DMG candidate with bundled GUI, Node, CLI, and daemon;
+- first-run repository selection, identity bootstrap, and guided next steps;
 - graph topology backed by real relation projection in graph-oriented views;
 - build, runtime, and distribution policy checks for source checkout and package
   smoke.
 
 The same track also has explicit non-capabilities:
 
-- no signed installers, notarization, published release artifacts, or
-  auto-update;
+- no signed installers, notarization, published release artifacts, or auto-update;
 - no GUI task management write path;
 - no GUI decision adjudication;
 - no GUI connection to a daemon on another machine;
@@ -86,8 +86,8 @@ product.
 
 ## Runtime and release readiness
 
-Status: source checkout and package smoke only. Runtime checks are executable;
-desktop release artifacts remain future work.
+Status: macOS Local v1 release candidate. Runtime and package checks are
+executable; the unsigned 0.0.1 arm64 artifact is prepared for publication.
 
 ### Runtime contract
 
@@ -134,25 +134,24 @@ The GUI renderer build is checked independently from desktop packaging:
 npm run -w @harness-anything/gui build
 ```
 
-This proves the renderer bundle compiles. It is not a signed desktop installer,
-notarized build, or release artifact.
+This proves the renderer bundle compiles. The release build additionally runs
+`npm run package:mac:arm64` and validates the installed DMG in a clean location.
 
 ### GUI distribution and update boundary
 
-Harness Anything GUI is validated from source and package smoke tests. Desktop
-installers, daemon installers, signing, notarization, and update feeds are future
-release implementation tasks. Desktop app, local daemon, and remote daemon must
-be modeled separately, and the current policy permits manual update planning
-only: auto-update requires a later implementation packet with signing, update
-feed, rollback, and security tests. Unsigned artifacts are development-only.
+Harness Anything GUI 0.0.1 has a manual, unsigned macOS arm64 distribution. Its
+DMG bundles the local daemon rather than installing a separate service package.
+Signing, notarization, other operating systems, and update feeds are future
+release tasks. Auto-update requires a later implementation packet with signing,
+an update feed, rollback, and security tests.
 
 ### Runtime release boundary
 
 Current release boundaries are intentionally conservative:
 
-- Only `@harness-anything/cli` is public-ready for npm publish dry-run preflight
-  at version `0.1.0`.
-- All non-CLI workspace packages remain private and at version `0.0.0`.
+- The root product, GUI, and publishable `@harness-anything/cli` use version
+  `0.0.1`; the CLI is limited to npm publish dry-run in this task.
+- Internal workspace packages remain private and at version `0.0.0`.
 - No real npm package release is claimed.
 - signed installers, notarized builds, auto-update, release feeds, and published
   artifacts are not shipped.

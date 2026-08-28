@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   harnessRuntimeReleaseReadiness,
-  validateRuntimeReleaseReadiness
+  validateRuntimeReleaseReadiness,
 } from "../packages/gui/src/distribution/runtime-release-readiness.ts";
 import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 
@@ -21,14 +21,14 @@ const releaseClaimSubjects = [
   { name: "auto-update", subject: /\bauto-?update\b/i },
   { name: "release feed", subject: /\brelease feeds?\b/i },
   { name: "published artifact", subject: /\bpublished\b[^.!?\n;|]*\bartifacts?\b/i },
-  { name: "release artifact", subject: /\brelease\b[^.!?\n;|]*\bartifacts?\b/i }
+  { name: "release artifact", subject: /\brelease\b[^.!?\n;|]*\bartifacts?\b/i },
 ];
-const shippedClaim = /\b(shipped|available|implemented|complete|completed|ready|production-ready|supported|released|published)\b/i;
-const negativeOrFuture = /\b(no|not|never|without|unshipped|planned|future|later|requires|remain|remains|before|deferred|placeholder)\b/i;
+const shippedClaim =
+  /\b(shipped|available|implemented|complete|completed|ready|production-ready|supported|released|published)\b/i;
+const negativeOrFuture =
+  /\b(no|not|never|without|unshipped|planned|future|later|requires|remain|remains|before|deferred|placeholder)\b/i;
 
-const expectedDocs = [
-  "docs-release/release-posture.md"
-];
+const expectedDocs = ["docs-release/release-posture.md"];
 
 function read(relativePath) {
   return readFileSync(path.join(root, relativePath), "utf8");
@@ -61,8 +61,8 @@ for (const error of policyValidation.errors) {
 const rootPackage = readJson("package.json");
 if (rootPackage.engines?.node !== ">=24") record("package.json engines.node must remain >=24");
 if (rootPackage.private !== true) record("root package must remain private before an explicit release task");
-if (rootPackage.version !== harnessRuntimeReleaseReadiness.releaseBoundary.privateWorkspaceVersion) {
-  record(`root package version must remain ${harnessRuntimeReleaseReadiness.releaseBoundary.privateWorkspaceVersion} before first release planning`);
+if (rootPackage.version !== harnessRuntimeReleaseReadiness.releaseBoundary.productVersion) {
+  record(`root package version must be ${harnessRuntimeReleaseReadiness.releaseBoundary.productVersion}`);
 }
 requireScript(rootPackage, "test", "node tools/run-node-tests.mjs");
 requireScript(rootPackage, "harness:check-runtime-release-readiness", "node tools/check-runtime-release-readiness.mjs");
@@ -70,7 +70,7 @@ requireScript(rootPackage, "harness:smoke-cli-package", "node tools/smoke-cli-pa
 
 for (const [scriptName, requiredCommand] of [
   ["check", "npm run harness:check-runtime-release-readiness"],
-  ["check:pr", "npm run harness:check-runtime-release-readiness"]
+  ["check:pr", "npm run harness:check-runtime-release-readiness"],
 ]) {
   if (!packageScriptRunsCommand(rootPackage, scriptName, requiredCommand)) {
     record(`package.json script ${scriptName} must run ${requiredCommand}`);
@@ -84,19 +84,27 @@ for (const workspace of [
   "packages/cli/package.json",
   "packages/gui/package.json",
   "packages/adapters/local/package.json",
-  "packages/adapters/multica/package.json"
+  "packages/adapters/multica/package.json",
 ]) {
   const packageJson = readJson(workspace);
   if (workspace === "packages/cli/package.json") {
     if (packageJson.private === true) record(`${workspace} must be public-ready for npm publish --dry-run preflight`);
     if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.cliPublishDryRunVersion) {
-      record(`${workspace} must be ${harnessRuntimeReleaseReadiness.releaseBoundary.cliPublishDryRunVersion} for npm publish --dry-run preflight`);
+      record(
+        `${workspace} must be ${harnessRuntimeReleaseReadiness.releaseBoundary.cliPublishDryRunVersion} for npm publish --dry-run preflight`,
+      );
     }
-    if (packageJson.publishConfig?.access !== "public") record(`${workspace} must define publishConfig.access public for scoped npm dry-run preflight`);
+    if (packageJson.publishConfig?.access !== "public")
+      record(`${workspace} must define publishConfig.access public for scoped npm dry-run preflight`);
+  } else if (workspace === "packages/gui/package.json") {
+    if (packageJson.private !== true) record(`${workspace} must remain private`);
+    if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.productVersion) {
+      record(`${workspace} must be ${harnessRuntimeReleaseReadiness.releaseBoundary.productVersion}`);
+    }
   } else {
     if (packageJson.private !== true) record(`${workspace} must remain private before an explicit release task`);
-    if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.privateWorkspaceVersion) {
-      record(`${workspace} must remain ${harnessRuntimeReleaseReadiness.releaseBoundary.privateWorkspaceVersion} before first release planning`);
+    if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.internalWorkspaceVersion) {
+      record(`${workspace} must remain ${harnessRuntimeReleaseReadiness.releaseBoundary.internalWorkspaceVersion}`);
     }
   }
 }
@@ -105,14 +113,34 @@ for (const docPath of expectedDocs) {
   if (!existsSync(path.join(root, docPath))) record(`Missing runtime/release documentation: ${docPath}`);
 }
 
-requireIncludes("docs-release/release-posture.md", "Status: source checkout and package smoke only", "runtime status");
+requireIncludes("docs-release/release-posture.md", "Status: macOS Local v1 release candidate", "runtime status");
 requireIncludes("docs-release/release-posture.md", "Node 24 and Node 26", "Node 24/26 coverage");
-requireIncludes("docs-release/release-posture.md", commandBySurface.get("source-run")?.command ?? "", "source-run command");
-requireIncludes("docs-release/release-posture.md", commandBySurface.get("full-check")?.command ?? "", "full check command");
+requireIncludes(
+  "docs-release/release-posture.md",
+  commandBySurface.get("source-run")?.command ?? "",
+  "source-run command",
+);
+requireIncludes(
+  "docs-release/release-posture.md",
+  commandBySurface.get("full-check")?.command ?? "",
+  "full check command",
+);
 requireIncludes("docs-release/release-posture.md", commandBySurface.get("pr-check")?.command ?? "", "PR check command");
-requireIncludes("docs-release/release-posture.md", commandBySurface.get("package-smoke")?.command ?? "", "package smoke command");
-requireIncludes("docs-release/release-posture.md", commandBySurface.get("gui-build")?.command ?? "", "GUI build command");
-requireIncludes("docs-release/release-posture.md", "signed installers, notarized builds, auto-update, release feeds, and published\n  artifacts are not shipped", "non-shipped release boundary");
+requireIncludes(
+  "docs-release/release-posture.md",
+  commandBySurface.get("package-smoke")?.command ?? "",
+  "package smoke command",
+);
+requireIncludes(
+  "docs-release/release-posture.md",
+  commandBySurface.get("gui-build")?.command ?? "",
+  "GUI build command",
+);
+requireIncludes(
+  "docs-release/release-posture.md",
+  "signed installers, notarized builds, auto-update, release feeds, and published\n  artifacts are not shipped",
+  "non-shipped release boundary",
+);
 
 executeSourceRunSmoke();
 collectReleaseOverclaims();
@@ -126,9 +154,10 @@ for (const snippet of [
   "npm run test:integration",
   "npm run harness:check-runtime-release-readiness",
   commandBySurface.get("package-smoke")?.command,
-  commandBySurface.get("gui-build")?.command
+  commandBySurface.get("gui-build")?.command,
 ]) {
-  if (snippet && !workflowCoversCommand(workflow, snippet)) record(`${harnessRuntimeReleaseReadiness.ciWorkflowPath} must include ${snippet}`);
+  if (snippet && !workflowCoversCommand(workflow, snippet))
+    record(`${harnessRuntimeReleaseReadiness.ciWorkflowPath} must include ${snippet}`);
 }
 
 for (const command of harnessRuntimeReleaseReadiness.commands) {
@@ -152,7 +181,11 @@ function executeSourceRunSmoke() {
   const executable = binary === "node" ? process.execPath : binary;
   try {
     const stdout = execFileSync(executable, args, { cwd: root, encoding: "utf8" });
-    if (!stdout.includes("Harness Anything thin CLI") || !stdout.includes("ha daemon start --service") || stdout.includes(" doctor")) {
+    if (
+      !stdout.includes("Harness Anything thin CLI") ||
+      !stdout.includes("ha daemon start --service") ||
+      stdout.includes(" doctor")
+    ) {
       record(`source-run command returned unexpected output: ${stdout}`);
     }
   } catch (error) {
@@ -166,8 +199,10 @@ function packageScriptRunsCommand(packageJson, scriptName, requiredCommand) {
 }
 
 function workflowCoversCommand(workflowBody, requiredCommand) {
-  return workflowBody.includes(requiredCommand) || workflowRunCommands(workflowBody)
-    .some((command) => manifestRunnerCommands(command).includes(requiredCommand));
+  return (
+    workflowBody.includes(requiredCommand) ||
+    workflowRunCommands(workflowBody).some((command) => manifestRunnerCommands(command).includes(requiredCommand))
+  );
 }
 
 function workflowRunCommands(workflowBody) {
@@ -197,7 +232,7 @@ function parseManifestRunnerCommand(command) {
   const invocation = {
     packageSurface: null,
     workflowJob: null,
-    exclude: new Set()
+    exclude: new Set(),
   };
 
   for (let index = 0; index < args.length; index += 1) {

@@ -1,3 +1,24 @@
 {
-  "renderer.shellConfig.decisionPool": "Decision Pool"
+  "renderer.shellConfig.decisionPool": "Decision Pool",
+  "firstRun.stepRepository": "Step 1 of 3 · Repository",
+  "firstRun.title": "Set up Harness Anything",
+  "firstRun.subtitle": "Choose an existing git repository. Harness Anything will initialize its local ledger and connect it to the bundled daemon.",
+  "firstRun.repository": "Repository folder",
+  "firstRun.choose": "Choose…",
+  "firstRun.repoId": "Repository id",
+  "firstRun.workspaceName": "Workspace name",
+  "firstRun.personId": "Your person id",
+  "firstRun.displayName": "Your display name",
+  "firstRun.addNpmScripts": "Add Harness Anything npm scripts when package.json exists",
+  "firstRun.localOnly": "Local only · no server or account required",
+  "firstRun.initialize": "Initialize repository",
+  "firstRun.initializing": "Initializing…",
+  "firstRun.stepProvider": "Step 2 of 3 · Provider and model",
+  "firstRun.providerTitle": "Choose a provider and model",
+  "firstRun.providerHint": "Use the Provider workspace behind this guide to add a detected Claude, Codex, or AGY installation and select its model. You may continue without one.",
+  "firstRun.nextAgent": "Continue to Agent",
+  "firstRun.stepAgent": "Step 3 of 3 · Agent",
+  "firstRun.agentTitle": "Create your first Agent",
+  "firstRun.agentHint": "Use the Agent workspace behind this guide to create an Agent declaration and bind its runtime preferences. You may finish and return later.",
+  "firstRun.finish": "Finish setup"
 }

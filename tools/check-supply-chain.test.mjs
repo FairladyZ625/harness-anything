@@ -25,7 +25,7 @@ test("supply-chain check rejects non-CLI publishable packages", async () => {
     writeValidSupplyChainFixture(root, {
       packageMutator: (packages) => {
         packages["packages/daemon/package.json"].private = false;
-      }
+      },
     });
 
     const result = runCheck(root);
@@ -40,7 +40,7 @@ test("supply-chain check rejects CLI dry-run metadata drift", async () => {
     writeValidSupplyChainFixture(root, {
       packageMutator: (packages) => {
         packages["packages/cli/package.json"].publishConfig = undefined;
-      }
+      },
     });
 
     const result = runCheck(root);
@@ -53,7 +53,10 @@ test("supply-chain check rejects CLI dry-run metadata drift", async () => {
 test("supply-chain check rejects missing OSV documentation", async () => {
   await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root, {
-      supplyDocBody: validSupplyDoc().replace("npx --yes osv-scanner@latest --lockfile=package-lock.json", "osv scan later")
+      supplyDocBody: validSupplyDoc().replace(
+        "npx --yes osv-scanner@latest --lockfile=package-lock.json",
+        "osv scan later",
+      ),
     });
 
     const result = runCheck(root);
@@ -68,7 +71,7 @@ test("supply-chain check rejects unreviewed dependency licenses", async () => {
     writeValidSupplyChainFixture(root, {
       lockMutator: (lock) => {
         lock.packages["node_modules/example"].license = "GPL-2.0-only";
-      }
+      },
     });
 
     const result = runCheck(root);
@@ -86,25 +89,25 @@ test("supply-chain check accepts reviewed OR-license elections", async () => {
           version: "2.0.3",
           resolved: "https://registry.npmjs.org/expand-template/-/expand-template-2.0.3.tgz",
           integrity: "sha512-test",
-          license: "(MIT OR WTFPL)"
+          license: "(MIT OR WTFPL)",
         };
         lock.packages["node_modules/rc"] = {
           version: "1.2.8",
           resolved: "https://registry.npmjs.org/rc/-/rc-1.2.8.tgz",
           integrity: "sha512-test",
-          license: "(BSD-2-Clause OR MIT OR Apache-2.0)"
+          license: "(BSD-2-Clause OR MIT OR Apache-2.0)",
         };
         lock.packages["node_modules/argparse"] = {
           version: "2.0.1",
           resolved: "https://registry.npmjs.org/argparse/-/argparse-2.0.1.tgz",
           integrity: "sha512-test",
-          license: "Python-2.0"
+          license: "Python-2.0",
         };
         lock.packages["node_modules/truncate-utf8-bytes"] = {
           version: "1.0.2",
           resolved: "https://registry.npmjs.org/truncate-utf8-bytes/-/truncate-utf8-bytes-1.0.2.tgz",
           integrity: "sha512-test",
-          license: "WTFPL"
+          license: "WTFPL",
         };
       },
       sbomMutator: (sbom) => {
@@ -112,25 +115,25 @@ test("supply-chain check accepts reviewed OR-license elections", async () => {
           {
             name: "expand-template",
             purl: "pkg:npm/expand-template@2.0.3",
-            hashes: [{ alg: "SHA-512", content: "test" }]
+            hashes: [{ alg: "SHA-512", content: "test" }],
           },
           {
             name: "rc",
             purl: "pkg:npm/rc@1.2.8",
-            hashes: [{ alg: "SHA-512", content: "test" }]
+            hashes: [{ alg: "SHA-512", content: "test" }],
           },
           {
             name: "argparse",
             purl: "pkg:npm/argparse@2.0.1",
-            hashes: [{ alg: "SHA-512", content: "test" }]
+            hashes: [{ alg: "SHA-512", content: "test" }],
           },
           {
             name: "truncate-utf8-bytes",
             purl: "pkg:npm/truncate-utf8-bytes@1.0.2",
-            hashes: [{ alg: "SHA-512", content: "test" }]
-          }
+            hashes: [{ alg: "SHA-512", content: "test" }],
+          },
         );
-      }
+      },
     });
 
     const result = runCheck(root);
@@ -143,7 +146,7 @@ test("supply-chain check accepts reviewed OR-license elections", async () => {
 test("supply-chain check rejects CI drift", async () => {
   await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root, {
-      workflowBody: "name: rewrite-ci\njobs:\n  typecheck:\n    steps:\n      - run: npm run typecheck\n"
+      workflowBody: "name: rewrite-ci\njobs:\n  typecheck:\n    steps:\n      - run: npm run typecheck\n",
     });
 
     const result = runCheck(root);
@@ -156,7 +159,10 @@ test("supply-chain check rejects CI drift", async () => {
 test("supply-chain check rejects missing AGPL checklist items", async () => {
   await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root, {
-      supplyDocBody: validSupplyDoc().replace("modified source corresponding to the network service", "modified source exists")
+      supplyDocBody: validSupplyDoc().replace(
+        "modified source corresponding to the network service",
+        "modified source exists",
+      ),
     });
 
     const result = runCheck(root);
@@ -176,8 +182,8 @@ test("supply-chain check invokes npm instead of reading fixture output from env"
       env: {
         ...process.env,
         PATH: "/nonexistent",
-        HARNESS_SUPPLY_CHAIN_FIXTURE_OUTPUT_DIR: path.join(root, ".supply-chain-command-output")
-      }
+        HARNESS_SUPPLY_CHAIN_FIXTURE_OUTPUT_DIR: path.join(root, ".supply-chain-command-output"),
+      },
     });
 
     assert.notEqual(result.status, 0);
@@ -188,7 +194,7 @@ test("supply-chain check invokes npm instead of reading fixture output from env"
 test("supply-chain check rejects Dependabot directory under wrong ecosystem", async () => {
   await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root, {
-      dependabotBody: validDependabot().replace('package-ecosystem: "npm"', 'package-ecosystem: "github-actions"')
+      dependabotBody: validDependabot().replace('package-ecosystem: "npm"', 'package-ecosystem: "github-actions"'),
     });
 
     const result = runCheck(root);
@@ -204,8 +210,8 @@ function runCheck(root) {
     encoding: "utf8",
     env: {
       ...process.env,
-      PATH: `${path.join(root, ".mock-bin")}${path.delimiter}${process.env.PATH ?? ""}`
-    }
+      PATH: `${path.join(root, ".mock-bin")}${path.delimiter}${process.env.PATH ?? ""}`,
+    },
   });
 }
 
@@ -223,14 +229,14 @@ async function withFixtureRepo(fn) {
 function writeValidSupplyChainFixture(root, options = {}) {
   const packageJson = {
     name: "harness-anything",
-    version: "0.0.0",
+    version: "0.0.1",
     private: true,
     license: "AGPL-3.0-or-later",
     scripts: {
       check: "npm run typecheck && npm test && npm run harness:check-supply-chain",
       "check:pr": "npm run typecheck && npm run harness:check-supply-chain",
-      "harness:check-supply-chain": "node tools/check-supply-chain.mjs"
-    }
+      "harness:check-supply-chain": "node tools/check-supply-chain.mjs",
+    },
   };
   writeJson(root, "package.json", packageJson);
 
@@ -242,21 +248,31 @@ function writeValidSupplyChainFixture(root, options = {}) {
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
-    "packages/adapters/multica/package.json"
+    "packages/adapters/multica/package.json",
   ]) {
-    workspacePackages[packagePath] = { name: packagePath, version: "0.0.0", private: true, license: "AGPL-3.0-or-later" };
+    workspacePackages[packagePath] = {
+      name: packagePath,
+      version: "0.0.0",
+      private: true,
+      license: "AGPL-3.0-or-later",
+    };
   }
   workspacePackages["packages/cli/package.json"] = {
     ...workspacePackages["packages/cli/package.json"],
     name: "@harness-anything/cli",
-    version: "0.1.0",
+    version: "0.0.1",
     private: false,
     publishConfig: { access: "public" },
-    repository: { type: "git", url: "git+https://github.com/FairladyZ625/harness-anything.git", directory: "packages/cli" },
+    repository: {
+      type: "git",
+      url: "git+https://github.com/FairladyZ625/harness-anything.git",
+      directory: "packages/cli",
+    },
     engines: { node: ">=24" },
     bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" },
-    files: ["dist", "README.md", "package.json"]
+    files: ["dist", "README.md", "package.json"],
   };
+  workspacePackages["packages/gui/package.json"].version = "0.0.1";
   options.packageMutator?.(workspacePackages);
   for (const [packagePath, packageJson] of Object.entries(workspacePackages)) {
     writeJson(root, packagePath, packageJson);
@@ -264,28 +280,28 @@ function writeValidSupplyChainFixture(root, options = {}) {
 
   const lock = {
     name: "harness-anything",
-    version: "0.0.0",
+    version: "0.0.1",
     lockfileVersion: 3,
     requires: true,
     packages: {
       "": {
         name: "harness-anything",
-        version: "0.0.0",
-        license: "AGPL-3.0-or-later"
+        version: "0.0.1",
+        license: "AGPL-3.0-or-later",
       },
       "node_modules/electron": {
         version: "42.4.0",
         resolved: "https://registry.npmjs.org/electron/-/electron-42.4.0.tgz",
         integrity: "sha512-test",
-        license: "MIT"
+        license: "MIT",
       },
       "node_modules/example": {
         version: "1.0.0",
         resolved: "https://registry.npmjs.org/example/-/example-1.0.0.tgz",
         integrity: "sha512-test",
-        license: "MIT"
-      }
-    }
+        license: "MIT",
+      },
+    },
   };
   options.lockMutator?.(lock);
   writeJson(root, "package-lock.json", lock);
@@ -298,10 +314,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
 }
 
 function validReadme() {
-  return [
-    "# Harness Anything",
-    "The accountability layer for AI agents."
-  ].join("\n");
+  return ["# Harness Anything", "The accountability layer for AI agents."].join("\n");
 }
 
 function validSupplyDoc() {
@@ -318,7 +331,7 @@ function validSupplyDoc() {
     "- [ ] release notes identify user-visible network-service changes",
     "- [ ] third-party license notices included with release evidence",
     "release artifact SBOM",
-    "Electron upgrades require security review"
+    "Electron upgrades require security review",
   ].join("\n");
 }
 
@@ -326,11 +339,11 @@ function validDependabot() {
   return [
     "version: 2",
     "updates:",
-    "  - package-ecosystem: \"npm\"",
-    "    directory: \"/\"",
+    '  - package-ecosystem: "npm"',
+    '    directory: "/"',
     "    labels:",
-    "      - \"dependencies\"",
-    "      - \"security\""
+    '      - "dependencies"',
+    '      - "security"',
   ].join("\n");
 }
 
@@ -340,7 +353,7 @@ function validWorkflow() {
     "jobs:",
     "  supply-chain:",
     "    steps:",
-    "      - run: npm run harness:check-supply-chain"
+    "      - run: npm run harness:check-supply-chain",
   ].join("\n");
 }
 
@@ -349,20 +362,24 @@ function writeMockNpm(root, sbomMutator) {
   const sbomValue = validSbom();
   sbomMutator?.(sbomValue);
   const sbom = JSON.stringify(sbomValue);
-  writeFile(root, ".mock-bin/npm", [
-    "#!/usr/bin/env node",
-    "const args = process.argv.slice(2).join(' ');",
-    "if (args === 'audit --audit-level=high' || args === 'audit --omit=dev --audit-level=high') {",
-    "  console.log('found 0 vulnerabilities');",
-    "  process.exit(0);",
-    "}",
-    "if (args === 'sbom --sbom-format=cyclonedx --sbom-type=application') {",
-    `  console.log(${JSON.stringify(sbom)});`,
-    "  process.exit(0);",
-    "}",
-    "console.error(`unexpected npm args: ${args}`);",
-    "process.exit(1);"
-  ].join("\n"));
+  writeFile(
+    root,
+    ".mock-bin/npm",
+    [
+      "#!/usr/bin/env node",
+      "const args = process.argv.slice(2).join(' ');",
+      "if (args === 'audit --audit-level=high' || args === 'audit --omit=dev --audit-level=high') {",
+      "  console.log('found 0 vulnerabilities');",
+      "  process.exit(0);",
+      "}",
+      "if (args === 'sbom --sbom-format=cyclonedx --sbom-type=application') {",
+      `  console.log(${JSON.stringify(sbom)});`,
+      "  process.exit(0);",
+      "}",
+      "console.error(`unexpected npm args: ${args}`);",
+      "process.exit(1);",
+    ].join("\n"),
+  );
   chmodSync(mockPath, 0o755);
 }
 
@@ -372,22 +389,22 @@ function validSbom() {
     specVersion: "1.5",
     metadata: {
       component: {
-        licenses: [{ license: { id: "AGPL-3.0-or-later" } }]
-      }
+        licenses: [{ license: { id: "AGPL-3.0-or-later" } }],
+      },
     },
     components: [
       {
         name: "example",
         purl: "pkg:npm/example@1.0.0",
         hashes: [{ alg: "SHA-512", content: "test" }],
-        licenses: [{ license: { id: "MIT" } }]
+        licenses: [{ license: { id: "MIT" } }],
       },
       {
         name: "gui",
         purl: "pkg:npm/%40harness-anything/gui@0.0.0",
-        licenses: [{ license: { id: "AGPL-3.0-or-later" } }]
-      }
-    ]
+        licenses: [{ license: { id: "AGPL-3.0-or-later" } }],
+      },
+    ],
   };
 }
 

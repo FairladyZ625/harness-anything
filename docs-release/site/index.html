@@ -1031,8 +1031,15 @@
           <span class="sec-no">08</span>
           <h3><span lang="en">The same gate, applied to itself</span><span lang="zh">同一扇门，也用在我们自己身上</span></h3>
           <p class="lead">
-            <span lang="en">The adoption law above is uncomfortable applied inward, so we made the machine say it for us. The GUI distribution module self-declares its status as <code>source-checkout-and-package-smoke-only</code>, and a test fails if that string — or the "not shipped" booleans behind it — ever drift. An accountability layer that can't hold itself accountable is just a ledger with better marketing.</span>
-            <span lang="zh">把上面的采用律用在自己身上，会让人不舒服，所以我们让机器替我们说出口。GUI 分发模块把自己的状态自声明为 <code>source-checkout-and-package-smoke-only</code>，而一旦这个字符串——或它背后那一组"未发布"布尔值——发生漂移，测试就会失败。一个连自己都问责不了的问责层，只不过是一本营销更好的账本。</span>
+            <span lang="en">The adoption law above is uncomfortable applied inward, so we made the machine
+              say it for us. The GUI distribution module self-declares its status as
+              <code>macos-local-v1-release-candidate</code>, and a test fails if the version or unsigned
+              release boundary drifts. An accountability layer that can't hold itself accountable is just
+              a ledger with better marketing.</span>
+            <span lang="zh">把上面的采用律用在自己身上，会让人不舒服，所以我们让机器替我们说出口。
+              GUI 分发模块把自己的状态自声明为
+              <code>macos-local-v1-release-candidate</code>，版本或未签名发布边界发生漂移时，
+              测试就会失败。一个连自己都问责不了的问责层，只不过是一本营销更好的账本。</span>
           </p>
           <p>
             <span lang="en">So in place of a feature checklist, here is the honest negation. The first line is held by that very test; the rest are held by the code itself — no network listener to expose, write hooks plumbed but called by no view, no verified run on another operating system. To claim any of them, we'd have to ship it first:</span>

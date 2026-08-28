@@ -50,6 +50,7 @@ import { navLabel, NAV_GROUPS } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
+import { FirstRunGuide, FirstRunWizard } from "./components/FirstRunWizard.tsx";
 
 function AppShell() {
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
@@ -134,6 +135,7 @@ function AppShell() {
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [setupGuide, setSetupGuide] = useState<"provider" | "agent" | null>(null);
   const terminalDock = useRef<TerminalDockHandle>(null);
 
   const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
@@ -238,6 +240,32 @@ function AppShell() {
     onBack: back,
     onForward: forward,
   });
+
+  useEffect(() => {
+    if (!activeRepoId || !setupGuide) return;
+    const destination = setupGuide === "provider" ? "providers" : "agentSquad";
+    if (view !== destination)
+      navigate({
+        view: destination,
+        focusedEntityRef: null,
+        selectedId: null,
+        previewId: null,
+      });
+  }, [activeRepoId, navigate, setupGuide, view]);
+
+  if (systemQuery.isSuccess && enabledRepos.length === 0)
+    return (
+      <FirstRunWizard
+        onBootstrapped={async (repoId) => {
+          const refreshed = await systemQuery.refetch();
+          if (!refreshed.data?.repos.some((repo) => repo.repoId === repoId))
+            throw new Error("The initialized repository did not appear in daemon status.");
+          resetViewHistory(window.sessionStorage, repoId);
+          setActiveRepoId(repoId);
+          setSetupGuide("provider");
+        }}
+      />
+    );
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
@@ -660,6 +688,9 @@ function AppShell() {
         open={terminalOpen}
         onToggle={() => setTerminalOpen((open) => !open)}
       />
+      {setupGuide ? (
+        <FirstRunGuide stage={setupGuide} onNext={() => setSetupGuide("agent")} onFinish={() => setSetupGuide(null)} />
+      ) : null}
     </div>
   );
 }

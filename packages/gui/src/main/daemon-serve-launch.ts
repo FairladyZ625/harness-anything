@@ -22,7 +22,7 @@ export function daemonServeLaunch(target: DaemonServeTarget, packaged?: Packaged
       )
     : process.execPath;
   const entry = packaged
-    ? path.join(packaged.resourcesPath, "app", "packages/cli/dist/index.js")
+    ? path.join(packaged.resourcesPath, "app", "packages/cli/dist/cli/src/index.js")
     : fileURLToPath(new URL("../../../cli/src/index.ts", import.meta.url));
   return {
     command: node,

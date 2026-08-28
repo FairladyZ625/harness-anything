@@ -20,10 +20,12 @@ import type {
   SettingsRead,
   CiObservatoryRead,
 } from "../api/renderer-dto.ts";
+import type { FirstRunApi } from "../api/first-run-contract.ts";
 import { isRendererRecord } from "./result-validation.ts";
 
 type HarnessBridge = Record<GuiBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
   readonly capabilities?: unknown;
+  readonly firstRun?: FirstRunApi;
 };
 
 declare global {

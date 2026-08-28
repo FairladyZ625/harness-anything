@@ -17,9 +17,9 @@
 | 源码 CLI 写路径           | Shipped      | CLI 写命令需要显式 actor 归属与 git author。`HARNESS_ACTOR` 继续用于 `agent:<id>` 与 `system:<id>`；human 写入必须使用 `--actor human:<id>`，因为环境变量会被继承。journal 会记录 `env`、`flag` 或 `daemon` source。示例使用 `HARNESS_GIT_AUTHOR_NAME` / `HARNESS_GIT_AUTHOR_EMAIL`，也可 fallback 到 Git author 变量。证据：`packages/cli/src/composition/actor-attribution.ts`。 |
 | 任务层级与关系语义        | Shipped      | `ha task create --parent <id>`、`ha task tree <id> [--json]`、`ha task relate <src> depends-on <tgt> --rationale <t>` 已存在，并且 depends-on 有环检测。父任务完成不要求子任务完成；只会发出 `open_child_tasks` 软告警。`parent` 字段创建后不可变。证据：canon 1.4。                                                                                                               |
 | 本地 daemon，包括单机多仓 | Shipped      | `ha daemon start`、`ha daemon repo register`、热注册 reconcile、按 repo 路由的 CLI 本地 daemon 模式都可用。CLI 默认仍是进程内 direct 模式；只有设置 `HARNESS_DAEMON_MODE=local` 才走 daemon。证据：canon 1.3。                                                                                                                                                                     |
-| 桌面 GUI 源码界面         | Foundation   | GUI 可以从源码构建和运行，并且若干视图能读取真实 ledger 数据，但状态变更、review、追加进度、archive、决策裁决、terminal、presets、adapters，以及部分 relations，仍是仅 state、只读、deferred 或 mock-backed。仓库自我声明状态为 `source-checkout-and-package-smoke-only`。证据：canon 1.2。                                                                                        |
+| 桌面 GUI 本地界面         | Foundation   | Version 0.0.1 有未签名的 Apple-silicon DMG 发布候选版，内置 Node runtime、daemon 与首次启动仓库初始化。多个产品视图仍是只读、deferred 或 mock-backed，因此它是 local v1，而非完整桌面工作流。                                                                                                                              |
 | Remote SSH daemon 模式    | Experimental | remote 模式会打开 `ssh <host> ha daemon connect --stdio`，连接到已有 daemon。团队 principal 需要逐 key 配置 `authorized_keys` forced command 与 roster credential；relay 会验证 sshd 进程上下文、精确 original command 与固定 root。它不是“GUI 连接远端 daemon”、tunnel 产品、TCP、HTTP 或 WebSocket。证据：`packages/cli/src/commands/daemon/connect.ts`。                        |
-| 运行时与发布就绪          | Foundation   | 源码 checkout、Node 24 和 Node 26 CI、package smoke、GUI build 都有可执行 gate。发布产物仍未 ship。证据：`packages/gui/src/distribution/runtime-release-readiness.ts:50-60` 与 canon 1.2。                                                                                                                                                                                         |
+| 运行时与发布就绪          | Foundation   | 源码 checkout、Node 24 和 Node 26 CI、CLI package smoke 与精确的 arm64 DMG build 都有可执行检查。0.0.1 产物已在本地准备，但本次改动不发布它们。                                                                                                                                                                                                      |
 | 供应链与许可证 gate       | Foundation   | npm audit、SBOM 校验、OSV 证据路径检查、许可证策略、Dependabot 覆盖、AGPL 网络服务发布说明 checklist，都是 gate 或任务包可检查的策略。发布产物仍未 ship。证据：`package.json:71` 与 `tools/check-supply-chain.mjs:51-74`。                                                                                                                                                         |
 | M3-M7 backlog             | Planned      | 外部 adapter 实现、完整 GUI 产品行为与发布硬化都尚未 ship。占位 adapter package、仅页面级 GUI 代码、未签名产物、纯发布策略 prose，都不能被继承为已 ship 产品状态。                                                                                                                                                                                                                 |
 
@@ -45,7 +45,8 @@ GUI/daemon 方向有真实的 foundation 切片：
 
 - 本地 daemon 通过 method registry 读写；
 - 本地 daemon 仓库注册与多仓路由；
-- GUI 源码 checkout 中，受支持的读取路径会读取真实 ledger 数据；
+- 未签名的 macOS arm64 DMG 候选版，内置 GUI、Node、CLI 和 daemon；
+- 首次启动的仓库选择、身份 bootstrap 与后续引导；
 - 面向 graph 的视图使用真实关系投影；
 - 源码 checkout 与 package smoke 有构建、运行时、分发策略检查。
 
@@ -70,7 +71,8 @@ GUI/daemon 方向有真实的 foundation 切片：
 
 ## 运行时与发布就绪
 
-状态：仅限源码 checkout 和 package smoke。运行时检查是可执行的；桌面发布产物仍属后续工作。
+状态：macOS Local v1 发布候选版。运行时与 package 检查可执行；
+未签名的 0.0.1 arm64 产物已准备好发布。
 
 ### 运行时合同
 
@@ -113,18 +115,22 @@ GUI renderer build 独立于桌面 packaging 检查：
 npm run -w @harness-anything/gui build
 ```
 
-这只证明 renderer bundle 可以编译。它不是签名桌面 installer，不是 notarized build，也不是 release artifact。
+这只证明 renderer bundle 可以编译。Release build 还会执行
+`npm run package:mac:arm64`，并在干净位置验证安装后的 DMG。
 
 ### GUI 分发与更新边界
 
-Harness Anything GUI 通过源码和 package smoke test 验证。桌面 installer、daemon installer、签名、notarization、update feed 都是后续发布实现任务。Desktop app、local daemon、remote daemon 必须分别建模；当前策略只允许手动更新规划：auto-update 需要后续实现包提供 signing、update feed、rollback 和安全测试。未签名产物只用于开发。
+Harness Anything GUI 0.0.1 提供手动安装、未签名的 macOS arm64 分发。
+DMG 内置 local daemon，而非安装独立的 daemon service package。签名、
+notarization、其他操作系统和 update feed 属于后续发布任务。
 
 ### 运行时发布边界
 
 当前发布边界刻意保守：
 
-- 只有 `@harness-anything/cli` 可以在 version `0.1.0` 做 public npm publish dry-run preflight。
-- 所有非 CLI workspace package 仍为 private，版本仍为 `0.0.0`。
+- root product、GUI 与可发布的 `@harness-anything/cli` 使用 version `0.0.1`；
+  本任务中 CLI 仅执行 npm publish dry-run。
+- 内部 workspace package 仍为 private，版本仍为 `0.0.0`。
 - 不声明真实 npm package release。
 - signed installers、notarized builds、auto-update、release feeds、published artifacts 都未 ship。
 - Desktop 和 daemon 分发策略由本页治理。

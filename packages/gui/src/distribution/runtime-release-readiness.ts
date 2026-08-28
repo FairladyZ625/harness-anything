@@ -1,4 +1,4 @@
-export type RuntimeReadinessStatus = "source-checkout-and-package-smoke-only";
+export type RuntimeReadinessStatus = "macos-local-v1-release-candidate";
 export type RuntimeReadinessSurface = "source-run" | "full-check" | "pr-check" | "package-smoke" | "gui-build";
 
 export interface RuntimeCommandContract {
@@ -10,8 +10,9 @@ export interface RuntimeCommandContract {
 
 export interface ReleaseBoundaryContract {
   readonly packagesPrivateExceptCli: true;
-  readonly privateWorkspaceVersion: "0.0.0";
-  readonly cliPublishDryRunVersion: "0.1.0";
+  readonly internalWorkspaceVersion: "0.0.0";
+  readonly productVersion: "0.0.1";
+  readonly cliPublishDryRunVersion: "0.0.1";
   readonly npmReleaseClaimed: false;
   readonly signedInstallersShipped: false;
   readonly notarizedBuildsShipped: false;
@@ -49,7 +50,7 @@ export interface RuntimeReleaseReadinessValidationResult {
 
 export const harnessRuntimeReleaseReadiness: RuntimeReleaseReadinessPolicy = {
   schema: "runtime-release-readiness/v1",
-  currentStatus: "source-checkout-and-package-smoke-only",
+  currentStatus: "macos-local-v1-release-candidate",
   supportedNodeMajors: [24, 26],
   minimumNodeMajor: 24,
   ciWorkflowPath: ".github/workflows/rewrite-ci.yml",
@@ -91,8 +92,9 @@ export const harnessRuntimeReleaseReadiness: RuntimeReleaseReadinessPolicy = {
   ],
   releaseBoundary: {
     packagesPrivateExceptCli: true,
-    privateWorkspaceVersion: "0.0.0",
-    cliPublishDryRunVersion: "0.1.0",
+    internalWorkspaceVersion: "0.0.0",
+    productVersion: "0.0.1",
+    cliPublishDryRunVersion: "0.0.1",
     npmReleaseClaimed: false,
     signedInstallersShipped: false,
     notarizedBuildsShipped: false,
@@ -139,8 +141,9 @@ export function validateRuntimeReleaseReadiness(
   const boundary = policy.releaseBoundary;
   if (
     boundary.packagesPrivateExceptCli !== true ||
-    boundary.privateWorkspaceVersion !== "0.0.0" ||
-    boundary.cliPublishDryRunVersion !== "0.1.0" ||
+    boundary.internalWorkspaceVersion !== "0.0.0" ||
+    boundary.productVersion !== "0.0.1" ||
+    boundary.cliPublishDryRunVersion !== "0.0.1" ||
     boundary.npmReleaseClaimed !== false ||
     boundary.signedInstallersShipped !== false ||
     boundary.notarizedBuildsShipped !== false ||
