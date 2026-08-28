@@ -49,13 +49,13 @@ export function makeEntityActionCatalogExecutor(input: {
     if (contract.execution.read) {
       if (action.kind === "fact-search") return readReceipt("fact-search", facts.search(factFilters(action)));
       if (action.kind === "fact-show")
-        return readReceipt("fact-show", facts.show(requiredText(action.factId, "factId")));
+        return readReceipt("fact-show", facts.show(requiredCommandText(action.factId, "factId")));
       if (action.kind === "decision-list") {
         const read = decisions.list(decisionFilters(action));
         return readReceipt("decision-list", { ...read, decisions: read.decisions.map(decisionSummary) });
       }
       if (action.kind === "decision-show") {
-        const read = decisions.show(requiredText(action.decisionId, "decisionId"));
+        const read = decisions.show(requiredCommandText(action.decisionId, "decisionId"));
         return readReceipt("decision-show", {
           ...read,
           decision: { ...read.decision, body: action.includeBody === true ? read.decision.body : null },
@@ -122,7 +122,7 @@ export function makeEntityActionCatalogExecutor(input: {
     const authorizationDecision = decisionAuthorization(rawAction, binding, opId, input),
       action =
         contract.id === "amend"
-          ? prepareDecisionAmend(rawAction, decisions.show(requiredText(rawAction.decisionId, "decisionId")).decision)
+          ? prepareDecisionAmend(rawAction, decisions.show(requiredCommandText(rawAction.decisionId, "decisionId")).decision)
           : rawAction,
       dryRun = action.dryRun === true,
       existing = dryRun ? null : input.store.readEvent(opId),
@@ -270,8 +270,8 @@ function matchingReplayBundle(
 }
 
 function decisionCoverage(action: Readonly<Record<string, unknown>>, service: ReturnType<typeof makeDecisionService>) {
-  const decisionId = requiredText(action.decisionId, "decisionId"),
-    taskId = requiredText(action.taskId, "taskId");
+  const decisionId = requiredCommandText(action.decisionId, "decisionId"),
+    taskId = requiredCommandText(action.taskId, "taskId");
   service.show(decisionId);
   const graph = service.graph();
   return {
@@ -293,7 +293,7 @@ function decisionAuthorization(
     (action.kind === "decision-transition" &&
       ["in_effect", "rejected", "deferred"].includes(String(action.targetState)));
   if (!judgment) return null;
-  const decisionId = requiredText(action.decisionId, "decisionId"),
+  const decisionId = requiredCommandText(action.decisionId, "decisionId"),
     decision = authorizeAction("decision.accept", `decision/${decisionId}`, binding.actor, opId, {
       ...roleBindingAuthorizationContext(binding),
       target: { proposalActor: input.projection.readDecision(decisionId).decision?.proposer ?? null },
@@ -606,7 +606,7 @@ function decisionSummary(row: {
   };
 }
 
-function requiredText(value: unknown, field: string): string {
+function requiredCommandText(value: unknown, field: string): string {
   if (typeof value === "string" && value.trim()) return value;
   reject("invalid_command", `${field} is required.`);
 }

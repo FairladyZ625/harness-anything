@@ -61,7 +61,7 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
     invalid(input, "Fact timestamps must be ISO-8601 UTC values ending in Z.");
   if (
     action.supersedes !== undefined &&
-    (!record(action.supersedes) ||
+    (!plainRecordValue(action.supersedes) ||
       !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(String(action.supersedes.factRef)) ||
       typeof action.supersedes.rationale !== "string" ||
       [...action.supersedes.rationale].length < 1 ||
@@ -92,7 +92,7 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
         memoryClass,
         memoryTags: memoryTags as FactEventV1["payload"]["memoryTags"],
         provenance: [sessionProvenance(input.session, input.occurredAt)],
-        ...(record(action.supersedes)
+        ...(plainRecordValue(action.supersedes)
           ? {
               supersedes: action.supersedes as {
                 readonly factRef: string;
@@ -396,7 +396,7 @@ function array(input: EntityActionCompileInput, value: unknown, field: string): 
   invalid(input, `${field} must be an array.`);
 }
 function object(input: EntityActionCompileInput, value: unknown, field: string): Readonly<Record<string, unknown>> {
-  if (record(value)) return value;
+  if (plainRecordValue(value)) return value;
   invalid(input, `${field} must be an object.`);
 }
 function choice<T extends string>(
@@ -411,7 +411,7 @@ function choice<T extends string>(
 function stringList(value: unknown): readonly string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : [];
 }
-function record(value: unknown): value is Readonly<Record<string, unknown>> {
+function plainRecordValue(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function invalid(input: EntityActionCompileInput, message: string): never {
