@@ -98,13 +98,19 @@ export function parseCodeDocRepoint(
   taskId: string,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
+  if (args.slice(4).some((token) => token.split("=", 1)[0] === "--commit-sha"))
+    return rejected(
+      "unknown_field",
+      `Run ha task code-doc repoint ${taskId} without --commit-sha; ` +
+        "the submitted execution supplies the witness cut. See ha task code-doc repoint --help.",
+      json,
+    );
   const f = readFlags("task-code-doc-repoint", args.slice(4), inputs);
   return f.ok
     ? accepted(rootDir, repoId, json, {
         kind: "task-code-doc-repoint",
         taskId,
         record: f.one.get("--record"),
-        commitSha: f.one.get("--commit-sha"),
         paths: f.many.get("--path") ?? [],
         reason: f.one.get("--reason"),
       })

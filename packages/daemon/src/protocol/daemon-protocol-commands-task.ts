@@ -220,16 +220,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
         code: "missing_field",
         nextAction: "Repoint requires the active anchor record identifier.",
       }),
-      cliInput(
-        "--commit-sha",
-        "single",
-        true,
-        {
-          code: "invalid_field",
-          nextAction: "Repoint requires a full commit sha.",
-        },
-        { regex: "^[0-9a-f]{40}$" },
-      ),
       cliInput("--path", "repeated", false, {
         code: "invalid_field",
         nextAction: "Use canonical repository-relative paths, or omit --path to mark the record known-invalid.",
