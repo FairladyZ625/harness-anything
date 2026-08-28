@@ -1,3 +1,4 @@
+import type { FactEventDraftV1 } from "../../kernel/src/domain/fact-event.ts";
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
@@ -9,8 +10,7 @@ import {
   makeTaskEventStore,
   serializeCanonicalEvent,
   sha256Text,
-  type FactEventDraftV1,
-} from "../../kernel/src/index.ts";
+  type } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
