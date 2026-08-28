@@ -6,6 +6,7 @@ import {
   consumeKnownError,
   contentObjectRelativePath,
   deriveRelationId,
+  decisionMachineDigest,
   docSyncWritePlan,
   documentPath,
   eventObjectRelativePath,
@@ -16,6 +17,7 @@ import {
   ledgerGitPath,
   migrationImportWritePlan,
   readLegacyMigrationSource,
+  reduceDecisionDocument,
   renderFactsDocument,
   resolveHarnessLayout,
   resolveLedgerGitLayout,
@@ -23,6 +25,8 @@ import {
   sha256Text,
   stableStringify,
   type CanonicalEventV1,
+  type DecisionDocumentState,
+  type DecisionEventV1,
   type DocEventV1,
   type MigrationImportEventV1,
   type PublicationFile,
@@ -262,6 +266,7 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
   const relationMap = new Map(cold.legacyRelationIds);
   const factByLegacyRef = new Map(facts.map((fact) => [fact.legacyRef, fact]));
   const eventRewrites: { event: CanonicalEventV1; body: string }[] = [],
+    decisionStates = new Map<string, DecisionDocumentState>(),
     legacyEvents = new Set(
       events
         .filter(
@@ -321,6 +326,15 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
         );
       } else next = transform(event, mapRef, relationMap);
     } else next = transform(event, mapRef, relationMap);
+    if (next?.schema === "decision-event/v1") {
+      const current = decisionStates.get(next.decisionId) ?? null;
+      next = rekeyDecisionProofs(next as DecisionEventV1, current);
+      try {
+        decisionStates.set(next.decisionId, reduceDecisionDocument(current, next));
+      } catch (error) {
+        consumeKnownError(error);
+      }
+    }
     if (stableStringify(next) !== stableStringify(event))
       eventRewrites.push({ event: next, body: serializePersistedCanonicalEvent(next) });
   }
@@ -579,6 +593,35 @@ function transform(
       direction: output.direction,
     });
   return output;
+}
+
+function rekeyDecisionProofs(event: DecisionEventV1, current: DecisionDocumentState | null): DecisionEventV1 {
+  if (current === null) return event;
+  const sourcePayload = event.payload as any,
+    payload: Record<string, unknown> = { ...sourcePayload };
+  if (event.type === "decision_accepted" || event.type === "decision_rejected" || event.type === "decision_deferred")
+    payload.judgmentConsent = {
+      ...sourcePayload.judgmentConsent,
+      machineDigest: decisionMachineDigest(current),
+    };
+  if (
+    sourcePayload.contentPin !== undefined &&
+    (event.type === "decision_accepted" ||
+      event.type === "decision_rejected" ||
+      event.type === "decision_deferred" ||
+      event.type === "decision_superseded" ||
+      event.type === "decision_retired" ||
+      event.type === "decision_amended" ||
+      event.type === "decision_repinned")
+  ) {
+    const reduced = reduceDecisionDocument(current, event);
+    payload.contentPin = {
+      ...sourcePayload.contentPin,
+      state: reduced.state,
+      digest: decisionMachineDigest(reduced),
+    };
+  }
+  return { ...event, payload } as DecisionEventV1;
 }
 
 function replaceRefs(body: string, map: ReadonlyMap<string, string>, relationMap: ReadonlyMap<string, string>): string {

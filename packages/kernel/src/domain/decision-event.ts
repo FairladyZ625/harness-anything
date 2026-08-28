@@ -8,6 +8,7 @@ export {
   decisionDocumentProse,
   decisionMachineDigest,
   decisionWritePlan,
+  reduceDecisionDocument,
   renderDecisionDocument,
 } from "./decision-event-document.ts";
 export {

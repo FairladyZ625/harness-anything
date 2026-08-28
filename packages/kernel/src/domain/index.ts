@@ -93,9 +93,12 @@ export {
   decisionMachineDigest,
   decisionStates,
   decisionWritePlan,
+  reduceDecisionDocument,
 } from "./decision-event.ts";
 export type {
   DecisionAmendableSnapshot,
+  DecisionDocumentState,
+  DecisionEventDraftV1,
   DecisionEventV1,
   DecisionState,
 } from "./decision-event.ts";
