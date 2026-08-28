@@ -60,11 +60,11 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       ),
       cliInput("--prompt", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one of --prompt <text> or --prompt-file <path>, or omit both with --task.",
+        nextAction: "Use --prompt <text>, or omit it with --task to derive the mission from the task package.",
       }),
-      cliInput("--prompt-file", "single", false, {
+      cliInput("--mission", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one of --prompt <text> or --prompt-file <path>, or omit both with --task.",
+        nextAction: "Use --mission <name> with --task to append artifacts/missions/<name>.md.",
       }),
       cliInput("--cwd", "single", false, {
         code: "invalid_field",

@@ -149,11 +149,17 @@ When a dispatch is task-bound, the daemon also publishes its terminal work
 artifacts through canonical doc sync. One batch creates
 `artifacts/missions/<dispatch-id>.md`,
 `artifacts/dispatches/<dispatch-id>.json`, and
-`artifacts/reports/<dispatch-id>.md`. If `--prompt-file` already names a
-canonical artifact in that task package, the dispatch record references it
-instead of copying it. Reports come from the provider's structured runtime
-result, never by parsing human-readable terminal output. An unbound runtime run
-has no task package and therefore publishes none of these documents.
+`artifacts/reports/<dispatch-id>.md`. The task package's realized `task_plan.md`
+is the required mission source: task start, runtime dispatch, and Squad dispatch
+all reject empty required sections or retained preset scaffold text with
+`plan_placeholder`. `ha runtime run --task <id> --mission <name>` appends the
+canonical `artifacts/missions/<name>.md` document to that plan-derived mission;
+`--prompt` remains an explicit override, while `--prompt-file` is not part of
+the runtime-run surface. `ha squad run --task <id>` derives the same mission
+without requiring a prompt and accepts the same cwd, permission-mode, and effort
+overrides. Reports come from the provider's structured runtime result, never by
+parsing human-readable terminal output. An unbound runtime run has no task
+package and therefore publishes none of these documents.
 
 ## How the pieces connect
 

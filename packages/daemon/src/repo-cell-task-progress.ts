@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import {
   canStartExecution,
+  assessTransitionDocument,
   compileTaskProgress,
   completionBlockers,
   consumeKnownError,
   isTaskProgressEvent,
+  requireTransitionDocumentKind,
   resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
   stableStringify,
@@ -17,6 +19,7 @@ import { compileRepoTaskPackage } from "../../preset/src/index.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
+import { readTaskTransitionDocument } from "./transition-document-access.ts";
 
 export function appendProgress(
   cell: any,
@@ -259,43 +262,6 @@ export function completionContext(
       "content_not_ready",
       `Task ${taskId} package metadata is not ready; run ha daemon projection rebuild, then retry ${retryCommand}.`,
     );
-  const presetRead = cell.projection.readPresetSnapshot(snapshot.task.presetSnapshotDigest),
-    presetReady = presetRead.status === "ready",
-    preset = presetRead.snapshot as {
-      readonly templates?: readonly {
-        readonly slot: string;
-        readonly path: string;
-        readonly content: {
-          readonly sha256: string;
-        };
-      }[];
-    } | null;
-  if (!presetReady || !preset)
-    throw cell.cellCodedError(
-      "content_not_ready",
-      [
-        "Task ",
-        `${taskId}`,
-        " closeout preset projection is not ready; run ha daemon projection ",
-        "rebuild, then retry ",
-        `${retryCommand}`,
-        ".",
-      ].join(""),
-    );
-  const template = preset.templates?.find((value) => value.slot === "task.closeout");
-  if (!template)
-    throw cell.cellCodedError(
-      "content_not_ready",
-      [
-        "Task ",
-        `${taskId}`,
-        " preset has no task.closeout template; run ha preset upgrade ",
-        `${taskId}`,
-        ", then retry ",
-        `${retryCommand}`,
-        ".",
-      ].join(""),
-    );
   const contractDocument = cell.projection.readDocument(`${packagePath}/task-contract.json`).document;
   if (!contractDocument)
     throw cell.cellCodedError(
@@ -319,7 +285,12 @@ export function completionContext(
     });
   if (current.snapshot.digest !== snapshot.task.presetSnapshotDigest)
     throw cell.cellCodedError("preset_snapshot_mismatch", `Run ha preset upgrade ${taskId} before completion.`);
-  const closeoutPath = `${packagePath}/${template.path}`,
+  const closeoutDocument = readTaskTransitionDocument({
+      projection: cell.projection,
+      taskId,
+      slot: "task.closeout",
+    }),
+    closeoutPath = closeoutDocument.path,
     projected = cell.projection.readDocument(closeoutPath),
     scan = scanDocCandidates({
       rootDir: cell.rootDir,
@@ -336,7 +307,7 @@ export function completionContext(
       ? "dirty_eligible"
       : projected.document === null
         ? "missing"
-        : projected.document.blobSha256 === template.content.sha256
+        : !assessTransitionDocument(requireTransitionDocumentKind("task.complete"), projected.document.body).ready
           ? "placeholder"
           : "ready";
   const producesFactCount = cell.projection

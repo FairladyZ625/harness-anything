@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { realizedTaskPlan } from "./fixtures/task-plan.mjs";
 
 export function runCliPackageSmoke(root = process.cwd()) {
   buildCliPackageArtifact(root);
@@ -48,6 +49,9 @@ export function runCliPackageSmoke(root = process.cwd()) {
     const initialized = expectOk(runJson(binPath, ["--root", projectDir, "--json", "init", "--repo-id", "smoke", "--person-id", "owner", "--display-name", "Owner"], projectDir, env(userRoot, home)), "init");
     if (initialized.repoId !== "smoke" || !existsSync(path.join(projectDir, "harness/harness.yaml"))) throw new Error(`unexpected init receipt: ${JSON.stringify(initialized)}`);
     const created = expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "create", "--id", "task-smoke", "--admin", "--title", "Smoke Task"], projectDir, env(userRoot, home)), "task create");
+    const planPath = `${String(created.packagePath)}/task_plan.md`;
+    writeFileSync(path.join(projectDir, "harness", planPath), realizedTaskPlan("Smoke Task"));
+    expectOk(runJson(binPath, ["--root", projectDir, "--json", "doc", "sync", "--submit", "--path", planPath], projectDir, env(userRoot, home)), "task plan submit");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "show", "task-smoke"], projectDir, env(userRoot, home)), "task show");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "receipt", "show", String(created.opId)], projectDir, env(userRoot, home)), "receipt show");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "start", "task-smoke", "--execution-id", "execution-smoke"], projectDir, env(userRoot, home)), "task start");

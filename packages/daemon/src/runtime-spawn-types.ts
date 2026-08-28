@@ -169,12 +169,17 @@ export type RuntimeSessionSelection = Pick<
 
 export interface RemoteRuntimePersistence {
   readonly existing: (opId: string) => Promise<JsonObject | null>;
-  readonly taskContext: (taskId: string) => Promise<{
+  readonly taskContext: (
+    taskId: string,
+    missionName?: string,
+  ) => Promise<{
     readonly executionId: string;
     readonly mission: string;
     readonly packageRoot: string;
     readonly planPath: string;
     readonly plan: string;
+    readonly missionPath: string | null;
+    readonly missionBody: string | null;
   }>;
   readonly readRuntimeSessions: () => Promise<readonly RuntimeSessionSelection[]>;
   readonly publish: (draft: {

@@ -265,6 +265,7 @@ export const daemonGuiActionMethods = Object.freeze([
       cwd: "json",
       prompt: "string?",
       promptSource: "string?",
+      missionName: "string?",
       onExitCommand: "string?",
       taskId: "string-null?",
       idempotencyKey: "string",

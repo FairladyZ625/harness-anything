@@ -1,7 +1,7 @@
-import { existsSync, globSync, readFileSync } from "node:fs";
+import { existsSync, globSync } from "node:fs";
 import path from "node:path";
 import type { TaskProjection } from "../../kernel/src/index.ts";
-import { consumeKnownError, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import { runtimeTypeMatchesKind } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
@@ -9,6 +9,7 @@ import { type ResolvedAgentSkill } from "./agent-skills.ts";
 import { resolveContainedPath } from "./contained-path.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeDaemonRoute, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
+import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 
 export function resolveRuntimeCwd(root: string, value: unknown): string {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -22,8 +23,7 @@ export function resolveRuntimeCwd(root: string, value: unknown): string {
     throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd scope is invalid.");
   const requestedPath = cwd.scope === "repo-root" ? "." : requiredRuntimeSpawnText(cwd.path, "cwd.path"),
     resolved = resolveContainedPath(root, requestedPath);
-  if (resolved === null)
-    throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd must stay inside the repository.");
+  if (resolved === null) throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd must stay inside the repository.");
   return resolved;
 }
 
@@ -121,36 +121,66 @@ export function deriveTaskMission(
   rootDir: string,
   projection: TaskProjection,
   taskId: string,
+  transition: "runtime.run" | "squad.run",
+  missionName?: string,
 ): {
   readonly mission: string;
   readonly packageRoot: string;
   readonly planPath: string;
   readonly plan: string;
+  readonly missionPath: string | null;
+  readonly missionBody: string | null;
 } {
-  const task = projection.read(taskId);
-  if (!task.snapshot.task || !task.packagePath)
-    throw runtimeSpawnError(
-      "runtime_task_package_unavailable",
-      `Task ${taskId} has no ready task package for runtime dispatch.`,
-    );
-  const packageRoot = path.resolve(resolveHarnessLayout(rootDir).authoredRoot, ...task.packagePath.split("/")),
-    planPath = path.join(packageRoot, "task_plan.md");
-  let plan: string;
-  try {
-    plan = readFileSync(planPath, "utf8");
-  } catch (error) {
-    consumeKnownError(error);
-    throw runtimeSpawnError(
-      "runtime_task_package_unavailable",
-      `Task ${taskId} has no readable task plan at ${planPath}.`,
-    );
-  }
+  const planDocument = assertTaskTransitionDocumentReady({
+      projection,
+      taskId,
+      slot: "task.plan",
+      transition,
+    }),
+    packageRoot = path.resolve(resolveHarnessLayout(rootDir).authoredRoot, ...planDocument.packagePath.split("/")),
+    planPath = path.join(packageRoot, ...path.posix.relative(planDocument.packagePath, planDocument.path).split("/")),
+    missionDocument = missionName
+      ? readMissionDocument(projection, planDocument.packagePath, taskId, missionName, packageRoot)
+      : null,
+    mission = [
+      `Your task package is ${packageRoot}.\nRead ${path.basename(planPath)} in that package and complete the task.`,
+      ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.body.trim()}`] : []),
+    ].join("\n\n");
   return {
     packageRoot,
     planPath,
-    plan,
-    mission: `Your task package is ${packageRoot}.\nRead task_plan.md in that package and complete the task.`,
+    plan: planDocument.body,
+    mission,
+    missionPath: missionDocument?.path ?? null,
+    missionBody: missionDocument?.body ?? null,
   };
+}
+
+export function runtimeMissionName(value: unknown): string {
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/u.test(value))
+    throw runtimeSpawnError(
+      "invalid_runtime_mission",
+      "Use --mission <name> with 1..64 lowercase letters, digits, or hyphens; path separators are forbidden.",
+    );
+  return value;
+}
+
+function readMissionDocument(
+  projection: TaskProjection,
+  packagePath: string,
+  taskId: string,
+  missionName: string,
+  packageRoot: string,
+): { readonly path: string; readonly body: string } {
+  const name = runtimeMissionName(missionName),
+    logicalPath = `${packagePath}/artifacts/missions/${name}.md`,
+    read = projection.readDocument(logicalPath);
+  if (read.watermark < read.sourceRevision || !read.document || !read.document.body.trim())
+    throw runtimeSpawnError(
+      "runtime_mission_unavailable",
+      `Task ${taskId} has no ready non-empty mission at harness/${logicalPath}.`,
+    );
+  return { path: path.join(packageRoot, "artifacts", "missions", `${name}.md`), body: read.document.body };
 }
 
 export function assembleTaskMission(input: {

@@ -453,14 +453,19 @@ test("permission defaults open and tightens through the instance record or a sin
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
-test("agy owns its access policy and rejects harness permission declarations", async () => {
-  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-permission-")), agy = { installationId: "agy-permission", kindId: "agy" as const, executablePath: "/opt/runtime-test/agy", version: "1.1.15", observedAt: "2026-08-20T00:00:00.000Z" };
+test("agy defaults to bypass and distinguishes persisted restrictions from a dispatch override", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-permission-")), agy = { installationId: "agy-permission", kindId: "agy" as const, executablePath: "/opt/runtime-test/agy", version: "1.1.22", observedAt: "2026-08-29T00:00:00.000Z" };
   try {
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [agy], subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
-    assert.throws(() => store.command({ kind: "runtime-instance-create", instanceId: "agy-locked", name: "AGY Locked", kindId: "agy", providerId: "google", models: ["gemini-3.1-pro-low"], permissionMode: "read-only", authMode: "subscription" }), (error: unknown) => codedAs(error, "invalid_runtime_permission"));
     store.command({ kind: "runtime-instance-create", instanceId: "agy-open", name: "AGY Open", kindId: "agy", providerId: "google", models: ["gemini-3.1-pro-low"], authMode: "subscription" });
-    assert.equal((store.command({ kind: "runtime-instance-show", instanceId: "agy-open" }).instance as { readonly permissionMode: string | null }).permissionMode, null);
-    await assert.rejects(store.prepareLaunch("agy-open", { cwd: "/workspace/repo", prompt: "Bad", permissionMode: "bypass" }), (error: unknown) => codedAs(error, "invalid_runtime_permission"));
+    assert.equal((store.command({ kind: "runtime-instance-show", instanceId: "agy-open" }).instance as { readonly permissionMode: string | null }).permissionMode, "bypass");
+    const defaultLaunch = await store.prepareLaunch("agy-open", { cwd: "/workspace/repo", prompt: "Default" });
+    assert.deepEqual(defaultLaunch.args, ["-p", "Default", "--output-format", "stream-json", "--model", "gemini-3.1-pro-low", "--dangerously-skip-permissions"]);
+    store.command({ kind: "runtime-instance-update", instanceId: "agy-open", permissionMode: "read-only" });
+    const restricted = await store.prepareLaunch("agy-open", { cwd: "/workspace/repo", prompt: "Restricted" }), overridden = await store.prepareLaunch("agy-open", { cwd: "/workspace/repo", prompt: "Override", permissionMode: "bypass" });
+    assert.equal(restricted.args.includes("--dangerously-skip-permissions"), false);
+    assert.equal(overridden.args.includes("--dangerously-skip-permissions"), true);
+    assert.equal(store.read("agy-open")?.permissionMode, "read-only");
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
@@ -628,18 +633,20 @@ test("create takes repeated models with an optional explicit default and dispatc
 });
 
 test("persisted schema v2 records normalize permission and isolation fields once on read", async () => {
-  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-field-migration-")), claude = { ...observed, installationId: "claude-field-migration", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" };
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-field-migration-")), claude = { ...observed, installationId: "claude-field-migration", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" }, agy = { installationId: "agy-field-migration", kindId: "agy" as const, executablePath: "/opt/runtime-test/agy", version: "1.1.22", observedAt: "2026-08-29T00:00:00.000Z" };
   try {
     writeFileSync(path.join(userRoot, "runtime-instances.json"), `${JSON.stringify({ schema: "runtime-instances/v1", instances: [
       { schemaVersion: 2, instanceId: "codex-persisted", name: "Codex Persisted", kindId: "codex", installationId: observed.installationId, providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: {}, auth: { mode: "subscription" } },
-      { schemaVersion: 2, instanceId: "claude-persisted", name: "Claude Persisted", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, claude: {}, auth: { mode: "subscription" } }
+      { schemaVersion: 2, instanceId: "claude-persisted", name: "Claude Persisted", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, claude: {}, auth: { mode: "subscription" } },
+      { schemaVersion: 2, instanceId: "agy-persisted", name: "AGY Persisted", kindId: "agy", installationId: agy.installationId, providerId: "google", models: ["gemini-3.1-pro-low"], defaultModel: "gemini-3.1-pro-low", enabled: true, agy: {}, auth: { mode: "subscription" } }
     ] })}\n`);
-    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude], env: { HOME: "/operator/home", PATH: "/bin" }, subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude, agy], env: { HOME: "/operator/home", PATH: "/bin" }, subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
     assert.deepEqual({ ...store.read("codex-persisted"), codex: undefined }, { schemaVersion: 2, instanceId: "codex-persisted", name: "Codex Persisted", installationId: observed.installationId, installationIdentity: "path-entry/v1", providerId: "openai", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, permissionMode: "bypass", isolationState: "enforced", kindId: "codex", auth: { mode: "subscription" }, codex: undefined });
     assert.deepEqual({ ...store.read("claude-persisted"), claude: undefined }, { schemaVersion: 2, instanceId: "claude-persisted", name: "Claude Persisted", installationId: claude.installationId, installationIdentity: "path-entry/v1", providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, permissionMode: "bypass", isolationState: "operator-environment", kindId: "claude", auth: { mode: "subscription" }, claude: undefined });
+    assert.equal(store.read("agy-persisted")?.permissionMode, "bypass");
     const persisted = JSON.parse(readFileSync(path.join(userRoot, "runtime-instances.json"), "utf8")).instances as Array<Record<string, unknown>>;
-    assert.deepEqual(persisted.map(({ permissionMode, isolationState }) => ({ permissionMode, isolationState })), [{ permissionMode: "bypass", isolationState: "operator-environment" }, { permissionMode: "bypass", isolationState: "enforced" }]);
-    const storeAgain = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude] }), mtimeFirst = statSync(path.join(userRoot, "runtime-instances.json")).mtimeMs;
+    assert.deepEqual(persisted.map(({ permissionMode, isolationState }) => ({ permissionMode, isolationState })), [{ permissionMode: "bypass", isolationState: "operator-environment" }, { permissionMode: "bypass", isolationState: "operator-environment" }, { permissionMode: "bypass", isolationState: "enforced" }]);
+    const storeAgain = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude, agy] }), mtimeFirst = statSync(path.join(userRoot, "runtime-instances.json")).mtimeMs;
     storeAgain.read("codex-persisted");
     assert.equal(statSync(path.join(userRoot, "runtime-instances.json")).mtimeMs, mtimeFirst);
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
@@ -651,7 +658,7 @@ test("agy uses the operator environment, OAuth-only auth, and a closed effort en
     const store = openRuntimeInstanceStore({ userRoot, env: { HOME: "/operator/home", PATH: "/bin" }, discover: () => [agy], subscriptionReady: () => ({ status: "ready", code: null, hint: null }) });
     store.create({ schemaVersion: 2, instanceId: "agy-review", name: "AGY Review", kindId: "agy", installationId: agy.installationId, providerId: "google", models: ["gemini-3.1-pro-low"], defaultModel: "gemini-3.1-pro-low", enabled: true, agy: { effort: "low" }, auth: { mode: "subscription" } });
     const launch = await store.prepareLaunch("agy-review", { cwd: "/workspace/repo", prompt: "Reply with exactly AGY-OK", effort: "medium", providerSessionId: "conversation-1" });
-    assert.deepEqual(launch.args, ["-p", "Reply with exactly AGY-OK", "--output-format", "stream-json", "--model", "gemini-3.1-pro-low", "--effort", "medium", "--conversation", "conversation-1"]);
+    assert.deepEqual(launch.args, ["-p", "Reply with exactly AGY-OK", "--output-format", "stream-json", "--model", "gemini-3.1-pro-low", "--dangerously-skip-permissions", "--effort", "medium", "--conversation", "conversation-1"]);
     assert.equal(launch.env.HOME, "/operator/home"); assert.equal(launch.env.CODEX_HOME, undefined); assert.equal(launch.env.CLAUDE_CONFIG_DIR, undefined);
     await assert.rejects(store.prepareLaunch("agy-review", { cwd: "/workspace/repo", prompt: "reject", effort: "xhigh" }), (error: unknown) => codedAs(error, "invalid_runtime_effort") && error instanceof Error && error.message.includes("low, medium, or high"));
     assert.equal(store.command({ kind: "runtime-instance-show", instanceId: "agy-review" }).instance && (store.command({ kind: "runtime-instance-show", instanceId: "agy-review" }).instance as { isolationState: string }).isolationState, "operator-environment");

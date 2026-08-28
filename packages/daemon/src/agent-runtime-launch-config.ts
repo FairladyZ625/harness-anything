@@ -87,6 +87,7 @@ export function launchArgs(
       "stream-json",
       "--model",
       model,
+      ...(permissionMode === "bypass" ? ["--dangerously-skip-permissions"] : []),
       ...(effort ? ["--effort", effort] : []),
       ...(providerSessionId ? ["--conversation", providerSessionId] : []),
     ];

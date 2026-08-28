@@ -167,12 +167,9 @@ export function stripGlobals(argv: readonly string[]): string[] {
   );
 }
 
-export function promptInput(
-  one: ReadonlyMap<string, string>,
-): { readonly prompt: string } | { readonly promptFile: string } | null {
-  const prompt = one.get("--prompt"),
-    promptFile = one.get("--prompt-file");
-  return Boolean(prompt) === Boolean(promptFile) ? null : prompt ? { prompt } : { promptFile: promptFile! };
+export function promptInput(one: ReadonlyMap<string, string>): { readonly prompt: string } | null {
+  const prompt = one.get("--prompt");
+  return prompt ? { prompt } : null;
 }
 
 export function nonEmpty(value: string | undefined): value is string {

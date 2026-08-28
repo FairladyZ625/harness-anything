@@ -13,6 +13,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const binding = {
   actor: { principal: { personId: "person-provider-fallback" }, executor: null },
@@ -84,7 +85,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       { instance: "provider-rate-first" },
       { instance: "provider-success-second", model: "provider-success-model" },
     ]);
-    await startTask(cell, "task_provider_fallback_success", "execution-provider-fallback-success");
+    await startTask(cell, root, "task_provider_fallback_success", "execution-provider-fallback-success");
     await cell.spawnRuntime(
       {
         agentId: "fallback-success",
@@ -129,7 +130,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
 
     await installAgent(cell, "fallback-exhausted", [{ instance: "provider-rate-a" }, { instance: "provider-rate-b" }]);
-    await startTask(cell, "task_provider_fallback_exhausted", "execution-provider-fallback-exhausted");
+    await startTask(cell, root, "task_provider_fallback_exhausted", "execution-provider-fallback-exhausted");
     await cell.spawnRuntime(
       {
         agentId: "fallback-exhausted",
@@ -183,7 +184,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       { instance: "provider-stop-first" },
       { instance: "provider-unused-second" },
     ]);
-    await startTask(cell, "task_provider_worker_stop", "execution-provider-worker-stop");
+    await startTask(cell, root, "task_provider_worker_stop", "execution-provider-worker-stop");
     await cell.spawnRuntime(
       {
         agentId: "fallback-worker-stop",
@@ -207,7 +208,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.equal(prompts.has("provider-unused-second"), false);
 
     await installAgent(cell, "fallback-empty-success", [{ instance: "provider-empty-success" }]);
-    await startTask(cell, "task_provider_empty_success", "execution-provider-empty-success");
+    await startTask(cell, root, "task_provider_empty_success", "execution-provider-empty-success");
     await cell.spawnRuntime(
       {
         agentId: "fallback-empty-success",
@@ -232,7 +233,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       [{ instance: "provider-restart-first" }, { instance: "provider-restart-second" }],
       { baseMs: 500, maxMs: 500 },
     );
-    await startTask(cell, "task_provider_fallback_restart", "execution-provider-fallback-restart");
+    await startTask(cell, root, "task_provider_fallback_restart", "execution-provider-fallback-restart");
     await cell.spawnRuntime(
       {
         agentId: "fallback-restart",
@@ -410,10 +411,15 @@ async function installAgent(
 
 async function startTask(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
+  rootDir: string,
   taskId: string,
   executionId: string,
 ): Promise<void> {
-  assert.equal((await cell.run({ kind: "task-create", taskId, title: taskId }, binding)).outcome, "applied");
+  const created = await cell.run({ kind: "task-create", taskId, title: taskId }, binding);
+  assert.equal(created.outcome, "applied");
+  await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+    cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+  );
   assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
 }
 

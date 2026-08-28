@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 import { cli, git, register, run, runMaybe, setup, stop } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 test("real CLI reaches one resident multi-workspace daemon and publishes Git event -> SQLite -> receipt", async () => {
@@ -99,6 +100,12 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     ]);
     assert.equal(alpha.outcome, "applied", JSON.stringify(alpha));
     assert.equal(beta.outcome, "applied", JSON.stringify(beta));
+    const alphaPlan = `${String(alpha.packagePath)}/task_plan.md`;
+    writeFileSync(path.join(fixture.alpha, "harness", alphaPlan), realizedTaskPlan("Alpha"));
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", alphaPlan]).outcome,
+      "applied",
+    );
     const factRecord = run(fixture.alpha, fixture.userRoot, [
       "fact",
       "record",
@@ -149,11 +156,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
         decisionId: string;
         state: string;
       },
-      decisionPath = `decisions/decision-${decision.decisionId}/decision.md`,
-      beforeAccepted = makeTaskEventStore({
-        rootDir: fixture.alpha,
-        repoId: "alpha",
-      }).readHead()!.revision;
+      decisionPath = `decisions/decision-${decision.decisionId}/decision.md`;
     assert.equal(decision.state, "proposed");
     assert.equal(decisionPropose.path, decisionPath);
     assert.equal(decisionPropose.worktreeVisible, true);
@@ -164,6 +167,17 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       readFileSync(path.join(fixture.alpha, "harness", decisionPath), "utf8"),
       /^---\nschema: decision-package\/v1[\s\S]*\nstate: proposed[\s\S]*\n---\n\n# Canonical Decision from CLI\n$/u,
     );
+    const decisionFile = path.join(fixture.alpha, "harness", decisionPath),
+      decisionBody = readFileSync(decisionFile, "utf8");
+    writeFileSync(decisionFile, `${decisionBody}\n## Decision\n\nUse the event-backed lifecycle selected by this fixture.\n`);
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", decisionPath]).outcome,
+      "applied",
+    );
+    const beforeAccepted = makeTaskEventStore({
+      rootDir: fixture.alpha,
+      repoId: "alpha",
+    }).readHead()!.revision;
     const acceptedDecision = run(fixture.alpha, fixture.userRoot, [
       "decision",
       "accept",

@@ -8,14 +8,9 @@ export type RuntimePermissionKind = "claude" | "codex" | "agy";
 
 export function runtimePermissionMode(
   value: unknown,
-  kindId: RuntimePermissionKind,
+  _kindId: RuntimePermissionKind,
 ): RuntimePermissionMode | undefined {
-  if (value === undefined) return kindId === "agy" ? undefined : "bypass";
-  if (kindId === "agy")
-    throw permissionError(
-      "invalid_runtime_permission",
-      "agy runtime instances have no harness permission mode; the agy CLI owns its own access policy.",
-    );
+  if (value === undefined) return "bypass";
   if (typeof value !== "string" || !["bypass", "workspace-write", "read-only"].includes(value))
     throw permissionError(
       "invalid_runtime_permission",

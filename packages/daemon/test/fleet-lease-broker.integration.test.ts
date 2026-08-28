@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
@@ -13,6 +13,7 @@ import { fleetLeaseTimers } from "../src/lease-broker.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { randomUUID } from "node:crypto";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const replicaQuota = 64 * 1024 * 1024;
 
@@ -36,6 +37,31 @@ async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["ru
   writeFileSync(
     path.join(repo, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: lease\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  writeFileSync(
+    path.join(repo, "harness/people.yaml"),
+    `${JSON.stringify(
+      {
+        schema: "harness-people/v1",
+        people: [
+          {
+            personId: "lease-owner",
+            displayName: "Lease Owner",
+            roles: ["owner"],
+            credentials: [
+              {
+                kind: "unix-socket-owner-boundary",
+                issuer: `host:${hostname()}`,
+                subject: String(process.getuid?.() ?? 0),
+              },
+            ],
+          },
+        ],
+        roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }],
+      },
+      null,
+      2,
+    )}\n`,
   );
   git("add", "harness");
   git("commit", "-qm", "harness");
@@ -113,13 +139,13 @@ async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["ru
   };
   const host = await openHost(),
     center = await openCenter(host);
-  const command = (
+  const command = async (
     nodeId: string,
     action: Record<string, unknown>,
     waitMs = 5_000,
     taskId: string | null = typeof action.taskId === "string" ? action.taskId : null,
-  ) =>
-    runFleetTaskCommandClient({
+  ) => {
+    const result = await runFleetTaskCommandClient({
       port: center.port,
       ca: cert,
       servername: "localhost",
@@ -132,6 +158,15 @@ async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["ru
       action: action as never,
       waitMs,
     });
+    if (action.kind === "task-create" && result.outcome === "applied")
+      await realizeTaskPlanFixture(
+        repo,
+        String((result.receipt as Record<string, unknown>).packagePath),
+        (planPath) => host.run("lease-repo", { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+        typeof action.title === "string" ? action.title : undefined,
+      );
+    return result;
+  };
   const commandOn = (target: FleetTlsCenter, nodeId: string, action: Record<string, unknown>, waitMs = 5_000) =>
     runFleetTaskCommandClient({
       port: target.port,
@@ -827,4 +862,14 @@ async function waitUntil(predicate: () => boolean, message: string): Promise<voi
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
   assert.fail(message);
+}
+
+function localAuthFixture() {
+  return {
+    transportKind: "unix-socket" as const,
+    unixSocketOwnerBoundary: {
+      ownerUid: process.getuid?.() ?? 0,
+      source: "unix-socket-filesystem-owner-boundary" as const,
+    },
+  };
 }

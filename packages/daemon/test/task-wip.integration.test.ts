@@ -23,6 +23,7 @@ import {
   TASK_ROOT_THRESHOLD_SETTING,
   TASK_WIP_LIMIT_ENV,
 } from "../src/task-wip-settings.ts";
+import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor: ActorIdentity = { principal: { personId: "person-wip" }, executor: null } as const;
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;
@@ -47,7 +48,7 @@ test("the execution WIP gate hard-rejects at the limit and never holds closeout 
       ["task_FRESH", "Fresh work"],
       ["task_BACKFILL", "Closeout backfill"],
     ] as const)
-      assert.equal((await cell.run({ kind: "task-create", taskId, title }, binding)).outcome, "applied");
+      await createReadyTask(cell, rootDir, taskId, title);
     // A migrated archived execution with a recorded submission is canonical delivery evidence:
     // the work is already done and the task exists only to write it off.
     const backfillPackage = await packagePathOf(cell, "task_BACKFILL");
@@ -172,8 +173,7 @@ test("the limit is configurable from settings.tasks.wipLimit and overridden by t
     });
     const binding = { actor, source: "local" as const };
     assert.deepEqual(resolveTaskWipLimit(rootDir), { limit: 1, label: "settings.tasks.wipLimit" });
-    for (const taskId of ["task_ONE", "task_TWO", "task_THREE"])
-      assert.equal((await cell.run({ kind: "task-create", taskId, title: taskId }, binding)).outcome, "applied");
+    for (const taskId of ["task_ONE", "task_TWO", "task_THREE"]) await createReadyTask(cell, rootDir, taskId, taskId);
     assert.equal(
       (await cell.run({ kind: "task-start", taskId: "task_ONE", executionId: "exe_one" }, binding)).outcome,
       "applied",
@@ -239,22 +239,14 @@ test("a standard task becomes a visible structure-derived root without rewriting
       ["task_ROOT_2", "Two children"],
       ["task_ROOT_4", "Four children"],
     ] as const)
-      assert.equal((await cell.run({ kind: "task-create", taskId, title }, binding)).outcome, "applied");
+      await createReadyTask(cell, rootDir, taskId, title);
     for (const [parentTaskId, count] of [
       ["task_ROOT_3", 3],
       ["task_ROOT_2", 2],
       ["task_ROOT_4", 4],
     ] as const)
       for (let index = 0; index < count; index++)
-        assert.equal(
-          (
-            await cell.run(
-              { kind: "task-create", taskId: `${parentTaskId}_CHILD_${index}`, title: `Child ${index}`, parentTaskId },
-              binding,
-            )
-          ).outcome,
-          "applied",
-        );
+        await createReadyTask(cell, rootDir, `${parentTaskId}_CHILD_${index}`, `Child ${index}`, { parentTaskId });
     assert.deepEqual(resolveTaskRootThreshold(rootDir), { threshold: 3, label: TASK_ROOT_THRESHOLD_SETTING });
     assert.equal(
       (await cell.run({ kind: "task-start", taskId: "task_ROOT_2", executionId: "exe_root_2" }, binding)).outcome,
@@ -317,12 +309,9 @@ test("task list rows expose packageDisposition and taskClass so the occupancy co
       now: () => "2026-08-16T00:00:00.000Z",
     });
     const binding = { actor, source: "local" as const };
-    await cell.run({ kind: "task-create", taskId: "task_STD", title: "Standard work" }, binding);
-    await cell.run(
-      { kind: "task-create", taskId: "task_MILESTONE", title: "Milestone container", taskClass: "milestone" },
-      binding,
-    );
-    await cell.run({ kind: "task-create", taskId: "task_ARCHIVED", title: "Retired work" }, binding);
+    await createReadyTask(cell, rootDir, "task_STD", "Standard work");
+    await createReadyTask(cell, rootDir, "task_MILESTONE", "Milestone container", { taskClass: "milestone" });
+    await createReadyTask(cell, rootDir, "task_ARCHIVED", "Retired work");
     assert.equal(
       (await cell.run({ kind: "task-start", taskId: "task_STD", executionId: "exe_std" }, binding)).outcome,
       "applied",
@@ -388,19 +377,13 @@ test("taskClass=long_running work never occupies the execution worktable, even m
       now: () => "2026-08-16T00:00:00.000Z",
     });
     const binding = { actor, source: "local" as const };
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task_OCC", title: "Occupant" }, binding)).outcome,
-      "applied",
-    );
+    await createReadyTask(cell, rootDir, "task_OCC", "Occupant");
     assert.equal(
       (await cell.run({ kind: "task-start", taskId: "task_OCC", executionId: "exe_occ" }, binding)).outcome,
       "applied",
     );
     // The migration path the live carrier will take: amend an existing task into the class.
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task_RESIDENT", title: "Resident ledger" }, binding)).outcome,
-      "applied",
-    );
+    await createReadyTask(cell, rootDir, "task_RESIDENT", "Resident ledger");
     assert.equal(
       (
         await cell.run(
@@ -410,15 +393,7 @@ test("taskClass=long_running work never occupies the execution worktable, even m
       ).outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          { kind: "task-create", taskId: "task_NATIVE", title: "Native resident", taskClass: "long_running" },
-          binding,
-        )
-      ).outcome,
-      "applied",
-    );
+    await createReadyTask(cell, rootDir, "task_NATIVE", "Native resident", { taskClass: "long_running" });
     // The worktable is full at 1/1 with natural-endpoint work; resident work still runs.
     assert.equal(
       (await cell.run({ kind: "task-start", taskId: "task_RESIDENT", executionId: "exe_resident" }, binding)).outcome,
@@ -428,8 +403,7 @@ test("taskClass=long_running work never occupies the execution worktable, even m
       (await cell.run({ kind: "task-start", taskId: "task_NATIVE", executionId: "exe_native" }, binding)).outcome,
       "applied",
     );
-    const fresh = await cell.run({ kind: "task-create", taskId: "task_FRESH", title: "Fresh work" }, binding);
-    assert.equal(fresh.outcome, "applied");
+    await createReadyTask(cell, rootDir, "task_FRESH", "Fresh work");
     const rejected = await cell.run({ kind: "task-start", taskId: "task_FRESH", executionId: "exe_fresh" }, binding);
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "task_wip_limit_reached");
@@ -469,6 +443,22 @@ async function packagePathOf(cell: Cell, taskId: string): Promise<string> {
     readonly evidence: string;
   };
   return String((JSON.parse(shown.evidence) as { readonly packagePath: string }).packagePath);
+}
+
+async function createReadyTask(
+  cell: Cell,
+  rootDir: string,
+  taskId: string,
+  title: string,
+  options: { readonly taskClass?: "milestone" | "long_running"; readonly parentTaskId?: string } = {},
+): Promise<void> {
+  const binding = { actor, source: "local" as const };
+  await createRealizedTaskPlanFixture(
+    rootDir,
+    () => cell.run({ kind: "task-create", taskId, title, ...options }, binding),
+    (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    title,
+  );
 }
 
 function appendMigratedExecution(rootDir: string, repoId: string, taskId: string, documentPath: string): void {

@@ -15,6 +15,7 @@ import {
   workspaceId,
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 test("task read surfaces, dry-runs, idempotency, structured input, and supersede facade stay closed", async () => {
@@ -59,6 +60,9 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
       binding,
     )) as Record<string, unknown>;
     assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String(created.packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
     mkdirSync(path.join(rootDir, "harness/legacy/source"), { recursive: true });
     writeFileSync(
       path.join(rootDir, "harness/legacy/source/old.md"),
@@ -252,14 +256,10 @@ test("a lapsed lease stays readable through task show and releasable through tas
       },
       source: "local" as const,
     };
-    assert.equal(
-      (
-        await cell.run(
-          { kind: "task-create", taskId: "task_lease", title: "Lease exit" },
-          holder,
-        )
-      ).outcome,
-      "applied",
+    const created = await cell.run({ kind: "task-create", taskId: "task_lease", title: "Lease exit" }, holder);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
     );
     assert.equal(
       (
@@ -437,18 +437,17 @@ test("a released round is re-enterable by its own execution and still refuses a 
       now: () => "2026-08-15T02:00:00.000Z",
     });
     const binding = { actor, source: "local" as const };
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-create",
-            taskId: "task_round",
-            title: "Round re-entry",
-          },
-          binding,
-        )
-      ).outcome,
-      "applied",
+    const created = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task_round",
+        title: "Round re-entry",
+      },
+      binding,
+    );
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
     assert.equal(
       (

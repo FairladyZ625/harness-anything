@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createWriteReceipt, sha256Bytes } from "../../kernel/src/index.ts";
@@ -10,6 +10,7 @@ import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
 import { FleetRemoteError, runFleetReplicaPullClient, runFleetWriteClient } from "../src/fleet/edge.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 test(
   "independent pull atomically switches a quota-bounded view and exact ACK derives durable replica receipts",
@@ -210,6 +211,7 @@ async function replicaFixture() {
     path.join(repo, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: replica-r2\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
+  writePeopleFixture(repo);
   git(repo, "add", "harness");
   git(repo, "commit", "-qm", "base");
   registerDaemonRepo({
@@ -270,20 +272,18 @@ async function replicaFixture() {
       auth,
     );
   assert.equal(created.outcome, "applied");
-  assert.equal(
-    (
-      await host.run(
-        assignment.repoId,
-        {
-          kind: "task-start",
-          taskId: assignment.taskId,
-          executionId: assignment.executionId,
-        },
-        auth,
-      )
-    ).outcome,
-    "applied",
+  await realizeTaskPlanFixture(
+    repo,
+    String((created as Record<string, unknown>).packagePath),
+    (planPath) => host.run(assignment.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+    "Replica R2",
   );
+  const started = await host.run(
+    assignment.repoId,
+    { kind: "task-start", taskId: assignment.taskId, executionId: assignment.executionId },
+    auth,
+  );
+  assert.equal(started.outcome, "applied", JSON.stringify(started));
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
     assignments = new Map([
@@ -317,6 +317,47 @@ async function replicaFixture() {
     close: async () => {
       await host.close();
       rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+function writePeopleFixture(rootDir: string): void {
+  const ownerUid = process.getuid?.() ?? 0;
+  writeFileSync(
+    path.join(rootDir, "harness/people.yaml"),
+    `${JSON.stringify(
+      {
+        schema: "harness-people/v1",
+        people: [
+          {
+            personId: "replica-fixture",
+            displayName: "Replica Fixture",
+            roles: ["owner"],
+            credentials: [
+              {
+                kind: "unix-socket-owner-boundary",
+                issuer: `host:${hostname()}`,
+                subject: String(ownerUid),
+              },
+            ],
+          },
+        ],
+        roles: [
+          { roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+function localAuthFixture() {
+  return {
+    transportKind: "unix-socket" as const,
+    unixSocketOwnerBoundary: {
+      ownerUid: process.getuid?.() ?? 0,
+      source: "unix-socket-filesystem-owner-boundary" as const,
     },
   };
 }

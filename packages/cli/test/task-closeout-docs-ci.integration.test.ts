@@ -15,6 +15,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 const createFields = [
@@ -103,6 +104,7 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
     );
     const created = run(root, userRoot, ["task", "create", "--from-file", "create.json"]),
       packagePath = String(created.packagePath),
+      planPath = `${packagePath}/task_plan.md`,
       closeoutPath = `${packagePath}/closeout.md`,
       commitSha = git(root, "rev-parse", "HEAD");
     context.diagnostic(`docs-task-completion-gates=${JSON.stringify(created.completionGates)}`);
@@ -114,6 +116,8 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
     assert.equal(created.presetId, "docs-task");
     assert.equal(created.profileId, "baseline");
     assert.equal(created.outputShape, "task-package-artifact");
+    writeFileSync(path.join(root, "harness", planPath), realizedTaskPlan("Docs Closeout CI"));
+    assert.equal(run(root, userRoot, ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
     assert.equal(
       run(root, userRoot, [
         "fact",

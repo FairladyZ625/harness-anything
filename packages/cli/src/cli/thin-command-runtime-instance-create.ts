@@ -64,7 +64,6 @@ function hasForeignAdapterOptions(
         flags.one.has("--wire-api") ||
         flags.booleans.has("--requires-openai-auth") ||
         headers !== undefined ||
-        flags.one.has("--permission-mode") ||
         flags.one.has("--isolation")))
   );
 }

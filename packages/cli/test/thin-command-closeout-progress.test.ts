@@ -372,7 +372,7 @@ test("artifact add emits only a source-to-destination descriptor", () => {
     });
 });
 
-test("code-doc repoint requires an active record, full commit, and audit reason", () => {
+test("code-doc repoint derives the commit and rejects the retired caller cut", () => {
   const parsed = parseThinCommand([
     "task",
     "code-doc",
@@ -380,8 +380,6 @@ test("code-doc repoint requires an active record, full commit, and audit reason"
     "task-1",
     "--record",
     "code-doc-old",
-    "--commit-sha",
-    "a".repeat(40),
     "--path",
     "README.md",
     "--reason",
@@ -393,16 +391,35 @@ test("code-doc repoint requires an active record, full commit, and audit reason"
       kind: "task-code-doc-repoint",
       taskId: "task-1",
       record: "code-doc-old",
-      commitSha: "a".repeat(40),
       paths: ["README.md"],
       reason: "Correct archive root",
     });
   for (const argv of [
-    ["task", "code-doc", "repoint", "task-1", "--commit-sha", "a".repeat(40), "--reason", "why"],
-    ["task", "code-doc", "repoint", "task-1", "--record", "code-doc-old", "--commit-sha", "abc", "--reason", "why"],
-    ["task", "code-doc", "repoint", "task-1", "--record", "code-doc-old", "--commit-sha", "a".repeat(40)],
+    ["task", "code-doc", "repoint", "task-1", "--reason", "why"],
+    ["task", "code-doc", "repoint", "task-1", "--record", "code-doc-old"],
   ])
     assert.equal(parseThinCommand(argv).ok, false, JSON.stringify(argv));
+  for (const retired of ["--commit-sha", `--commit-sha=${"b".repeat(40)}`]) {
+    const obsolete = parseThinCommand([
+      "task",
+      "code-doc",
+      "repoint",
+      "task-1",
+      "--record",
+      "code-doc-old",
+      retired,
+      ...(retired.includes("=") ? [] : ["b".repeat(40)]),
+      "--reason",
+      "why",
+    ]);
+    assert.equal(obsolete.ok, false);
+    if (!obsolete.ok)
+      assert.equal(
+        obsolete.nextAction,
+        "Run ha task code-doc repoint task-1 without --commit-sha; " +
+          "the submitted execution supplies the witness cut. See ha task code-doc repoint --help.",
+      );
+  }
 });
 
 // A route decided by scanning the whole argv lets a flag *value* spelling a command name hijack it.

@@ -473,6 +473,13 @@ export async function lifecycleAction(
       "terminal_task",
       `Run ha task supersede ${taskId} --title <follow-up-title> for new work.`,
     );
+  if (resolvedLifecycle?.coordination === "reserve" && !preview)
+    cell.assertTaskTransitionDocumentReady({
+      projection: cell.projection,
+      taskId,
+      slot: "task.plan",
+      transition: "task.start",
+    });
   const canonicalAction = preview ? cell.withoutDryRun(action) : action;
   const normalized = cell.buildCommand(
     canonicalAction,

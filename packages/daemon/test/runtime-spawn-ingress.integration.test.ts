@@ -14,6 +14,7 @@ import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 const definition: AgentDefinitionSnapshot = {
@@ -92,6 +93,15 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
     },
   });
   await host.attachmentsSettled();
+  const createReadyTask = async (taskId: string, title: string, appendix = ""): Promise<void> => {
+    await createRealizedTaskPlanFixture(
+      root,
+      () => host.run(repoId, { kind: "task-create", taskId, title }, auth),
+      (planPath) => host.run(repoId, { kind: "doc-submit", paths: [planPath] }, auth),
+      title,
+      appendix,
+    );
+  };
   let transportConnections = 0;
   const endpoint = localUserDaemonEndpoint(userRoot, "runtime-spawn-ingress"),
     transport = createUnixSocketTransportServer({
@@ -127,10 +137,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       const taskId = "task-runtime-agent",
         executionId = "exec-runtime-agent",
         executor = { kind: "agent", id: "codex-worker" } as const;
-      assert.equal(
-        (await host.run(repoId, { kind: "task-create", taskId, title: "Agent runtime" }, auth)).outcome,
-        "applied",
-      );
+      await createReadyTask(taskId, "Agent runtime");
       assert.equal(
         (await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome,
         "applied",
@@ -199,10 +206,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       const taskId = "task-runtime-dispatcher-handoff",
         executionId = "exec-runtime-dispatcher-handoff",
         leaseExecutor = { kind: "agent", id: "codex-sol" } as const;
-      assert.equal(
-        (await host.run(repoId, { kind: "task-create", taskId, title: "Dispatcher handoff" }, auth)).outcome,
-        "applied",
-      );
+      await createReadyTask(taskId, "Dispatcher handoff");
       assert.equal(
         (await host.run(repoId, { kind: "task-start", taskId, executionId, executor: leaseExecutor }, auth)).outcome,
         "applied",
@@ -280,17 +284,14 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       const taskId = "task-runtime-invalid-glob",
         executionId = "exec-runtime-invalid-glob",
         executor = { kind: "agent", id: "codex-worker" } as const;
-      assert.equal(
-        (await host.run(repoId, { kind: "task-create", taskId, title: "Invalid glob" }, auth)).outcome,
-        "applied",
+      await createReadyTask(
+        taskId,
+        "Invalid glob",
+        "```sh\nprintf 'inspect manifest' && rg runtime tools/test-tier-manifest.*.mjs\n```",
       );
       assert.equal(
         (await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome,
         "applied",
-      );
-      writeFileSync(
-        path.join(root, "harness", "tasks", "task-runtime-invalid-glob-invalid-glob", "task_plan.md"),
-        "# Invalid glob\n\n```sh\nprintf 'inspect manifest' && rg runtime tools/test-tier-manifest.*.mjs\n```\n",
       );
       const before = launchCount,
         receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
@@ -312,17 +313,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       const taskId = "task-runtime-missing-entry",
         executionId = "exec-runtime-missing-entry",
         executor = { kind: "agent", id: "codex-worker" } as const;
-      assert.equal(
-        (await host.run(repoId, { kind: "task-create", taskId, title: "Missing entry" }, auth)).outcome,
-        "applied",
-      );
+      await createReadyTask(taskId, "Missing entry", "```bash\nnode tools/missing-entry.mjs\n```");
       assert.equal(
         (await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome,
         "applied",
-      );
-      writeFileSync(
-        path.join(root, "harness", "tasks", "task-runtime-missing-entry-missing-entry", "task_plan.md"),
-        "# Missing entry\n\n```bash\nnode tools/missing-entry.mjs\n```\n",
       );
       const before = launchCount,
         receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
@@ -345,10 +339,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         executionId = "exec-runtime-mismatch",
         holder = { kind: "agent", id: "codex-holder" } as const,
         caller = { kind: "agent", id: "codex-other" } as const;
-      assert.equal(
-        (await host.run(repoId, { kind: "task-create", taskId, title: "Mismatched runtime" }, auth)).outcome,
-        "applied",
-      );
+      await createReadyTask(taskId, "Mismatched runtime");
       assert.equal(
         (await host.run(repoId, { kind: "task-start", taskId, executionId, executor: holder }, auth)).outcome,
         "applied",
@@ -398,10 +389,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
     await t.test("task-bound runtime without a lease starts and dispatches in one command", async () => {
       const taskId = "task-runtime-no-lease",
         executor = { kind: "agent", id: "codex-no-lease" } as const;
-      assert.equal(
-        (await host.run(repoId, { kind: "task-create", taskId, title: "Runtime no lease" }, auth)).outcome,
-        "applied",
-      );
+      await createReadyTask(taskId, "Runtime no lease");
       const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId },
         payload: {
@@ -428,10 +416,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
     await t.test("human lease remains task-bindable without an executor", async () => {
       const taskId = "task-runtime-human",
         executionId = "exec-runtime-human";
-      assert.equal(
-        (await host.run(repoId, { kind: "task-create", taskId, title: "Human runtime" }, auth)).outcome,
-        "applied",
-      );
+      await createReadyTask(taskId, "Human runtime");
       assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
       const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId },
@@ -471,10 +456,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         const taskId = "task-runtime-progress",
           executionId = "exec-runtime-progress",
           holder = { kind: "agent", id: "dispatch-holder" } as const;
-        assert.equal(
-          (await host.run(repoId, { kind: "task-create", taskId, title: "Runtime progress" }, auth)).outcome,
-          "applied",
-        );
+        await createReadyTask(taskId, "Runtime progress");
         assert.equal(
           (await host.run(repoId, { kind: "task-start", taskId, executionId, executor: holder }, auth)).outcome,
           "applied",
@@ -614,25 +596,9 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           executionId = "exec-runtime-artifact",
           otherTaskId = "task-runtime-artifact-other",
           otherExecutionId = "exec-runtime-artifact-other";
-        assert.equal(
-          (await host.run(repoId, { kind: "task-create", taskId, title: "Runtime artifact" }, auth)).outcome,
-          "applied",
-        );
+        await createReadyTask(taskId, "Runtime artifact");
         assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
-        assert.equal(
-          (
-            await host.run(
-              repoId,
-              {
-                kind: "task-create",
-                taskId: otherTaskId,
-                title: "Runtime artifact other",
-              },
-              auth,
-            )
-          ).outcome,
-          "applied",
-        );
+        await createReadyTask(otherTaskId, "Runtime artifact other");
         assert.equal(
           (
             await host.run(
@@ -1467,6 +1433,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
           "stream-json",
           "--model",
           "gemini-3.1-pro-low",
+          "--dangerously-skip-permissions",
           "--effort",
           "low",
         ]);
@@ -1532,6 +1499,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
         idempotencyKey: "agy-structured",
       },
     });
+    assert.equal(succeeded.outcome, "applied", JSON.stringify(succeeded));
     const read = await eventuallyValue(async () => {
       const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
         repo: { repoId },
@@ -1554,6 +1522,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
         idempotencyKey: "agy-unknown",
       },
     });
+    assert.equal(rejected.outcome, "applied", JSON.stringify(rejected));
     const rejectedRead = await eventuallyValue(async () => {
       const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
         repo: { repoId },

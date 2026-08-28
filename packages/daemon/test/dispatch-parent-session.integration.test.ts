@@ -11,6 +11,7 @@ import { readDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const bindingSessionId = "runtime_89abcdef0123456789abcdef",
   personBinding = {
@@ -114,7 +115,7 @@ test("a leader-only squad dispatch keeps its squad attribution after settlement 
   });
   try {
     await installSquad(cell);
-    await startTask(cell, taskId, executionId);
+    await startTask(cell, root, taskId, executionId);
     const receipt = await cell.spawnRuntime(
       {
         runtimeInstanceId: "codex-parent",
@@ -201,10 +202,15 @@ async function installSquad(cell: Awaited<ReturnType<typeof openRepoCell>>): Pro
 
 async function startTask(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
+  rootDir: string,
   taskId: string,
   executionId: string,
 ): Promise<void> {
-  assert.equal((await cell.run({ kind: "task-create", taskId, title: taskId }, personBinding)).outcome, "applied");
+  const created = await cell.run({ kind: "task-create", taskId, title: taskId }, personBinding);
+  assert.equal(created.outcome, "applied");
+  await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+    cell.run({ kind: "doc-submit", paths: [planPath] }, personBinding),
+  );
   assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, personBinding)).outcome, "applied");
 }
 

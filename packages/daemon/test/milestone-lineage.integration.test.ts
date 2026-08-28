@@ -9,6 +9,7 @@ import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } } as const;
 const reviewerBinding = withRoleBinding(
@@ -42,7 +43,13 @@ async function reachGreenInReview(
   taskClass: "milestone" | "standard" = "standard",
 ): Promise<string> {
   const binding = { actor, source: "local" as const };
-  await cell.run({ kind: "task-create", taskId, title, ...(taskClass === "milestone" ? { taskClass } : {}) }, binding);
+  await createRealizedTaskPlanFixture(
+    rootDir,
+    () =>
+      cell.run({ kind: "task-create", taskId, title, ...(taskClass === "milestone" ? { taskClass } : {}) }, binding),
+    (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    title,
+  );
   await cell.run(
     {
       kind: "fact-record",

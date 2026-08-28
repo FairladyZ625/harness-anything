@@ -10,6 +10,7 @@ import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { canonicalRoot, workspaceId, type DaemonAgendaResult } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "person-agenda" }, executor: { kind: "agent", id: "codex-sol" } } as const;
 const binding = { actor, source: "local" as const };
@@ -32,6 +33,7 @@ test("agenda projects an empty ledger without synthetic state", async () => {
 
 test("agenda derives all four groups, pins first, and rejects a missing task pin", async () => {
   await withCell("agenda-four-groups", async (cell, rootDir) => {
+    const createdTasks = new Map<string, string>();
     for (const [taskId, title] of [
       ["task_active", "Active pinned"],
       ["task_dispatch", "Dispatch"],
@@ -40,8 +42,15 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       ["task_wait", "Waits on dependency"],
       ["task_dependency", "Dependency"],
       ["task_review", "Review pending"],
-    ] as const)
-      assert.equal((await cell.run({ kind: "task-create", taskId, title }, binding)).outcome, "applied");
+    ] as const) {
+      const created = await cell.run({ kind: "task-create", taskId, title }, binding);
+      assert.equal(created.outcome, "applied");
+      createdTasks.set(taskId, String((created as Record<string, unknown>).packagePath));
+    }
+    for (const taskId of ["task_active", "task_review"])
+      await realizeTaskPlanFixture(rootDir, createdTasks.get(taskId)!, (planPath) =>
+        cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+      );
     assert.equal(
       (await cell.run({ kind: "task-start", taskId: "task_active", executionId: "exe_active" }, binding)).outcome,
       "applied",

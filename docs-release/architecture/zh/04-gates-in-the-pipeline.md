@@ -66,7 +66,7 @@ closeout readiness，最后才写入 `done`。legacy task 会重新运行 `revie
 | legacy review 文档 | 不带 Execution 文档的 task 必须有 `review.md`，发现表必须能解析，且不能有 open 的 release-blocking 发现 | completion 报告 `review_not_passed`；底层 review 失败可能是 `review_document_missing`、`review_schema_invalid` 或 `release_blocking_findings` |
 | Execution Review | 带 Execution 的 task 必须对当前 Execution 有 approved Review | Execution completion service 报告 Review 缺失或未批准 |
 | review 占位符 | 初始 `review.md` 占位符必须被替换 | `review_placeholder` |
-| closeout 占位符 | 配置了占位符策略时，`closeout.md` 不能匹配已知模板指纹 | `closeout_placeholder` |
+| 转换文档就绪 | 被转换消费的文档必须写实全部必需节且不保留 preset 脚手架句；共享校验器覆盖 task plan/closeout、Decision body、Agent instructions 与 Squad roster | `<doc>_placeholder` |
 | code-doc reconciliation | 解析出的契约声明 `code-doc-reconciliation` 且已复核 submission 含任一公开仓交付物时，Execution 必须有已验证的 code-doc witness；非空 deliverable 列表若全部是 `artifacts/`、`tasks/` 或 `harness/tasks/` 下的任务包工件，则此门不适用 | 适用但缺 witness 时报告 `code_doc_missing` |
 | review 门轴 | 上面的 review 门通过后，completion 函数收到的 review 必须是 `passed` | `review_not_passed` |
 | CI 门轴 | 解析出的契约声明 `ci` 时，CLI 传入的 CI 门必须是 `passed`；否则无需 `--ci` | `missing_ci_gate` 或 `ci_not_passed` |

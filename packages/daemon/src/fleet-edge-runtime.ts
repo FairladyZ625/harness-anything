@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  assertTransitionDocumentReady,
   openEntityStore,
+  requireTransitionDocumentKind,
   resolveHarnessLayout,
   validateScheduleV1,
   type AgentRuntimeEventV1,
@@ -31,6 +33,7 @@ import type { RuntimeAgent } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { dispatchClaimedSchedule } from "./repo-cell-schedule-actions.ts";
+import { runtimeMissionName } from "./runtime-spawn-mission.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: {
@@ -165,7 +168,7 @@ export function openFleetEdgeRuntime(input: {
           ? (receipt as JsonObject)
           : null;
       },
-      taskContext: async (taskId) => {
+      taskContext: async (taskId, missionName) => {
         const assigned = await readFleetAssignmentClient(peer);
         if (assigned.repoId !== request.repoId || assigned.scope.kind !== "task" || assigned.scope.taskId !== taskId)
           throw edgeRuntimeError(
@@ -209,12 +212,48 @@ export function openFleetEdgeRuntime(input: {
             `Task ${taskId} has no readable mirrored task plan; run ha daemon fleet edge sync, then retry.`,
           );
         }
+        assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan);
+        const mission = missionName
+            ? (() => {
+                const name = runtimeMissionName(missionName),
+                  logicalPath = `${candidates[0]!}/artifacts/missions/${name}.md`,
+                  missionPath = path.join(packageRoot, "artifacts", "missions", `${name}.md`);
+                if (!view.entries.has(logicalPath))
+                  throw edgeRuntimeError(
+                    "runtime_mission_unavailable",
+                    `Task ${taskId} has no current mirrored mission at ${logicalPath}.`,
+                  );
+                let body: string;
+                try {
+                  body = readFileSync(missionPath, "utf8");
+                } catch {
+                  throw edgeRuntimeError(
+                    "runtime_mission_unavailable",
+                    `Task ${taskId} mission ${name} is unreadable; ` +
+                      "run ha daemon fleet edge sync, then retry.",
+                  );
+                }
+                if (!body.trim())
+                  throw edgeRuntimeError(
+                    "runtime_mission_unavailable",
+                    `Task ${taskId} mission ${name} is empty.`,
+                  );
+                return { path: missionPath, body };
+              })()
+            : null,
+          baseMission =
+            `Your task package is ${packageRoot}.\n` +
+            "Read task_plan.md in that package and complete the task.";
         return {
           executionId: assigned.scope.executionId,
           packageRoot,
           planPath,
           plan,
-          mission: `Your task package is ${packageRoot}.\nRead task_plan.md in that package and complete the task.`,
+          mission: mission
+            ? `${baseMission}\n\n# Mission: ${missionName}\n\n${mission.body.trim()}`
+            : baseMission,
+          missionPath: mission?.path ?? null,
+          missionBody: mission?.body ?? null,
         };
       },
       readRuntimeSessions: () =>

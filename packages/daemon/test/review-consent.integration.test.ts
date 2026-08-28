@@ -9,6 +9,7 @@ import { makeTaskEventStore, reviewDigest } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const ownerFromAnotherAgent = {
@@ -54,7 +55,10 @@ test("review-consent derives the recorded Review digests without a packet and st
     initRepo(rootDir);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "consent-derived" });
     const store = () => makeTaskEventStore({ repoId, rootDir });
-    await cell.run({ kind: "task-create", taskId, title: "Derived consent" }, binding);
+    const created = await cell.run({ kind: "task-create", taskId, title: "Derived consent" }, binding);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
     await cell.run({ kind: "task-start", taskId, executionId }, binding);
     const commitSha = git(rootDir, "rev-parse", "HEAD");
     writeFileSync(
@@ -142,7 +146,15 @@ test("review-consent derives the recorded Review digests without a packet and st
     // Negative control: an operator-supplied packet with a well-formed but wrong digest must still be rejected.
     const mismatchTaskId = "task-mismatch",
       mismatchExecutionId = "execution-mismatch";
-    await cell.run({ kind: "task-create", taskId: mismatchTaskId, title: "Mismatch consent" }, binding);
+    const mismatchCreated = await cell.run(
+      { kind: "task-create", taskId: mismatchTaskId, title: "Mismatch consent" },
+      binding,
+    );
+    await realizeTaskPlanFixture(
+      rootDir,
+      String((mismatchCreated as Record<string, unknown>).packagePath),
+      (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
     await cell.run({ kind: "task-start", taskId: mismatchTaskId, executionId: mismatchExecutionId }, binding);
     writeFileSync(
       path.join(rootDir, "submission.json"),
@@ -197,7 +209,15 @@ test("review-consent derives the recorded Review digests without a packet and st
 
     const reviewlessTaskId = "task-reviewless",
       reviewlessExecutionId = "execution-reviewless";
-    await cell.run({ kind: "task-create", taskId: reviewlessTaskId, title: "Reviewless consent" }, binding);
+    const reviewlessCreated = await cell.run(
+      { kind: "task-create", taskId: reviewlessTaskId, title: "Reviewless consent" },
+      binding,
+    );
+    await realizeTaskPlanFixture(
+      rootDir,
+      String((reviewlessCreated as Record<string, unknown>).packagePath),
+      (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
     await cell.run({ kind: "task-start", taskId: reviewlessTaskId, executionId: reviewlessExecutionId }, binding);
     await cell.run(
       {
@@ -221,7 +241,15 @@ test("review-consent derives the recorded Review digests without a packet and st
 
     const ambiguousTaskId = "task-ambiguous",
       ambiguousExecutionId = "execution-ambiguous";
-    await cell.run({ kind: "task-create", taskId: ambiguousTaskId, title: "Ambiguous consent" }, binding);
+    const ambiguousCreated = await cell.run(
+      { kind: "task-create", taskId: ambiguousTaskId, title: "Ambiguous consent" },
+      binding,
+    );
+    await realizeTaskPlanFixture(
+      rootDir,
+      String((ambiguousCreated as Record<string, unknown>).packagePath),
+      (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
     await cell.run({ kind: "task-start", taskId: ambiguousTaskId, executionId: ambiguousExecutionId }, binding);
     await cell.run(
       { kind: "task-submit", taskId: ambiguousTaskId, executionId: ambiguousExecutionId, fromFile: "submission.json" },

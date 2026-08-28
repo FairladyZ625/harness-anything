@@ -109,6 +109,10 @@ test("all public commands expose the canonical structured input facet", () => {
   assert.deepEqual(submitFile.conflictsWith, ["--json-input"]);
   assert.deepEqual(submitJson.conflictsWith, ["--from-file"]);
   assert.deepEqual(daemonProtocolCommands.find((command) => command.id === "task-code-doc-reconcile")?.inputs, []);
+  assert.deepEqual(
+    daemonProtocolCommands.find((command) => command.id === "task-code-doc-repoint")?.inputs.map((input) => input.name),
+    ["--record", "--path", "--reason"],
+  );
 });
 
 test("daemon command declarations keep their declared positional in usage", () => {

@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { actor, git, initRepo, write } from "./doc-sync-slice-a.fixtures.ts";
 
@@ -56,9 +57,10 @@ test("WAL flush keeps forbidden and unresolved candidates out of an eligible bat
     }),
     binding = { actor, source: "local" as const };
   try {
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task-mixed", title: "Mixed WAL" }, binding)).outcome,
-      "applied",
+    const created = await cell.run({ kind: "task-create", taskId: "task-mixed", title: "Mixed WAL" }, binding);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
     const unresolved = "context/unresolved.md";
     write(rootDir, unresolved, "---\nowner: canonical\n---\n# Unresolved\n\nbase\n");
@@ -145,9 +147,10 @@ test("closing after a state transition drains a settlement event created by the 
     logical = "context/close-settlement.md",
     body = "# Close settlement\n\nflush before close\n";
   try {
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task-close", title: "Close settlement" }, binding)).outcome,
-      "applied",
+    const created = await cell.run({ kind: "task-create", taskId: "task-close", title: "Close settlement" }, binding);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
     write(rootDir, logical, body);
     assert.equal(

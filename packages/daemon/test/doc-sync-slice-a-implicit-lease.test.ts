@@ -8,6 +8,7 @@ import { makeTaskEventStore, type TaskProjection } from "../../kernel/src/index.
 import { runDocAction } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { actor, git, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 test("implicit submit applies eligible prose and reports an unrelated blocked row as skipped", async () => {
@@ -216,6 +217,9 @@ test("path and implicit submits ride the repository prose channel when the task 
         packagePath?: string;
       },
       packagePath = created.packagePath!;
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell.run({ kind: "doc-submit", paths: [planPath] }, person),
+    );
     assert.equal(
       (await cell.run({ kind: "task-start", taskId, executionId: "exec-path-prose" }, holder)).outcome,
       "applied",
@@ -325,6 +329,9 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
         person,
       )) as { packagePath?: string },
       report = `${created.packagePath}/artifacts/reports/r.md`;
+    await realizeTaskPlanFixture(rootDir, created.packagePath!, (planPath) =>
+      cell.run({ kind: "doc-submit", paths: [planPath] }, person),
+    );
     write(rootDir, report, "# R\n\nship me\n");
     assert.ok(
       ["applied", "pending"].includes(

@@ -14,6 +14,7 @@ import { readTaskDispatches } from "./dispatch-read.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
+import { deriveTaskMission } from "./runtime-spawn-mission.ts";
 import type {
   SquadRunPhase,
   SquadRunReadResult,
@@ -86,6 +87,7 @@ type SquadState = {
   readonly mission: string;
   readonly model: string | null;
   readonly effort: string | null;
+  readonly permissionMode?: string | null;
   readonly leaderAgentId: string;
   readonly roster: string;
   readonly workers: readonly string[];
@@ -118,9 +120,16 @@ export function makeSquadCoordinator(input: {
     const squadId = requiredSquadText(action.squadId, "squadId"),
       runtimeInstanceId = requiredSquadText(action.runtimeInstanceId, "runtimeInstanceId"),
       taskId = requiredSquadText(action.taskId, "taskId"),
-      mission = requiredSquadText(action.prompt, "prompt"),
-      cwd = resolveCwd(input.rootDir, action.cwd),
-      squad = readSquadDeclaration({
+      cwd = resolveCwd(input.rootDir, action.cwd);
+    let mission: string;
+    try {
+      await input.reacquireTaskLease(taskId, binding);
+      const taskMission = deriveTaskMission(input.rootDir, input.projection(), taskId, "squad.run");
+      mission = optionalText(action.prompt) ?? taskMission.mission;
+    } catch (error) {
+      return rejection("squad-run", errorCode(error, "squad_task_unavailable"), errorText(error));
+    }
+    const squad = readSquadDeclaration({
         rootDir: input.rootDir,
         squadId,
         entityStore: createEntityStore(input.store()),
@@ -137,6 +146,7 @@ export function makeSquadCoordinator(input: {
         mission,
         model: optionalText(action.model),
         effort: optionalText(action.effort),
+        permissionMode: optionalText(action.permissionMode),
         leaderAgentId: squad.leader,
         roster: squad.roster,
         workers: squad.workers,
@@ -386,6 +396,7 @@ export function makeSquadCoordinator(input: {
             taskId: state.taskId,
             ...(state.model ? { model: state.model } : {}),
             ...(state.effort ? { effort: state.effort } : {}),
+            ...(state.permissionMode ? { permissionMode: state.permissionMode } : {}),
             idempotencyKey: `${state.squadRunId}:${leaderTurnId}:${attemptId}`,
           },
           state.binding,
@@ -477,7 +488,7 @@ export function makeSquadCoordinator(input: {
         {
           runtimeInstanceId: state.runtimeInstanceId,
           agentId: state.leaderAgentId,
-          permissionMode: "read-only",
+          permissionMode: state.permissionMode ?? "read-only",
           prompt,
           cwd: cwdPayload(input.rootDir, state.cwd),
           taskId: state.taskId,

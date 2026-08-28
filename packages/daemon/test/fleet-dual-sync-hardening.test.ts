@@ -20,6 +20,7 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { applyFleetMirrorCut, readFleetUnresolvedConflicts, withFleetMirrorLock } from "../src/fleet-edge-mirror.ts";
 import { fleetDocPathInTaskPackage } from "../src/fleet-edge-task.ts";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "hardening-owner" }, executor: { kind: "agent", id: "hardening" } } as const;
 const assignmentSource = {
@@ -83,15 +84,18 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
     );
     const packagePath = String((created as Record<string, unknown>).packagePath),
       logical = `${packagePath}/task_plan.md`;
-    const target = path.join(root, "harness", logical),
-      original = readFileSync(target, "utf8"),
+    const target = path.join(root, "harness", logical);
+    writeFileSync(target, realizedTaskPlan("Direct"));
+    const planned = await cell.run({ kind: "doc-submit", paths: [logical] }, { actor, source: "local" });
+    assert.equal(planned.outcome, "applied", JSON.stringify(planned));
+    const original = readFileSync(target, "utf8"),
       body = `${original}\n## Unheld push\n`;
     const before = git(root, "rev-list", "--count", "refs/ha/canonical");
     const bypass = await cell.run(
       {
         kind: "doc-submit",
         executionId: null,
-        baseLedgerSha: ledgerCut(created.cut),
+        baseLedgerSha: ledgerCut(planned.cut),
         changes: [
           { path: logical, baseBlobSha256: sha(original), policyId, candidate: docClaim(root, "f1-unheld", body) },
         ],
@@ -117,7 +121,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       {
         kind: "doc-submit",
         executionId: null,
-        baseLedgerSha: ledgerCut(created.cut),
+        baseLedgerSha: ledgerCut(planned.cut),
         changes: [
           { path: ghostPath, baseBlobSha256: null, policyId, candidate: docClaim(root, "f1-ghost", "# Ghost\n") },
         ],
@@ -223,7 +227,7 @@ test("F2: a crash after the atomic bundle commit replays both the transition and
       logical = `${packagePath}/task_plan.md`,
       target = path.join(root, "harness", logical),
       original = readFileSync(target, "utf8"),
-      body = `${original}\n## Carried\n`;
+      body = `${realizedTaskPlan("Crash")}\n## Carried\n\nCarry the realized plan with the start transition.\n`;
     const base = mirrorCut(created.cut);
     armed = true;
     const failed = await cell.run(
@@ -287,7 +291,11 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
             path: logical,
             baseBlobSha256: sha(original),
             policyId,
-            candidate: docClaim(root, "f8-rolled", `${original}\n## Rolled back view\n`),
+            candidate: docClaim(
+              root,
+              "f8-rolled",
+              `${realizedTaskPlan("Fence")}\n## Rolled back view\n\nReject the stale mirror cut.\n`,
+            ),
           },
         ],
       },
@@ -306,7 +314,11 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
             path: logical,
             baseBlobSha256: sha(original),
             policyId,
-            candidate: docClaim(root, "f8-exact", `${original}\n## Exact cut\n`),
+            candidate: docClaim(
+              root,
+              "f8-exact",
+              `${realizedTaskPlan("Fence")}\n## Exact cut\n\nApply the matching mirror cut.\n`,
+            ),
           },
         ],
       },

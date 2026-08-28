@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  currentExecutionCuts,
   currentSubmittedExecutions,
   heldLeaseForExecutionActor,
   isDomainStatus,
@@ -30,12 +31,35 @@ import type {
   Snapshot,
 } from "./repo-cell-types.ts";
 
+const CODE_DOC_REPOINT_FIELDS = ["kind", "taskId", "record", "paths", "reason"];
+
 export function dispatchRead<M extends RepoCellReadMethod>(
   handlers: DaemonGuiReadHandlers,
   method: M,
   payload: Readonly<Record<string, unknown>>,
 ): DaemonGuiReadResultMap[M] {
   return handlers[method](payload);
+}
+
+function submittedExecutionWitness(action: RepoTaskAction, snapshot: Snapshot, taskId: string, allowed: string[]) {
+  const unsupported = Object.keys(action).filter((field) => !allowed.includes(field));
+  if (unsupported.length)
+    throw cellCodedError(
+      "invalid_command",
+      `Run ha task code-doc ${action.kind.split("-").at(-1)} ${taskId} without ${unsupported.join(", ")}; ` +
+        "the submitted execution supplies the witness cut.",
+    );
+  const executions = currentExecutionCuts(snapshot),
+    found = executions.map((value) => value.executionId).join(", ") || "none",
+    witnessError = `Expected one code-doc witness; found ${found}. Run ha task show ${taskId}.`;
+  if (executions.length !== 1) throw cellCodedError("invalid_command", witnessError);
+  const execution = executions[0]!;
+  return {
+    executionId: execution.executionId,
+    commitSha: execution.submission!.commitSha,
+    iteration: execution.iteration,
+    paths: repositoryDeliverablePaths(execution.submission),
+  };
 }
 
 export function buildCommand(
@@ -220,35 +244,13 @@ export function buildCommand(
     });
   }
   if (action.kind === "task-code-doc-reconcile") {
-    const unsupported = Object.keys(action).filter((field) => !["kind", "taskId"].includes(field));
-    if (unsupported.length)
-      throw cellCodedError(
-        "invalid_command",
-        `Run ha task code-doc reconcile ${taskId} without ${unsupported.join(", ")}; ` +
-          "the submitted execution supplies the witness cut.",
-      );
-    const submitted = currentSubmittedExecutions(snapshot);
-    if (submitted.length !== 1)
-      throw cellCodedError(
-        "invalid_command",
-        "Code-doc reconcile requires exactly one current submitted execution; found " +
-          `${submitted.map((value) => value.executionId).join(", ") || "none"}. ` +
-          `Run ha task show ${taskId} and resolve the lifecycle ambiguity.`,
-      );
-    const execution = submitted[0]!,
-      paths = repositoryDeliverablePaths(execution.submission);
-    if (!paths.length)
+    const witness = submittedExecutionWitness(action, snapshot, taskId, ["kind", "taskId"]);
+    if (!witness.paths.length)
       throw cellCodedError(
         "invalid_command",
         "The submitted execution names no repository deliverable paths; " +
           "task-package-only submissions do not need a code-doc witness.",
       );
-    const witness = {
-      executionId: execution.executionId,
-      commitSha: execution.submission!.commitSha,
-      iteration: execution.iteration,
-      paths,
-    };
     return normalizeTaskLifecycleCommand(bound, {
       type: "ReconcileCodeDoc",
       taskId,
@@ -256,16 +258,18 @@ export function buildCommand(
       witnessId: `code-doc-${createHash("sha256").update(JSON.stringify(witness)).digest("hex").slice(0, 16)}`,
     });
   }
-  if (action.kind === "task-code-doc-repoint")
+  if (action.kind === "task-code-doc-repoint") {
+    const witness = submittedExecutionWitness(action, snapshot, taskId, CODE_DOC_REPOINT_FIELDS);
     return normalizeTaskLifecycleCommand(bound, {
       type: "RepointCodeDoc",
       taskId,
       record: requiredCellText(action.record, "record"),
       repointId: `code-doc-repoint-${createHash("sha256").update(JSON.stringify(action)).digest("hex").slice(0, 16)}`,
-      commitSha: requiredCellText(action.commitSha, "commitSha"),
+      commitSha: witness.commitSha,
       paths: cellStringList(action.paths),
       reason: requiredCellText(action.reason, "reason"),
     });
+  }
   if (action.kind === "task-complete")
     return normalizeTaskLifecycleCommand(bound, {
       type: "CompleteTask",

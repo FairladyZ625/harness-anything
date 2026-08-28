@@ -289,7 +289,7 @@ export const agentProtocolCommands = Object.freeze([
     id: "squad-run",
     phase: "Runtime-B",
     path: ["squad", "run", "<id>"],
-    summary: "Start a durable Squad run supervised by callback-driven leader turns.",
+    summary: "Start a durable task-derived Squad run supervised by callback-driven leader turns.",
     method: "repo.task.run",
     positional: "squadId",
     inputs: [
@@ -311,9 +311,19 @@ export const agentProtocolCommands = Object.freeze([
         code: "invalid_field",
         nextAction: "Use one model supported by the runtime instance.",
       }),
-      cliInput("--cwd", "single", true, {
-        code: "missing_field",
-        nextAction: "Add --cwd <repository-relative-directory> to declare the Squad write boundary.",
+      cliInput(
+        "--permission-mode",
+        "single",
+        false,
+        {
+          code: "invalid_runtime_permission",
+          nextAction: "Use bypass, workspace-write, or read-only for every Squad dispatch.",
+        },
+        { enum: ["bypass", "workspace-write", "read-only"] },
+      ),
+      cliInput("--cwd", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use a repository-relative directory; omit --cwd for the repository root.",
       }),
       cliInput("--task", "single", true, {
         code: "missing_field",
@@ -321,11 +331,7 @@ export const agentProtocolCommands = Object.freeze([
       }),
       cliInput("--prompt", "single", false, {
         code: "invalid_field",
-        nextAction: "Use exactly one of --prompt <text> or --prompt-file <path>.",
-      }),
-      cliInput("--prompt-file", "single", false, {
-        code: "invalid_field",
-        nextAction: "Use exactly one of --prompt <text> or --prompt-file <path>.",
+        nextAction: "Use --prompt <text> only as an override; omit it to derive the mission from --task.",
       }),
     ],
   }),

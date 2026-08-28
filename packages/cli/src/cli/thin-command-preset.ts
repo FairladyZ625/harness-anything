@@ -1,19 +1,7 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  accepted,
-  nonEmpty,
-  promptInput,
-  readFlags,
-  rejectInput,
-  rejected,
-} from "./thin-command-flags.ts";
+import { accepted, nonEmpty, promptInput, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
 import { parseTaskCreate } from "./thin-command-task-create.ts";
-import type {
-  ProtocolCommand,
-  ThinCliInput,
-  ThinCliInputDirectory,
-  ThinParseResult,
-} from "./thin-command-types.ts";
+import type { ProtocolCommand, ThinCliInput, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parsePreset(
   route: ProtocolCommand,
@@ -23,28 +11,13 @@ export function parsePreset(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  if (route.id === "task-create")
-    return parseTaskCreate(route, args, rootDir, repoId, json, inputs);
+  if (route.id === "task-create") return parseTaskCreate(route, args, rootDir, repoId, json, inputs);
   if (route.id === "squad-run") {
     const squadId = args[2],
       f = readFlags(route.id, args.slice(3), inputs);
     if (!f.ok) return rejected(f.code, f.nextAction, json);
-    if (!nonEmpty(squadId))
-      return rejected("missing_field", "squad id is required.", json);
-    if (!f.one.has("--cwd"))
-      return rejected(
-        "missing_field",
-        "Add --cwd <repository-relative-directory> to declare the Squad write boundary.",
-        json,
-      );
+    if (!nonEmpty(squadId)) return rejected("missing_field", "squad id is required.", json);
     const prompt = promptInput(f.one);
-    if (!prompt)
-      return rejectInput(
-        inputs,
-        route.id,
-        f.one.has("--prompt") ? "--prompt-file" : "--prompt",
-        json,
-      );
     return accepted(
       rootDir,
       repoId,
@@ -53,11 +26,12 @@ export function parsePreset(
         kind: "squad-run",
         squadId,
         runtimeInstanceId: f.one.get("--instance"),
-        ...prompt,
+        ...(prompt ?? {}),
         ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
         ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
+        ...(f.one.get("--permission-mode") ? { permissionMode: f.one.get("--permission-mode") } : {}),
         cwd:
-          f.one.get("--cwd") !== "."
+          f.one.get("--cwd") && f.one.get("--cwd") !== "."
             ? { scope: "repo-relative", path: f.one.get("--cwd") }
             : { scope: "repo-root" },
         taskId: f.one.get("--task"),
@@ -68,18 +42,11 @@ export function parsePreset(
   if (route.id === "squad-status") {
     const squadRunId = args[2];
     return nonEmpty(squadRunId)
-      ? accepted(
-          rootDir,
-          repoId,
-          json,
-          { kind: "squad-status", squadRunId },
-          route.method,
-        )
+      ? accepted(rootDir, repoId, json, { kind: "squad-status", squadRunId }, route.method)
       : rejected("missing_field", "squad run id is required.", json);
   }
   const positionalField = "positional" in route ? route.positional : undefined,
-    positionalFields =
-      "positionalFields" in route ? route.positionalFields : undefined,
+    positionalFields = "positionalFields" in route ? route.positionalFields : undefined,
     positional = positionalField ? args[route.path.length] : undefined,
     offset = route.path.length + (positionalField ? 1 : 0),
     f = readFlags(route.id, args.slice(offset), inputs);
@@ -88,23 +55,16 @@ export function parsePreset(
     return rejected("missing_field", `${positionalField} is required.`, json);
   const matched =
       positionalFields && positional
-        ? /^preset:([a-z0-9][a-z0-9-]{0,127})\/([A-Za-z0-9._-]+)$/u.exec(
-            positional,
-          )
+        ? /^preset:([a-z0-9][a-z0-9-]{0,127})\/([A-Za-z0-9._-]+)$/u.exec(positional)
         : null,
-    positionalRegex =
-      "positionalRegex" in route ? route.positionalRegex : undefined;
+    positionalRegex = "positionalRegex" in route ? route.positionalRegex : undefined;
   if (
     (positionalFields && !matched) ||
-    (positional &&
-      positionalRegex &&
-      !new RegExp(positionalRegex, "u").test(positional))
+    (positional && positionalRegex && !new RegExp(positionalRegex, "u").test(positional))
   )
     return rejected(
       "invalid_field",
-      positionalFields
-        ? "Use preset:<id>/<entrypoint>."
-        : `Invalid ${positionalField}.`,
+      positionalFields ? "Use preset:<id>/<entrypoint>." : `Invalid ${positionalField}.`,
       json,
     );
   let payload: Record<string, unknown>;
@@ -115,12 +75,9 @@ export function parsePreset(
   try {
     payload = Object.fromEntries(
       declared.flatMap((input) => {
-        if (input.kind === "boolean")
-          return f.booleans.has(input.name) ? [[input.field, true]] : [];
+        if (input.kind === "boolean") return f.booleans.has(input.name) ? [[input.field, true]] : [];
         const value = f.one.get(input.name);
-        return value
-          ? [[input.field, input.codec === "json" ? JSON.parse(value) : value]]
-          : [];
+        return value ? [[input.field, input.codec === "json" ? JSON.parse(value) : value]] : [];
       }),
     );
   } catch {
@@ -136,11 +93,5 @@ export function parsePreset(
           ? { [positionalField]: positional }
           : {},
     defaults = "actionDefaults" in route ? route.actionDefaults : {};
-  return accepted(
-    rootDir,
-    repoId,
-    json,
-    { ...defaults, kind: route.id, ...position, ...payload },
-    route.method,
-  );
+  return accepted(rootDir, repoId, json, { ...defaults, kind: route.id, ...position, ...payload }, route.method);
 }

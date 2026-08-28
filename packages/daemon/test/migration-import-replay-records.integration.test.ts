@@ -5,11 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
+import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import {
   actor,
@@ -20,9 +18,7 @@ import {
   sources,
 } from "./migration-import.fixtures.ts";
 test("a CAS blob referenced by any migrated repo document follows it into the event stream", async () => {
-  const scratch = mkdtempSync(
-      path.join(tmpdir(), "ha-migrate-repo-reference-"),
-    ),
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-repo-reference-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new"),
     referencedBody = "# Referenced body\n";
@@ -68,17 +64,14 @@ test("a CAS blob referenced by any migrated repo document follows it into the ev
         },
       ],
     );
-    assert.equal(
-      Buffer.from(store.readContentBlob(hash) ?? []).toString("utf8"),
-      referencedBody,
-    );
+    assert.equal(Buffer.from(store.readContentBlob(hash) ?? []).toString("utf8"), referencedBody);
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
   }
 });
 
-test("migration replays archived executions and UTF-8 task package documents through native projections", async () => {
+test("migration replays archived executions and keeps v0 tasks explicit about contract backfill", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-covered-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new");
@@ -99,24 +92,12 @@ test("migration replays archived executions and UTF-8 task package documents thr
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.equal(result.outcome, "applied");
     assert.match(String(result.summary), /Authored reconciliation: PASS/u);
-    assert.match(
-      String(result.summary),
-      /\| task:executions\/\*\* \| migrated \| 1 \| PASS \|/u,
-    );
-    assert.match(
-      String(result.summary),
-      /\| task:task_plan\.md \| migrated \| 1 \| PASS \|/u,
-    );
-    assert.match(
-      String(result.idMapPath),
-      /^migrations\/import_[0-9a-f_]+\/id-map\.json$/u,
-    );
+    assert.match(String(result.summary), /\| task:executions\/\*\* \| migrated \| 1 \| PASS \|/u);
+    assert.match(String(result.summary), /\| task:task_plan\.md \| migrated \| 1 \| PASS \|/u);
+    assert.match(String(result.idMapPath), /^migrations\/import_[0-9a-f_]+\/id-map\.json$/u);
     const tasks = await cell.read("repo.tasks.list"),
       row = tasks.rows.find(({ taskId }) => taskId === "task_coverage")!,
-      archived = row.snapshot.executions[0] as unknown as Record<
-        string,
-        unknown
-      >;
+      archived = row.snapshot.executions[0] as unknown as Record<string, unknown>;
     assert.equal(row.generation, "v0");
     assert.equal(row.createdAt, "2026-01-01T00:00:00.000Z");
     assert.deepEqual(
@@ -142,62 +123,35 @@ test("migration replays archived executions and UTF-8 task package documents thr
     );
     assert.equal(
       readFileSync(
-        path.join(
-          destination,
-          "harness/tasks/task_coverage-coverage-fixture/executions/exe_history.md",
-        ),
+        path.join(destination, "harness/tasks/task_coverage-coverage-fixture/executions/exe_history.md"),
         "utf8",
       ),
-      readFileSync(
-        path.join(
-          source,
-          "harness/tasks/task_coverage-old/executions/exe_history.md",
-        ),
-        "utf8",
-      ),
+      readFileSync(path.join(source, "harness/tasks/task_coverage-old/executions/exe_history.md"), "utf8"),
       "the native archived execution projection must retain its exact legacy source document",
     );
     const plan = await cell.read("repo.tasks.document.read", {
       taskId: "task_coverage",
       path: "task_plan.md",
     });
-    assert.equal(plan.body, "# Authored plan\n");
+    assert.equal(plan.body, realizedTaskPlan("Coverage fixture"));
     assert.equal(
-      readFileSync(
-        path.join(
-          destination,
-          "harness/tasks/task_coverage-coverage-fixture/task_plan.md",
-        ),
-        "utf8",
-      ),
+      readFileSync(path.join(destination, "harness/tasks/task_coverage-coverage-fixture/task_plan.md"), "utf8"),
       plan.body,
     );
     assert.equal(
       readFileSync(
-        path.join(
-          destination,
-          "harness/tasks/task_coverage-coverage-fixture/artifacts/evidence.html",
-        ),
+        path.join(destination, "harness/tasks/task_coverage-coverage-fixture/artifacts/evidence.html"),
         "utf8",
       ),
       "<p>historical evidence</p>\n",
     );
     assert.equal(
-      readFileSync(
-        path.join(
-          destination,
-          "harness/tasks/task_coverage-coverage-fixture/artifacts/INDEX.md",
-        ),
-        "utf8",
-      ),
+      readFileSync(path.join(destination, "harness/tasks/task_coverage-coverage-fixture/artifacts/INDEX.md"), "utf8"),
       "# Artifact index\n",
     );
     assert.equal(
       readFileSync(
-        path.join(
-          destination,
-          "harness/tasks/task_coverage-coverage-fixture/artifacts/probe/executions/exe_nested.md",
-        ),
+        path.join(destination, "harness/tasks/task_coverage-coverage-fixture/artifacts/probe/executions/exe_nested.md"),
         "utf8",
       ),
       "# Nested fixture\n",
@@ -206,22 +160,10 @@ test("migration replays archived executions and UTF-8 task package documents thr
       taskId: "task_coverage",
       path: "INDEX.md",
     });
-    assert.match(
-      index.body,
-      /## Lifecycle Note\n\nArchived as superseded; archivedBy=person_historical/u,
-    );
-    assert.match(
-      index.body,
-      /## Migrated source frontmatter[\s\S]*legacyOpaque: keep-this-source-field/u,
-    );
+    assert.match(index.body, /## Lifecycle Note\n\nArchived as superseded; archivedBy=person_historical/u);
+    assert.match(index.body, /## Migrated source frontmatter[\s\S]*legacyOpaque: keep-this-source-field/u);
     assert.equal(
-      readFileSync(
-        path.join(
-          destination,
-          "harness/tasks/task_coverage-coverage-fixture/INDEX.md",
-        ),
-        "utf8",
-      ),
+      readFileSync(path.join(destination, "harness/tasks/task_coverage-coverage-fixture/INDEX.md"), "utf8"),
       index.body,
     );
     const migrationEvents = makeTaskEventStore({
@@ -236,12 +178,21 @@ test("migration replays archived executions and UTF-8 task package documents thr
       );
     assert.equal(migrationEvents.length, 5);
     assert.equal(
-      migrationEvents.every(
-        (event) =>
-          event.source === "migration-import/v1" &&
-          event.payload.generation === "v0",
-      ),
+      migrationEvents.every((event) => event.source === "migration-import/v1" && event.payload.generation === "v0"),
       true,
+    );
+    const migratedContract = await cell.run(
+      { kind: "task-contract-migrate", mode: "apply", taskId: "task_coverage" },
+      { actor, source: "local" },
+    );
+    assert.equal(migratedContract.outcome, "applied", JSON.stringify(migratedContract));
+    assert.match(String(migratedContract.evidence), /"reason":"contract_metadata_incomplete"/u);
+    await realizeTaskPlanFixture(
+      destination,
+      "tasks/task_coverage-coverage-fixture",
+      (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, { actor, source: "local" }),
+      "Coverage fixture",
+      "## Contract migration\n\nExercise the native transition after importing v0 history.",
     );
     const started = await cell.run(
       {
@@ -251,17 +202,17 @@ test("migration replays archived executions and UTF-8 task package documents thr
       },
       { actor, source: "local" },
     );
-    assert.equal(started.outcome, "applied");
-    const afterStart = (await cell.read("repo.tasks.list")).rows.find(
-      ({ taskId }) => taskId === "task_coverage",
-    )!;
+    assert.equal(started.outcome, "op_rejected", JSON.stringify(started));
+    assert.equal(started.code, "content_not_ready");
+    assert.match(started.nextAction ?? "", /contract projection is not ready for task\.plan/u);
+    const afterStart = (await cell.read("repo.tasks.list")).rows.find(({ taskId }) => taskId === "task_coverage")!;
     assert.deepEqual(
       afterStart.snapshot.executions.map(({ schema }) => schema),
-      ["archived-execution/v1", "execution/v1"],
+      ["archived-execution/v1"],
     );
     assert.deepEqual(
       afterStart.executionEvidence.map(({ origin }) => origin),
-      ["archival", "native"],
+      ["archival"],
     );
   } finally {
     await cell?.close();
@@ -296,24 +247,14 @@ test("re-importing a source is an incremental no-op instead of a hard rejection"
     assert.equal(second.outcome, "applied");
     assert.equal(second.exitCode, 0);
     assert.equal(second.revision, firstRevision);
-    assert.match(
-      String(second.summary),
-      /Already imported from this Git lineage: task=1/u,
-    );
-    assert.equal(
-      cell.status().state,
-      "attached",
-      "a repeated import must not latch the workspace",
-    );
+    assert.match(String(second.summary), /Already imported from this Git lineage: task=1/u);
+    assert.equal(cell.status().state, "attached", "a repeated import must not latch the workspace");
     const dry = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(dry.exitCode, 0);
-    assert.match(
-      String(dry.summary),
-      /Already imported from this Git lineage: task=1/u,
-    );
+    assert.match(String(dry.summary), /Already imported from this Git lineage: task=1/u);
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
@@ -321,9 +262,7 @@ test("re-importing a source is an incremental no-op instead of a hard rejection"
 });
 
 test("decision replay keeps source prose and legacy frontmatter readable beside the native projection", async () => {
-  const scratch = mkdtempSync(
-      path.join(tmpdir(), "ha-migrate-decision-content-"),
-    ),
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-decision-content-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -341,18 +280,9 @@ test("decision replay keeps source prose and legacy frontmatter readable beside 
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
-    const body = readFileSync(
-      path.join(
-        destination,
-        "harness/decisions/decision-dec_CONTENT/decision.md",
-      ),
-      "utf8",
-    );
+    const body = readFileSync(path.join(destination, "harness/decisions/decision-dec_CONTENT/decision.md"), "utf8");
     assert.match(body, /Preserve this rationale verbatim\./u);
-    assert.match(
-      body,
-      /## Migrated source frontmatter[\s\S]*contentPins:[\s\S]*sha256:aaaaaaaa/u,
-    );
+    assert.match(body, /## Migrated source frontmatter[\s\S]*contentPins:[\s\S]*sha256:aaaaaaaa/u);
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });

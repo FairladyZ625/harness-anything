@@ -261,7 +261,7 @@ export function needsRuntimeInstanceNormalization(value: unknown): boolean {
       (value.kindId === "agy" && value.agy === undefined) ||
       value.reasoningEffort !== undefined ||
       value.baseUrl !== undefined ||
-      (value.kindId !== "agy" && value.permissionMode === undefined) ||
+      value.permissionMode === undefined ||
       value.isolationState === undefined)
   );
 }

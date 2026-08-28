@@ -6,6 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
+import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 test("a submitted fixture reaches done through one ha task closeout command", (context) => {
@@ -23,6 +24,8 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
       packagePath = String(created.packagePath),
       closeoutPath = `${packagePath}/closeout.md`,
       commitSha = git(root, "rev-parse", "HEAD");
+    writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Closeout E2E"));
+    run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     run(root, userRoot, [
       "fact",
       "record",
@@ -103,6 +106,8 @@ test("a standard task with only task-package deliverables completes without a fa
       packagePath = String(created.packagePath),
       closeoutPath = `${packagePath}/closeout.md`,
       reportPath = `${packagePath}/artifacts/report.md`;
+    writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Report Closeout"));
+    run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     assert.deepEqual(created.completionGates, ["ci", "code-doc-reconciliation"]);
     run(root, userRoot, [
       "fact",

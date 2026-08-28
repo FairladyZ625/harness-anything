@@ -21,6 +21,7 @@ import {
 import { createDecisionProjectionTables } from "../../src/projection/decision-event-projection.ts";
 import { createFactProjectionTables } from "../../src/projection/fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
+import { realizedDecisionBody } from "../../../../tools/fixtures/task-plan.mjs";
 
 export const actor = {
   principal: { personId: "proposer" },
@@ -49,7 +50,7 @@ export function proposal(revision: number, decisionId: string): DecisionEventDra
       decisionClass: "ordinary",
       chosen: [{ id: "CH1", text: "Use events" }],
       rejected: [{ id: "RJ1", text: "Use files", whyNot: "Files are not canonical." }],
-      body: "\n# Canonical Decision\n",
+      body: realizedDecisionBody("Canonical Decision"),
       claims: [],
       fulfillments: [],
       relations: [],

@@ -2,12 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type DecisionEventDraftV1 } from "../../src/domain/decision-event.ts";
-import {
-  DOC_CODEC_ID,
-  DOC_POLICY_ID,
-  docSyncWritePlan,
-  type DocEventV1,
-} from "../../src/domain/doc-sync.contract.ts";
+import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import {
   MIGRATION_DOCUMENT_POLICY_ID,
   migrationImportWritePlan,
@@ -15,17 +10,12 @@ import {
 } from "../../src/domain/migration-import-event.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
-import {
-  serializeTaskEvent,
-  type TaskCreatedEvent,
-} from "../../src/domain/task-lifecycle.contract.ts";
+import { serializeTaskEvent, type TaskCreatedEvent } from "../../src/domain/task-lifecycle.contract.ts";
 import { serializeEventHead } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { eventObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
-import {
-  makeTaskEventStore,
-  type CanonicalWriteBundle,
-} from "../../src/store/task-event-store.ts";
+import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import { realizedDecisionBody } from "../../../../tools/fixtures/task-plan.mjs";
 
 export const event: TaskCreatedEvent = {
   schema: "task-event/v1",
@@ -86,10 +76,7 @@ export function flatLedgerFixture(
   let last = event;
   for (let revision = 1; revision <= count; revision += 1) {
     last = eventAt(revision);
-    writeFileSync(
-      path.join(eventsRoot, `${last.opId}.json`),
-      serializeTaskEvent(last),
-    );
+    writeFileSync(path.join(eventsRoot, `${last.opId}.json`), serializeTaskEvent(last));
   }
   const bytes = serializeTaskEvent(last);
   writeFileSync(
@@ -120,36 +107,20 @@ export function mixedLedgerFixture(rootDir: string): {
   mkdirSync(eventsRoot, { recursive: true });
   mkdirSync(objectsRoot, { recursive: true });
   const flatEvents = [eventAt(1), eventAt(2)];
-  for (const value of flatEvents)
-    writeFileSync(
-      path.join(eventsRoot, `${value.opId}.json`),
-      serializeTaskEvent(value),
-    );
+  for (const value of flatEvents) writeFileSync(path.join(eventsRoot, `${value.opId}.json`), serializeTaskEvent(value));
   const twinBody = "legacy blob\n",
     twinHash = sha256Text(twinBody);
   writeFileSync(path.join(objectsRoot, twinHash), twinBody);
   const shardedEvent = eventAt(3),
-    shardedEventPath = path.join(
-      rootDir,
-      "harness",
-      eventObjectRelativePath(shardedEvent.opId),
-    );
+    shardedEventPath = path.join(rootDir, "harness", eventObjectRelativePath(shardedEvent.opId));
   mkdirSync(path.dirname(shardedEventPath), { recursive: true });
   writeFileSync(shardedEventPath, serializeTaskEvent(shardedEvent));
   const shardedOnlyBody = "sharded only\n",
     shardedOnlyHash = sha256Text(shardedOnlyBody),
-    shardedOnlyPath = path.join(
-      objectsRoot,
-      shardedOnlyHash.slice(0, 2),
-      shardedOnlyHash.slice(2),
-    );
+    shardedOnlyPath = path.join(objectsRoot, shardedOnlyHash.slice(0, 2), shardedOnlyHash.slice(2));
   mkdirSync(path.dirname(shardedOnlyPath), { recursive: true });
   writeFileSync(shardedOnlyPath, shardedOnlyBody);
-  const twinShardedPath = path.join(
-    objectsRoot,
-    twinHash.slice(0, 2),
-    twinHash.slice(2),
-  );
+  const twinShardedPath = path.join(objectsRoot, twinHash.slice(0, 2), twinHash.slice(2));
   mkdirSync(path.dirname(twinShardedPath), { recursive: true });
   writeFileSync(twinShardedPath, twinBody);
   const bytes = serializeTaskEvent(shardedEvent);
@@ -171,26 +142,15 @@ export function mixedLedgerFixture(rootDir: string): {
     twinHash,
   };
 }
-export function incrementalObjectBytes(
-  rootDir: string,
-  parent: string,
-  commit: string,
-): number {
-  const objects = git(
-    rootDir,
-    "rev-list",
-    "--objects",
-    "--no-object-names",
-    `${parent}..${commit}`,
-  )
+export function incrementalObjectBytes(rootDir: string, parent: string, commit: string): number {
+  const objects = git(rootDir, "rev-list", "--objects", "--no-object-names", `${parent}..${commit}`)
     .split("\n")
     .filter(Boolean);
   if (!objects.length) return 0;
-  const sizes = execFileSync(
-    "git",
-    ["-C", rootDir, "cat-file", "--batch-check=%(objectsize:disk)"],
-    { input: `${objects.join("\n")}\n`, encoding: "utf8" },
-  );
+  const sizes = execFileSync("git", ["-C", rootDir, "cat-file", "--batch-check=%(objectsize:disk)"], {
+    input: `${objects.join("\n")}\n`,
+    encoding: "utf8",
+  });
   return sizes
     .trim()
     .split(/\r?\n/u)
@@ -217,10 +177,7 @@ export function eventAt(revision: number): TaskCreatedEvent {
     },
   };
 }
-export function decisionProposal(): Extract<
-  DecisionEventDraftV1,
-  { readonly type: "decision_proposed" }
-> {
+export function decisionProposal(): Extract<DecisionEventDraftV1, { readonly type: "decision_proposed" }> {
   return {
     schema: "decision-event/v1",
     eventId: "event-decision-store-1",
@@ -241,10 +198,8 @@ export function decisionProposal(): Extract<
       appliesTo: { modules: ["kernel"], productLines: [] },
       decisionClass: "ordinary",
       chosen: [{ id: "CH1", text: "Use one bundle" }],
-      rejected: [
-        { id: "RJ1", text: "Split writes", whyNot: "They can diverge." },
-      ],
-      body: "\n# Store Decision\n",
+      rejected: [{ id: "RJ1", text: "Split writes", whyNot: "They can diverge." }],
+      body: realizedDecisionBody("Store Decision"),
       claims: [],
       fulfillments: [],
       relations: [],
@@ -319,10 +274,7 @@ export function docBundle(
     ],
   };
 }
-export function repoLinkBundle(
-  target: string,
-  body: string,
-): CanonicalWriteBundle {
+export function repoLinkBundle(target: string, body: string): CanonicalWriteBundle {
   const hash = sha256Text(body),
     migration: MigrationImportEventV1 = {
       schema: "migration-import-event/v1",
@@ -363,11 +315,7 @@ export function repoLinkBundle(
     ],
   };
 }
-export function repoFileBundle(
-  target: string,
-  body: string,
-  destinationBody: string,
-): CanonicalWriteBundle {
+export function repoFileBundle(target: string, body: string, destinationBody: string): CanonicalWriteBundle {
   const hash = sha256Text(body),
     migration: MigrationImportEventV1 = {
       schema: "migration-import-event/v1",
@@ -418,9 +366,7 @@ export function snapshot(rootDir: string): unknown {
   return {
     status: git(rootDir, "status", "--porcelain", "-uall"),
     index: git(rootDir, "ls-files", "-s"),
-    bytes: files.map((file) =>
-      readFileSync(path.join(rootDir, file)).toString("hex"),
-    ),
+    bytes: files.map((file) => readFileSync(path.join(rootDir, file)).toString("hex")),
   };
 }
 export function git(rootDir: string, ...args: readonly string[]): string {

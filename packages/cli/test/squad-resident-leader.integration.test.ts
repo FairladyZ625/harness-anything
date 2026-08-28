@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -71,10 +72,19 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
       "--auth",
       "subscription",
     ]);
-    run(root, env, ["task", "create", "--id", "resident-task", "--admin", "--title", "Resident Squad"]);
-    run(root, env, ["task", "start", "resident-task", "--execution-id", "resident-execution"]);
+    const residentTask = run(root, env, [
+        "task",
+        "create",
+        "--id",
+        "resident-task",
+        "--admin",
+        "--title",
+        "Resident Squad",
+      ]),
+      residentPackage = String(residentTask.packagePath);
+    writeFileSync(path.join(root, "harness", residentPackage, "task_plan.md"), realizedPlan("Resident Squad"));
+    run(root, env, ["doc", "sync", "--submit", "--path", `${residentPackage}/task_plan.md`]);
     mkdirSync(path.join(root, "squadwork"));
-    writeFileSync(path.join(root, "mission.txt"), "resident mission from file");
 
     const started = run(root, env, [
       "squad",
@@ -86,8 +96,6 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
       "squadwork",
       "--task",
       "resident-task",
-      "--prompt-file",
-      "mission.txt",
     ]);
     assert.equal(started.outcome, "running", JSON.stringify(started));
     assert.match(String(started.squadRunId), /^squad_[a-f0-9]{24}$/u);
@@ -133,7 +141,7 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
       true,
       JSON.stringify(calls),
     );
-    assert.match(String(calls.find((call) => call.kind === "leader-initial")?.prompt), /resident mission from file/u);
+    assert.match(String(calls.find((call) => call.kind === "leader-initial")?.prompt), /Your task package is/u);
 
     run(root, env, ["daemon", "stop"]);
     rmSync(path.join(root, ".harness", "cache", "task.sqlite"), { force: true });
@@ -246,8 +254,16 @@ test(
         "--credential-ref",
         "credential:v1:squad-key",
       ]);
-      run(root, env, ["task", "create", "--id", "squad-api-task", "--admin", "--title", "Squad API run"]);
-      const withoutLease = runMaybe(root, env, [
+      const apiTask = run(root, env, [
+        "task",
+        "create",
+        "--id",
+        "squad-api-task",
+        "--admin",
+        "--title",
+        "Squad API run",
+      ]);
+      const placeholderPlan = runMaybe(root, env, [
         "squad",
         "run",
         "core-squad",
@@ -260,9 +276,11 @@ test(
         "--prompt",
         "ship without lease",
       ]);
-      assert.equal(withoutLease.status, 1, JSON.stringify(withoutLease));
-      assert.equal(withoutLease.receipt.code, "runtime_task_lease_required");
-      run(root, env, ["task", "start", "squad-api-task", "--execution-id", "squad-api-execution"]);
+      assert.equal(placeholderPlan.status, 1, JSON.stringify(placeholderPlan));
+      assert.equal(placeholderPlan.receipt.code, "plan_placeholder");
+      const apiPackage = String(apiTask.packagePath);
+      writeFileSync(path.join(root, "harness", apiPackage, "task_plan.md"), realizedPlan("Squad API run"));
+      run(root, env, ["doc", "sync", "--submit", "--path", `${apiPackage}/task_plan.md`]);
       const started = run(root, env, [
         "squad",
         "run",
