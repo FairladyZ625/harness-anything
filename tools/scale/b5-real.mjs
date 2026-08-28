@@ -79,7 +79,7 @@ async function measureB5RealSingle(options) {
   const { makeTaskProjection } = await importSource("packages/kernel/src/projection/rebuildable-task-projection.ts");
   const sqliteTaskProjection = await importSource("packages/kernel/src/projection/sqlite-task-projection.ts");
   const daemonQueryModule = await importSource("packages/daemon/src/task-query-read.ts").catch(() => null);
-  const daemonFactModule = await importSource("packages/daemon/src/fact-actions.ts").catch(() => null);
+  const daemonActionModule = await importSource("packages/daemon/src/entity-action-catalog-executor.ts").catch(() => null);
   const metadata = options.events !== null
     ? { seed: options.seed, primaryTaskCount: Math.max(1, Math.floor(options.events / 4)), factCount: Math.max(1, Math.round(options.events / 4 * 0.45)), decisionCount: Math.max(1, Math.round(options.events / 4 * 0.48)), targetEventCount: options.events }
     : options.entities !== null
@@ -200,15 +200,15 @@ async function measureB5RealSingle(options) {
   const readModel = daemonQueryModule?.makeTaskQueryReadModel
     ? daemonQueryModule.makeTaskQueryReadModel({ rootDir, projection, judgments: { closeout: kernel.closeoutReadiness, blocking: kernel.blockingOf } })
     : makeBaselineReadModel({ rootDir, projection, kernel, sqliteTaskProjection });
-  const factActions = daemonFactModule?.makeFactActions({ store: eventStore, projection, now: () => "2026-12-31T00:00:00.000Z" });
+  const catalogActions = daemonActionModule?.makeEntityActionCatalogExecutor({ store: eventStore, projection, now: () => "2026-12-31T00:00:00.000Z" });
   const narrowSupported = typeof projection.readRelationQuery === "function";
   const windowStart = new Date(Date.UTC(2026, 0, 10)).toISOString();
 
   const unparamTask = () => readModel.guiTasks();
   const unparamGraph = () => readModel.relationGraph();
   const factRead = (action) => {
-    if (!factActions) return projection.searchFacts(action);
-    const receipt = factActions.run({ kind: "fact-search", ...action }, { actor, source: "local" }, "read:b5-fact-search");
+    if (!catalogActions) return projection.searchFacts(action);
+    const receipt = catalogActions.run({ kind: "fact-search", ...action }, { actor, source: "local" }, "read:b5-fact-search");
     return JSON.parse(String(receipt.evidence));
   };
   const factQuery = (index) => factRead({ query: factStatements[index % factStatements.length] });
@@ -365,3 +365,4 @@ async function main() {
 if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.argv[1])}`).href) {
   try { await main(); } catch (error) { console.error(error instanceof Error ? error.stack : String(error)); process.exitCode = 1; }
 }
+

@@ -117,11 +117,14 @@ export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 export {
   createEntityKindRegistry,
   explainEntityKind,
+  getExecutableEntityAction,
   getEntityKindContract,
   requireEntityKindContract,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
 export type {
+  EntityActionContract,
+  EntityActionExplanation,
   EntityKindDeclaration,
   EntityKindRegistration,
   EntityKindRegistry,
@@ -129,6 +132,13 @@ export type {
   EntityResidencyFacets,
   EntityRepositoryRootScaffold,
 } from "./entity-kind-registry.ts";
+export type {
+  EntityActionCompileHook,
+  EntityActionDraft,
+  EntityActionExecutionContract,
+  EntityActionReceiptShape,
+  EntityActionRejectionContract,
+} from "./entity-action-execution.ts";
 
 export {
   canonicalRelationIdentityInput,

@@ -9,9 +9,8 @@ import {
 } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
-import { makeDecisionActions } from "./decision-actions.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
-import { makeFactActions } from "./fact-actions.ts";
+import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import { withDerivedCommandClass } from "./repo-cell-role-bindings.ts";
@@ -84,20 +83,13 @@ export function initializeRepoCell(context: any): any {
   projection = makeTaskProjection({ rootDir: context.rootDir, eventStore: store, now: context.now });
   if (pendingSettlementActor) settleAuthoredCandidates(pendingSettlementActor);
   const currentSessionIdentity = (binding: RepoCellBinding) => resolveWriteSessionIdentity(binding, projection!);
-  const factActions = makeFactActions({
-      store,
-      projection,
-      now: context.now,
-      sessionIdentity: currentSessionIdentity,
-      killpoint: context.input.killpoint,
-    }),
-    decisionActions = makeDecisionActions({
-      store,
-      projection,
-      now: context.now,
-      sessionIdentity: currentSessionIdentity,
-      killpoint: context.input.killpoint,
-    });
+  const entityActionExecutor = makeEntityActionCatalogExecutor({
+    store,
+    projection,
+    now: context.now,
+    sessionIdentity: currentSessionIdentity,
+    killpoint: context.input.killpoint,
+  });
   const runtimeReads = makeAgentRuntimeReadModel({
       readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(context.rootDir, runtimeSessionId),
       readDispatch: (taskId, dispatchId) =>
@@ -130,8 +122,7 @@ export function initializeRepoCell(context: any): any {
     store,
     recovery,
     projection,
-    factActions,
-    decisionActions,
+    entityActionExecutor,
     runtimeReads,
     service,
     replica,

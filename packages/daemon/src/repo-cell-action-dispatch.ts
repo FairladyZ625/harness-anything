@@ -161,7 +161,7 @@ export async function executeAction(
   }
   if (action.kind === "distill-promote") {
     const promoted = distillPromotionAction(cell.rootDir, action);
-    return cell.factActions.run(
+    return cell.entityActionExecutor.run(
       promoted,
       binding,
       cell.operationId(
@@ -173,7 +173,7 @@ export async function executeAction(
     );
   }
   if (action.kind.startsWith("fact-"))
-    return cell.factActions.run(
+    return cell.entityActionExecutor.run(
       action,
       binding,
       cell.operationId(
@@ -187,7 +187,7 @@ export async function executeAction(
     );
   if (action.kind.startsWith("decision-")) {
     const resolved = cell.decisionProposalAction(cell.rootDir, action);
-    return cell.decisionActions.run(
+    return cell.entityActionExecutor.run(
       resolved,
       binding,
       cell.operationId(

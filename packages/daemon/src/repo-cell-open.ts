@@ -197,7 +197,7 @@ export async function openRepoCell(input: {
     await lock.close();
     throw error;
   }
-  let { store, recovery, projection, factActions, decisionActions, runtimeReads, service, replica } = core;
+  let { store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = core;
   let knownTaskIds: Set<string> | null = null,
     state: RepoCellStatus["state"] = recovery.status === "indeterminate" ? "unavailable" : "attached",
     recoveryUncertain = recovery.status === "indeterminate";
@@ -266,7 +266,7 @@ export async function openRepoCell(input: {
       candidate.projection.list();
       replica.close();
       projection.close();
-      ({ store, recovery, projection, factActions, decisionActions, runtimeReads, service, replica } = candidate);
+      ({ store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = candidate);
       knownTaskIds = null;
       state = "attached";
       lastError = null;
@@ -402,8 +402,7 @@ export async function openRepoCell(input: {
     publicPublication,
     getProjection: () => projection,
     getStore: () => store,
-    getFactActions: () => factActions,
-    getDecisionActions: () => decisionActions,
+    getEntityActionExecutor: () => entityActionExecutor,
     getService: () => service,
     getRecovery: () => recovery,
     getRecoveryUncertain: () => recoveryUncertain,
