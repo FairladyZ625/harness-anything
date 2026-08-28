@@ -21,6 +21,9 @@ const DEFAULT_ROOT = process.cwd();
 const MANIFEST_GATE_RUNNER = "node tools/run-manifest-gates.mjs";
 const INFRASTRUCTURE_RUN_COMMANDS = new Set([
   "npm ci",
+  // Node 26 lanes build node-pty from setup-node's local headers instead of downloading them
+  // (dec_047D7AD197D9D096837A0BB36B); the export is workspace setup, not a gate.
+  'echo "npm_config_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"',
   "git diff --check",
   "mkdir -p artifacts/gui-e2e",
   "sudo apt-get update && sudo apt-get install -y xvfb",

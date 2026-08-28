@@ -65,6 +65,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
+      - run: echo "npm_config_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci
       - run: git diff --check
       - run: sudo apt-get update && sudo apt-get install -y xvfb
@@ -388,6 +389,7 @@ jobs:
         with:
           node-version: 26
           cache: npm
+      - run: echo "npm_config_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job node26-compatibility
       - name: Upload structured CI observation artifact
