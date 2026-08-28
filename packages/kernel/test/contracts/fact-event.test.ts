@@ -1,6 +1,6 @@
+// harness-test-tier: contract
 import type { FactEventDraftV1 } from "../../src/domain/fact-event.ts";
 import type { DecisionEventDraftV1 } from "../../src/domain/decision-event-types.ts";
-// harness-test-tier: contract
 import assert from "node:assert/strict";
 import { Schema } from "effect";
 import test from "node:test";
