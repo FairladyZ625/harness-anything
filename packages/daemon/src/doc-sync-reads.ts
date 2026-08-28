@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import { consumeKnownError, type TaskProjection } from "../../kernel/src/index.ts";
 import {
   canonicalEventCut,
   documentPath,
@@ -338,7 +338,8 @@ function worktreeDocumentIndex(packageRoot: string | null): readonly WorktreeDoc
     let entries: readonly import("node:fs").Dirent[];
     try {
       entries = readdirSync(directory, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      consumeKnownError(error);
       continue;
     }
     for (const entry of entries) {
@@ -368,7 +369,8 @@ function worktreeDocumentIndex(packageRoot: string | null): readonly WorktreeDoc
 function statFileSync(target: string): import("node:fs").Stats | null {
   try {
     return statSync(target);
-  } catch {
+  } catch (error) {
+    consumeKnownError(error);
     return null;
   }
 }
@@ -376,7 +378,8 @@ function statFileSync(target: string): import("node:fs").Stats | null {
 function statLinkSync(target: string): import("node:fs").Stats | null {
   try {
     return lstatSync(target);
-  } catch {
+  } catch (error) {
+    consumeKnownError(error);
     return null;
   }
 }
