@@ -192,6 +192,10 @@ export const daemonRelationQueryPayloadShape = shape({
   cursor: "string?",
 });
 
+export const daemonDecisionListPayloadShape = shape({
+  projection: optionalEnum(["summary", "full"]),
+});
+
 export const daemonAgendaPayloadShape = shape({
   limit: "number?",
   cursor: "string?",

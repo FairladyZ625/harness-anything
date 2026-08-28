@@ -70,8 +70,6 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateSessionEnvironment((value.params as JsonObject).sessionEnvironment));
   if (!errors.length && (value.method === "repo.tasks.list" || value.method === "repo.triadic.relationGraph"))
     errors.push(...validateDaemonQueryPayload(value.method, (value.params as JsonObject).payload));
-  if (!errors.length && value.method === "repo.decisions.list")
-    errors.push(...validateDecisionListPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agenda.read")
     errors.push(...validateAgendaQueryPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.task.dispatches")
@@ -207,16 +205,6 @@ function validateRelationFacetPayload(value: JsonObject): string[] {
   if (value.direction !== undefined && !["directed", "undirected"].includes(String(value.direction)))
     errors.push("repo.triadic.relationGraph.payload.direction is invalid");
   return errors;
-}
-
-function validateDecisionListPayload(value: unknown): string[] {
-  if (value === undefined) return [];
-  if (!isJsonObject(value)) return ["decision projection payload must be an object"];
-  const unknown = unknownFieldViolation(value, ["projection"]);
-  if (unknown) return [`repo.decisions.list.payload contains an ${unknown}`];
-  return value.projection === undefined || value.projection === "summary" || value.projection === "full"
-    ? []
-    : ["repo.decisions.list.payload.projection is invalid"];
 }
 
 export function validateAgendaQueryPayload(value: unknown): string[] {
