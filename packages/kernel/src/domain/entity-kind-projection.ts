@@ -57,7 +57,13 @@ export function interpretEntityValue(
 // Entity blobs are immutable history. Keep current writers strict while allowing the
 // projection/entity-store read path to discard fields retired from the agent schema.
 function readCompatibleEntityValue(kind: string, value: unknown): unknown {
-  if (kind !== "agent" || !isEntityRecord(value)) return value;
+  if (!isEntityRecord(value)) return value;
+  if (kind === "settings" && Object.hasOwn(value, "locale")) {
+    const normalized = { ...value };
+    delete normalized.locale;
+    return normalized;
+  }
+  if (kind !== "agent") return value;
   const fallback = value.fallback;
   if (!isEntityRecord(fallback)) return value;
   const backoff = fallback.backoff;
