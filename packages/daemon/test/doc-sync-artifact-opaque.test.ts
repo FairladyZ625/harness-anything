@@ -268,6 +268,134 @@ test("a historical prose artifact is rewritten as opaque without a policy upgrad
   }
 });
 
+test("authored architecture C4 files travel from dry-run through opaque submit", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-architecture-model-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("architecture-model"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "architecture-model" }),
+    binding = { actor, source: "local" as const },
+    model = "context/architecture/model/views/write-path.c4",
+    manifest = "context/architecture/architecture-manifest.json",
+    modelBody = "views { view writePath { title 'Single Write Road' } }\n",
+    manifestBody = '{"schema":"architecture-manifest/v1","enabled":true}\n';
+  try {
+    write(rootDir, model, modelBody);
+    write(rootDir, manifest, manifestBody);
+    const dry = await cell.run({ kind: "doc-dry-run", paths: [model, manifest] }, binding);
+    assert.deepEqual(
+      rows(String(dry.evidence)).map((row) => [row.path, row.state, row.mediaType]),
+      [
+        [manifest, "eligible", "application/json"],
+        [model, "eligible", "text/x-harness-opaque"],
+      ],
+    );
+    const submitted = (await cell.run({ kind: "doc-submit", paths: [model, manifest] }, binding)) as Record<
+      string,
+      unknown
+    >;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
+    assert.equal(event?.schema, "doc-event/v1");
+    if (event?.schema !== "doc-event/v1") return;
+    assert.deepEqual(
+      event.payload.changes.map((change) => [change.path, change.policyId, change.regionProofs]),
+      [
+        [manifest, OPAQUE_POLICY_ID, []],
+        [model, OPAQUE_POLICY_ID, []],
+      ],
+    );
+    assert.equal(readFileSync(path.join(rootDir, "harness", model), "utf8"), modelBody);
+    assert.equal(readFileSync(path.join(rootDir, "harness", manifest), "utf8"), manifestBody);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a historical opaque Markdown claim is restamped through the prose channel", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-opaque-prose-restamp-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("opaque-prose-restamp"),
+    binding = { actor, source: "local" as const },
+    logical = "context/architecture/Architecture-SSoT.md",
+    legacy = "# Architecture\n\nLegacy state.\n",
+    store = makeTaskEventStore({ repoId, rootDir }),
+    bytes = Buffer.from(legacy),
+    sha = sha256Bytes(bytes),
+    base = store.currentCut(),
+    historic = decideDocWrite({
+      intent: parseDocWriteIntent(
+        {
+          schema: "doc-write-intent/v1",
+          executionId: null,
+          baseLedgerSha: base,
+          changes: [
+            {
+              path: logical,
+              baseBlobSha256: null,
+              policyId: OPAQUE_POLICY_ID,
+              candidate: {
+                ref: `doc-sync-claims/${sha}`,
+                sha256: sha,
+                size: bytes.byteLength,
+                mediaType: "text/markdown",
+              },
+            },
+          ],
+        },
+        repoId,
+      ),
+      opId: "op_historical_opaque_prose",
+      eventId: "event-historical-opaque-prose",
+      workspaceRevision: store.read().revision + 1,
+      actor,
+      source: "local",
+      occurredAt: "2026-08-28T00:00:00.000Z",
+      currentLedgerSha: base,
+      lease: null,
+      authorizationDecision: null,
+      documents: [null],
+      claims: [bytes],
+    });
+  assert.equal(historic.accepted, true, JSON.stringify(historic));
+  if (!historic.accepted) {
+    rmSync(rootDir, { recursive: true, force: true });
+    return;
+  }
+  store.append({ event: historic.event, plan: docSyncWritePlan(historic.event), blobs: historic.blobs });
+  const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "opaque-prose-restamp" });
+  try {
+    const firstBody = `${legacy}Current state.\n`;
+    write(rootDir, logical, firstBody);
+    const dry = await cell.run({ kind: "doc-dry-run", paths: [logical] }, binding);
+    assert.deepEqual(
+      rows(String(dry.evidence)).map((row) => [row.path, row.state]),
+      [[logical, "eligible"]],
+    );
+    const first = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as Record<string, unknown>;
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+    const upgraded = makeTaskEventStore({ repoId, rootDir }).readEvent(String(first.opId));
+    assert.equal(upgraded?.schema, "doc-event/v1");
+    if (upgraded?.schema === "doc-event/v1") {
+      assert.equal(upgraded.payload.changes[0]?.policyId, PROSE_POLICY_ID);
+      assert.deepEqual(upgraded.payload.changes[0]?.policyUpgrade, {
+        from: OPAQUE_POLICY_ID,
+        to: PROSE_POLICY_ID,
+      });
+    }
+
+    write(rootDir, logical, `${firstBody}Second edit.\n`);
+    const second = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as Record<string, unknown>;
+    assert.equal(second.outcome, "applied", JSON.stringify(second));
+    const native = makeTaskEventStore({ repoId, rootDir }).readEvent(String(second.opId));
+    assert.equal(native?.schema, "doc-event/v1");
+    if (native?.schema === "doc-event/v1") assert.equal("policyUpgrade" in native.payload.changes[0]!, false);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("task_plan.md and closeout.md retain prose policy, proofs, and deletion protection", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-prose-"));
   initRepo(rootDir);

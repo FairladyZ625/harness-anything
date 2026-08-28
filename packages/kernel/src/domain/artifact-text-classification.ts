@@ -19,11 +19,12 @@ export type TextualArtifactClassification = Readonly<{
 
 /**
  * Classifies authored document paths that doc-sync may process. Task artifact
- * directories are opaque regardless of their content type; prose semantics
- * apply everywhere else only to Markdown and plain-text documents.
+ * directories and authored architecture model files are opaque regardless of
+ * their content type; prose semantics apply everywhere else only to Markdown
+ * and plain-text documents.
  */
 export function classifyTextualArtifactPath(value: string): TextualArtifactClassification | null {
-  if (artifactPath(value))
+  if (artifactPath(value) || architectureModelPath(value))
     return { kind: "opaque-textual", mediaType: opaqueTextualMediaType(value), policyId: OPAQUE_TEXTUAL_POLICY_ID };
   if (value.endsWith(".md"))
     return { kind: "canonical-prose", mediaType: "text/markdown", policyId: "markdown-body-replaceable/v1" };
@@ -48,6 +49,12 @@ export function isOpaqueTextualMediaType(value: unknown): value is OpaqueTextual
 
 function artifactPath(value: string): boolean {
   return value.startsWith("artifacts/") || /^tasks\/[^/]+\/artifacts(?:\/|$)/u.test(value);
+}
+
+function architectureModelPath(value: string): boolean {
+  return (
+    value === "context/architecture/architecture-manifest.json" || /^context\/architecture\/model\/.+\.c4$/u.test(value)
+  );
 }
 
 function opaqueTextualMediaType(value: string): OpaqueTextualMediaType {

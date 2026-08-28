@@ -119,7 +119,7 @@ export interface RegionProof {
 }
 
 export interface DocPolicyUpgrade {
-  readonly from: MigrationDocumentClaim["policyId"];
+  readonly from: MigrationDocumentClaim["policyId"] | typeof OPAQUE_TEXTUAL_POLICY_ID;
   readonly to: typeof DOC_POLICY_ID;
 }
 
