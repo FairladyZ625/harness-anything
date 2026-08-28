@@ -1,0 +1,1650 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Harness Anything · 中文架构与项目解释</title>
+<style>
+:root{
+  --paper:#faf7f0; --card:#fdfbf6; --ink:#3d3833; --dim:#7a7266; --line:#e3dccc;
+  --green:#4a7c59; --orange:#b0713c; --blue:#4a6b8a; --sand:#a2957f;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+  font-size:16.5px; line-height:1.7; max-width:none;
+  padding:24px clamp(16px,2vw,32px) 80px;
+  -webkit-font-smoothing:antialiased;
+}
+code,.mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:.92em}
+code{background:#f2ede2;border:1px solid var(--line);border-radius:4px;padding:.05em .34em;color:#5b5348}
+h1,h2,h3,h4{font-family:inherit;font-weight:650;letter-spacing:.01em;margin:0}
+h1{font-size:clamp(28px,3.2vw,42px);line-height:1.25}
+h2{font-size:clamp(22px,2.2vw,28px);line-height:1.3}
+h3{font-size:19px;margin:26px 0 8px}
+a{color:var(--blue)}
+p{margin:0 0 14px}
+header.top{border-bottom:2px solid var(--line);padding-bottom:22px;margin-bottom:26px}
+.kicker{font-size:13.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:10px}
+.lede{font-size:19px;color:#4d4740;max-width:96ch;margin-top:14px}
+.meta{margin-top:16px;font-size:14px;color:var(--dim)}
+.legend{display:flex;flex-wrap:wrap;gap:10px 22px;margin-top:16px;font-size:14px;color:var(--dim)}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.sw{width:15px;height:15px;border-radius:4px;display:inline-block;border:1.8px solid}
+.sw.g{background:#f1f6f1;border-color:var(--green)}
+.sw.b{background:#edf1f6;border-color:var(--blue)}
+.sw.d{background:#f5f2ea;border-color:var(--sand)}
+.sw.o{background:#fbf1e6;border-color:var(--orange);border-style:dashed}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:24px 0 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.stat b{display:block;font-size:26px;font-weight:650;line-height:1.15}
+.stat span{font-size:13.5px;color:var(--dim);display:block;margin-top:5px}
+nav.toc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:30px 0 40px}
+nav.toc h2{font-size:16px;letter-spacing:.06em;color:var(--dim);text-transform:uppercase;margin-bottom:12px}
+nav.toc ol{margin:0;padding-left:1.4em;columns:2;column-gap:44px;font-size:15.5px}
+nav.toc li{margin:0 0 7px;break-inside:avoid}
+section.ch{margin:0 0 62px;border-top:1px solid var(--line);padding-top:30px}
+.chhead{display:flex;gap:18px;align-items:baseline;margin-bottom:8px}
+.num{font-size:15px;color:var(--orange);font-weight:650;letter-spacing:.1em}
+.sub{color:var(--dim);max-width:100ch;margin:6px 0 20px;font-size:17px}
+figure{margin:0 0 22px}
+svg.fig{width:100%;height:auto;display:block;background:#fdfbf6;border:1px solid var(--line);border-radius:14px}
+figcaption{font-size:14px;color:var(--dim);margin-top:9px}
+.prose{max-width:none}
+@media(min-width:1400px){.prose{columns:2;column-gap:56px}}
+.prose > *{break-inside:avoid-column}
+.prose h3{margin-top:0;break-after:avoid-column;page-break-after:avoid;break-inside:avoid}
+.src{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--blue);
+     border-radius:10px;padding:12px 16px;font-size:14px;color:#5b5348;margin:16px 0;break-inside:avoid}
+.src b{color:var(--ink)}
+.callout{background:#fbf5ec;border:1px solid #e6d3ba;border-left:4px solid var(--orange);
+     border-radius:10px;padding:14px 18px;margin:18px 0;break-inside:avoid}
+.callout h4{font-size:15.5px;margin-bottom:6px;color:#8a5628}
+.note{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--green);
+     border-radius:10px;padding:14px 18px;margin:18px 0;break-inside:avoid}
+.note h4{font-size:15.5px;margin-bottom:6px;color:var(--green)}
+table{border-collapse:collapse;width:100%;font-size:15px;margin:16px 0;background:var(--card)}
+th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+th{background:#f4efe4;font-weight:650;font-size:14px}
+td.mono,th.mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:13.5px}
+.tag{display:inline-block;font-size:12.5px;padding:1px 8px;border-radius:20px;border:1px solid;white-space:nowrap}
+.tag.o{color:var(--orange);border-color:var(--orange);background:#fbf1e6}
+.tag.g{color:var(--green);border-color:var(--green);background:#f1f6f1}
+.tag.b{color:var(--blue);border-color:var(--blue);background:#edf1f6}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:16px 0}
+.tw table{margin:0;min-width:760px}
+dl.glossary{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:2px 30px;margin:18px 0}
+dl.glossary div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 14px;margin-bottom:10px}
+dl.glossary dt{font-weight:650;font-size:15.5px;margin-bottom:3px}
+dl.glossary dt em{font-style:normal;font-family:ui-monospace,"SF Mono",Menlo,monospace;
+  font-size:13.5px;color:var(--dim);font-weight:400}
+dl.glossary dd{margin:0;font-size:14.5px;color:#57504a;line-height:1.6}
+.routes{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:18px;margin:20px 0}
+.route{background:var(--card);border:1px solid var(--line);border-top:4px solid var(--green);
+  border-radius:12px;padding:16px 18px}
+.route h4{font-size:17px;margin-bottom:8px}
+.route ol{margin:0;padding-left:1.3em;font-size:15px}
+.route li{margin-bottom:6px}
+footer{border-top:2px solid var(--line);margin-top:50px;padding-top:20px;font-size:14px;color:var(--dim)}
+.lyr{font-size:15px;font-weight:650;fill:#6f6659;
+  font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+.lyrn{font-size:14px;fill:#948a7c;
+  font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+.bt{font-size:16px;font-weight:650;fill:#33302b;
+  font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+.bp{font-size:13.5px;fill:#6b6257;font-family:ui-monospace,"SF Mono",Menlo,monospace}
+.bn{font-size:14px;fill:#5c554d;
+  font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+.bx{font-size:13.5px;font-weight:650;
+  font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+.elbl{font-size:14px;font-weight:600;
+  font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+</style></head><body>
+<header class="top">
+<div class="kicker">技术架构 · 当前实现</div>
+<h1>Harness Anything：项目与系统架构（中文版）</h1>
+<p class="lede">一个写权威，多条执行管线。当前系统对每个仓库只有一条 daemon 持有的写路：CLI 与 GUI 的请求跨过 daemon 协议进入串行化的 RepoCell，事件经由持久 WAL 落定到 Git，SQLite 始终只是一个可重建的读模型。通用实体框架已经实现，但 Decision、Fact、Task、runtime、doc-sync、Schedule 与 People 仍保留各自的专用编排——这正是 Phase 6 的收敛目标。</p>
+<p class="meta">基准：origin/main 的 a3ce1d64c 提交，核对日期 2026-08-28。「实测」的含义是：某个路径、符号、契约或 manifest 条目被实际打开看过。橙色虚线标注的是计划中或尚未合入的东西。</p>
+<div class="legend"><span><i class="sw g"></i>已实现的组件</span><span><i class="sw b"></i>核心契约 / 权威面</span><span><i class="sw d"></i>派生物或运行期本地状态</span><span><i class="sw o"></i>进行中 / Phase 6 目标</span></div>
+<div class="stats">
+<div class="stat"><b>8</b><span>个真实存在的工作区包，含两个适配器</span></div>
+<div class="stat"><b>12</b><span>种已注册实体类型，其中九个产品实体见 §3</span></div>
+<div class="stat"><b>58</b><span>条门禁 manifest 条目；分支保护声明 17 个必过上下文</span></div>
+<div class="stat"><b>7,838–9,038</b><span>Phase 6 候选行数区间——是规划口径，不是已证明可删</span></div>
+</div></header>
+<section class="ch" style="border-top:none;padding-top:0">
+<div class="chhead"><span class="num">00</span><h2>这个项目是什么，解决什么问题，怎么用</h2></div>
+
+<p class="sub">先把「项目是什么」讲清楚，再讲架构。如果你只读两屏，读这一节和下面那张图。</p>
+<div class="prose">
+<h3>它解决的问题：agent 记不住自己为什么这么做</h3>
+<p>AI agent 极其擅长做事，却极其不擅长记住自己为什么这么做。给它一个真实任务，它会在一次会话里产生一条
+密集的推理轨迹——为什么选这个方案、做到哪一步、沿途观察到了什么。会话一结束，这条轨迹几乎全部蒸发。
+下一个 agent，或者一周后的你自己，只能从零开始：决策被悄悄重新讨论一遍，工作被重做，
+而且整件事无法审计，因为根本不存在可审计的工件，只有一堵没人会完整重放的对话墙。</p>
+<p>Harness Anything 是 AI agent 的<strong>问责层（accountability layer）</strong>。它的赌注不是「做更好的笔记」，
+而是把那条推理轨迹提升为<strong>活在 git 里的结构化实体</strong>：选择变成一个 <strong>decision</strong>，
+可以被提议、被接受、日后被推翻，但不能被抹掉；进度变成一个 <strong>task</strong>，在既定状态之间流转，
+<code>done</code> 被完成门锁住；观察变成一个 <strong>fact</strong>，不可变、自带来源。
+它们都是版本控制下的纯 Markdown，可以 diff、可以在 PR 里评审、可以长期留存。</p>
+<p>它给谁用：给那些在用 AI agent 真干活、并且吃过「工作记不住自己」这个亏的人和团队——
+决策不知去向、「完成」其实没完、上下文撑不过一次交接。也给 agent 自己用：
+<code>ha --help</code> 能发现的命令面就是全部合法动作，凡是承重的动作，没有一个不能从这里触达。</p>
+
+<h3>日常怎么用：CLI、GUI 与 daemon 各扮演什么</h3>
+<p><strong>CLI（<code>ha</code>）</strong>是主要入口，人和 agent 敲的是同一套命令。
+它自己不持有任何真相，只把命令翻译成协议调用递给 daemon。
+<strong>daemon</strong> 是真正干活的那个进程：它按仓库持有唯一的串行写者，做授权判定、冻结写计划、
+追加事件、落盘文件、维护投影、拉起 agent 运行时。它在需要时会被 CLI 自动拉起。
+<strong>GUI</strong> 是同一份数据之上的另一个交付面——Electron 应用，走 IPC 桥接到同一个本地 daemon，
+看的是同一条读路，没有第二个真相来源。</p>
+<p>三者的分工可以一句话记住：<strong>CLI 与 GUI 提出请求，daemon 做出判断并持有写权威，git 保存结果。</strong></p>
+
+<h3>一个 task 的一生</h3>
+<p>典型的一轮是这样的：你先用 <code>ha fact record</code> 记下一条可复核的观察，
+再用 <code>ha decision create</code> 立一个决策，决策里的每条主张必须用一条边指向那条 fact
+作为证据——没有这条边，决策无法被接受。决策派生出 task（<code>derives</code> 关系），
+task 由 preset 编译出整个任务包。执行时可以 <code>ha runtime dispatch</code> 派一个 agent 去做，
+daemon 拉起进程、把会话生命周期写进台账、把输出写进本地流。</p>
+<p>收口时先 <code>ha task submit</code> 提交一轮 execution，包含六个字段：完成声明、交付物、证据引用、
+验证说明、已知缺口、残余风险。然后 <code>ha task review</code> 由 reviewer 记录已核对的证据与理由，
+approved 才能继续。最后 <code>ha task complete</code> 解析这个 task 的 preset/profile 声明的确定性门，
+不过就拒绝。收口时至少产出一条新的 fact，它又成为下一个决策的证据——这就是<strong>回环</strong>。</p>
+</div>
+<figure><svg class="fig" viewBox="0 0 1680 968" role="img" aria-label="一个 task 的一生：从 decision 派生，经执行与评审，收口时晋升 fact" xmlns="http://www.w3.org/2000/svg">
+<title>一个 task 的一生：从 decision 派生，经执行与评审，收口时晋升 fact</title>
+<defs>
+<marker id="f0-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f0-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f0-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f0-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="968" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">① 起点：可复核的观察</text>
+<rect x="26" y="282" width="1628" height="148" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="278" class="lyr">② 派工：任务包被编译出来</text>
+<rect x="26" y="548" width="1628" height="148" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="544" class="lyr">③ 收口：证据先于状态</text>
+<rect x="26" y="814" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="810" class="lyr">④ 闭环：新的观察喂给下一轮</text>
+<polyline points="662.0,156.0 662.0,195.0 563.0,195.0 563.0,290.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f0-ar-impl)"/>
+<polyline points="963.0,156.0 963.0,208.0 629.0,208.0 629.0,290.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f0-ar-impl)"/>
+<rect x="735.5" y="193.0" width="121" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="796.0" y="210.0" class="elbl" text-anchor="middle" fill="#4a7c59">derives</text>
+<polyline points="1073.0,156.0 1073.0,221.0 935.5,221.0 935.5,290.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f0-ar-impl)"/>
+<polyline points="695.0,422.0 695.0,458.4 401.5,458.4 401.5,556.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f0-ar-impl)"/>
+<polyline points="1018.0,422.0 1018.0,468.8 484.0,468.8 484.0,556.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f0-ar-impl)"/>
+<polyline points="761.0,422.0 761.0,479.2 785.0,479.2 785.0,556.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f0-ar-impl)"/>
+<polyline points="1100.5,422.0 1100.5,489.6 1141.0,489.6 1141.0,556.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f0-ar-impl)"/>
+<polyline points="566.5,688.0 566.5,727.0 757.5,727.0 757.5,822.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f0-ar-impl)"/>
+<polyline points="895.0,688.0 895.0,740.0 840.0,740.0 840.0,822.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f0-ar-impl)"/>
+<polyline points="1251.0,688.0 1251.0,753.0 922.5,753.0 922.5,822.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f0-ar-impl)"/>
+<rect x="1048.8" y="738.0" width="76" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="1086.8" y="755.0" class="elbl" text-anchor="middle" fill="#4a7c59">通过才写</text>
+<rect x="497.0" y="44.0" width="330.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="512.0" y="71.0" class="bt">fact · 观察</text>
+<text x="512.0" y="93.0" class="bp" xml:space="preserve">ha fact record</text>
+<text x="512.0" y="115.0" class="bn" style="font-size:14.0px">不可变、带来源的观察记录</text>
+<text x="512.0" y="135.0" class="bn" style="font-size:14.0px">是后续判断的证据底座</text>
+<rect x="853.0" y="44.0" width="330.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="71.0" class="bt">decision · 为什么</text>
+<text x="868.0" y="93.0" class="bp" xml:space="preserve">ha decision create</text>
+<text x="868.0" y="115.0" class="bn" style="font-size:14.0px">选择、备选、理由、裁决人</text>
+<text x="868.0" y="135.0" class="bn" style="font-size:14.0px">每条 claim 必须指向一条 fact</text>
+<rect x="497.0" y="290.0" width="330.0" height="132.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="512.0" y="317.0" class="bt">task · 做什么</text>
+<text x="512.0" y="339.0" class="bp" xml:space="preserve">ha task create --preset ...</text>
+<text x="512.0" y="361.0" class="bn" style="font-size:14.0px">由 decision 派生（derives 边）</text>
+<text x="512.0" y="381.0" class="bn" style="font-size:14.0px">preset 编译出整个任务包</text>
+<text x="812.0" y="409.0" class="bx" text-anchor="end" fill="#4a7c59">→ 见 §6</text>
+<rect x="853.0" y="290.0" width="330.0" height="132.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="317.0" class="bt">runtime 派工 · 谁来做</text>
+<text x="868.0" y="339.0" class="bp" xml:space="preserve">ha runtime dispatch</text>
+<text x="868.0" y="361.0" class="bn" style="font-size:14.0px">daemon 拉起 agent 进程</text>
+<text x="868.0" y="381.0" class="bn" style="font-size:14.0px">会话事件进台账、输出进本地流</text>
+<text x="1168.0" y="409.0" class="bx" text-anchor="end" fill="#4a7c59">→ 见 §5</text>
+<rect x="319.0" y="556.0" width="330.0" height="132.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="334.0" y="583.0" class="bt">execution · 这一轮交付</text>
+<text x="334.0" y="605.0" class="bp" xml:space="preserve">ha task submit</text>
+<text x="334.0" y="627.0" class="bn" style="font-size:14.0px">六字段提交包：完成声明、交付物、</text>
+<text x="334.0" y="647.0" class="bn" style="font-size:14.0px">证据、验证说明、已知缺口、残余风险</text>
+<rect x="675.0" y="556.0" width="330.0" height="132.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="690.0" y="583.0" class="bt">review · 裁决</text>
+<text x="690.0" y="605.0" class="bp" xml:space="preserve">ha task review</text>
+<text x="690.0" y="627.0" class="bn" style="font-size:14.0px">reviewer 记录已核对的证据与理由</text>
+<text x="690.0" y="647.0" class="bn" style="font-size:14.0px">approved 才允许继续</text>
+<rect x="1031.0" y="556.0" width="330.0" height="132.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="1046.0" y="583.0" class="bt">completion gate · 门</text>
+<text x="1046.0" y="605.0" class="bp" xml:space="preserve">ha task complete</text>
+<text x="1046.0" y="627.0" class="bn" style="font-size:14.0px">由 preset/profile 解析确定性门</text>
+<text x="1046.0" y="647.0" class="bn" style="font-size:14.0px">不过就拒绝，不是警告</text>
+<text x="1346.0" y="675.0" class="bx" text-anchor="end" fill="#4a6b8a">→ 见 §8</text>
+<rect x="675.0" y="822.0" width="330.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="690.0" y="849.0" class="bt">新的 fact</text>
+<text x="690.0" y="871.0" class="bp" xml:space="preserve">ha fact record</text>
+<text x="690.0" y="893.0" class="bn" style="font-size:14.0px">收口时至少产出一条新观察</text>
+<text x="690.0" y="913.0" class="bn" style="font-size:14.0px">它又成为下一个 decision 的证据</text>
+</svg><figcaption>图 0 · 一个 task 的一生：证据先于判断，判断派生工作，工作再产出新证据。</figcaption></figure>
+</section>
+<nav class="toc"><h2>十章骨架</h2><ol>
+<li><a href="#c01">包与依赖方向</a></li>
+<li><a href="#c02">单写路与可重建读路</a></li>
+<li><a href="#c03">实体身份、事件模式与落地形态</a></li>
+<li><a href="#c04">通用 action 契约：已声明，执行只统一了一半</a></li>
+<li><a href="#c05">runtime 派工：一份 canonical 会话，加一条本地进程流</a></li>
+<li><a href="#c06">任务包与文档写入：两条通道，一套落盘</a></li>
+<li><a href="#c07">fleet 拓扑：写权威留在中心</a></li>
+<li><a href="#c08">门禁：既是策略，也是自动化，还是 canonical 证据</a></li>
+<li><a href="#c09">Phase 6 的目标：收敛分支编排，不动共享基础设施</a></li>
+<li><a href="#c10">权威收敛与模型漂移</a></li>
+<li><a href="#glossary">术语表（中英对照）</a></li>
+<li><a href="#routes">按角色的阅读路线</a></li>
+</ol></nav>
+<section class="ch" id="c01">
+<div class="chhead"><span class="num">01</span><h2>包与依赖方向</h2></div>
+<p class="sub">交付面向内依赖 daemon 的协议契约；kernel 持有领域契约、端口、存储与投影；适配器很薄，而且只有两个。</p>
+<figure><svg class="fig" viewBox="0 0 1680 1464" role="img" aria-label="包与依赖方向：交付面向内依赖 daemon 契约，kernel 持有领域契约与存储" xmlns="http://www.w3.org/2000/svg">
+<title>包与依赖方向：交付面向内依赖 daemon 契约，kernel 持有领域契约与存储</title>
+<defs>
+<marker id="f1-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f1-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f1-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f1-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="1464" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="130" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">交付面（delivery surface）</text>
+<text x="1646" y="32" class="lyrn" text-anchor="end">用户与 agent 真正碰到的东西</text>
+<rect x="26" y="284" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="280" class="lyr">进程边界与协议（protocol）</text>
+<text x="1646" y="280" class="lyrn" text-anchor="end">唯一的跨进程契约面</text>
+<rect x="26" y="552" width="1628" height="148" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="548" class="lyr">宿主与串行写者（orchestration）</text>
+<rect x="26" y="818" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="814" class="lyr">领域服务与编译器</text>
+<rect x="26" y="1064" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="1060" class="lyr">内核（kernel）</text>
+<text x="1646" y="1060" class="lyrn" text-anchor="end">领域契约、事件族、存储、投影都在这里</text>
+<rect x="26" y="1310" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="1306" class="lyr">适配器（adapters）</text>
+<text x="1646" y="1306" class="lyrn" text-anchor="end">当前只有两个适配器包真实存在</text>
+<polyline points="434.0,158.0 434.0,197.0 542.0,197.0 542.0,292.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-impl)"/>
+<polyline points="1246.0,158.0 1246.0,210.0 637.0,210.0 637.0,292.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-impl)"/>
+<polyline points="840.0,158.0 840.0,223.0 979.7,223.0 979.7,292.0" fill="none" stroke="#4a6b8a" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-contract)"/>
+<rect x="871.8" y="208.0" width="76" height="24" rx="7" fill="#fdfbf6" stroke="#4a6b8a" stroke-width="1"/>
+<text x="909.8" y="225.0" class="elbl" text-anchor="middle" fill="#4a6b8a">类型依赖</text>
+<polyline points="732.0,426.0 732.0,469.3 637.0,469.3 637.0,560.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-impl)"/>
+<polyline points="1106.3,426.0 1106.3,486.7 948.0,486.7 948.0,560.0" fill="none" stroke="#4a6b8a" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-contract)"/>
+<polyline points="1043.0,692.0 1043.0,735.3 542.0,735.3 542.0,826.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-impl)"/>
+<polyline points="1138.0,692.0 1138.0,752.7 979.7,752.7 979.7,826.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-impl)"/>
+<polyline points="637.0,938.0 637.0,977.0 573.7,977.0 573.7,1072.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-impl)"/>
+<polyline points="1106.3,938.0 1106.3,990.0 700.3,990.0 700.3,1072.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-impl)"/>
+<polyline points="732.0,938.0 732.0,1003.0 948.0,1003.0 948.0,1072.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-impl)"/>
+<polyline points="1043.0,1184.0 1043.0,1227.3 637.0,1227.3 637.0,1318.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-impl)"/>
+<polyline points="1138.0,1184.0 1138.0,1244.7 1043.0,1244.7 1043.0,1318.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f1-ar-impl)"/>
+<rect x="244.0" y="44.0" width="380.0" height="114.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="259.0" y="71.0" class="bt">CLI 命令路由</text>
+<text x="259.0" y="93.0" class="bp" xml:space="preserve">packages/cli/src/index.ts</text>
+<text x="259.0" y="115.0" class="bn" style="font-size:14.0px">解析出的命令一律走 daemon 客户端</text>
+<text x="259.0" y="135.0" class="bn" style="font-size:14.0px">源码里没有对 kernel/application 的 import</text>
+<rect x="650.0" y="44.0" width="380.0" height="114.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="665.0" y="71.0" class="bt">GUI 渲染进程客户端</text>
+<text x="665.0" y="93.0" class="bp" xml:space="preserve">packages/gui/src/renderer/api-client.ts</text>
+<text x="665.0" y="115.0" class="bn" style="font-size:14.0px">类型化 invoke 与订阅流</text>
+<text x="665.0" y="135.0" class="bn" style="font-size:14.0px">自身经 Electron 组合根出去</text>
+<rect x="1056.0" y="44.0" width="380.0" height="114.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="1071.0" y="71.0" class="bt">Electron 组合根</text>
+<text x="1071.0" y="93.0" class="bp" xml:space="preserve">packages/gui/src/main/</text>
+<text x="1071.0" y="113.0" class="bp" xml:space="preserve">  local-composition-root.ts</text>
+<text x="1071.0" y="135.0" class="bn" style="font-size:14.0px">IPC 桥 → 本地 daemon 传输</text>
+<rect x="447.0" y="292.0" width="380.0" height="134.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="462.0" y="319.0" class="bt">daemon JSON-RPC 服务端</text>
+<text x="462.0" y="341.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="462.0" y="361.0" class="bp" xml:space="preserve">  protocol/json-rpc-server.ts</text>
+<text x="462.0" y="383.0" class="bn" style="font-size:14.0px">校验协议、分派读 / 写 / 控制</text>
+<rect x="853.0" y="292.0" width="380.0" height="134.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="868.0" y="319.0" class="bt">daemon 协议契约</text>
+<text x="868.0" y="341.0" class="bp" xml:space="preserve">packages/daemon/src/protocol/</text>
+<text x="868.0" y="361.0" class="bp" xml:space="preserve">  daemon-protocol.contract.ts</text>
+<text x="868.0" y="383.0" class="bn" style="font-size:14.0px">方法族、DTO、校验器、协议版本</text>
+<text x="868.0" y="403.0" class="bn" style="font-size:14.0px">GUI 直接 import 它——方向是单向的</text>
+<rect x="447.0" y="560.0" width="380.0" height="132.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="462.0" y="587.0" class="bt">DaemonHost</text>
+<text x="462.0" y="609.0" class="bp" xml:space="preserve">packages/daemon/src/daemon-host.ts</text>
+<text x="462.0" y="631.0" class="bn" style="font-size:14.0px">工作区注册表与 RPC 宿主</text>
+<rect x="853.0" y="560.0" width="380.0" height="132.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="587.0" class="bt">RepoCell</text>
+<text x="868.0" y="609.0" class="bp" xml:space="preserve">packages/daemon/src/repo-cell.ts</text>
+<text x="868.0" y="631.0" class="bn" style="font-size:14.0px">每仓库串行化写者：锁 + 队列 + 写者代际</text>
+<text x="868.0" y="651.0" class="bn" style="font-size:14.0px">由同层的 DaemonHost 按仓库打开</text>
+<text x="1218.0" y="679.0" class="bx" text-anchor="end" fill="#4a7c59">→ 见 §2</text>
+<rect x="447.0" y="826.0" width="380.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="462.0" y="853.0" class="bt">应用服务</text>
+<text x="462.0" y="875.0" class="bp" xml:space="preserve">packages/application/src/index.ts</text>
+<text x="462.0" y="897.0" class="bn" style="font-size:14.0px">task / decision / fact 编排</text>
+<rect x="853.0" y="826.0" width="380.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="853.0" class="bt">preset 编译器</text>
+<text x="868.0" y="875.0" class="bp" xml:space="preserve">packages/preset/src/index.ts</text>
+<text x="868.0" y="897.0" class="bn" style="font-size:14.0px">任务包 / 脚手架编译计划</text>
+<text x="1218.0" y="925.0" class="bx" text-anchor="end" fill="#4a7c59">→ 见 §6</text>
+<rect x="447.0" y="1072.0" width="380.0" height="112.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="462.0" y="1099.0" class="bt">kernel 公开面</text>
+<text x="462.0" y="1121.0" class="bp" xml:space="preserve">packages/kernel/src/index.ts</text>
+<text x="462.0" y="1143.0" class="bn" style="font-size:14.0px">领域模型、事件族、存储、投影</text>
+<rect x="853.0" y="1072.0" width="380.0" height="112.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="868.0" y="1099.0" class="bt">收窄的端口集</text>
+<text x="868.0" y="1121.0" class="bp" xml:space="preserve">packages/kernel/src/ports/index.ts</text>
+<text x="868.0" y="1143.0" class="bn" style="font-size:14.0px">授权、artifact 读、模板、VCS</text>
+<text x="868.0" y="1163.0" class="bn" style="font-size:14.0px">刻意不导出 artifact 写入口</text>
+<rect x="447.0" y="1318.0" width="380.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="462.0" y="1345.0" class="bt">local 适配器</text>
+<text x="462.0" y="1367.0" class="bp" xml:space="preserve">packages/adapters/local/src/index.ts</text>
+<text x="462.0" y="1389.0" class="bn" style="font-size:14.0px">本地运行时绑定</text>
+<rect x="853.0" y="1318.0" width="380.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="1345.0" class="bt">multica 适配器</text>
+<text x="868.0" y="1367.0" class="bp" xml:space="preserve">packages/adapters/multica/src/index.ts</text>
+<text x="868.0" y="1389.0" class="bn" style="font-size:14.0px">GitHub Issues / Linear 适配器并不存在</text>
+<text x="1218.0" y="1417.0" class="bx" text-anchor="end" fill="#4a7c59">→ 见 §10</text>
+</svg><figcaption>图 1 · 六层包依赖图。每条边只跨越相邻两层；跨层引用在方框内以「→ 见 §N」标注。</figcaption></figure>
+<div class="prose">
+
+<h3>这张图在讲什么</h3>
+<p>它回答一个很具体的问题：<strong>谁允许 import 谁。</strong>整个仓库是一个 npm workspaces monorepo，
+八个真实存在的工作区包排成六层。方向永远是自上而下：交付面（CLI 与 GUI）依赖协议契约，协议契约之下是
+宿主与串行写者，再之下是领域服务与编译器，最底下是 kernel 与适配器。没有任何一条边往回指。</p>
+
+<h3>为什么这样设计</h3>
+<p>因为这个系统的核心主张是「每一次承重写入都必须经过同一条路」。要让这个主张成立，交付面就不能持有写能力，
+只能持有<strong>提出请求的能力</strong>。所以 CLI 不是一个「会写 Markdown 的程序」，而是一个把命令翻译成协议调用的
+客户端；GUI 也一样。真正决定写什么、以什么顺序写、能不能写的判断，全部下沉到 daemon 进程里的
+RepoCell 与 kernel。这条约束在代码里是可验证的：<code>packages/cli/src</code> 下没有任何对
+<code>packages/application</code> 或 <code>packages/kernel</code> 的 import。</p>
+
+<h3>读者最常误解的点</h3>
+<p>第一个误解是「GUI 和 daemon 互相依赖」。实际上依赖是单向的：GUI 的文件 import 了 daemon 的协议契约类型，
+daemon 侧则没有任何对 GUI 注册表的 import。图上那条蓝色的「类型依赖」边只往一个方向走。</p>
+<p>第二个误解是把架构模型里画出来的包当成真实存在的包。当前工作区里只有 <code>local</code> 与
+<code>multica</code> 两个适配器；GitHub Issues 与 Linear 适配器、独立的 daemon 客户端包、独立的契约包、
+VS Code 扩展——都不存在。它们是撰写出来的意图，不是实现。第 10 章会把这几条差异逐条列出来。</p>
+<p>第三个误解是「端口层什么都能干」。端口是被<strong>刻意收窄</strong>的：授权、artifact 读取、模板与 VCS 被导出，
+而 artifact 的<strong>写</strong>入口被明确不导出——因为写只能走单写路。</p>
+
+<h3>和后面怎么衔接</h3>
+<p>这一章只说清了静态的依赖方向。下一章把同一批方框换成动态视角：一次写入沿着这些边具体发生了什么，
+以及为什么读路可以整个删掉重建。</p>
+
+<div class="src">对应源码：<b>packages/cli/src/index.ts</b>、<b>packages/gui/src/renderer/api-client.ts</b>、<b>packages/gui/src/main/local-composition-root.ts</b>、<b>packages/daemon/src/protocol/json-rpc-server.ts</b>、<b>packages/daemon/src/protocol/daemon-protocol.contract.ts</b>、<b>packages/daemon/src/daemon-host.ts</b>、<b>packages/daemon/src/repo-cell.ts</b>、<b>packages/application/src/index.ts</b>、<b>packages/kernel/src/index.ts</b>、<b>packages/kernel/src/ports/index.ts</b>、<b>packages/preset/src/index.ts</b>，以及两个适配器包各自的 <b>src/index.ts</b>。</div>
+</div>
+</section>
+<section class="ch" id="c02">
+<div class="chhead"><span class="num">02</span><h2>单写路与可重建读路</h2></div>
+<p class="sub">所谓 WriteCoordinator 不是一个类名，而是 RepoCell 的锁与串行队列，加上 CanonicalEventStore 的发布流水线。</p>
+<figure><svg class="fig" viewBox="0 0 1680 1634" role="img" aria-label="单写路：请求入口、串行化、持久追加与 canonical 落盘" xmlns="http://www.w3.org/2000/svg">
+<title>单写路：请求入口、串行化、持久追加与 canonical 落盘</title>
+<defs>
+<marker id="f2a-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f2a-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f2a-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f2a-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="1634" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="108" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">① 请求入口</text>
+<text x="1646" y="32" class="lyrn" text-anchor="end">两个客户端，一条路</text>
+<rect x="26" y="262" width="1628" height="130" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="258" class="lyr">② 协议校验</text>
+<rect x="26" y="510" width="1628" height="108" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="506" class="lyr">③ 仓库定位与取锁</text>
+<rect x="26" y="736" width="1628" height="108" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="732" class="lyr">④ 串行化：所谓 WriteCoordinator 就发生在这里</text>
+<rect x="26" y="962" width="1628" height="130" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="958" class="lyr">⑤ 命令判定与写计划冻结</text>
+<text x="1646" y="958" class="lyrn" text-anchor="end">先声明再写，不允许边写边定</text>
+<rect x="26" y="1210" width="1628" height="130" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="1206" class="lyr">⑥ 持久追加</text>
+<rect x="26" y="1458" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="1454" class="lyr">⑦ canonical 落盘</text>
+<text x="1646" y="1454" class="lyrn" text-anchor="end">事件与文件一起推进</text>
+<polyline points="627.0,136.0 627.0,179.3 720.0,179.3 720.0,270.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<polyline points="1053.0,136.0 1053.0,196.7 800.0,196.7 800.0,270.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<polyline points="880.0,384.0 880.0,427.3 560.3,427.3 560.3,518.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<polyline points="960.0,384.0 960.0,444.7 986.3,444.7 986.3,518.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<polyline points="693.7,610.0 693.7,653.3 720.0,653.3 720.0,744.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<polyline points="1119.7,610.0 1119.7,670.7 800.0,670.7 800.0,744.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<rect x="929.3" y="655.7" width="61" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="959.8" y="672.7" class="elbl" text-anchor="middle" fill="#4a7c59">取代际</text>
+<polyline points="880.0,836.0 880.0,879.3 560.3,879.3 560.3,970.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<polyline points="960.0,836.0 960.0,896.7 986.3,896.7 986.3,970.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<polyline points="693.7,1084.0 693.7,1127.3 720.0,1127.3 720.0,1218.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<polyline points="1119.7,1084.0 1119.7,1144.7 800.0,1144.7 800.0,1218.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<rect x="929.3" y="1129.7" width="61" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="959.8" y="1146.7" class="elbl" text-anchor="middle" fill="#4a7c59">先追加</text>
+<polyline points="880.0,1332.0 880.0,1375.3 627.0,1375.3 627.0,1466.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<polyline points="960.0,1332.0 960.0,1392.7 1053.0,1392.7 1053.0,1466.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2a-ar-impl)"/>
+<rect x="427.0" y="44.0" width="400.0" height="92.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="442.0" y="71.0" class="bt">CLI daemon 客户端</text>
+<text x="442.0" y="93.0" class="bp" xml:space="preserve">packages/cli/src/daemon/client.ts</text>
+<text x="442.0" y="115.0" class="bn" style="font-size:14.0px">Unix socket；必要时自动拉起 daemon</text>
+<rect x="853.0" y="44.0" width="400.0" height="92.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="71.0" class="bt">GUI 服务桥</text>
+<text x="868.0" y="93.0" class="bp" xml:space="preserve">packages/gui/src/api/service-bridge.ts</text>
+<text x="868.0" y="115.0" class="bn" style="font-size:14.0px">渲染进程 → preload → IPC → 传输</text>
+<rect x="640.0" y="270.0" width="400.0" height="114.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="655.0" y="297.0" class="bt">JSON-RPC 边界</text>
+<text x="655.0" y="319.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="655.0" y="339.0" class="bp" xml:space="preserve">  protocol/json-rpc-server.ts</text>
+<text x="655.0" y="361.0" class="bn" style="font-size:14.0px">协议校验 + 方法路由</text>
+<rect x="427.0" y="518.0" width="400.0" height="92.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="442.0" y="545.0" class="bt">工作区查找</text>
+<text x="442.0" y="567.0" class="bp" xml:space="preserve">packages/daemon/src/daemon-host-open.ts</text>
+<text x="442.0" y="589.0" class="bn" style="font-size:14.0px">canonical 根 → 活跃 RepoCell</text>
+<rect x="853.0" y="518.0" width="400.0" height="92.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="545.0" class="bt">仓库锁</text>
+<text x="868.0" y="567.0" class="bp" xml:space="preserve">packages/daemon/src/repo-cell-lock.ts</text>
+<text x="868.0" y="589.0" class="bn" style="font-size:14.0px">同一时刻只有一个写者代际</text>
+<rect x="640.0" y="744.0" width="400.0" height="92.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="655.0" y="771.0" class="bt">RepoCell 串行尾</text>
+<text x="655.0" y="793.0" class="bp" xml:space="preserve">packages/daemon/src/repo-cell.ts</text>
+<text x="655.0" y="815.0" class="bn" style="font-size:14.0px">每仓库一条 promise 队列 + 写者围栏（writer fence）</text>
+<rect x="427.0" y="970.0" width="400.0" height="114.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="442.0" y="997.0" class="bt">命令分派</text>
+<text x="442.0" y="1019.0" class="bp" xml:space="preserve">packages/daemon/src/repo-cell-command.ts</text>
+<text x="442.0" y="1041.0" class="bn" style="font-size:14.0px">叶子动作 → 服务 / 编译器 / 处理器</text>
+<text x="812.0" y="1071.0" class="bx" text-anchor="end" fill="#4a7c59">→ 见 §4</text>
+<rect x="853.0" y="970.0" width="400.0" height="114.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="868.0" y="997.0" class="bt">冻结写计划 + 事件信封</text>
+<text x="868.0" y="1019.0" class="bp" xml:space="preserve">packages/kernel/src/domain/</text>
+<text x="868.0" y="1039.0" class="bp" xml:space="preserve">  write-chain.contract.ts</text>
+<text x="868.0" y="1061.0" class="bn" style="font-size:14.0px">声明目标、身份、修订号、操作 id</text>
+<rect x="640.0" y="1218.0" width="400.0" height="114.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="655.0" y="1245.0" class="bt">CanonicalEventStore</text>
+<text x="655.0" y="1267.0" class="bp" xml:space="preserve">packages/kernel/src/store/</text>
+<text x="655.0" y="1287.0" class="bp" xml:space="preserve">  wal-shadow-event-store.ts</text>
+<text x="655.0" y="1309.0" class="bn" style="font-size:14.0px">合并可见的 WAL + Git；追加 / 恢复 / 刷写</text>
+<rect x="427.0" y="1466.0" width="400.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="442.0" y="1493.0" class="bt">Git 对象发布与 CAS</text>
+<text x="442.0" y="1515.0" class="bp" xml:space="preserve">packages/kernel/src/store/</text>
+<text x="442.0" y="1535.0" class="bp" xml:space="preserve">  task-event-store-publication.ts</text>
+<text x="442.0" y="1557.0" class="bn" style="font-size:14.0px">canonical ref 与 authored 分支同步推进</text>
+<rect x="853.0" y="1466.0" width="400.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="1493.0" class="bt">工作区文件落盘</text>
+<text x="868.0" y="1515.0" class="bp" xml:space="preserve">packages/kernel/src/store/</text>
+<text x="868.0" y="1535.0" class="bp" xml:space="preserve">  task-event-store-materialization.ts</text>
+<text x="868.0" y="1557.0" class="bn" style="font-size:14.0px">写计划声明的文档变得可见</text>
+<text x="868.0" y="1577.0" class="bn" style="font-size:14.0px">中断的落盘由恢复流程对账</text>
+</svg><figcaption>图 2A · 写路：从请求入口到 canonical 落盘，七层，边只跨相邻层。</figcaption></figure>
+<figure><svg class="fig" viewBox="0 0 1680 954" role="img" aria-label="可重建读路：投影从 canonical 事件重建，读取合并 WAL 与 Git" xmlns="http://www.w3.org/2000/svg">
+<title>可重建读路：投影从 canonical 事件重建，读取合并 WAL 与 Git</title>
+<defs>
+<marker id="f2b-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f2b-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f2b-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f2b-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="954" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">读路的输入：canonical 事件</text>
+<rect x="26" y="304" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="300" class="lyr">派生读模型（projection）</text>
+<text x="1646" y="300" class="lyrn" text-anchor="end">可以整个删掉再重建</text>
+<rect x="26" y="572" width="1628" height="108" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="568" class="lyr">读取</text>
+<rect x="26" y="798" width="1628" height="130" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="794" class="lyr">返回交付面</text>
+<polyline points="740.0,178.0 740.0,217.0 347.3,217.0 347.3,312.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2b-ar-impl)"/>
+<rect x="520.7" y="202.0" width="46" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="543.7" y="219.0" class="elbl" text-anchor="middle" fill="#4a7c59">重放</text>
+<polyline points="840.0,178.0 840.0,230.0 773.3,230.0 773.3,312.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2b-ar-impl)"/>
+<polyline points="940.0,178.0 940.0,243.0 1199.3,243.0 1199.3,312.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2b-ar-impl)"/>
+<polyline points="480.7,446.0 480.7,485.0 720.0,485.0 720.0,580.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2b-ar-impl)"/>
+<polyline points="906.7,446.0 906.7,498.0 800.0,498.0 800.0,580.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2b-ar-impl)"/>
+<polyline points="1332.7,446.0 1332.7,511.0 880.0,511.0 880.0,580.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2b-ar-impl)"/>
+<polyline points="960.0,672.0 960.0,724.0 840.0,724.0 840.0,806.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f2b-ar-impl)"/>
+<rect x="640.0" y="44.0" width="400.0" height="134.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="655.0" y="71.0" class="bt">canonical 事件流</text>
+<text x="655.0" y="93.0" class="bp" xml:space="preserve">packages/kernel/src/store/</text>
+<text x="655.0" y="113.0" class="bp" xml:space="preserve">  wal-shadow-event-store.ts</text>
+<text x="655.0" y="135.0" class="bn" style="font-size:14.0px">WAL 先持久，Git 是已落定的发布</text>
+<text x="655.0" y="155.0" class="bn" style="font-size:14.0px">两者之间的窗口期由读取时合并</text>
+<rect x="214.0" y="312.0" width="400.0" height="134.0" rx="11" fill="#f5f2ea" stroke="#a2957f" stroke-width="1.8"/>
+<text x="229.0" y="339.0" class="bt">SQLite 任务投影</text>
+<text x="229.0" y="361.0" class="bp" xml:space="preserve">packages/kernel/src/projection/</text>
+<text x="229.0" y="381.0" class="bp" xml:space="preserve">  rebuildable-task-projection-factory.ts</text>
+<text x="229.0" y="403.0" class="bn" style="font-size:14.0px">缓存目录下的 task.sqlite</text>
+<text x="229.0" y="423.0" class="bn" style="font-size:14.0px">追平（catch-up）或整表重建</text>
+<rect x="640.0" y="312.0" width="400.0" height="134.0" rx="11" fill="#f5f2ea" stroke="#a2957f" stroke-width="1.8"/>
+<text x="655.0" y="339.0" class="bt">关系图投影</text>
+<text x="655.0" y="361.0" class="bp" xml:space="preserve">packages/kernel/src/projection/</text>
+<text x="655.0" y="381.0" class="bp" xml:space="preserve">  relation-graph-projection.ts</text>
+<text x="655.0" y="403.0" class="bn" style="font-size:14.0px">规范方向 + 确定性关系 id</text>
+<text x="1025.0" y="433.0" class="bx" text-anchor="end" fill="#a2957f">→ 见 §3</text>
+<rect x="1066.0" y="312.0" width="400.0" height="134.0" rx="11" fill="#f5f2ea" stroke="#a2957f" stroke-width="1.8"/>
+<text x="1081.0" y="339.0" class="bt">冷重建来源</text>
+<text x="1081.0" y="361.0" class="bp" xml:space="preserve">packages/kernel/src/projection/</text>
+<text x="1081.0" y="381.0" class="bp" xml:space="preserve">  cold-rebuild-source.ts</text>
+<text x="1081.0" y="403.0" class="bn" style="font-size:14.0px">从零遍历 canonical 事件</text>
+<text x="1451.0" y="433.0" class="bx" text-anchor="end" fill="#a2957f">→ 见 §7</text>
+<rect x="640.0" y="580.0" width="400.0" height="92.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="655.0" y="607.0" class="bt">daemon 读查询</text>
+<text x="655.0" y="629.0" class="bp" xml:space="preserve">packages/daemon/src/task-query-read.ts</text>
+<text x="655.0" y="651.0" class="bn" style="font-size:14.0px">投影快照 + 水位线 / cut</text>
+<rect x="640.0" y="806.0" width="400.0" height="114.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="655.0" y="833.0" class="bt">交付面上的读结果</text>
+<text x="655.0" y="855.0" class="bp" xml:space="preserve">packages/daemon/src/protocol/</text>
+<text x="655.0" y="875.0" class="bp" xml:space="preserve">  daemon-protocol.contract.ts</text>
+<text x="655.0" y="897.0" class="bn" style="font-size:14.0px">类型化 DTO，或一张写回执</text>
+</svg><figcaption>图 2B · 读路：投影是派生物，可以整个删掉再从 canonical 事件重建。</figcaption></figure>
+<div class="prose">
+
+<h3>这两张图在讲什么</h3>
+<p>图 2A 是一次写入的完整旅程：客户端发请求 → 协议校验 → 找到是哪个仓库并取锁 → 进入该仓库唯一的串行队列 →
+判定这是什么命令并<strong>冻结</strong>一份写计划 → 追加进事件存储 → 落成 Git 对象与工作区文件。
+图 2B 是读取：投影（projection，从事件账本派生出来的 SQLite 读模型）由 canonical 事件重放而成，
+读查询只从投影取数，再以类型化 DTO 返回交付面。</p>
+
+<h3>为什么这样设计</h3>
+<p>关键是<strong>写计划先于写入被冻结</strong>。<code>write-chain.contract.ts</code> 要求在追加之前就声明清楚：
+要写哪些目标路径、实体身份是什么、基于哪个修订号、这次操作的 id 是什么。这不是形式主义——它让「这次写入
+到底改了什么」在事件被追加之前就是已知的，于是回执、幂等、恢复对账三件事都有了依据。
+而 RepoCell 的串行尾保证了同一仓库同一时刻只有一个写者在推进，写者代际（writer generation）保证陈旧的写者
+不会在被换掉之后还偷偷追加。</p>
+
+<h3>读者最常误解的点</h3>
+<p><strong>「canonical」不等于「立刻落到 Git」。</strong>本地 WAL（write-ahead log，预写日志）是先持久的那一层；
+Git ref 与撰写好的文件是<em>已落定</em>的发布。两者之间存在一个窗口期，读取时会把 WAL 与 Git 合并起来看，
+所以你不会读到「刚写完却查不到」的中间态。</p>
+<p><strong>SQLite 是可丢弃的。</strong>它不是第二个真相来源。删掉缓存目录下的 <code>task.sqlite</code>，
+系统会追平（catch-up）或整表重建；正确性不依赖这个文件存活。</p>
+<p><strong>「一条路」不等于「一个处理器」。</strong>task、decision、fact、通用实体、runtime、文档、schedule
+在追加之前各有各的处理器，它们只是在 RepoCell 与事件存储处汇合。这个分叉正是第 4 章要展开的东西。</p>
+
+<h3>和上一章怎么衔接</h3>
+<p>第 1 章的静态依赖边，在这里变成了一条有顺序的流水线：交付面 → 协议 → 宿主 → 服务 → kernel 存储。
+接下来第 3 章把注意力从「写入怎么走」转到「被写的东西是什么」。</p>
+
+<div class="src">对应源码：<b>packages/cli/src/daemon/client.ts</b>、<b>packages/gui/src/api/service-bridge.ts</b>、<b>packages/daemon/src/daemon-host-open.ts</b>、<b>packages/daemon/src/repo-cell-lock.ts</b>、<b>packages/daemon/src/repo-cell.ts</b>、<b>packages/daemon/src/repo-cell-command.ts</b>、<b>packages/kernel/src/domain/write-chain.contract.ts</b>、<b>packages/kernel/src/store/wal-shadow-event-store.ts</b>、<b>packages/kernel/src/store/task-event-store-publication.ts</b>、<b>packages/kernel/src/store/task-event-store-materialization.ts</b>、<b>packages/kernel/src/projection/rebuildable-task-projection-factory.ts</b>、<b>packages/daemon/src/task-query-read.ts</b>。</div>
+</div>
+</section>
+<section class="ch" id="c03">
+<div class="chhead"><span class="num">03</span><h2>实体身份、事件模式与落地形态</h2></div>
+<p class="sub">注册表里有 12 种实体类型。按编排方式它们分成三类：有专用事件族的、走通用实体存储的、以及台账定义加运行期落地的。</p>
+<figure><svg class="fig" viewBox="0 0 1680 996" role="img" aria-label="实体身份、事件模式与落地形态：12 种注册实体分为三类编排方式" xmlns="http://www.w3.org/2000/svg">
+<title>实体身份、事件模式与落地形态：12 种注册实体分为三类编排方式</title>
+<defs>
+<marker id="f3-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f3-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f3-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f3-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="996" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="130" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">注册表：12 种实体类型</text>
+<text x="1646" y="32" class="lyrn" text-anchor="end">task · fact · decision · agent · squad · policy · execution · review · runtime-session · schedule · settings · person</text>
+<rect x="26" y="284" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="280" class="lyr">A 类：专用生命周期与撰写文档</text>
+<text x="1646" y="280" class="lyrn" text-anchor="end">有自己的事件族</text>
+<rect x="26" y="552" width="1628" height="130" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="548" class="lyr">B 类：通用 entity-event 存储</text>
+<text x="1646" y="548" class="lyrn" text-anchor="end">没有专用事件族，走同一个 store</text>
+<rect x="26" y="800" width="1628" height="170" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="796" class="lyr">C 类：台账定义 + 运行期或派生落地</text>
+<text x="1646" y="796" class="lyrn" text-anchor="end">身份在台账，状态一部分在本地</text>
+<polyline points="529.4,158.0 529.4,192.7 181.0,192.7 181.0,292.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f3-ar-impl)"/>
+<polyline points="603.8,158.0 603.8,201.3 641.0,201.3 641.0,292.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f3-ar-impl)"/>
+<polyline points="678.2,158.0 678.2,210.0 977.0,210.0 977.0,292.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f3-ar-impl)"/>
+<polyline points="1039.0,158.0 1039.0,218.7 1375.0,218.7 1375.0,292.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f3-ar-impl)"/>
+<polyline points="752.6,158.0 752.6,227.3 1499.0,227.3 1499.0,292.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f3-ar-impl)"/>
+<polyline points="305.0,426.0 305.0,469.3 548.0,469.3 548.0,560.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f3-ar-impl)"/>
+<polyline points="1101.0,426.0 1101.0,486.7 977.0,486.7 977.0,560.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f3-ar-impl)"/>
+<polyline points="641.0,674.0 641.0,713.0 442.0,713.0 442.0,808.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f3-ar-impl)"/>
+<polyline points="734.0,674.0 734.0,726.0 840.0,726.0 840.0,808.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f3-ar-impl)"/>
+<polyline points="1101.0,674.0 1101.0,739.0 1238.0,739.0 1238.0,808.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f3-ar-impl)"/>
+<rect x="455.0" y="44.0" width="372.0" height="114.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="470.0" y="71.0" class="bt">实体类型注册表</text>
+<text x="470.0" y="93.0" class="bp" xml:space="preserve">packages/kernel/src/domain/</text>
+<text x="470.0" y="113.0" class="bp" xml:space="preserve">  entity-kind-registry.ts</text>
+<text x="470.0" y="135.0" class="bn" style="font-size:14.0px">每种类型声明事件族、落地位置、撰写方式</text>
+<rect x="853.0" y="44.0" width="372.0" height="114.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="868.0" y="71.0" class="bt">跨类型 EntityRef 语法</text>
+<text x="868.0" y="93.0" class="bp" xml:space="preserve">packages/kernel/src/domain/entity-ref.ts</text>
+<text x="868.0" y="115.0" class="bn" style="font-size:14.0px">kind/key 形式的身份；关系本身也可寻址</text>
+<rect x="57.0" y="292.0" width="372.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="72.0" y="319.0" class="bt">Task · 专用生命周期</text>
+<text x="72.0" y="341.0" class="bp" xml:space="preserve">packages/kernel/src/domain/</text>
+<text x="72.0" y="361.0" class="bp" xml:space="preserve">  task-lifecycle-event.ts</text>
+<text x="72.0" y="383.0" class="bn" style="font-size:14.0px">模式 task-event/v1</text>
+<text x="72.0" y="403.0" class="bn" style="font-size:14.0px">任务包 + 生命周期投影</text>
+<rect x="455.0" y="292.0" width="372.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="470.0" y="319.0" class="bt">Fact · 一等身份</text>
+<text x="470.0" y="341.0" class="bp" xml:space="preserve">packages/kernel/src/domain/fact-event.ts</text>
+<text x="470.0" y="363.0" class="bn" style="font-size:14.0px">模式 fact-event/v1 · 身份 fact/{id}</text>
+<text x="470.0" y="383.0" class="bn" style="font-size:14.0px">落成 facts/{id}.md，taskId 只是来源</text>
+<text x="812.0" y="413.0" class="bx" text-anchor="end" fill="#4a7c59">→ 见 §10</text>
+<rect x="853.0" y="292.0" width="372.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="319.0" class="bt">Decision · 专用</text>
+<text x="868.0" y="341.0" class="bp" xml:space="preserve">packages/kernel/src/</text>
+<text x="868.0" y="361.0" class="bp" xml:space="preserve">  domain/decision-event.ts</text>
+<text x="868.0" y="383.0" class="bn" style="font-size:14.0px">模式 decision-event/v1</text>
+<text x="868.0" y="403.0" class="bn" style="font-size:14.0px">决策文档包 + 投影</text>
+<rect x="1251.0" y="292.0" width="372.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="1266.0" y="319.0" class="bt">Relation · 类型化记录</text>
+<text x="1266.0" y="341.0" class="bp" xml:space="preserve">packages/kernel/src/</text>
+<text x="1266.0" y="361.0" class="bp" xml:space="preserve">  domain/entity-relation.ts</text>
+<text x="1266.0" y="383.0" class="bn" style="font-size:14.0px">没有独立的关系事件族</text>
+<text x="1266.0" y="403.0" class="bn" style="font-size:14.0px">内嵌关系 → 图表行</text>
+<rect x="455.0" y="560.0" width="372.0" height="114.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="470.0" y="587.0" class="bt">Agent · 通用实体存储</text>
+<text x="470.0" y="609.0" class="bp" xml:space="preserve">packages/kernel/src/store/entity-store.ts</text>
+<text x="470.0" y="631.0" class="bn" style="font-size:14.0px">模式 entity-event/v1 · agents/{id}.json</text>
+<rect x="853.0" y="560.0" width="372.0" height="114.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="587.0" class="bt">Squad · 通用实体存储</text>
+<text x="868.0" y="609.0" class="bp" xml:space="preserve">packages/kernel/src/</text>
+<text x="868.0" y="629.0" class="bp" xml:space="preserve">  domain/entity-event.ts</text>
+<text x="868.0" y="651.0" class="bn" style="font-size:14.0px">模式 entity-event/v1 · squads/{id}.json</text>
+<rect x="256.0" y="808.0" width="372.0" height="154.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="271.0" y="835.0" class="bt">RuntimeSession</text>
+<text x="271.0" y="857.0" class="bp" xml:space="preserve">packages/kernel/src/</text>
+<text x="271.0" y="877.0" class="bp" xml:space="preserve">  domain/agent-runtime.ts</text>
+<text x="271.0" y="899.0" class="bn" style="font-size:14.0px">模式 agent-runtime-event/v1</text>
+<text x="271.0" y="919.0" class="bn" style="font-size:14.0px">台账会话事件 + daemon 本地进程与输出流</text>
+<text x="613.0" y="949.0" class="bx" text-anchor="end" fill="#4a7c59">→ 见 §5</text>
+<rect x="654.0" y="808.0" width="372.0" height="154.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="669.0" y="835.0" class="bt">Schedule</text>
+<text x="669.0" y="857.0" class="bp" xml:space="preserve">packages/kernel/src/domain/schedule.ts</text>
+<text x="669.0" y="879.0" class="bn" style="font-size:14.0px">模式 schedule-event/v1</text>
+<text x="669.0" y="899.0" class="bn" style="font-size:14.0px">定义在台账；派工前先抢 occurrence claim</text>
+<text x="1011.0" y="949.0" class="bx" text-anchor="end" fill="#4a7c59">→ 见 §7</text>
+<rect x="1052.0" y="808.0" width="372.0" height="154.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="1067.0" y="835.0" class="bt">Person / People 名册</text>
+<text x="1067.0" y="857.0" class="bp" xml:space="preserve">packages/kernel/src/</text>
+<text x="1067.0" y="877.0" class="bp" xml:space="preserve">  domain/people-event.ts</text>
+<text x="1067.0" y="899.0" class="bn" style="font-size:14.0px">模式 people-event/v1</text>
+<text x="1067.0" y="919.0" class="bn" style="font-size:14.0px">person 实体 + people.yaml 落盘</text>
+</svg><figcaption>图 3 · 实体类型注册表分流：A 类专用生命周期、B 类通用存储、C 类混合落地。</figcaption></figure>
+<div class="prose">
+
+<h3>这张图在讲什么</h3>
+<p>注册表 <code>entity-kind-registry.ts</code> 里登记了 12 种实体类型：task、fact、decision、agent、squad、
+policy、execution、review、runtime-session、schedule、settings、person。每种类型在注册表里声明三件事：
+它的<strong>事件族</strong>（schema，事件的模式名与版本）、它的<strong>落地位置</strong>（residency，状态存在台账里还是本地）、
+以及它的<strong>撰写方式</strong>（authoring）。图上按这三个声明把它们分成了三组。</p>
+
+<h3>为什么这样设计</h3>
+<p>不是所有实体都值得有自己的事件族。task、fact、decision 是产品的三个知识原语，它们有各自的生命周期、
+各自的文档形态、各自的审阅路径，所以每种都配了专用事件模式（<code>task-event/v1</code>、
+<code>fact-event/v1</code>、<code>decision-event/v1</code>）。agent 与 squad 只是被存起来的配置对象，
+用一套通用的 <code>entity-event/v1</code> 加 JSON 文档就够了，没必要复制三份基础设施。
+runtime-session 与 schedule 则天生是混合的：<strong>身份与生命周期属于台账，进程与输出属于本地。</strong></p>
+
+<h3>读者最常误解的点</h3>
+<p>最大的一个误解是「fact 属于 task」。当前代码里 fact 是<strong>一等实体</strong>：身份是 <code>fact/{id}</code>，
+落成独立的 <code>facts/{id}.md</code>，<code>taskId</code> 只是一个<em>可选的来源字段</em>，不是身份的一部分。
+早期的架构文本仍写着「fact 由 task 拥有、没有独立文件」，那是已经过时的表述，第 10 章按漂移登记。</p>
+<p>第二个误解是「关系（relation）也是一种事件」。没有独立的关系事件族。关系是内嵌在来源实体事件里的
+类型化记录，由关系图投影按<strong>规范方向</strong>与<strong>确定性 id</strong>算成图表行。所以关系不能凭空创建，
+只能随一次实体写入产生——这正是「回环」纪律能被机械保证的原因。</p>
+
+<h3>和上一章怎么衔接</h3>
+<p>第 2 章说所有写入汇入同一个存储；这一章说明汇入的东西被分成了几种模式。第 4 章接着问一个更尖锐的问题：
+既然模式已经统一声明了，为什么执行路径还没有完全统一？</p>
+
+<div class="src">对应源码：<b>packages/kernel/src/domain/entity-kind-registry.ts</b>、<b>entity-ref.ts</b>、<b>entity-event.ts</b>、<b>entity-relation.ts</b>、<b>task-lifecycle-event.ts</b>、<b>fact-event.ts</b>、<b>decision-event.ts</b>、<b>agent-runtime.ts</b>、<b>schedule.ts</b>、<b>schedule-event.ts</b>、<b>people-event.ts</b>、<b>packages/kernel/src/store/entity-store.ts</b>、<b>packages/kernel/src/projection/relation-graph-projection.ts</b>。</div>
+</div>
+
+<div class="tw"><table>
+<caption style="text-align:left;font-size:14px;color:#7a7266;padding:6px 0">
+表 1 · 九个产品实体的身份、事件模式、落地形态与当前编排方式（依据当前代码）</caption>
+<tr><th>实体</th><th>身份 / canonical 事件模式</th><th>撰写形态或本地形态</th><th>当前编排</th></tr>
+<tr><td>Task</td><td class="mono">task/{id} · task-event/v1</td><td>任务包</td><td><span class="tag g">专用生命周期</span></td></tr>
+<tr><td>Fact</td><td class="mono">fact/{id} · fact-event/v1</td><td class="mono">facts/{id}.md（taskId 仅为来源）</td><td><span class="tag o">专用动作包装 · 待收敛</span></td></tr>
+<tr><td>Decision</td><td class="mono">decision/{id} · decision-event/v1</td><td>决策文档包</td><td><span class="tag o">专用动作包装 · 待收敛</span></td></tr>
+<tr><td>Relation</td><td>类型化确定性记录，无独立事件族</td><td>内嵌在来源实体事件中</td><td><span class="tag b">通用投影</span></td></tr>
+<tr><td>Agent</td><td class="mono">entity-event/v1</td><td class="mono">agents/{id}.json</td><td><span class="tag b">通用实体存储</span></td></tr>
+<tr><td>Squad</td><td class="mono">entity-event/v1</td><td class="mono">squads/{id}.json</td><td><span class="tag b">通用实体存储</span></td></tr>
+<tr><td>RuntimeSession</td><td class="mono">agent-runtime-event/v1</td><td>台账事件 + 本地派工流</td><td><span class="tag o">混合</span></td></tr>
+<tr><td>Schedule</td><td class="mono">schedule-event/v1</td><td>台账定义 + 投影出的运行视图</td><td><span class="tag o">混合</span></td></tr>
+<tr><td>Person</td><td class="mono">people-event/v1</td><td class="mono">person 实体 + people.yaml</td><td><span class="tag o">混合</span></td></tr>
+</table></div>
+
+</section>
+<section class="ch" id="c04">
+<div class="chhead"><span class="num">04</span><h2>通用 action 契约：已声明，执行只统一了一半</h2></div>
+<p class="sub">ActionEnvelope 与动作目录声明了一个共同的控制面。当前分派证明 task 生命周期与通用实体存储确实走了它，而 Decision 与 Fact 仍然分叉到专用文件。</p>
+<figure><svg class="fig" viewBox="0 0 1680 996" role="img" aria-label="通用 action 契约已声明，但 Decision 与 Fact 的执行仍走专用分支" xmlns="http://www.w3.org/2000/svg">
+<title>通用 action 契约已声明，但 Decision 与 Fact 的执行仍走专用分支</title>
+<defs>
+<marker id="f4-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f4-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f4-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f4-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="996" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">已声明的控制面（declared control plane）</text>
+<text x="1646" y="32" class="lyrn" text-anchor="end">契约层面已经统一</text>
+<rect x="26" y="304" width="1628" height="130" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="300" class="lyr">实际的分派开关</text>
+<text x="1646" y="300" class="lyrn" text-anchor="end">决定走哪条执行路径的那一行</text>
+<rect x="26" y="552" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="548" class="lyr">当前的四条执行路径</text>
+<text x="1646" y="548" class="lyrn" text-anchor="end">两条已通用，两条仍专用（进行中）</text>
+<rect x="26" y="820" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="816" class="lyr">共同的追加汇合点</text>
+<polyline points="462.0,178.0 462.0,217.0 708.0,217.0 708.0,312.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f4-ar-impl)"/>
+<polyline points="840.0,178.0 840.0,230.0 752.0,230.0 752.0,312.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f4-ar-impl)"/>
+<polyline points="1218.0,178.0 1218.0,243.0 796.0,243.0 796.0,312.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f4-ar-impl)"/>
+<polyline points="840.0,426.0 840.0,462.4 214.3,462.4 214.3,560.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f4-ar-impl)"/>
+<polyline points="884.0,426.0 884.0,472.8 592.3,472.8 592.3,560.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f4-ar-impl)"/>
+<polyline points="928.0,426.0 928.0,483.2 970.3,483.2 970.3,560.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f4-ar-inflight)"/>
+<rect x="911.2" y="468.2" width="76" height="24" rx="7" fill="#fdfbf6" stroke="#b0713c" stroke-width="1"/>
+<text x="949.2" y="485.2" class="elbl" text-anchor="middle" fill="#b0713c">绕开信封</text>
+<polyline points="972.0,426.0 972.0,493.6 1348.3,493.6 1348.3,560.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f4-ar-inflight)"/>
+<rect x="1122.2" y="478.6" width="76" height="24" rx="7" fill="#fdfbf6" stroke="#b0713c" stroke-width="1"/>
+<text x="1160.2" y="495.6" class="elbl" text-anchor="middle" fill="#b0713c">绕开信封</text>
+<polyline points="331.7,694.0 331.7,730.4 734.4,730.4 734.4,828.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f4-ar-impl)"/>
+<polyline points="709.7,694.0 709.7,740.8 804.8,740.8 804.8,828.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f4-ar-impl)"/>
+<polyline points="1087.7,694.0 1087.7,751.2 875.2,751.2 875.2,828.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f4-ar-inflight)"/>
+<polyline points="1465.7,694.0 1465.7,761.6 945.6,761.6 945.6,828.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f4-ar-inflight)"/>
+<rect x="286.0" y="44.0" width="352.0" height="134.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="301.0" y="71.0" class="bt">ActionEnvelope / 重放身份</text>
+<text x="301.0" y="93.0" class="bp" xml:space="preserve">packages/kernel/src/</text>
+<text x="301.0" y="113.0" class="bp" xml:space="preserve">  domain/action-envelope.ts</text>
+<text x="301.0" y="135.0" class="bn" style="font-size:14.0px">kind · target · actor · authorizationRef</text>
+<text x="301.0" y="155.0" class="bn" style="font-size:14.0px">idempotencyKey · actionId · version</text>
+<rect x="664.0" y="44.0" width="352.0" height="134.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="679.0" y="71.0" class="bt">实体类型与动作目录</text>
+<text x="679.0" y="93.0" class="bp" xml:space="preserve">packages/kernel/src/domain/</text>
+<text x="679.0" y="113.0" class="bp" xml:space="preserve">  entity-kind-registry.ts</text>
+<text x="679.0" y="135.0" class="bn" style="font-size:14.0px">事件族 · 落地位置 · 撰写方式</text>
+<text x="679.0" y="155.0" class="bn" style="font-size:14.0px">已声明处还带迁移 / 动作目录</text>
+<rect x="1042.0" y="44.0" width="352.0" height="134.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="1057.0" y="71.0" class="bt">AuthorizationPort</text>
+<text x="1057.0" y="93.0" class="bp" xml:space="preserve">packages/kernel/src/ports/</text>
+<text x="1057.0" y="113.0" class="bp" xml:space="preserve">  authorization-port.ts</text>
+<text x="1057.0" y="135.0" class="bn" style="font-size:14.0px">命令边界上的策略判定</text>
+<text x="1057.0" y="155.0" class="bn" style="font-size:14.0px">委托与角色上下文</text>
+<rect x="664.0" y="312.0" width="352.0" height="114.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="679.0" y="339.0" class="bt">RepoCell 动作分派</text>
+<text x="679.0" y="361.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="679.0" y="381.0" class="bp" xml:space="preserve">  repo-cell-action-dispatch.ts</text>
+<text x="679.0" y="403.0" class="bn" style="font-size:14.0px">由 action.kind 决定当前的处理器家族</text>
+<rect x="97.0" y="560.0" width="352.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="112.0" y="587.0" class="bt">Task 生命周期解析</text>
+<text x="112.0" y="609.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="112.0" y="629.0" class="bp" xml:space="preserve">  repo-cell-lifecycle-action.ts</text>
+<text x="112.0" y="651.0" class="bn" style="font-size:14.0px">使用生命周期动作目录</text>
+<text x="112.0" y="671.0" class="bn" style="font-size:14.0px">目录驱动的状态迁移</text>
+<rect x="475.0" y="560.0" width="352.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="490.0" y="587.0" class="bt">Agent / Squad 通用路线</text>
+<text x="490.0" y="609.0" class="bp" xml:space="preserve">packages/kernel/src/</text>
+<text x="490.0" y="629.0" class="bp" xml:space="preserve">  store/entity-store.ts</text>
+<text x="490.0" y="651.0" class="bn" style="font-size:14.0px">通用 createEntityStore</text>
+<text x="490.0" y="671.0" class="bn" style="font-size:14.0px">entity-event/v1 JSON 撰写</text>
+<rect x="853.0" y="560.0" width="352.0" height="134.0" rx="11" fill="#fbf1e6" stroke="#b0713c" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="868.0" y="587.0" class="bt">Decision 专用路线</text>
+<text x="868.0" y="609.0" class="bp" xml:space="preserve">packages/daemon/src/decision-actions.ts</text>
+<text x="868.0" y="631.0" class="bn" style="font-size:14.0px">compileDecisionWrite + 服务追加</text>
+<text x="868.0" y="651.0" class="bn" style="font-size:14.0px">ActionEnvelope 不是它的执行权威</text>
+<rect x="1231.0" y="560.0" width="352.0" height="134.0" rx="11" fill="#fbf1e6" stroke="#b0713c" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="1246.0" y="587.0" class="bt">Fact 专用路线</text>
+<text x="1246.0" y="609.0" class="bp" xml:space="preserve">packages/daemon/src/fact-actions.ts</text>
+<text x="1246.0" y="631.0" class="bn" style="font-size:14.0px">compileFactWrite + 服务追加</text>
+<text x="1246.0" y="651.0" class="bn" style="font-size:14.0px">ActionEnvelope 不是它的执行权威</text>
+<rect x="664.0" y="828.0" width="352.0" height="134.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="679.0" y="855.0" class="bt">共享追加</text>
+<text x="679.0" y="877.0" class="bp" xml:space="preserve">packages/kernel/src/store/</text>
+<text x="679.0" y="897.0" class="bp" xml:space="preserve">  wal-shadow-event-store.ts</text>
+<text x="679.0" y="919.0" class="bn" style="font-size:14.0px">四条路径最终写进同一个事件存储</text>
+<text x="679.0" y="939.0" class="bn" style="font-size:11.5px">实测缺口：已声明的契约今天并不拥有 Decision / Fact 的执行</text>
+</svg><figcaption>图 4 · 已声明的控制面 → 实际分派开关 → 四条执行路径 → 共同的追加汇合点。橙色虚线是尚未收敛的分支。</figcaption></figure>
+<div class="prose">
+
+<h3>这张图在讲什么</h3>
+<p>上面一层是<strong>已经声明好的东西</strong>：ActionEnvelope 定义了一个动作的通用外壳——kind、target、actor、
+authorizationRef、idempotencyKey、actionId、version；注册表声明了每种类型的事件族与动作目录；
+AuthorizationPort 定义了命令边界上的策略判定点。中间是<strong>实际的分派开关</strong>，
+它按 <code>action.kind</code> 决定交给哪一族处理器。下面是当前真实存在的四条执行路径。</p>
+
+<h3>为什么这样设计</h3>
+<p>先声明一个统一的控制面，再逐步把各个分支迁进来，这是有意的顺序。信封（envelope）里那几个字段不是装饰：
+<code>idempotencyKey</code> 让同一个动作被重放时不会写两遍，<code>authorizationRef</code> 让「谁批准的」
+成为写入本身的一部分而不是外挂日志，<code>version</code> 让契约可以演进。这些性质一旦由通用层统一提供，
+每个新实体类型就不必自己再实现一遍。</p>
+
+<div class="callout">
+<h4>诚实标记 · 进行中</h4>
+<p><strong>通用 action catalog 已经声明，但 Decision 与 Fact 的执行今天并没有完全走它。</strong>
+Task 生命周期解析确实使用生命周期动作目录来驱动状态迁移，Agent / Squad 确实走通用的
+<code>createEntityStore</code>；而 <code>decision-actions.ts</code> 与 <code>fact-actions.ts</code>
+各自用 <code>compileDecisionWrite</code> / <code>compileFactWrite</code> 加服务追加的方式实现，
+ActionEnvelope 不是它们的执行权威。这是当前代码的实测缺口，也是第 9 章 Phase 6 的第一批收敛目标。</p>
+</div>
+
+<h3>读者最常误解的点</h3>
+<p>「已经有通用契约了」经常被读成「已经通用了」。契约存在与契约被走，是两件事——这个仓库自己把它称为
+<strong>采用律</strong>：一项能力只有成为唯一合法路径时才算被采用，只要还存在绕开它的近路，就一定会被绕开。
+图上那两条橙色虚线画的正是这条近路本身。</p>
+<p>另一个误解是把这条缺口当成 bug。它不是 bug——四条路径最终都追加进同一个事件存储，写入的正确性并不受影响；
+受影响的是<strong>一致性成本</strong>：每加一种实体，专用分支就要复制一遍授权、幂等与撰写逻辑。</p>
+
+<h3>和上一章怎么衔接</h3>
+<p>第 3 章按事件模式给实体分了三类；这一章说明这三类在执行层面还没有完全对齐。接下来两章分别展开两个
+最复杂的专用管线：runtime 派工（第 5 章）与任务包 / 文档写入（第 6 章）。</p>
+
+<div class="src">对应源码：<b>packages/kernel/src/domain/action-envelope.ts</b>、<b>packages/kernel/src/domain/entity-kind-registry.ts</b>、<b>packages/kernel/src/ports/authorization-port.ts</b>、<b>packages/daemon/src/repo-cell-action-dispatch.ts</b>、<b>packages/daemon/src/repo-cell-lifecycle-action.ts</b>、<b>packages/daemon/src/decision-actions.ts</b>、<b>packages/daemon/src/fact-actions.ts</b>、<b>packages/kernel/src/store/entity-store.ts</b>。</div>
+</div>
+</section>
+<section class="ch" id="c05">
+<div class="chhead"><span class="num">05</span><h2>runtime 派工：一份 canonical 会话，加一条本地进程流</h2></div>
+<p class="sub">daemon 拉起供应商特定的进程，把生命周期写进台账，把输出写进本地 JSONL，并提供基于游标的 attach。终端会话是另一套宿主。</p>
+<figure><svg class="fig" viewBox="0 0 1680 994" role="img" aria-label="runtime 派工：canonical 会话事件加本地进程输出流" xmlns="http://www.w3.org/2000/svg">
+<title>runtime 派工：canonical 会话事件加本地进程输出流</title>
+<defs>
+<marker id="f5-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f5-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f5-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f5-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="994" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">① 派工前：配置与授权</text>
+<rect x="26" y="304" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="300" class="lyr">② 派工：进程与身份一起产生</text>
+<rect x="26" y="550" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="546" class="lyr">③ 分叉：持久生命周期 vs 运行期传输</text>
+<text x="1646" y="546" class="lyrn" text-anchor="end">这是本章最容易误解的地方</text>
+<rect x="26" y="818" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="814" class="lyr">④ 崩溃与重启之后</text>
+<polyline points="462.0,178.0 462.0,217.0 714.3,217.0 714.3,312.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f5-ar-impl)"/>
+<polyline points="840.0,178.0 840.0,230.0 764.6,230.0 764.6,312.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f5-ar-impl)"/>
+<polyline points="1218.0,178.0 1218.0,243.0 814.9,243.0 814.9,312.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f5-ar-impl)"/>
+<polyline points="865.1,424.0 865.1,463.0 403.3,463.0 403.3,558.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f5-ar-impl)"/>
+<rect x="603.7" y="448.0" width="61" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="634.2" y="465.0" class="elbl" text-anchor="middle" fill="#4a7c59">进台账</text>
+<polyline points="915.4,424.0 915.4,476.0 752.0,476.0 752.0,558.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f5-ar-impl)"/>
+<rect x="803.2" y="461.0" width="61" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="833.7" y="478.0" class="elbl" text-anchor="middle" fill="#4a7c59">进本地</text>
+<polyline points="965.7,424.0 965.7,489.0 1159.3,489.0 1159.3,558.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f5-ar-impl)"/>
+<rect x="1032.0" y="474.0" width="61" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="1062.5" y="491.0" class="elbl" text-anchor="middle" fill="#4a7c59">进本地</text>
+<polyline points="520.7,692.0 520.7,728.4 1159.3,728.4 1159.3,826.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f5-ar-impl)"/>
+<polyline points="840.0,692.0 840.0,738.8 462.0,738.8 462.0,826.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f5-ar-impl)"/>
+<polyline points="928.0,692.0 928.0,749.2 840.0,749.2 840.0,826.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f5-ar-impl)"/>
+<polyline points="1276.7,692.0 1276.7,759.6 1276.7,759.6 1276.7,826.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f5-ar-impl)"/>
+<rect x="286.0" y="44.0" width="352.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="301.0" y="71.0" class="bt">运行时实例注册表</text>
+<text x="301.0" y="93.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="301.0" y="113.0" class="bp" xml:space="preserve">  agent-runtime-instance-types.ts</text>
+<text x="301.0" y="135.0" class="bn" style="font-size:14.0px">类型：claude | codex | agy</text>
+<text x="301.0" y="155.0" class="bn" style="font-size:14.0px">配置、安装位置、认证方式</text>
+<rect x="664.0" y="44.0" width="352.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="679.0" y="71.0" class="bt">供应商启动编译器</text>
+<text x="679.0" y="93.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="679.0" y="113.0" class="bp" xml:space="preserve">  agent-runtime-launch-config.ts</text>
+<text x="679.0" y="135.0" class="bn" style="font-size:14.0px">各供应商的 argv 与环境变量</text>
+<text x="679.0" y="155.0" class="bn" style="font-size:14.0px">校验后的可执行配置</text>
+<rect x="1042.0" y="44.0" width="352.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="1057.0" y="71.0" class="bt">TerminalHost</text>
+<text x="1057.0" y="93.0" class="bp" xml:space="preserve">packages/daemon/src/terminal-host.ts</text>
+<text x="1057.0" y="115.0" class="bn" style="font-size:14.0px">直连 PTY / tmux</text>
+<text x="1057.0" y="135.0" class="bn" style="font-size:14.0px">是另一种会话类型，不走派工链</text>
+<rect x="664.0" y="312.0" width="352.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="679.0" y="339.0" class="bt">RuntimeSpawner</text>
+<text x="679.0" y="361.0" class="bp" xml:space="preserve">packages/daemon/src/runtime-spawner.ts</text>
+<text x="679.0" y="383.0" class="bn" style="font-size:14.0px">授权、dispatchId / sessionId、进程</text>
+<text x="679.0" y="403.0" class="bn" style="font-size:14.0px">请求 → 启动 → 结算</text>
+<rect x="286.0" y="558.0" width="352.0" height="134.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="301.0" y="585.0" class="bt">canonical RuntimeSession 事件</text>
+<text x="301.0" y="607.0" class="bp" xml:space="preserve">packages/kernel/src/</text>
+<text x="301.0" y="627.0" class="bp" xml:space="preserve">  domain/agent-runtime.ts</text>
+<text x="301.0" y="649.0" class="bn" style="font-size:13.5px">runtime_dispatch_requested · session_started</text>
+<text x="301.0" y="669.0" class="bn" style="font-size:14.0px">已落定的生命周期，带 task 与 agent 关联</text>
+<rect x="664.0" y="558.0" width="352.0" height="134.0" rx="11" fill="#f5f2ea" stroke="#a2957f" stroke-width="1.8"/>
+<text x="679.0" y="585.0" class="bt">本地派工 JSONL</text>
+<text x="679.0" y="607.0" class="bp" xml:space="preserve">packages/daemon/src/dispatch-stream.ts</text>
+<text x="679.0" y="629.0" class="bn" style="font-size:14.0px">runtime-dispatch-stream/v1</text>
+<text x="679.0" y="649.0" class="bn" style="font-size:14.0px">供应商 / 进程 / 结果帧 + 活跃索引</text>
+<rect x="1042.0" y="558.0" width="352.0" height="134.0" rx="11" fill="#f5f2ea" stroke="#a2957f" stroke-width="1.8"/>
+<text x="1057.0" y="585.0" class="bt">实时流中枢</text>
+<text x="1057.0" y="607.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="1057.0" y="627.0" class="bp" xml:space="preserve">  agent-runtime-stream.ts</text>
+<text x="1057.0" y="649.0" class="bn" style="font-size:14.0px">游标 attach、断流信号、witness</text>
+<text x="1057.0" y="669.0" class="bn" style="font-size:14.0px">规范化后的安全供应商帧</text>
+<rect x="286.0" y="826.0" width="352.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="301.0" y="853.0" class="bt">重启接管</text>
+<text x="301.0" y="875.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="301.0" y="895.0" class="bp" xml:space="preserve">  runtime-spawn-adoption.ts</text>
+<text x="301.0" y="917.0" class="bn" style="font-size:14.0px">重新打开活跃进程与派工记录</text>
+<text x="301.0" y="937.0" class="bn" style="font-size:14.0px">把已持久的输出灌回流中枢</text>
+<rect x="664.0" y="826.0" width="352.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="679.0" y="853.0" class="bt">派工结算</text>
+<text x="679.0" y="875.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="679.0" y="895.0" class="bp" xml:space="preserve">  runtime-spawn-settlement.ts</text>
+<text x="679.0" y="917.0" class="bn" style="font-size:14.0px">写结果事件 + 归档报告</text>
+<text x="679.0" y="937.0" class="bn" style="font-size:14.0px">关闭本地派工记录</text>
+<rect x="1042.0" y="826.0" width="352.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="1057.0" y="853.0" class="bt">联合读取</text>
+<text x="1057.0" y="875.0" class="bp" xml:space="preserve">packages/daemon/src/dispatch-read.ts</text>
+<text x="1057.0" y="897.0" class="bn" style="font-size:14.0px">投影里的会话 + 本地派工 JSONL</text>
+<text x="1057.0" y="917.0" class="bn" style="font-size:14.0px">撰写好的归档作为兜底证据</text>
+</svg><figcaption>图 5 · 派工前配置 → 拉起 → 台账事件与本地流分叉 → 崩溃重启后的接管、结算与联合读取。</figcaption></figure>
+<div class="prose">
+
+<h3>这张图在讲什么</h3>
+<p>当你让系统「派一个 agent 去做这个 task」时，发生的事情是：先从运行时实例注册表取到这个供应商
+（当前支持 claude、codex、agy 三类）的配置、安装位置与认证方式，由启动编译器算出具体的 argv 与环境变量；
+RuntimeSpawner 检查授权、分配 dispatchId 与 sessionId、拉起进程。然后<strong>信息流一分为二</strong>：
+生命周期事件进 canonical 台账，进程输出进本地的派工 JSONL 与实时流中枢。</p>
+
+<h3>为什么这样设计</h3>
+<p>因为这两种信息的性质完全不同。「某个 agent 在某个时刻被派去做某个 task，结果是成功还是失败」——
+这是需要长期审计、需要跨节点一致、需要能被 review 引用的<strong>事实</strong>，必须进台账。
+而「进程第 4,132 行输出了什么字符」——这是高频、体量大、只对当下这台机器上正在看的人有意义的
+<strong>传输数据</strong>，进台账只会把账本撑爆。所以前者是 <code>agent-runtime-event/v1</code> 事件，
+后者是 <code>runtime-dispatch-stream/v1</code> 的本地 JSONL 加一个带游标的流中枢。</p>
+
+<h3>读者最常误解的点</h3>
+<p><strong>「日志在 git 里」是错的。</strong>台账里有的是会话生命周期，不是输出正文。想看输出要走
+attach：流中枢支持游标 attach、断流信号与 witness，客户端断开重连不会静默丢帧，而是拿到一个明确的
+gap 信号。</p>
+<p><strong>daemon 崩了不等于派工丢了。</strong>重启接管会重新打开仍然活跃的进程与派工记录，
+并把已经持久下来的输出灌回流中枢；派工结算负责写结果事件、归档报告、关闭本地记录。
+联合读取则把投影里的会话与本地 JSONL 拼在一起，实在都没有时用撰写好的归档作兜底证据。</p>
+<p><strong>终端会话不是派工。</strong>TerminalHost 走的是直连 PTY / tmux，是另一种会话类型，
+不产生派工记录，别把两者混为一谈。</p>
+
+<h3>和上一章怎么衔接</h3>
+<p>第 4 章说 runtime 属于「混合编排」的那一类；这一章展示混合具体混在哪里。第 6 章换一个专用管线：
+文档是怎么被写进去的。</p>
+
+<div class="src">对应源码：<b>packages/daemon/src/agent-runtime-instance-types.ts</b>、<b>agent-runtime-launch-config.ts</b>、<b>runtime-spawner.ts</b>、<b>dispatch-stream.ts</b>、<b>agent-runtime-stream.ts</b>、<b>runtime-spawn-adoption.ts</b>、<b>runtime-spawn-settlement.ts</b>、<b>dispatch-read.ts</b>、<b>terminal-host.ts</b>、<b>packages/kernel/src/domain/agent-runtime.ts</b>，以及 daemon 协议契约。</div>
+</div>
+</section>
+<section class="ch" id="c06">
+<div class="chhead"><span class="num">06</span><h2>任务包与文档写入：两条通道，一套落盘</h2></div>
+<p class="sub">新建任务包从编译好的文档出发，doc-sync 从工作区 diff 出发。两者都必须先产出事件与精确写计划，才能进入共同的发布与物化机制。</p>
+<figure><svg class="fig" viewBox="0 0 1680 1240" role="img" aria-label="任务包创建与已有文档同步两条通道汇入同一套落盘机制" xmlns="http://www.w3.org/2000/svg">
+<title>任务包创建与已有文档同步两条通道汇入同一套落盘机制</title>
+<defs>
+<marker id="f6-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f6-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f6-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f6-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="1240" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">两个起点</text>
+<text x="1646" y="32" class="lyrn" text-anchor="end">左：新建任务包；右：改已有文档</text>
+<rect x="26" y="304" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="300" class="lyr">解析与裁定</text>
+<rect x="26" y="550" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="546" class="lyr">编译成事件 + 冻结写计划</text>
+<text x="1646" y="546" class="lyrn" text-anchor="end">两条通道在这一层被拉齐</text>
+<rect x="26" y="796" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="792" class="lyr">追加与发布</text>
+<rect x="26" y="1064" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="1060" class="lyr">共享的工作区物化</text>
+<polyline points="627.0,178.0 627.0,221.3 560.3,221.3 560.3,312.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f6-ar-impl)"/>
+<polyline points="1053.0,178.0 1053.0,238.7 986.3,238.7 986.3,312.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f6-ar-impl)"/>
+<polyline points="693.7,424.0 693.7,467.3 560.3,467.3 560.3,558.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f6-ar-impl)"/>
+<polyline points="1119.7,424.0 1119.7,484.7 953.0,484.7 953.0,558.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f6-ar-impl)"/>
+<polyline points="693.7,670.0 693.7,709.0 953.0,709.0 953.0,804.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f6-ar-impl)"/>
+<polyline points="1053.0,670.0 1053.0,722.0 560.3,722.0 560.3,804.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f6-ar-impl)"/>
+<polyline points="1153.0,670.0 1153.0,735.0 1053.0,735.0 1053.0,804.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f6-ar-impl)"/>
+<polyline points="693.7,938.0 693.7,981.3 773.3,981.3 773.3,1072.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f6-ar-impl)"/>
+<polyline points="1153.0,938.0 1153.0,998.7 906.7,998.7 906.7,1072.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f6-ar-impl)"/>
+<rect x="427.0" y="44.0" width="400.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="442.0" y="71.0" class="bt">任务包编译器</text>
+<text x="442.0" y="93.0" class="bp" xml:space="preserve">packages/preset/src/preset-bootstrap.ts</text>
+<text x="442.0" y="115.0" class="bn" style="font-size:14.0px">compileTaskPackage / compileTaskBootstrap</text>
+<text x="442.0" y="135.0" class="bn" style="font-size:14.0px">task-bootstrap-event/v1 + 冻结写计划</text>
+<rect x="853.0" y="44.0" width="400.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="71.0" class="bt">候选扫描器</text>
+<text x="868.0" y="93.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="868.0" y="113.0" class="bp" xml:space="preserve">  doc-sync-candidate-scanner.ts</text>
+<text x="868.0" y="135.0" class="bn" style="font-size:14.0px">撰写根下变更的文本、基线、路由</text>
+<text x="868.0" y="155.0" class="bn" style="font-size:14.0px">租约与分类的输入</text>
+<rect x="427.0" y="312.0" width="400.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="442.0" y="339.0" class="bt">仓库感知的 preset 系统</text>
+<text x="442.0" y="361.0" class="bp" xml:space="preserve">packages/preset/src/preset-system.ts</text>
+<text x="442.0" y="383.0" class="bn" style="font-size:14.0px">解析 preset + 编译仓库计划</text>
+<text x="442.0" y="403.0" class="bn" style="font-size:14.0px">文档、二进制块、元数据</text>
+<rect x="853.0" y="312.0" width="400.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="339.0" class="bt">裁定</text>
+<text x="868.0" y="361.0" class="bp" xml:space="preserve">packages/daemon/src/doc-sync-adjudication.ts</text>
+<text x="868.0" y="383.0" class="bn" style="font-size:14.0px">decideDocWrite：接受 / 拒绝 / 冲突</text>
+<text x="868.0" y="403.0" class="bn" style="font-size:14.0px">归属与期望基线</text>
+<rect x="427.0" y="558.0" width="400.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="442.0" y="585.0" class="bt">RepoCell 任务创建</text>
+<text x="442.0" y="607.0" class="bp" xml:space="preserve">packages/daemon/src/repo-cell-task-create.ts</text>
+<text x="442.0" y="629.0" class="bn" style="font-size:14.0px">追加编译好的事件并应用投影</text>
+<text x="442.0" y="649.0" class="bn" style="font-size:14.0px">一个任务包 = 一次 canonical 操作</text>
+<rect x="853.0" y="558.0" width="400.0" height="112.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="868.0" y="585.0" class="bt">文档事件编译器</text>
+<text x="868.0" y="607.0" class="bp" xml:space="preserve">packages/kernel/src/domain/doc-sync-writer.ts</text>
+<text x="868.0" y="629.0" class="bn" style="font-size:14.0px">doc-event/v1 + 精确写计划</text>
+<text x="868.0" y="649.0" class="bn" style="font-size:14.0px">路由注册表决定目标位置</text>
+<rect x="427.0" y="804.0" width="400.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="442.0" y="831.0" class="bt">文档发布</text>
+<text x="442.0" y="853.0" class="bp" xml:space="preserve">packages/daemon/src/doc-sync-publication.ts</text>
+<text x="442.0" y="875.0" class="bn" style="font-size:14.0px">存储追加 + 投影应用</text>
+<text x="442.0" y="895.0" class="bn" style="font-size:14.0px">写回执暴露可见性</text>
+<rect x="853.0" y="804.0" width="400.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="831.0" class="bt">Git 事件与撰写分支发布</text>
+<text x="868.0" y="853.0" class="bp" xml:space="preserve">packages/kernel/src/store/</text>
+<text x="868.0" y="873.0" class="bp" xml:space="preserve">  task-event-store-publication.ts</text>
+<text x="868.0" y="895.0" class="bn" style="font-size:14.0px">准备对象 → 文件系统落盘 → CAS</text>
+<text x="868.0" y="915.0" class="bn" style="font-size:14.0px">canonical ref 与 authored ref 一起推进</text>
+<rect x="640.0" y="1072.0" width="400.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="655.0" y="1099.0" class="bt">工作区物化</text>
+<text x="655.0" y="1121.0" class="bp" xml:space="preserve">packages/kernel/src/store/</text>
+<text x="655.0" y="1141.0" class="bp" xml:space="preserve">  task-event-store-materialization.ts</text>
+<text x="655.0" y="1163.0" class="bn" style="font-size:14.0px">写计划声明的文档目标变得可见</text>
+<text x="655.0" y="1183.0" class="bn" style="font-size:14.0px">中断的落盘由恢复流程对账</text>
+</svg><figcaption>图 6 · 左通道新建任务包、右通道同步已有文档，在「编译成事件 + 冻结写计划」这一层被拉齐。</figcaption></figure>
+<div class="prose">
+
+<h3>这张图在讲什么</h3>
+<p>系统里有两种把文档写进仓库的方式，它们的<strong>起点完全相反</strong>。
+左边：你说「创建一个任务」，preset 编译器根据选中的 preset 编译出整个任务包——文档、二进制块、元数据，
+外加一份冻结写计划，一次 canonical 操作把它整体落下。
+右边：你直接用编辑器改了工作区里一份已登记的文档，候选扫描器发现了这个 diff，裁定环节判断这次改动
+该被接受、拒绝，还是标成冲突。</p>
+
+<h3>为什么这样设计</h3>
+<p>因为「人和 agent 就是会直接改文件」是一个必须承认的现实。如果唯一的写入方式是命令，那么手改就成了
+一条绕开门禁的近路；而如果手改被无条件接受，账本就失去意义。doc-sync 的做法是把手改<strong>纳入</strong>同一条路：
+它带着期望基线（expected base）与归属信息进入裁定，通过之后仍然要编译成 <code>doc-event/v1</code>
+加一份精确写计划，再走同一套发布与物化。手改因此不是例外，而是一种被治理的输入。</p>
+
+<h3>读者最常误解的点</h3>
+<p><strong>裁定不是「自动合并」。</strong><code>decideDocWrite</code> 的三个出口里有一个是 conflict，
+它会显式停下来，而不是猜一个结果。归属与期望基线对不上，写入就被拒。</p>
+<p><strong>路由决定目标位置，不是你指定的路径。</strong>文档事件编译器按路由注册表算出目标；
+写计划里声明的目标才是最终会被物化的位置。这也是为什么提交时不加路径限定会把当前<em>全部</em>
+符合条件的候选一起提交——候选集合是扫描出来的，不是你手选的。</p>
+<p><strong>canonical ref 与 authored 分支是一起推进的。</strong>不存在「事件写了但文件没变」的稳定状态；
+如果落盘中途被打断，恢复流程会对账，而不是留下半个写入。</p>
+
+<h3>和上一章怎么衔接</h3>
+<p>第 5 章与第 6 章展示的是两条最重的专用管线。第 7 章把镜头拉远：当同一份台账被多台机器共用时，
+这些机制要怎么改。</p>
+
+<div class="src">对应源码：<b>packages/preset/src/preset-bootstrap.ts</b>、<b>packages/preset/src/preset-system.ts</b>、<b>packages/daemon/src/repo-cell-task-create.ts</b>、<b>packages/daemon/src/doc-sync-candidate-scanner.ts</b>、<b>packages/daemon/src/doc-sync-adjudication.ts</b>、<b>packages/kernel/src/domain/doc-sync-writer.ts</b>、<b>packages/daemon/src/doc-sync-publication.ts</b>、<b>packages/kernel/src/store/task-event-store-publication.ts</b>、<b>task-event-store-materialization.ts</b>。</div>
+</div>
+</section>
+<section class="ch" id="c07">
+<div class="chhead"><span class="num">07</span><h2>fleet 拓扑：写权威留在中心</h2></div>
+<p class="sub">边缘节点镜像 canonical 切面、把带 claim 的命令提交给中心、把分歧文档显式暂存。写者 epoch 围住陈旧中心，schedule 的 occurrence claim 防止重复派工。</p>
+<figure><svg class="fig" viewBox="0 0 1680 704" role="img" aria-label="fleet 拓扑：边缘节点只读镜像，写权威留在中心，围栏防止重复与陈旧写入" xmlns="http://www.w3.org/2000/svg">
+<title>fleet 拓扑：边缘节点只读镜像，写权威留在中心，围栏防止重复与陈旧写入</title>
+<defs>
+<marker id="f7-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f7-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f7-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f7-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="704" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">边缘节点（edge）</text>
+<text x="1646" y="32" class="lyrn" text-anchor="end">永远不是独立写权威</text>
+<rect x="26" y="282" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="278" class="lyr">线上契约（wire contract）</text>
+<text x="1646" y="278" class="lyrn" text-anchor="end">cut 与 claim 字段在这里跨越边界</text>
+<rect x="26" y="528" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="524" class="lyr">中心节点（center）与两种围栏</text>
+<text x="1646" y="524" class="lyrn" text-anchor="end">两种围栏解决的是两个不同问题</text>
+<polyline points="454.0,156.0 454.0,195.0 705.0,195.0 705.0,290.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f7-ar-impl)"/>
+<rect x="549.0" y="180.0" width="61" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="579.5" y="197.0" class="elbl" text-anchor="middle" fill="#4a7c59">副本帧</text>
+<polyline points="840.0,156.0 840.0,208.0 750.0,208.0 750.0,290.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f7-ar-impl)"/>
+<rect x="749.5" y="193.0" width="91" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="795.0" y="210.0" class="elbl" text-anchor="middle" fill="#4a7c59">已认证命令</text>
+<polyline points="1226.0,156.0 1226.0,221.0 795.0,221.0 795.0,290.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f7-ar-impl)"/>
+<polyline points="840.0,402.0 840.0,438.4 261.0,438.4 261.0,536.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f7-ar-impl)"/>
+<polyline points="885.0,402.0 885.0,448.8 647.0,448.8 647.0,536.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f7-ar-impl)"/>
+<polyline points="930.0,402.0 930.0,459.2 1033.0,459.2 1033.0,536.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f7-ar-impl)"/>
+<polyline points="975.0,402.0 975.0,469.6 1419.0,469.6 1419.0,536.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f7-ar-impl)"/>
+<rect x="274.0" y="44.0" width="360.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="289.0" y="71.0" class="bt">副本 cut 与 TLS 客户端</text>
+<text x="289.0" y="93.0" class="bp" xml:space="preserve">packages/daemon/src/fleet/edge.ts</text>
+<text x="289.0" y="115.0" class="bn" style="font-size:14.0px">快照 / 增量帧；当前指针；两个 cut</text>
+<text x="289.0" y="135.0" class="bn" style="font-size:14.0px">只读副本</text>
+<rect x="660.0" y="44.0" width="360.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="675.0" y="71.0" class="bt">带 claim 的任务命令</text>
+<text x="675.0" y="93.0" class="bp" xml:space="preserve">packages/daemon/src/fleet-edge-task.ts</text>
+<text x="675.0" y="115.0" class="bn" style="font-size:14.0px">边缘的 claim 带到中心去校验</text>
+<text x="675.0" y="135.0" class="bn" style="font-size:14.0px">收到回执后再拉取副本</text>
+<rect x="1046.0" y="44.0" width="360.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="1061.0" y="71.0" class="bt">三方文档暂存</text>
+<text x="1061.0" y="93.0" class="bp" xml:space="preserve">packages/daemon/src/fleet-edge-mirror.ts</text>
+<text x="1061.0" y="115.0" class="bn" style="font-size:14.0px">基线 / 本地 / 中心 三方分歧</text>
+<text x="1061.0" y="135.0" class="bn" style="font-size:14.0px">冲突显式暂存，不静默合并</text>
+<rect x="660.0" y="290.0" width="360.0" height="112.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="675.0" y="317.0" class="bt">fleet 线上契约</text>
+<text x="675.0" y="339.0" class="bp" xml:space="preserve">packages/daemon/src/fleet/contract.ts</text>
+<text x="675.0" y="361.0" class="bn" style="font-size:14.0px">已认证命令、回执、副本帧</text>
+<text x="675.0" y="381.0" class="bn" style="font-size:14.0px">中心始终是 canonical 权威</text>
+<rect x="81.0" y="536.0" width="360.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="96.0" y="563.0" class="bt">TLS 中心 + RepoCell 宿主</text>
+<text x="96.0" y="585.0" class="bp" xml:space="preserve">packages/daemon/src/fleet/center.ts</text>
+<text x="96.0" y="607.0" class="bn" style="font-size:14.0px">校验边缘调用并提供副本数据</text>
+<text x="96.0" y="627.0" class="bn" style="font-size:14.0px">带 epoch 围栏打开唯一写者</text>
+<rect x="467.0" y="536.0" width="360.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="482.0" y="563.0" class="bt">持久写者 epoch</text>
+<text x="482.0" y="585.0" class="bp" xml:space="preserve">packages/daemon/src/writer-epoch.ts</text>
+<text x="482.0" y="607.0" class="bn" style="font-size:14.0px">单调递增的中心代际</text>
+<text x="482.0" y="627.0" class="bn" style="font-size:14.0px">陈旧中心的追加会被围栏挡掉</text>
+<rect x="853.0" y="536.0" width="360.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="563.0" class="bt">派工前的 schedule claim</text>
+<text x="868.0" y="585.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="868.0" y="605.0" class="bp" xml:space="preserve">  schedule-scheduler.ts</text>
+<text x="868.0" y="627.0" class="bn" style="font-size:14.0px">occurrenceId · claimFence · nodeId</text>
+<text x="868.0" y="647.0" class="bn" style="font-size:14.0px">canonical claim 事件先于运行时拉起</text>
+<rect x="1239.0" y="536.0" width="360.0" height="134.0" rx="11" fill="#f5f2ea" stroke="#a2957f" stroke-width="1.8"/>
+<text x="1254.0" y="563.0" class="bt">冷重建来源</text>
+<text x="1254.0" y="585.0" class="bp" xml:space="preserve">packages/kernel/src/projection/</text>
+<text x="1254.0" y="605.0" class="bp" xml:space="preserve">  cold-rebuild-source.ts</text>
+<text x="1254.0" y="627.0" class="bn" style="font-size:14.0px">遍历 canonical 事件做恢复</text>
+<text x="1254.0" y="647.0" class="bn" style="font-size:14.0px">当前主干上的恢复面</text>
+</svg><figcaption>图 7 · 边缘 → 线上契约 → 中心与两种围栏。边缘永远不是独立写权威。</figcaption></figure>
+<div class="prose">
+
+<h3>这张图在讲什么</h3>
+<p>目标形态是一个 fleet center 加多个边缘节点，共用同一份 canonical 台账。边缘持有只读副本：
+它接收快照与增量帧、维护当前指针与两个 cut，但<strong>永远不是独立写权威</strong>。
+边缘要写，就把带 claim 的命令通过线上契约提交给中心，中心校验后执行，边缘拿到回执再拉取新副本。</p>
+
+<h3>为什么这样设计</h3>
+<p>因为这是唯一能在「多节点」和「单写路」之间同时成立的形状。任何允许边缘本地写、事后再合并的设计，
+都会把冲突推到合并时刻，而合并时刻没有足够的上下文做正确判断。把写权威集中在中心，代价是延迟，
+换来的是<strong>顺序是确定的</strong>——而这正是账本的全部价值所在。</p>
+
+<div class="note">
+<h4>两种围栏解决的是两个不同问题</h4>
+<p><strong>写者 epoch（writer epoch）</strong>是一个单调递增的中心代际，用来挡住「旧中心还活着并且还在追加」
+这种脑裂情形。<strong>occurrence claim</strong>是定时任务的并发主体：一次 occurrence 带着
+<code>occurrenceId</code>、<code>claimFence</code>、<code>nodeId</code>，只会被一个节点认领成功，
+canonical claim 事件先于运行时拉起。别把它们当成同一个机制。</p>
+</div>
+
+<h3>读者最常误解的点</h3>
+<p>最常见的错误设计是「给定时审计绑一个常设 task，每次运行都写它的包」。五个边缘节点在同一分钟触发，
+就会同时去抢那个 task 的租约，然后炸。正确的并发主体是 schedule 的 occurrence claim，
+产出应该归属于这次 occurrence，而不是一个共享 task。这个反例值得记住，因为它是设计新写路时最容易踩的坑：
+<strong>动手前先问「多个边缘节点同时做这件事会怎样」。</strong></p>
+<p>另一个误解是「文档冲突会自动解决」。三方暂存拿的是基线 / 本地 / 中心三份，分歧被显式暂存成一个需要处理的
+出口，不会静默选一边。</p>
+
+<div class="callout">
+<h4>进行中 · 未合入的对照</h4>
+<p>有一条尚未合入主干的分支引入了迁移用的 <code>ledgerEpoch</code> 并触发投影重建。它<strong>不是</strong>
+当前主干上的模块，因此本图没有为它画方框。它与主干已有的写者 epoch 围栏是两个不同的机制，
+不要混用同一个名字来理解。</p>
+</div>
+
+<h3>和上一章怎么衔接</h3>
+<p>第 2 到 6 章都是单机视角。这一章说明同一批机制在多节点下需要额外的两种围栏。
+第 8 章转向另一个维度：什么东西有权拦住一次写入。</p>
+
+<div class="src">对应源码：<b>packages/daemon/src/fleet/edge.ts</b>、<b>fleet/contract.ts</b>、<b>fleet/center.ts</b>、<b>fleet-edge-task.ts</b>、<b>fleet-edge-mirror.ts</b>、<b>writer-epoch.ts</b>、<b>schedule-scheduler.ts</b>、<b>packages/kernel/src/domain/schedule.ts</b>、<b>packages/kernel/src/projection/cold-rebuild-source.ts</b>。</div>
+</div>
+</section>
+<section class="ch" id="c08">
+<div class="chhead"><span class="num">08</span><h2>门禁：既是策略，也是自动化，还是 canonical 证据</h2></div>
+<p class="sub">门禁 manifest 是唯一注册表，workflow 执行它声明的生产面，主分支产物可以被摄入成 canonical 事件，任务收口时再对账它声明的那扇门。</p>
+<figure><svg class="fig" viewBox="0 0 1680 992" role="img" aria-label="门禁：manifest 是注册表，workflow 执行，观察事件回流成 canonical 证据" xmlns="http://www.w3.org/2000/svg">
+<title>门禁：manifest 是注册表，workflow 执行，观察事件回流成 canonical 证据</title>
+<defs>
+<marker id="f8-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f8-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f8-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f8-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="992" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">① 策略注册表</text>
+<text x="1646" y="32" class="lyrn" text-anchor="end">58 条目 · 3 聚合 · 49 确定性 · 52 条 PR 必过</text>
+<rect x="26" y="282" width="1628" height="128" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="278" class="lyr">② 执行面</text>
+<text x="1646" y="278" class="lyrn" text-anchor="end">脚本面与 CI 面读的是同一份 manifest</text>
+<rect x="26" y="528" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="524" class="lyr">③ 证据回流：CI 结果变成 canonical 事件</text>
+<rect x="26" y="796" width="1628" height="170" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="792" class="lyr">④ 门禁在任务收口处兑现</text>
+<polyline points="732.0,156.0 732.0,192.4 261.0,192.4 261.0,290.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f8-ar-impl)"/>
+<polyline points="804.0,156.0 804.0,202.8 587.0,202.8 587.0,290.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f8-ar-impl)"/>
+<polyline points="876.0,156.0 876.0,213.2 943.0,213.2 943.0,290.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f8-ar-impl)"/>
+<polyline points="948.0,156.0 948.0,223.6 1419.0,223.6 1419.0,290.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f8-ar-impl)"/>
+<polyline points="1033.0,402.0 1033.0,441.0 557.0,441.0 557.0,536.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f8-ar-impl)"/>
+<polyline points="1123.0,402.0 1123.0,454.0 973.0,454.0 973.0,536.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f8-ar-impl)"/>
+<rect x="995.0" y="439.0" width="106" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="1048.0" y="456.0" class="elbl" text-anchor="middle" fill="#4a7c59">run 产物</text>
+<polyline points="707.0,402.0 707.0,467.0 647.0,467.0 647.0,536.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f8-ar-impl)"/>
+<polyline points="737.0,670.0 737.0,713.3 780.0,713.3 780.0,804.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f8-ar-impl)"/>
+<polyline points="1093.0,670.0 1093.0,730.7 900.0,730.7 900.0,804.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f8-ar-impl)"/>
+<rect x="660.0" y="44.0" width="360.0" height="112.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="675.0" y="71.0" class="bt">门禁策略注册表</text>
+<text x="675.0" y="93.0" class="bp" xml:space="preserve">tools/gate-manifest.json</text>
+<text x="675.0" y="115.0" class="bn" style="font-size:14.0px">每条门声明它的执行面与分支保护上下文</text>
+<text x="675.0" y="135.0" class="bn" style="font-size:14.0px">本地与 CI 共用同一份策略</text>
+<rect x="81.0" y="290.0" width="360.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="96.0" y="317.0" class="bt">包脚本面</text>
+<text x="96.0" y="339.0" class="bp" xml:space="preserve">package.json</text>
+<text x="96.0" y="361.0" class="bn" style="font-size:14.0px">check 选中 45 条门</text>
+<text x="96.0" y="381.0" class="bn" style="font-size:14.0px">check:pr 选中 44 条门</text>
+<rect x="467.0" y="290.0" width="360.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="482.0" y="317.0" class="bt">manifest 门禁执行器</text>
+<text x="482.0" y="339.0" class="bp" xml:space="preserve">tools/run-manifest-gates.mjs</text>
+<text x="482.0" y="361.0" class="bn" style="font-size:14.0px">选择、依赖排序、执行</text>
+<rect x="853.0" y="290.0" width="360.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="317.0" class="bt">主 CI 工作流</text>
+<text x="868.0" y="339.0" class="bp" xml:space="preserve">.github/workflows/rewrite-ci.yml</text>
+<text x="868.0" y="361.0" class="bn" style="font-size:14.0px">PR / main / nightly + 6 个集成分片</text>
+<text x="868.0" y="381.0" class="bn" style="font-size:14.0px">Windows、GUI、soak、边界作业</text>
+<rect x="1239.0" y="290.0" width="360.0" height="112.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="1254.0" y="317.0" class="bt">重建门禁工作流</text>
+<text x="1254.0" y="339.0" class="bp" xml:space="preserve">.github/workflows/rebuild-gates.yml</text>
+<text x="1254.0" y="361.0" class="bn" style="font-size:14.0px">恢复面；分支保护声明 17 个必过上下文</text>
+<rect x="467.0" y="536.0" width="360.0" height="134.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="482.0" y="563.0" class="bt">CI 观察事件契约</text>
+<text x="482.0" y="585.0" class="bp" xml:space="preserve">packages/kernel/src/domain/</text>
+<text x="482.0" y="605.0" class="bp" xml:space="preserve">  ci-run-observation-event.ts</text>
+<text x="482.0" y="627.0" class="bn" style="font-size:14.0px">模式 ci-run-observation/v1</text>
+<text x="482.0" y="647.0" class="bn" style="font-size:14.0px">run、tests、gates → canonical 写计划</text>
+<rect x="853.0" y="536.0" width="360.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="563.0" class="bt">产物拉取与摄入</text>
+<text x="868.0" y="585.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="868.0" y="605.0" class="bp" xml:space="preserve">  ci-observation-actions.ts</text>
+<text x="868.0" y="627.0" class="bn" style="font-size:14.0px">GitHub run 产物 → 去重后追加</text>
+<text x="868.0" y="647.0" class="bn" style="font-size:14.0px">仅限主分支；投影可见性即证明</text>
+<rect x="660.0" y="804.0" width="360.0" height="154.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="675.0" y="831.0" class="bt">任务收口门</text>
+<text x="675.0" y="853.0" class="bp" xml:space="preserve">packages/application/src/</text>
+<text x="675.0" y="873.0" class="bp" xml:space="preserve">  task-closeout-action.ts</text>
+<text x="675.0" y="895.0" class="bn" style="font-size:14.0px">completion gate id 为 ci</text>
+<text x="675.0" y="915.0" class="bn" style="font-size:14.0px">判定为 passed 或 not_applicable</text>
+<text x="675.0" y="935.0" class="bn" style="font-size:14.0px">是包判定，不会自动去 join 观察事件</text>
+</svg><figcaption>图 8 · manifest → 执行面 → CI 结果回流成 canonical 事件 → 任务收口处兑现。</figcaption></figure>
+<div class="prose">
+
+<h3>这张图在讲什么</h3>
+<p>门（gate）在这个系统里出现三次，图上从左到右就是这三次。
+第一次是<strong>策略</strong>：<code>tools/gate-manifest.json</code> 是唯一注册表，58 个条目，其中 3 个聚合门、
+49 个确定性门、52 个在 PR 上必过。
+第二次是<strong>自动化</strong>：包脚本面按 manifest 选门（<code>check</code> 选 45 条、<code>check:pr</code> 选 44 条），
+CI 工作流跑同一份策略，分支保护声明 17 个必过上下文。
+第三次是<strong>证据</strong>：CI 的运行结果可以按 <code>ci-run-observation/v1</code> 被摄入成 canonical 事件，
+任务收口时那扇 id 为 <code>ci</code> 的完成门就有东西可查。</p>
+
+<h3>为什么这样设计</h3>
+<p>因为「门存在」和「门被执行」和「门的结果是可复核的」是三个独立的性质，缺一不可。
+只有第一条，门就是一张贴在路边的告示牌；有前两条而没有第三条，你就只能相信有人跑过了；
+三条都有，`done` 才真的意味着 done。整个产品的一句话主张——「你的 agent 说做完了，让它拿出证据」——
+在架构上就落在这张图里。</p>
+
+<h3>读者最常误解的点</h3>
+<p><strong>门默认关闭（fail-closed）。</strong>证据不足或检查未通过，结果是这次写入<em>被拒绝</em>，
+不是被放行加一条警告。这是刻意的：只要拒绝可以被降级成警告，它就会被降级。</p>
+<p><strong>摄入不是自动 join。</strong>CI 产物的拉取与摄入只在主分支上做，而且是去重后追加；
+任务收口门读的是<strong>包判定</strong>（passed 或 not_applicable），它不会自动跑去把某次 CI 观察事件
+关联到这个任务上。想让证据算数，就得显式把它交上来。</p>
+<p><strong>确定性门与聚合门不一样。</strong>确定性门是可机械判定的；聚合门是若干门的汇总口。
+把两者混在一起数，会得出错误的「必过门数量」。</p>
+
+<h3>和上一章怎么衔接</h3>
+<p>前七章讲的是机制怎么运转，这一章讲的是什么东西有权说「不行」。
+第 9 章则是唯一一章讲<strong>还没做</strong>的事。</p>
+
+<div class="src">对应源码：<b>tools/gate-manifest.json</b>、<b>tools/run-manifest-gates.mjs</b>、<b>package.json</b>、<b>.github/workflows/rewrite-ci.yml</b>、<b>.github/workflows/rebuild-gates.yml</b>、<b>packages/kernel/src/domain/ci-run-observation-event.ts</b>、<b>packages/daemon/src/ci-observation-actions.ts</b>、<b>packages/application/src/task-closeout-action.ts</b>。数字直接由 manifest 统计得出。</div>
+</div>
+</section>
+<section class="ch" id="c09">
+<div class="chhead"><span class="num">09</span><h2>Phase 6 的目标：收敛分支编排，不动共享基础设施</h2></div>
+<p class="sub">阶段盘点给出的是一个候选区间，不是保证能删的行数。命令拓扑、协议、RepoCell、WAL 与存储、投影基础设施、进程与流的所有权、fleet 传输，全部保留。</p>
+<figure><svg class="fig" viewBox="0 0 1680 708" role="img" aria-label="Phase 6 目标：把分支级编排收敛到已有通用权威，脊柱部分明确保留" xmlns="http://www.w3.org/2000/svg">
+<title>Phase 6 目标：把分支级编排收敛到已有通用权威，脊柱部分明确保留</title>
+<defs>
+<marker id="f9-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f9-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f9-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f9-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="708" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="130" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">已经存在、可供收敛的通用权威</text>
+<text x="1646" y="32" class="lyrn" text-anchor="end">收敛的目的地</text>
+<rect x="26" y="284" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="280" class="lyr">当前的实体专用候选模块（进行中）</text>
+<text x="1646" y="280" class="lyrn" text-anchor="end">规划口径 7,838–9,038 行；不是已证明可删的行数</text>
+<rect x="26" y="552" width="1628" height="130" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="548" class="lyr">明确排除在删除范围之外的系统脊柱</text>
+<text x="1646" y="548" class="lyrn" text-anchor="end">这几块保留</text>
+<polyline points="261.0,158.0 261.0,192.7 171.0,192.7 171.0,292.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f9-ar-inflight)"/>
+<rect x="178.0" y="177.7" width="76" height="24" rx="7" fill="#fdfbf6" stroke="#b0713c" stroke-width="1"/>
+<text x="216.0" y="194.7" class="elbl" text-anchor="middle" fill="#b0713c">收敛目标</text>
+<polyline points="647.0,158.0 647.0,201.3 261.0,201.3 261.0,292.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f9-ar-inflight)"/>
+<polyline points="973.0,158.0 973.0,210.0 587.0,210.0 587.0,292.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f9-ar-inflight)"/>
+<polyline points="1419.0,158.0 1419.0,218.7 973.0,218.7 973.0,292.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f9-ar-inflight)"/>
+<polyline points="1093.0,158.0 1093.0,227.3 1359.0,227.3 1359.0,292.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f9-ar-inflight)"/>
+<polyline points="351.0,426.0 351.0,462.4 261.0,462.4 261.0,560.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f9-ar-impl)"/>
+<rect x="283.0" y="447.4" width="46" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="306.0" y="464.4" class="elbl" text-anchor="middle" fill="#4a7c59">不动</text>
+<polyline points="707.0,426.0 707.0,472.8 647.0,472.8 647.0,560.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f9-ar-impl)"/>
+<rect x="654.0" y="457.8" width="46" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="677.0" y="474.8" class="elbl" text-anchor="middle" fill="#4a7c59">不动</text>
+<polyline points="1093.0,426.0 1093.0,483.2 1033.0,483.2 1033.0,560.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f9-ar-impl)"/>
+<rect x="1040.0" y="468.2" width="46" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="1063.0" y="485.2" class="elbl" text-anchor="middle" fill="#4a7c59">不动</text>
+<polyline points="1479.0,426.0 1479.0,493.6 1419.0,493.6 1419.0,560.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f9-ar-impl)"/>
+<rect x="1426.0" y="478.6" width="46" height="24" rx="7" fill="#fdfbf6" stroke="#4a7c59" stroke-width="1"/>
+<text x="1449.0" y="495.6" class="elbl" text-anchor="middle" fill="#4a7c59">不动</text>
+<rect x="81.0" y="44.0" width="360.0" height="114.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="96.0" y="71.0" class="bt">类型与动作目录</text>
+<text x="96.0" y="93.0" class="bp" xml:space="preserve">packages/kernel/src/domain/</text>
+<text x="96.0" y="113.0" class="bp" xml:space="preserve">  entity-kind-registry.ts</text>
+<text x="96.0" y="135.0" class="bn" style="font-size:14.0px">模式、落地位置、生命周期元数据</text>
+<rect x="467.0" y="44.0" width="360.0" height="114.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="482.0" y="71.0" class="bt">动作信封</text>
+<text x="482.0" y="93.0" class="bp" xml:space="preserve">packages/kernel/src/</text>
+<text x="482.0" y="113.0" class="bp" xml:space="preserve">  domain/action-envelope.ts</text>
+<text x="482.0" y="135.0" class="bn" style="font-size:14.0px">actor、target、重放、授权</text>
+<rect x="853.0" y="44.0" width="360.0" height="114.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="868.0" y="71.0" class="bt">通用实体存储</text>
+<text x="868.0" y="93.0" class="bp" xml:space="preserve">packages/kernel/src/</text>
+<text x="868.0" y="113.0" class="bp" xml:space="preserve">  store/entity-store.ts</text>
+<text x="868.0" y="135.0" class="bn" style="font-size:14.0px">事件 + 撰写 JSON + 投影</text>
+<rect x="1239.0" y="44.0" width="360.0" height="114.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="1254.0" y="71.0" class="bt">文档路由目录</text>
+<text x="1254.0" y="93.0" class="bp" xml:space="preserve">packages/kernel/src/</text>
+<text x="1254.0" y="113.0" class="bp" xml:space="preserve">  domain/doc-sync-catalog.ts</text>
+<text x="1254.0" y="135.0" class="bn" style="font-size:14.0px">模式驱动的路由声明</text>
+<rect x="81.0" y="292.0" width="360.0" height="134.0" rx="11" fill="#fbf1e6" stroke="#b0713c" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="96.0" y="319.0" class="bt">批次 A · Decision / Fact</text>
+<text x="96.0" y="341.0" class="bp" xml:space="preserve">packages/daemon/src/decision-actions.ts</text>
+<text x="96.0" y="363.0" class="bn" style="font-size:14.0px">packages/daemon/src/fact-actions.ts</text>
+<text x="96.0" y="383.0" class="bn" style="font-size:14.0px">候选 3,094–3,494 行</text>
+<rect x="467.0" y="292.0" width="360.0" height="134.0" rx="11" fill="#fbf1e6" stroke="#b0713c" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="482.0" y="319.0" class="bt">批次 B · Agent / Squad</text>
+<text x="482.0" y="341.0" class="bp" xml:space="preserve">packages/daemon/src/agent-entities.ts</text>
+<text x="482.0" y="363.0" class="bn" style="font-size:14.0px">agent-entities.contract.ts；通用存储的薄包装</text>
+<text x="482.0" y="383.0" class="bn" style="font-size:14.0px">高置信 141 行</text>
+<rect x="853.0" y="292.0" width="360.0" height="134.0" rx="11" fill="#fbf1e6" stroke="#b0713c" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="868.0" y="319.0" class="bt">批次 C · 文档 / 计划 / 人员</text>
+<text x="868.0" y="341.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="868.0" y="361.0" class="bp" xml:space="preserve">  schedule-scheduler.ts</text>
+<text x="868.0" y="383.0" class="bn" style="font-size:12.7px">repo-cell-people-actions.ts、doc-sync-catalog.ts</text>
+<text x="868.0" y="403.0" class="bn" style="font-size:14.0px">候选 2,619–3,219 行</text>
+<rect x="1239.0" y="292.0" width="360.0" height="134.0" rx="11" fill="#fbf1e6" stroke="#b0713c" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="1254.0" y="319.0" class="bt">批次 D · 运行时读与编排</text>
+<text x="1254.0" y="341.0" class="bp" xml:space="preserve">packages/daemon/src/runtime-spawner.ts</text>
+<text x="1254.0" y="363.0" class="bn" style="font-size:14.0px">dispatch-read.ts；运行时读 / 编排包装</text>
+<text x="1254.0" y="383.0" class="bn" style="font-size:14.0px">候选 1,984–2,184 行</text>
+<rect x="81.0" y="560.0" width="360.0" height="114.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="96.0" y="587.0" class="bt">RepoCell 协调</text>
+<text x="96.0" y="609.0" class="bp" xml:space="preserve">packages/daemon/src/repo-cell.ts</text>
+<text x="96.0" y="631.0" class="bn" style="font-size:14.0px">锁、队列、写者代际 —— 保留</text>
+<rect x="467.0" y="560.0" width="360.0" height="114.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="482.0" y="587.0" class="bt">协议拓扑</text>
+<text x="482.0" y="609.0" class="bp" xml:space="preserve">packages/daemon/src/protocol/</text>
+<text x="482.0" y="629.0" class="bp" xml:space="preserve">  daemon-protocol.contract.ts</text>
+<text x="482.0" y="651.0" class="bn" style="font-size:14.0px">方法描述与 DTO 面 —— 保留</text>
+<rect x="853.0" y="560.0" width="360.0" height="114.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="587.0" class="bt">canonical 事件存储</text>
+<text x="868.0" y="609.0" class="bp" xml:space="preserve">packages/kernel/src/store/</text>
+<text x="868.0" y="629.0" class="bp" xml:space="preserve">  wal-shadow-event-store.ts</text>
+<text x="868.0" y="651.0" class="bn" style="font-size:14.0px">发布、恢复、Git / WAL —— 保留</text>
+<rect x="1239.0" y="560.0" width="360.0" height="114.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="1254.0" y="587.0" class="bt">进程与流的所有权</text>
+<text x="1254.0" y="609.0" class="bp" xml:space="preserve">packages/daemon/src/</text>
+<text x="1254.0" y="629.0" class="bp" xml:space="preserve">  agent-runtime-stream.ts</text>
+<text x="1254.0" y="651.0" class="bn" style="font-size:14.0px">实时输出与 attach 语义 —— 保留</text>
+</svg><figcaption>图 9 · 上层是已经存在的通用权威（收敛目的地），中层是实体专用候选模块（进行中），下层是明确保留的系统脊柱。</figcaption></figure>
+<div class="prose">
+
+<h3>这张图在讲什么</h3>
+<p>Phase 6 想做的事只有一句：把散落在各个实体分支里的<strong>模式校验、授权、幂等、撰写</strong>四类行为，
+搬到已经存在的通用权威后面去，同时保留类型化契约。图的上层就是这些目的地：类型与动作目录、动作信封、
+通用实体存储、文档路由目录。中层是四个候选批次。下层是明确<strong>不在</strong>删除范围内的系统脊柱。</p>
+
+<div class="callout">
+<h4>这不是一个删除承诺</h4>
+<p>盘点给出的规划口径是 <strong>7,838–9,038 行</strong> daemon 代码，其中高置信 1,132 行、
+条件性 6,706–7,906 行，而<strong>立即可证明删除的行数记为 0</strong>。换句话说：这是一个候选区间，
+每个批次仍然需要对等测试与证明才能真正移除。把它当成「即将减少九千行」是错读。</p>
+</div>
+
+<h3>为什么这样设计</h3>
+<p>这个仓库对「修复的默认动作」有一条明确纪律：<strong>删除或收窄，而不是新增机制。</strong>
+每加一层兜底、重试、兼容或诊断之前，先要回答「这层保护的假设，能不能直接修掉」。
+Phase 6 是这条纪律在架构尺度上的一次应用——四个批次全部是<em>减法</em>动作，
+目的地全部是<em>已经存在</em>的通用权威，没有为这次收敛新造抽象。</p>
+
+<h3>读者最常误解的点</h3>
+<p><strong>「收敛」不等于「把 daemon 变薄一半」。</strong>脊柱部分是明确保留的：RepoCell 的锁与队列、
+协议的方法描述与 DTO 面、canonical 事件存储的发布与恢复、进程与流的所有权、以及 fleet 传输。
+这些不是实体专用逻辑，它们是这条单写路本身。</p>
+<p><strong>批次不是按文件划的，是按行为划的。</strong>批次 A 是 Decision / Fact 的动作实现；
+批次 B 是 Agent / Squad 那层对通用存储的薄包装；批次 C 是文档路由、调度与人员动作；
+批次 D 是运行时的读与编排包装。同一个文件里可能只有一部分属于候选。</p>
+
+<h3>和上一章怎么衔接</h3>
+<p>第 4 章指出了「已声明未采用」的缺口，这一章给出收敛计划的形状与边界。
+最后一章处理一个元问题：当撰写出来的架构意图和代码不一致时，以谁为准。</p>
+
+<div class="src">对应源码与规划证据：<b>packages/daemon/src/decision-actions.ts</b>、<b>fact-actions.ts</b>、<b>agent-entities.contract.ts</b>、<b>agent-entities.ts</b>、<b>packages/kernel/src/domain/doc-sync-catalog.ts</b>、<b>packages/daemon/src/schedule-scheduler.ts</b>、<b>repo-cell-people-actions.ts</b>、<b>runtime-spawner.ts</b>、<b>dispatch-read.ts</b>，以及上文点名的通用权威。行数区间来自内部阶段盘点台账（不在公开仓），本页只作为规划口径引用。</div>
+</div>
+</section>
+<section class="ch" id="c10">
+<div class="chhead"><span class="num">10</span><h2>权威收敛与模型漂移</h2></div>
+<p class="sub">撰写出来的架构模型是经过评审的意图，快照是派生证据，而这一页的现状描述由代码决定。漂移应当在评审后回改模型，绝不在这里被静默抹平。</p>
+<figure><svg class="fig" viewBox="0 0 1680 660" role="img" aria-label="权威收敛：撰写的架构意图与当前代码证据之间的差异按漂移处理" xmlns="http://www.w3.org/2000/svg">
+<title>权威收敛：撰写的架构意图与当前代码证据之间的差异按漂移处理</title>
+<defs>
+<marker id="f10-ar-impl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/></marker>
+<marker id="f10-ar-contract" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a6b8a"/></marker>
+<marker id="f10-ar-derived" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8d8271"/></marker>
+<marker id="f10-ar-inflight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0713c"/></marker>
+</defs>
+<rect x="0" y="0" width="1680" height="660" fill="#fdfbf6"/>
+<rect x="26" y="36" width="1628" height="106" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="32" class="lyr">撰写的架构意图（reviewed intent）</text>
+<text x="1646" y="32" class="lyrn" text-anchor="end">经过评审的意图，不在公开仓内</text>
+<rect x="26" y="260" width="1628" height="150" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="256" class="lyr">当前实现证据（measured code）</text>
+<text x="1646" y="256" class="lyrn" text-anchor="end">这一页以这一层为准</text>
+<rect x="26" y="528" width="1628" height="106" rx="14" fill="#f6f2e9" stroke="#e3dccc" stroke-width="1"/>
+<text x="32" y="524" class="lyr">处置方式</text>
+<text x="1646" y="524" class="lyrn" text-anchor="end">不自动晋升：先评审结论，再回改意图</text>
+<polyline points="243.0,134.0 243.0,170.4 1375.0,170.4 1375.0,268.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f10-ar-inflight)"/>
+<rect x="786.0" y="155.4" width="46" height="24" rx="7" fill="#fdfbf6" stroke="#b0713c" stroke-width="1"/>
+<text x="809.0" y="172.4" class="elbl" text-anchor="middle" fill="#b0713c">漂移</text>
+<polyline points="641.0,134.0 641.0,180.8 181.0,180.8 181.0,268.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f10-ar-inflight)"/>
+<rect x="388.0" y="165.8" width="46" height="24" rx="7" fill="#fdfbf6" stroke="#b0713c" stroke-width="1"/>
+<text x="411.0" y="182.8" class="elbl" text-anchor="middle" fill="#b0713c">漂移</text>
+<polyline points="1039.0,134.0 1039.0,191.2 977.0,191.2 977.0,268.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f10-ar-inflight)"/>
+<rect x="985.0" y="176.2" width="46" height="24" rx="7" fill="#fdfbf6" stroke="#b0713c" stroke-width="1"/>
+<text x="1008.0" y="193.2" class="elbl" text-anchor="middle" fill="#b0713c">漂移</text>
+<polyline points="1437.0,134.0 1437.0,201.6 579.0,201.6 579.0,268.0" fill="none" stroke="#b0713c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#f10-ar-inflight)"/>
+<rect x="1039.0" y="186.6" width="76" height="24" rx="7" fill="#fdfbf6" stroke="#b0713c" stroke-width="1"/>
+<text x="1077.0" y="203.6" class="elbl" text-anchor="middle" fill="#b0713c">方向相反</text>
+<polyline points="305.0,402.0 305.0,438.4 728.4,438.4 728.4,536.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f10-ar-impl)"/>
+<polyline points="703.0,402.0 703.0,448.8 802.8,448.8 802.8,536.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f10-ar-impl)"/>
+<polyline points="1101.0,402.0 1101.0,459.2 877.2,459.2 877.2,536.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f10-ar-impl)"/>
+<polyline points="1499.0,402.0 1499.0,469.6 951.6,469.6 951.6,536.0" fill="none" stroke="#4a7c59" stroke-width="2" stroke-linejoin="round" marker-end="url(#f10-ar-impl)"/>
+<rect x="57.0" y="44.0" width="372.0" height="90.0" rx="11" fill="#f5f2ea" stroke="#a2957f" stroke-width="1.8"/>
+<text x="72.0" y="71.0" class="bt">架构 manifest</text>
+<text x="72.0" y="93.0" class="bn" style="font-size:14.0px">已启用 · 3 个视图 · 9 个声明的源码范围</text>
+<text x="72.0" y="113.0" class="bn" style="font-size:14.0px">其中 2 个适配器范围解析不到目录</text>
+<rect x="455.0" y="44.0" width="372.0" height="90.0" rx="11" fill="#f5f2ea" stroke="#a2957f" stroke-width="1.8"/>
+<text x="470.0" y="71.0" class="bt">架构 SSoT 文档</text>
+<text x="470.0" y="93.0" class="bn" style="font-size:14.0px">原则、不变量、稳定节点</text>
+<rect x="853.0" y="44.0" width="372.0" height="90.0" rx="11" fill="#f5f2ea" stroke="#a2957f" stroke-width="1.8"/>
+<text x="868.0" y="71.0" class="bt">关键流程文档</text>
+<text x="868.0" y="93.0" class="bn" style="font-size:14.0px">写入、读取、GUI / 运行时、检查</text>
+<rect x="1251.0" y="44.0" width="372.0" height="90.0" rx="11" fill="#f5f2ea" stroke="#a2957f" stroke-width="1.8"/>
+<text x="1266.0" y="71.0" class="bt">LikeC4 模型与视图</text>
+<text x="1266.0" y="93.0" class="bn" style="font-size:14.0px">23 个稳定节点；撰写出来的视图</text>
+<text x="1266.0" y="113.0" class="bn" style="font-size:14.0px">不是字面上的包清单</text>
+<rect x="57.0" y="268.0" width="372.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="72.0" y="295.0" class="bt">Fact 身份契约</text>
+<text x="72.0" y="317.0" class="bp" xml:space="preserve">packages/kernel/src/domain/fact-event.ts</text>
+<text x="72.0" y="339.0" class="bn" style="font-size:14.0px">一等的 fact/{id}；落成 facts/{id}.md</text>
+<text x="72.0" y="359.0" class="bn" style="font-size:14.0px">taskId 只是可选来源字段</text>
+<rect x="455.0" y="268.0" width="372.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="470.0" y="295.0" class="bt">daemon 协议权威</text>
+<text x="470.0" y="317.0" class="bp" xml:space="preserve">packages/daemon/src/protocol/</text>
+<text x="470.0" y="337.0" class="bp" xml:space="preserve">  daemon-protocol.contract.ts</text>
+<text x="470.0" y="359.0" class="bn" style="font-size:14.0px">GUI import daemon 的类型与方法族</text>
+<text x="470.0" y="379.0" class="bn" style="font-size:14.0px">不存在单独的契约包</text>
+<rect x="853.0" y="268.0" width="372.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="868.0" y="295.0" class="bt">当前 CLI 路由</text>
+<text x="868.0" y="317.0" class="bp" xml:space="preserve">packages/cli/src/index.ts</text>
+<text x="868.0" y="339.0" class="bn" style="font-size:14.0px">解析后的命令一律走 daemon</text>
+<text x="868.0" y="359.0" class="bn" style="font-size:14.0px">src 下没有 kernel/application 的 import</text>
+<rect x="1251.0" y="268.0" width="372.0" height="134.0" rx="11" fill="#f1f6f1" stroke="#4a7c59" stroke-width="1.8"/>
+<text x="1266.0" y="295.0" class="bt">工作区包清单</text>
+<text x="1266.0" y="317.0" class="bp" xml:space="preserve">tsconfig.json</text>
+<text x="1266.0" y="339.0" class="bn" style="font-size:14.0px">只引用 local 与 multica 两个适配器</text>
+<rect x="654.0" y="536.0" width="372.0" height="90.0" rx="11" fill="#edf1f6" stroke="#4a6b8a" stroke-width="1.8"/>
+<text x="669.0" y="563.0" class="bt">漂移按证据登记，而不是静默抹平</text>
+<text x="669.0" y="585.0" class="bn" style="font-size:11.8px">代码决定这一页的现状描述；意图文档保持它作为评审产物的地位</text>
+<text x="669.0" y="605.0" class="bn" style="font-size:13.6px">结论稳定后再回写到架构模型与 ADR，本页不做自动同步</text>
+</svg><figcaption>图 10 · 上层是撰写的架构意图，中层是当前实现证据，下层是处置方式：登记，不自动晋升。</figcaption></figure>
+<div class="prose">
+
+<h3>这张图在讲什么</h3>
+<p>系统里存在三种「架构说法」，它们的权威级别不同：
+<strong>撰写的意图</strong>（架构 manifest、SSoT 文档、关键流程、LikeC4 模型）是经过评审的设计意图；
+<strong>派生快照</strong>（比如从 import 关系扫出来的图）是证据，不能反过来覆盖意图；
+<strong>当前代码</strong>是这一页现状描述的唯一依据。三者不一致时，本页按代码画图，并把差异<strong>登记成漂移</strong>。</p>
+
+<h3>为什么这样设计</h3>
+<p>因为两种反向做法都会坏事。若以模型为准，文档就会长期描述一个不存在的系统，读者按它去改代码会踩空。
+若让快照自动覆盖模型，那么任何一次临时的、错误的实现都会立刻被追认成「架构」，评审就失去了意义。
+折中是：<strong>代码决定现状，模型保留意图，差异显式登记，晋升必须经过人的评审。</strong>本页不做自动同步。</p>
+
+<h3>读者最常误解的点</h3>
+<p>把「漂移」读成「模型是错的」。漂移只是说两边现在不一致，方向可能是任意一边需要改。
+比如 fact 一等化是代码走在前面、文本没跟上；而模型里那两个不存在的适配器，则是意图没有落地。
+处置动作也因此不同：前者应更新文本，后者应决定是实现它还是从模型里删掉。</p>
+
+<h3>和上一章怎么衔接</h3>
+<p>第 9 章说的是「计划要变成什么」，这一章说的是「已经变了但文档没跟上的部分」。两者合起来，
+就是这份现状描述与撰写模型之间的完整差额。</p>
+
+<div class="src">对应源码：<b>packages/kernel/src/domain/fact-event.ts</b>、<b>packages/daemon/src/protocol/daemon-protocol.contract.ts</b>、<b>packages/gui/src/api/api-contract-registry.ts</b>、<b>packages/cli/src/index.ts</b>、<b>tsconfig.json</b>。架构 manifest、SSoT、关键流程与 LikeC4 模型位于内部治理目录，不在公开仓内，因此本图只描述它们的角色，不给出路径。</div>
+</div>
+
+<h3>模型漂移表（4 条）</h3>
+<div class="tw"><table>
+<tr><th style="width:26%">撰写的意图</th><th style="width:32%">当前代码实测</th><th style="width:12%">性质</th><th style="width:30%">本页处置</th></tr>
+<tr>
+  <td>Fact 由 task 拥有，没有独立文件。</td>
+  <td class="mono">fact-event.ts 定义一等身份 fact/{id}，落成 facts/{id}.md，taskId 为可选来源字段；晋升提交已在主干上。</td>
+  <td><span class="tag g">代码在前</span></td>
+  <td>按当前代码画一等 Fact；把旧表述标为过时，兼容性改造仍在进行中。</td>
+</tr>
+<tr>
+  <td>GitHub Issues 与 Linear 适配器是模型中的稳定节点与源码范围。</td>
+  <td class="mono">对应目录不存在；tsconfig.json 只引用 local 与 multica 两个适配器。</td>
+  <td><span class="tag o">意图未落地</span></td>
+  <td>实现包图里只画两个真实适配器；模型中存在而代码中缺席的适配器单列为漂移。</td>
+</tr>
+<tr>
+  <td>存在独立的 daemon 客户端包、契约包与编辑器扩展包。</td>
+  <td class="mono">工作区里没有这些包；客户端代码在 packages/daemon/src/client 下，协议权威是 daemon-protocol.contract.ts，也没有编辑器扩展。</td>
+  <td><span class="tag o">名称不存在</span></td>
+  <td>只标注真实的归属路径，并明确这些包名当前缺席。</td>
+</tr>
+<tr>
+  <td>CLI 可以在只读 / bootstrap 模式下直接组合 Application 与 Kernel；模型另记有 daemon → GUI 注册表依赖。</td>
+  <td class="mono">packages/cli/src 下没有任何 application / kernel 的 import；GUI 侧 import daemon 协议契约，daemon 侧不 import GUI 注册表。</td>
+  <td><span class="tag o">未观察到 / 方向相反</span></td>
+  <td>只画 CLI → daemon 一条路；把实现箭头反转为 daemon 协议契约 → GUI 适配注册表。</td>
+</tr>
+</table></div>
+<p style="font-size:15px;color:#7a7266">另有两条次要差异一并记录但不单列成行：架构 manifest 声明的 9 个源码范围中有 2 个解析不到目录；
+模型里的 23 个稳定节点是经过评审的意图，不能当作字面上的工作区包清单来核对。</p>
+<div class="callout">
+<h4>一条在本次核对中新发现的公开文档漂移</h4>
+<p>公开文档 <code>docs-release/architecture/zh/00-overview.md</code> 的分层图里写有
+<code>packages/kernel/src/write-coordination/</code>，并把 CLI 描述成「直接把纯 Markdown 写入你的 git 仓库」。
+当前主干上<strong>不存在</strong> <code>write-coordination/</code> 这个目录（kernel 的子目录是
+<code>agent-runtime · composition · daemon · domain · entity · integrity · layout · local · markdown ·
+ports · projection · publish · schemas · store</code>），并且 CLI 的写入一律经由 daemon 的 RepoCell。
+这两处表述需要按本页第 1、2 章更新。</p>
+</div>
+
+</section>
+<section class="ch" id="glossary">
+<div class="chhead"><span class="num">附一</span><h2>术语表（中英对照）</h2></div>
+<p class="sub">共 40 条。技术名词在正文首次出现处已给中文解释，这里是统一索引。</p>
+<dl class="glossary">
+<div><dt>台账 <em>ledger</em></dt><dd>以 git 中的事件与 Markdown 文档构成的权威记录，系统的真相来源。</dd></div>
+<div><dt>canonical <em>canonical</em></dt><dd>「权威的、已落定的」。canonical 事件与 canonical ref 指的是被作为真相的那一份。</dd></div>
+<div><dt>投影 <em>projection</em></dt><dd>从事件账本派生出来的 SQLite 读模型；可以整个删掉再重建，不是真相来源。</dd></div>
+<div><dt>WAL <em>write-ahead log</em></dt><dd>预写日志。写入先持久到本地 WAL，再刷写并发布到 Git；读取时两者合并可见。</dd></div>
+<div><dt>单写路 <em>single write road</em></dt><dd>所有承重写入必须经过的唯一路径：daemon → RepoCell 串行队列 → 事件存储。</dd></div>
+<div><dt>RepoCell <em>RepoCell</em></dt><dd>daemon 里每个仓库一份的串行写者，持有锁、promise 队列与写者代际。</dd></div>
+<div><dt>写者代际 <em>writer generation</em></dt><dd>标识当前有效写者的序号；代际被换掉之后，旧写者的追加会被拒绝。</dd></div>
+<div><dt>写者围栏 <em>writer fence</em></dt><dd>用代际或 epoch 挡住陈旧写者继续追加的机制。</dd></div>
+<div><dt>写者 epoch <em>writer epoch</em></dt><dd>fleet 场景下单调递增的中心代际，用于挡住脑裂后仍在写的旧中心。</dd></div>
+<div><dt>冻结写计划 <em>FrozenWritePlan</em></dt><dd>追加事件之前就被固定下来的写入声明：目标路径、身份、修订号、操作 id。</dd></div>
+<div><dt>事件信封 <em>event envelope</em></dt><dd>包裹事件正文的元数据外壳，携带身份与操作标识。</dd></div>
+<div><dt>动作信封 <em>ActionEnvelope</em></dt><dd>通用动作的外壳：kind、target、actor、authorizationRef、idempotencyKey、actionId、version。</dd></div>
+<div><dt>幂等键 <em>idempotencyKey</em></dt><dd>让同一个动作被重放时不会产生第二次写入的键。</dd></div>
+<div><dt>实体类型注册表 <em>entity kind registry</em></dt><dd>登记 12 种实体类型及其事件族、落地位置与撰写方式的注册表。</dd></div>
+<div><dt>落地位置 <em>residency</em></dt><dd>实体状态存在哪里：台账、本地运行期，还是两者混合。</dd></div>
+<div><dt>EntityRef <em>EntityRef</em></dt><dd>跨类型的身份语法，形如 kind/key；关系本身也可被寻址。</dd></div>
+<div><dt>事件族 / 模式 <em>event family / schema</em></dt><dd>一类事件的契约名与版本，例如 task-event/v1、fact-event/v1。</dd></div>
+<div><dt>关系 <em>relation</em></dt><dd>实体之间的类型化有向边，没有独立事件族，内嵌于来源实体的写入中。</dd></div>
+<div><dt>关系图投影 <em>relation graph projection</em></dt><dd>把内嵌关系按规范方向与确定性 id 算成可查询图表行的投影。</dd></div>
+<div><dt>门 / 门禁 <em>gate</em></dt><dd>承重写入必须通过的检查点，默认关闭：不通过就拒绝，而不是警告。</dd></div>
+<div><dt>默认关闭 <em>fail-closed</em></dt><dd>缺省答案是拒绝；只有检查通过才放行。</dd></div>
+<div><dt>完成门 <em>completion gate</em></dt><dd>task 进入 done 之前必须解析并通过的确定性检查集合。</dd></div>
+<div><dt>确定性门 <em>deterministic gate</em></dt><dd>结果可机械判定、不依赖人工裁量的门。</dd></div>
+<div><dt>聚合门 <em>aggregate gate</em></dt><dd>由若干下级门汇总而成的门，不要与确定性门混计。</dd></div>
+<div><dt>preset <em>preset</em></dt><dd>任务包的模板与编译口径，决定创建 task 时生成哪些文档、元数据与门。</dd></div>
+<div><dt>任务包 <em>task package</em></dt><dd>一个 task 对应的整套撰写产物：计划、读集、artifacts 等。</dd></div>
+<div><dt>doc-sync <em>doc-sync</em></dt><dd>把工作区里的手工文档改动，经候选扫描、裁定、事件编译后纳入单写路的通道。</dd></div>
+<div><dt>裁定 <em>adjudication</em></dt><dd>对一次文档改动给出接受 / 拒绝 / 冲突三种出口之一的判断。</dd></div>
+<div><dt>物化 <em>materialization</em></dt><dd>把写计划声明的文档目标真正写到工作区文件系统上。</dd></div>
+<div><dt>派工 <em>dispatch</em></dt><dd>把一个 agent 运行时会话拉起来去执行某项工作；产生 dispatchId 与 sessionId。</dd></div>
+<div><dt>attach <em>attach</em></dt><dd>以游标方式接入正在进行的运行时输出流，断线重连时会拿到明确的 gap 信号。</dd></div>
+<div><dt>occurrence claim <em>occurrence claim</em></dt><dd>定时任务某一次触发的并发主体；带 occurrenceId、claimFence、nodeId，只被一个节点认领。</dd></div>
+<div><dt>fleet center / edge <em>fleet center / edge</em></dt><dd>中心节点持有唯一写权威；边缘节点持只读副本，写请求提交给中心。</dd></div>
+<div><dt>cut <em>cut</em></dt><dd>副本同步中的一个一致性切面指针，用来界定「读到哪儿了」。</dd></div>
+<div><dt>冷重建 <em>cold rebuild</em></dt><dd>从零遍历 canonical 事件重建投影的恢复路径。</dd></div>
+<div><dt>采用律 <em>adoption law</em></dt><dd>一项能力只有成为唯一合法路径时才算被采用；只要存在近路，近路就会被走。</dd></div>
+<div><dt>三原语 <em>three primitives</em></dt><dd>decision（为什么）、task（做什么）、fact（观察到什么），内核只有这三个。</dd></div>
+<div><dt>execution <em>execution</em></dt><dd>task 的一轮交付，提交时封存六字段提交包。</dd></div>
+<div><dt>review <em>review</em></dt><dd>对某一轮 execution 的裁决，记录已核对的证据与理由。</dd></div>
+<div><dt>回环 <em>Fact→Decision→Task→Fact</em></dt><dd>证据先于判断、判断派生工作、工作再产出新证据的闭环纪律。</dd></div>
+</dl></section>
+<section class="ch" id="routes">
+<div class="chhead"><span class="num">附二</span><h2>按角色的阅读路线</h2></div>
+<p class="sub">三条路线，各自只读该读的章节。</p><div class="routes">
+<div class="route"><h4>只想用 CLI 的人</h4><ol>
+<li>先读开头「这个项目是什么」与「一个 task 的一生」，把 decision / task / fact 三个词分清。</li>
+<li>§2 只看图 2A 的前三层与图 2B：知道为什么写入要经过 daemon、为什么删缓存不会丢数据。</li>
+<li>§8 门禁：知道 <code>done</code> 为什么会被拒，以及拒了该补什么。</li>
+<li>末尾术语表：遇到不认识的英文名回来查。</li>
+</ol></div>
+<div class="route"><h4>要改 daemon 的人</h4><ol>
+<li>§1 包与依赖方向：先确认你要动的东西在哪一层、允许 import 什么。</li>
+<li>§2 单写路与可重建读路：整章，尤其是冻结写计划与串行尾。</li>
+<li>§4 通用 action 契约：搞清你要改的分支是走通用路还是专用路。</li>
+<li>§5 或 §6（按你碰的管线选）与 §7 fleet：任何新写路都必须回答多节点问题。</li>
+<li>§9 Phase 6：确认你要加的东西是不是正好在被收敛的候选里。</li>
+</ol></div>
+<div class="route"><h4>要接一个新实体的人</h4><ol>
+<li>§3 实体身份与事件模式：先决定新实体属于 A / B / C 哪一类，绝大多数应该是 B 类。</li>
+<li>§4 通用 action 契约：走通用路，不要再造第五条专用分支。</li>
+<li>§6 任务包与文档写入：如果新实体有撰写文档，路由与写计划从这里抄。</li>
+<li>§8 门禁：新实体如果有承重状态迁移，就要在 manifest 里有对应的门。</li>
+<li>§10 权威收敛：把结论回写到架构模型，别只留在代码里。</li>
+</ol></div>
+</div></section>
+<footer>自包含的中文技术解释页 · 内联 CSS 与 SVG · 不含 JavaScript、不引用任何外部资源。所有断言均以当前主干代码为准；撰写的架构意图与代码的差异按第 10 章登记，本页不做自动同步。</footer>
+</body></html>
