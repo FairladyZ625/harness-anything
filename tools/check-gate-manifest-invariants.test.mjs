@@ -16,7 +16,7 @@ test("accepts a consistent deterministic gate on local, PR, and main-full surfac
     writeFixture(root, {
       deterministic: true,
       surfaceClasses: ["local", "pr", "main-full"],
-      pullRequestJobs: ["boundaries"]
+      pullRequestJobs: ["boundaries"],
     });
 
     const result = runChecker(root);
@@ -33,7 +33,7 @@ test("positive control rejects a deterministic gate without the PR execution sur
     writeFixture(root, {
       deterministic: true,
       surfaceClasses: ["local", "main-full"],
-      pullRequestJobs: []
+      pullRequestJobs: [],
     });
 
     const result = runChecker(root);
@@ -51,12 +51,15 @@ test("rejects manifest workflow execution surfaces that drift from the actual jo
       deterministic: true,
       surfaceClasses: ["local", "pr", "main-full"],
       pullRequestJobs: ["boundaries"],
-      workflowRun: "echo manifest runner was removed"
+      workflowRun: "echo manifest runner was removed",
     });
 
     const result = runChecker(root);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /example-gate declares PR workflow job boundaries, but its command is absent from that job/u);
+    assert.match(
+      result.stderr,
+      /example-gate declares PR workflow job boundaries, but its command is absent from that job/u,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -74,8 +77,8 @@ test("rejects an actual PR gate job that is absent from the manifest workflow in
         "    if: github.event_name == 'pull_request'",
         "    runs-on: ubuntu-latest",
         "    steps:",
-        "      - run: npm run harness:extra-gate"
-      ]
+        "      - run: npm run harness:extra-gate",
+      ],
     });
 
     const result = runChecker(root);
@@ -93,12 +96,15 @@ test("rejects a main-full declaration when the full-check aggregate step drifts"
       deterministic: true,
       surfaceClasses: ["local", "pr", "main-full"],
       pullRequestJobs: ["boundaries"],
-      fullCheckRun: "echo full check was removed"
+      fullCheckRun: "echo full check was removed",
     });
 
     const result = runChecker(root);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /example-gate declares non-PR workflow job full-check, but its command is absent from that job/u);
+    assert.match(
+      result.stderr,
+      /example-gate declares non-PR workflow job full-check, but its command is absent from that job/u,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -110,7 +116,7 @@ test("rejects canonical PR surface labels without a declared PR workflow job", (
     writeFixture(root, {
       deterministic: false,
       surfaceClasses: ["local", "pr", "main-full"],
-      pullRequestJobs: []
+      pullRequestJobs: [],
     });
 
     const result = runChecker(root);
@@ -121,14 +127,14 @@ test("rejects canonical PR surface labels without a declared PR workflow job", (
   }
 });
 
-test("rejects an unmanifested command added to an existing PR gate job", () => {
+test("rejects a workflow command absent from the shared infrastructure list", () => {
   const root = makeFixtureRoot();
   try {
     writeFixture(root, {
       deterministic: true,
       surfaceClasses: ["local", "pr", "main-full"],
       pullRequestJobs: ["boundaries"],
-      workflowRun: "npm run harness:unmanifested"
+      workflowRun: "npm run harness:unmanifested",
     });
 
     const result = runChecker(root);
@@ -150,13 +156,13 @@ test("rejects protected surfaces that match no tracked files", () => {
         "tools/example-gate.mjs",
         "packages/gui/e2e",
         "packages/kernel/fixtures/canonical-events/",
-        "decision:dec_example"
+        "decision:dec_example",
       ],
       trackedFiles: [
         "tools/example-gate.mjs",
         "packages/gui/e2e/example.e2e.mjs",
-        "packages/kernel/fixtures/canonical-events/example.json"
-      ]
+        "packages/kernel/fixtures/canonical-events/example.json",
+      ],
     });
 
     const result = runChecker(root);
@@ -177,24 +183,27 @@ function makeFixtureRoot() {
   return root;
 }
 
-function writeFixture(root, {
-  deterministic,
-  surfaceClasses,
-  pullRequestJobs,
-  workflowRun = "node tools/run-manifest-gates.mjs --workflow-job boundaries",
-  workflowExtra = [],
-  fullCheckRun = "npm run check",
-  protectedSurfaces = [],
-  trackedFiles = []
-}) {
+function writeFixture(
+  root,
+  {
+    deterministic,
+    surfaceClasses,
+    pullRequestJobs,
+    workflowRun = "node tools/run-manifest-gates.mjs --workflow-job boundaries",
+    workflowExtra = [],
+    fullCheckRun = "npm run check",
+    protectedSurfaces = [],
+    trackedFiles = [],
+  },
+) {
   const manifest = {
     schema: "harness-anything/gate-manifest/v2",
     surfaces: {
       rewriteCi: {
         pullRequestGateJobs: ["boundaries"],
         helperJobsNotRegisteredAsGates: [],
-        nonPullRequestGateJobs: ["full-check"]
-      }
+        nonPullRequestGateJobs: ["full-check"],
+      },
     },
     gates: [
       {
@@ -204,37 +213,39 @@ function writeFixture(root, {
         deterministic: false,
         positiveControl: {
           status: "not-applicable",
-          evidence: ["Composite runner; leaf gates own positive controls."]
+          evidence: ["Composite runner; leaf gates own positive controls."],
         },
         executionSurfaces: {
           classes: ["local", "main-full"],
           packageJson: { check: true, checkPr: false, script: "check" },
           rewriteCi: { pullRequestJobs: [], nonPullRequestJobs: ["full-check"] },
-          branchProtection: { required: false, contexts: [] }
-        }
+          branchProtection: { required: false, contexts: [] },
+        },
       },
       {
         id: "example-gate",
         command: "npm run harness:example-gate",
         deterministic,
-        ...(protectedSurfaces.length > 0 ? {
-          changeControl: {
-            requiresGovernanceEvidence: true,
-            protectedSurfaces
-          }
-        } : {}),
+        ...(protectedSurfaces.length > 0
+          ? {
+              changeControl: {
+                requiresGovernanceEvidence: true,
+                protectedSurfaces,
+              },
+            }
+          : {}),
         positiveControl: {
           status: "covered",
-          evidence: ["tools/example-gate.test.mjs"]
+          evidence: ["tools/example-gate.test.mjs"],
         },
         executionSurfaces: {
           classes: surfaceClasses,
           packageJson: { check: true, checkPr: true, script: "harness:example-gate" },
           rewriteCi: { pullRequestJobs, nonPullRequestJobs: ["full-check"] },
-          branchProtection: { required: true, contexts: ["boundaries"] }
-        }
-      }
-    ]
+          branchProtection: { required: true, contexts: ["boundaries"] },
+        },
+      },
+    ],
   };
   const workflow = [
     "name: rewrite-ci",
@@ -251,7 +262,7 @@ function writeFixture(root, {
     "    steps:",
     `      - run: ${workflowRun}`,
     ...workflowExtra,
-    ""
+    "",
   ].join("\n");
 
   writeFileSync(path.join(root, "tools/gate-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
@@ -278,6 +289,6 @@ function runChecker(root) {
   return spawnSync(process.execPath, [checkerPath, "--root", root], {
     cwd: repoRoot,
     encoding: "utf8",
-    env: process.env
+    env: process.env,
   });
 }

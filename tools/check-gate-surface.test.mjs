@@ -90,6 +90,29 @@ test("gate surface check rejects a PR workflow lane that no longer runs a requir
   }
 });
 
+test("gate surface check rejects a workflow command absent from the shared infrastructure list", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      workflow(workflow) {
+        return workflow.replace(
+          "      - run: npm run harness:check-import-boundaries\n",
+          "      - run: npm run harness:check-import-boundaries\n      - run: npm run harness:unmanifested\n",
+        );
+      },
+    });
+
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(
+      result.stderr,
+      /boundaries runs "npm run harness:unmanifested" but no manifest gate declares that command/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("gate surface check accepts a GUI E2E manifest runner wrapped by xvfb and tee", () => {
   const root = makeFixtureRoot();
   try {

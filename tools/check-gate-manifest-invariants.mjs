@@ -4,22 +4,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { deriveProtectedSurfaceRules } from "./check-pr-governance.mjs";
+import { INFRASTRUCTURE_COMMANDS } from "./gate-infrastructure-commands.mjs";
 
 const DEFAULT_ROOT = process.cwd();
 const SURFACE_CLASSES = new Set(["local", "pr", "main-full", "nightly", "manual"]);
 const POSITIVE_CONTROL_STATUSES = new Set(["covered", "documented-gap", "not-applicable"]);
-const INFRASTRUCTURE_COMMANDS = new Set([
-  "npm ci",
-  // Node 26 lanes export node-gyp's nodedir from the setup-node toolchain (dec_047D7AD197D9D096837A0BB36B).
-  'echo "npm_config_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"',
-  "git diff --check",
-  "sudo apt-get update && sudo apt-get install -y xvfb",
-  // Building the packaged bin and configuring the checkout are properties of the runner, not
-  // gates: no manifest gate can declare them because they run before any gate does.
-  "npm run build -w @harness-anything/cli",
-  "git config --global core.autocrlf true"
-]);
-
 export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
   const manifest = readJson(path.join(root, "tools/gate-manifest.json"));
   const workflow = parseWorkflow(readFileSync(path.join(root, ".github/workflows/rewrite-ci.yml"), "utf8"));
@@ -43,8 +32,8 @@ export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
     counts: {
       gates: gates.length,
       deterministic: gates.filter((gate) => gate.deterministic === true).length,
-      findings: findings.length
-    }
+      findings: findings.length,
+    },
   };
 }
 
@@ -60,19 +49,21 @@ function checkProtectedSurfaceCoverage(manifest, root, findings) {
   const trackedFiles = readTrackedFiles(root);
   for (const declaration of declarations) {
     const rules = deriveProtectedSurfaceRules({
-      gates: [{
-        id: declaration.gateId,
-        changeControl: {
-          requiresGovernanceEvidence: true,
-          protectedSurfaces: [declaration.surface]
-        }
-      }]
+      gates: [
+        {
+          id: declaration.gateId,
+          changeControl: {
+            requiresGovernanceEvidence: true,
+            protectedSurfaces: [declaration.surface],
+          },
+        },
+      ],
     });
     const matchesTrackedFile = trackedFiles.some((file) => rules.some((rule) => rule.matcher(file)));
     if (!matchesTrackedFile) {
       const derivedRules = rules.map((rule) => JSON.stringify(rule.display)).join(", ") || "none";
       findings.push(
-        `${declaration.gateId} protected surface ${JSON.stringify(declaration.surface)} matches no tracked files (derived rules: ${derivedRules})`
+        `${declaration.gateId} protected surface ${JSON.stringify(declaration.surface)} matches no tracked files (derived rules: ${derivedRules})`,
       );
     }
   }
@@ -81,7 +72,7 @@ function checkProtectedSurfaceCoverage(manifest, root, findings) {
 function readTrackedFiles(root) {
   const result = spawnSync("git", ["ls-files", "-z"], {
     cwd: root,
-    encoding: "utf8"
+    encoding: "utf8",
   });
   if (result.status !== 0) {
     throw new Error(`git ls-files failed: ${(result.stderr || result.stdout).trim()}`);
@@ -117,8 +108,8 @@ function checkWorkflowCommands(manifest, workflow, gates, findings) {
       }
       for (const gate of matchingGates) {
         const declaredJobs = job.isPullRequestJob
-          ? gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? []
-          : gate.executionSurfaces?.rewriteCi?.nonPullRequestJobs ?? [];
+          ? (gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? [])
+          : (gate.executionSurfaces?.rewriteCi?.nonPullRequestJobs ?? []);
         if (!declaredJobs.includes(job.id)) {
           findings.push(`workflow job ${job.id} runs ${gate.id}, but that gate does not declare the job`);
         }
@@ -193,11 +184,7 @@ function parseManifestRunner(command) {
   if (!match) return null;
   const args = match[1] ?? "";
   const workflowJob = /(?:^|\s)--workflow-job\s+(\S+)/u.exec(args)?.[1] ?? null;
-  const excludes = new Set(
-    (/(?:^|\s)--exclude\s+(\S+)/u.exec(args)?.[1] ?? "")
-      .split(",")
-      .filter(Boolean)
-  );
+  const excludes = new Set((/(?:^|\s)--exclude\s+(\S+)/u.exec(args)?.[1] ?? "").split(",").filter(Boolean));
   return { workflowJob, excludes };
 }
 
@@ -232,8 +219,12 @@ function parseWorkflow(text) {
   }
 
   for (const job of jobs.values()) {
-    job.isPullRequestJob = job.ifExpressions.some((expression) => expression.includes("github.event_name == 'pull_request'"));
-    job.isNonPullRequestJob = job.ifExpressions.some((expression) => expression.includes("github.event_name != 'pull_request'"));
+    job.isPullRequestJob = job.ifExpressions.some((expression) =>
+      expression.includes("github.event_name == 'pull_request'"),
+    );
+    job.isNonPullRequestJob = job.ifExpressions.some((expression) =>
+      expression.includes("github.event_name != 'pull_request'"),
+    );
   }
   return jobs;
 }
@@ -272,8 +263,11 @@ function checkClassificationFields(gate, findings) {
   if (!positiveControl || !POSITIVE_CONTROL_STATUSES.has(positiveControl.status)) {
     findings.push(`${gate.id} must declare positiveControl.status as covered, documented-gap, or not-applicable`);
   }
-  if (!Array.isArray(positiveControl?.evidence) || positiveControl.evidence.length === 0
-    || positiveControl.evidence.some((entry) => typeof entry !== "string" || entry.trim() === "")) {
+  if (
+    !Array.isArray(positiveControl?.evidence) ||
+    positiveControl.evidence.length === 0 ||
+    positiveControl.evidence.some((entry) => typeof entry !== "string" || entry.trim() === "")
+  ) {
     findings.push(`${gate.id} must declare non-empty positiveControl.evidence`);
   }
 }
@@ -316,7 +310,9 @@ function parseArgs(argv) {
 
 function printResult(result) {
   if (result.ok) {
-    console.log(`Gate manifest invariants passed (${result.counts.deterministic}/${result.counts.gates} deterministic gates).`);
+    console.log(
+      `Gate manifest invariants passed (${result.counts.deterministic}/${result.counts.gates} deterministic gates).`,
+    );
     return;
   }
   console.error(`Gate manifest invariants failed with ${result.findings.length} finding(s):`);
