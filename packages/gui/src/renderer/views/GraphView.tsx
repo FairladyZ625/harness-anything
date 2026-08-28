@@ -32,6 +32,12 @@ import {
 } from "../graph/entityStatusFilter";
 import { focusHistoryReducer, EMPTY_HISTORY, canBack, canForward } from "../navigation/focusHistory";
 import { activeProducesFactRefs } from "../model/triadic";
+import { isTaskArchiveNoise } from "../model/taskFilters";
+import {
+  graphTerritoryPreferenceStorage,
+  readGraphTerritoryShowArchived,
+  writeGraphTerritoryShowArchived,
+} from "../graph-territory-preferences";
 
 export type ViewMode = "territory" | "spotlight";
 
@@ -92,6 +98,14 @@ function GraphViewInner({
   // 用户手动展开的 zone 集。上千实体的真实数据下,折叠态保证首屏可读。
   const [expandedZones, setExpandedZones] = useState<Set<string>>(() => new Set());
   const [flowMode, setFlowMode] = useState<FlowAnimMode>("focus");
+  // 领地降噪开关(task_b92c5138):默认关 = 隐藏 cancelled/archived task(看板同规则,
+  // 判定 isTaskArchiveNoise 单一定义);localStorage 按视图记忆,坏值回落默认。
+  const [showArchived, setShowArchived] = useState(() =>
+    readGraphTerritoryShowArchived(graphTerritoryPreferenceStorage()),
+  );
+  useEffect(() => {
+    writeGraphTerritoryShowArchived(graphTerritoryPreferenceStorage(), showArchived);
+  }, [showArchived]);
   // 聚光灯布局统计(EgoNeighborhood 上报,页头计数与焦点面包屑共用)。
   const [spotlightStats, setSpotlightStats] = useState<{ nodes: number; edges: number; focusLabel: string | null }>({
     nodes: 0,
@@ -178,6 +192,8 @@ function GraphViewInner({
   // 筛选口径与 archive 线对齐:module/实体类型/实体状态筛选同样作用于领地。单种类 skel
   // 下 types 由 skel 独占。状态筛选在**行**上生效(archive 是过滤已渲染节点):块计数因此
   // 与可见 chip 一致,不会出现「徽章记了一笔、屏幕纹丝不动」的空筛。fact 不受状态筛选。
+  // 降噪(默认隐藏 cancelled/archived task)走同一条行过滤(isTaskArchiveNoise,与看板
+  // 共用),所以块/进度计数同样只数可见行;领地 L1 无关系线,隐藏行不留下悬空边。
   const territoryTypes = useMemo(
     () => (skel === "task" || skel === "decision" || skel === "fact" ? new Set<string>([skel]) : filters.types),
     [skel, filters.types],
@@ -187,7 +203,8 @@ function GraphViewInner({
     const taskVisible = (task: TaskRow) =>
       filters.modules.has(task.module) &&
       territoryTypes.has("task") &&
-      taskPassesStatusFilter(task, filters.entityStatus);
+      taskPassesStatusFilter(task, filters.entityStatus) &&
+      (showArchived || !isTaskArchiveNoise(task));
     const visibleTasks = tasks.filter(taskVisible);
     const moduleByTaskId = new Map(tasks.map((task) => [task.taskId, task.module] as const));
     // fact 跟随宿主 task 的 module 可见性;无宿主(未知/外部)不因 module 筛选隐藏。
@@ -225,6 +242,7 @@ function GraphViewInner({
     filters.modules,
     filters.entityStatus,
     territoryTypes,
+    showArchived,
   ]);
 
   const toggleZone = useCallback((zoneId: string) => {
@@ -304,6 +322,21 @@ function GraphViewInner({
             : `聚光灯 · ${spotlightStats.nodes} 节点 · ${spotlightStats.edges} 边`}
         </span>
         <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} />
+        {viewMode === "territory" && (
+          <span
+            className="inline-flex items-center gap-1 rounded bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted"
+            title="与看板同一条降噪规则:status=cancelled 或 package disposition≠active 的 task 默认不画;点击切回全量(本机记忆)"
+          >
+            已归档
+            <button
+              data-testid="territory-archive-toggle"
+              onClick={() => setShowArchived((v) => !v)}
+              className="rounded px-1 text-[11px] text-text hover:bg-surface"
+            >
+              {showArchived ? "显示" : "隐藏"}
+            </button>
+          </span>
+        )}
         {territory && territory.unprojectedCount > 0 && (
           <span
             className="inline-flex items-center gap-1 rounded bg-stale/10 px-1.5 py-0.5 font-mono text-stale"
