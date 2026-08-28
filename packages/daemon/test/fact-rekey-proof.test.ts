@@ -4,10 +4,12 @@ import test from "node:test";
 import {
   decisionMachineDigest,
   reduceDecisionDocument,
+  reviewDigest,
   type DecisionDocumentState,
   type DecisionEventV1,
+  type TaskEventV1,
 } from "../../kernel/src/index.ts";
-import { rekeyDecisionProofs } from "../src/fact-rekey.ts";
+import { rekeyDecisionProofs, rekeyReviewConsentProof } from "../src/fact-rekey.ts";
 
 const actor = {
   principal: { personId: "person-rekey" },
@@ -90,4 +92,36 @@ test("fact rekey repins decision outcome content to its projected state", () => 
   assert.equal(rewritten.payload.contentPin?.digest, decisionMachineDigest(reduced));
   assert.equal(rewritten.payload.judgmentConsent?.machineDigest, decisionMachineDigest(current));
   assert.notDeepEqual(rewritten.payload.contentPin, event.payload.contentPin);
+});
+
+test("fact rekey repins review consent after evidence refs change", () => {
+  const legacyReview = {
+      schema: "review/v1",
+      reviewId: "review-rekey",
+      taskId: "task-rekey",
+      executionId: "execution-rekey",
+      verdict: "approved",
+      actor,
+      capabilityRef: "transport-reviewer:person-rekey",
+      reason: "The migrated fact supports the result.",
+      evidenceChecked: ["fact/task-rekey/F-ABCDEFGH"],
+      commitSha: "0123456789abcdef0123456789abcdef01234567",
+      iteration: 0,
+      contentDigest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      reviewedAt: "2026-08-28T00:01:00.000Z",
+    } as const,
+    review = { ...legacyReview, evidenceChecked: ["fact/F-ABCDEFGH"] },
+    event = {
+      schema: "task-event/v1",
+      type: "review_consent_recorded",
+      payload: {
+        review,
+        consent: {
+          reviewDigest: reviewDigest(legacyReview),
+        },
+      },
+    } as unknown as Extract<TaskEventV1, { readonly type: "review_consent_recorded" }>;
+  const rewritten = rekeyReviewConsentProof(event);
+  assert.equal(rewritten.payload.consent.reviewDigest, reviewDigest(review));
+  assert.notEqual(rewritten.payload.consent.reviewDigest, event.payload.consent.reviewDigest);
 });

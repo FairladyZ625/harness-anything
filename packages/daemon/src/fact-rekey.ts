@@ -19,6 +19,7 @@ import {
   readLegacyMigrationSource,
   reduceDecisionDocument,
   renderFactsDocument,
+  reviewDigest,
   resolveHarnessLayout,
   resolveLedgerGitLayout,
   serializePersistedCanonicalEvent,
@@ -30,6 +31,7 @@ import {
   type DocEventV1,
   type MigrationImportEventV1,
   type PublicationFile,
+  type TaskEventV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { DocEventChange } from "../../kernel/src/index.ts";
@@ -359,6 +361,8 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
         consumeKnownError(error);
       }
     }
+    if (next?.schema === "task-event/v1" && next.type === "review_consent_recorded")
+      next = rekeyReviewConsentProof(next);
     if (stableStringify(next) !== stableStringify(event))
       eventRewrites.push({ event: next, body: serializePersistedCanonicalEvent(next) });
   }
@@ -657,6 +661,21 @@ export function rekeyDecisionProofs(event: DecisionEventV1, current: DecisionDoc
     };
   }
   return { ...event, payload } as DecisionEventV1;
+}
+
+export function rekeyReviewConsentProof(
+  event: Extract<TaskEventV1, { readonly type: "review_consent_recorded" }>,
+): Extract<TaskEventV1, { readonly type: "review_consent_recorded" }> {
+  return {
+    ...event,
+    payload: {
+      ...event.payload,
+      consent: {
+        ...event.payload.consent,
+        reviewDigest: reviewDigest(event.payload.review),
+      },
+    },
+  };
 }
 
 function replaceRefs(body: string, map: ReadonlyMap<string, string>, relationMap: ReadonlyMap<string, string>): string {
