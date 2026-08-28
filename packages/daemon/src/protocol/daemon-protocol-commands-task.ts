@@ -95,12 +95,22 @@ export const taskExecutionProtocolCommands = Object.freeze([
       cliInput(
         "--from-file",
         "single",
-        true,
+        false,
         {
           code: "invalid_field",
-          nextAction: "Submit requires a complete submission JSON packet.",
+          nextAction: "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
         },
-        { jsonFields: taskSubmissionJsonFields },
+        { jsonFields: taskSubmissionJsonFields, conflictsWith: ["--json-input"] },
+      ),
+      cliInput(
+        "--json-input",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
+        },
+        { jsonFields: taskSubmissionJsonFields, conflictsWith: ["--from-file"] },
       ),
     ],
   }),
@@ -197,33 +207,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
     path: ["task", "code-doc", "reconcile", "<task-id>"],
     summary: "Publish a typed code-doc witness.",
     method: "repo.task.run",
-    inputs: [
-      cliInput("--execution-id", "single", true, {
-        code: "invalid_field",
-        nextAction: "Reconcile requires execution-id, commit-sha, iteration, and path.",
-      }),
-      cliInput(
-        "--commit-sha",
-        "single",
-        true,
-        {
-          code: "invalid_field",
-          nextAction: "Reconcile requires a full commit sha.",
-        },
-        { regex: "^[0-9a-f]{40}$" },
-      ),
-      cliInput(
-        "--iteration",
-        "single",
-        true,
-        { code: "invalid_field", nextAction: "Iteration must be 0 or 1." },
-        { enum: ["0", "1"] },
-      ),
-      cliInput("--path", "repeated", true, {
-        code: "invalid_field",
-        nextAction: "Reconcile requires at least one canonical path.",
-      }),
-    ],
+    inputs: [],
   }),
   defineLedgerWriteCommand({
     id: "task-code-doc-repoint",

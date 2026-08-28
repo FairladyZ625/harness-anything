@@ -300,7 +300,7 @@ test("a reviewed bare-invocation execution can declare its executor and complete
       commitSha = git(rootDir, "rev-parse", "HEAD"),
       submission = {
         completionClaim: "The reviewed executor repair fixture is complete.",
-        deliverables: ["reviewed executor repair"],
+        deliverables: ["README.md"],
         outputs: ["README.md"],
         verificationNotes: ["daemon integration"],
         knownGaps: [],

@@ -652,7 +652,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       path.join(fixture.root, "submission.json"),
       JSON.stringify({
         completionClaim: "Executor axis is covered.",
-        deliverables: ["daemon actor binding"],
+        deliverables: ["README.md"],
         outputs: [closeoutPath],
         verificationNotes: ["end-to-end daemon flow"],
         knownGaps: [],
@@ -670,25 +670,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       "applied",
     );
     assert.equal(
-      run(
-        fixture.root,
-        fixture.userRoot,
-        [
-          "task",
-          "code-doc",
-          "reconcile",
-          taskId,
-          "--execution-id",
-          executionId,
-          "--commit-sha",
-          commitSha,
-          "--iteration",
-          "0",
-          "--path",
-          "README.md",
-        ],
-        "agent:claude-code",
-      ).outcome,
+      run(fixture.root, fixture.userRoot, ["task", "code-doc", "reconcile", taskId], "agent:claude-code").outcome,
       "applied",
     );
 

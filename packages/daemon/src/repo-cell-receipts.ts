@@ -226,6 +226,6 @@ export function progressReceipt(
     eventId: event.eventId,
     ...publication,
     worktreeVisible: true,
-    nextAction: `ha task submit ${event.payload.taskId} --execution-id ${event.payload.executionId} ...`,
+    nextAction: `ha task submit ${event.payload.taskId} --json-input '<submission-json>'`,
   };
 }

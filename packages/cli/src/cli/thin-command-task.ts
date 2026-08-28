@@ -2,7 +2,13 @@ import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.cont
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
 import { parseContractMigrate, parseTaskArchive, parseTaskDelete } from "./thin-command-task-admin.ts";
-import { parseCodeDoc, parseCodeDocRepoint, parseComplete, parseProgress } from "./thin-command-task-evidence.ts";
+import {
+  parseCodeDoc,
+  parseCodeDocRepoint,
+  parseComplete,
+  parseProgress,
+  parseSubmit,
+} from "./thin-command-task-evidence.ts";
 import { parseAmend, parseRelate, parseSupersede, parseTransition } from "./thin-command-task-lifecycle.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
@@ -51,9 +57,9 @@ export function parseTask(
   if (id === "task-supersede") return parseSupersede(args, taskId, rootDir, repoId, json, inputs);
   if (id === "task-relate") return parseRelate(args, taskId, rootDir, repoId, json, inputs);
   if (id === "task-complete") return parseComplete(rootDir, repoId, json, args, taskId, inputs);
-  if (id === "task-submit" || id === "task-closeout")
+  if (id === "task-submit") return parseSubmit(rootDir, repoId, json, args, taskId, inputs);
+  if (id === "task-closeout")
     return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
-      ...(id === "task-submit" ? { verb, commandType: "SubmitExecution" } : {}),
       taskId,
     });
   if (id === "task-declare-executor") {

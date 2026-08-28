@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   assertCurrentWriter,
   projectDecisionReadiness,
@@ -419,13 +420,35 @@ export function createRepoCellApi(context: any): RepoCell {
       admission = admitRepoMode(context.mode, command, binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
     context.queueDepth += 1;
-    const pending = chainRepoCellWrite(context.tail, () => {
+    const pending = chainRepoCellWrite(context.tail, async () => {
       context.queueDepth -= 1;
       if (context.state !== "attached") context.attemptRecovery();
       const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
       if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
+      const taskId = typeof payload.taskId === "string" && payload.taskId ? payload.taskId : null,
+        idempotencyKey =
+          typeof payload.idempotencyKey === "string" && payload.idempotencyKey ? payload.idempotencyKey : null,
+        dispatchOpId = idempotencyKey
+          ? `runtime-spawn-${createHash("sha256")
+              .update(`${context.input.repoId}\0${idempotencyKey}`)
+              .digest("hex")
+              .slice(0, 32)}`
+          : null,
+        taskLease = taskId ? context.projection.currentLease(taskId) : null;
+      if (
+        taskId &&
+        (taskLease === null || taskLease.phase === "released") &&
+        (!dispatchOpId || context.store.readEvent(dispatchOpId) === null)
+      ) {
+        const started = await context.executeAction({ kind: "task-start", taskId }, binding);
+        if (started.outcome !== "applied")
+          throw context.cellCodedError(
+            started.code ?? "runtime_task_lease_required",
+            started.nextAction ?? `Task ${taskId} could not acquire an execution lease for runtime dispatch.`,
+          );
+      }
       return context.runtimeSpawner.spawn(payload, binding) as Promise<JsonObject>;
     });
     context.tail = pending.then(

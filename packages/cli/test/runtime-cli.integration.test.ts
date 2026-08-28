@@ -198,24 +198,26 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(missingInstance.status, 1);
     assert.equal(missingInstance.receipt.code, "runtime_instance_not_found");
     assert.equal(missingInstance.receipt.dispatchId, undefined);
-    const missingLease = runMaybe(root, env, [
-      "runtime",
-      "run",
-      "cli-worker",
-      "--prompt",
-      "must reject without lease",
-      "--task",
-      taskId,
-      "--detach",
-    ]);
-    assert.equal(missingLease.status, 1);
-    assert.equal(missingLease.receipt.code, "runtime_task_lease_required");
-    assert.equal(missingLease.receipt.dispatchId, undefined);
     writeFileSync(promptFile, "file prompt");
     const fromFile = run(root, env, ["runtime", "run", "cli-worker", "--prompt-file", "prompt.txt", "--no-stream"]);
     assert.equal((fromFile.result as Record<string, unknown>).text, "final:file prompt");
     for (const directory of ["missions", "dispatches", "reports"])
       assert.equal(existsSync(path.join(artifactRoot, directory)), false, `${directory} must not exist without --task`);
+    const automaticTaskId = `${taskId}-automatic`;
+    run(root, env, ["task", "create", "--id", automaticTaskId, "--admin", "--title", "Automatic lease"]);
+    const automaticLease = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "must acquire its lease",
+      "--task",
+      automaticTaskId,
+      "--detach",
+    ]);
+    assert.equal(automaticLease.status, 0, JSON.stringify(automaticLease));
+    assert.equal(automaticLease.receipt.outcome, "running");
+    assert.equal(typeof automaticLease.receipt.dispatchId, "string");
     const resumed = run(root, env, [
       "runtime",
       "run",
@@ -507,7 +509,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(derivedText.includes("Review precisely."), true);
     const listed = run(root, env, ["runtime", "status"]),
       sessions = listed.sessions as Array<Record<string, unknown>>;
-    assert.equal(sessions.length, 8);
+    assert.equal(sessions.length, 9);
     assert.match(streamed.stderr, /\[message\] live:stream prompt/u, JSON.stringify(sessions));
     const detail = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId)]);
     assert.equal((detail.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn");

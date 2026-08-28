@@ -8,6 +8,7 @@ import {
   explainEntityKind,
   executionExecutorDeclarationCandidates,
   canStartExecution,
+  heldLeaseForExecutionActor,
   isLedgerLayoutMigrationEvent,
   isTerminalStatus,
   lifecycleDocumentPaths,
@@ -21,6 +22,7 @@ import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
+import { actorHint } from "./repo-cell-proof.ts";
 
 export async function executeAction(
   cell: any,
@@ -323,9 +325,17 @@ export async function executeAction(
     };
   }
   const resolvedLifecycle = cell.resolveLifecycleAction(action),
-    lifecycleEntering =
+    lifecycleTaskId =
       resolvedLifecycle !== null && resolvedLifecycle.coordination !== "execute"
-        ? { taskId: cell.requiredCellText(action.taskId, "taskId"), nextStatus: "active" as const }
+        ? cell.requiredCellText(action.taskId, "taskId")
+        : null,
+    leasedStart =
+      action.kind === "task-start" &&
+      lifecycleTaskId !== null &&
+      ["held", "reserving"].includes(cell.projection.currentLease(lifecycleTaskId, cell.now())?.phase ?? ""),
+    lifecycleEntering =
+      resolvedLifecycle !== null && resolvedLifecycle.coordination !== "execute" && !leasedStart
+        ? { taskId: lifecycleTaskId!, nextStatus: "active" as const }
         : null,
     entering = lifecycleEntering ?? cell.taskWipEnteringAction(action);
   if (entering) cell.assertTaskWipCapacity(entering.taskId, entering.nextStatus);
@@ -412,6 +422,45 @@ export async function lifecycleAction(
     expectedRevision = current.snapshot.revision,
     resolvedLifecycle = cell.resolveLifecycleAction(action),
     preview = resolvedLifecycle?.coordination === "preview";
+  const activeLease = cell.projection.currentLease(taskId, cell.now());
+  if (
+    resolvedLifecycle?.coordination === "reserve" &&
+    !preview &&
+    activeLease &&
+    ["held", "reserving"].includes(activeLease.phase)
+  ) {
+    const lease = activeLease;
+    if (heldLeaseForExecutionActor(current.snapshot, lease.executionId, binding.actor)) {
+      const revision = current.snapshot.revision;
+      return {
+        outcome: "applied",
+        opId: `noop:${cell.operationId(action, binding, cell.input.repoId, revision)}`,
+        revision,
+        evidence: JSON.stringify({ noOp: true, taskId, executionId: lease.executionId }),
+        visibility: "center",
+        proof: {
+          committedRevision: revision,
+          appliedCut: revision,
+          durable: true,
+          canonicalVisible: true,
+          worktreeVisible: true,
+        },
+        taskId,
+        executionId: lease.executionId,
+        changedPaths: [],
+        worktreeVisible: true,
+        summary: `reused active execution ${lease.executionId}`,
+      } as WriteReceipt;
+    }
+    throw cell.cellCodedError(
+      "lease_conflict",
+      lease.phase === "reserving"
+        ? `Task ${taskId} is being reserved by ${actorHint(lease.actor)}; wait for that reservation to publish ` +
+            `or lapse at ${lease.expiresAt}, then retry ha task start ${taskId}.`
+        : `Task ${taskId} is held by ${actorHint(lease.actor)}; that holder must run ha task release ${taskId}. ` +
+            `This caller must wait for release, then retry ha task start ${taskId}.`,
+    );
+  }
   if (preview && !current.snapshot.task)
     throw cell.cellCodedError("task_not_found", "Run ha task list, choose an existing task id, then retry task start.");
   if (preview && current.snapshot.lease)

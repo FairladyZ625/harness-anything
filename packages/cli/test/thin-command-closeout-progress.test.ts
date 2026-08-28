@@ -46,20 +46,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--from-file",
       "consent.json",
     ]),
-    reconcile = parseThinCommand([
-      "task",
-      "code-doc",
-      "reconcile",
-      "task-1",
-      "--execution-id",
-      "execution-1",
-      "--commit-sha",
-      "a".repeat(40),
-      "--iteration",
-      "0",
-      "--path",
-      "packages/kernel/src/domain/task.ts",
-    ]),
+    reconcile = parseThinCommand(["task", "code-doc", "reconcile", "task-1"]),
     complete = parseThinCommand([
       "task",
       "complete",
@@ -133,10 +120,6 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
     assert.deepEqual(reconcile.command.action, {
       kind: "task-code-doc-reconcile",
       taskId: "task-1",
-      executionId: "execution-1",
-      commitSha: "a".repeat(40),
-      iteration: 0,
-      paths: ["packages/kernel/src/domain/task.ts"],
     });
   if (complete.ok)
     assert.deepEqual(complete.command.action, {
@@ -336,6 +319,37 @@ test("progress append preserves ordered duplicate evidence in its closed daemon 
     }
   }
   assert.equal(parseThinCommand(["task", "progress", "append", "task-1"]).ok, false);
+});
+
+test("task submit accepts one inline packet source and code-doc rejects retired witness flags", () => {
+  const packet = JSON.stringify({
+      completionClaim: "Ready.",
+      deliverables: ["README.md"],
+      outputs: ["README.md"],
+      verificationNotes: ["tests"],
+      knownGaps: [],
+      residualRisks: [],
+      commitSha: "a".repeat(40),
+    }),
+    inline = parseThinCommand(["task", "submit", "task-1", "--json-input", packet]);
+  assert.equal(inline.ok, true, JSON.stringify(inline));
+  if (inline.ok)
+    assert.deepEqual(inline.command.action, {
+      kind: "task-submit",
+      verb: "submit",
+      commandType: "SubmitExecution",
+      taskId: "task-1",
+      jsonInput: packet,
+    });
+  assert.equal(parseThinCommand(["task", "submit", "task-1"]).ok, false);
+  assert.equal(
+    parseThinCommand(["task", "submit", "task-1", "--from-file", "submission.json", "--json-input", packet]).ok,
+    false,
+  );
+  const obsolete = parseThinCommand(["task", "code-doc", "reconcile", "task-1", "--execution-id", "execution-1"]);
+  assert.equal(obsolete.ok, false);
+  if (!obsolete.ok)
+    assert.match(obsolete.nextAction, /submitted execution supplies execution id, commit, iteration, and paths/u);
 });
 test("artifact add emits only a source-to-destination descriptor", () => {
   const parsed = parseThinCommand([

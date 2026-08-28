@@ -178,7 +178,7 @@ export function submitLeaseRequiredMessage(
       " --review-id <review-id> --from-file <review.json>.",
     ].join("");
   const lease = snapshot.lease,
-    submit = `ha task submit ${command.taskId} --execution-id ${command.executionId} --from-file <submission.json>`;
+    submit = `ha task submit ${command.taskId} --json-input '<submission-json>'`;
   if (lease?.phase === "held")
     return [
       "Submit requires the active execution lease; the authenticated holder (",

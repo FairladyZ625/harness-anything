@@ -207,10 +207,6 @@ export async function completeTask(cell: any, action: RepoTaskAction, binding: R
         {
           kind: "task-code-doc-reconcile",
           taskId,
-          executionId,
-          commitSha: submitted.submission.commitSha,
-          iteration: submitted.iteration,
-          paths,
         },
         binding,
       );

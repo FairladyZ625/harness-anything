@@ -71,7 +71,7 @@ async function reachGreenInReview(
     path.join(rootDir, "submission.json"),
     JSON.stringify({
       completionClaim: "Implemented.",
-      deliverables: ["lineage"],
+      deliverables: ["README.md"],
       outputs: [closeoutPath],
       verificationNotes: ["verified"],
       knownGaps: [],

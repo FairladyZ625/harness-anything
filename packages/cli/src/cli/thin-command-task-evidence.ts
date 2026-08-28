@@ -52,15 +52,42 @@ export function parseCodeDoc(
 ): ThinParseResult {
   const f = readFlags("task-code-doc-reconcile", args.slice(4), inputs);
   return f.ok
-    ? accepted(rootDir, repoId, json, {
-        kind: "task-code-doc-reconcile",
-        taskId,
-        executionId: f.one.get("--execution-id"),
-        commitSha: f.one.get("--commit-sha"),
-        iteration: Number(f.one.get("--iteration")),
-        paths: f.many.get("--path") ?? [],
-      })
-    : rejected(f.code, f.nextAction, json);
+    ? accepted(rootDir, repoId, json, { kind: "task-code-doc-reconcile", taskId })
+    : rejected(
+        f.code,
+        `Run ha task code-doc reconcile ${taskId}; the submitted execution supplies ` +
+          "execution id, commit, iteration, and paths. See ha task code-doc reconcile --help.",
+        json,
+      );
+}
+
+export function parseSubmit(
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  args: readonly string[],
+  taskId: string,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const f = readFlags("task-submit", args.slice(3), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  const fromFile = f.one.get("--from-file"),
+    jsonInput = f.one.get("--json-input");
+  if (Boolean(fromFile) === Boolean(jsonInput))
+    return rejected(
+      "invalid_field",
+      "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
+      json,
+    );
+  const executionId = f.one.get("--execution-id");
+  return accepted(rootDir, repoId, json, {
+    kind: "task-submit",
+    verb: args[1],
+    commandType: "SubmitExecution",
+    taskId,
+    ...(executionId ? { executionId } : {}),
+    ...(fromFile ? { fromFile } : { jsonInput }),
+  });
 }
 
 export function parseCodeDocRepoint(
