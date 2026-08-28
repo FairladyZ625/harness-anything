@@ -10,6 +10,8 @@ const SURFACE_CLASSES = new Set(["local", "pr", "main-full", "nightly", "manual"
 const POSITIVE_CONTROL_STATUSES = new Set(["covered", "documented-gap", "not-applicable"]);
 const INFRASTRUCTURE_COMMANDS = new Set([
   "npm ci",
+  // Node 26 lanes export node-gyp's nodedir from the setup-node toolchain (dec_047D7AD197D9D096837A0BB36B).
+  'echo "npm_config_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"',
   "git diff --check",
   "sudo apt-get update && sudo apt-get install -y xvfb",
   // Building the packaged bin and configuring the checkout are properties of the runner, not
