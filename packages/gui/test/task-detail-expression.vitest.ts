@@ -235,6 +235,17 @@ describe("Task detail expression", () => {
       "收口",
       "文件",
     ]);
+    // 密度(task_9f39e256):顶部元数据压成两行——tab 并入头部,不再独占整行;
+    // 标题与徽标同行且徽标不换行,长标题只截断(overflow)不撑高。
+    const header = byTestId("task-detail-header");
+    expect(byTestId("task-detail-tabs").closest("header")).toBe(header);
+    expect(header.className).not.toMatch(/min-h-14/u);
+    const title = header.querySelector("h1")!;
+    expect(title.className).toContain("truncate");
+    expect(title.nextElementSibling?.className).toContain("whitespace-nowrap");
+    expect(title.nextElementSibling?.className).toContain("shrink-0");
+    // 会话组入口随头部重排仍可寻址(原在 tab 行尾部)。
+    expect(byTestId("task-open-sessions").closest("header")).toBe(header);
     expect(byTestId("task-document-tree").textContent).toContain("artifacts");
     expect(byTestId("task-overview-tab").textContent).toContain("Canonical plan body");
     expect(byTestId("task-progress-timeline").textContent).toContain("Review review-w3: approved");
@@ -314,6 +325,15 @@ describe("Task detail expression", () => {
     const overview = byTestId("task-overview-tab");
     expect(overview.className).toContain("@min-[1600px]:grid-cols-[minmax(0,1fr)_19rem]");
     expect(byTestId("task-progress-timeline").closest("aside")).toBe(overview.querySelector("aside"));
+    // 密度(task_9f39e256):分区标题(eyebrow/标题/描述)压成单行 inline 条,信息不删。
+    const heading = byTestId("task-section-heading");
+    expect(heading.className).toContain("items-baseline");
+    expect(heading.textContent).toContain("PLAN");
+    expect(heading.textContent).toContain("任务计划");
+    expect(heading.textContent).toContain("目标、验收与边界的完整原文");
+    // 主内容外衬收窄:正文更早进入首屏。
+    expect(scrollPanel.className).toContain("py-4");
+    expect(scrollPanel.closest("main")?.className).toContain("py-2");
 
     // 阅读栏数默认「自适应」:容器查询驱动(styles.css 的 .doc-flow),无需点击。
     const toolbar = byTestId("reader-floating-toolbar");

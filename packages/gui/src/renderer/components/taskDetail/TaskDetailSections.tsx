@@ -62,7 +62,7 @@ export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {
     >
       <section className="min-w-0">
         <SectionHeading eyebrow="PLAN" title="任务计划" description="目标、验收与边界的完整原文" />
-        <div className="mt-5">
+        <div className="mt-4">
           {/* TODO(read-model): repo.tasks.document.read only exposes body:string today.
               Keep the plan intact; do not parse markdown/frontmatter in the renderer.
               Replace this whole-body rendering when the backend projects plan sections. */}
@@ -83,11 +83,11 @@ export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {
       <aside className="border-t border-border pt-6 @min-[1600px]:border-t-0 @min-[1600px]:border-l @min-[1600px]:pl-6 @min-[1600px]:pt-0">
         <SectionHeading eyebrow="TIMELINE" title="进展时间线" description={`${events.length} 条生命周期记录`} />
         {events.length === 0 ? (
-          <div className="mt-5">
+          <div className="mt-4">
             <Empty text="还没有 execution、review、consent 或 gate witness 记录。" />
           </div>
         ) : (
-          <ol className="mt-5 grid gap-0" data-testid="task-progress-timeline">
+          <ol className="mt-4 grid gap-0" data-testid="task-progress-timeline">
             {events.map((event, index) => (
               <li key={`${event.at}-${event.summary}-${index}`} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-3">
                 <div className="flex flex-col items-center">
@@ -356,7 +356,7 @@ export function TaskEvidenceTab({
         description="按 taskId 从关系投影筛选；triage 信号（矛盾 / 孤儿 / 低置信 / 已被取代）在同一投影上现算"
         extra={
           facts.length > 0 ? (
-            <span className="font-mono text-[11px] text-text-faint">
+            <span className="ml-auto shrink-0 font-mono text-[11px] text-text-faint">
               {signalledCount} 条带信号 · {facts.length - signalledCount} healthy
             </span>
           ) : undefined
@@ -986,6 +986,8 @@ function StatusDot({ status }: { readonly status: TaskDispatchProjectionRow["sta
   return <span className={`size-2 rounded-full ${dispatchStatusColor[status]}`} aria-label={status} />;
 }
 
+// 信息密度(task_9f39e256):分区标题从三行(eyebrow/标题/描述)压成单行 inline 条——
+// eyebrow + 标题 + 描述同行基线对齐,描述截断;信息一条不少,高度从 ~67px 降到 ~20px。
 function SectionHeading({
   eyebrow,
   title,
@@ -998,12 +1000,10 @@ function SectionHeading({
   readonly extra?: React.ReactNode;
 }) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-2">
-      <div>
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-accent">{eyebrow}</p>
-        <h2 className="mt-1 text-[18px] font-semibold tracking-[-0.01em] text-text">{title}</h2>
-        <p className="mt-1 max-w-[64ch] text-[12px] leading-5 text-text-faint">{description}</p>
-      </div>
+    <header className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1" data-testid="task-section-heading">
+      <p className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">{eyebrow}</p>
+      <h2 className="shrink-0 text-[14px] font-semibold tracking-[-0.01em] text-text">{title}</h2>
+      <p className="min-w-0 truncate text-[11px] leading-4 text-text-faint">{description}</p>
       {extra}
     </header>
   );
