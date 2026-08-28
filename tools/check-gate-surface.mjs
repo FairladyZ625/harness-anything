@@ -15,24 +15,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { boundaryAllowlistAuthorityFindings } from "./gate-surface-boundary-policy.mjs";
+import { INFRASTRUCTURE_COMMANDS } from "./gate-infrastructure-commands.mjs";
 import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 
 const DEFAULT_ROOT = process.cwd();
 const MANIFEST_GATE_RUNNER = "node tools/run-manifest-gates.mjs";
-const INFRASTRUCTURE_RUN_COMMANDS = new Set([
-  "npm ci",
-  // Node 26 lanes build node-pty from setup-node's local headers instead of downloading them
-  // (dec_047D7AD197D9D096837A0BB36B); the export is workspace setup, not a gate.
-  'echo "npm_config_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"',
-  "git diff --check",
-  "mkdir -p artifacts/gui-e2e",
-  "sudo apt-get update && sudo apt-get install -y xvfb",
-  // The first-run gate exercises the packaged bin, so the bin has to exist before it runs.
-  "npm run build -w @harness-anything/cli",
-  // Setting the checkout to convert line endings is the crlf-checkout job's whole point; it is
-  // a property of the checkout, not a gate command, so no manifest gate can declare it.
-  "git config --global core.autocrlf true"
-]);
 
 export function checkGateSurface(root = DEFAULT_ROOT) {
   const findings = [];
@@ -63,8 +50,8 @@ export function checkGateSurface(root = DEFAULT_ROOT) {
       packageCheckCommands: splitShellAndList(packageScripts.check ?? "").length,
       packageCheckPrCommands: splitShellAndList(packageScripts["check:pr"] ?? "").length,
       pullRequestJobs: workflow.pullRequestJobs.length,
-      branchProtectionContexts: branchContexts.length
-    }
+      branchProtectionContexts: branchContexts.length,
+    },
   };
 }
 
@@ -74,27 +61,27 @@ function checkPackageScripts({ findings, manifest, gates, gatesById, commandToGa
     aggregateName: "check",
     commands: splitShellAndList(packageScripts.check ?? ""),
     manifest,
-    commandToGateIds
+    commandToGateIds,
   });
   const actualCheckPrIds = mapAggregateCommands({
     findings,
     aggregateName: "check:pr",
     commands: splitShellAndList(packageScripts["check:pr"] ?? ""),
     manifest,
-    commandToGateIds
+    commandToGateIds,
   });
 
   compareIdSets({
     findings,
     label: "package.json scripts.check",
     expected: manifest.surfaces?.packageJson?.check ?? [],
-    actual: actualCheckIds
+    actual: actualCheckIds,
   });
   compareIdSets({
     findings,
     label: "package.json scripts.check:pr",
     expected: manifest.surfaces?.packageJson?.checkPr ?? [],
-    actual: actualCheckPrIds
+    actual: actualCheckPrIds,
   });
 
   for (const gate of gates) {
@@ -105,16 +92,20 @@ function checkPackageScripts({ findings, manifest, gates, gatesById, commandToGa
     }
 
     if (!gate.aggregate && Boolean(packageSurface.check) !== actualCheckIds.includes(gate.id)) {
-      findings.push(formatFinding(
-        "package-json",
-        `${gate.id} executionSurfaces.packageJson.check=${packageSurface.check} but scripts.check membership is ${actualCheckIds.includes(gate.id)}.`
-      ));
+      findings.push(
+        formatFinding(
+          "package-json",
+          `${gate.id} executionSurfaces.packageJson.check=${packageSurface.check} but scripts.check membership is ${actualCheckIds.includes(gate.id)}.`,
+        ),
+      );
     }
     if (!gate.aggregate && Boolean(packageSurface.checkPr) !== actualCheckPrIds.includes(gate.id)) {
-      findings.push(formatFinding(
-        "package-json",
-        `${gate.id} executionSurfaces.packageJson.checkPr=${packageSurface.checkPr} but scripts.check:pr membership is ${actualCheckPrIds.includes(gate.id)}.`
-      ));
+      findings.push(
+        formatFinding(
+          "package-json",
+          `${gate.id} executionSurfaces.packageJson.checkPr=${packageSurface.checkPr} but scripts.check:pr membership is ${actualCheckPrIds.includes(gate.id)}.`,
+        ),
+      );
     }
 
     if (packageSurface.check || packageSurface.checkPr || packageSurface.script) {
@@ -122,7 +113,10 @@ function checkPackageScripts({ findings, manifest, gates, gatesById, commandToGa
     }
   }
 
-  for (const id of [...(manifest.surfaces?.packageJson?.check ?? []), ...(manifest.surfaces?.packageJson?.checkPr ?? [])]) {
+  for (const id of [
+    ...(manifest.surfaces?.packageJson?.check ?? []),
+    ...(manifest.surfaces?.packageJson?.checkPr ?? []),
+  ]) {
     if (!gatesById.has(id)) {
       findings.push(formatFinding("package-json", `manifest.surfaces.packageJson references unknown gate id ${id}.`));
     }
@@ -131,38 +125,50 @@ function checkPackageScripts({ findings, manifest, gates, gatesById, commandToGa
 
 function checkRewriteCi({ findings, manifest, gates, workflow, commandToGateIds }) {
   const helperJobs = manifest.surfaces?.rewriteCi?.helperJobsNotRegisteredAsGates ?? [];
-  const actualPullRequestGateJobs = workflow.pullRequestJobs.filter((job) => !helperJobs.includes(job.id)).map((job) => job.id);
+  const actualPullRequestGateJobs = workflow.pullRequestJobs
+    .filter((job) => !helperJobs.includes(job.id))
+    .map((job) => job.id);
   const actualNonPullRequestGateJobs = workflow.nonPullRequestJobs.map((job) => job.id);
 
   compareIdSets({
     findings,
     label: ".github/workflows/rewrite-ci.yml pull_request gate jobs",
     expected: manifest.surfaces?.rewriteCi?.pullRequestGateJobs ?? [],
-    actual: actualPullRequestGateJobs
+    actual: actualPullRequestGateJobs,
   });
   compareIdSets({
     findings,
     label: ".github/workflows/rewrite-ci.yml non-pull_request gate jobs",
     expected: manifest.surfaces?.rewriteCi?.nonPullRequestGateJobs ?? [],
-    actual: actualNonPullRequestGateJobs
+    actual: actualNonPullRequestGateJobs,
   });
 
   const jobsById = new Map(workflow.jobs.map((job) => [job.id, job]));
   for (const job of workflow.pullRequestJobs.filter((candidate) => !helperJobs.includes(candidate.id))) {
     for (const command of job.runCommands) {
-      if (INFRASTRUCTURE_RUN_COMMANDS.has(command)) {
+      if (INFRASTRUCTURE_COMMANDS.has(command)) {
         continue;
       }
       const runnerInvocation = parseManifestRunnerCommand(command);
       if (runnerInvocation) {
         if (runnerInvocation.workflowJob !== job.id) {
-          findings.push(formatFinding("rewrite-ci", `${job.id} runs manifest gate runner for ${runnerInvocation.workflowJob ?? "no workflow job"}.`));
+          findings.push(
+            formatFinding(
+              "rewrite-ci",
+              `${job.id} runs manifest gate runner for ${runnerInvocation.workflowJob ?? "no workflow job"}.`,
+            ),
+          );
         }
         continue;
       }
       const mappedIds = commandToGateIds.get(command) ?? [];
       if (mappedIds.length === 0) {
-        findings.push(formatFinding("rewrite-ci", `${job.id} runs ${JSON.stringify(command)} but no manifest gate declares that command.`));
+        findings.push(
+          formatFinding(
+            "rewrite-ci",
+            `${job.id} runs ${JSON.stringify(command)} but no manifest gate declares that command.`,
+          ),
+        );
       }
     }
   }
@@ -176,16 +182,28 @@ function checkRewriteCi({ findings, manifest, gates, workflow, commandToGateIds 
 
     if (gate.tier === "pr-required") {
       if ((rewriteSurface.pullRequestJobs ?? []).length === 0) {
-        findings.push(formatFinding("rewrite-ci", `${gate.id} is pr-required but declares no pull-request workflow job.`));
+        findings.push(
+          formatFinding("rewrite-ci", `${gate.id} is pr-required but declares no pull-request workflow job.`),
+        );
       }
       for (const jobId of rewriteSurface.pullRequestJobs ?? []) {
         const job = jobsById.get(jobId);
         if (!job || !job.isPullRequestJob) {
-          findings.push(formatFinding("rewrite-ci", `${gate.id} expects pull-request job ${jobId}, but that job is not a pull_request job.`));
+          findings.push(
+            formatFinding(
+              "rewrite-ci",
+              `${gate.id} expects pull-request job ${jobId}, but that job is not a pull_request job.`,
+            ),
+          );
           continue;
         }
         if (!jobRunsGateCommand({ job, gate, manifest, gates })) {
-          findings.push(formatFinding("rewrite-ci", `${gate.id} expects ${jobId} to run ${JSON.stringify(gate.command)}, but the command is absent.`));
+          findings.push(
+            formatFinding(
+              "rewrite-ci",
+              `${gate.id} expects ${jobId} to run ${JSON.stringify(gate.command)}, but the command is absent.`,
+            ),
+          );
         }
       }
     }
@@ -198,7 +216,7 @@ function checkBranchProtection({ findings, manifest, gates, branchContexts }) {
     findings,
     label: ".github/branch-protection.md required contexts",
     expected: manifestContexts,
-    actual: branchContexts
+    actual: branchContexts,
   });
 
   const declaredRequiredContexts = new Set();
@@ -210,16 +228,18 @@ function checkBranchProtection({ findings, manifest, gates, branchContexts }) {
     }
     const gateContexts = gate.githubContext?.requiredContexts ?? [];
     if (Boolean(branchSurface.required) !== gateContexts.length > 0) {
-      findings.push(formatFinding(
-        "branch-protection",
-        `${gate.id} executionSurfaces.branchProtection.required=${branchSurface.required} but githubContext.requiredContexts has ${gateContexts.length} entries.`
-      ));
+      findings.push(
+        formatFinding(
+          "branch-protection",
+          `${gate.id} executionSurfaces.branchProtection.required=${branchSurface.required} but githubContext.requiredContexts has ${gateContexts.length} entries.`,
+        ),
+      );
     }
     compareIdSets({
       findings,
       label: `${gate.id} branch protection contexts`,
       expected: gateContexts,
-      actual: branchSurface.contexts ?? []
+      actual: branchSurface.contexts ?? [],
     });
 
     if (gate.tier === "pr-required" && gateContexts.length === 0) {
@@ -228,14 +248,24 @@ function checkBranchProtection({ findings, manifest, gates, branchContexts }) {
     for (const context of gateContexts) {
       declaredRequiredContexts.add(context);
       if (!branchContexts.includes(context)) {
-        findings.push(formatFinding("branch-protection", `${gate.id} requires context ${context}, but .github/branch-protection.md does not list it.`));
+        findings.push(
+          formatFinding(
+            "branch-protection",
+            `${gate.id} requires context ${context}, but .github/branch-protection.md does not list it.`,
+          ),
+        );
       }
     }
   }
 
   for (const context of branchContexts) {
     if (!declaredRequiredContexts.has(context)) {
-      findings.push(formatFinding("branch-protection", `.github/branch-protection.md lists ${context}, but no manifest gate declares that required context.`));
+      findings.push(
+        formatFinding(
+          "branch-protection",
+          `.github/branch-protection.md lists ${context}, but no manifest gate declares that required context.`,
+        ),
+      );
     }
   }
 }
@@ -276,7 +306,12 @@ function mapAggregateCommands({ findings, aggregateName, commands, manifest, com
     if (runnerInvocation) {
       const expandedIds = expandManifestRunnerIds({ invocation: runnerInvocation, manifest });
       if (runnerInvocation.packageSurface === null) {
-        findings.push(formatFinding("package-json", `package.json scripts.${aggregateName} uses manifest gate runner without --package-surface.`));
+        findings.push(
+          formatFinding(
+            "package-json",
+            `package.json scripts.${aggregateName} uses manifest gate runner without --package-surface.`,
+          ),
+        );
       }
       ids.push(...expandedIds);
       continue;
@@ -284,7 +319,12 @@ function mapAggregateCommands({ findings, aggregateName, commands, manifest, com
 
     const mappedIds = commandToGateIds.get(command) ?? [];
     if (mappedIds.length === 0) {
-      findings.push(formatFinding("package-json", `package.json scripts.${aggregateName} contains ${JSON.stringify(command)} but no manifest gate declares that command.`));
+      findings.push(
+        formatFinding(
+          "package-json",
+          `package.json scripts.${aggregateName} contains ${JSON.stringify(command)} but no manifest gate declares that command.`,
+        ),
+      );
       continue;
     }
     ids.push(...mappedIds);
@@ -310,7 +350,12 @@ function checkCommandResolvableInPackageScripts({ findings, gate, packageScripts
 
   for (const scriptName of new Set(commandScriptNames)) {
     if (!Object.hasOwn(packageScripts, scriptName)) {
-      findings.push(formatFinding("package-json", `${gate.id} references package script ${scriptName}, but package.json does not define it.`));
+      findings.push(
+        formatFinding(
+          "package-json",
+          `${gate.id} references package script ${scriptName}, but package.json does not define it.`,
+        ),
+      );
     }
   }
 }
@@ -319,7 +364,11 @@ function jobRunsGateCommand({ job, gate, manifest, gates }) {
   if (job.runCommands.includes(gate.command)) {
     return true;
   }
-  if (job.runCommands.some((command) => manifestRunnerCoversGate({ command, gateId: gate.id, workflowJob: job.id, manifest }))) {
+  if (
+    job.runCommands.some((command) =>
+      manifestRunnerCoversGate({ command, gateId: gate.id, workflowJob: job.id, manifest }),
+    )
+  ) {
     return true;
   }
   const parts = splitShellAndList(gate.command);
@@ -388,7 +437,7 @@ function parseRewriteCi(text) {
         id: jobMatch[1],
         ifExpressions: [],
         runCommands: [],
-        nodeVersions: []
+        nodeVersions: [],
       };
       jobs.push(current);
       continue;
@@ -433,14 +482,18 @@ function parseRewriteCi(text) {
   }
 
   for (const job of jobs) {
-    job.isPullRequestJob = job.ifExpressions.some((expression) => expression.includes("github.event_name == 'pull_request'"));
-    job.isNonPullRequestJob = job.ifExpressions.some((expression) => expression.includes("github.event_name != 'pull_request'"));
+    job.isPullRequestJob = job.ifExpressions.some((expression) =>
+      expression.includes("github.event_name == 'pull_request'"),
+    );
+    job.isNonPullRequestJob = job.ifExpressions.some((expression) =>
+      expression.includes("github.event_name != 'pull_request'"),
+    );
   }
 
   return {
     jobs,
     pullRequestJobs: jobs.filter((job) => job.isPullRequestJob),
-    nonPullRequestJobs: jobs.filter((job) => job.isNonPullRequestJob)
+    nonPullRequestJobs: jobs.filter((job) => job.isNonPullRequestJob),
   };
 }
 
@@ -479,9 +532,7 @@ function splitShellAndList(script) {
 }
 
 function parseManifestRunnerCommand(command) {
-  let normalized = command
-    .replace(/\s+2>&1\s+\|\s+tee\s+artifacts\/gui-e2e\/gui-e2e\.log\s*$/u, "")
-    .trim();
+  let normalized = command.replace(/\s+2>&1\s+\|\s+tee\s+artifacts\/gui-e2e\/gui-e2e\.log\s*$/u, "").trim();
   if (normalized.startsWith("xvfb-run --auto-servernum ")) {
     normalized = normalized.slice("xvfb-run --auto-servernum ".length).trim();
   }
@@ -492,7 +543,7 @@ function parseManifestRunnerCommand(command) {
   const invocation = {
     packageSurface: null,
     workflowJob: null,
-    exclude: new Set()
+    exclude: new Set(),
   };
 
   for (let index = 0; index < args.length; index += 1) {
