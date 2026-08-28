@@ -1,4 +1,4 @@
-import { isMigrationImportEvent, serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
+import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
 import type { ActorIdentity, EventHead } from "../domain/write-chain.contract.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
@@ -449,13 +449,6 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     layout: () => gitLayout,
     read: stream,
     readHead,
-    readLedgerEpoch: () =>
-      Math.max(
-        git.readLedgerEpoch(),
-        ...wal
-          .records()
-          .map((record) => (isMigrationImportEvent(record.event) ? (record.event.payload.ledgerEpoch ?? 0) : 0)),
-      ),
     readEvent: (opId) =>
       wal.records().find((record) => record.opId === opId)?.event ??
       (gitBaseline.eventOids.has(opId) ? git.readEvent(opId) : null),

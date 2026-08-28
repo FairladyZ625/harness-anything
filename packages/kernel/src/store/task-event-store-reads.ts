@@ -1,6 +1,5 @@
 import path from "node:path";
 import {
-  isMigrationImportEvent,
   parseCanonicalEvent,
   serializePersistedCanonicalEvent,
   type CanonicalEventV1,
@@ -139,12 +138,6 @@ function revisionOrderedEventBatch(
     result = { commit, entries: ordered.map(({ entry }) => entry), events: ordered.map(({ event }) => event) };
   revisionEntryCache.set(ledger, result);
   return result;
-}
-export function ledgerEpochAt(ledger: LedgerGitLayout, commit: string): number {
-  return revisionOrderedEventBatch(ledger, commit).events.reduce(
-    (maximum, event) => (isMigrationImportEvent(event) ? Math.max(maximum, event.payload.ledgerEpoch ?? 0) : maximum),
-    0,
-  );
 }
 function firstRevisionEntryAfter(entries: readonly EventEntry[], cursor: string): number {
   const index = entries.findIndex((entry) => entry.name === cursor);

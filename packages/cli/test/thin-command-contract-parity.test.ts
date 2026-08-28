@@ -39,10 +39,16 @@ const frozenMutations = Object.freeze([
     facet: "boolean",
     argv: ["decision", "show", "dec_1", "--include-body"],
   },
+  {
+    commandId: "fact-rekey",
+    inputName: "--dry-run",
+    facet: "boolean",
+    argv: ["migrate", "rekey-facts", "--dry-run"],
+  },
 ] as const);
 
 test("all public commands expose the canonical structured input facet", () => {
-  assert.equal(daemonProtocolCommands.length, 135);
+  assert.equal(daemonProtocolCommands.length, 136);
   for (const command of daemonProtocolCommands) {
     assert.equal(Object.hasOwn(command, "inputs"), true, `${command.id}: explicit inputs`);
     assert.deepEqual(deriveThinCliInputs(command), command.inputs, command.id);

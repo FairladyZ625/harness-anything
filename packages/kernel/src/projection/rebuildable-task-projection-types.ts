@@ -18,7 +18,6 @@ export interface EventStreamPort {
     readonly prefetchContent?: EventContentPrefetch;
   };
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
-  readonly readLedgerEpoch?: () => number;
 }
 export type EventContentPrefetch = (events: readonly CanonicalEventV1[]) => ReadonlyMap<string, Uint8Array | null>;
 export interface ProjectionContext {

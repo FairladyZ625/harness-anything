@@ -3,4 +3,4 @@
 // historical offset spelling. A version mismatch takes the discard-and-replay
 // path in rebuildable-task-projection.ts; squad-coordinator then sees its durable
 // ready marker cleared and replays dispatch streams into the local-only table.
-export const taskProjectionSchemaVersion = 13;
+export const taskProjectionSchemaVersion = 12;

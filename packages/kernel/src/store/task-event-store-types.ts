@@ -122,7 +122,6 @@ export interface CanonicalEventStore {
   readonly canonicalRef: string;
   readonly read: () => CanonicalEventStreamV1;
   readonly readHead: () => EventHead | null;
-  readonly readLedgerEpoch: () => number;
   readonly currentCut: () => LedgerCutIdentity;
   readonly currentCommit: () => LedgerCommitSha;
   readonly publication: (event: CanonicalEventV1) => CanonicalPublicationIdentity;

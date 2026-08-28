@@ -584,7 +584,6 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       (event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "id-map",
     );
     assert.equal(marker?.workspaceRevision, 17);
-    assert.equal(marker?.schema === "migration-import-event/v1" ? marker.payload.ledgerEpoch : undefined, 1);
     assert.equal(
       stream.events.some((event) => event.schema === "doc-event/v1" && event.workspaceRevision === 12),
       true,

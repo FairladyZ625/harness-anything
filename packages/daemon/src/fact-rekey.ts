@@ -73,7 +73,6 @@ interface RewrittenEntityBlob {
 
 interface FactRekeyPlan {
   readonly facts: readonly LegacyFact[];
-  readonly ledgerEpoch: number;
   readonly map: ReadonlyMap<string, string>;
   readonly relationMap: ReadonlyMap<string, string>;
   readonly eventRewrites: readonly { readonly event: CanonicalEventV1; readonly body: string }[];
@@ -198,7 +197,6 @@ export function runFactRekey(input: {
       payload: {
         migratedFrom: `fact-rekey:${digest}`,
         generation: "v0",
-        ledgerEpoch: plan.ledgerEpoch + 1,
         entity: {
           kind: "id-map",
           importId: `fact-rekey-${digest.slice(0, 16)}`,
@@ -479,13 +477,6 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
       .filter((document): document is { readonly path: string; readonly body: string } => document !== null);
   return {
     facts,
-    ledgerEpoch: events.reduce(
-      (maximum, event) =>
-        isMigrationImportEvent(event) && typeof event.payload.ledgerEpoch === "number"
-          ? Math.max(maximum, event.payload.ledgerEpoch)
-          : maximum,
-      0,
-    ),
     map,
     relationMap,
     eventRewrites,

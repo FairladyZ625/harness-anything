@@ -23,7 +23,6 @@ import {
   decideDocWrite,
   parseDocWriteIntent,
   serializeCanonicalEvent,
-  serializePersistedCanonicalEvent,
   type CanonicalEventV1,
   type DocEventV1,
 } from "../../src/domain/doc-sync.contract.ts";
@@ -35,107 +34,8 @@ import {
 } from "../../src/domain/migration-import-event.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
-import { eventObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
-
-test("a newer ledger epoch forces a complete projection cold rebuild", async () => {
-  await withTempStoreAsync(async (rootDir) => {
-    initRepo(rootDir);
-    const seed = lifecycleFixture().events,
-      store = makeTaskEventStore({ repoId: "epoch-rebuild", rootDir });
-    store.append({ event: seed[0]!, plan: taskLifecycleWritePlan(seed[0]!), blobs: [] });
-    await store.drain();
-    let edgeSource = store;
-    const readCursors: (string | null)[] = [],
-      edgeStore = {
-        ...store,
-        readHead: () => edgeSource.readHead(),
-        readLedgerEpoch: () => edgeSource.readLedgerEpoch(),
-        readBatch: (cursor: string | null, maxItems: number) => {
-          readCursors.push(cursor);
-          return edgeSource.readBatch(cursor, maxItems);
-        },
-        readContentBlob: (sha256: string) => edgeSource.readContentBlob(sha256),
-      };
-    const projection = makeTaskProjection({ rootDir, eventStore: edgeStore });
-    assert.equal(projection.read("task-1").watermark, 1);
-    assert.equal(projection.read("task-1").snapshot.task?.title, "Fixture");
-    readCursors.length = 0;
-    const rewrittenSeed = {
-        ...seed[0]!,
-        payload: {
-          ...seed[0]!.payload,
-          task: { ...seed[0]!.payload.task, title: "Rewritten fixture" },
-        },
-      },
-      markerBody = '{"schema":"epoch-marker/v1"}\n',
-      markerSha = sha256Text(markerBody),
-      marker: MigrationImportEventV1 = {
-        schema: "migration-import-event/v1",
-        eventId: "event-epoch-marker",
-        workspaceRevision: 2,
-        opId: "op-epoch-marker",
-        type: "entity_migrated",
-        actor: { principal: { personId: "person-1" }, executor: null },
-        source: MIGRATION_IMPORT_SOURCE,
-        occurredAt: "2026-08-11T00:01:00.000Z",
-        payload: {
-          migratedFrom: "fact-rekey/v1",
-          generation: "v0",
-          ledgerEpoch: 1,
-          entity: {
-            kind: "id-map",
-            importId: "epoch-marker",
-            documentClaim: {
-              path: "migration/epoch-marker.json",
-              sha256: markerSha,
-              size: Buffer.byteLength(markerBody),
-              mediaType: "application/json",
-              policyId: MIGRATION_DOCUMENT_POLICY_ID,
-            },
-          },
-        },
-      };
-    store.append(
-      {
-        event: marker,
-        plan: migrationImportWritePlan(marker),
-        blobs: [
-          { sha256: markerSha, size: Buffer.byteLength(markerBody), mediaType: "application/json", body: markerBody },
-        ],
-      },
-      [
-        {
-          target: `harness/${eventObjectRelativePath(rewrittenSeed.opId, store.layout())}`,
-          body: serializePersistedCanonicalEvent(rewrittenSeed),
-          mode: "100644",
-        },
-      ],
-    );
-    store.append(batchDocumentBundle(store, 3));
-    await store.drain();
-    assert.equal(store.readLedgerEpoch(), 1);
-    edgeSource = makeTaskEventStore({ repoId: "epoch-rebuild", rootDir });
-    assert.equal(edgeSource.readLedgerEpoch(), 1);
-    const replayed = projection.read("task-1");
-    assert.equal(readCursors[0], null);
-    assert.equal(replayed.watermark, 3);
-    assert.equal(replayed.sourceRevision, 3);
-    assert.equal(replayed.snapshot.task?.title, "Rewritten fixture");
-    const db = new DatabaseSync(projection.path);
-    try {
-      assert.equal(
-        (db.prepare("SELECT ledger_epoch FROM projection_meta WHERE singleton = 1").get() as { ledger_epoch: number })
-          .ledger_epoch,
-        1,
-      );
-    } finally {
-      db.close();
-      projection.close();
-    }
-  });
-});
 
 test("task/doc reducers share one SQLite transaction and L2 rebuild restores exact document bytes", async () => {
   await withTempStoreAsync(async (rootDir) => {

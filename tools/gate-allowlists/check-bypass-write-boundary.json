@@ -44,8 +44,7 @@
       { "value": "bypass-write-039", "api": "sqlite.prepare", "ref": "task_01KZXGJWVCKCA6B0MKB220PKFB", "reason": "Resolves the projected package owner for document routing." },
       { "value": "bypass-write-040", "api": "mkdirSync", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Creates only a disposable entity projection directory." },
       { "value": "bypass-write-041", "api": "rmSync", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Removes only a disposable temporary projection." },
-      { "value": "bypass-write-042", "api": "renameSync", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Atomically publishes a rebuildable projection." },
-      { "value": "bypass-write-059", "api": "sqlite.prepare", "ref": "task_7d3e45a2db2a58a2d9d633e052", "reason": "Reads the disposable projection ledger epoch before applying a migration marker." }
+      { "value": "bypass-write-042", "api": "renameSync", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Atomically publishes a rebuildable projection." }
     ],
     "coordinatedCore": [
       { "value": "bypass-write-043", "api": "rmSync", "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN", "reason": "RepoCell-owned recovery removes only an abandoned prepared artifact." },

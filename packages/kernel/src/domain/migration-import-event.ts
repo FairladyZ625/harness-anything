@@ -105,12 +105,7 @@ export type MigrationImportEventV1 = EventEnvelope<
   "migration-import-event/v1",
   "entity_migrated",
   ActorIdentity,
-  {
-    readonly migratedFrom: string;
-    readonly generation: "v0";
-    readonly entity: MigrationEntity;
-    readonly ledgerEpoch?: number;
-  }
+  { readonly migratedFrom: string; readonly generation: "v0"; readonly entity: MigrationEntity }
 > & { readonly source: typeof MIGRATION_IMPORT_SOURCE };
 
 export function isMigrationImportEvent(event: { readonly schema: string }): event is MigrationImportEventV1 {
@@ -143,20 +138,10 @@ function validateMigrationImportEventFields(value: unknown, allowUnknownFields: 
     value.type !== "entity_migrated" ||
     value.source !== MIGRATION_IMPORT_SOURCE ||
     !isRecord(value.payload) ||
-    !matchesMigrationFields(
-      value.payload,
-      value.payload?.ledgerEpoch === undefined
-        ? ["migratedFrom", "generation", "entity"]
-        : ["migratedFrom", "generation", "entity", "ledgerEpoch"],
-      allowUnknownFields,
-    ) ||
+    !matchesMigrationFields(value.payload, ["migratedFrom", "generation", "entity"], allowUnknownFields) ||
     !isNonEmptyString(value.payload.migratedFrom) ||
     value.payload.generation !== "v0" ||
-    !isRecord(value.payload.entity) ||
-    (value.payload.ledgerEpoch !== undefined &&
-      (typeof value.payload.ledgerEpoch !== "number" ||
-        !Number.isSafeInteger(value.payload.ledgerEpoch) ||
-        value.payload.ledgerEpoch < 1))
+    !isRecord(value.payload.entity)
   )
     return ["migration import event envelope or provenance is invalid"];
   if (validateEventEnvelopeIdentity(value, allowUnknownFields).length)
