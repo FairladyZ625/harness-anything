@@ -180,7 +180,10 @@ test("Schedule list human renderer shows state, next occurrence, and single-flig
     });
   assert.equal(
     renderScheduleList({
+      schema: "command-receipt/v2",
+      ok: true,
       command: "schedule-list",
+      outcome: "applied",
       evidence: JSON.stringify({
         schema: "schedule-list/v1",
         schedules: [
@@ -210,7 +213,10 @@ test("Schedule list human renderer shows state, next occurrence, and single-flig
   );
   assert.equal(
     renderScheduleList({
+      schema: "command-receipt/v2",
+      ok: true,
       command: "schedule-list",
+      outcome: "applied",
       evidence: JSON.stringify({ schema: "schedule-list/v1", schedules: [] }),
     }),
     "No schedules.",
@@ -218,7 +224,10 @@ test("Schedule list human renderer shows state, next occurrence, and single-flig
   assert.equal(renderScheduleList({ command: "schedule-list", schedules: [] }), null);
   assert.equal(
     renderScheduleList({
+      schema: "command-receipt/v2",
+      ok: true,
       command: "schedule-list",
+      outcome: "applied",
       evidence: JSON.stringify({ schema: "schedule-list/v2", schedules: [] }),
     }),
     null,

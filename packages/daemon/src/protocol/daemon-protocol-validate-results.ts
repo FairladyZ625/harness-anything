@@ -45,7 +45,14 @@ export type ScheduleListRow = {
 export function parseScheduleListReceipt(
   receipt: Readonly<Record<string, unknown>>,
 ): readonly ScheduleListRow[] | null {
-  if (typeof receipt.evidence !== "string") return null;
+  if (
+    receipt.schema !== "command-receipt/v2" ||
+    receipt.ok !== true ||
+    receipt.command !== "schedule-list" ||
+    receipt.outcome !== "applied" ||
+    typeof receipt.evidence !== "string"
+  )
+    return null;
   const payload: unknown = JSON.parse(receipt.evidence);
   if (
     !exactRecord(payload, ["schema", "schedules"]) ||
@@ -55,6 +62,40 @@ export function parseScheduleListReceipt(
   )
     return null;
   return payload.schedules;
+}
+
+export function makeDaemonCommandReceipt(command: string, receipt: object): JsonObject {
+  const {
+      schema: _schema,
+      ok: _ok,
+      command: _command,
+      error: _error,
+      ...fields
+    } = receipt as Readonly<Record<string, unknown>>,
+    ok = fields.outcome === "applied" || fields.outcome === "pending" || fields.outcome === "no_changes";
+  return {
+    schema: "command-receipt/v2",
+    ok,
+    command,
+    ...fields,
+    ...(!ok
+      ? {
+          error: {
+            code: typeof fields.code === "string" ? fields.code : "write_rejected",
+            hint: typeof fields.nextAction === "string" ? fields.nextAction : "Inspect the rejection.",
+          },
+        }
+      : {}),
+  } as JsonObject;
+}
+
+export function daemonCommandReceiptRejectionCode(receipt: Readonly<Record<string, unknown>>): string | null {
+  return receipt.schema === "command-receipt/v2" &&
+    receipt.ok === false &&
+    receipt.outcome === "op_rejected" &&
+    nonEmpty(receipt.code)
+    ? receipt.code
+    : null;
 }
 
 function scheduleListRow(value: unknown): value is ScheduleListRow {

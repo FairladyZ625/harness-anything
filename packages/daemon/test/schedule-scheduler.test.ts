@@ -8,7 +8,7 @@ import type { RepoCell } from "../src/repo-cell.ts";
 const actor = { principal: { personId: "schedule-scheduler-test" }, executor: null } as const;
 const localBinding = () => ({ actor, source: "local" as const });
 
-test("schedule-list/v1 receipt evidence arms one Schedule", async () => {
+test("raw RepoCell schedule-list receipt is normalized and arms one Schedule", async () => {
   const clock = fakeClock("2026-08-27T10:00:00.000Z"),
     repo = fixtureRepo("receipt-evidence", "local", [schedule("e2e-probe")]),
     scheduler = makeScheduleScheduler({
@@ -21,6 +21,125 @@ test("schedule-list/v1 receipt evidence arms one Schedule", async () => {
   await scheduler.start();
   assert.equal(clock.liveTimers().length, 1);
   assert.equal(clock.liveTimers()[0]!.delayMs, 30 * 60_000);
+  scheduler.close();
+});
+
+test("projection-pending Schedule reads retry silently and then arm", async () => {
+  const clock = fakeClock("2026-08-27T10:00:00.000Z"),
+    repo = fixtureRepo("projection-pending", "local", [schedule("e2e-probe")]),
+    warnings: string[] = [],
+    originalWarn = console.warn;
+  repo.listReceipts.push({
+    outcome: "op_rejected",
+    opId: "read:schedule-list:projection-pending",
+    code: "projection_pending",
+    origin: "daemon",
+    nextAction: "Entity projection is catching up (4096/41333); retry the read.",
+    evidence: "rejection:projection_pending",
+  });
+  console.warn = (message?: unknown) => warnings.push(String(message));
+  const scheduler = makeScheduleScheduler({
+    cells: new Map([[repo.repoId, repo.cell]]),
+    localBinding,
+    now: clock.now,
+    setTimer: clock.setTimer,
+    clearTimer: clock.clearTimer,
+  });
+  try {
+    await scheduler.start();
+    assert.equal(clock.liveTimers().length, 1);
+    assert.equal(clock.liveTimers()[0]!.delayMs, 1_000);
+    clock.liveTimers()[0]!.callback();
+    await scheduler.refresh();
+    assert.equal(clock.liveTimers().length, 1);
+    assert.equal(clock.liveTimers()[0]!.delayMs, 30 * 60_000);
+    assert.deepEqual(warnings, []);
+  } finally {
+    console.warn = originalWarn;
+    scheduler.close();
+  }
+});
+
+test("rejected Schedule reads report their code without parsing rejection evidence", async () => {
+  const clock = fakeClock("2026-08-27T10:00:00.000Z"),
+    repo = fixtureRepo("rejected", "local", []),
+    warnings: string[] = [],
+    originalWarn = console.warn;
+  repo.listReceipts.push({
+    outcome: "op_rejected",
+    opId: "read:schedule-list:rejected",
+    code: "repo_unavailable",
+    origin: "daemon",
+    nextAction: "Repair the repository data shape.",
+    evidence: "rejection:repo_unavailable",
+  });
+  console.warn = (message?: unknown) => warnings.push(String(message));
+  const scheduler = makeScheduleScheduler({
+    cells: new Map([[repo.repoId, repo.cell]]),
+    localBinding,
+    now: clock.now,
+    setTimer: clock.setTimer,
+    clearTimer: clock.clearTimer,
+  });
+  try {
+    await scheduler.start();
+    assert.deepEqual(warnings, [
+      "[schedule-scheduler] rejected refresh failed: Schedule list rejected: repo_unavailable.",
+    ]);
+    assert.equal(clock.liveTimers().length, 0);
+  } finally {
+    console.warn = originalWarn;
+    scheduler.close();
+  }
+});
+
+test("a Schedule rejection that latches its RepoCell is reported once as skipped", async () => {
+  const clock = fakeClock("2026-08-27T10:00:00.000Z"),
+    repo = fixtureRepo("latched", "local", []),
+    warnings: string[] = [],
+    originalWarn = console.warn;
+  repo.listReceipts.push({
+    outcome: "op_rejected",
+    opId: "read:schedule-list:latched",
+    code: "service_rejected",
+    origin: "daemon",
+    nextAction: "fact event payload is invalid",
+    evidence: "rejection:service_rejected",
+  });
+  repo.latchOnRejection = true;
+  console.warn = (message?: unknown) => warnings.push(String(message));
+  const scheduler = makeScheduleScheduler({
+    cells: new Map([[repo.repoId, repo.cell]]),
+    localBinding,
+    now: clock.now,
+    setTimer: clock.setTimer,
+    clearTimer: clock.clearTimer,
+  });
+  try {
+    await scheduler.start();
+    await scheduler.refresh();
+    assert.deepEqual(warnings, ["[schedule-scheduler] latched skipped: Schedule list rejected: service_rejected."]);
+    assert.equal(repo.actions.length, 1);
+  } finally {
+    console.warn = originalWarn;
+    scheduler.close();
+  }
+});
+
+test("unavailable RepoCells are outside scheduler refresh", async () => {
+  const clock = fakeClock("2026-08-27T10:00:00.000Z"),
+    repo = fixtureRepo("unavailable", "local", [schedule("never-read")]),
+    scheduler = makeScheduleScheduler({
+      cells: new Map([[repo.repoId, repo.cell]]),
+      localBinding,
+      now: clock.now,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+  repo.state = "unavailable";
+  await scheduler.start();
+  assert.deepEqual(repo.actions, []);
+  assert.equal(clock.liveTimers().length, 0);
   scheduler.close();
 });
 
@@ -239,19 +358,24 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
     actions,
     fired,
     missed,
+    listReceipts: [] as Array<Readonly<Record<string, unknown>>>,
+    latchOnRejection: false,
+    state: "attached" as "attached" | "unavailable",
     onFire: async (_scheduleId: string) => {},
     execute: async (action: Readonly<Record<string, unknown>>) => {
       actions.push(String(action.kind));
       if (action.kind === "schedule-list") {
+        const queuedReceipt = fixture.listReceipts.shift();
+        if (queuedReceipt) {
+          if (fixture.latchOnRejection) fixture.state = "unavailable";
+          return queuedReceipt;
+        }
         const rows = schedules.map((value) => ({
           ...value,
           definitionRevision: 1,
           nextRunAt: value.state === "armed" ? "2026-08-27T10:30:00.000Z" : null,
         }));
         return {
-          schema: "command-receipt/v2",
-          ok: true,
-          command: "schedule-list",
           outcome: "applied",
           opId: `read:schedule-list:${repoId}`,
           revision: 1,
@@ -297,7 +421,7 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
       repoId,
       rootDir: `/tmp/${repoId}`,
       mode,
-      state: "attached",
+      state: fixture.state,
       generation: 1,
       queueDepth: 0,
       lastError: null,
