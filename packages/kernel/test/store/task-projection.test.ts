@@ -188,6 +188,20 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     assert.equal(first.status, "ready");
     assert.equal(first.document?.body, body);
     assert.equal(first.document?.blobSha256, hash);
+    const duplicate = {
+      ...event,
+      eventId: "duplicate-doc-event",
+      opId: "duplicate-doc-op",
+      workspaceRevision: 2,
+      payload: { ...event.payload, baseLedgerSha: eventStore.currentCut() },
+    } satisfies DocEventV1;
+    eventStore.append({
+      event: duplicate,
+      plan: docSyncWritePlan(duplicate),
+      blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }],
+    });
+    projection.apply(duplicate, docSyncWritePlan(duplicate));
+    assert.equal(projection.readDocument("context/notes.md").document?.body, body);
     assert.equal(projection.readOperation(event.opId)?.event.schema, "doc-event/v1");
     projection.close();
     rmSync(projection.path, { force: true });
@@ -197,7 +211,7 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     projection.close();
     rmSync(projection.path, { force: true });
     const rebuilt = projection.rebuild();
-    assert.equal(rebuilt.watermark, 1);
+    assert.equal(rebuilt.watermark, 2);
     assert.deepEqual(projection.readDocument("context/notes.md").document, first.document);
   });
 });
