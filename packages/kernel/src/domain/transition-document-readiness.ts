@@ -13,7 +13,6 @@ interface TransitionDocumentBinding {
 
 const transitionDocumentBindings: readonly TransitionDocumentBinding[] = Object.freeze([
   { transition: "task.start", documentKind: "task.plan" },
-  { transition: "lease.claim", documentKind: "task.plan" },
   { transition: "runtime.run", documentKind: "task.plan" },
   { transition: "squad.run", documentKind: "task.plan" },
   { transition: "task.complete", documentKind: "task.closeout" },

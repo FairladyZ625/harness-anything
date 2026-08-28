@@ -15,6 +15,7 @@ import {
   type TaskProgressEventV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
+import { compileRepoTaskPackage } from "../../preset/src/index.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
@@ -251,16 +252,39 @@ export async function completeTask(cell: any, action: RepoTaskAction, binding: R
 export function completionContext(
   cell: any,
   taskId: string,
-  _snapshot: Snapshot,
+  snapshot: Snapshot,
   packagePath: string | null,
   binding: RepoCellBinding,
-  _retryCommand: string,
+  retryCommand: string,
 ): CompletionReadinessContext {
-  if (!packagePath)
+  if (!packagePath || !snapshot.task?.presetSnapshotDigest)
     throw cell.cellCodedError(
       "content_not_ready",
-      `Task ${taskId} package metadata is not ready; run ha daemon projection rebuild, then retry.`,
+      `Task ${taskId} package metadata is not ready; run ha daemon projection rebuild, then retry ${retryCommand}.`,
     );
+  const contractDocument = cell.projection.readDocument(`${packagePath}/task-contract.json`).document;
+  if (!contractDocument)
+    throw cell.cellCodedError(
+      "content_not_ready",
+      `Task ${taskId} contract projection is not ready; run ha daemon projection rebuild, then retry ${retryCommand}.`,
+    );
+  const contract = JSON.parse(contractDocument.body) as Record<string, unknown>,
+    current = compileRepoTaskPackage({
+      rootDir: cell.rootDir,
+      settings: cell.settingsActions.read(),
+      taskId,
+      action: {
+        kind: "task-create",
+        title: contract.title,
+        presetId: contract.presetId,
+        verticalId: contract.verticalId,
+        profileId: contract.profileId,
+        locale: contract.locale,
+        taskClass: contract.taskClass,
+      },
+    });
+  if (current.snapshot.digest !== snapshot.task.presetSnapshotDigest)
+    throw cell.cellCodedError("preset_snapshot_mismatch", `Run ha preset upgrade ${taskId} before completion.`);
   const closeoutDocument = readTaskTransitionDocument({
       projection: cell.projection,
       taskId,

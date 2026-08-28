@@ -29,7 +29,6 @@ test("transition document bindings enumerate canonical consumers and omit milest
   assert.deepEqual(
     [
       "task.start",
-      "lease.claim",
       "runtime.run",
       "squad.run",
       "task.complete",
@@ -39,7 +38,6 @@ test("transition document bindings enumerate canonical consumers and omit milest
     ].map((transition) => `${transition}:${requireTransitionDocumentKind(transition)}`),
     [
       "task.start:task.plan",
-      "lease.claim:task.plan",
       "runtime.run:task.plan",
       "squad.run:task.plan",
       "task.complete:task.closeout",

@@ -193,7 +193,7 @@ test("projection rebuild repairs a repository that has no authored settings docu
 
 test("replay receipts retain their event cut and upgrade pending commit identity after drain", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-replay-current-cut-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut" }); const binding = { actor, source: "local" as const }; await cell.run({ kind: "task-create", taskId: "task_replay_first", title: "First" }, binding); const first = await cell.run({ kind: "task-start", taskId: "task_replay_first", executionId: "execution_replay_first" }, binding) as Record<string, unknown>, second = await cell.run({ kind: "task-create", taskId: "task_replay_second", title: "Second" }, binding) as Record<string, unknown>, replay = await cell.run({ kind: "receipt-show", opId: first.opId }, binding) as Record<string, unknown>; assert.equal(first.commitSha, null); assert.equal(second.commitSha, null); assert.notDeepEqual(first.cut, second.cut); assert.equal(replay.commitSha, null); assert.deepEqual(replay.cut, first.cut); await cell.close(); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut-reopened" }); const materialized = await cell.run({ kind: "receipt-show", opId: first.opId }, binding) as Record<string, unknown>; assert.equal(materialized.commitSha, git(rootDir, "rev-parse", "HEAD")); assert.deepEqual(materialized.cut, first.cut); }
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut" }); const binding = { actor, source: "local" as const }; const created = await cell.run({ kind: "task-create", taskId: "task_replay_first", title: "First" }, binding); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); const first = await cell.run({ kind: "task-start", taskId: "task_replay_first", executionId: "execution_replay_first" }, binding) as Record<string, unknown>, second = await cell.run({ kind: "task-create", taskId: "task_replay_second", title: "Second" }, binding) as Record<string, unknown>, replay = await cell.run({ kind: "receipt-show", opId: first.opId }, binding) as Record<string, unknown>; assert.equal(first.commitSha, null); assert.equal(second.commitSha, null); assert.notDeepEqual(first.cut, second.cut); assert.equal(replay.commitSha, null); assert.deepEqual(replay.cut, first.cut); await cell.close(); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut-reopened" }); const materialized = await cell.run({ kind: "receipt-show", opId: first.opId }, binding) as Record<string, unknown>; assert.equal(materialized.commitSha, git(rootDir, "rev-parse", "HEAD")); assert.deepEqual(materialized.cut, first.cut); }
   finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -390,7 +390,7 @@ test("structured GUI submit and CLI packet submit publish the same canonical eve
   try {
     roots.forEach(initDeterministicRepo);
     for (const [index, rootDir] of roots.entries()) cells.push(await openRepoCell({ repoId: workspaceId("submit-ab"), rootDir: canonicalRoot(rootDir), ownerId: `submit-ab-${index}`, now }));
-    for (const cell of cells) { assert.equal((await cell.run({ kind: "task-create", taskId, title: "Submit A B" }, binding)).outcome, "applied"); assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied"); }
+    for (const [index, cell] of cells.entries()) { const created = await cell.run({ kind: "task-create", taskId, title: "Submit A B" }, binding); assert.equal(created.outcome, "applied"); await realizeTaskPlanFixture(roots[index]!, String((created as Record<string, unknown>).packagePath), (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding)); assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied"); }
     const commitSha = git(roots[0]!, "rev-parse", "HEAD"); assert.equal(git(roots[1]!, "rev-parse", "HEAD"), commitSha);
     const submission = { completionClaim: "Typed GUI submit is equivalent.", deliverables: ["canonical event"], outputs: ["harness/tasks/task-submit-ab-submit-a-b/INDEX.md"], verificationNotes: ["A/B"], knownGaps: [], residualRisks: [], commitSha };
     writeFileSync(path.join(roots[0]!, "submission.json"), JSON.stringify(submission));
@@ -409,7 +409,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
   const taskId = "task-life", executionId = "execution-life", packagePath = "tasks/task-life-lifecycle-files", binding = { actor, source: "local" as const };
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("lifecycle-files"), rootDir: canonicalRoot(rootDir), ownerId: "lifecycle-daemon" }); const baselineRevision = makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).read().revision;
-    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Lifecycle files" }, binding)).outcome, "applied");
+    const created = await cell.run({ kind: "task-create", taskId, title: "Lifecycle files" }, binding); assert.equal(created.outcome, "applied"); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding));
     const assertCut = (receipt: Record<string, unknown>, type: string, paths: readonly string[]) => { assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.taskId, taskId); assert.equal(receipt.executionId, executionId); assert.deepEqual(receipt.changedPaths, paths); assert.equal(receipt.worktreeVisible, true); assert.equal(receipt.commitSha, null); assert.equal(typeof receipt.cut, "object"); assert.equal(typeof receipt.transition, "object"); assert.equal(Array.isArray(receipt.next), true); const event = makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readEvent(String(receipt.opId)); assert.equal(event?.type, type); if (event?.schema !== "task-event/v1") throw new Error("lifecycle receipt requires a TaskEvent"); assert.deepEqual(event.payload.documentClaims?.map((claim) => claim.path), paths); for (const target of paths) assert.equal(existsSync(path.join(rootDir, "harness", target)), true, target); };
     const indexPath = `${packagePath}/INDEX.md`, executionPath = `${packagePath}/executions/${executionId}.md`, reviewPath = `${packagePath}/reviews/review-life.md`, codeDocPath = `${packagePath}/code-doc-anchors.json`;
     const started = await cell.run({ kind: "task-start", taskId, executionId }, binding) as unknown as Record<string, unknown>; assertCut(started, "execution_started", [indexPath, executionPath]); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: active/u);
@@ -428,7 +428,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     const witnessedPath = "README.md", beforeInvalidWitness = makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readHead()?.revision; assert.equal((await cell.run({ kind: "task-code-doc-reconcile", taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath] }, binding)).outcome, "op_rejected"); assert.equal(makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readHead()?.revision, beforeInvalidWitness); const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId }, binding) as unknown as Record<string, unknown>; assertCut(reconciled, "code_doc_reconciled", [indexPath, executionPath, codeDocPath]); assert.deepEqual(JSON.parse(readFileSync(path.join(rootDir, "harness", codeDocPath), "utf8")), { schema: "code-doc-witness/v1", witnessId: String((makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { payload: { witness: { witnessId: string } } }).payload.witness.witnessId), taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath], actor, source: "local", reconciledAt: (makeTaskEventStore({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { occurredAt: string }).occurredAt });
     const lookedUp = await cell.run({ kind: "receipt-show", opId: reconciled.opId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ taskId: lookedUp.taskId, executionId: lookedUp.executionId, transition: lookedUp.transition, changedPaths: lookedUp.changedPaths }, { taskId, executionId, transition: reconciled.transition, changedPaths: reconciled.changedPaths });
     await cell.close(); cell = undefined; const store = makeTaskEventStore({ repoId: "lifecycle-files", rootDir }); for (const target of [indexPath, executionPath, reviewPath, codeDocPath]) rmSync(path.join(rootDir, "harness", target)); assert.deepEqual(new Set(store.materialize().changed), new Set([indexPath, codeDocPath, executionPath, reviewPath]));
-    const projection = makeTaskProjection({ rootDir, eventStore: store }); projection.close(); rmSync(projection.path, { force: true }); assert.equal(projection.rebuild().watermark, baselineRevision + 6); assert.equal(projection.read(taskId).snapshot.codeDocWitnesses.length, 1); for (const target of [indexPath, executionPath, reviewPath, codeDocPath]) assert.equal(projection.readDocument(target).document?.body, readFileSync(path.join(rootDir, "harness", target), "utf8")); projection.close();
+    const projection = makeTaskProjection({ rootDir, eventStore: store }); projection.close(); rmSync(projection.path, { force: true }); assert.equal(projection.rebuild().watermark, baselineRevision + 7); assert.equal(projection.read(taskId).snapshot.codeDocWitnesses.length, 1); for (const target of [indexPath, executionPath, reviewPath, codeDocPath]) assert.equal(projection.readDocument(target).document?.body, readFileSync(path.join(rootDir, "harness", target), "utf8")); projection.close();
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -553,7 +553,7 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
     };
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); const store = () => makeTaskEventStore({ repoId: "completion-facade", rootDir });
-    await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "milestone-closeout" }, binding); await cell.run({ kind: "task-start", taskId, executionId }, binding);
+    const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "milestone-closeout" }, binding); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
     const activeRevision = store().read().revision, active = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: active.outcome, code: active.code, stoppedAt: active.stoppedAt, next: active.next }, { outcome: "op_rejected", code: "not_in_review", stoppedAt: "not_in_review", next: [{ command: `ha task submit ${taskId} --json-input '<submission-json>'`, reason: "Complete never submits or starts an execution; reach in_review first." }] }); assert.equal(store().read().revision, activeRevision);
     await cell.run({ kind: "task-progress-append", taskId, text: "implementation complete", evidence: [] }, binding); await cell.run({ kind: "fact-record", taskId, statement: "Completion uses canonical witnesses.", evidenceSource: "test:completion", confidence: "high", memoryClass: "semantic", memoryTags: [] }, binding);
     const closeoutPath = `${packagePath}/closeout.md`, artifactPath = `${packagePath}/artifacts/evidence.md`; writeFileSync(path.join(rootDir, "harness", closeoutPath), "# Closeout\n\n## Summary\n\nComplete.\n\n## Verification\n\nAll checks passed.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n"); writeFileSync(path.join(rootDir, "harness", artifactPath), "# Evidence\n\nCanonical flow.\n");
@@ -674,7 +674,7 @@ test("invalid Decision payload stays invalid_command and reckon records exact pr
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed)); const decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId, decisionPath = `decisions/decision-${decisionId}/decision.md`, decisionFile = path.join(rootDir, "harness", decisionPath), beforeInvalid = makeTaskEventStore({ repoId: "decision-cell", rootDir }).readHead()!.revision;
     assert.deepEqual({ path: (proposed as Record<string, unknown>).path, worktreeVisible: (proposed as Record<string, unknown>).worktreeVisible, commitSha: (proposed as Record<string, unknown>).commitSha }, { path: decisionPath, worktreeVisible: true, commitSha: null });
     const placement = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === "task-decision")!.placement; assert.equal(placement.moduleKeys.includes("daemon"), true, JSON.stringify(placement)); assert.equal(placement.provenance.some(({ kind }) => kind === "decision-relation"), true, JSON.stringify(placement));
-    const decisionBody = readFileSync(decisionFile, "utf8"); assert.match(decisionBody, /^---\nschema: decision-package\/v1[\s\S]*\nstate: proposed[\s\S]*\n---\n\n# Canonical\n$/u); const decisionEvent = makeTaskEventStore({ repoId: "decision-cell", rootDir }).readEvent(proposed.opId); assert.equal(decisionEvent?.schema, "decision-event/v1"); if (decisionEvent?.schema === "decision-event/v1") { assert.equal(decisionEvent.payload.decisionDocumentClaim.path, decisionPath); assert.equal(decisionEvent.payload.decisionDocumentClaim.sha256, String((proposed as Record<string, unknown>).documentSha256)); }
+    const decisionBody = readFileSync(decisionFile, "utf8"); assert.match(decisionBody, /^---\nschema: decision-package\/v1[\s\S]*\nstate: proposed[\s\S]*\n---\n# Canonical\n\nUse the canonical event-backed flow for this fixture\.\n$/u); const decisionEvent = makeTaskEventStore({ repoId: "decision-cell", rootDir }).readEvent(proposed.opId); assert.equal(decisionEvent?.schema, "decision-event/v1"); if (decisionEvent?.schema === "decision-event/v1") { assert.equal(decisionEvent.payload.decisionDocumentClaim.path, decisionPath); assert.equal(decisionEvent.payload.decisionDocumentClaim.sha256, String((proposed as Record<string, unknown>).documentSha256)); }
     const invalid = await cell.run({ kind: "decision-accept", decisionId, rationale: "x".repeat(200) }, withRoleBinding({ actor: { principal: { personId: "person-arbiter" }, executor: null }, source: "local" }, "arbiter"));
     assert.deepEqual({ outcome: invalid.outcome, code: invalid.code, state: cell.status().state }, { outcome: "op_rejected", code: "invalid_command", state: "attached" }); assert.equal(makeTaskEventStore({ repoId: "decision-cell", rootDir }).readHead()?.revision, beforeInvalid);
     const reckon = await cell.run({ kind: "decision-reckon", decisionId, taskId: "task-decision" }, binding); assert.equal(reckon.outcome, "applied", JSON.stringify(reckon)); const fact = JSON.parse(reckon.evidence) as { evidenceSource: string; statement: string; workspaceRevision: number };
@@ -816,7 +816,7 @@ for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_
 test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion rejection, and worktree preservation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-cell-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("docs"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" });
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source: "local" })).outcome, "applied");
+    const binding = { actor, source: "local" as const }, created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, binding); assert.equal(created.outcome, "applied"); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding));
     assert.equal((await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source: "local" })).outcome, "applied");
     const claims = path.join(rootDir, ".harness/doc-sync-claims"), authored = path.join(rootDir, "harness/context/notes.md"); mkdirSync(claims, { recursive: true }); mkdirSync(path.dirname(authored), { recursive: true });
     let body = "# Notes\nA\n"; writeFileSync(authored, body);
@@ -837,7 +837,7 @@ test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion r
 test("doc ingress rejects symbolic links in claim and authored path chains", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-claim-link-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("claim-link"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" }); const source = { kind: "assignment", nodeId: "node", assignmentId: "assignment" } as const;
-    await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source }); await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source });
+    const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source }); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, { actor, source: "local" })); await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, { actor, source });
     const body = "# Outside\n", hash = createHash("sha256").update(body).digest("hex"), claims = path.join(rootDir, ".harness/doc-sync-claims"); mkdirSync(claims, { recursive: true }); writeFileSync(path.join(rootDir, "outside.md"), body); symlinkSync("../../outside.md", path.join(claims, "linked"));
     const binding = { actor, source, assignmentScope: { repoId: "claim-link", scope: { kind: "task" as const, taskId: "task-doc", executionId: "execution-doc", paths: ["context/link.md"] } } }, base = makeTaskEventStore({ repoId: "claim-link", rootDir }).currentCut(), beforeCommit = git(rootDir, "rev-parse", "refs/ha/canonical"), result = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/link.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/linked", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, binding);
     assert.equal(result.code, "content_claim_mismatch"); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), beforeCommit);
@@ -935,7 +935,7 @@ test("read-only principal cannot write or admin while semantic capabilities pass
   const host = await openDaemonHost({ daemonId: "rbac", userRoot });
   try {
     assert.equal((await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: root, repoId: "rbac" })).outcome, "applied");
-    const created = await host.run("rbac", { kind: "task-create", taskId: "task-rbac", title: "RBAC" }, auth(ids.writer)); assert.equal(created.outcome, "applied");
+    const created = await host.run("rbac", { kind: "task-create", taskId: "task-rbac", title: "RBAC" }, auth(ids.writer)); assert.equal(created.outcome, "applied"); await realizeTaskPlanFixture(root, String((created as Record<string, unknown>).packagePath), (planPath) => host.run("rbac", { kind: "doc-submit", paths: [planPath] }, auth(ids.writer)));
     const executionId = "exec-rbac", commitSha = "a".repeat(40); assert.equal((await host.run("rbac", { kind: "task-start", taskId: "task-rbac", executionId }, auth(ids.writer))).outcome, "applied");
     assert.equal((await host.run("rbac", { kind: "task-show", taskId: "task-rbac" }, auth(ids.reader))).outcome, "applied");
     const deniedWrite = await host.run("rbac", { kind: "task-create", taskId: "task-denied", title: "Denied" }, auth(ids.reader));
@@ -998,6 +998,7 @@ function initDeterministicRepo(rootDir: string): void {
 function decisionProposal(title: string, question: string) {
   return {
     kind: "decision-propose",
+    body: `# ${title}\n\nUse the canonical event-backed flow for this fixture.\n`,
     jsonInput: JSON.stringify({
       title,
       question,
@@ -1023,7 +1024,10 @@ async function prepareReadyCompletion(
   title: string,
 ): Promise<void> {
   const binding = { actor, source: "local" as const };
-  await cell.run({ kind: "task-create", taskId, title }, binding);
+  const created = await cell.run({ kind: "task-create", taskId, title }, binding);
+  await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+    cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+  );
   await cell.run({ kind: "task-start", taskId, executionId }, binding);
   await cell.run(
     {
@@ -1081,6 +1085,40 @@ async function prepareReadyCompletion(
   );
   await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding);
   await cell.run({ kind: "task-code-doc-reconcile", taskId }, binding);
+}
+async function realizeTaskPlanFixture(
+  rootDir: string,
+  packagePath: string,
+  submit: (planPath: string) => Promise<{ readonly outcome: string }>,
+): Promise<void> {
+  const planPath = `${packagePath}/task_plan.md`,
+    authoredPath = path.join(rootDir, "harness", planPath),
+    title = readFileSync(authoredPath, "utf8").split(/\r?\n/u)[0]!;
+  writeFileSync(
+    authoredPath,
+    `${title}\n\n` +
+      [
+        ["Brief", "Exercise the JSON-RPC lifecycle path with canonical task documents."],
+        ["Goal", "Produce the lifecycle receipt asserted by this test."],
+        ["Context", "The fixture runs against an isolated repository and daemon cell."],
+        ["Required Reading", "The protocol test defines the expected lifecycle behavior."],
+        ["Entry Conditions", "The fixture repository and task bootstrap exist before execution starts."],
+        ["Dependencies", "The task depends on its bootstrapped preset snapshot and local projection."],
+        ["Execution Surface", "All writes stay inside the fixture repository and its task package."],
+        ["Constraints", "The fixture uses public RepoCell actions without bypassing readiness checks."],
+        ["Checkpoint", "Stop if task start does not return an applied receipt."],
+        ["CI/Gate Authority Stop Condition", "This fixture does not modify CI or gate authority."],
+        ["Implementation Plan", "Start, submit, review, reconcile, and complete through canonical commands."],
+        ["Deliverable Contract", "The fixture delivers the protocol receipt and event assertions in this test."],
+        ["Evidence Protocol", "Assertions inspect receipts, events, projections, and authored documents."],
+        ["Verification", "The JSON-RPC protocol test must pass."],
+      ]
+        .map(([heading, body]) => `## ${heading}\n\n${body}`)
+        .join("\n\n") +
+      "\n",
+  );
+  const submitted = await submit(planPath);
+  assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 }
 function rbacRepo(rootDir: string, ids: Readonly<Record<string, number>>): void {
   mkdirSync(rootDir, { recursive: true });
