@@ -45,7 +45,9 @@ const quarantinePattern =
     ? excludedTestNamePattern(readTestQuarantine(repoRoot).map((entry) => entry.test))
     : null;
 const vitestArgs = [
-  ...(vitestResults ? ["--reporter=json", `--outputFile=${vitestResults}`] : []),
+  ...(vitestResults
+    ? ["--reporter=default", "--reporter=json", `--outputFile=${resolve(repoRoot, vitestResults)}`]
+    : []),
   ...(quarantinePattern ? [`--testNamePattern=${quarantinePattern}`] : []),
 ];
 const observationArgs = vitestArgs.length > 0 ? ["--", ...vitestArgs] : [];
