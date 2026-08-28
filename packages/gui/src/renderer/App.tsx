@@ -17,7 +17,6 @@ import { AdaptersView } from "./views/AdaptersView.tsx";
 import { SettingsView } from "./views/SettingsView.tsx";
 import { SystemView } from "./views/SystemView.tsx";
 import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
-import { CiObservatoryView } from "./views/CiObservatoryView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { ThemeToggle, NavButton, ProjectSummary, TaskCensusSummary } from "./components/shell-chrome.tsx";
@@ -658,8 +657,6 @@ function AppShell() {
                 onBack={back}
                 onNavigateEntity={navigateToEntity}
               />
-            ) : view === "ciObservatory" ? (
-              <CiObservatoryView repoId={projectId} />
             ) : (
               <SettingsView repoId={projectId} />
             )}

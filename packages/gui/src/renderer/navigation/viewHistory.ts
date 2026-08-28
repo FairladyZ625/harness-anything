@@ -33,7 +33,6 @@ export type ViewId =
   | "providers"
   | "system"
   | "daemonObserve"
-  | "ciObservatory"
   | "settings";
 
 export interface DrillState {

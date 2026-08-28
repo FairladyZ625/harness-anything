@@ -18,7 +18,6 @@ import type {
   TaskSnapshotProjectionRow,
   WorkspaceSummaryRead,
   SettingsRead,
-  CiObservatoryRead,
 } from "../api/renderer-dto.ts";
 import type { FirstRunApi } from "../api/first-run-contract.ts";
 import { isRendererRecord } from "./result-validation.ts";
@@ -315,9 +314,6 @@ export const harnessClient = {
   async getSettings(payload: RepoScope): Promise<SettingsSuccess> {
     return readSettingsResult(await invokeBridge("getSettings", payload));
   },
-  async getCiObservatory(payload: RepoScope & { readonly window?: number }): Promise<CiObservatoryRead> {
-    return readCiObservatoryResult(await invokeBridge("getCiObservatory", payload));
-  },
   async updateSettings(payload: SettingsUpdateInput): Promise<GuiActionResult> {
     return readGuiActionResult(await invokeBridge("updateSettings", payload));
   },
@@ -475,22 +471,6 @@ function readSettingsResult(value: unknown): SettingsSuccess {
   )
     throw new Error(localErrorHint(value, "Settings bridge returned an invalid result."));
   return value as unknown as SettingsSuccess;
-}
-
-function readCiObservatoryResult(value: unknown): CiObservatoryRead {
-  const result = value as Partial<CiObservatoryRead>;
-  if (
-    !result ||
-    result.schema !== "daemon.ci-observatory/v1" ||
-    result.ok !== true ||
-    !["ready", "pending"].includes(String(result.status)) ||
-    !Array.isArray(result.flakes) ||
-    !Array.isArray(result.shardDurations) ||
-    !Array.isArray(result.gateTrends) ||
-    !Array.isArray(result.runs)
-  )
-    throw new Error(localErrorHint(value, "CI observatory bridge returned an invalid result."));
-  return result as CiObservatoryRead;
 }
 
 function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {
