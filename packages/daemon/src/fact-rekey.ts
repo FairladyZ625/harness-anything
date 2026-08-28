@@ -256,7 +256,6 @@ export function runFactRekey(input: {
 
 function buildPlan(rootDir: string, store: any): FactRekeyPlan {
   const events = migrationEvents(rootDir, store),
-    projectedDocuments = projectDocumentStates(events),
     cold = readLegacyMigrationSource(rootDir),
     legacyEventRevisions = new Map<string, number>(),
     rows = new Map(cold.facts.map((row: any) => [`fact/${row.taskId}/${row.factId}`, row]));
@@ -441,7 +440,9 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
         revision = legacyEventRevisions.get(fact.legacyRef) ?? 0;
       return factDocument(fact, id, revision);
     });
-  const authoredRoot = layout.authoredRoot,
+  const eventRewriteByOpId = new Map(eventRewrites.map(({ event }) => [event.opId, event])),
+    projectedDocuments = projectDocumentStates(events.map((event) => eventRewriteByOpId.get(event.opId) ?? event)),
+    authoredRoot = layout.authoredRoot,
     legacyTaskFacts = new Map(
       facts
         .map((fact) => layout.taskDocumentPath(fact.row.taskId, legacyFactsDocumentName()))
@@ -465,11 +466,9 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
             },
           ];
     }),
-    eventRewriteByOpId = new Map(eventRewrites.map(({ event }) => [event.opId, event])),
-    effectiveDocuments = projectDocumentStates(events.map((event) => eventRewriteByOpId.get(event.opId) ?? event)),
     rewrittenEntityDocuments = [...rewrittenEntityPaths]
       .map((documentPath) => {
-        const state = effectiveDocuments.get(documentPath);
+        const state = projectedDocuments.get(documentPath);
         if (state === undefined) return null;
         const rewritten = rewrittenEntityBlobs.get(state.blobSha256),
           bytes = rewritten === undefined ? store.readContentBlob(state.blobSha256) : null,
@@ -492,9 +491,9 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
     eventRewrites,
     authoredRewrites,
     authoredDeletes: [...legacyTaskFacts]
-      .map(([path, body]) => ({
+      .map(([path]) => ({
         path,
-        body,
+        body: committedDocumentBody(rootDir, store, path),
         baseBlobSha256: projectedDocuments.get(path)?.blobSha256 ?? null,
       }))
       .sort((left, right) => left.path.localeCompare(right.path)),
@@ -505,6 +504,17 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
     rewrittenSettingsEvents: rewriteCounts.settings,
     docsOnly,
   };
+}
+
+function committedDocumentBody(rootDir: string, store: any, logicalPath: string): string {
+  const ledger = resolveLedgerGitLayout(rootDir),
+    bytes = localGitObjectRefStore.readPath(
+      ledger.rootDir,
+      store.currentCommit().sha,
+      ledgerGitPath(ledger, logicalPath),
+    );
+  if (bytes === null) throw new Error(`legacy document ${logicalPath} is unavailable at the canonical cut`);
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
 function projectDocumentStates(events: readonly CanonicalEventV1[]): ReadonlyMap<string, MigrationDocumentState> {
@@ -662,9 +672,9 @@ function buildAuthoredRekeyEvents(
     revision += 1;
   }
   for (const document of plan.authoredDeletes) {
+    const candidateBlobSha256 = sha256Text(document.body);
     let baseBlobSha256 = document.baseBlobSha256;
-    if (baseBlobSha256 === null) {
-      baseBlobSha256 = sha256Text(document.body);
+    if (baseBlobSha256 !== candidateBlobSha256) {
       bundles.push(
         docEventBundle(
           input,
@@ -672,9 +682,9 @@ function buildAuthoredRekeyEvents(
           [
             {
               path: documentPath(document.path),
-              baseBlobSha256: null,
+              baseBlobSha256,
               candidate: {
-                sha256: baseBlobSha256,
+                sha256: candidateBlobSha256,
                 size: Buffer.byteLength(document.body),
                 mediaType: "text/markdown",
               },
@@ -687,6 +697,7 @@ function buildAuthoredRekeyEvents(
         ),
       );
       revision += 1;
+      baseBlobSha256 = candidateBlobSha256;
     }
     bundles.push(
       docEventBundle(

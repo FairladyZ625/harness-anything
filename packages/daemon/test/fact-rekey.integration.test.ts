@@ -21,6 +21,7 @@ import {
   type CanonicalEventV1,
   type DecisionDocumentState,
   type DecisionEventV1,
+  type DocEventV1,
   type MigrationImportEventV1,
 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -80,7 +81,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const legacyRelationEvent: MigrationImportEventV1 = {
       schema: "migration-import-event/v1",
       eventId: "event-legacy-relation",
-      workspaceRevision: 3,
+      workspaceRevision: 4,
       opId: "op-legacy-relation",
       type: "entity_migrated",
       actor,
@@ -113,7 +114,40 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     };
     await seedStore.drain();
     const legacyFactBody = readFileSync(path.join(scratch, "harness/tasks/task_legacy-old/facts.md"), "utf8");
-    const legacyFactSha = sha256Text(legacyFactBody);
+    const legacyFactSha = sha256Text(legacyFactBody),
+      projectedLegacyFactsBody = "# Facts\n",
+      projectedLegacyFactsSha = sha256Text(projectedLegacyFactsBody),
+      projectedLegacyFactsEvent: DocEventV1 = {
+        schema: "doc-event/v1",
+        eventId: "event-projected-legacy-facts",
+        workspaceRevision: 1,
+        opId: "op-projected-legacy-facts",
+        type: "documents_written",
+        actor,
+        source: "local",
+        occurredAt: "2026-01-01T00:00:00.000Z",
+        payload: {
+          executionId: null,
+          baseLedgerSha: {
+            repoId: "fact-rekey-fixture",
+            revision: 0,
+            headDigest: `sha256:${sha256Text("")}`,
+          },
+          changes: [
+            {
+              path: "tasks/task_legacy-old/facts.md",
+              baseBlobSha256: null,
+              candidate: {
+                sha256: projectedLegacyFactsSha,
+                size: Buffer.byteLength(projectedLegacyFactsBody),
+                mediaType: "text/markdown",
+              },
+              policyId: "opaque-textual-whole-file/v1",
+              regionProofs: [],
+            },
+          ],
+        },
+      };
     const crossTaskFactBody = readFileSync(crossTaskFactsPath, "utf8");
     const crossTaskFactSha = sha256Text(crossTaskFactBody);
     const legacyBlobPath = path.join(scratch, "harness", contentObjectRelativePath(legacyFactSha, seedStore.layout()));
@@ -128,6 +162,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     writeFileSync(crossTaskBlobPath, crossTaskFactBody);
     const legacyTarget = {
       ...compiled.event,
+      workspaceRevision: 2,
       payload: {
         ...compiled.event.payload,
         factsDocumentClaim: {
@@ -141,7 +176,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const legacyEvent = {
       ...compiled.event,
       eventId: "event-legacy-fact",
-      workspaceRevision: 2,
+      workspaceRevision: 3,
       opId: "op-legacy-fact",
       taskId: "task_legacy",
       factId: "F-ABCDEFGH",
@@ -164,7 +199,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const importedFactEvent: MigrationImportEventV1 = {
       schema: "migration-import-event/v1",
       eventId: "event-imported-legacy-fact",
-      workspaceRevision: 4,
+      workspaceRevision: 5,
       opId: "op-imported-legacy-fact",
       type: "entity_migrated",
       actor,
@@ -217,7 +252,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       arbiter: actor,
       proposedAt: "2026-01-01T00:00:00.000Z",
       decidedAt: "2026-01-02T00:00:00.000Z",
-      workspaceRevision: 5,
+      workspaceRevision: 6,
       chosen: [{ id: "CH1", text: "Retain valid proof pins" }],
       rejected: [{ id: "RJ1", text: "Drop proof pins", whyNot: "The projection rejects stale proof" }],
       claims: [{ id: "C1", text: "Imported proof remains valid", loadBearing: true, fulfillment: null }],
@@ -244,7 +279,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       importedDecisionEvent: MigrationImportEventV1 = {
         schema: "migration-import-event/v1",
         eventId: "event-imported-decision",
-        workspaceRevision: 5,
+        workspaceRevision: 6,
         opId: "op-imported-decision",
         type: "entity_migrated",
         actor,
@@ -259,7 +294,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const importedDecisionRelationEvent: MigrationImportEventV1 = {
       schema: "migration-import-event/v1",
       eventId: "event-imported-decision-relation",
-      workspaceRevision: 6,
+      workspaceRevision: 7,
       opId: "op-imported-decision-relation",
       type: "entity_migrated",
       actor,
@@ -293,7 +328,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const retiredEventBase = {
       schema: "decision-event/v1" as const,
       eventId: "event-retire-imported-decision",
-      workspaceRevision: 7,
+      workspaceRevision: 8,
       opId: "op-retire-imported-decision",
       type: "decision_retired" as const,
       actor,
@@ -336,7 +371,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       legacyAgentEvent = {
         schema: "agent-entity-event/v1",
         eventId: "event-legacy-agent",
-        workspaceRevision: 8,
+        workspaceRevision: 9,
         opId: "op-legacy-agent",
         type: "agent_entity_written",
         actor,
@@ -359,7 +394,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       legacySettingsEvent = {
         schema: "settings-event/v1",
         eventId: "event-legacy-settings",
-        workspaceRevision: 9,
+        workspaceRevision: 10,
         opId: "op-legacy-settings",
         entity: { kind: "settings", id: "repository" },
         type: "settings_changed",
@@ -396,7 +431,21 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       eventObjectRelativePath(legacyTarget.opId, seedStore.layout()),
     );
     const eventPath = path.join(scratch, "harness", eventObjectRelativePath(legacyEvent.opId, seedStore.layout()));
+    const projectedLegacyFactsEventPath = path.join(
+        scratch,
+        "harness",
+        eventObjectRelativePath(projectedLegacyFactsEvent.opId, seedStore.layout()),
+      ),
+      projectedLegacyFactsBlobPath = path.join(
+        scratch,
+        "harness",
+        contentObjectRelativePath(projectedLegacyFactsSha, seedStore.layout()),
+      );
     mkdirSync(path.dirname(eventPath), { recursive: true });
+    mkdirSync(path.dirname(projectedLegacyFactsEventPath), { recursive: true });
+    mkdirSync(path.dirname(projectedLegacyFactsBlobPath), { recursive: true });
+    writeFileSync(projectedLegacyFactsEventPath, serializePersistedCanonicalEvent(projectedLegacyFactsEvent));
+    writeFileSync(projectedLegacyFactsBlobPath, projectedLegacyFactsBody);
     writeFileSync(targetEventPath, `${JSON.stringify(legacyTarget)}\n`);
     writeFileSync(eventPath, legacyBody);
     const persistedRelationEvent = {
@@ -480,7 +529,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     writeFileSync(
       path.join(scratch, "harness/events/head.json"),
       serializeEventHead({
-        revision: 9,
+        revision: 10,
         opId: legacySettingsEvent.opId,
         eventDigest: `sha256:${sha256Text(legacySettingsEventBody)}`,
       }),
@@ -534,15 +583,15 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const marker = stream.events.find(
       (event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "id-map",
     );
-    assert.equal(marker?.workspaceRevision, 14);
+    assert.equal(marker?.workspaceRevision, 17);
     assert.equal(marker?.schema === "migration-import-event/v1" ? marker.payload.ledgerEpoch : undefined, 1);
     assert.equal(
-      stream.events.some((event) => event.schema === "doc-event/v1" && event.workspaceRevision === 11),
+      stream.events.some((event) => event.schema === "doc-event/v1" && event.workspaceRevision === 12),
       true,
     );
-    assert.equal(stream.events.filter((event) => event.schema === "doc-event/v1").length, 3);
+    assert.equal(stream.events.filter((event) => event.schema === "doc-event/v1").length, 6);
     const authoredRewrite = stream.events.find(
-        (event) => event.schema === "doc-event/v1" && event.workspaceRevision === 11,
+        (event) => event.schema === "doc-event/v1" && event.workspaceRevision === 12,
       ),
       importedDecisionRewrite =
         authoredRewrite?.schema === "doc-event/v1"
@@ -551,9 +600,18 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       legacyFactsRetirement = stream.events
         .filter((event) => event.schema === "doc-event/v1")
         .flatMap((event) => (event.schema === "doc-event/v1" ? event.payload.changes : []))
-        .find((change) => change.path === "tasks/task_legacy-old/facts.md" && change.candidate === null);
+        .find((change) => change.path === "tasks/task_legacy-old/facts.md" && change.candidate === null),
+      legacyFactsAnchor = stream.events
+        .filter((event) => event.schema === "doc-event/v1")
+        .flatMap((event) => (event.schema === "doc-event/v1" ? event.payload.changes : []))
+        .find(
+          (change) => change.path === "tasks/task_legacy-old/facts.md" && change.candidate?.sha256 === legacyFactSha,
+        );
     assert.equal(importedDecisionRewrite?.baseBlobSha256, importedDecisionClaim.sha256);
     assert.notEqual(importedDecisionRewrite?.baseBlobSha256, sha256Text(importedDecisionDriftBody));
+    assert.equal(legacyFactsAnchor?.baseBlobSha256, projectedLegacyFactsSha);
+    assert.equal(legacyFactsAnchor?.candidate?.sha256, legacyFactSha);
+    assert.notEqual(legacyFactsAnchor?.candidate?.sha256, sha256Text(legacyFactsDriftBody));
     assert.equal(legacyFactsRetirement?.baseBlobSha256, legacyFactSha);
     assert.notEqual(legacyFactsRetirement?.baseBlobSha256, sha256Text(legacyFactsDriftBody));
     const rewrittenRetired = stream.events.find(
@@ -592,7 +650,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     try {
       const projected = projection.readDocument("decisions/decision-dec_LEGACY/decision.md");
       assert.equal(projected.status, "ready");
-      assert.equal(projected.document?.workspaceRevision, 11);
+      assert.equal(projected.document?.workspaceRevision, 12);
       assert.equal(
         projected.document?.body,
         readFileSync(path.join(scratch, "harness/decisions/decision-dec_LEGACY/decision.md"), "utf8"),
@@ -648,7 +706,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
 
     const repeat = (await cell.run({ kind: "fact-rekey" }, binding)) as Record<string, unknown>;
     assert.equal(repeat.outcome, "no_changes", JSON.stringify(repeat));
-    assert.equal(store.readHead()?.revision, 14);
+    assert.equal(store.readHead()?.revision, 17);
   } finally {
     await cell?.close();
     if (process.env.KEEP_FACT_REKEY_FIXTURE === "1") console.error(`fact-rekey fixture: ${scratch}`);
