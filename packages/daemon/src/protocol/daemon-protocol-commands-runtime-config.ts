@@ -135,7 +135,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_permission",
-          nextAction: "Use bypass (default, full access), workspace-write, or read-only; claude and codex only.",
+          nextAction: "Use bypass (default, full access), workspace-write, or read-only.",
         },
         { enum: ["bypass", "workspace-write", "read-only"] },
       ),
@@ -307,7 +307,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_permission",
-          nextAction: "Use bypass, workspace-write, or read-only; claude and codex only.",
+          nextAction: "Use bypass, workspace-write, or read-only.",
         },
         { enum: ["bypass", "workspace-write", "read-only"] },
       ),

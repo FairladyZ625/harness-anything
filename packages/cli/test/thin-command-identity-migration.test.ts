@@ -57,8 +57,7 @@ test("squad run derives the runtime prompt input union", () => {
       "task-1",
     ]);
   assert.equal(promptFile.ok, true);
-  if (promptFile.ok)
-    assert.equal(promptFile.command.action.promptFile, "mission.md");
+  if (promptFile.ok) assert.equal(promptFile.command.action.promptFile, "mission.md");
   assert.equal(prompt.ok, true);
   if (prompt.ok) assert.equal(prompt.command.action.prompt, "mission");
   assert.equal(both.ok, false);
@@ -178,6 +177,27 @@ test("runtime instance create leaves installation discovery to the daemon when o
       claude: {},
       authMode: "subscription",
     });
+  const agy = parseThinCommand([
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "agy-open",
+    "--name",
+    "AGY Open",
+    "--kind",
+    "agy",
+    "--provider",
+    "google",
+    "--model",
+    "gemini-3.1-pro-low",
+    "--permission-mode",
+    "bypass",
+    "--auth",
+    "subscription",
+  ]);
+  assert.equal(agy.ok, true, JSON.stringify(agy));
+  if (agy.ok) assert.equal(agy.command.action.permissionMode, "bypass");
   assert.equal(
     parseThinCommand([
       "runtime",
@@ -232,8 +252,7 @@ test("runtime instance auth commands parse into repo-scoped interactive sign-in 
       "sign-in-once",
     ]),
     logout = parseThinCommand(["runtime", "instance", "logout", "worker"]);
-  for (const parsed of [login, logout])
-    assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  for (const parsed of [login, logout]) assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (login.ok)
     assert.deepEqual(
       {
@@ -260,30 +279,9 @@ test("runtime instance auth commands parse into repo-scoped interactive sign-in 
       },
     );
   assert.equal(parseThinCommand(["runtime", "instance", "login"]).ok, false);
-  assert.equal(
-    parseThinCommand([
-      "runtime",
-      "instance",
-      "login",
-      "worker",
-      "--prompt",
-      "x",
-    ]).ok,
-    false,
-  );
-  assert.equal(
-    parseThinCommand(["runtime", "instance", "reauth", "worker"]).ok,
-    false,
-  );
-  const shown = parseThinCommand([
-    "runtime",
-    "instance",
-    "show",
-    "worker",
-    "--repo",
-    "alpha",
-    "--probe",
-  ]);
+  assert.equal(parseThinCommand(["runtime", "instance", "login", "worker", "--prompt", "x"]).ok, false);
+  assert.equal(parseThinCommand(["runtime", "instance", "reauth", "worker"]).ok, false);
+  const shown = parseThinCommand(["runtime", "instance", "show", "worker", "--repo", "alpha", "--probe"]);
   assert.equal(shown.ok === true && shown.command.repoId, undefined);
   if (shown.ok) assert.equal(shown.command.action.probe, true);
 });
@@ -308,35 +306,21 @@ test("migration import parser accepts ordered sources and repeated explicit conf
     assert.deepEqual(parsed.command.action, {
       kind: "migrate-import",
       sourceRoots: ["../alice", "../bob"],
-      resolutions: [
-        "harness/people.yaml=source",
-        "harness/AGENTS.md=destination",
-      ],
+      resolutions: ["harness/people.yaml=source", "harness/AGENTS.md=destination"],
       dryRun: true,
     });
   assert.equal(parseThinCommand(["migrate", "import"]).ok, false);
   assert.equal(
-    parseThinCommand([
-      "migrate",
-      "import",
-      "--source",
-      "a",
-      "--resolve",
-      "harness/people.yaml=automatic",
-    ]).ok,
+    parseThinCommand(["migrate", "import", "--source", "a", "--resolve", "harness/people.yaml=automatic"]).ok,
     false,
   );
-  assert.equal(
-    parseThinCommand(["migrate", "import", "--source", "a", "--force"]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["migrate", "import", "--source", "a", "--force"]).ok, false);
 });
 
 test("migrate ledger is one closed no-option command", () => {
   const parsed = parseThinCommand(["migrate", "ledger"]);
   assert.equal(parsed.ok, true);
-  if (parsed.ok)
-    assert.deepEqual(parsed.command.action, { kind: "ledger-migrate" });
+  if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "ledger-migrate" });
   assert.equal(parseThinCommand(["migrate", "ledger", "--dry-run"]).ok, false);
 });
 
