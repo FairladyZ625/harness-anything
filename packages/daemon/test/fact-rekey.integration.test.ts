@@ -254,10 +254,44 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
           entity: { kind: "decision", decision: importedDecision, documentClaim: importedDecisionClaim },
         },
       };
+    const importedDecisionRelationEvent: MigrationImportEventV1 = {
+      schema: "migration-import-event/v1",
+      eventId: "event-imported-decision-relation",
+      workspaceRevision: 6,
+      opId: "op-imported-decision-relation",
+      type: "entity_migrated",
+      actor,
+      source: "migration-import/v1",
+      occurredAt: "2026-01-02T12:00:00.000Z",
+      payload: {
+        migratedFrom: "rel-imported-proof",
+        generation: "v0",
+        entity: {
+          kind: "relation",
+          ownerRef: `decision/${importedDecision.decisionId}`,
+          relation: {
+            relation_id: deriveRelationId({
+              source: `decision/${importedDecision.decisionId}/C1`,
+              target: "fact/task_legacy/F-ABCDEFGH",
+              type: "evidenced-by",
+              direction: "directed",
+            }),
+            source: `decision/${importedDecision.decisionId}/C1`,
+            target: "fact/task_legacy/F-ABCDEFGH",
+            type: "evidenced-by",
+            direction: "directed",
+            strength: "strong",
+            origin: "imported_snapshot",
+            state: "active",
+            rationale: "Imported proof relation",
+          },
+        },
+      },
+    };
     const retiredEventBase = {
       schema: "decision-event/v1" as const,
       eventId: "event-retire-imported-decision",
-      workspaceRevision: 6,
+      workspaceRevision: 7,
       opId: "op-retire-imported-decision",
       type: "decision_retired" as const,
       actor,
@@ -329,13 +363,20 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     mkdirSync(path.dirname(importedDecisionEventPath), { recursive: true });
     mkdirSync(path.dirname(retiredEventPath), { recursive: true });
     writeFileSync(importedDecisionEventPath, importedDecisionBodyEvent);
+    const importedDecisionRelationEventPath = path.join(
+      scratch,
+      "harness",
+      eventObjectRelativePath(importedDecisionRelationEvent.opId, seedStore.layout()),
+    );
+    mkdirSync(path.dirname(importedDecisionRelationEventPath), { recursive: true });
+    writeFileSync(importedDecisionRelationEventPath, serializePersistedCanonicalEvent(importedDecisionRelationEvent));
     writeFileSync(retiredEventPath, retiredBody);
     mkdirSync(path.dirname(importedDecisionContentPath), { recursive: true });
     writeFileSync(importedDecisionContentPath, importedDecisionBody);
     writeFileSync(
       path.join(scratch, "harness/events/head.json"),
       serializeEventHead({
-        revision: 6,
+        revision: 7,
         opId: retiredEvent.opId,
         eventDigest: `sha256:${sha256Text(retiredBody)}`,
       }),
@@ -359,7 +400,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const previewEvidence = JSON.parse(String(preview.evidence)) as { readonly counts: Record<string, number> };
     assert.equal(previewEvidence.counts.rekeyedFacts, 4);
     assert.equal(previewEvidence.counts.producesEdges, 4);
-    assert.equal(previewEvidence.counts.retargetedRelations, 2);
+    assert.equal(previewEvidence.counts.retargetedRelations, 3);
 
     const applied = (await cell.run({ kind: "fact-rekey" }, binding)) as Record<string, unknown>;
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
@@ -381,10 +422,10 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     const marker = stream.events.find(
       (event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "id-map",
     );
-    assert.equal(marker?.workspaceRevision, 11);
+    assert.equal(marker?.workspaceRevision, 12);
     assert.equal(marker?.schema === "migration-import-event/v1" ? marker.payload.ledgerEpoch : undefined, 1);
     assert.equal(
-      stream.events.some((event) => event.schema === "doc-event/v1" && event.workspaceRevision === 8),
+      stream.events.some((event) => event.schema === "doc-event/v1" && event.workspaceRevision === 9),
       true,
     );
     assert.equal(stream.events.filter((event) => event.schema === "doc-event/v1").length, 3);
@@ -398,6 +439,18 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
         rewrittenRetired.payload.contentPin?.digest,
         decisionMachineDigest({
           ...importedDecision,
+          relations: [
+            {
+              ...importedDecisionRelationEvent.payload.entity.relation,
+              relation_id: deriveRelationId({
+                source: `decision/${importedDecision.decisionId}/C1`,
+                target: "fact/F-ABCDEFGH",
+                type: "evidenced-by",
+                direction: "directed",
+              }),
+              target: "fact/F-ABCDEFGH",
+            },
+          ],
           state: "outcome_retired",
           decidedAt: retiredEvent.occurredAt,
           workspaceRevision: retiredEvent.workspaceRevision,
@@ -412,7 +465,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
     try {
       const projected = projection.readDocument("decisions/decision-dec_LEGACY/decision.md");
       assert.equal(projected.status, "ready");
-      assert.equal(projected.document?.workspaceRevision, 8);
+      assert.equal(projected.document?.workspaceRevision, 9);
       assert.equal(
         projected.document?.body,
         readFileSync(path.join(scratch, "harness/decisions/decision-dec_LEGACY/decision.md"), "utf8"),
@@ -447,7 +500,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
 
     const repeat = (await cell.run({ kind: "fact-rekey" }, binding)) as Record<string, unknown>;
     assert.equal(repeat.outcome, "no_changes", JSON.stringify(repeat));
-    assert.equal(store.readHead()?.revision, 11);
+    assert.equal(store.readHead()?.revision, 12);
   } finally {
     await cell?.close();
     if (process.env.KEEP_FACT_REKEY_FIXTURE === "1") console.error(`fact-rekey fixture: ${scratch}`);

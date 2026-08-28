@@ -267,6 +267,7 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
   const factByLegacyRef = new Map(facts.map((fact) => [fact.legacyRef, fact]));
   const eventRewrites: { event: CanonicalEventV1; body: string }[] = [],
     decisionStates = new Map<string, DecisionDocumentState>(),
+    decisionRelations = new Map<string, DecisionDocumentState["relations"]>(),
     legacyEvents = new Set(
       events
         .filter(
@@ -327,7 +328,27 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
       } else next = transform(event, mapRef, relationMap);
     } else next = transform(event, mapRef, relationMap);
     if (next?.schema === "migration-import-event/v1" && next.payload.entity.kind === "decision") {
-      decisionStates.set(next.payload.entity.decision.decisionId, next.payload.entity.decision);
+      const decision = next.payload.entity.decision,
+        importedRelations = decisionRelations.get(decision.decisionId) ?? [];
+      decisionStates.set(decision.decisionId, {
+        ...decision,
+        relations: mergeDecisionRelations(decision.relations, importedRelations),
+      });
+    }
+    if (next?.schema === "migration-import-event/v1" && next.payload.entity.kind === "relation") {
+      const decisionId = /^decision\/([^/]+)$/u.exec(next.payload.entity.ownerRef)?.[1];
+      if (decisionId) {
+        const relation = next.payload.entity.relation,
+          relations = [...(decisionRelations.get(decisionId) ?? [])];
+        if (!relations.some((entry) => entry.relation_id === relation.relation_id)) relations.push(relation);
+        decisionRelations.set(decisionId, relations);
+        const current = decisionStates.get(decisionId);
+        if (current)
+          decisionStates.set(decisionId, {
+            ...current,
+            relations: mergeDecisionRelations(current.relations, [relation]),
+          });
+      }
     }
     if (next?.schema === "decision-event/v1") {
       const current = decisionStates.get(next.decisionId) ?? null;
@@ -386,6 +407,17 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
     newFactDocuments,
     docsOnly,
   };
+}
+
+function mergeDecisionRelations(
+  current: DecisionDocumentState["relations"],
+  imported: DecisionDocumentState["relations"],
+): DecisionDocumentState["relations"] {
+  return [...current, ...imported]
+    .filter(
+      (relation, index, all) => all.findIndex((candidate) => candidate.relation_id === relation.relation_id) === index,
+    )
+    .sort((left, right) => left.relation_id.localeCompare(right.relation_id));
 }
 
 function legacyFactsDocumentName(): string {
