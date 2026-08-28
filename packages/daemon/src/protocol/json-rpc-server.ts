@@ -13,6 +13,7 @@ import {
   isDaemonGuiReadMethod,
   isDaemonStreamMethod,
   jsonRpcMethodContracts,
+  makeDaemonCommandReceipt,
   parseDaemonRpcParams,
   type DaemonSessionEnvironment,
 } from "./daemon-protocol.contract.ts";
@@ -521,17 +522,8 @@ export function createJsonRpcProtocolServer(options: {
     observed = { ...observed, command: action.kind, executor: declaredExecutorOrNull(action) };
     if (action.kind === "preset-run-start" || action.kind === "preset-run-status")
       return reply((await options.host.presetRun(repo, action, options.authContext)) as unknown as JsonObject);
-    const receipt = await options.host.run(repo, action, options.authContext);
-    const ok = receipt.outcome === "applied" || receipt.outcome === "pending" || receipt.outcome === "no_changes";
-    const result = {
-      schema: "command-receipt/v2",
-      ok,
-      command: action.kind,
-      ...receipt,
-      ...(!ok
-        ? { error: { code: receipt.code ?? "write_rejected", hint: receipt.nextAction ?? "Inspect the rejection." } }
-        : {}),
-    } as unknown as JsonObject;
+    const receipt = await options.host.run(repo, action, options.authContext),
+      result = makeDaemonCommandReceipt(action.kind, receipt);
     return reply(
       isDaemonGuiActionMethod(request.method)
         ? (parseDaemonGuiActionResult(request.method, result) as unknown as JsonObject)

@@ -1,7 +1,12 @@
 import { consumeKnownError, nextScheduleOccurrence, type ScheduleMissedReason } from "../../kernel/src/index.ts";
 import type { DaemonCommandClass } from "./identity/types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import { parseScheduleListReceipt, type ScheduleListRow } from "./protocol/daemon-protocol-validate-results.ts";
+import {
+  daemonCommandReceiptRejectionCode,
+  makeDaemonCommandReceipt,
+  parseScheduleListReceipt,
+  type ScheduleListRow,
+} from "./protocol/daemon-protocol-validate-results.ts";
 import type { RepoCell, RepoCellBinding } from "./repo-cell.ts";
 
 export const scheduleAdmissionWindowMs = 60_000;
@@ -82,6 +87,10 @@ export function makeScheduleScheduler(input: {
       armRetry();
       return;
     }
+    if (plan.pending) {
+      armRetry();
+      return;
+    }
     const first = plan.due.sort((left, right) => left.wakeAt.localeCompare(right.wakeAt))[0];
     if (!first) return;
     const delayMs = Math.max(0, Date.parse(first.wakeAt) - Date.parse(now()));
@@ -105,6 +114,10 @@ export function makeScheduleScheduler(input: {
     if (plan.missed.length) {
       if (await applyMissed(plan.missed)) await reconcile();
       else armRetry();
+      return;
+    }
+    if (plan.pending) {
+      armRetry();
       return;
     }
     const observedAt = now(),
@@ -145,14 +158,16 @@ export function makeScheduleScheduler(input: {
   async function evaluationPlan(): Promise<{
     readonly due: DueOccurrence[];
     readonly missed: MissedOccurrences[];
+    readonly pending: boolean;
   }> {
     const observedAt = now(),
       due: DueOccurrence[] = [],
       missed: MissedOccurrences[] = [],
       currentOccurrences = new Set<string>();
+    let pending = false;
     for (const [repoId, cell] of input.cells) {
-      const { mode } = cell.status();
-      if (mode === "remote-center") continue;
+      const { mode, state } = cell.status();
+      if (state !== "attached" || mode === "remote-center") continue;
       const target = targetFor(repoId, cell);
       if (!target) continue;
       let schedules: readonly ScheduleListRow[];
@@ -160,6 +175,14 @@ export function makeScheduleScheduler(input: {
         schedules = await listSchedules(target);
       } catch (error) {
         consumeKnownError(error);
+        if (errorCode(error) === "projection_pending") {
+          pending = true;
+          continue;
+        }
+        if (cell.status().state !== "attached") {
+          console.warn(`[schedule-scheduler] ${repoId} skipped: ${errorMessage(error)}`);
+          continue;
+        }
         console.warn(`[schedule-scheduler] ${repoId} refresh failed: ${errorMessage(error)}`);
         continue;
       }
@@ -183,7 +206,7 @@ export function makeScheduleScheduler(input: {
       }
     }
     for (const key of attempted) if (!currentOccurrences.has(key)) attempted.delete(key);
-    return { due, missed };
+    return { due, missed, pending };
   }
 
   function targetFor(repoId: string, cell: RepoCell): ScheduleTarget | null {
@@ -208,8 +231,11 @@ export function makeScheduleScheduler(input: {
 }
 
 async function listSchedules(target: ScheduleTarget): Promise<readonly ScheduleListRow[]> {
-  const receipt = await target.execute({ kind: "schedule-list" }),
-    schedules = parseScheduleListReceipt(receipt);
+  const receipt = makeDaemonCommandReceipt("schedule-list", await target.execute({ kind: "schedule-list" })),
+    rejectionCode = daemonCommandReceiptRejectionCode(receipt);
+  if (rejectionCode)
+    throw Object.assign(new Error(`Schedule list rejected: ${rejectionCode}.`), { code: rejectionCode });
+  const schedules = parseScheduleListReceipt(receipt);
   if (!schedules) throw new Error("Schedule list receipt evidence is invalid.");
   return schedules;
 }
@@ -306,6 +332,15 @@ function occurrenceKey(input: DueOccurrence): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function errorCode(error: unknown): string | null {
+  return typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as { readonly code?: unknown }).code === "string"
+    ? (error as { readonly code: string }).code
+    : null;
 }
 
 function isRejected(outcome: PromiseSettledResult<unknown>): outcome is PromiseRejectedResult {

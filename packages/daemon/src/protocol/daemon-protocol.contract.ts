@@ -530,7 +530,9 @@ export {
   validateDaemonRelationGraph,
 } from "./daemon-protocol-validate-projections.ts";
 export {
+  daemonCommandReceiptRejectionCode,
   daemonProtocolError,
+  makeDaemonCommandReceipt,
   serializeDaemonAgenda,
   serializeDaemonDecisionList,
   serializeDaemonDocumentRead,
