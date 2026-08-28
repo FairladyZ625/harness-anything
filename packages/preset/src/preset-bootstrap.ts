@@ -367,7 +367,8 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
   if (addedPaths.length)
     throw bootstrapFailure(
       "upgrade_document_set_changed",
-      `Preset upgrade adds documents the task package does not have (${addedPaths.join(", ")}); recreate the task instead.`,
+      `Preset upgrade adds documents the task package does not have (${addedPaths.join(", ")}); ` +
+        "recreate the task instead.",
     );
   if (compiled.snapshot.digest === previousDigest)
     throw bootstrapFailure("snapshot_current", "Task already uses the current preset snapshot.");

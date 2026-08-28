@@ -254,7 +254,8 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
       (error: unknown) =>
         (error as { code?: string; message?: string }).code === "upgrade_document_set_changed" &&
         (error as Error).message ===
-          "Preset upgrade adds documents the task package does not have (upgrade-evidence.md); recreate the task instead.",
+          "Preset upgrade adds documents the task package does not have (upgrade-evidence.md); " +
+            "recreate the task instead.",
     );
   } finally {
     projection?.close();
