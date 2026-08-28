@@ -40,7 +40,6 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   providers: "shell.nav.providers",
   system: "shell.nav.system",
   daemonObserve: "shell.nav.daemonObserve",
-  ciObservatory: "shell.nav.ciObservatory",
   settings: "shell.nav.settings",
 };
 
@@ -88,7 +87,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { id: "presets", icon: <Stack weight="duotone" /> },
       { id: "adapters", icon: <PlugsConnected weight="duotone" /> },
       { id: "system", icon: <GearSix weight="duotone" /> },
-      { id: "ciObservatory", icon: <Waveform weight="duotone" /> },
       { id: "settings", icon: <GearSix weight="duotone" /> },
     ],
   },

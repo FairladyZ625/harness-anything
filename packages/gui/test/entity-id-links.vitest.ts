@@ -23,7 +23,6 @@ import { SchedulesView } from "../src/renderer/views/SchedulesView.tsx";
 import { schedulesClient } from "../src/renderer/schedules-client.ts";
 import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { DaemonObserveView } from "../src/renderer/views/DaemonObserveView.tsx";
-import { CiObservatoryView } from "../src/renderer/views/CiObservatoryView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
@@ -210,19 +209,6 @@ function seedRuntimeQueries(client: QueryClient): void {
       activeControl: null,
     },
     repos: [fixtureRepoRow()],
-  });
-  client.setQueryData(["ci-observatory", REPO_ID], {
-    schema: "daemon.ci-observatory/v1",
-    ok: true,
-    status: "ready",
-    window: 100,
-    flakes: [],
-    shardDurations: [],
-    gateTrends: [],
-    l0MedianMs: null,
-    runs: [],
-    watermark: 1,
-    sourceRevision: 1,
   });
 }
 
@@ -634,7 +620,6 @@ const VIEW_RENDERERS = {
       onBack: noop,
       onNavigateEntity: noop,
     }),
-  ciObservatory: () => createElement(CiObservatoryView, { repoId: REPO_ID }),
   settings: () => createElement(SettingsView, { repoId: REPO_ID }),
 } satisfies Record<ViewId, () => ReturnType<typeof createElement>>;
 

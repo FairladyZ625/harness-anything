@@ -52,5 +52,4 @@ export const guiVitestManifest = [
   "packages/gui/test/gui-w6-ledger-read-shape.vitest.ts",
   "packages/gui/test/gui-w6-truncation-visibility.vitest.ts",
   "packages/gui/test/system-group-widescreen.vitest.ts",
-  "packages/gui/test/ci-observatory.vitest.ts",
 ];

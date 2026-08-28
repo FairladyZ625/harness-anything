@@ -34,7 +34,6 @@ const VIEW_IDS: ReadonlySet<string> = new Set<ViewId>([
   "providers",
   "system",
   "daemonObserve",
-  "ciObservatory",
   "settings",
 ]);
 
