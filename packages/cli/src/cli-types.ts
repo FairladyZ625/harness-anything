@@ -8,7 +8,7 @@ export type RuntimeBatchEntry = {
   readonly effort?: string;
   readonly permissionMode?: string;
   readonly prompt?: string;
-  readonly promptFile?: string;
+  readonly mission?: string;
   readonly cwd?: string | RuntimeCwd;
   readonly task?: string;
 };
@@ -38,9 +38,9 @@ export type SquadRunAction = {
   readonly squadId: string;
   readonly runtimeInstanceId: string;
   readonly prompt?: string;
-  readonly promptFile?: string;
   readonly effort?: string;
   readonly model?: string;
+  readonly permissionMode?: string;
   readonly cwd: Readonly<Record<string, string>>;
   readonly taskId: string;
 };

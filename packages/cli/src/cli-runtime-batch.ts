@@ -110,7 +110,7 @@ export function runtimeBatchSpawnAction(entry: RuntimeBatchEntry): ThinCommand["
     ...(entry.model ? { model: entry.model } : {}),
     ...(entry.effort ? { effort: entry.effort } : {}),
     ...(entry.permissionMode ? { permissionMode: entry.permissionMode } : {}),
-    ...(entry.prompt ? { prompt: entry.prompt } : { promptFile: entry.promptFile }),
+    ...(entry.prompt ? { prompt: entry.prompt } : entry.mission ? { missionName: entry.mission } : {}),
     cwd:
       typeof entry.cwd === "object"
         ? entry.cwd

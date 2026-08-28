@@ -23,6 +23,8 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
       packagePath = String(created.packagePath),
       closeoutPath = `${packagePath}/closeout.md`,
       commitSha = git(root, "rev-parse", "HEAD");
+    writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Closeout E2E"));
+    run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     run(root, userRoot, [
       "fact",
       "record",
@@ -103,6 +105,8 @@ test("a standard task with only task-package deliverables completes without a fa
       packagePath = String(created.packagePath),
       closeoutPath = `${packagePath}/closeout.md`,
       reportPath = `${packagePath}/artifacts/report.md`;
+    writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Report Closeout"));
+    run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     assert.deepEqual(created.completionGates, ["ci", "code-doc-reconciliation"]);
     run(root, userRoot, [
       "fact",
@@ -176,6 +180,25 @@ function initialize(root: string): void {
   git(root, "config", "user.email", "closeout@example.test");
   git(root, "add", "README.md", "harness");
   git(root, "commit", "--quiet", "-m", "fixture");
+}
+function realizedPlan(title: string): string {
+  const headings = [
+    "Brief",
+    "Goal",
+    "Context",
+    "Required Reading",
+    "Entry Conditions",
+    "Dependencies",
+    "Execution Surface",
+    "Constraints",
+    "Checkpoint",
+    "CI/Gate Authority Stop Condition",
+    "Implementation Plan",
+    "Deliverable Contract",
+    "Evidence Protocol",
+    "Verification",
+  ];
+  return `# ${title}\n\n${headings.map((heading) => `## ${heading}\n\nRealized ${heading}.`).join("\n\n")}\n`;
 }
 function environment(root: string, userRoot: string, actor?: string): NodeJS.ProcessEnv {
   const {

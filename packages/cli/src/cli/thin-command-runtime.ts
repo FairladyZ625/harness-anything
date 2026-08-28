@@ -23,11 +23,15 @@ export function parseRuntime(
   if (kind === "runtime-cancel") return accepted(rootDir, repoId, json, { kind, runtimeSessionId: id }, route.method);
   const prompt = promptInput(f.one),
     taskId = f.one.get("--task"),
-    promptFlagPresent = f.one.has("--prompt") || f.one.has("--prompt-file"),
+    missionName = f.one.get("--mission"),
+    promptFlagPresent = f.one.has("--prompt"),
     detach = f.booleans.has("--detach"),
     onExitCommand = f.one.get("--on-exit");
-  if (!prompt && (promptFlagPresent || !taskId))
-    return rejectInput(inputs, kind, f.one.has("--prompt") ? "--prompt-file" : "--prompt", json);
+  if (!prompt && (promptFlagPresent || !taskId)) return rejectInput(inputs, kind, "--prompt", json);
+  if (missionName && !taskId)
+    return rejected("invalid_field", "Use --mission <name> only with --task <task-id>.", json);
+  if (missionName && prompt)
+    return rejected("invalid_field", "Use --mission <name> or --prompt <text>, not both.", json);
   if (onExitCommand && !detach) return rejectInput(inputs, kind, "--on-exit", json);
   const cwd = f.one.get("--cwd"),
     agentId = f.one.get("--agent"),
@@ -51,6 +55,7 @@ export function parseRuntime(
       ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
       ...(f.one.get("--permission-mode") ? { permissionMode: f.one.get("--permission-mode") } : {}),
       ...(prompt ?? {}),
+      ...(missionName ? { missionName } : {}),
       cwd: cwd && cwd !== "." ? { scope: "repo-relative", path: cwd } : { scope: "repo-root" },
       taskId: taskId ?? null,
       ...(f.one.get("--resume") ? { providerSessionId: f.one.get("--resume") } : {}),
@@ -77,10 +82,12 @@ export function parseResumeDispatch(
 ): ThinParseResult {
   const f = readFlags("runtime-run", args.slice(2), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
+  if (f.one.has("--mission"))
+    return rejected("invalid_field", "A resumed dispatch keeps its original task mission.", json);
   const prompt = promptInput(f.one),
     detach = f.booleans.has("--detach"),
     onExitCommand = f.one.get("--on-exit");
-  if (!prompt) return rejectInput(inputs, "runtime-run", f.one.has("--prompt") ? "--prompt-file" : "--prompt", json);
+  if (!prompt) return rejectInput(inputs, "runtime-run", "--prompt", json);
   if (onExitCommand && !detach) return rejectInput(inputs, "runtime-run", "--on-exit", json);
   const cwd = f.one.get("--cwd"),
     agentId = f.one.get("--agent"),

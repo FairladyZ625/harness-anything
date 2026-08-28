@@ -49,6 +49,7 @@ import {
   deriveTaskMission,
   resolveRuntimeCwd,
   resolveRuntimeInstanceId,
+  runtimeMissionName,
   validateMissionCommands,
 } from "./runtime-spawn-mission.ts";
 import {
@@ -192,6 +193,7 @@ export function makeRuntimeSpawner(input: {
         "cwd",
         "prompt",
         "promptSource",
+        "missionName",
         "onExitCommand",
         "taskId",
         "idempotencyKey",
@@ -213,6 +215,7 @@ export function makeRuntimeSpawner(input: {
           ? resumed?.header.instanceId
           : requiredRuntimeSpawnText(payload.runtimeInstanceId, "runtimeInstanceId"),
       explicitMission = payload.prompt === undefined ? undefined : requiredRuntimeSpawnText(payload.prompt, "prompt"),
+      missionName = payload.missionName === undefined ? undefined : runtimeMissionName(payload.missionName),
       agentId = payload.agentId === undefined ? undefined : requiredRuntimeSpawnText(payload.agentId, "agentId"),
       targetAgentId =
         payload.targetAgentId === undefined
@@ -242,6 +245,10 @@ export function makeRuntimeSpawner(input: {
         typeof payload.providerSessionId === "string"
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
           : resumed?.providerSessionId;
+    if (missionName && !taskId)
+      throw runtimeSpawnError("invalid_runtime_mission", "Use --mission <name> only with --task <task-id>.");
+    if (missionName && explicitMission)
+      throw runtimeSpawnError("invalid_runtime_mission", "Use --mission <name> or --prompt <text>, not both.");
     if (targetAgentId !== undefined && agentId === undefined)
       throw runtimeSpawnError("squad_leader_required", "Targeted squad dispatch requires --agent <leader-id>.");
     if (squadId !== undefined && agentId === undefined)
@@ -249,7 +256,7 @@ export function makeRuntimeSpawner(input: {
     const cwd = resolveRuntimeCwd(input.rootDir, payload.cwd),
       store = input.remote ? null : requiredRuntimeStore(input),
       projection = input.remote ? null : requiredRuntimeProjection(input),
-      remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId) : null,
+      remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null,
       lease = taskId && !input.remote ? projection!.currentLease(taskId) : null,
       hash = createHash("sha256").update(`${input.repoId}\0${idempotencyKey}`).digest("hex"),
       newDispatchId = `dispatch_${hash.slice(0, 24)}`,
@@ -279,9 +286,13 @@ export function makeRuntimeSpawner(input: {
         "runtime_preconditions_unavailable",
         "Task-bound and scheduled runtime spawn require a sealed daemon route before dispatch.",
       );
-    const taskMission = taskId ? (remoteTask ?? deriveTaskMission(input.rootDir, projection!, taskId)) : null,
+    const taskMission = taskId
+        ? (remoteTask ?? deriveTaskMission(input.rootDir, projection!, taskId, "runtime.run", missionName))
+        : null,
       mission = explicitMission ?? taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt");
     if (taskMission) validateMissionCommands(taskMission.plan, cwd, taskMission.planPath);
+    if (taskMission?.missionBody && taskMission.missionPath)
+      validateMissionCommands(taskMission.missionBody, cwd, taskMission.missionPath);
     if (explicitMission) validateMissionCommands(explicitMission, cwd, "explicit runtime mission");
     const remoteExisting = input.remote ? await input.remote.existing(dispatchOpId) : null,
       existing = input.remote ? null : store!.readEvent(dispatchOpId);

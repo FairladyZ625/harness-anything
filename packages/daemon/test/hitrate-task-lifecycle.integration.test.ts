@@ -40,10 +40,17 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     ownerId: "hitrate-lifecycle",
   });
   try {
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId, title: "Lifecycle hit rate" }, holder)).outcome,
-      "applied",
-    );
+    const created = await cell.run({ kind: "task-create", taskId, title: "Lifecycle hit rate" }, holder);
+    assert.equal(created.outcome, "applied");
+    const placeholder = await cell.run({ kind: "task-start", taskId, executionId }, holder);
+    assert.equal(placeholder.outcome, "op_rejected", JSON.stringify(placeholder));
+    assert.equal(placeholder.code, "plan_placeholder");
+    assert.match(placeholder.nextAction ?? "", /task_plan\.md/u);
+    const packagePath = String((created as { readonly packagePath?: unknown }).packagePath),
+      planPath = `${packagePath}/task_plan.md`;
+    writeFileSync(path.join(rootDir, "harness", planPath), realizedPlan());
+    const synced = await cell.run({ kind: "doc-submit", paths: [planPath] }, holder);
+    assert.equal(synced.outcome, "applied", JSON.stringify(synced));
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
     const events = () => makeTaskEventStore({ repoId, rootDir }).read().events,
       startedEvents = events().length,
@@ -125,3 +132,23 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     rmSync(parent, { recursive: true, force: true });
   }
 });
+
+function realizedPlan(): string {
+  const headings = [
+    "Brief",
+    "Goal",
+    "Context",
+    "Required Reading",
+    "Entry Conditions",
+    "Dependencies",
+    "Execution Surface",
+    "Constraints",
+    "Checkpoint",
+    "CI/Gate Authority Stop Condition",
+    "Implementation Plan",
+    "Deliverable Contract",
+    "Evidence Protocol",
+    "Verification",
+  ];
+  return `# Lifecycle hit rate\n\n${headings.map((heading) => `## ${heading}\n\nRealized ${heading}.`).join("\n\n")}\n`;
+}

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
-test("squad run derives the runtime prompt input union", () => {
+test("squad run derives its mission from task unless prompt overrides it", () => {
   const promptFile = parseThinCommand([
       "squad",
       "run",
@@ -29,6 +29,8 @@ test("squad run derives the runtime prompt input union", () => {
       "work",
       "--task",
       "task-1",
+      "--permission-mode",
+      "workspace-write",
     ]),
     both = parseThinCommand([
       "squad",
@@ -45,27 +47,16 @@ test("squad run derives the runtime prompt input union", () => {
       "--task",
       "task-1",
     ]),
-    neither = parseThinCommand([
-      "squad",
-      "run",
-      "core-squad",
-      "--instance",
-      "worker",
-      "--cwd",
-      "work",
-      "--task",
-      "task-1",
-    ]);
-  assert.equal(promptFile.ok, true);
-  if (promptFile.ok) assert.equal(promptFile.command.action.promptFile, "mission.md");
+    taskOnly = parseThinCommand(["squad", "run", "core-squad", "--instance", "worker", "--task", "task-1"]);
+  assert.equal(promptFile.ok, false);
   assert.equal(prompt.ok, true);
-  if (prompt.ok) assert.equal(prompt.command.action.prompt, "mission");
-  assert.equal(both.ok, false);
-  assert.equal(neither.ok, false);
-  if (!neither.ok) {
-    assert.match(neither.nextAction, /exactly one/u);
-    assert.doesNotMatch(neither.nextAction, /omit both/u);
+  if (prompt.ok) {
+    assert.equal(prompt.command.action.prompt, "mission");
+    assert.equal(prompt.command.action.permissionMode, "workspace-write");
   }
+  assert.equal(both.ok, false);
+  assert.equal(taskOnly.ok, true);
+  if (taskOnly.ok) assert.deepEqual(taskOnly.command.action.cwd, { scope: "repo-root" });
 });
 
 test("Agent and Squad declaration commands route through the daemon entity lifecycle", () => {

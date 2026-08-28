@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { parseRuntimeBatchEntry } from "../src/cli-runtime-batch-input.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("thin parser converts the sole preset script target into closed typed start params", () => {
@@ -190,6 +191,7 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     ]),
     taskOnly = parseThinCommand(["runtime", "run", "worker", "--agent", "terra", "--task", "task-1", "--cwd", "."]),
     file = parseThinCommand(["runtime", "run", "worker", "--prompt-file", "prompt.txt"]),
+    mission = parseThinCommand(["runtime", "run", "worker", "--task", "task-1", "--mission", "api-review"]),
     batch = parseThinCommand(["runtime", "batch", "dispatches.json"]),
     detached = parseThinCommand([
       "runtime",
@@ -214,8 +216,9 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     show = parseThinCommand(["runtime", "status", "runtime-1"]),
     wait = parseThinCommand(["runtime", "status", "runtime-1", "--wait", "--no-stream"]),
     cancel = parseThinCommand(["runtime", "cancel", "runtime-1"]);
-  for (const parsed of [run, taskOnly, file, batch, detached, resumed, dispatches, list, show, wait, cancel])
+  for (const parsed of [run, taskOnly, mission, batch, detached, resumed, dispatches, list, show, wait, cancel])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  assert.equal(file.ok, false);
   if (run.ok)
     assert.deepEqual(run.command.action, {
       kind: "runtime-run",
@@ -238,13 +241,13 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       cwd: { scope: "repo-root" },
       taskId: "task-1",
     });
-  if (file.ok)
-    assert.deepEqual(file.command.action, {
+  if (mission.ok)
+    assert.deepEqual(mission.command.action, {
       kind: "runtime-run",
       runtimeInstanceId: "worker",
-      promptFile: "prompt.txt",
+      missionName: "api-review",
       cwd: { scope: "repo-root" },
-      taskId: null,
+      taskId: "task-1",
     });
   if (batch.ok)
     assert.deepEqual(batch.command.action, {
@@ -335,4 +338,21 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   assert.equal(parseThinCommand(["runtime", "status", "--wait"]).ok, false);
   assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--no-stream"]).ok, false);
   assert.equal(parseThinCommand(["runtime", "wait", "runtime-1"]).ok, false);
+});
+
+test("runtime batch uses the same prompt, mission, and task input union as runtime run", () => {
+  assert.deepEqual(parseRuntimeBatchEntry({ instance: "worker", task: "task-1" }, 0), {
+    instance: "worker",
+    task: "task-1",
+  });
+  assert.deepEqual(parseRuntimeBatchEntry({ instance: "worker", task: "task-1", mission: "api-review" }, 0), {
+    instance: "worker",
+    mission: "api-review",
+    task: "task-1",
+  });
+  assert.throws(
+    () => parseRuntimeBatchEntry({ instance: "worker", prompt: "one", mission: "two", task: "task-1" }, 0),
+    /cannot combine prompt and mission/u,
+  );
+  assert.throws(() => parseRuntimeBatchEntry({ instance: "worker" }, 0), /requires prompt, mission, or task/u);
 });

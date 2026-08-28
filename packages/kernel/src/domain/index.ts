@@ -54,6 +54,12 @@ export {
 export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
 export { blockingOf } from "./task-blocking.ts";
 
+export {
+  assessTransitionDocument,
+  assertTransitionDocumentReady,
+  requireTransitionDocumentKind,
+} from "./transition-document-readiness.ts";
+
 export { freshnessReasonOf } from "./decision-coverage.ts";
 export type { FreshnessReason, FreshnessReasonInput } from "./decision-coverage.ts";
 

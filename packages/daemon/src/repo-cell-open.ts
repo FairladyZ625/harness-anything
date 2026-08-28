@@ -65,16 +65,23 @@ export async function reacquireSquadTaskLease(input: {
   readonly taskId: string;
   readonly binding: RepoCellBinding;
   readonly snapshot: Snapshot;
-  readonly start: (executionId: string) => Promise<{ readonly outcome: string }>;
+  readonly start: (executionId?: string) => Promise<{
+    readonly outcome: string;
+    readonly code?: string;
+    readonly nextAction?: string;
+  }>;
 }): Promise<void> {
   const execution = input.snapshot.executions.find(
     (candidate) => candidate.iteration === input.snapshot.task?.iteration && candidate.state === "active",
   );
-  if (!execution)
+  if (!execution) {
+    const started = await input.start();
+    if (started.outcome === "applied") return;
     throw cellCodedError(
-      "runtime_task_lease_required",
-      `Task ${input.taskId} has no active execution for the squad continuation to reacquire.`,
+      started.code ?? "runtime_task_lease_required",
+      started.nextAction ?? `Task ${input.taskId} could not acquire an execution lease for squad dispatch.`,
     );
+  }
   const lease = input.snapshot.lease;
   if (lease) {
     if (lease.executionId === execution.executionId && isSameExecution(lease.actor, input.binding.actor)) return;
@@ -349,7 +356,7 @@ export async function openRepoCell(input: {
         snapshot: projection.read(taskId).snapshot as Snapshot,
         start: (executionId) =>
           extracted.lifecycleAction(
-            { kind: "task-start", taskId, executionId },
+            { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
             withDerivedCommandClass(binding, commandClassForAction("task-start")),
           ),
       });

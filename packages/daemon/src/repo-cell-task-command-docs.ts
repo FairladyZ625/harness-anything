@@ -13,6 +13,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { adjudicateDocIntent, claimBytes, recycleClaims, rejectDocSyncAction } from "./doc-sync-actions.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 
 // Class-A sync (design-v2 §3): one serial cell command carries the lifecycle
 // intent AND the locally changed task-package documents with their mirror
@@ -144,6 +145,27 @@ export async function runTaskCommandWithDocs(
   // The lifecycle service publishes one task event whose carried-document
   // claims and machine lifecycle claims share the same canonical commit.
   // Projection replay therefore restores both sides after any crash.
+  const resolvedLifecycle = cell.resolveLifecycleAction(taskAction),
+    bodyOverrides = new Map(
+      carriedChanges.map((change) => {
+        const blob = adjudication.decision.blobs.find((candidate) => candidate.sha256 === change.candidate!.sha256);
+        if (!blob) throw cell.cellCodedError("content_not_ready", `Candidate body for ${change.path} is unavailable.`);
+        return [change.path, blob.body] as const;
+      }),
+    );
+  if (resolvedLifecycle?.coordination === "reserve")
+    try {
+      assertTaskTransitionDocumentReady({
+        projection: cell.projection,
+        taskId,
+        slot: "task.plan",
+        transition: "task.start",
+        bodyOverrides,
+      });
+    } catch (error) {
+      recycleClaims(cell.rootDir, intent);
+      throw error;
+    }
   const current = await cell.service.read(taskId),
     normalized = cell.buildCommand(
       taskAction as RepoTaskAction,

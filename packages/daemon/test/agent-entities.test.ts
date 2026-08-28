@@ -103,6 +103,31 @@ test("Agent and Squad entities prepare, list, inspect, and replace declarations 
   }
 });
 
+test("Agent and Squad install reject the canonical blank declaration scaffolds", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-placeholder-"));
+  try {
+    await assert.rejects(
+      () =>
+        install({
+          rootDir,
+          kind: "agent-install",
+          declaration: {
+            ...agent,
+            instructions: "(To be written: this text becomes the agent's system prompt verbatim.)",
+          },
+        }),
+      (error: unknown) => (error as { readonly code?: unknown }).code === "instructions_placeholder",
+    );
+    await assert.rejects(
+      () =>
+        install({ rootDir, kind: "squad-install", declaration: { ...squad, roster: "## Squad Roster\n（待补写）" } }),
+      (error: unknown) => (error as { readonly code?: unknown }).code === "roster_placeholder",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("runtime_type is an open identifier: third-party runtimes validate while traversal and whitespace stay rejected", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-runtime-type-")),
     source = path.join(rootDir, "source");

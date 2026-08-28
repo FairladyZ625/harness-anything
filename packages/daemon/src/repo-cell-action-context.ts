@@ -49,6 +49,7 @@ import {
   taskMutation as taskMutationImpl,
   taskSurfaceWrite as taskSurfaceWriteImpl,
 } from "./repo-cell-task-command.ts";
+import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import {
   createTask as createTaskImpl,
   dependencyPath as dependencyPathImpl,
@@ -136,6 +137,7 @@ export function createRepoCellActionContext(bindings: {
     createTask: bind(createTaskImpl),
     taskCreateAction,
     runTaskCommandWithDocs: bind(runTaskCommandWithDocsImpl),
+    assertTaskTransitionDocumentReady,
     appendProgress: bind(appendProgressImpl),
     migrateTaskContracts: bind(migrateTaskContractsImpl),
     archiveTasks: bind(archiveTasksImpl),

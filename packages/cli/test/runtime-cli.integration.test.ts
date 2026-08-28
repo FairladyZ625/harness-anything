@@ -26,7 +26,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     binRoot = path.join(parent, "bin"),
-    promptFile = path.join(root, "prompt.txt"),
     tracker = path.join(root, ".batch-tracker"),
     nonzeroTrace = path.join(root, ".notify-nonzero.json"),
     notificationStarted = path.join(root, ".notify-hold-started"),
@@ -165,6 +164,9 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       created = run(root, env, ["task", "create", "--id", taskId, "--admin", "--title", "Runtime archive"]),
       packagePath = String(created.packagePath),
       artifactRoot = path.join(root, "harness", packagePath, "artifacts");
+    const planPath = path.join(root, "harness", packagePath, "task_plan.md");
+    writeFileSync(planPath, realizedPlan("Runtime archive"));
+    run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     const inventory = run(root, env, ["runtime", "instance", "list"]),
       installation = (inventory.installations as Array<Record<string, unknown>>).find(
         (row) => row.kindId === "codex" && row.version === `codex ${version}`,
@@ -198,23 +200,37 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(missingInstance.status, 1);
     assert.equal(missingInstance.receipt.code, "runtime_instance_not_found");
     assert.equal(missingInstance.receipt.dispatchId, undefined);
-    writeFileSync(promptFile, "file prompt");
-    const fromFile = run(root, env, ["runtime", "run", "cli-worker", "--prompt-file", "prompt.txt", "--no-stream"]);
-    assert.equal((fromFile.result as Record<string, unknown>).text, "final:file prompt");
+    const directPrompt = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "file prompt", "--no-stream"]);
+    assert.equal((directPrompt.result as Record<string, unknown>).text, "final:file prompt");
     for (const directory of ["missions", "dispatches", "reports"])
       assert.equal(existsSync(path.join(artifactRoot, directory)), false, `${directory} must not exist without --task`);
     const automaticTaskId = `${taskId}-automatic`;
-    run(root, env, ["task", "create", "--id", automaticTaskId, "--admin", "--title", "Automatic lease"]);
-    const automaticLease = runMaybe(root, env, [
-      "runtime",
-      "run",
-      "cli-worker",
-      "--prompt",
-      "must acquire its lease",
-      "--task",
+    const automaticTask = run(root, env, [
+      "task",
+      "create",
+      "--id",
       automaticTaskId,
-      "--detach",
+      "--admin",
+      "--title",
+      "Automatic lease",
     ]);
+    const automaticArgs = [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--prompt",
+        "must acquire its lease",
+        "--task",
+        automaticTaskId,
+        "--detach",
+      ],
+      placeholderLease = runMaybe(root, env, automaticArgs);
+    assert.equal(placeholderLease.status, 1);
+    assert.equal(placeholderLease.receipt.code, "plan_placeholder");
+    const automaticPackagePath = String(automaticTask.packagePath);
+    writeFileSync(path.join(root, "harness", automaticPackagePath, "task_plan.md"), realizedPlan("Automatic lease"));
+    run(root, env, ["doc", "sync", "--submit", "--path", `${automaticPackagePath}/task_plan.md`]);
+    const automaticLease = runMaybe(root, env, automaticArgs);
     assert.equal(automaticLease.status, 0, JSON.stringify(automaticLease));
     assert.equal(automaticLease.receipt.outcome, "running");
     assert.equal(typeof automaticLease.receipt.dispatchId, "string");
@@ -441,15 +457,25 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       "--source",
       "existing-mission.txt",
       "--destination",
-      "existing-mission.md",
+      "missions/existing-mission.md",
     ]);
-    const existingPrompt = path.join("harness", packagePath, "artifacts", "existing-mission.md"),
-      reused = run(root, env, [
+    const retiredPromptFile = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt-file",
+      path.join("harness", packagePath, "artifacts", "missions", "existing-mission.md"),
+      "--task",
+      taskId,
+    ]);
+    assert.equal(retiredPromptFile.status, 2);
+    assert.equal(retiredPromptFile.receipt.code, "unknown_field");
+    const reused = run(root, env, [
         "runtime",
         "run",
         "cli-worker",
-        "--prompt-file",
-        existingPrompt,
+        "--mission",
+        "existing-mission",
         "--task",
         taskId,
         "--no-stream",
@@ -463,7 +489,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(reusedDispatch.missionRef, `${packagePath}/artifacts/missions/${reusedDispatchId}.md`);
     assert.deepEqual(
       readdirSync(path.join(artifactRoot, "missions")).sort(),
-      [`${progressDispatchId}.md`, `${boundDispatchId}.md`, `${reusedDispatchId}.md`].sort(),
+      ["existing-mission.md", `${progressDispatchId}.md`, `${boundDispatchId}.md`, `${reusedDispatchId}.md`].sort(),
     );
     assert.equal(reusedReport, `final:${reusedMission}`);
     assertTaskMissionPrompt(reusedMission, {
@@ -474,7 +500,10 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       daemonUserRoot: userRoot,
       daemonId: "runtime-cli-test",
       runtimeSessionId: String(reused.runtimeSessionId),
-      mission: "existing mission",
+      mission:
+        `Your task package is ${path.join(realpathSync(root), "harness", packagePath)}.\n` +
+        "Read task_plan.md in that package and complete the task.\n\n" +
+        "# Mission: existing-mission\n\nexisting mission",
     });
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const taskPackage = path.join(realpathSync(root), "harness", packagePath),
@@ -757,7 +786,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(unknownDispatch.status, 1);
     assert.equal(
       rejectionHint(unknownDispatch.receipt),
-      'Batch dispatch 0 contains an unknown field "permissionMode"; allowed fields: "instance", "agent", "to", "squad", "model", "effort", "permission-mode", "prompt", "prompt-file", "cwd", "task".',
+      'Batch dispatch 0 contains an unknown field "permissionMode"; allowed fields: "instance", "agent", "to", "squad", "model", "effort", "permission-mode", "prompt", "mission", "cwd", "task".',
     );
     const unknownSpawn = await runCommandThroughDaemon(
       {
@@ -814,7 +843,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       rejectionHint(unknownFact),
       'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".',
     );
-    writeFileSync(path.join(root, "batch-prompt.txt"), "batch hold from file");
     writeFileSync(
       path.join(root, "batch.json"),
       JSON.stringify(
@@ -833,7 +861,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
               task: taskId,
             },
             { instance: "cli-worker", agent: "fable", to: "terra", prompt: "batch hold two", cwd: ".", task: taskId },
-            { instance: "cli-worker", agent: "fable", to: "terra", "prompt-file": "batch-prompt.txt", task: taskId },
+            { instance: "cli-worker", agent: "fable", to: "terra", mission: "existing-mission", task: taskId },
             { instance: "cli-worker", agent: "fable", to: "terra", prompt: "batch hold three", task: taskId },
           ],
         },
@@ -980,8 +1008,8 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       active += event === "start" ? 1 : -1;
       peak = Math.max(peak, active);
     }
-    assert.equal(events.filter((event) => event === "start").length, 4);
-    assert.equal(events.filter((event) => event === "end").length, 4);
+    assert.equal(events.filter((event) => event === "start").length, 3);
+    assert.equal(events.filter((event) => event === "end").length, 3);
     assert.ok(peak <= 2, `batch exceeded declared concurrency: ${events.join(",")}`);
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const detached = run(root, env, [
@@ -1279,6 +1307,26 @@ function rejectionHint(receipt: Record<string, unknown>): string {
     ? String((error as Record<string, unknown>).hint)
     : String(receipt.nextAction ?? receipt.reason ?? "");
 }
+function realizedPlan(title: string): string {
+  const headings = [
+    "Brief",
+    "Goal",
+    "Context",
+    "Required Reading",
+    "Entry Conditions",
+    "Dependencies",
+    "Execution Surface",
+    "Constraints",
+    "Checkpoint",
+    "CI/Gate Authority Stop Condition",
+    "Implementation Plan",
+    "Deliverable Contract",
+    "Evidence Protocol",
+    "Verification",
+  ];
+  return `# ${title}\n\n${headings.map((heading) => `## ${heading}\n\nRealized ${heading}.`).join("\n\n")}\n`;
+}
+
 function assertTaskMissionPrompt(
   prompt: string,
   expected: {

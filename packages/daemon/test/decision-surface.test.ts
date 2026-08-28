@@ -256,6 +256,41 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
   }
 });
 
+test("decision accept rejects a heading-only proposal body", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-placeholder-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("decision-placeholder"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-placeholder-test",
+    now: monotonicClock(),
+  });
+  try {
+    assert.equal(
+      (await cell.run({ kind: "task-create", taskId: "task-evidence", title: "Decision evidence" }, proposer)).outcome,
+      "applied",
+    );
+    const proposed = await cell.run(proposal("Placeholder decision"), proposer),
+      decisionId = String(receiptJson(proposed).decisionId),
+      accepted = await cell.run(
+        {
+          kind: "decision-transition",
+          targetState: "in_effect",
+          decisionId,
+          judgmentOnlyRationale: "The arbiter reviewed the proposal.",
+          standingPolicy: false,
+          fulfillments: [{ claimId: "C1", mode: "delivered" }],
+        },
+        arbiter,
+      );
+    assert.equal(accepted.outcome, "op_rejected", JSON.stringify(accepted));
+    assert.equal(accepted.code, "body_placeholder");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function proposal(title: string) {
   return {
     kind: "decision-propose",

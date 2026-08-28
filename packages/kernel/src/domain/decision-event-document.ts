@@ -16,6 +16,7 @@ import {
   type DecisionTransitionType,
 } from "./decision-event-types.ts";
 import { type EntityRelationRecord } from "./entity-relation.ts";
+import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 import {
   freezeDeclaredWritePlan,
   isFrozenWritePlan,
@@ -39,6 +40,8 @@ export function compileDecisionWrite(input: {
       : input.currentDecision === null || input.currentDocument === null
   )
     throw new Error("decision projection and authored document base must agree");
+  if (input.event.type === "decision_accepted")
+    assertTransitionDocumentReady(requireTransitionDocumentKind("decision.accept"), input.currentDocument!.body);
   const base = input.currentDecision === null ? null : { ...input.currentDecision, relations: input.currentRelations };
   assertDecisionEvidenceFloor(base, input.event);
   const reduced = reduceDecisionDocument(base, input.event),
