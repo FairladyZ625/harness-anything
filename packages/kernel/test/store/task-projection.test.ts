@@ -260,26 +260,27 @@ test("fact-rekey retirement deletes a facts document when its historical base cl
     git(rootDir, "commit", "--quiet", "-m", "physical facts update");
     git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
     const retirementStore = makeTaskEventStore({ repoId: "fact-rekey-retirement", rootDir });
-    const retirement: DocEventV1 = {
-      ...seed,
-      eventId: "fact-rekey-retirement",
-      workspaceRevision: 2,
-      opId: "fact-rekey-retirement-op",
-      payload: {
-        executionId: null,
-        baseLedgerSha: retirementStore.currentCut(),
-        changes: [
-          {
-            path: documentPath,
-            baseBlobSha256: sha256Text(physicalBody),
-            candidate: null,
-            policyId: OPAQUE_TEXTUAL_POLICY_ID,
-            regionProofs: [],
-          },
-        ],
-        retirementReason: "fact records were re-keyed",
-      },
-    };
+    const retirementId = sha256Text("fact-rekey-docs\\02"),
+      retirement: DocEventV1 = {
+        ...seed,
+        eventId: `event-${retirementId}`,
+        workspaceRevision: 2,
+        opId: `op_${retirementId}`,
+        payload: {
+          executionId: null,
+          baseLedgerSha: retirementStore.currentCut(),
+          changes: [
+            {
+              path: documentPath,
+              baseBlobSha256: sha256Text(physicalBody),
+              candidate: null,
+              policyId: OPAQUE_TEXTUAL_POLICY_ID,
+              regionProofs: [],
+            },
+          ],
+          retirementReason: "fact records were re-keyed",
+        },
+      };
     retirementStore.append({ event: retirement, plan: docSyncWritePlan(retirement), blobs: [] });
     const projection = makeTaskProjection({ rootDir, eventStore: retirementStore });
     projection.close();

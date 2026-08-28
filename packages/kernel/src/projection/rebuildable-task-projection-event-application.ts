@@ -373,8 +373,11 @@ export function applyEvent(
             | undefined,
         base = previous ? (JSON.parse(previous.value_json) as DocumentState) : null;
       if (change.candidate === null) {
-        const factRekeyRetirement =
-          event.payload.retirementReason === "fact records were re-keyed" && change.path.endsWith("/facts.md");
+        const factRekeyId = sha256Text(`fact-rekey-docs\\0${event.workspaceRevision}`),
+          factRekeyRetirement =
+            event.payload.retirementReason === "fact records were re-keyed" &&
+            event.eventId === `event-${factRekeyId}` &&
+            event.opId === `op_${factRekeyId}`;
         if (
           event.payload.retirementReason === undefined ||
           (base !== null && change.baseBlobSha256 !== base.blobSha256 && !factRekeyRetirement)
