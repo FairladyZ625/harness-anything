@@ -154,7 +154,6 @@
   "agentRuntime.rosterHint": "The leader does no capability scoring: it reads this roster and decides in natural language.",
   "agentRuntime.rosterWarn": "The wording is load-bearing configuration: write what each member can do, not what each member is.",
   "agentRuntime.launchSquad": "Launch Commander…",
-  "agentRuntime.launchSquadHint": "One launch starts the Commander session; the Commander decomposes and dispatches its own workers.",
   "agentRuntime.noSessions": "No session",
   "agentRuntime.unattributed": "Unattributed",
   "agentRuntime.noTask": "no task",

@@ -190,7 +190,6 @@ export function SquadCard({ detail, row, agents, busy, onSave, onSelectAgent, on
 
         <Sect title={t("agentRuntime.actions")}>
           <div className="flex flex-wrap items-center gap-2">
-            <Hint>{t("agentRuntime.launchSquadHint")}</Hint>
             <span className="flex-1" />
             <Btn
               variant="primary"

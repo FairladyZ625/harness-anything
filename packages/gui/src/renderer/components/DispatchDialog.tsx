@@ -50,7 +50,7 @@ export function DispatchDialog({
     [cwdPath, setCwdPath] = useState(""),
     [model, setModel] = useState(""),
     [effort, setEffort] = useState("");
-  const executor = dispatchExecutorRef(useMemo(() => ({ subject }), [subject])),
+  const executor = dispatchExecutorRef({ subject }),
     runtimeType = executor?.runtimeType ?? "";
   const compatible = useMemo(() => compatibleDispatchInstances(runtimeType, instances), [runtimeType, instances]);
   const instance =

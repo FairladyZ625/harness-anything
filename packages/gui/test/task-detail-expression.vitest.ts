@@ -386,7 +386,6 @@ function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?:
             : `# ${path}`,
       blobSha256: `sha256:${"d".repeat(64)}`,
       worktreeBody: uncommittedPlan && path === "task_plan.md" ? "# Live worktree plan body" : null,
-      worktreeBlobSha256: uncommittedPlan && path === "task_plan.md" ? "e".repeat(64) : null,
       uncommitted: uncommittedPlan && path === "task_plan.md",
       watermark: 7,
       sourceRevision: 7,

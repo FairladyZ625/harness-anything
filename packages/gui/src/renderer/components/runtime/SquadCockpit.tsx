@@ -11,33 +11,28 @@ import type { RuntimeDockRow } from "./useRuntimeWorkspace.ts";
 // leader→worker 边、parentRuntimeSessionId 定「哪一次 Commander 会话派出的」——不引入
 // 第二个真相源,不做时间邻近猜测。
 
-export interface SquadCockpitRow extends RuntimeDockRow {
-  readonly delegatedByAgentId: string | null;
-  readonly parentRuntimeSessionId: string | null;
-}
-
 export type SquadCommanderRun = {
-  readonly row: SquadCockpitRow;
-  readonly children: readonly SquadCockpitRow[];
+  readonly row: RuntimeDockRow;
+  readonly children: readonly RuntimeDockRow[];
 };
 
 export type SquadCockpitModel = {
   readonly commanderRuns: readonly SquadCommanderRun[];
-  readonly unboundWorkers: readonly SquadCockpitRow[];
+  readonly unboundWorkers: readonly RuntimeDockRow[];
 };
 
 /** 纯分组:Commander 行 = 该小队里执行者是 leader 的派工;下级行按
  * parentRuntimeSessionId 绑到对应 Commander 会话,没有该边的历史行走 unbound,
  * 仍以 squadId + delegatedByAgentId 呈现小队归属与 agent 级组织边。 */
-export function squadCockpitModel(squad: SquadEntityDetail, rows: readonly SquadCockpitRow[]): SquadCockpitModel {
+export function squadCockpitModel(squad: SquadEntityDetail, rows: readonly RuntimeDockRow[]): SquadCockpitModel {
   const ordered = [...rows]
       .filter((row) => row.squadId === squad.id)
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt)),
     commanderRuns = ordered
       .filter((row) => row.agentId === squad.leader)
-      .map((row) => ({ row, children: [] as SquadCockpitRow[] })),
+      .map((row) => ({ row, children: [] as RuntimeDockRow[] })),
     bySession = new Map(commanderRuns.map((run) => [run.row.runtimeSessionId, run])),
-    unboundWorkers: SquadCockpitRow[] = [];
+    unboundWorkers: RuntimeDockRow[] = [];
   for (const row of ordered) {
     if (row.agentId === squad.leader) continue;
     const parent = row.parentRuntimeSessionId === null ? undefined : bySession.get(row.parentRuntimeSessionId);
@@ -55,7 +50,7 @@ export function SquadCockpit({
   onOpenSession,
 }: {
   readonly squad: SquadEntityDetail;
-  readonly rows: readonly SquadCockpitRow[];
+  readonly rows: readonly RuntimeDockRow[];
   readonly busy: boolean;
   readonly onLaunch: () => void;
   readonly onOpenSession: (runtimeSessionId: string) => void;
@@ -141,7 +136,7 @@ function CockpitLane({
   role,
   onOpenSession,
 }: {
-  readonly row: SquadCockpitRow;
+  readonly row: RuntimeDockRow;
   readonly role: "commander" | "worker";
   readonly onOpenSession: (runtimeSessionId: string) => void;
 }) {

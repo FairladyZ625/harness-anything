@@ -186,7 +186,6 @@ export function makeRuntimeSpawner(input: {
         "agentId",
         "targetAgentId",
         "squadId",
-        "parentRuntimeSessionId",
         "model",
         "effort",
         "permissionMode",
@@ -221,12 +220,7 @@ export function makeRuntimeSpawner(input: {
           : requiredRuntimeSpawnText(payload.targetAgentId, "targetAgentId"),
       squadId = payload.squadId === undefined ? undefined : requiredRuntimeSpawnText(payload.squadId, "squadId"),
       // Delegation provenance: which already-running runtime session invoked this spawn.
-      // Explicit input serves routes whose binding carries no executor (fleet edge); the
-      // local CLI route already declares the caller runtime session in binding.actor.
-      parentRuntimeSessionId =
-        payload.parentRuntimeSessionId === undefined
-          ? runtimeSessionIdFromActor(binding.actor)
-          : requiredRuntimeSpawnText(payload.parentRuntimeSessionId, "parentRuntimeSessionId"),
+      parentRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
       model = payload.model === undefined ? undefined : requiredRuntimeSpawnText(payload.model, "model"),
       effort = payload.effort === undefined ? undefined : requiredRuntimeSpawnText(payload.effort, "effort"),
       permissionMode =
