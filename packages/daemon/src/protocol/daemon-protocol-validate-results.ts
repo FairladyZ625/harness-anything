@@ -27,6 +27,55 @@ import {
 import { receiptOutcomeWords } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 
+export type ScheduleListRow = {
+  readonly scheduleId: string;
+  readonly state: "armed" | "paused";
+  readonly spec: {
+    readonly trigger: { readonly kind: "interval"; readonly everyMs: number; readonly anchorAt: string };
+  };
+  readonly status: {
+    readonly automaticEvaluatedThrough: string;
+    readonly activeRun: unknown;
+  };
+  readonly updatedAt: string;
+  readonly definitionRevision: number;
+  readonly nextRunAt: string | null;
+};
+
+export function parseScheduleListReceipt(
+  receipt: Readonly<Record<string, unknown>>,
+): readonly ScheduleListRow[] | null {
+  if (typeof receipt.evidence !== "string") return null;
+  const payload: unknown = JSON.parse(receipt.evidence);
+  if (
+    !exactRecord(payload, ["schema", "schedules"]) ||
+    payload.schema !== "schedule-list/v1" ||
+    !Array.isArray(payload.schedules) ||
+    !payload.schedules.every(scheduleListRow)
+  )
+    return null;
+  return payload.schedules;
+}
+
+function scheduleListRow(value: unknown): value is ScheduleListRow {
+  if (!isJsonObject(value) || !isJsonObject(value.spec) || !isJsonObject(value.status)) return false;
+  const trigger = value.spec.trigger;
+  return (
+    isJsonObject(trigger) &&
+    nonEmpty(value.scheduleId) &&
+    (value.state === "armed" || value.state === "paused") &&
+    trigger.kind === "interval" &&
+    integer(trigger.everyMs) &&
+    Number(trigger.everyMs) >= 60_000 &&
+    nonEmpty(trigger.anchorAt) &&
+    nonEmpty(value.status.automaticEvaluatedThrough) &&
+    nonEmpty(value.updatedAt) &&
+    integer(value.definitionRevision) &&
+    Number(value.definitionRevision) >= 0 &&
+    (value.nextRunAt === null || nonEmpty(value.nextRunAt))
+  );
+}
+
 export function validateDaemonDocumentRead(value: unknown): readonly string[] {
   if (
     !recordWith(value, DAEMON_DOCUMENT_READ_SCHEMA.required) ||

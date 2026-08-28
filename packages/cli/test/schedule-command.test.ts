@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createScheduleV1 } from "../../kernel/src/index.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { parseScheduleDuration, renderScheduleList, renderScheduleShow } from "../src/cli/thin-command-schedule.ts";
 
@@ -153,15 +154,73 @@ test("Schedule show human renderer returns the complete schedule snapshot", () =
 });
 
 test("Schedule list human renderer shows state, next occurrence, and single-flight state", () => {
+  const actor = { principal: { personId: "schedule-cli-test" }, executor: null } as const,
+    armed = createScheduleV1({
+      scheduleId: "armed",
+      name: "Armed",
+      spec: {
+        trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-08-26T13:59:00.000Z" },
+        target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+        mission: "Run the armed Schedule.",
+      },
+      actor,
+      occurredAt: "2026-08-26T13:59:00.000Z",
+    }),
+    paused = createScheduleV1({
+      scheduleId: "paused",
+      name: "Paused",
+      state: "paused",
+      spec: {
+        trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-08-26T13:59:00.000Z" },
+        target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+        mission: "Run the paused Schedule.",
+      },
+      actor,
+      occurredAt: "2026-08-26T13:59:00.000Z",
+    });
   assert.equal(
     renderScheduleList({
       command: "schedule-list",
-      schedules: [
-        { scheduleId: "armed", state: "armed", nextRunAt: "2026-08-26T14:00:00.000Z", status: { activeRun: {} } },
-        { scheduleId: "paused", state: "paused", nextRunAt: null, status: { activeRun: null } },
-      ],
+      evidence: JSON.stringify({
+        schema: "schedule-list/v1",
+        schedules: [
+          {
+            ...armed,
+            status: {
+              ...armed.status,
+              activeRun: {
+                occurrenceId: "manual-active",
+                kind: "manual",
+                scheduledFor: "2026-08-26T13:59:00.000Z",
+                claimedAt: "2026-08-26T13:59:00.000Z",
+                nodeId: "local",
+                assignmentId: null,
+                claimFence: "claim-active",
+                attemptIndex: 0,
+              },
+            },
+            definitionRevision: 1,
+            nextRunAt: "2026-08-26T14:00:00.000Z",
+          },
+          { ...paused, definitionRevision: 2, nextRunAt: null },
+        ],
+      }),
     }),
     "armed\tarmed\t2026-08-26T14:00:00.000Z\tactive\npaused\tpaused\tnone\tidle",
   );
-  assert.equal(renderScheduleList({ command: "schedule-list", schedules: [] }), "No schedules.");
+  assert.equal(
+    renderScheduleList({
+      command: "schedule-list",
+      evidence: JSON.stringify({ schema: "schedule-list/v1", schedules: [] }),
+    }),
+    "No schedules.",
+  );
+  assert.equal(renderScheduleList({ command: "schedule-list", schedules: [] }), null);
+  assert.equal(
+    renderScheduleList({
+      command: "schedule-list",
+      evidence: JSON.stringify({ schema: "schedule-list/v2", schedules: [] }),
+    }),
+    null,
+  );
 });

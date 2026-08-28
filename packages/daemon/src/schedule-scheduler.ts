@@ -1,18 +1,13 @@
-import {
-  consumeKnownError,
-  nextScheduleOccurrence,
-  type ScheduleMissedReason,
-  type ScheduleV1,
-} from "../../kernel/src/index.ts";
+import { consumeKnownError, nextScheduleOccurrence, type ScheduleMissedReason } from "../../kernel/src/index.ts";
 import type { DaemonCommandClass } from "./identity/types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { parseScheduleListReceipt, type ScheduleListRow } from "./protocol/daemon-protocol-validate-results.ts";
 import type { RepoCell, RepoCellBinding } from "./repo-cell.ts";
 
 export const scheduleAdmissionWindowMs = 60_000;
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 type ScheduleAction = Readonly<Record<string, unknown>> & { readonly kind: string };
-type ScheduleListRow = ScheduleV1 & { readonly definitionRevision: number };
 type ScheduleTarget = {
   readonly repoId: string;
   readonly execute: (action: ScheduleAction) => Promise<Readonly<Record<string, unknown>>>;
@@ -214,9 +209,9 @@ export function makeScheduleScheduler(input: {
 
 async function listSchedules(target: ScheduleTarget): Promise<readonly ScheduleListRow[]> {
   const receipt = await target.execute({ kind: "schedule-list" }),
-    schedules = receipt.schedules;
-  if (!Array.isArray(schedules)) throw new Error("Schedule list receipt omitted schedules.");
-  return schedules as unknown as readonly ScheduleListRow[];
+    schedules = parseScheduleListReceipt(receipt);
+  if (!schedules) throw new Error("Schedule list receipt evidence is invalid.");
+  return schedules;
 }
 
 function evaluateSchedule(
