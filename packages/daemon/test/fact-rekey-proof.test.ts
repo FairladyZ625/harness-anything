@@ -9,7 +9,7 @@ import {
   type DecisionEventV1,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
-import { rekeyDecisionProofs, rekeyReviewConsentProof } from "../src/fact-rekey.ts";
+import { rekeyDecisionProofs, rekeyReviewConsentProof, rekeySupersededLegacyEntityClaim } from "../src/fact-rekey.ts";
 
 const actor = {
   principal: { personId: "person-rekey" },
@@ -124,4 +124,37 @@ test("fact rekey repins review consent after evidence refs change", () => {
   const rewritten = rekeyReviewConsentProof(event);
   assert.equal(rewritten.payload.consent.reviewDigest, reviewDigest(review));
   assert.notEqual(rewritten.payload.consent.reviewDigest, event.payload.consent.reviewDigest);
+});
+
+test("fact rekey repoints superseded legacy squad claims to the current declaration", () => {
+  const legacy = {
+      schema: "agent-entity-event/v1" as const,
+      payload: {
+        entityKind: "squad",
+        entityId: "core-squad",
+        declarationDocumentClaim: {
+          path: "squads/core-squad.json",
+          sha256: "legacy-sha",
+          size: 100,
+          mediaType: "application/json",
+          policyId: "typed-agent-entity/v1",
+        },
+      },
+    },
+    currentClaim = {
+      path: "squads/core-squad.json",
+      sha256: "current-sha",
+      size: 120,
+      mediaType: "application/json",
+      policyId: "typed-entity/v1",
+    };
+  const rewritten = rekeySupersededLegacyEntityClaim(legacy, currentClaim);
+  assert.deepEqual(rewritten.payload.declarationDocumentClaim, currentClaim);
+  assert.deepEqual(legacy.payload.declarationDocumentClaim, {
+    path: "squads/core-squad.json",
+    sha256: "legacy-sha",
+    size: 100,
+    mediaType: "application/json",
+    policyId: "typed-agent-entity/v1",
+  });
 });

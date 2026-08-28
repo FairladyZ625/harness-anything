@@ -45,6 +45,21 @@ interface LegacyFact {
 interface MappedLegacyFact extends LegacyFact {
   readonly mapId: string;
 }
+interface EntityDeclarationClaimSnapshot {
+  readonly path: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+  readonly policyId: string;
+}
+interface LegacyEntityEventSnapshot {
+  readonly schema: "agent-entity-event/v1";
+  readonly payload: {
+    readonly entityKind: string;
+    readonly entityId: string;
+    readonly declarationDocumentClaim: EntityDeclarationClaimSnapshot;
+  };
+}
 
 interface FactRekeyPlan {
   readonly facts: readonly LegacyFact[];
@@ -267,6 +282,10 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
   const mapRef = (value: string): string => map.get(value) ?? canonicalToNew.get(value) ?? value;
   const relationMap = new Map(cold.legacyRelationIds);
   const factByLegacyRef = new Map(facts.map((fact) => [fact.legacyRef, fact]));
+  const currentSquadClaims = new Map<string, EntityDeclarationClaimSnapshot>();
+  for (const event of events)
+    if (event.schema === "entity-event/v1" && event.payload.entityKind === "squad")
+      currentSquadClaims.set(event.payload.entityId, event.payload.declarationDocumentClaim);
   const eventRewrites: { event: CanonicalEventV1; body: string }[] = [],
     decisionStates = new Map<string, DecisionDocumentState>(),
     decisionRelations = new Map<string, DecisionDocumentState["relations"]>(),
@@ -351,6 +370,10 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
             relations: mergeDecisionRelations(current.relations, [relation]),
           });
       }
+    }
+    if (next?.schema === "agent-entity-event/v1" && next.payload.entityKind === "squad") {
+      const claim = currentSquadClaims.get(next.payload.entityId);
+      if (claim) next = rekeySupersededLegacyEntityClaim(next, claim);
     }
     if (next?.schema === "decision-event/v1") {
       const current = decisionStates.get(next.decisionId) ?? null;
@@ -674,6 +697,19 @@ export function rekeyReviewConsentProof(
         ...event.payload.consent,
         reviewDigest: reviewDigest(event.payload.review),
       },
+    },
+  };
+}
+
+export function rekeySupersededLegacyEntityClaim<T extends LegacyEntityEventSnapshot>(
+  event: T,
+  claim: EntityDeclarationClaimSnapshot,
+): T {
+  return {
+    ...event,
+    payload: {
+      ...event.payload,
+      declarationDocumentClaim: claim,
     },
   };
 }
