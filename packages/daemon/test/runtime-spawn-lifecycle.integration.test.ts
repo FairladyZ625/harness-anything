@@ -17,6 +17,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { launchExitNotification } from "../src/runtime-spawn.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -142,7 +143,8 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           error.message ===
             'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "runtimeInstanceId", ' +
               '"dispatchId", "agentId", "targetAgentId", "squadId", "model", "effort", "permissionMode", "cwd", ' +
-              '"prompt", "promptSource", "onExitCommand", "taskId", "idempotencyKey", "providerSessionId".',
+              '"prompt", "promptSource", "missionName", "onExitCommand", "taskId", "idempotencyKey", ' +
+              '"providerSessionId".',
       );
       await assert.rejects(
         cell.cancelRuntime({ runtimeSessionId: "missing", force: true }, binding),
@@ -422,9 +424,13 @@ test("attached task runtime settlement releases its execution lease before publi
           actor: { principal: { personId: "person-attached-tail" }, executor: null },
           source: "local" as const,
         };
-      assert.equal(
-        (await cell.run({ kind: "task-create", taskId, title: "Attached tail lease" }, binding)).outcome,
-        "applied",
+      const created = await cell.run({ kind: "task-create", taskId, title: "Attached tail lease" }, binding);
+      assert.equal(created.outcome, "applied");
+      await realizeTaskPlanFixture(
+        root,
+        String((created as Record<string, unknown>).packagePath),
+        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+        "Attached tail lease",
       );
       assert.equal(
         (
@@ -527,9 +533,16 @@ test("attached task runtime settlement releases its execution lease before publi
 
       const failedTaskId = "task-runtime-settlement-failed",
         failedExecutionId = "execution-runtime-settlement-failed";
-      assert.equal(
-        (await cell.run({ kind: "task-create", taskId: failedTaskId, title: "Failed settlement" }, binding)).outcome,
-        "applied",
+      const failedCreated = await cell.run(
+        { kind: "task-create", taskId: failedTaskId, title: "Failed settlement" },
+        binding,
+      );
+      assert.equal(failedCreated.outcome, "applied");
+      await realizeTaskPlanFixture(
+        root,
+        String((failedCreated as Record<string, unknown>).packagePath),
+        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+        "Failed settlement",
       );
       assert.equal(
         (
@@ -705,9 +718,13 @@ test("terminal settlement leaves an execution lease generation it never dispatch
               binding,
             )
           ).outcome;
-      assert.equal(
-        (await cell.run({ kind: "task-create", taskId, title: "Lease generation" }, binding)).outcome,
-        "applied",
+      const created = await cell.run({ kind: "task-create", taskId, title: "Lease generation" }, binding);
+      assert.equal(created.outcome, "applied");
+      await realizeTaskPlanFixture(
+        root,
+        String((created as Record<string, unknown>).packagePath),
+        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+        "Lease generation",
       );
       assert.equal(await start(), "applied");
       const receipt = await cell.spawnRuntime(
@@ -974,6 +991,12 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       };
     const taskCreateReceipt = await cell.run({ kind: "task-create", taskId, title: "Runtime Lost" }, binding);
     assert.equal(taskCreateReceipt.outcome, "applied", JSON.stringify(taskCreateReceipt));
+    await realizeTaskPlanFixture(
+      root,
+      String((taskCreateReceipt as Record<string, unknown>).packagePath),
+      (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+      "Runtime Lost",
+    );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
     rmSync(release, { force: true });
     const lostReceipt = await cell.spawnRuntime(

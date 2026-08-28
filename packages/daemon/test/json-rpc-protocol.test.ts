@@ -37,6 +37,7 @@ import {
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
 const DOC_POLICY_ID = "markdown-body-replaceable/v1";
@@ -1085,40 +1086,6 @@ async function prepareReadyCompletion(
   );
   await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding);
   await cell.run({ kind: "task-code-doc-reconcile", taskId }, binding);
-}
-async function realizeTaskPlanFixture(
-  rootDir: string,
-  packagePath: string,
-  submit: (planPath: string) => Promise<{ readonly outcome: string }>,
-): Promise<void> {
-  const planPath = `${packagePath}/task_plan.md`,
-    authoredPath = path.join(rootDir, "harness", planPath),
-    title = readFileSync(authoredPath, "utf8").split(/\r?\n/u)[0]!;
-  writeFileSync(
-    authoredPath,
-    `${title}\n\n` +
-      [
-        ["Brief", "Exercise the JSON-RPC lifecycle path with canonical task documents."],
-        ["Goal", "Produce the lifecycle receipt asserted by this test."],
-        ["Context", "The fixture runs against an isolated repository and daemon cell."],
-        ["Required Reading", "The protocol test defines the expected lifecycle behavior."],
-        ["Entry Conditions", "The fixture repository and task bootstrap exist before execution starts."],
-        ["Dependencies", "The task depends on its bootstrapped preset snapshot and local projection."],
-        ["Execution Surface", "All writes stay inside the fixture repository and its task package."],
-        ["Constraints", "The fixture uses public RepoCell actions without bypassing readiness checks."],
-        ["Checkpoint", "Stop if task start does not return an applied receipt."],
-        ["CI/Gate Authority Stop Condition", "This fixture does not modify CI or gate authority."],
-        ["Implementation Plan", "Start, submit, review, reconcile, and complete through canonical commands."],
-        ["Deliverable Contract", "The fixture delivers the protocol receipt and event assertions in this test."],
-        ["Evidence Protocol", "Assertions inspect receipts, events, projections, and authored documents."],
-        ["Verification", "The JSON-RPC protocol test must pass."],
-      ]
-        .map(([heading, body]) => `## ${heading}\n\n${body}`)
-        .join("\n\n") +
-      "\n",
-  );
-  const submitted = await submit(planPath);
-  assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 }
 function rbacRepo(rootDir: string, ids: Readonly<Record<string, number>>): void {
   mkdirSync(rootDir, { recursive: true });

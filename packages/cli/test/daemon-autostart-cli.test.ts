@@ -36,6 +36,7 @@ import {
   type AgentRuntimeEventV1,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -631,6 +632,12 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     );
     const packagePath = String(created.packagePath),
       closeoutPath = `${packagePath}/closeout.md`;
+    const planPath = `${packagePath}/task_plan.md`;
+    writeFileSync(path.join(fixture.root, "harness", planPath), realizedTaskPlan("Executor Axis"));
+    assert.equal(
+      run(fixture.root, fixture.userRoot, ["doc", "sync", "--submit", "--path", planPath]).outcome,
+      "applied",
+    );
 
     assert.equal(
       run(fixture.root, fixture.userRoot, ["task", "start", taskId, "--execution-id", executionId], "agent:claude-code")

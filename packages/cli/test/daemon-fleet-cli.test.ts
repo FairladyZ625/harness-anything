@@ -6,6 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts"), quotaBytes = 64 * 1024 * 1024;
 
@@ -16,7 +17,11 @@ test("fleet center start and edge sync mirror the authoritative ledger through t
     assert.deepEqual(capabilities.daemon?.filter((id) => id.startsWith("daemon-fleet")), ["daemon-fleet-center-start", "daemon-fleet-edge-sync"]);
     assert.equal(run(fixture, "center", ["daemon", "start", "--service"]).ok, true);
     register(fixture);
-    assert.equal(run(fixture, "center", ["task", "create", "--id", "task-fleet", "--admin", "--title", "Fleet"]).outcome, "applied");
+    const created = run(fixture, "center", ["task", "create", "--id", "task-fleet", "--admin", "--title", "Fleet"]);
+    assert.equal(created.outcome, "applied");
+    const planPath = `${String(created.packagePath)}/task_plan.md`;
+    writeFileSync(path.join(fixture.repo, "harness", planPath), realizedTaskPlan("Fleet"));
+    assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
     assert.equal(run(fixture, "center", ["task", "start", "task-fleet", "--execution-id", "exec-fleet"]).outcome, "applied");
     const docPath = "tasks/task-fleet-fleet/notes.md", docBody = "# Fleet mirror note\n\nfirst cut\n";
     writeFileSync(path.join(fixture.repo, "harness", docPath), docBody);

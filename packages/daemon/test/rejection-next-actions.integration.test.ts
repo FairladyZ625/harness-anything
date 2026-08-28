@@ -9,6 +9,7 @@ import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const submission = {
   completionClaim: "Ready.",
@@ -34,7 +35,11 @@ test("submit lease refusals name the state-specific command that advances the ex
       ownerId: "submit-exit",
     });
     writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify(submission));
-    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Submit exit" }, holder)).outcome, "applied");
+    const created = await cell.run({ kind: "task-create", taskId, title: "Submit exit" }, holder);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
+    );
     const withoutLease = await cell.run(
       { kind: "task-submit", taskId, executionId, fromFile: "submission.json" },
       holder,
@@ -97,7 +102,11 @@ test("progress lease mismatch names the holder and a release plus re-entry route
       rootDir: canonicalRoot(rootDir),
       ownerId: "progress-exit",
     });
-    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Progress exit" }, holder)).outcome, "applied");
+    const created = await cell.run({ kind: "task-create", taskId, title: "Progress exit" }, holder);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
+    );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
     const rejected = await cell.run({ kind: "task-progress-append", taskId, text: "Wrong holder." }, next);
     assert.equal(rejected.code, "progress_lease_mismatch", JSON.stringify(rejected));
@@ -128,9 +137,10 @@ test("executor declaration and completion context refusals name projection rebui
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-one" });
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId, title: "Projection exits" }, owner)).outcome,
-      "applied",
+    const created = await cell.run({ kind: "task-create", taskId, title: "Projection exits" }, owner);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId, submission }, owner)).outcome, "applied");
@@ -174,14 +184,10 @@ test("executor declaration and completion context refusals name projection rebui
     await cell.close();
     cell = undefined;
 
-    mutate(cache, "DELETE FROM preset_snapshot");
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-four" });
+    mutate(cache, "DELETE FROM preset_snapshot");
     const closeout = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
-    assert.equal(closeout.code, "content_not_ready", JSON.stringify(closeout));
-    assert.equal(
-      closeout.nextAction,
-      `Task ${taskId} closeout preset projection is not ready; run ha daemon projection rebuild, then retry ha task complete ${taskId} --execution-id ${executionId}.`,
-    );
+    assert.equal(closeout.code, "review_missing", JSON.stringify(closeout));
     assert.equal((await cell.run({ kind: "projection-rebuild" }, owner)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-complete", taskId, executionId }, owner)).code, "review_missing");
   } finally {

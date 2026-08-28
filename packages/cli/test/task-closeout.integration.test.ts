@@ -6,6 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
+import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 test("a submitted fixture reaches done through one ha task closeout command", (context) => {
@@ -180,25 +181,6 @@ function initialize(root: string): void {
   git(root, "config", "user.email", "closeout@example.test");
   git(root, "add", "README.md", "harness");
   git(root, "commit", "--quiet", "-m", "fixture");
-}
-function realizedPlan(title: string): string {
-  const headings = [
-    "Brief",
-    "Goal",
-    "Context",
-    "Required Reading",
-    "Entry Conditions",
-    "Dependencies",
-    "Execution Surface",
-    "Constraints",
-    "Checkpoint",
-    "CI/Gate Authority Stop Condition",
-    "Implementation Plan",
-    "Deliverable Contract",
-    "Evidence Protocol",
-    "Verification",
-  ];
-  return `# ${title}\n\n${headings.map((heading) => `## ${heading}\n\nRealized ${heading}.`).join("\n\n")}\n`;
 }
 function environment(root: string, userRoot: string, actor?: string): NodeJS.ProcessEnv {
   const {

@@ -229,21 +229,29 @@ export function openFleetEdgeRuntime(input: {
                 } catch {
                   throw edgeRuntimeError(
                     "runtime_mission_unavailable",
-                    `Task ${taskId} mission ${name} is unreadable; run ha daemon fleet edge sync, then retry.`,
+                    `Task ${taskId} mission ${name} is unreadable; ` +
+                      "run ha daemon fleet edge sync, then retry.",
                   );
                 }
                 if (!body.trim())
-                  throw edgeRuntimeError("runtime_mission_unavailable", `Task ${taskId} mission ${name} is empty.`);
+                  throw edgeRuntimeError(
+                    "runtime_mission_unavailable",
+                    `Task ${taskId} mission ${name} is empty.`,
+                  );
                 return { path: missionPath, body };
               })()
             : null,
-          baseMission = `Your task package is ${packageRoot}.\nRead task_plan.md in that package and complete the task.`;
+          baseMission =
+            `Your task package is ${packageRoot}.\n` +
+            "Read task_plan.md in that package and complete the task.";
         return {
           executionId: assigned.scope.executionId,
           packageRoot,
           planPath,
           plan,
-          mission: mission ? `${baseMission}\n\n# Mission: ${missionName}\n\n${mission.body.trim()}` : baseMission,
+          mission: mission
+            ? `${baseMission}\n\n# Mission: ${missionName}\n\n${mission.body.trim()}`
+            : baseMission,
           missionPath: mission?.path ?? null,
           missionBody: mission?.body ?? null,
         };

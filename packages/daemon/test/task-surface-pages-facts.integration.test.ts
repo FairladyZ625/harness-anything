@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
@@ -28,7 +29,12 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       ["Epsilon", "Epsilon"],
     ] as const) {
       const taskId = `task_real_${index}`;
-      assert.equal((await cell.run({ kind: "task-create", taskId, title }, binding)).outcome, "applied");
+      const created = await cell.run({ kind: "task-create", taskId, title }, binding);
+      assert.equal(created.outcome, "applied");
+      if (index === "Beta" || index === "Delta")
+        await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+          cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+        );
     }
     assert.equal(
       (

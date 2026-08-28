@@ -9,6 +9,7 @@ import test from "node:test";
 import { makeTaskEventStore, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
@@ -96,9 +97,10 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
       },
       auth,
     );
-    assert.equal(
-      (await host.run(repoId, { kind: "task-create", taskId, title: "Lease reservation" }, auth)).outcome,
-      "applied",
+    const created = await host.run(repoId, { kind: "task-create", taskId, title: "Lease reservation" }, auth);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(root, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      host.run(repoId, { kind: "doc-submit", paths: [planPath] }, auth),
     );
     assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
     const spawned = await host.spawnRuntime(

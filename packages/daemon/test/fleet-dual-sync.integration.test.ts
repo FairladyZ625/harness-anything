@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { sha256Bytes } from "../../kernel/src/index.ts";
@@ -21,6 +21,7 @@ import { locateFleetMirrorView, readFleetUnresolvedConflicts } from "../src/flee
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetWriteClient } from "../src/fleet/edge.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const replicaQuota = 64 * 1024 * 1024, nodes = ["node-one", "node-two"] as const;
 type NodeId = typeof nodes[number];
@@ -32,6 +33,8 @@ async function dualSyncFixture() {
   const git = (...args: readonly string[]): string => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
   git("init", "-q"); git("config", "user.name", "Dual Sync Test"); git("config", "user.email", "dual@example.invalid"); git("commit", "--allow-empty", "-qm", "base");
   writeFileSync(path.join(repo, "harness/harness.yaml"), "schema: harness-anything/v1\nname: dual\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
+  const ownerUid = process.getuid?.() ?? 0;
+  writeFileSync(path.join(repo, "harness/people.yaml"), `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "person-fixture", displayName: "Fixture Owner", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(ownerUid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`);
   git("add", "harness"); git("commit", "-qm", "harness");
   registerDaemonRepo({ canonicalRoot: repo, repoId: "dual-repo", userRoot, createConvenienceLinks: false });
   execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", keyFile, "-out", certFile, "-subj", "/CN=localhost", "-days", "1", "-addext", "subjectAltName=DNS:localhost"], { stdio: "ignore" });
@@ -53,7 +56,8 @@ async function dualSyncFixture() {
   const worktree = (nodeId: NodeId, logical: string): string => path.join(workspace(nodeId), "harness", ...logical.split("/"));
   const writeWorktree = (nodeId: NodeId, logical: string, body: string): void => { const target = worktree(nodeId, logical); mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, body); };
   const conflictsRoot = (nodeId: NodeId): string => path.join(workspace(nodeId), ".harness", "conflicts");
-  const createTask = async (nodeId: NodeId, taskId: string, title: string): Promise<{ readonly taskId: string; readonly packagePath: string }> => { const receipt = await edgeTask(nodeId, { kind: "task-create", taskId, title }); assert.equal(receipt.ok, true, `task create failed: ${JSON.stringify(receipt).slice(0, 400)}`); return { taskId: String(receipt.taskId), packagePath: String(receipt.packagePath) }; };
+  const localAuth = { transportKind: "unix-socket" as const, unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" as const } };
+  const createTask = async (nodeId: NodeId, taskId: string, title: string): Promise<{ readonly taskId: string; readonly packagePath: string }> => { const receipt = await edgeTask(nodeId, { kind: "task-create", taskId, title }); assert.equal(receipt.ok, true, `task create failed: ${JSON.stringify(receipt).slice(0, 400)}`); const packagePath = String(receipt.packagePath), planPath = `${packagePath}/task_plan.md`; writeFileSync(path.join(repo, "harness", planPath), realizedTaskPlan(title)); const submitted = await host.run("dual-repo", { kind: "doc-submit", paths: [planPath] }, localAuth); assert.equal(submitted.outcome, "applied", JSON.stringify(submitted)); const deadline = performance.now() + 15_000; for (;;) { const shown = await host.run("dual-repo", { kind: "receipt-show", opId: submitted.opId }, localAuth); if (typeof shown.commitSha === "string") break; if (performance.now() >= deadline) throw new Error(`Git materialization did not publish ${submitted.opId}`); await new Promise((resolve) => setTimeout(resolve, 25)); } for (const target of nodes) { const synced = await edgeDocSync(target); assert.equal(synced.ok, true, JSON.stringify(synced).slice(0, 500)); } return { taskId: String(receipt.taskId), packagePath }; };
   return { root, repo, host, center, channel, edgeTask, edgeDocSync, conflictExit, rawWrite, view, worktree, writeWorktree, conflictsRoot, createTask, git, close: async () => { await center.close(); await host.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 type Fixture = Awaited<ReturnType<typeof dualSyncFixture>>;
@@ -300,6 +304,7 @@ test("F4: an unresolved conflict gates this task's later commands at the edge", 
   assert.equal((await fixture.edgeTask("node-one", { kind: "task-release", taskId: created.taskId, reason: "handing over" })).ok, true);
   fixture.writeWorktree("node-one", planPath, `${original}\n## Local version\n`);
   // A second node takes the lease and moves the plan; edge-one's local edit diverges.
+  assert.equal((await fixture.edgeDocSync("node-two")).ok, true);
   const takeover = await fixture.edgeTask("node-two", { kind: "task-start", taskId: created.taskId });
   assert.equal(takeover.ok, true, JSON.stringify(takeover).slice(0, 500));
   const centerNow = `${original}\n## Center version\n`;
@@ -321,6 +326,7 @@ test("F4: an unresolved conflict gates this task's later commands at the edge", 
   // task's divergence on the dual axis — that is the honest outcome).
   const other = await fixture.edgeTask("node-one", { kind: "task-create", taskId: "task_JJJJ000000000000000000000J", title: "Unaffected task" });
   assert.equal((other as { readonly canonicalOutcome?: string }).canonicalOutcome, "applied", JSON.stringify(other).slice(0, 400));
+  fixture.writeWorktree("node-one", `${String(other.packagePath)}/task_plan.md`, realizedTaskPlan("Unaffected task"));
   const otherStart = await fixture.edgeTask("node-one", { kind: "task-start", taskId: "task_JJJJ000000000000000000000J", executionId: "exe-gate-other" });
   assert.equal((otherStart as { readonly canonicalOutcome?: string }).canonicalOutcome, "applied", JSON.stringify(otherStart).slice(0, 400));
   // discard-local lifts the gate.

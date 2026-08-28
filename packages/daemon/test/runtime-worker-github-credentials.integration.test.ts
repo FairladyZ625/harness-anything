@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
@@ -121,9 +122,10 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
       );
     await runtimeOutcome(root, repoId, String(unbound.runtimeSessionId));
 
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId, title: "GitHub worker push" }, binding)).outcome,
-      "applied",
+    const created = await cell.run({ kind: "task-create", taskId, title: "GitHub worker push" }, binding);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(root, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
     const spawned = await cell.spawnRuntime(

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
@@ -34,6 +34,7 @@ import {
   type FleetFrameV1,
 } from "../src/fleet/contract.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const replicaQuota = 64 * 1024 * 1024;
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
@@ -1299,6 +1300,7 @@ async function fleetFixture(paths: readonly string[] = ["tasks/task-fleet-fleet/
     path.join(repo, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
+  writePeopleFixture(repo);
   git(repo, "add", "harness");
   git(repo, "commit", "-qm", "harness");
   registerDaemonRepo({ canonicalRoot: repo, repoId: "fleet-repo", userRoot, createConvenienceLinks: false });
@@ -1344,17 +1346,24 @@ async function fleetFixture(paths: readonly string[] = ["tasks/task-fleet-fleet/
       viewId: "node-one_task-fleet-slow",
     },
     auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
-  assert.equal(
-    (await host.run(assignment.repoId, { kind: "task-create", taskId: assignment.taskId, title: "Fleet" }, auth))
-      .outcome,
-    "applied",
+  const created = await host.run(
+    assignment.repoId,
+    { kind: "task-create", taskId: assignment.taskId, title: "Fleet" },
+    auth,
+  );
+  assert.equal(created.outcome, "applied");
+  await realizeTaskPlanFixture(
+    repo,
+    String((created as Record<string, unknown>).packagePath),
+    (planPath) => host.run(assignment.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+    "Fleet",
   );
   const started = await host.run(
     assignment.repoId,
     { kind: "task-start", taskId: assignment.taskId, executionId: assignment.executionId },
     auth,
   );
-  assert.equal(started.outcome, "applied");
+  assert.equal(started.outcome, "applied", JSON.stringify(started));
   await waitForReceiptCommit(host, assignment.repoId, started.opId, assignment);
   return {
     root,
@@ -1439,6 +1448,24 @@ function git(rootDir: string, ...args: string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
 }
 
+function writePeopleFixture(rootDir: string): void {
+  const ownerUid = process.getuid?.() ?? 0;
+  writeFileSync(
+    path.join(rootDir, "harness/people.yaml"),
+    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "fleet-fixture", displayName: "Fleet Fixture", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(ownerUid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
+  );
+}
+
+function localAuthFixture() {
+  return {
+    transportKind: "unix-socket" as const,
+    unixSocketOwnerBoundary: {
+      ownerUid: process.getuid?.() ?? 0,
+      source: "unix-socket-filesystem-owner-boundary" as const,
+    },
+  };
+}
+
 type ScaleClient = { assignment: FleetAssignmentRecord; path: string; body: string; label: string };
 async function scaleFixture() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-scale-")),
@@ -1460,6 +1487,7 @@ async function scaleFixture() {
       path.join(repo.rootDir, "harness/harness.yaml"),
       `schema: harness-anything/v1\nname: ${repo.repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
     );
+    writePeopleFixture(repo.rootDir);
     git(repo.rootDir, "add", "harness");
     git(repo.rootDir, "commit", "-qm", "harness");
     registerDaemonRepo({ canonicalRoot: repo.rootDir, repoId: repo.repoId, userRoot, createConvenienceLinks: false });
@@ -1506,16 +1534,20 @@ async function scaleFixture() {
       },
       auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
     assignments.set(assignment.assignmentId, assignment);
-    assert.equal(
-      (await host.run(repo.repoId, { kind: "task-create", taskId, title: taskId }, auth)).outcome,
-      "applied",
+    const created = await host.run(repo.repoId, { kind: "task-create", taskId, title: taskId }, auth);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(
+      repo.rootDir,
+      String((created as Record<string, unknown>).packagePath),
+      (planPath) => host.run(repo.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+      taskId,
     );
     const started = await host.run(
       repo.repoId,
       { kind: "task-start", taskId, executionId: assignment.executionId },
       auth,
     );
-    assert.equal(started.outcome, "applied");
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
     setupCuts.set(repo.repoId, { opId: started.opId, assignment });
     clients.push({
       assignment,
@@ -1576,6 +1608,7 @@ async function crossRepoFixture() {
       path.join(repo.rootDir, "harness/harness.yaml"),
       `schema: harness-anything/v1\nname: ${repo.repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
     );
+    writePeopleFixture(repo.rootDir);
     git(repo.rootDir, "add", "harness");
     git(repo.rootDir, "commit", "-qm", "harness");
     registerDaemonRepo({ canonicalRoot: repo.rootDir, repoId: repo.repoId, userRoot, createConvenienceLinks: false });
@@ -1615,11 +1648,19 @@ async function crossRepoFixture() {
     }));
   await host.attachmentsSettled();
   for (const assignment of assignments) {
-    const auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
-    assert.equal(
-      (await host.run(assignment.repoId, { kind: "task-create", taskId: assignment.taskId, title: "Cross" }, auth))
-        .outcome,
-      "applied",
+    const auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment },
+      taskRepo = repos.find((repo) => repo.repoId === assignment.repoId)!;
+    const created = await host.run(
+      assignment.repoId,
+      { kind: "task-create", taskId: assignment.taskId, title: "Cross" },
+      auth,
+    );
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(
+      taskRepo.rootDir,
+      String((created as Record<string, unknown>).packagePath),
+      (planPath) => host.run(assignment.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+      "Cross",
     );
     assert.equal(
       (

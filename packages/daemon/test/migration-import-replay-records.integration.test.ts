@@ -10,6 +10,7 @@ import {
   workspaceId,
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import {
   actor,
@@ -78,7 +79,7 @@ test("a CAS blob referenced by any migrated repo document follows it into the ev
   }
 });
 
-test("migration replays archived executions and UTF-8 task package documents through native projections", async () => {
+test("migration replays archived executions and keeps v0 tasks explicit about contract backfill", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-covered-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new");
@@ -243,6 +244,18 @@ test("migration replays archived executions and UTF-8 task package documents thr
       ),
       true,
     );
+    const migratedContract = await cell.run(
+      { kind: "task-contract-migrate", mode: "apply", taskId: "task_coverage" },
+      { actor, source: "local" },
+    );
+    assert.equal(migratedContract.outcome, "applied", JSON.stringify(migratedContract));
+    assert.match(String(migratedContract.evidence), /"reason":"contract_metadata_incomplete"/u);
+    await realizeTaskPlanFixture(
+      destination,
+      "tasks/task_coverage-coverage-fixture",
+      (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, { actor, source: "local" }),
+      "Authored plan",
+    );
     const started = await cell.run(
       {
         kind: "task-start",
@@ -251,17 +264,19 @@ test("migration replays archived executions and UTF-8 task package documents thr
       },
       { actor, source: "local" },
     );
-    assert.equal(started.outcome, "applied");
+    assert.equal(started.outcome, "op_rejected", JSON.stringify(started));
+    assert.equal(started.code, "content_not_ready");
+    assert.match(started.nextAction ?? "", /contract projection is not ready for task\.plan/u);
     const afterStart = (await cell.read("repo.tasks.list")).rows.find(
       ({ taskId }) => taskId === "task_coverage",
     )!;
     assert.deepEqual(
       afterStart.snapshot.executions.map(({ schema }) => schema),
-      ["archived-execution/v1", "execution/v1"],
+      ["archived-execution/v1"],
     );
     assert.deepEqual(
       afterStart.executionEvidence.map(({ origin }) => origin),
-      ["archival", "native"],
+      ["archival"],
     );
   } finally {
     await cell?.close();

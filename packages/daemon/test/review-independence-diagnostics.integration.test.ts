@@ -9,6 +9,7 @@ import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.t
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const git = (rootDir: string, ...args: readonly string[]): string =>
   execFileSync("git", args, { cwd: rootDir, encoding: "utf8", windowsHide: true }).trim();
@@ -44,7 +45,11 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     const human = withRoleBinding({ actor: humanActor, source: "local" as const }, "arbiter");
     const taskId = "task-review-axis",
       executionId = "exec-1";
-    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Review axis" }, agent)).outcome, "applied");
+    const created = await cell.run({ kind: "task-create", taskId, title: "Review axis" }, agent);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, agent),
+    );
     // The packet parses before authorization runs, so the file must exist for the refusal to be the one under test.
     writeFileSync(
       path.join(rootDir, "review.json"),
@@ -132,7 +137,11 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
     );
     const taskId = "task-bare-axis",
       executionId = "exec-bare";
-    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Bare axis" }, bare)).outcome, "applied");
+    const created = await cell.run({ kind: "task-create", taskId, title: "Bare axis" }, bare);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
+    );
     const started = (await cell.run({ kind: "task-start", taskId, executionId }, bare)) as Record<string, unknown>;
     assert.equal(started.outcome, "applied");
     assert.match(String(started.summary), /declared no executor/u);
@@ -277,7 +286,11 @@ test("a reviewed bare-invocation execution can declare its executor and complete
     git(rootDir, "add", "README.md");
     git(rootDir, "commit", "--quiet", "-m", "fixture output");
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "review-bare-reviewed" });
-    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Bare reviewed" }, bare)).outcome, "applied");
+    const created = await cell.run({ kind: "task-create", taskId, title: "Bare reviewed" }, bare);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
+    );
     assert.equal(
       (
         await cell.run(
@@ -543,9 +556,10 @@ test("task-bound runtime sessions cannot review their own execution across exit 
         );
     const taskId = "task-runtime-bound",
       executionId = "execution-runtime-bound";
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId, title: "Runtime-bound review" }, implementer)).outcome,
-      "applied",
+    const created = await cell.run({ kind: "task-create", taskId, title: "Runtime-bound review" }, implementer);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, implementer),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, implementer)).outcome, "applied");
 
@@ -658,9 +672,15 @@ test("task-bound runtime sessions cannot review their own execution across exit 
 
     const directTaskId = "task-direct-review",
       directExecutionId = "execution-direct-review";
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: directTaskId, title: "Direct review" }, implementer)).outcome,
-      "applied",
+    const directCreated = await cell.run(
+      { kind: "task-create", taskId: directTaskId, title: "Direct review" },
+      implementer,
+    );
+    assert.equal(directCreated.outcome, "applied");
+    await realizeTaskPlanFixture(
+      rootDir,
+      String((directCreated as Record<string, unknown>).packagePath),
+      (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, implementer),
     );
     assert.equal(
       (await cell.run({ kind: "task-start", taskId: directTaskId, executionId: directExecutionId }, implementer))

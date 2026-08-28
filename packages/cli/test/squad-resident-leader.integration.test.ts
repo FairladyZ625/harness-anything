@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -363,26 +364,6 @@ function writeIdentity(target: string, id: string, name: string): void {
       preset: "standard-task",
     }),
   );
-}
-
-function realizedPlan(title: string): string {
-  const headings = [
-    "Brief",
-    "Goal",
-    "Context",
-    "Required Reading",
-    "Entry Conditions",
-    "Dependencies",
-    "Execution Surface",
-    "Constraints",
-    "Checkpoint",
-    "CI/Gate Authority Stop Condition",
-    "Implementation Plan",
-    "Deliverable Contract",
-    "Evidence Protocol",
-    "Verification",
-  ];
-  return `# ${title}\n\n${headings.map((heading) => `## ${heading}\n\nRealized ${heading}.`).join("\n\n")}\n`;
 }
 
 function writeResidentProvider(target: string): void {

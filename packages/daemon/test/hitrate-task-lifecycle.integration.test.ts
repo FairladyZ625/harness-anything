@@ -9,6 +9,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 test("task start, inline submit, and code-doc reconcile reuse daemon-known lifecycle state", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-hitrate-lifecycle-")),
@@ -61,17 +62,22 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     assert.equal(placeholder.code, "plan_placeholder");
     assert.match(placeholder.nextAction ?? "", /task_plan\.md/u);
     const packagePath = String((created as { readonly packagePath?: unknown }).packagePath),
-      planPath = `${packagePath}/task_plan.md`,
       closeoutPath = `${packagePath}/closeout.md`;
-    writeFileSync(path.join(rootDir, "harness", planPath), realizedPlan());
+    await realizeTaskPlanFixture(
+      rootDir,
+      packagePath,
+      (pathToSubmit) => cell.run({ kind: "doc-submit", paths: [pathToSubmit] }, holder),
+      "Lifecycle hit rate",
+    );
     writeFileSync(
       path.join(rootDir, "harness", closeoutPath),
       "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n" +
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo other path in this fixture.\n",
     );
-    const synced = await cell.run({ kind: "doc-submit", paths: [planPath, closeoutPath] }, holder);
+    const synced = await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, holder);
     assert.equal(synced.outcome, "applied", JSON.stringify(synced));
-    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
+    const started = await cell.run({ kind: "task-start", taskId, executionId }, holder);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
     const events = () => makeTaskEventStore({ repoId, rootDir }).read().events,
       startedEvents = events().length,
       repeated = (await cell.run(
@@ -224,23 +230,3 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     rmSync(parent, { recursive: true, force: true });
   }
 });
-
-function realizedPlan(): string {
-  const headings = [
-    "Brief",
-    "Goal",
-    "Context",
-    "Required Reading",
-    "Entry Conditions",
-    "Dependencies",
-    "Execution Surface",
-    "Constraints",
-    "Checkpoint",
-    "CI/Gate Authority Stop Condition",
-    "Implementation Plan",
-    "Deliverable Contract",
-    "Evidence Protocol",
-    "Verification",
-  ];
-  return `# Lifecycle hit rate\n\n${headings.map((heading) => `## ${heading}\n\nRealized ${heading}.`).join("\n\n")}\n`;
-}

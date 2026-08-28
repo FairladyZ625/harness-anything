@@ -15,6 +15,7 @@ import {
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const PROSE_POLICY_ID = "markdown-body-replaceable/v1",
   OPAQUE_POLICY_ID = "opaque-textual-whole-file/v1";
@@ -520,6 +521,9 @@ async function reachGreenInReview(
   packagePath: string,
 ): Promise<void> {
   const binding = { actor, source: "local" as const };
+  await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+    cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+  );
   assert.equal((await cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
   writeFileSync(
     path.join(rootDir, "harness", `${packagePath}/closeout.md`),

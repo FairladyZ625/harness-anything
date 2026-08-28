@@ -18,6 +18,7 @@ import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { safePath } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -1307,26 +1308,6 @@ function rejectionHint(receipt: Record<string, unknown>): string {
     ? String((error as Record<string, unknown>).hint)
     : String(receipt.nextAction ?? receipt.reason ?? "");
 }
-function realizedPlan(title: string): string {
-  const headings = [
-    "Brief",
-    "Goal",
-    "Context",
-    "Required Reading",
-    "Entry Conditions",
-    "Dependencies",
-    "Execution Surface",
-    "Constraints",
-    "Checkpoint",
-    "CI/Gate Authority Stop Condition",
-    "Implementation Plan",
-    "Deliverable Contract",
-    "Evidence Protocol",
-    "Verification",
-  ];
-  return `# ${title}\n\n${headings.map((heading) => `## ${heading}\n\nRealized ${heading}.`).join("\n\n")}\n`;
-}
-
 function assertTaskMissionPrompt(
   prompt: string,
   expected: {

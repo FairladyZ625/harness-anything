@@ -33,6 +33,7 @@ import {
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
 
@@ -435,14 +436,11 @@ test("task writes keep aggregate CAS after runtime events advance the shared wor
       rootDir: canonicalRoot(rootDir),
       ownerId: "runtime-cas-1",
     });
-    assert.equal(
-      (
-        await cell.run(
-          { kind: "task-create", taskId: "task-runtime", title: "Runtime CAS" },
-          { actor, source: "local" },
-        )
-      ).outcome,
-      "applied",
+    const binding = { actor, source: "local" as const },
+      created = await cell.run({ kind: "task-create", taskId: "task-runtime", title: "Runtime CAS" }, binding);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
     await cell.close();
     cell = undefined;
@@ -462,7 +460,7 @@ test("task writes keep aggregate CAS after runtime events advance the shared wor
       (
         await cell.run(
           { kind: "task-start", taskId: "task-runtime", executionId: "execution-runtime" },
-          { actor, source: "local" },
+          binding,
         )
       ).outcome,
       "applied",
