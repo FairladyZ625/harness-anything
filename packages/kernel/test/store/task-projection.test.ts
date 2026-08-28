@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -33,6 +33,7 @@ import {
   migrationImportWritePlan,
   type MigrationImportEventV1,
 } from "../../src/domain/migration-import-event.ts";
+import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { eventObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
@@ -213,6 +214,78 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     const rebuilt = projection.rebuild();
     assert.equal(rebuilt.watermark, 2);
     assert.deepEqual(projection.readDocument("context/notes.md").document, first.document);
+  });
+});
+
+test("fact-rekey retirement deletes a facts document when its historical base claim is stale", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "fact-rekey-retirement", rootDir }),
+      documentPath = "tasks/task-1/facts.md",
+      body = "# Legacy facts\n",
+      hash = sha256Text(body),
+      physicalBody = "# Facts changed outside the event stream\n",
+      physicalPath = path.join(rootDir, "harness", documentPath),
+      seed: DocEventV1 = {
+        schema: "doc-event/v1",
+        eventId: "fact-rekey-seed",
+        workspaceRevision: 1,
+        opId: "fact-rekey-seed-op",
+        type: "documents_written",
+        actor: { principal: { personId: "person-1" }, executor: null },
+        source: "local",
+        occurredAt: "2026-08-11T00:00:00.000Z",
+        payload: {
+          executionId: null,
+          baseLedgerSha: eventStore.currentCut(),
+          changes: [
+            {
+              path: documentPath,
+              baseBlobSha256: null,
+              candidate: { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" },
+              policyId: OPAQUE_TEXTUAL_POLICY_ID,
+              regionProofs: [],
+            },
+          ],
+        },
+      };
+    eventStore.append({
+      event: seed,
+      plan: docSyncWritePlan(seed),
+      blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }],
+    });
+    mkdirSync(path.dirname(physicalPath), { recursive: true });
+    writeFileSync(physicalPath, physicalBody);
+    git(rootDir, "add", "harness");
+    git(rootDir, "commit", "--quiet", "-m", "physical facts update");
+    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+    const retirementStore = makeTaskEventStore({ repoId: "fact-rekey-retirement", rootDir });
+    const retirement: DocEventV1 = {
+      ...seed,
+      eventId: "fact-rekey-retirement",
+      workspaceRevision: 2,
+      opId: "fact-rekey-retirement-op",
+      payload: {
+        executionId: null,
+        baseLedgerSha: retirementStore.currentCut(),
+        changes: [
+          {
+            path: documentPath,
+            baseBlobSha256: sha256Text(physicalBody),
+            candidate: null,
+            policyId: OPAQUE_TEXTUAL_POLICY_ID,
+            regionProofs: [],
+          },
+        ],
+        retirementReason: "fact records were re-keyed",
+      },
+    };
+    retirementStore.append({ event: retirement, plan: docSyncWritePlan(retirement), blobs: [] });
+    const projection = makeTaskProjection({ rootDir, eventStore: retirementStore });
+    projection.close();
+    rmSync(projection.path, { force: true });
+    assert.equal(projection.rebuild().watermark, 2);
+    assert.equal(projection.readDocument(documentPath).document, null);
   });
 });
 

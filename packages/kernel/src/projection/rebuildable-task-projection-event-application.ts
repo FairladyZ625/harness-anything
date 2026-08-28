@@ -373,9 +373,11 @@ export function applyEvent(
             | undefined,
         base = previous ? (JSON.parse(previous.value_json) as DocumentState) : null;
       if (change.candidate === null) {
+        const factRekeyRetirement =
+          event.payload.retirementReason === "fact records were re-keyed" && change.path.endsWith("/facts.md");
         if (
           event.payload.retirementReason === undefined ||
-          (base !== null && change.baseBlobSha256 !== base.blobSha256)
+          (base !== null && change.baseBlobSha256 !== base.blobSha256 && !factRekeyRetirement)
         )
           throw new Error(`document retirement mismatch for ${change.path}`);
         runSql(db, "DELETE FROM document WHERE path = ?", change.path);
