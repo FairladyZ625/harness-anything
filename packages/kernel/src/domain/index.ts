@@ -49,6 +49,8 @@ export {
   currentExecutionCuts,
   currentSubmittedExecutions,
   isCloseoutReadiness,
+  repositoryDeliverablePaths,
+  taskPackageOnlySubmission,
 } from "./closeout-readiness.ts";
 export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
 export { blockingOf } from "./task-blocking.ts";

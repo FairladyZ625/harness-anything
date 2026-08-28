@@ -450,7 +450,7 @@ function candidateRejection(
   return reject(
     opId,
     "ambiguous_execution",
-    `Current submitted execution candidates: ${candidates.length ? candidates.join(", ") : "none"}. ${commands.length ? `Choose one explicitly: ${commands.join(" or ")}.` : `Run ha task submit ${taskId} --from-file <submission.json>, then run ${closeoutInvocation(taskId, fromFile)}.`}`,
+    `Current submitted execution candidates: ${candidates.length ? candidates.join(", ") : "none"}. ${commands.length ? `Choose one explicitly: ${commands.join(" or ")}.` : `Run ha task submit ${taskId} --json-input '<submission-json>', then run ${closeoutInvocation(taskId, fromFile)}.`}`,
   );
 }
 function reject(opId: string, code: string, nextAction: string): WriteReceipt {

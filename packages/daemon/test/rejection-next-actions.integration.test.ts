@@ -42,7 +42,7 @@ test("submit lease refusals name the state-specific command that advances the ex
     assert.equal(withoutLease.code, "lease_required", JSON.stringify(withoutLease));
     assert.equal(
       withoutLease.nextAction,
-      `Submit requires the active execution lease; run ha task start ${taskId} --execution-id ${executionId}, then retry ha task submit ${taskId} --execution-id ${executionId} --from-file <submission.json>.`,
+      `Submit requires the active execution lease; run ha task start ${taskId} --execution-id ${executionId}, then retry ha task submit ${taskId} --json-input '<submission-json>'.`,
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
     assert.equal(

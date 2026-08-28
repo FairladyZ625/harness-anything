@@ -99,6 +99,16 @@ test("all public commands expose the canonical structured input facet", () => {
     assert.equal((fromFile.jsonFields?.length ?? 0) > 0, true, `${id}: JSON required fields`);
     assert.equal((fromFile.jsonAllowedFields?.length ?? 0) >= (fromFile.jsonFields?.length ?? 0), true, id);
   }
+  const taskSubmit = daemonProtocolCommands.find((command) => command.id === "task-submit"),
+    submitFile = taskSubmit?.inputs.find((input) => input.name === "--from-file"),
+    submitJson = taskSubmit?.inputs.find((input) => input.name === "--json-input");
+  assert.ok(submitFile && submitJson);
+  assert.equal(submitFile.required, false);
+  assert.equal(submitJson.required, false);
+  assert.deepEqual(submitJson.jsonFields, submitFile.jsonFields);
+  assert.deepEqual(submitFile.conflictsWith, ["--json-input"]);
+  assert.deepEqual(submitJson.conflictsWith, ["--from-file"]);
+  assert.deepEqual(daemonProtocolCommands.find((command) => command.id === "task-code-doc-reconcile")?.inputs, []);
 });
 
 test("daemon command declarations keep their declared positional in usage", () => {

@@ -48,7 +48,7 @@ export function completionBlockers(
       "not_in_review",
       "lifecycle",
       task?.status === "active"
-        ? `ha task submit ${task.taskId} --execution-id ${executionId} --from-file <submission.json>`
+        ? `ha task submit ${task.taskId} --json-input '<submission-json>'`
         : `ha task start ${task?.taskId ?? "<task-id>"} --execution-id ${executionId}`,
       "Complete never submits or starts an execution; reach in_review first.",
     );
@@ -82,7 +82,7 @@ export function completionBlockers(
     return one(
       "lease_held",
       "lease",
-      `ha task submit ${task.taskId} --execution-id ${snapshot.lease.executionId} --from-file <submission.json>`,
+      `ha task submit ${task.taskId} --json-input '<submission-json>'`,
       "Release the held execution lease through canonical submit.",
     );
   const assessment = closeoutReadiness(snapshot);
@@ -109,7 +109,7 @@ export function completionBlockers(
       ? one(
           "code_doc_missing",
           gate.gateId,
-          `ha task code-doc reconcile ${task.taskId} --execution-id ${executionId} --commit-sha ${submission.commitSha} --iteration ${execution.iteration} --path <path>`,
+          `ha task code-doc reconcile ${task.taskId}`,
           "Publish a typed code-doc witness for this execution cut.",
         )
       : one(

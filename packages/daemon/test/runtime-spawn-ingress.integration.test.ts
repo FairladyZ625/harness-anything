@@ -395,51 +395,36 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         "applied",
       );
     });
-    await t.test(
-      "task-bound runtime without a lease is told to start the task and that command terminates",
-      async () => {
-        const taskId = "task-runtime-no-lease",
-          executor = { kind: "agent", id: "codex-no-lease" } as const;
-        assert.equal(
-          (await host.run(repoId, { kind: "task-create", taskId, title: "Runtime no lease" }, auth)).outcome,
-          "applied",
+    await t.test("task-bound runtime without a lease starts and dispatches in one command", async () => {
+      const taskId = "task-runtime-no-lease",
+        executor = { kind: "agent", id: "codex-no-lease" } as const;
+      assert.equal(
+        (await host.run(repoId, { kind: "task-create", taskId, title: "Runtime no lease" }, auth)).outcome,
+        "applied",
+      );
+      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: ingressDefinition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Acquire the lease and dispatch",
+          taskId,
+          idempotencyKey: "runtime-no-lease",
+          executor,
+        },
+      });
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      const events = makeTaskEventStore({ repoId, rootDir: root }).read().events,
+        started = events.findIndex((event) => event.type === "execution_started" && event.taskId === taskId),
+        dispatched = events.findIndex(
+          (event) =>
+            event.type === "runtime_dispatch_requested" && event.payload.runtimeSessionId === receipt.runtimeSessionId,
         );
-        const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
-          repo: { repoId },
-          payload: {
-            runtimeInstanceId: ingressDefinition.instanceId,
-            cwd: { scope: "repo-root" },
-            prompt: "Needs a lease",
-            taskId,
-            idempotencyKey: "runtime-no-lease",
-            executor,
-          },
-        });
-        assert.equal(receipt.outcome, "op_rejected");
-        assert.equal(receipt.code, "runtime_task_lease_required");
-        assert.equal(
-          receipt.nextAction,
-          `Task-bound runtime spawn requires the caller's active execution lease; run ha task start ${taskId}, then retry the task-bound runtime command.`,
-        );
-        assert.equal((await host.run(repoId, { kind: "task-start", taskId, executor }, auth)).outcome, "applied");
-        assert.equal(
-          (
-            await rpc(host, auth, "repo.agentRuntime.spawn", {
-              repo: { repoId },
-              payload: {
-                runtimeInstanceId: ingressDefinition.instanceId,
-                cwd: { scope: "repo-root" },
-                prompt: "Lease acquired",
-                taskId,
-                idempotencyKey: "runtime-with-lease",
-                executor,
-              },
-            })
-          ).outcome,
-          "applied",
-        );
-      },
-    );
+      assert.ok(started >= 0 && started < dispatched, events.map((event) => event.type).join(" -> "));
+      const start = events[started];
+      assert.equal(start?.type, "execution_started");
+      if (start?.type === "execution_started") assert.deepEqual(start.payload.lease.actor.executor, executor);
+    });
     await t.test("human lease remains task-bindable without an executor", async () => {
       const taskId = "task-runtime-human",
         executionId = "exec-runtime-human";
@@ -789,7 +774,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         assert.match(
           String(lifecycle.nextAction),
           new RegExp(
-            `authenticated holder \\(personId=owner, executor=none\\) must run ha task submit ${taskId} --execution-id ${executionId} --from-file <submission.json>, or ha task release ${taskId}`,
+            `authenticated holder \\(personId=owner, executor=none\\) must run ha task submit ${taskId} --json-input '<submission-json>', or ha task release ${taskId}`,
             "u",
           ),
         );

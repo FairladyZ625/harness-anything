@@ -30,7 +30,7 @@ export function packetJson(value: unknown, fields: readonly string[]): Record<st
     Array.isArray(parsed) ||
     Object.keys(parsed).sort().join("\0") !== [...fields].sort().join("\0")
   )
-    throw cellCodedError("invalid_command", `proposal packet requires exactly: ${fields.join(", ")}.`);
+    throw cellCodedError("invalid_command", `JSON packet requires exactly: ${fields.join(", ")}.`);
   return parsed as Record<string, unknown>;
 }
 
@@ -75,9 +75,23 @@ export function reviewPacket(
 }
 
 export function submissionPacket(action: RepoTaskAction, rootDir: string): GuiSubmissionV1 {
-  if (action.submission !== undefined && action.fromFile !== undefined)
-    throw cellCodedError("invalid_command", "Submit accepts either submission or fromFile, not both.");
-  const value = action.submission ?? packetFile(rootDir, action.fromFile, taskSubmissionJsonFields).value,
+  const fromFile = action.fromFile !== undefined,
+    jsonInput = action.jsonInput !== undefined;
+  if (action.submission !== undefined && (fromFile || jsonInput))
+    throw cellCodedError(
+      "invalid_command",
+      "Submit accepts either its RPC submission or one CLI JSON source, not both.",
+    );
+  if (action.submission === undefined && fromFile === jsonInput)
+    throw cellCodedError(
+      "invalid_command",
+      "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
+    );
+  const value =
+      action.submission ??
+      (jsonInput
+        ? packetJson(action.jsonInput, taskSubmissionJsonFields)
+        : packetFile(rootDir, action.fromFile, taskSubmissionJsonFields).value),
     issues = validateGuiSubmission(value);
   if (issues.length) throw cellCodedError("invalid_submission", issues.join("; "));
   return value as unknown as GuiSubmissionV1;
@@ -130,7 +144,7 @@ export function lifecycleReceipt(
     missingGate = checks.find((value) => value.status === "blocked")?.gate,
     nextCommand =
       snapshot.task?.status === "active" && executionId
-        ? `ha task submit ${event.taskId} --execution-id ${executionId} --from-file <submission.json>`
+        ? `ha task submit ${event.taskId} --json-input '<submission-json>'`
         : snapshot.task?.status === "active"
           ? `ha task start ${event.taskId} --execution-id <id>`
           : snapshot.task?.status !== "in_review"
@@ -164,13 +178,7 @@ export function lifecycleReceipt(
                 : missingGate === "ci"
                   ? `ha task complete ${event.taskId} --execution-id ${executionId} --ci passed`
                   : missingGate === "code-doc-reconciliation"
-                    ? [
-                        "ha task code-doc reconcile ",
-                        `${event.taskId}`,
-                        " --execution-id ",
-                        `${executionId}`,
-                        " --commit-sha <sha> --iteration <n> --path <path>",
-                      ].join("")
+                    ? `ha task code-doc reconcile ${event.taskId}`
                     : `ha task complete ${event.taskId} --execution-id ${executionId}`,
     next = nextCommand
       ? [

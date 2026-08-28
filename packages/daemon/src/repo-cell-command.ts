@@ -5,6 +5,7 @@ import {
   isDomainStatus,
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
+  repositoryDeliverablePaths,
   reviewDigest,
   type TaskLifecycleCommand,
 } from "../../kernel/src/index.ts";
@@ -19,7 +20,7 @@ import {
 import { packetFile, reviewPacket, submissionPacket } from "./repo-cell-packets.ts";
 import { actorHint, operationId } from "./repo-cell-proof.ts";
 import { resolveLifecycleAction } from "./repo-cell-lifecycle-action.ts";
-import { digest, iteration, reviewVerdict } from "./repo-cell-review-lint.ts";
+import { digest, reviewVerdict } from "./repo-cell-review-lint.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   DaemonGuiReadHandlers,
@@ -96,14 +97,12 @@ export function buildCommand(
                 `${actorHint(snapshot.lease.actor)}`,
                 ") must run ha task submit ",
                 `${taskId}`,
-                " --execution-id ",
-                `${snapshot.lease.executionId}`,
-                " --from-file <submission.json>, or ha task release ",
+                " --json-input '<submission-json>', or ha task release ",
                 `${taskId}`,
                 ".",
               ].join("")
-            : `Run ha task start ${taskId}, then retry ha task submit ${taskId} --from-file <submission.json>.`,
-          (candidate) => `ha task submit ${taskId} --execution-id ${candidate} --from-file <submission.json>`,
+            : `Run ha task start ${taskId}, then retry ha task submit ${taskId} --json-input '<submission-json>'.`,
+          () => `ha task submit ${taskId} --json-input '<submission-json>'`,
         );
     return normalizeTaskLifecycleCommand(bound, {
       type: "SubmitExecution",
@@ -124,7 +123,7 @@ export function buildCommand(
             `${taskId}`,
             "; if the task is active, run ha task submit ",
             `${taskId}`,
-            " --from-file <submission.json>.",
+            " --json-input '<submission-json>'.",
           ].join(""),
           (candidate) =>
             [
@@ -220,16 +219,39 @@ export function buildCommand(
       contentDigest: recorded.contentDigest,
     });
   }
-  if (action.kind === "task-code-doc-reconcile")
+  if (action.kind === "task-code-doc-reconcile") {
+    const unsupported = Object.keys(action).filter((field) => !["kind", "taskId"].includes(field));
+    if (unsupported.length)
+      throw cellCodedError(
+        "invalid_command",
+        `Run ha task code-doc reconcile ${taskId} without ${unsupported.join(", ")}; the submitted execution supplies the witness cut.`,
+      );
+    const submitted = currentSubmittedExecutions(snapshot);
+    if (submitted.length !== 1)
+      throw cellCodedError(
+        "invalid_command",
+        `Code-doc reconcile requires exactly one current submitted execution; found ${submitted.map((value) => value.executionId).join(", ") || "none"}. Run ha task show ${taskId} and resolve the lifecycle ambiguity.`,
+      );
+    const execution = submitted[0]!,
+      paths = repositoryDeliverablePaths(execution.submission);
+    if (!paths.length)
+      throw cellCodedError(
+        "invalid_command",
+        "The submitted execution names no repository deliverable paths; task-package-only submissions do not need a code-doc witness.",
+      );
+    const witness = {
+      executionId: execution.executionId,
+      commitSha: execution.submission!.commitSha,
+      iteration: execution.iteration,
+      paths,
+    };
     return normalizeTaskLifecycleCommand(bound, {
       type: "ReconcileCodeDoc",
       taskId,
-      executionId: requiredCellText(action.executionId, "executionId"),
-      witnessId: `code-doc-${createHash("sha256").update(JSON.stringify(action)).digest("hex").slice(0, 16)}`,
-      commitSha: requiredCellText(action.commitSha, "commitSha"),
-      iteration: iteration(action.iteration),
-      paths: cellStringList(action.paths),
+      ...witness,
+      witnessId: `code-doc-${createHash("sha256").update(JSON.stringify(witness)).digest("hex").slice(0, 16)}`,
     });
+  }
   if (action.kind === "task-code-doc-repoint")
     return normalizeTaskLifecycleCommand(bound, {
       type: "RepointCodeDoc",

@@ -62,7 +62,7 @@ closeout readiness，最后才写入 `done`。legacy task 会重新运行 `revie
 的 task 要求当前 Execution 已有 approved Review（ADR-0027 D5、D7）。
 
 | 检查 | 通过要求 | 报告的失败码或 issue |
-|---|---|
+|---|---|---|
 | legacy review 文档 | 不带 Execution 文档的 task 必须有 `review.md`，发现表必须能解析，且不能有 open 的 release-blocking 发现 | completion 报告 `review_not_passed`；底层 review 失败可能是 `review_document_missing`、`review_schema_invalid` 或 `release_blocking_findings` |
 | Execution Review | 带 Execution 的 task 必须对当前 Execution 有 approved Review | Execution completion service 报告 Review 缺失或未批准 |
 | review 占位符 | 初始 `review.md` 占位符必须被替换 | `review_placeholder` |
@@ -73,8 +73,9 @@ closeout readiness，最后才写入 `done`。legacy task 会重新运行 `revie
 | closeout 就绪度轴 | 投影出的 closeout readiness 必须是 `ready` 或 `passed` | `closeout_not_ready` |
 | task tree dirty 检查 | 迁移清扫之后，`tasks/<id>/` 必须足够干净，让 lifecycle writer 可以提交 | `task_tree_dirty` |
 
-对于适用的 Execution，`ha task complete --path <repository-path>` 会自动取 submitted commit 与
-iteration，对着拥有该 commit 的 Git 仓库验证每个路径，再发布 typed witness。已复核的 report-only
+对于适用的 Execution，`ha task code-doc reconcile <task-id>` 会从唯一 submitted execution 的
+deliverables 自动取 execution、commit、iteration 与公开仓路径，对着拥有该 commit 的 Git 仓库
+验证路径，再发布 typed witness。已复核的 report-only
 submission 若声明的交付物全是任务包工件，可以直接完成，不必伪造公开仓路径。空 deliverable 列表和
 自由文本声明仍属歧义，不会豁免 witness。
 

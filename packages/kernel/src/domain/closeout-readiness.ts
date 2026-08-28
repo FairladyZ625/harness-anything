@@ -55,16 +55,17 @@ export function taskPackageOnlySubmission(submission: SubmissionV1 | null | unde
     submission !== null &&
     submission !== undefined &&
     submission.deliverables.length > 0 &&
-    submission.deliverables.every((deliverable) =>
-      ["artifacts/", "tasks/", "harness/tasks/"].some((prefix) => deliverable.startsWith(prefix)),
-    )
+    repositoryDeliverablePaths(submission).length === 0
   );
 }
 
-export function completionGateRequiresWitness(
-  gateId: string,
-  submission: SubmissionV1 | null | undefined,
-): boolean {
+export function repositoryDeliverablePaths(submission: SubmissionV1 | null | undefined): readonly string[] {
+  return (submission?.deliverables ?? []).filter(
+    (deliverable) => !["artifacts/", "tasks/", "harness/tasks/"].some((prefix) => deliverable.startsWith(prefix)),
+  );
+}
+
+export function completionGateRequiresWitness(gateId: string, submission: SubmissionV1 | null | undefined): boolean {
   return gateId !== "code-doc-reconciliation" || !taskPackageOnlySubmission(submission);
 }
 

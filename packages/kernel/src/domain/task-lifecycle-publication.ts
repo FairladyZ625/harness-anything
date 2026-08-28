@@ -277,7 +277,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
     missingGate = task.completionGateIds.find((gateId) => !gateStatus(gateId)),
     next =
       task.status === "active"
-        ? `Run \`ha task submit ${task.taskId} --execution-id <id> --from-file <submission.json>\`.`
+        ? `Run \`ha task submit ${task.taskId} --json-input '<submission-json>'\`.`
         : task.status === "in_review" && !approved.length
           ? [
               `Run \`ha task review-execution ${task.taskId}`,
@@ -291,10 +291,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
             : missingGate === "ci"
               ? `Run \`ha task complete ${task.taskId} --execution-id <id> --ci passed\`.`
               : missingGate === "code-doc-reconciliation"
-                ? [
-                    `Run \`ha task code-doc reconcile ${task.taskId} --execution-id <id>`,
-                    " --commit-sha <sha> --iteration <n> --path <path>`.",
-                  ].join("")
+                ? `Run \`ha task code-doc reconcile ${task.taskId}\`.`
                 : task.status === "done"
                   ? "Task complete."
                   : task.status === "cancelled"

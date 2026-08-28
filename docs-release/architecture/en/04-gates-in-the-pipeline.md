@@ -99,7 +99,7 @@ re-run the `review.md` gate; Execution-bearing tasks require an approved Review
 for the current Execution (ADR-0027 D5, D7).
 
 | Check | Requirement to pass | Failure code or issue reported |
-|---|---|
+|---|---|---|
 | legacy review document | for a task without Execution documents, `review.md` must exist, its findings table must parse, and no open finding may block release | completion reports `review_not_passed`; the underlying review failure may be `review_document_missing`, `review_schema_invalid`, or `release_blocking_findings` |
 | Execution Review | an Execution-bearing task must have an approved Review for its current Execution | the Execution completion service reports the missing or non-approved Review |
 | review placeholder | the initial `review.md` placeholder must be replaced | `review_placeholder` |
@@ -110,9 +110,10 @@ for the current Execution (ADR-0027 D5, D7).
 | closeout readiness axis | projected closeout readiness must be `ready` or `passed` | `closeout_not_ready` |
 | task tree dirty check | after the transition sweep, `tasks/<id>/` must be clean enough for the lifecycle writer to commit | `task_tree_dirty` |
 
-For an applicable execution, `ha task complete --path <repository-path>` derives
-the submitted commit and iteration, verifies every path against the Git repository
-that owns that commit, and publishes the typed witness. A reviewed report-only
+For an applicable execution, `ha task code-doc reconcile <task-id>` derives the
+unique submitted execution, commit, iteration, and repository paths from its
+deliverables, verifies those paths against the Git repository that owns the commit,
+and publishes the typed witness. A reviewed report-only
 submission completes without inventing a repository path when all of its declared
 deliverables are task-package artifacts. Empty lists and free-form deliverable
 claims remain ambiguous and do not waive the witness.
