@@ -617,7 +617,7 @@ function rekeyDecisionProofs(event: DecisionEventV1, current: DecisionDocumentSt
     const reduced = reduceDecisionDocument(current, event);
     payload.contentPin = {
       ...sourcePayload.contentPin,
-      state: reduced.state,
+      state: current.state,
       digest: decisionMachineDigest(reduced),
     };
   }
