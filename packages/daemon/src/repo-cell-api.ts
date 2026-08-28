@@ -3,6 +3,7 @@ import {
   assertCurrentWriter,
   projectDecisionReadiness,
   timestamp,
+  type DecisionProjectionRow,
   type TaskProjectionListQuery,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -17,7 +18,9 @@ import { readSchedulesGui } from "./schedules-gui-read.ts";
 import {
   commandClassForAction,
   commandDescriptorForAction,
+  type DaemonDecisionListResult,
   type DaemonGuiReadResultMap,
+  type DaemonRelationGraphFacetPayload,
   type DaemonTaskDispatchesPayload,
 } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -235,9 +238,35 @@ export function createRepoCellApi(context: any): RepoCell {
     "repo.squad.run.read": (payload: Readonly<Record<string, unknown>>) =>
       context.squadCoordinator.read(context.requiredCellText(payload.squadRunId, "squadRunId")),
     "repo.schedules.list": () => readSchedulesGui(context),
-    "repo.decisions.list": () => {
-      const read = context.projection.listDecisions({}),
-        source = makeGitReadinessSource(),
+    "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
+    "repo.tasks.document.read": (payload) => readProjectedDocument(context.rootDir, context.projection, payload),
+    "repo.tasks.documents.list": (payload) => listProjectedTaskDocuments(context.rootDir, context.projection, payload),
+    "repo.agentRuntime.overview": (payload) => context.runtimeReads.overview(payload),
+    "repo.agentRuntime.sessionGroups": (payload) => context.runtimeReads.sessionGroups(payload),
+    "repo.agentRuntime.sessions.read": (payload) => context.runtimeReads.session(payload),
+    "repo.agentRuntime.events.read": (payload) => context.runtimeReads.events(payload),
+  } satisfies DaemonGuiReadHandlers;
+  function decisionListFromPayload(payload: Readonly<Record<string, unknown>>): DaemonDecisionListResult {
+    if (
+      Object.keys(payload).some((field) => field !== "projection") ||
+      (payload.projection !== undefined && payload.projection !== "summary" && payload.projection !== "full")
+    )
+      throw context.cellCodedError("invalid_command", "Decision list projection must be summary or full.");
+    const read = context.projection.listDecisions({});
+    if (payload.projection === "summary")
+      return {
+        ok: true,
+        projection: "summary",
+        decisions: read.decisions.map(({ decisionId, title, state, appliesTo }: DecisionProjectionRow) => ({
+          decisionId,
+          title,
+          state,
+          appliesTo,
+        })),
+        warnings: [],
+      };
+    {
+      const source = makeGitReadinessSource(),
         projectHead = source.run(context.rootDir, ["rev-parse", "HEAD"]),
         readiness = projectDecisionReadiness(
           {
@@ -249,20 +278,15 @@ export function createRepoCellApi(context: any): RepoCell {
         );
       return {
         ok: true,
+        ...(payload.projection === "full" ? { projection: "full" as const } : {}),
         decisions: read.decisions.map((decision: any, index: number) => ({
           ...decision,
           readiness: readiness[index]!,
         })),
         warnings: [],
       };
-    },
-    "repo.tasks.document.read": (payload) => readProjectedDocument(context.rootDir, context.projection, payload),
-    "repo.tasks.documents.list": (payload) => listProjectedTaskDocuments(context.rootDir, context.projection, payload),
-    "repo.agentRuntime.overview": (payload) => context.runtimeReads.overview(payload),
-    "repo.agentRuntime.sessionGroups": (payload) => context.runtimeReads.sessionGroups(payload),
-    "repo.agentRuntime.sessions.read": (payload) => context.runtimeReads.session(payload),
-    "repo.agentRuntime.events.read": (payload) => context.runtimeReads.events(payload),
-  } satisfies DaemonGuiReadHandlers;
+    }
+  }
   // Read handlers synchronously observe the current committed projection cut. Writes publish and
   // apply their new cut without yielding; long asynchronous preparation (for example a vertical
   // script) happens before publication. A read can therefore see the complete cut before or after
@@ -348,6 +372,25 @@ export function createRepoCellApi(context: any): RepoCell {
   function relationGraphFromPayload(
     payload: Readonly<Record<string, unknown>>,
   ): DaemonGuiReadResultMap["repo.triadic.relationGraph"] {
+    if (
+      payload.facet !== undefined ||
+      payload.relationType !== undefined ||
+      payload.state !== undefined ||
+      payload.direction !== undefined
+    ) {
+      const facet = payload.facet;
+      if (
+        !["edges", "facts", "coverageRows", "factAnchors"].includes(String(facet)) ||
+        Object.keys(payload).some((field) =>
+          facet === "edges" ? !["facet", "relationType", "state", "direction"].includes(field) : field !== "facet",
+        ) ||
+        (payload.relationType !== undefined && (typeof payload.relationType !== "string" || !payload.relationType)) ||
+        (payload.state !== undefined && !["active", "edge_retired", "deleted"].includes(String(payload.state))) ||
+        (payload.direction !== undefined && !["directed", "undirected"].includes(String(payload.direction)))
+      )
+        throw context.cellCodedError("invalid_command", "Relation graph facet selectors are invalid.");
+      return queryRead.relationGraphFacet(payload as DaemonRelationGraphFacetPayload);
+    }
     const common = queryPayloadFacets(payload, "repo.triadic.relationGraph");
     if (!common.explicit) return queryRead.relationGraph();
     return queryRead.relationGraphPage({

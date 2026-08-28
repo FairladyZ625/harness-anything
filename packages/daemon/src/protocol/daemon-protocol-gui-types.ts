@@ -280,21 +280,8 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.ci.observatory.read": import("../ci-observatory-read.ts").CiObservatoryRead;
   readonly "repo.workspace.summary.read": DaemonWorkspaceSummaryResult;
   readonly "repo.agenda.read": DaemonAgendaResult;
-  readonly "repo.triadic.relationGraph": { readonly ok: true } & Omit<
-    ReturnType<typeof import("../../../kernel/src/projection/sqlite-task-projection.ts").readRelationGraphProjection>,
-    "taskRows" | "coverageRows"
-  > & {
-      /** Coverage rows as served: the kernel row plus the optional uncovered-cause
-       * classification (kernel `freshnessReasonOf`), attached only to uncovered rows.
-       * Optional so older daemons and every persisted record shape stay valid. */
-      readonly coverageRows: readonly (RelationCoverageRow & { readonly freshnessReason?: FreshnessReason })[];
-      readonly page?: ProjectionPage;
-    };
-  readonly "repo.decisions.list": {
-    readonly ok: true;
-    readonly decisions: readonly DecisionProjectionRow[];
-    readonly warnings: readonly ProjectionWarning[];
-  };
+  readonly "repo.triadic.relationGraph": DaemonRelationGraphResult;
+  readonly "repo.decisions.list": DaemonDecisionListResult;
   readonly "repo.tasks.document.read": {
     readonly ok: true;
     readonly status: "ready" | "pending";
@@ -345,7 +332,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;
   readonly "repo.agenda.read": DaemonAgendaPayload;
   readonly "repo.triadic.relationGraph": DaemonRelationQueryPayload;
-  readonly "repo.decisions.list": Readonly<Record<string, never>>;
+  readonly "repo.decisions.list": DaemonDecisionListPayload;
   readonly "repo.tasks.document.read": {
     readonly taskId: string;
     readonly path: string;
@@ -413,12 +400,100 @@ export interface DaemonAgendaPayload {
 }
 
 export interface DaemonRelationQueryPayload {
+  readonly facet?: DaemonRelationGraphFacet;
+  readonly relationType?: string;
+  readonly state?: string;
+  readonly direction?: "directed" | "undirected";
   readonly status?: string;
   readonly updatedAfter?: string;
   readonly updatedBefore?: string;
   readonly limit?: number;
   readonly cursor?: string;
 }
+
+export type DaemonRelationGraphFacet = "edges" | "facts" | "coverageRows" | "factAnchors";
+
+export interface DaemonRelationEdgeFacetPayload {
+  readonly facet: "edges";
+  readonly relationType?: string;
+  readonly state?: string;
+  readonly direction?: "directed" | "undirected";
+}
+
+export type DaemonRelationGraphFacetPayload =
+  | DaemonRelationEdgeFacetPayload
+  | { readonly facet: Exclude<DaemonRelationGraphFacet, "edges"> };
+
+export interface DaemonFactSummaryRow {
+  readonly anchor: string;
+  readonly text: string;
+  readonly category: "lesson" | "finding" | "progress";
+  readonly taskId?: string;
+}
+
+type DaemonRelationGraphProjection = Omit<
+  ReturnType<typeof import("../../../kernel/src/projection/sqlite-task-projection.ts").readRelationGraphProjection>,
+  "taskRows" | "coverageRows"
+>;
+
+type ServedCoverageRow = RelationCoverageRow & { readonly freshnessReason?: FreshnessReason };
+
+export type DaemonRelationGraphFullResult = { readonly ok: true } & DaemonRelationGraphProjection & {
+    /** Coverage rows as served: the kernel row plus the optional uncovered-cause
+     * classification (kernel `freshnessReasonOf`), attached only to uncovered rows.
+     * Optional so older daemons and every persisted record shape stay valid. */
+    readonly coverageRows: readonly ServedCoverageRow[];
+    readonly page?: ProjectionPage;
+  };
+
+type EmptyRelationFacetRows = {
+  readonly edges: readonly [];
+  readonly coverageRows: readonly [];
+  readonly factAnchors: readonly [];
+  readonly facts: readonly [];
+  readonly warnings: readonly ProjectionWarning[];
+};
+
+export type DaemonRelationGraphFacetResult =
+  | ({ readonly ok: true; readonly facet: "edges" } & Omit<EmptyRelationFacetRows, "edges"> & {
+        readonly edges: DaemonRelationGraphProjection["edges"];
+      })
+  | ({ readonly ok: true; readonly facet: "coverageRows" } & Omit<EmptyRelationFacetRows, "coverageRows"> & {
+        readonly coverageRows: readonly ServedCoverageRow[];
+      })
+  | ({ readonly ok: true; readonly facet: "factAnchors" } & Omit<EmptyRelationFacetRows, "factAnchors"> & {
+        readonly factAnchors: DaemonRelationGraphProjection["factAnchors"];
+      })
+  | ({ readonly ok: true; readonly facet: "facts" } & Omit<EmptyRelationFacetRows, "facts"> & {
+        readonly facts: readonly DaemonFactSummaryRow[];
+      });
+
+export type DaemonRelationGraphResult = DaemonRelationGraphFullResult | DaemonRelationGraphFacetResult;
+
+export interface DaemonDecisionSummaryRow {
+  readonly decisionId: string;
+  readonly title: string;
+  readonly state: DecisionProjectionRow["state"];
+  readonly appliesTo: DecisionProjectionRow["appliesTo"];
+}
+
+export interface DaemonDecisionListPayload {
+  readonly projection?: "summary" | "full";
+}
+
+export type DaemonDecisionListResult =
+  | {
+      readonly ok: true;
+      readonly projection?: "full";
+      readonly decisions: readonly DecisionProjectionRow[];
+      readonly warnings: readonly ProjectionWarning[];
+    }
+  | {
+      readonly ok: true;
+      readonly projection: "summary";
+      readonly decisions: readonly DaemonDecisionSummaryRow[];
+      readonly warnings: readonly ProjectionWarning[];
+    };
 
 /** The CLI-compatible single read and GUI batch read share the same stable method and
  * schema ids. Exactly one selector is allowed; pagination applies only to taskIds. */
@@ -439,6 +514,7 @@ export type DaemonTaskDispatchesPayload =
 export interface TaskPlacementSupplement {
   readonly moduleKeys: readonly string[];
   readonly productLines: readonly string[];
+  readonly spawningDecisionIds: readonly string[];
   readonly parentTaskId: string | null;
   readonly origin: "native" | "archival" | "external";
   readonly engine: string;

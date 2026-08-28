@@ -45,6 +45,7 @@ export function placement(value: unknown): boolean {
     exactRecord(value, [
       "moduleKeys",
       "productLines",
+      "spawningDecisionIds",
       "parentTaskId",
       "origin",
       "engine",
@@ -53,6 +54,7 @@ export function placement(value: unknown): boolean {
     ]) &&
     stringArray(value.moduleKeys) &&
     stringArray(value.productLines) &&
+    stringArray(value.spawningDecisionIds) &&
     (value.parentTaskId === null || nonEmpty(value.parentTaskId)) &&
     ["native", "archival", "external"].includes(String(value.origin)) &&
     nonEmpty(value.engine) &&

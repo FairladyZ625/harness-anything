@@ -19,6 +19,9 @@ import type {
   AgendaAwaitingRow,
   AgendaTaskRow,
   DaemonAgendaResult,
+  DaemonRelationGraphFacetPayload,
+  DaemonRelationGraphFacetResult,
+  DaemonRelationGraphFullResult,
   DaemonTaskSnapshotListResult,
   ExecutionEvidenceProjection,
   TaskPlacementSupplement,
@@ -34,16 +37,15 @@ import type {
  */
 export interface TaskQueryReadModel {
   readonly agenda: (query?: { readonly limit?: number; readonly cursor?: string }) => DaemonAgendaResult;
-  readonly relationGraph: () => DaemonGuiReadResultForRelationGraph;
-  readonly relationGraphPage: (query: TaskRelationQuery) => DaemonGuiReadResultForRelationGraph;
+  readonly relationGraph: () => DaemonRelationGraphFullResult;
+  readonly relationGraphFacet: (query: DaemonRelationGraphFacetPayload) => DaemonRelationGraphFacetResult;
+  readonly relationGraphPage: (query: TaskRelationQuery) => DaemonRelationGraphFullResult;
   readonly guiTasks: (query?: TaskProjectionListQuery) => DaemonTaskSnapshotListResult;
 }
 export interface TaskQueryJudgments {
   readonly closeout: typeof closeoutReadiness;
   readonly blocking: typeof blockingOf;
 }
-type DaemonGuiReadResultForRelationGraph =
-  import("./protocol/daemon-protocol.contract.ts").DaemonGuiReadResultMap["repo.triadic.relationGraph"];
 export function makeTaskQueryReadModel(input: {
   readonly rootDir: CanonicalRoot;
   readonly projection: TaskProjection;
@@ -52,12 +54,12 @@ export function makeTaskQueryReadModel(input: {
   const { rootDir, projection, judgments } = input,
     closeout = judgments.closeout,
     blocking = judgments.blocking;
-  function relationGraph(): DaemonGuiReadResultForRelationGraph {
+  function relationGraph(): DaemonRelationGraphFullResult {
     return relationGraphFrom(readRelationGraphProjection({ rootDir }));
   }
   function relationGraphFrom(
     materialized: ReturnType<typeof readRelationGraphProjection>,
-  ): DaemonGuiReadResultForRelationGraph {
+  ): DaemonRelationGraphFullResult {
     const decisions = projection.readDecisionGraph(),
       facts = projection.readFactGraph(),
       taskRelations = projection.readTaskRelations(),
@@ -119,6 +121,67 @@ export function makeTaskQueryReadModel(input: {
       ),
     };
   }
+  function relationGraphFacet(query: DaemonRelationGraphFacetPayload): DaemonRelationGraphFacetResult {
+    const emptyRows = { edges: [], coverageRows: [], factAnchors: [], facts: [] } as const;
+    if (query.facet === "edges") {
+      const read = projection.readRelationQuery({
+          ...(query.relationType === undefined ? {} : { relationType: query.relationType }),
+          ...(query.state === undefined ? {} : { state: query.state }),
+        }),
+        edges =
+          query.direction === undefined
+            ? read.rows
+            : read.rows.filter(({ direction }) => direction === query.direction);
+      return {
+        ok: true,
+        facet: "edges",
+        ...emptyRows,
+        edges,
+        warnings: relationFacetWarnings(read.status),
+      };
+    }
+    if (query.facet === "facts") {
+      const read = projection.searchFacts({});
+      return {
+        ok: true,
+        facet: "facts",
+        ...emptyRows,
+        facts: read.facts.map((row) => ({
+          anchor: row.ref,
+          text: row.statement,
+          category:
+            row.memoryClass === "semantic"
+              ? ("lesson" as const)
+              : row.memoryClass === "procedural"
+                ? ("progress" as const)
+                : ("finding" as const),
+          ...(row.taskId === undefined ? {} : { taskId: row.taskId }),
+        })),
+        warnings: relationFacetWarnings(read.status),
+      };
+    }
+    if (query.facet === "factAnchors") {
+      const read = projection.readFactAnchors();
+      return {
+        ok: true,
+        facet: "factAnchors",
+        ...emptyRows,
+        factAnchors: read.rows,
+        warnings: relationFacetWarnings(read.status),
+      };
+    }
+    const read = projection.readDecisionGraph();
+    return {
+      ok: true,
+      facet: "coverageRows",
+      ...emptyRows,
+      coverageRows: read.coverageRows.map((row) => {
+        const fulfillment = row.fulfillment === "standing_policy" ? ("standing-policy" as const) : row.fulfillment;
+        return withFreshnessReason({ ...row, fulfillment });
+      }),
+      warnings: relationFacetWarnings(read.status),
+    };
+  }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
     const lifecycle = projection.list(query),
       narrow = hasNarrowFacet(query),
@@ -173,6 +236,14 @@ export function makeTaskQueryReadModel(input: {
               ),
             ].sort(),
             productLines: [...new Set(scopes.flatMap((scope) => scope.appliesTo.productLines))].sort(),
+            spawningDecisionIds: [
+              ...new Set(
+                derived.flatMap((edge) => {
+                  const decisionId = /^decision\/([^/]+)/u.exec(edge.sourceRef)?.[1];
+                  return decisionId === undefined ? [] : [decisionId];
+                }),
+              ),
+            ].sort(),
             parentTaskId: metadata?.parentTaskId ?? source?.parentTaskId ?? null,
             origin,
             engine: source?.lifecycleEngine ?? "kernel/task-lifecycle/v1",
@@ -346,7 +417,7 @@ export function makeTaskQueryReadModel(input: {
    * event-backed truth — authored-L1 edges that exist only in the unmaterialized
    * markdown-side cache appear in the unparameterized converged read, not here.
    */
-  function relationGraphPage(query: TaskRelationQuery): DaemonGuiReadResultForRelationGraph {
+  function relationGraphPage(query: TaskRelationQuery): DaemonRelationGraphFullResult {
     const page: TaskRelationProjectionRead = projection.readRelationQuery(query),
       refs = new Set(page.rows.flatMap((edge) => [edge.sourceRef, edge.targetRef])),
       factRefs = [...refs].filter((ref) => ref.startsWith("fact/")),
@@ -385,7 +456,20 @@ export function makeTaskQueryReadModel(input: {
       ...(page.page ? { page: page.page } : {}),
     };
   }
-  return Object.freeze({ agenda, relationGraph, relationGraphPage, guiTasks });
+  return Object.freeze({ agenda, relationGraph, relationGraphFacet, relationGraphPage, guiTasks });
+}
+function relationFacetWarnings(status: "ready" | "pending") {
+  return status === "ready"
+    ? []
+    : [
+        {
+          code: "relation_truth_unavailable" as const,
+          source: "generated-cache" as const,
+          severity: "hard-fail" as const,
+          message: "Event-backed relation truth has not reached the canonical source revision.",
+          repairHint: "Retry after the rebuild projection catches up.",
+        },
+      ];
 }
 function mergeRows<A>(materialized: readonly A[], eventRows: readonly A[], key: (row: A) => string): readonly A[] {
   const rows = new Map(materialized.map((row) => [key(row), row]));

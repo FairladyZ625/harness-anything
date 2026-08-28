@@ -121,6 +121,8 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       binding,
     );
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    const spawningDecisionId = String(evidence(proposed).decisionId);
+    assert.match(spawningDecisionId, /^dec_/u);
     const factReceipt = await cell.run(
       {
         kind: "fact-record",
@@ -153,15 +155,16 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     );
     const alphaPlacement = (
       unparameterized.rows.find(({ taskId }) => taskId === "task_real_Alpha") as {
-        placement: { moduleKeys: string[]; productLines: string[] };
+        placement: { moduleKeys: string[]; productLines: string[]; spawningDecisionIds: string[] };
       }
     ).placement;
     assert.deepEqual(
       {
         moduleKeys: alphaPlacement.moduleKeys,
         productLines: alphaPlacement.productLines,
+        spawningDecisionIds: alphaPlacement.spawningDecisionIds,
       },
-      { moduleKeys: ["daemon-query"], productLines: ["gui"] },
+      { moduleKeys: ["daemon-query"], productLines: ["gui"], spawningDecisionIds: [spawningDecisionId] },
     );
     await cell.close();
     cell = await openRepoCell({
@@ -293,8 +296,49 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       status: "active",
     });
     assert.ok(graphState.edges.every((edge) => edge.state === "active"));
+    const edgeFacet = await cell.read("repo.triadic.relationGraph", {
+        facet: "edges",
+        relationType: "derives",
+        state: "active",
+        direction: "directed",
+      }),
+      factsFacet = await cell.read("repo.triadic.relationGraph", { facet: "facts" }),
+      coverageFacet = await cell.read("repo.triadic.relationGraph", { facet: "coverageRows" }),
+      anchorsFacet = await cell.read("repo.triadic.relationGraph", { facet: "factAnchors" });
+    assert.deepEqual(
+      edgeFacet.edges.map(({ relationType, state, direction }) => ({ relationType, state, direction })),
+      [{ relationType: "derives", state: "active", direction: "directed" }],
+    );
+    assert.deepEqual([edgeFacet.coverageRows, edgeFacet.factAnchors, edgeFacet.facts], [[], [], []]);
+    assert.deepEqual(
+      factsFacet.facts.map(({ anchor, text, category, taskId }) => ({ anchor, text, category, taskId })),
+      [
+        {
+          anchor: `fact/${String((factReceipt as Record<string, unknown>).factId)}`,
+          text: "Alpha depends on Beta for query equivalence",
+          category: "lesson",
+          taskId: "task_real_Alpha",
+        },
+      ],
+    );
+    assert.deepEqual([factsFacet.edges, factsFacet.coverageRows, factsFacet.factAnchors], [[], [], []]);
+    assert.equal(coverageFacet.facet, "coverageRows");
+    assert.deepEqual([coverageFacet.edges, coverageFacet.factAnchors, coverageFacet.facts], [[], [], []]);
+    assert.equal(anchorsFacet.factAnchors.length, 1);
+    assert.deepEqual([anchorsFacet.edges, anchorsFacet.coverageRows, anchorsFacet.facts], [[], [], []]);
+    const decisionSummary = await cell.read("repo.decisions.list", { projection: "summary" }),
+      decisionFull = await cell.read("repo.decisions.list", { projection: "full" });
+    assert.equal(decisionSummary.projection, "summary");
+    assert.deepEqual(Object.keys(decisionSummary.decisions[0]!).sort(), ["appliesTo", "decisionId", "state", "title"]);
+    assert.equal(decisionFull.projection, "full");
+    assert.equal(Object.hasOwn(decisionFull.decisions[0]!, "readiness"), true);
     await assert.rejects(cell.read("repo.tasks.list", { status: "not-a-status" }), /status is invalid/u);
     await assert.rejects(cell.read("repo.triadic.relationGraph", { limit: 0 }), /limit must be an integer/u);
+    await assert.rejects(cell.read("repo.triadic.relationGraph", { facet: "unknown" as "facts" }), /invalid/u);
+    await assert.rejects(
+      cell.read("repo.triadic.relationGraph", { facet: "facts", relationType: "derives" }),
+      /invalid/u,
+    );
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
