@@ -136,8 +136,6 @@ export type {
   EntityActionCompileHook,
   EntityActionDraft,
   EntityActionExecutionContract,
-  EntityActionReceiptShape,
-  EntityActionRejectionContract,
 } from "./entity-action-execution.ts";
 
 export {

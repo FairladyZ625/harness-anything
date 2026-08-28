@@ -14,33 +14,10 @@ import {
 import { timestamp } from "./timestamp.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 
-export type EntityActionReceiptShape =
-  | "decision-list/v1"
-  | "decision-repin/v1"
-  | "decision-show/v1"
-  | "decision-validate/v1"
-  | "decision-write/v1"
-  | "fact-search/v1"
-  | "fact-show/v1"
-  | "fact-write/v1";
-
-export interface EntityActionRejectionContract {
-  readonly invalidInput: "invalid_command";
-  readonly contentPending?: "content_not_ready";
-  readonly entityMissing?: "entity_not_found";
-  readonly authorizationDenied?: "actor_unauthorized";
-  readonly transitionDenied?: "invalid_transition";
-}
-
 export interface EntityActionExecutionContract {
   readonly ingress: string;
   readonly compile: EntityActionCompileHook | null;
-  readonly receipt: {
-    readonly shape: EntityActionReceiptShape;
-    readonly visibility: "center";
-    readonly settlement: "projection" | "publication-cut";
-  };
-  readonly rejections: EntityActionRejectionContract;
+  readonly read: boolean;
 }
 
 export interface EntityActionCompileInput {
@@ -51,7 +28,6 @@ export interface EntityActionCompileInput {
   readonly opId: string;
   readonly occurredAt: string;
   readonly workspaceRevision: number;
-  readonly rejections: EntityActionRejectionContract;
   readonly coverage?: {
     readonly decisionId: string;
     readonly taskId: string;
@@ -439,7 +415,7 @@ function record(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function invalid(input: EntityActionCompileInput, message: string): never {
-  throw Object.assign(new Error(message), { code: input.rejections.invalidInput });
+  throw Object.assign(new Error(message), { code: "invalid_command" });
 }
 function digest(value: string): string {
   return sha256Text(value);

@@ -4,7 +4,7 @@ import decisionPackageJsonSchema from "../../schemas/json/decision-package.schem
 import factEventJsonSchema from "../../schemas/json/fact-event.schema.json" with { type: "json" };
 import { AGENT_DECLARATION_V1_SCHEMA, agentStates, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
 import { agentRuntimeEventTypes, runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
-import { decisionStates, policyStates } from "./decision-event-types.ts";
+import { decisionEventTypes, decisionStates, policyStates } from "./decision-event-types.ts";
 import { CONTRACT_VERSION_1_0, type ContractVersion } from "./contract-version.ts";
 import { DEFAULT_POLICY } from "./default-policy.ts";
 import {
@@ -20,8 +20,6 @@ import {
   decisionActionCompiler,
   type EntityActionCompileHook,
   type EntityActionExecutionContract,
-  type EntityActionReceiptShape,
-  type EntityActionRejectionContract,
 } from "./entity-action-execution.ts";
 import type { RelationDirection, RelationType } from "./entity-relation.ts";
 import { executionStates } from "./execution.ts";
@@ -203,22 +201,11 @@ const actionCatalog = (
   sdkExposure: EntitySdkExposure = noSdkExposure,
 ) => Object.freeze({ ref, actions: Object.freeze(ids.map((id) => entityAction(kind, identity, id, sdkExposure))) });
 
-const rejectionContract = (
-  fields: Omit<EntityActionRejectionContract, "invalidInput"> = {},
-): EntityActionRejectionContract => Object.freeze({ invalidInput: "invalid_command" as const, ...fields });
 const executionContract = (
   ingress: string,
   compile: EntityActionCompileHook | null,
-  shape: EntityActionReceiptShape,
-  settlement: EntityActionExecutionContract["receipt"]["settlement"],
-  rejections: EntityActionRejectionContract,
-): EntityActionExecutionContract =>
-  Object.freeze({
-    ingress,
-    compile,
-    receipt: Object.freeze({ shape, visibility: "center" as const, settlement }),
-    rejections,
-  });
+  read: boolean,
+): EntityActionExecutionContract => Object.freeze({ ingress, compile, read });
 const genericAuthoring = Object.freeze({ kind: "generic-entity-store" as const, contractRef: "entity-event/v1" });
 const authoredResidency = Object.freeze({ authored: "ledger" as const });
 const authoredLiveResidency = Object.freeze({ authored: "ledger" as const, live: "runtime-local" as const });
@@ -435,144 +422,60 @@ const executableAction = (
   id: string,
   ingress: string,
   compile: EntityActionCompileHook | null,
-  receipt: EntityActionReceiptShape,
-  settlement: EntityActionExecutionContract["receipt"]["settlement"],
-  rejections: EntityActionRejectionContract,
   sdkExposure: EntitySdkExposure,
-) =>
-  entityAction(kind, identity, id, sdkExposure, executionContract(ingress, compile, receipt, settlement, rejections));
+  read = false,
+) => entityAction(kind, identity, id, sdkExposure, executionContract(ingress, compile, read));
 
 const factActionCatalog = Object.freeze({
   ref: "kernel/fact-event/v1",
   actions: Object.freeze([
-    executableAction(
-      "fact",
-      factIdentity,
-      "record",
-      "fact-record",
-      compileFactRecordAction,
-      "fact-write/v1",
-      "publication-cut",
-      rejectionContract({ contentPending: "content_not_ready" }),
-      factExposure,
-    ),
-    executableAction(
-      "fact",
-      factIdentity,
-      "search",
-      "fact-search",
-      null,
-      "fact-search/v1",
-      "projection",
-      rejectionContract(),
-      factExposure,
-    ),
-    executableAction(
-      "fact",
-      factIdentity,
-      "show",
-      "fact-show",
-      null,
-      "fact-show/v1",
-      "projection",
-      rejectionContract({ entityMissing: "entity_not_found" }),
-      factExposure,
-    ),
+    executableAction("fact", factIdentity, "record", "fact-record", compileFactRecordAction, factExposure),
+    executableAction("fact", factIdentity, "search", "fact-search", null, factExposure, true),
+    executableAction("fact", factIdentity, "show", "fact-show", null, factExposure, true),
   ]),
 });
 
-const decisionWriteRejections = () =>
-  rejectionContract({
-    contentPending: "content_not_ready",
-    entityMissing: "entity_not_found",
-    transitionDenied: "invalid_transition",
-  });
-const decisionJudgmentRejections = () =>
-  rejectionContract({
-    contentPending: "content_not_ready",
-    entityMissing: "entity_not_found",
-    authorizationDenied: "actor_unauthorized",
-    transitionDenied: "invalid_transition",
-  });
-const decisionWriteAction = (
-  id: Parameters<typeof decisionActionCompiler>[0],
-  ingress: string,
-  receipt: EntityActionReceiptShape = "decision-write/v1",
-  rejections: EntityActionRejectionContract = decisionWriteRejections(),
-) =>
-  executableAction(
-    "decision",
-    decisionIdentity,
-    id,
-    ingress,
-    decisionActionCompiler(id),
-    receipt,
-    "publication-cut",
-    rejections,
-    decisionExposure,
-  );
+const decisionWriteAction = (id: Parameters<typeof decisionActionCompiler>[0], ingress: string) =>
+  executableAction("decision", decisionIdentity, id, ingress, decisionActionCompiler(id), decisionExposure);
+
+const decisionActionByEvent = {
+  decision_proposed: ["propose", "decision-propose"],
+  decision_accepted: ["accept", "decision-accept"],
+  decision_rejected: ["reject", "decision-reject"],
+  decision_deferred: ["defer", "decision-defer"],
+  decision_superseded: ["supersede", "decision-supersede"],
+  decision_retired: ["retire", "decision-retire"],
+  decision_amended: ["amend", "decision-amend"],
+  decision_repinned: ["repin", "decision-repin"],
+  decision_claim_declared: ["declare-claim", "decision-claim-add"],
+  decision_claim_fulfillment_declared: ["fulfill-claim", "decision-claim-fulfill"],
+  decision_related: ["relate", "decision-relate"],
+  decision_relation_retired: ["retire-relation", "decision-relation-retire"],
+  decision_relation_replaced: ["replace-relation", "decision-relation-replace"],
+} as const satisfies Record<
+  (typeof decisionEventTypes)[number],
+  readonly [Parameters<typeof decisionActionCompiler>[0], string]
+>;
 
 const decisionActionCatalog = Object.freeze({
   ref: "kernel/decision-event/v1",
   actions: Object.freeze([
-    decisionWriteAction("propose", "decision-propose"),
-    decisionWriteAction("accept", "decision-accept", "decision-write/v1", decisionJudgmentRejections()),
-    decisionWriteAction("reject", "decision-reject", "decision-write/v1", decisionJudgmentRejections()),
-    decisionWriteAction("defer", "decision-defer", "decision-write/v1", decisionJudgmentRejections()),
-    decisionWriteAction("supersede", "decision-supersede"),
-    decisionWriteAction("retire", "decision-retire"),
-    decisionWriteAction("amend", "decision-amend"),
-    decisionWriteAction("repin", "decision-repin", "decision-repin/v1"),
-    decisionWriteAction("declare-claim", "decision-claim-add"),
-    decisionWriteAction("fulfill-claim", "decision-claim-fulfill"),
-    decisionWriteAction("relate", "decision-relate"),
-    decisionWriteAction("retire-relation", "decision-relation-retire"),
-    decisionWriteAction("replace-relation", "decision-relation-replace"),
-    decisionWriteAction("transition", "decision-transition", "decision-write/v1", decisionJudgmentRejections()),
+    ...decisionEventTypes.map((type) => {
+      const [id, ingress] = decisionActionByEvent[type];
+      return decisionWriteAction(id, ingress);
+    }),
+    decisionWriteAction("transition", "decision-transition"),
     executableAction(
       "decision",
       decisionIdentity,
       "reckon",
       "decision-reckon",
       compileDecisionReckonAction,
-      "fact-write/v1",
-      "publication-cut",
-      decisionWriteRejections(),
       decisionExposure,
     ),
-    executableAction(
-      "decision",
-      decisionIdentity,
-      "validate",
-      "decision-validate",
-      null,
-      "decision-validate/v1",
-      "projection",
-      rejectionContract({ entityMissing: "entity_not_found" }),
-      decisionExposure,
-    ),
-    executableAction(
-      "decision",
-      decisionIdentity,
-      "list",
-      "decision-list",
-      null,
-      "decision-list/v1",
-      "projection",
-      rejectionContract(),
-      decisionExposure,
-    ),
-    executableAction(
-      "decision",
-      decisionIdentity,
-      "show",
-      "decision-show",
-      null,
-      "decision-show/v1",
-      "projection",
-      rejectionContract({ entityMissing: "entity_not_found" }),
-      decisionExposure,
-    ),
+    executableAction("decision", decisionIdentity, "validate", "decision-validate", null, decisionExposure, true),
+    executableAction("decision", decisionIdentity, "list", "decision-list", null, decisionExposure, true),
+    executableAction("decision", decisionIdentity, "show", "decision-show", null, decisionExposure, true),
   ]),
 });
 

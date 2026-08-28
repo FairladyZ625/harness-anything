@@ -45,34 +45,33 @@ export function makeEntityActionCatalogExecutor(input: {
     facts = makeFactService({ eventStore: input.store, projection: input.projection });
 
   const run = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
-    const contract = executableAction(action.kind),
-      shape = contract.execution.receipt.shape;
-    if (shape === "fact-search/v1") return readReceipt("fact-search", facts.search(factFilters(contract, action)));
-    if (shape === "fact-show/v1")
-      return readReceipt("fact-show", facts.show(requiredText(contract, action.factId, "factId")));
-    if (shape === "decision-list/v1") {
-      const read = decisions.list(decisionFilters(contract, action));
-      return readReceipt("decision-list", { ...read, decisions: read.decisions.map(decisionSummary) });
-    }
-    if (shape === "decision-show/v1") {
-      const read = decisions.show(requiredText(contract, action.decisionId, "decisionId"));
-      return readReceipt("decision-show", {
-        ...read,
-        decision: { ...read.decision, body: action.includeBody === true ? read.decision.body : null },
+    const contract = executableAction(action.kind);
+    if (contract.execution.read) {
+      if (action.kind === "fact-search") return readReceipt("fact-search", facts.search(factFilters(action)));
+      if (action.kind === "fact-show")
+        return readReceipt("fact-show", facts.show(requiredText(action.factId, "factId")));
+      if (action.kind === "decision-list") {
+        const read = decisions.list(decisionFilters(action));
+        return readReceipt("decision-list", { ...read, decisions: read.decisions.map(decisionSummary) });
+      }
+      if (action.kind === "decision-show") {
+        const read = decisions.show(requiredText(action.decisionId, "decisionId"));
+        return readReceipt("decision-show", {
+          ...read,
+          decision: { ...read.decision, body: action.includeBody === true ? read.decision.body : null },
+        });
+      }
+      if (action.kind === "decision-validate")
+        return readReceipt("decision-validate", validateDecisionPackages(action, decisions, input.projection));
+      throw Object.assign(new Error(`Action ${action.kind} is declared as a read without a reader.`), {
+        code: "invalid_store",
       });
     }
-    if (shape === "decision-validate/v1")
-      return readReceipt("decision-validate", validateDecisionPackages(action, decisions, input.projection));
-    if (shape === "decision-repin/v1" && action.all === true) return repinAll(contract, action, binding, opId);
+    if (action.kind === "decision-repin" && action.all === true) return repinAll(action, binding, opId);
     return runWrite(contract, action, binding, opId);
   };
 
-  const repinAll = (
-    contract: ExecutableAction,
-    action: RepoTaskAction,
-    binding: RepoCellBinding,
-    opId: string,
-  ): WriteReceipt => {
+  const repinAll = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
     const ids = decisions.list({}).decisions.map(({ decisionId }) => decisionId),
       receipts = ids.map((decisionId) =>
         run(
@@ -93,7 +92,7 @@ export function makeEntityActionCatalogExecutor(input: {
           decisionIds: ids,
           migrationEvidence: action.migrationEvidence,
         }),
-        visibility: contract.execution.receipt.visibility,
+        visibility: "center" as const,
         proof: {
           committedRevision: revision,
           appliedCut: revision,
@@ -120,35 +119,30 @@ export function makeEntityActionCatalogExecutor(input: {
     binding: RepoCellBinding,
     opId: string,
   ): WriteReceipt => {
-    const authorizationDecision = decisionAuthorization(contract, rawAction, binding, opId, input),
+    const authorizationDecision = decisionAuthorization(rawAction, binding, opId, input),
       action =
         contract.id === "amend"
-          ? prepareDecisionAmend(
-              rawAction,
-              decisions.show(requiredText(contract, rawAction.decisionId, "decisionId")).decision,
-            )
+          ? prepareDecisionAmend(rawAction, decisions.show(requiredText(rawAction.decisionId, "decisionId")).decision)
           : rawAction,
       dryRun = action.dryRun === true,
       existing = dryRun ? null : input.store.readEvent(opId),
       requestedTime = typeof action.decidedAt === "string" ? action.decidedAt : undefined,
       occurredAt = existing?.occurredAt ?? requestedTime ?? input.now();
     if (contract.target.kind === "decision" && !timestamp(occurredAt))
-      reject(contract, "invalidInput", "decidedAt must be an ISO-8601 UTC timestamp ending in Z.");
+      reject("invalid_command", "decidedAt must be an ISO-8601 UTC timestamp ending in Z.");
     const bundle =
       matchingReplayBundle(input.store, contract, existing) ??
       compileAction(contract, action, binding, opId, occurredAt);
     if (dryRun) {
       if (bundle.event.schema !== "decision-event/v1")
-        reject(contract, "invalidInput", `${contract.execution.ingress} does not support --dry-run.`);
+        reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
       return { ...decisionPreview(bundle.event, input.store.readHead()?.revision ?? 0), authorizationDecision };
     }
     if (isFactBundle(bundle)) {
-      assertReceiptShape(contract, "fact-write/v1");
       const result = facts.record(bundle);
       publicationKillpoints(input.killpoint);
       return factReceipt(result, bundle.event);
     }
-    if (contract.execution.receipt.shape !== "decision-repin/v1") assertReceiptShape(contract, "decision-write/v1");
     const result = decisions.record(bundle);
     publicationKillpoints(input.killpoint);
     return decisionReceipt(result, bundle.event, authorizationDecision);
@@ -162,9 +156,9 @@ export function makeEntityActionCatalogExecutor(input: {
     occurredAt: string,
   ): CatalogBundle => {
     const compile = contract.execution.compile;
-    if (!compile) reject(contract, "invalidInput", `${contract.execution.ingress} has no write compiler.`);
+    if (!compile) reject("invalid_command", `${contract.execution.ingress} has no write compiler.`);
     const headRevision = input.store.readHead()?.revision ?? 0,
-      coverage = contract.id === "reckon" ? decisionCoverage(contract, action, decisions) : undefined,
+      coverage = contract.id === "reckon" ? decisionCoverage(action, decisions) : undefined,
       draft = compile({
         action,
         actor: binding.actor,
@@ -173,10 +167,9 @@ export function makeEntityActionCatalogExecutor(input: {
         opId,
         occurredAt,
         workspaceRevision: headRevision + 1,
-        rejections: contract.execution.rejections,
         ...(coverage ? { coverage } : {}),
       });
-    return compileDraft(input.projection, contract, draft);
+    return compileDraft(input.projection, draft);
   };
 
   return Object.freeze({ run });
@@ -195,24 +188,24 @@ function isFactBundle(bundle: CatalogBundle): bundle is FactBundle {
   return bundle.event.schema === "fact-event/v1";
 }
 
-function compileDraft(projection: TaskProjection, contract: ExecutableAction, draft: EntityActionDraft): CatalogBundle {
+function compileDraft(projection: TaskProjection, draft: EntityActionDraft): CatalogBundle {
   if (draft.kind === "fact") {
     if (draft.event.taskId) {
       const task = projection.read(draft.event.taskId);
       if (task.watermark !== task.sourceRevision || !task.packagePath || !task.snapshot.task)
-        reject(contract, "contentPending", `Task ${draft.event.taskId} is not ready for fact record.`);
+        reject("content_not_ready", `Task ${draft.event.taskId} is not ready for fact record.`);
     }
     const current = projection.searchFacts(draft.event.taskId ? { taskId: draft.event.taskId } : {});
-    if (current.watermark !== current.sourceRevision) reject(contract, "contentPending", "Fact projection is pending.");
+    if (current.watermark !== current.sourceRevision) reject("content_not_ready", "Fact projection is pending.");
     return compileFactWrite({ event: draft.event });
   }
   const read = projection.readDecision(draft.event.decisionId);
   if (read.watermark !== read.sourceRevision)
-    reject(contract, "contentPending", `Decision ${draft.event.decisionId} is pending.`);
+    reject("content_not_ready", `Decision ${draft.event.decisionId} is pending.`);
   const path = `decisions/decision-${draft.event.decisionId}/decision.md`,
     document = projection.readDocument(path);
   if (document.watermark !== document.sourceRevision)
-    reject(contract, "contentPending", `Decision document ${path} is pending.`);
+    reject("content_not_ready", `Decision document ${path} is pending.`);
   const relations = projection
     .readDecisionGraph()
     .edges.filter((edge) => edge.ownerRef === `decision/${draft.event.decisionId}`)
@@ -240,10 +233,11 @@ function matchingReplayBundle(
   contract: ExecutableAction,
   existing: ReturnType<CanonicalEventStore["readEvent"]>,
 ): CatalogBundle | null {
-  if (existing?.schema === "fact-event/v1" && contract.execution.receipt.shape === "fact-write/v1") {
+  const writesFact = contract.target.kind === "fact" || contract.id === "reckon";
+  if (existing?.schema === "fact-event/v1" && writesFact) {
     const claim = existing.payload.factsDocumentClaim,
       bytes = store.readContentBlob(claim.sha256);
-    if (!bytes) reject(contract, "contentPending", `Facts content for ${existing.taskId} is unavailable.`);
+    if (!bytes) reject("content_not_ready", `Facts content for ${existing.taskId} is unavailable.`);
     return {
       event: existing,
       plan: factWritePlan(existing),
@@ -259,13 +253,10 @@ function matchingReplayBundle(
       body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     };
   }
-  if (
-    existing?.schema === "decision-event/v1" &&
-    ["decision-write/v1", "decision-repin/v1"].includes(contract.execution.receipt.shape)
-  ) {
+  if (existing?.schema === "decision-event/v1" && !writesFact) {
     const claim = existing.payload.decisionDocumentClaim,
       bytes = store.readContentBlob(claim.sha256);
-    if (!bytes) reject(contract, "contentPending", `Decision content for ${existing.decisionId} is unavailable.`);
+    if (!bytes) reject("content_not_ready", `Decision content for ${existing.decisionId} is unavailable.`);
     const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     return {
       event: existing,
@@ -278,13 +269,9 @@ function matchingReplayBundle(
   return null;
 }
 
-function decisionCoverage(
-  contract: ExecutableAction,
-  action: Readonly<Record<string, unknown>>,
-  service: ReturnType<typeof makeDecisionService>,
-) {
-  const decisionId = requiredText(contract, action.decisionId, "decisionId"),
-    taskId = requiredText(contract, action.taskId, "taskId");
+function decisionCoverage(action: Readonly<Record<string, unknown>>, service: ReturnType<typeof makeDecisionService>) {
+  const decisionId = requiredText(action.decisionId, "decisionId"),
+    taskId = requiredText(action.taskId, "taskId");
   service.show(decisionId);
   const graph = service.graph();
   return {
@@ -296,7 +283,6 @@ function decisionCoverage(
 }
 
 function decisionAuthorization(
-  contract: ExecutableAction,
   action: RepoTaskAction,
   binding: RepoCellBinding,
   opId: string,
@@ -307,7 +293,7 @@ function decisionAuthorization(
     (action.kind === "decision-transition" &&
       ["in_effect", "rejected", "deferred"].includes(String(action.targetState)));
   if (!judgment) return null;
-  const decisionId = requiredText(contract, action.decisionId, "decisionId"),
+  const decisionId = requiredText(action.decisionId, "decisionId"),
     decision = authorizeAction("decision.accept", `decision/${decisionId}`, binding.actor, opId, {
       ...roleBindingAuthorizationContext(binding),
       target: { proposalActor: input.projection.readDecision(decisionId).decision?.proposer ?? null },
@@ -321,8 +307,7 @@ function decisionAuthorization(
       (candidate) => candidate.predicate === "reviewIndependence" && candidate.satisfied === false,
     );
   reject(
-    contract,
-    "authorizationDenied",
+    "actor_unauthorized",
     proposalAgentFailed
       ? "An agent cannot judge its own Decision proposal; use an independent reviewer."
       : reviewIndependenceFailed
@@ -509,7 +494,7 @@ function readReceipt<
     : { outcome: "pending", ...base, nextAction: `Retry ${command} after projection catch-up.` };
 }
 
-function factFilters(contract: ExecutableAction, action: Readonly<Record<string, unknown>>): FactSearchFilters {
+function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilters {
   const allowed = [
       "kind",
       "query",
@@ -522,37 +507,37 @@ function factFilters(contract: ExecutableAction, action: Readonly<Record<string,
       "cursor",
     ],
     unknownField = unknownFieldViolation(action, allowed);
-  if (unknownField) reject(contract, "invalidInput", `Fact search filters contain an ${unknownField}`);
+  if (unknownField) reject("invalid_command", `Fact search filters contain an ${unknownField}`);
   const { query, taskId, confidence, memoryClass, observedAfter, observedBefore, limit, cursor } = action;
   if (query !== undefined && (typeof query !== "string" || !query.trim()))
-    reject(contract, "invalidInput", "Fact search query must be a non-empty string.");
+    reject("invalid_command", "Fact search query must be a non-empty string.");
   if (taskId !== undefined && (typeof taskId !== "string" || !taskId.trim()))
-    reject(contract, "invalidInput", "Fact search taskId must be a non-empty string.");
+    reject("invalid_command", "Fact search taskId must be a non-empty string.");
   if (
     confidence !== undefined &&
     (typeof confidence !== "string" || !(["low", "medium", "high"] as const).includes(confidence as FactConfidence))
   )
-    reject(contract, "invalidInput", "Fact search confidence is invalid.");
+    reject("invalid_command", "Fact search confidence is invalid.");
   if (
     memoryClass !== undefined &&
     (typeof memoryClass !== "string" ||
       !(["semantic", "episodic", "procedural"] as const).includes(memoryClass as FactMemoryClass))
   )
-    reject(contract, "invalidInput", "Fact search memory class is invalid.");
+    reject("invalid_command", "Fact search memory class is invalid.");
   if (observedAfter !== undefined && !timestamp(observedAfter))
-    reject(contract, "invalidInput", "observedAfter must be an ISO-8601 UTC timestamp.");
+    reject("invalid_command", "observedAfter must be an ISO-8601 UTC timestamp.");
   if (observedBefore !== undefined && !timestamp(observedBefore))
-    reject(contract, "invalidInput", "observedBefore must be an ISO-8601 UTC timestamp.");
+    reject("invalid_command", "observedBefore must be an ISO-8601 UTC timestamp.");
   if (
     typeof observedAfter === "string" &&
     typeof observedBefore === "string" &&
     Date.parse(observedAfter) > Date.parse(observedBefore)
   )
-    reject(contract, "invalidInput", "observedAfter must not be later than observedBefore.");
+    reject("invalid_command", "observedAfter must not be later than observedBefore.");
   if (limit !== undefined && (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 500))
-    reject(contract, "invalidInput", "Fact search limit must be an integer between 1 and 500.");
+    reject("invalid_command", "Fact search limit must be an integer between 1 and 500.");
   if (cursor !== undefined && (typeof cursor !== "string" || !cursor.trim()))
-    reject(contract, "invalidInput", "Fact search cursor is invalid.");
+    reject("invalid_command", "Fact search cursor is invalid.");
   return {
     ...(typeof query === "string" ? { query } : {}),
     ...(typeof taskId === "string" ? { taskId } : {}),
@@ -565,9 +550,9 @@ function factFilters(contract: ExecutableAction, action: Readonly<Record<string,
   };
 }
 
-function decisionFilters(contract: ExecutableAction, action: Readonly<Record<string, unknown>>) {
+function decisionFilters(action: Readonly<Record<string, unknown>>) {
   const allowed = ["kind", "search", "legacyId", "legacyRange", "state", "module", "productLine"],
-    range = action.legacyRange === undefined ? null : object(contract, action.legacyRange, "legacyRange");
+    range = action.legacyRange === undefined ? null : object(action.legacyRange, "legacyRange");
   if (
     Object.keys(action).some((field) => !allowed.includes(field)) ||
     ["search", "module", "productLine"].some(
@@ -586,7 +571,7 @@ function decisionFilters(contract: ExecutableAction, action: Readonly<Record<str
         Number(range.start) < 1 ||
         Number(range.end) < Number(range.start)))
   )
-    reject(contract, "invalidInput", "Decision list filters are invalid or unknown.");
+    reject("invalid_command", "Decision list filters are invalid or unknown.");
   return {
     ...(typeof action.search === "string" ? { search: action.search } : {}),
     ...(typeof action.legacyId === "string" ? { legacyId: action.legacyId } : {}),
@@ -621,28 +606,16 @@ function decisionSummary(row: {
   };
 }
 
-function requiredText(contract: ExecutableAction, value: unknown, field: string): string {
+function requiredText(value: unknown, field: string): string {
   if (typeof value === "string" && value.trim()) return value;
-  reject(contract, "invalidInput", `${field} is required.`);
+  reject("invalid_command", `${field} is required.`);
 }
-function object(contract: ExecutableAction, value: unknown, field: string): Readonly<Record<string, unknown>> {
+function object(value: unknown, field: string): Readonly<Record<string, unknown>> {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Readonly<Record<string, unknown>>;
-  reject(contract, "invalidInput", `${field} must be an object.`);
+  reject("invalid_command", `${field} must be an object.`);
 }
-function reject(
-  contract: ExecutableAction,
-  kind: keyof EntityActionExecutionContract["rejections"],
-  message: string,
-): never {
-  const code = contract.execution.rejections[kind] ?? contract.execution.rejections.invalidInput;
+function reject(code: "actor_unauthorized" | "content_not_ready" | "invalid_command", message: string): never {
   throw Object.assign(new Error(message), { code });
-}
-function assertReceiptShape(contract: ExecutableAction, expected: "decision-write/v1" | "fact-write/v1"): void {
-  if (contract.execution.receipt.shape !== expected)
-    throw Object.assign(
-      new Error(`${contract.execution.ingress} declared ${contract.execution.receipt.shape}, expected ${expected}.`),
-      { code: "invalid_store" },
-    );
 }
 function publicationKillpoints(killpoint: ((point: EventPublicationKillpoint) => void) | undefined): void {
   killpoint?.("after_sqlite_commit");

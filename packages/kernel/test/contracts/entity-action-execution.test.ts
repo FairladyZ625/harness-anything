@@ -26,19 +26,15 @@ const ingressKinds = [
   "fact-search",
   "fact-show",
 ] as const;
+const readIngressKinds = new Set(["decision-list", "decision-show", "decision-validate", "fact-search", "fact-show"]);
 
 test("Decision and Fact ingress resolves to executable per-action catalog declarations", () => {
   for (const ingress of ingressKinds) {
     const action = getExecutableEntityAction(ingress);
     assert.ok(action?.execution, ingress);
     assert.equal(action.execution.ingress, ingress);
-    assert.equal(action.execution.receipt.visibility, "center");
-    assert.equal(action.execution.rejections.invalidInput, "invalid_command");
-    assert.equal(
-      action.execution.compile === null,
-      ["decision-list", "decision-show", "decision-validate", "fact-search", "fact-show"].includes(ingress),
-      ingress,
-    );
+    assert.equal(action.execution.read, readIngressKinds.has(ingress), ingress);
+    assert.equal(action.execution.compile === null, action.execution.read, ingress);
   }
   assert.equal(getExecutableEntityAction("fact-undeclared"), undefined);
 });
