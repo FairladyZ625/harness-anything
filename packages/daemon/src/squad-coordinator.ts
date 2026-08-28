@@ -24,6 +24,7 @@ import type {
 
 type LeaderDecision =
   | { readonly kind: "converged" }
+  | { readonly kind: "waiting" }
   | {
       readonly kind: "plan";
       readonly dispatches: readonly WorkerPlan[];
@@ -351,10 +352,13 @@ export function makeSquadCoordinator(input: {
     }
     const running = hasRunningWorkers(updated);
     if (decision.kind === "converged") {
+      const error = running
+        ? "Leader declared convergence while worker dispatches were still running."
+        : convergenceError(updated);
       writeState(
         revise(updated, {
-          phase: running ? "failed" : "converged",
-          error: running ? "Leader declared convergence while worker dispatches were still running." : null,
+          phase: error ? "failed" : "converged",
+          error,
         }),
       );
       return;
@@ -557,6 +561,53 @@ export function makeSquadCoordinator(input: {
     return workerRows(state).some(({ attempt, row }) => attempt.rejection === null && (!row || row.outcome === null));
   }
 
+  function convergenceError(state: SquadState): string | null {
+    const missing: string[] = [];
+    if (!workerRows(state).some(({ attempt, row }) => attempt.rejection === null && row?.outcome !== null))
+      missing.push("a terminal worker dispatch");
+    const reportPath = synthesisReportPath(state);
+    if (reportPath === null) missing.push("a roster-declared synthesis report path");
+    else if (!leaderAuthoredSynthesisReport(state, reportPath))
+      missing.push(`leader-authored synthesis report ${reportPath}`);
+    return missing.length ? `Leader declared convergence without ${missing.join(" and ")}.` : null;
+  }
+
+  function leaderAuthoredSynthesisReport(state: SquadState, reportPath: string): boolean {
+    const packagePath = dispatchRows(state)
+      .map((row) => row.reportPath)
+      .find((candidate): candidate is string => typeof candidate === "string")
+      ?.split("/artifacts/reports/", 1)[0];
+    if (!packagePath) return false;
+    const logicalPath = `${packagePath}/${reportPath}`,
+      store = input.store(),
+      events = store.read().events,
+      currentEvent = events.findLast(
+        (candidate) =>
+          candidate.schema === "doc-event/v1" &&
+          candidate.type === "documents_written" &&
+          candidate.payload.changes.some((change) => change.path === logicalPath),
+      );
+    if (!currentEvent || currentEvent.schema !== "doc-event/v1") return false;
+    const current = currentEvent.payload.changes.find((candidate) => candidate.path === logicalPath);
+    if (!current?.candidate) return false;
+    const bytes = store.readContentBlob(current.candidate.sha256),
+      leaderExecutors = new Set(state.leaderTurns.map((turn) => `runtime-session:${turn.runtimeSessionId}`));
+    return (
+      bytes !== null &&
+      new TextDecoder().decode(bytes).trim().length > 0 &&
+      events.some(
+        (event) =>
+          event.schema === "doc-event/v1" &&
+          event.type === "documents_written" &&
+          event.actor.executor?.kind === "agent" &&
+          leaderExecutors.has(event.actor.executor.id) &&
+          event.payload.changes.some(
+            (change) => change.path === logicalPath && change.candidate?.sha256 === current.candidate?.sha256,
+          ),
+      )
+    );
+  }
+
   function workerRows(state: SquadState): readonly {
     readonly attempt: WorkerAttempt;
     readonly row: TaskDispatchRow | undefined;
@@ -717,7 +768,10 @@ export function makeSquadCoordinator(input: {
                 ? null
                 : turn.decision.kind === "converged"
                   ? { kind: "converged" }
-                  : { kind: "plan", dispatchCount: turn.decision.dispatches.length },
+                  : {
+                      kind: "plan",
+                      dispatchCount: turn.decision.kind === "waiting" ? 0 : turn.decision.dispatches.length,
+                    },
             resultText: receiptText(row),
             status: row?.status ?? null,
             startedAt: row?.startedAt ?? null,
@@ -795,6 +849,7 @@ function initialLeaderPrompt(state: SquadState): string {
     "Return exactly one JSON object and no Markdown:",
     example,
     "Choose only declared workers. Harness owns agent identity, task, cwd, and spawning.",
+    synthesisReportInstruction(state),
     `# Squad roster\n${state.roster}`,
     `# User mission\n${state.mission}`,
   ].join("\n\n");
@@ -812,10 +867,11 @@ function callbackLeaderPrompt(state: SquadState, trigger: LeaderTrigger, rows: r
         : []),
     "Review the durable TaskDispatchRow receipts below. " +
       "Return runtime-batch/v1 to reassign or add work. " +
-      "Return an empty dispatches array to accept this callback while other work runs. " +
+      "Every runtime-batch/v1 must contain at least one dispatch. " +
+      'Return {"schema":"squad-decision/v1","action":"waiting"} while another worker is running. ' +
       'Return {"schema":"squad-decision/v1","action":"converged"} only when no worker is running. ' +
-      "Return exactly one JSON object and no Markdown. " +
-      "Do not redispatch a worker whose receipt is still running; omit it and wait for its callback.",
+      "Return exactly one JSON object and no Markdown.",
+    synthesisReportInstruction(state),
     ...statusRows,
     `# Original mission\n${state.mission}`,
   ].join("\n\n");
@@ -849,8 +905,10 @@ function parseLeaderDecision(text: string, runtimeInstanceId: string, workers: r
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Leader result was not an object.");
   const row = value as Record<string, unknown>;
   if (row.schema === "squad-decision/v1" && row.action === "converged") return { kind: "converged" };
+  if (row.schema === "squad-decision/v1" && row.action === "waiting") return { kind: "waiting" };
   if (row.schema !== "runtime-batch/v1" || !Array.isArray(row.dispatches))
-    throw new Error("Leader result must be runtime-batch/v1 or a converged squad-decision/v1.");
+    throw new Error("Leader result must be runtime-batch/v1 or a waiting/converged squad-decision/v1.");
+  if (row.dispatches.length === 0) throw new Error("Leader runtime-batch/v1 dispatches must be a non-empty array.");
   const seen = new Set<string>(),
     dispatches = row.dispatches.map((entry) => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("Leader dispatch is invalid.");
@@ -869,6 +927,25 @@ function parseLeaderDecision(text: string, runtimeInstanceId: string, workers: r
       return { instance, workerId, prompt };
     });
   return { kind: "plan", dispatches };
+}
+
+function synthesisReportInstruction(state: SquadState): string {
+  const reportPath = synthesisReportPath(state);
+  return reportPath === null
+    ? "The squad roster does not declare exactly one synthesis report under artifacts/reports; convergence will fail."
+    : [
+        `Before declaring convergence, write and submit the synthesis report to ${reportPath}.`,
+        `Publish it from an untracked source with ha task artifact add ${state.taskId} --source <source.md> ` +
+          `--destination ${reportPath.slice("artifacts/".length)}.`,
+      ].join(" ");
+}
+
+function synthesisReportPath(state: SquadState): string | null {
+  const declared = [
+    ...new Set([...state.roster.matchAll(/\bartifacts\/reports\/[A-Za-z0-9._{}-]+\.md\b/gu)].map(([match]) => match)),
+  ];
+  if (declared.length !== 1 || declared[0]!.startsWith("artifacts/reports/dispatch_")) return null;
+  return declared[0]!.replaceAll("{squadRunId}", state.squadRunId);
 }
 
 function squadState(value: unknown): SquadState | null {
