@@ -29,6 +29,8 @@ test("public pre-commit rejects artifacts and harness paths", (context) => {
     const result = runHook(root, "pre-commit");
     assert.equal(result.status, 1, result.stderr);
     assert.match(result.stderr, /Refusing to commit authored or task artifacts/u);
+    assert.match(result.stderr, /ha doc sync --submit --task <task-id>/u);
+    assert.doesNotMatch(result.stderr, /--path|--execution-id/u);
     git(root, "reset", "--quiet", "HEAD", "--", `${directory}/receipt.md`);
   }
 });
@@ -147,12 +149,14 @@ test("worker handoff templates carry framework-owned publication rules", () => {
   for (const relativePath of templatePaths) {
     const body = readFileSync(path.join(repositoryRoot, relativePath), "utf8");
     assert.match(body, /origin\/main/u);
-    assert.match(body, /ha doc sync --submit --path tasks\/<pkg>\/artifacts\/reports\/<file>\.md/u);
+    assert.match(body, /ha doc sync --submit --task <task-id>/u);
+    assert.doesNotMatch(body, /ha doc sync --submit .*--(?:path|execution-id)/u);
     assert.doesNotMatch(body, /Do not push|不要 push/u);
   }
   const prompt = readFileSync(path.join(repositoryRoot, "packages/daemon/src/agent-role-prompts.ts"), "utf8");
   assert.match(prompt, /canonical repository root/u);
-  assert.match(prompt, /ha doc sync --submit --path tasks/u);
+  assert.match(prompt, /ha doc sync --submit --task <task-id>/u);
+  assert.doesNotMatch(prompt, /ha doc sync --submit .*--(?:path|execution-id)/u);
 });
 
 function makeRepo(context, prefix) {

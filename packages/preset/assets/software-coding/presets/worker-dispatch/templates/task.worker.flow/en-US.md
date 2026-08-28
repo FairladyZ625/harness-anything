@@ -31,4 +31,4 @@ Stop and report when scope, authority, required input, or a destructive choice i
 - Commit only files owned by this assignment.
 - Report the commit, changed files, verification, and residual risks.
 - Before handoff, rebase onto the latest `origin/main` and rerun the evidence commands.
-- Submit receipts only through `ha doc sync --submit --path tasks/<pkg>/artifacts/reports/<file>.md`.
+- Submit task-bound receipts only through `ha doc sync --submit --task <task-id>`.

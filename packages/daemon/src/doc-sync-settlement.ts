@@ -84,7 +84,8 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
           (code === "lease_conflict"
             ? "refresh status and submit through the matching execution or repository prose channel"
             : null)),
-    headingRestore = taskPlanHeadingRestore(input, scan);
+    headingRestore = taskPlanHeadingRestore(input, scan),
+    blocked = scan.rows.find((row) => row.state === "blocked");
   return {
     kind: "doc_sync",
     code,
@@ -134,10 +135,15 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
         : (executionChoice ??
           leaseConflict ??
           headingRestore ??
-          (scan.rows.some((row) => row.state === "blocked")
+          (blocked
             ? [
-                "run ha doc status, resolve the listed blocked candidates through their ",
-                "requiredRoute, then rerun ha doc sync --submit",
+                "resolve ",
+                `${blocked.path}`,
+                " through ",
+                `${blocked.requiredRoute ?? resolveDocRoute(documentPath(blocked.path)).requiredRoute}`,
+                ": ",
+                `${blocked.reason ?? "candidate is blocked"}`,
+                "; then rerun ha doc sync --submit",
               ].join("")
             : scan.rows.some((row) => row.state === "eligible")
               ? "submit this selection against the reported automatic base"
