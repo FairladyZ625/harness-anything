@@ -11,7 +11,7 @@ import {
   FactEventSchema,
   parseCanonicalEvent,
   serializeCanonicalEvent,
-  type type } from "../../src/index.ts";
+  type } from "../../src/index.ts";
 import {
   assertDecisionJudgmentConsent,
   assertDecisionWritePlan,

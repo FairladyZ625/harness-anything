@@ -14,8 +14,8 @@ import {
   makeTaskProjection,
   serializeCanonicalEvent,
   sha256Text,
-  type type EntityRelationRecord,
-  type type MigrationImportEventV1,
+  type EntityRelationRecord,
+  type MigrationImportEventV1,
   type TaskEventV1,
 } from "../../src/index.ts";
 import { createDecisionProjectionTables } from "../../src/projection/decision-event-projection.ts";
