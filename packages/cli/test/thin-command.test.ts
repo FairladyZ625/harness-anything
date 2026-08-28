@@ -23,6 +23,14 @@ test("top-level help renders a derived domain directory and domain help filters 
     for (const command of thinCliCommands.filter(({ usage }) => usage.split(" ")[1] === domain))
       assert.match(domainHelp, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   }
+  const scriptHelp = renderThinHelp([], "script"),
+    factHelp = renderThinHelp([], "fact"),
+    decisionHelp = renderThinHelp([], "decision");
+  assert.match(scriptHelp, /ha script run .*--task <task>/u);
+  assert.doesNotMatch(scriptHelp, /--task-id/u);
+  assert.match(factHelp, /ha fact record \[task-id\].*--text <text>/u);
+  assert.match(decisionHelp, /--json-input <json-input>[\s\S]*JSON required fields: title, question/u);
+  assert.match(decisionHelp, /--json-input <json-input>[\s\S]*<json\|@->/u);
   assert.match(help, /capabilities \[--json\].*--version.*ha daemon start --service/su);
 });
 

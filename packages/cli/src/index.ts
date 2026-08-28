@@ -8,6 +8,7 @@ import {
   helpDomain,
   parseThinCommand,
   renderThinHelp,
+  type ThinCommand,
   unsupportedCommandHint,
 } from "./cli/thin-command.ts";
 import { renderScheduleList, renderScheduleShow } from "./cli/thin-command-schedule.ts";
@@ -18,7 +19,7 @@ import {
   daemonTargetFailureCode,
   runCommandThroughDaemon,
 } from "./daemon/client.ts";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 export { resolveCliVersion } from "./cli-meta.ts";
 
@@ -52,11 +53,25 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     emit(cliFailure("parse", parsed.code, parsed.nextAction), parsed.json);
     return 2;
   }
+  let typedCommand: ThinCommand;
   try {
-    const receipt = isRuntimeFacadeCommand(parsed.command)
-      ? await runRuntimeFacadeCommand(parsed.command)
-      : await runCommandThroughDaemon(parsed.command, (phase) => emit(phase, parsed.command.json));
-    emit(receipt, parsed.command.json);
+    typedCommand = materializeDecisionStdin(parsed.command);
+  } catch (error) {
+    emit(
+      cliFailure(
+        parsed.command.action.kind,
+        "invalid_field",
+        `--json-input @- could not read stdin: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+      parsed.command.json,
+    );
+    return 2;
+  }
+  try {
+    const receipt = isRuntimeFacadeCommand(typedCommand)
+      ? await runRuntimeFacadeCommand(typedCommand)
+      : await runCommandThroughDaemon(typedCommand, (phase) => emit(phase, typedCommand.json));
+    emit(receipt, typedCommand.json);
     return Number.isInteger(receipt.exitCode) ? Number(receipt.exitCode) : receipt.ok === true ? 0 : 1;
   } catch (error) {
     const autostartCode = daemonAutostartFailureCode(error),
@@ -78,6 +93,17 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     );
     return 1;
   }
+}
+
+export function materializeDecisionStdin(
+  command: ThinCommand,
+  readStdin: () => string = () => readFileSync(0, "utf8"),
+): ThinCommand {
+  if (command.action.kind !== "decision-propose" || command.action.jsonInput !== "@-") return command;
+  return {
+    ...command,
+    action: { ...command.action, jsonInput: readStdin() },
+  };
 }
 
 export function emit(receipt: Record<string, unknown>, json: boolean): void {

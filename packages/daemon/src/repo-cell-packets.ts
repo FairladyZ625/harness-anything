@@ -19,7 +19,10 @@ export function packetJson(value: unknown, fields: readonly string[]): Record<st
   try {
     parsed = JSON.parse(requiredCellText(value, "jsonInput"));
   } catch {
-    throw cellCodedError("invalid_command", "jsonInput must contain one UTF-8 JSON object.");
+    throw cellCodedError(
+      "invalid_command",
+      `Structured input must be one UTF-8 JSON object with exactly these required fields: ${fields.join(", ")}.`,
+    );
   }
   if (
     !parsed ||

@@ -130,20 +130,37 @@ export const docFactProtocolCommands = Object.freeze([
     id: "fact-record",
     phase: "DecisionFact-A",
     path: ["fact", "record"],
+    syntaxPath: ["fact", "record", "[task-id]"],
     summary: "Record an immutable Fact event.",
     method: "repo.task.run",
     inputs: [
       cliInput("--task", "single", false, {
         code: "missing_field",
-        nextAction: "Use --statement and --source; optionally add --task to associate the fact with a task.",
+        nextAction: "Use --statement or --text with --source; optionally name a task positionally or with --task.",
       }),
-      cliInput("--statement", "single", true, {
-        code: "missing_field",
-        nextAction: "Use --statement and --source; optionally add --task to associate the fact with a task.",
-      }),
+      cliInput(
+        "--statement",
+        "single",
+        false,
+        {
+          code: "missing_field",
+          nextAction: "Use --statement or --text with --source; optionally name a task positionally or with --task.",
+        },
+        { conflictsWith: ["--text"] },
+      ),
+      cliInput(
+        "--text",
+        "single",
+        false,
+        {
+          code: "missing_field",
+          nextAction: "Use either --statement or --text for the observed fact.",
+        },
+        { conflictsWith: ["--statement"] },
+      ),
       cliInput("--source", "single", true, {
         code: "missing_field",
-        nextAction: "Use --task to associate the fact with a task; --statement and --source are required.",
+        nextAction: "Add --source <source>; use --statement <observation> or --text <observation> for the Fact text.",
       }),
       cliInput(
         "--observed-at",

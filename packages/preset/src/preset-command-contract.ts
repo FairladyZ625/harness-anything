@@ -665,10 +665,10 @@ export const presetCommands = Object.freeze([
     actionDefaults: { schema: "vertical-script-action/v1", taskId: null, inputs: {}, dryRun: false },
     inputs: [
       cliInput(
-        "--task-id",
+        "--task",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use --task-id with a non-empty value." },
+        { code: "invalid_field", nextAction: "Use --task with a non-empty value." },
         { field: "taskId" },
       ),
       cliInput(
@@ -697,10 +697,10 @@ export const presetCommands = Object.freeze([
     positionalFields: ["presetId", "entrypoint"],
     inputs: [
       cliInput(
-        "--task-id",
+        "--task",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use --task-id with a non-empty value." },
+        { code: "invalid_field", nextAction: "Use --task with a non-empty value." },
         { field: "taskId" },
       ),
       cliInput(

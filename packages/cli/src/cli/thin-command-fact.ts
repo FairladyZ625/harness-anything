@@ -27,21 +27,42 @@ export function parseFactRecord(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  const f = readFlags("fact-record", args.slice(2), inputs);
+  const positionalTaskId = args[2]?.startsWith("--") ? undefined : args[2],
+    tokens = args.slice(positionalTaskId ? 3 : 2),
+    retired = tokens
+      .map((token) => token.split("=", 1)[0])
+      .find((token) => token === "--kind" || token === "--summary" || token === "--detail");
+  if (retired)
+    return rejected(
+      "unknown_field",
+      `${retired} was removed. Use ha fact record <task-id> --statement <observation> --source <source>.`,
+      json,
+    );
+  const f = readFlags("fact-record", tokens, inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
-  const taskId = f.one.get("--task"),
+  const flaggedTaskId = f.one.get("--task"),
     statement = f.one.get("--statement"),
+    text = f.one.get("--text"),
     evidenceSource = f.one.get("--source"),
     observedAt = f.one.get("--observed-at"),
     confidence = f.one.get("--confidence") ?? "medium",
     memoryClass = f.one.get("--memory-class") ?? "episodic",
     supersedes = f.one.get("--supersedes"),
     rationale = f.one.get("--rationale");
+  if (positionalTaskId && flaggedTaskId)
+    return rejected("duplicate_field", "Use either fact record <task-id> or --task <task-id>, not both.", json);
+  if (statement && text) return rejected("duplicate_field", "Use either --statement or --text, not both.", json);
+  if (!statement && !text)
+    return rejected(
+      "missing_field",
+      "Use --statement <observation> or --text <observation>; --source <source> is also required.",
+      json,
+    );
   if (Boolean(supersedes) !== Boolean(rationale)) return rejectInput(inputs, "fact-record", "--rationale", json);
   return accepted(rootDir, repoId, json, {
     kind: "fact-record",
-    ...(taskId ? { taskId } : {}),
-    statement,
+    ...(positionalTaskId || flaggedTaskId ? { taskId: positionalTaskId ?? flaggedTaskId } : {}),
+    statement: statement ?? text,
     evidenceSource,
     ...(observedAt ? { observedAt } : {}),
     confidence,

@@ -71,7 +71,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use exactly one of --from-file <packet.json> or --json-input <json>.",
+          nextAction: "Use exactly one of --from-file <workspace-packet.json> or --json-input <json|@->.",
         },
         {
           jsonFields: decisionProposalJsonFields,
@@ -84,7 +84,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use exactly one of --from-file <packet.json> or --json-input <json>.",
+          nextAction: "Use exactly one of --from-file <workspace-packet.json> or --json-input <json|@->.",
         },
         {
           jsonFields: decisionProposalJsonFields,

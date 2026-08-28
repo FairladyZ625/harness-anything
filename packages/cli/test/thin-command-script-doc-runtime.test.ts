@@ -11,7 +11,7 @@ test("thin parser converts the sole preset script target into closed typed start
     "preset:user-canary/check",
     "--idempotency-key",
     "once",
-    "--task-id",
+    "--task",
     "task-1",
     "--inputs",
     '{"title":"Canary"}',
@@ -32,6 +32,11 @@ test("thin parser converts the sole preset script target into closed typed start
       },
     });
   assert.equal(parseThinCommand(["script", "run", "user-canary/check", "--idempotency-key", "once"]).ok, false);
+  assert.equal(
+    parseThinCommand(["script", "run", "preset:user-canary/check", "--idempotency-key", "once", "--task-id", "task-1"])
+      .ok,
+    false,
+  );
   assert.equal(
     parseThinCommand(["script", "run", "preset:user-canary/check", "--idempotency-key", "once", "--inputs", "not-json"])
       .ok,
