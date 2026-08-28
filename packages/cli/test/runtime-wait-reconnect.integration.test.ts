@@ -12,6 +12,187 @@ import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-ta
 const cli = path.resolve("packages/cli/src/index.ts"),
   runtimeSessionId = "runtime-wait-reconnect";
 
+test("runtime status --wait reads once after an attached stream reports exit", async () => {
+  const fixture = await openFixtureDaemon("stream-terminal");
+  let statusReads = 0,
+    terminal = false,
+    attachSocket: net.Socket | undefined;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.attach") {
+      attachSocket = socket;
+      reply(socket, request.id, {
+        ok: true,
+        status: "attached",
+        runtimeSessionId,
+        cursor: "stream:0",
+        events: [],
+      });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    statusReads += 1;
+    reply(socket, request.id, runtimeStatus(terminal));
+  };
+  const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait"], false);
+  try {
+    for (const deadline = Date.now() + 2_000; (!attachSocket || statusReads < 1) && Date.now() < deadline; )
+      await delay(20);
+    assert.ok(attachSocket, "the runtime stream must attach");
+    assert.equal(statusReads, 1);
+    await delay(1_200);
+    assert.equal(statusReads, 1, "an attached stream must not perform periodic status reads");
+    terminal = true;
+    attachSocket.write(
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        method: "repo.agentRuntime.attach.frame",
+        params: {
+          schema: "agent-runtime-attach-event/v1",
+          type: "exit",
+          runtimeSessionId,
+          cursor: "stream:1",
+          occurredAt: "2026-08-28T00:00:00.000Z",
+          outcome: "succeeded",
+        },
+      })}\n`,
+    );
+    const result = await invocation.result(2_000);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "settled after reconnect");
+    assert.equal(statusReads, 2, "the exit signal must trigger exactly one final authoritative read");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("runtime status --wait reads once when an attached stream requires a snapshot", async () => {
+  const fixture = await openFixtureDaemon("stream-gap");
+  let statusReads = 0,
+    terminal = false;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.attach") {
+      terminal = true;
+      reply(socket, request.id, {
+        ok: true,
+        status: "gap",
+        runtimeSessionId,
+        cursor: "stream:40",
+        events: [
+          {
+            schema: "agent-runtime-attach-event/v1",
+            type: "gap",
+            runtimeSessionId,
+            cursor: "stream:40",
+            occurredAt: "2026-08-28T00:00:00.000Z",
+            required: "snapshot",
+          },
+        ],
+      });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    statusReads += 1;
+    reply(socket, request.id, runtimeStatus(terminal));
+  };
+  const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait"], false);
+  try {
+    const result = await invocation.result(2_000);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "settled after reconnect");
+    assert.equal(statusReads, 2, "a stream gap must trigger exactly one authoritative snapshot read");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("runtime status --wait reads once after an attached stream exhausts reconnects", async () => {
+  const fixture = await openFixtureDaemon("stream-lost");
+  let statusReads = 0,
+    attachAttempts = 0,
+    terminal = false;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.attach") {
+      attachAttempts += 1;
+      if (attachAttempts === 1) {
+        reply(socket, request.id, {
+          ok: true,
+          status: "attached",
+          runtimeSessionId,
+          cursor: "stream:0",
+          events: [],
+        });
+        terminal = true;
+        setTimeout(() => socket.destroy(), 20);
+      } else socket.destroy();
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    statusReads += 1;
+    reply(socket, request.id, runtimeStatus(terminal));
+  };
+  const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait"], false);
+  try {
+    const result = await invocation.result(12_000);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "settled after reconnect");
+    assert.equal(attachAttempts, 6, "the attached stream must spend its bounded reconnect budget");
+    assert.equal(statusReads, 2, "stream loss must trigger exactly one final authoritative read");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("runtime status --wait fallback backs off to two seconds and resets on cursor progress", async () => {
+  const fixture = await openFixtureDaemon("fallback-backoff"),
+    readTimes: number[] = [];
+  let statusReads = 0;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    statusReads += 1;
+    readTimes.push(Date.now());
+    reply(
+      socket,
+      request.id,
+      runtimeStatus(statusReads === 6, statusReads === 6, false, false, statusReads >= 5 ? "stream:1" : "stream:0"),
+    );
+  };
+  const invocation = runWait(fixture);
+  try {
+    const result = await invocation.result(9_000),
+      intervals = readTimes.slice(1).map((at, index) => at - readTimes[index]!);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.receipt.outcome, "succeeded");
+    assert.equal(statusReads, 6);
+    assert.ok(intervals[0]! >= 400, `first fallback interval was ${intervals[0]}ms`);
+    assert.ok(intervals[1]! >= 900, `second fallback interval was ${intervals[1]}ms`);
+    assert.ok(intervals[2]! >= 1_900, `third fallback interval was ${intervals[2]}ms`);
+    assert.ok(intervals[3]! >= 1_900, `capped fallback interval was ${intervals[3]}ms`);
+    assert.ok(intervals[4]! >= 400 && intervals[4]! < 1_800, `cursor reset interval was ${intervals[4]}ms`);
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
 test("runtime status --wait reconnects after a protocol.hello deadline and returns the terminal dispatch", async () => {
   const fixture = await openFixtureDaemon("slow-hello");
   let allowHello = false,
@@ -110,7 +291,7 @@ test("runtime status --wait bounds an exited session whose outcome never becomes
     assert.equal(result.receipt.code, "runtime_settlement_failed");
     assert.equal(result.receipt.outcome, "unknown");
     assert.match(String(result.receipt.reason), /runtime_settlement_failed/u);
-    assert.equal(statusReads, 20);
+    assert.equal(statusReads, 5);
   } finally {
     invocation.stop();
     await fixture.close();
@@ -268,13 +449,14 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
 function runWait(
   fixture: FixtureDaemon,
   args: readonly string[] = ["runtime", "status", runtimeSessionId, "--wait", "--no-stream"],
+  json = true,
 ): {
   readonly closed: boolean;
   readonly result: (timeoutMs: number) => Promise<InvocationResult>;
   readonly stop: () => void;
 } {
   const { HARNESS_DAEMON_ENDPOINT: _endpoint, HARNESS_DAEMON_REPO_ID: _repoId, ...baseEnv } = process.env,
-    child = spawn(process.execPath, [cli, "--root", fixture.root, "--json", ...args], {
+    child = spawn(process.execPath, [cli, "--root", fixture.root, ...(json ? ["--json"] : []), ...args], {
       env: {
         ...baseEnv,
         HARNESS_DAEMON_USER_ROOT: fixture.userRoot,
@@ -291,7 +473,12 @@ function runWait(
   const completion = new Promise<InvocationResult>((resolve) => {
     child.once("close", (code) => {
       closed = true;
-      resolve({ code, receipt: stdout.trim() ? (JSON.parse(stdout) as Record<string, unknown>) : {}, stderr });
+      resolve({
+        code,
+        receipt: json && stdout.trim() ? (JSON.parse(stdout) as Record<string, unknown>) : {},
+        stdout,
+        stderr,
+      });
     });
   });
   return {
@@ -308,6 +495,7 @@ function runWait(
 interface InvocationResult {
   readonly code: number | null;
   readonly receipt: Record<string, unknown>;
+  readonly stdout: string;
   readonly stderr: string;
 }
 
@@ -341,6 +529,7 @@ function runtimeStatus(
   exited = terminal,
   settlementFailed = false,
   unknownOutcome = false,
+  streamCursor = "stream:0",
 ): Record<string, unknown> {
   return {
     ok: true,
@@ -355,7 +544,7 @@ function runtimeStatus(
       definitionSnapshot: {},
       liveness: exited ? "exited" : "live",
       attachCapability: "supported",
-      streamCursor: "stream:0",
+      streamCursor,
       associations: [
         {
           taskId: "task-runtime-wait",
