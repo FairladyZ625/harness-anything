@@ -35,13 +35,11 @@ test("G33 measures additions and deletions in tool source", () => {
   ]);
 });
 
-test("G33 ignores tool tests, fixtures, and snapshots in both delta directions", () => {
+test("G33 ignores tool tests and fixtures in both delta directions", () => {
   const files = {
     "tools/gates/example.test.mjs": "old test\n",
     "tools/gates/test/example.mjs": "old helper\n",
     "tools/gates/fixtures/example.mjs": "old fixture\n",
-    "tools/gates/snapshots/example.mjs": "old snapshot\n",
-    "tools/gates/__snapshots__/example.mjs": "old snapshot\n",
   };
   const { rootDir, base } = makeRepo(files);
   for (const filePath of Object.keys(files)) writeRepoFile(rootDir, filePath, "new first\nnew second\n");

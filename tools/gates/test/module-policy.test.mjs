@@ -10,11 +10,10 @@ import {
   isProductionPath,
   isTestPath,
   MODULE_POLICY,
-  MODULES,
 } from "../module-policy.mjs";
 
-test("module-policy is the single ordered module catalog", () => {
-  assert.deepEqual(MODULES, [
+test("module-policy keeps its ordered budget catalog and tooling policy", () => {
+  assert.deepEqual(BUDGETED_MODULES, [
     "kernel",
     "task-lifecycle",
     "write-contract",
@@ -29,12 +28,7 @@ test("module-policy is the single ordered module catalog", () => {
     "agent-runtime",
     "decision",
     "fact",
-    "tooling",
   ]);
-  assert.deepEqual(
-    BUDGETED_MODULES,
-    MODULES.filter((moduleName) => !MODULE_POLICY[moduleName].budgetExempt),
-  );
   assert.deepEqual(MODULE_POLICY.tooling, { production: true, budgetExempt: true });
   assert.equal(classifyModule("packages/kernel/src/domain/task.ts"), "kernel");
   assert.equal(classifyModule("packages/application/src/task-lifecycle-gates.ts"), "task-lifecycle");
@@ -68,14 +62,8 @@ test("tool source is production but explicitly outside the line-budget scope", (
   assert.equal(isBudgetedProductionPath("packages/kernel/src/domain/task.ts"), true);
 });
 
-test("tool tests, fixtures, and snapshots stay outside production classification", () => {
-  for (const filePath of [
-    "tools/gates/rule.test.mjs",
-    "tools/gates/test/rule.mjs",
-    "tools/gates/fixtures/rule.mjs",
-    "tools/gates/snapshots/rule.mjs",
-    "tools/gates/__snapshots__/rule.mjs",
-  ]) {
+test("tool tests and fixtures stay outside production classification", () => {
+  for (const filePath of ["tools/gates/rule.test.mjs", "tools/gates/test/rule.mjs", "tools/gates/fixtures/rule.mjs"]) {
     assert.deepEqual(classifyPath(filePath), { module: null, kind: "test" }, filePath);
   }
 });

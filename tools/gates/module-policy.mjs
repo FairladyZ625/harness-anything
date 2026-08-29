@@ -1,5 +1,5 @@
 const SOURCE_EXTENSION = /\.(?:c|m)?js$|\.(?:d\.)?tsx?$/u;
-const TEST_SEGMENT = /(?:^|\/)(?:__snapshots__|__tests__|e2e|fixtures?|snapshots?|test|tests)(?:\/|$)/u;
+const TEST_SEGMENT = /(?:^|\/)(?:__tests__|e2e|fixtures?|test|tests)(?:\/|$)/u;
 const TEST_FILE = /\.(?:integration\.)?(?:spec|test)\.[^.]+$/u;
 const CANONICAL_MODULE =
   /^(?:packages|src)\/(kernel|task-lifecycle|doc-sync|preset|cli|gui|daemon|authority-write-path|identity-rbac)(?:\/|$)/u;
@@ -28,7 +28,6 @@ const EXEMPT_PRODUCTION = Object.freeze({ production: true, budgetExempt: true }
 export const MODULE_POLICY = Object.freeze(
   Object.fromEntries([...BUDGETED_MODULES.map((name) => [name, BUDGETED_PRODUCTION]), ["tooling", EXEMPT_PRODUCTION]]),
 );
-export const MODULES = Object.freeze(Object.keys(MODULE_POLICY));
 
 export function normalizeRepoPath(filePath) {
   if (typeof filePath !== "string") return null;
