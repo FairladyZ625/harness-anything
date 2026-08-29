@@ -129,7 +129,11 @@ export function assertTaskTransitionDocumentReady(input: {
         documentPath: document.path,
         missingSections: actionableMissing,
         projectedMissingSections: projectedMissing,
-        message: `${String((error as { readonly code?: unknown }).code ?? "content_not_ready")}: ${kind} readiness judged the ${revision} (blob sha256 ${document.blobSha256}). ${recovery}`,
+        message: [
+          `${String((error as { readonly code?: unknown }).code ?? "content_not_ready")}:`,
+          `${kind} readiness judged the ${revision} (blob sha256 ${document.blobSha256}).`,
+          recovery,
+        ].join(" "),
       });
     }
     throw error;
