@@ -156,6 +156,7 @@ export async function runTaskCommandWithDocs(
   if (resolvedLifecycle?.coordination === "reserve")
     try {
       assertTaskTransitionDocumentReady({
+        rootDir: cell.rootDir,
         projection: cell.projection,
         taskId,
         slot: "task.plan",

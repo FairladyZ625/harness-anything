@@ -132,6 +132,7 @@ export function deriveTaskMission(
   readonly missionBody: string | null;
 } {
   const planDocument = assertTaskTransitionDocumentReady({
+      rootDir,
       projection,
       taskId,
       slot: "task.plan",
@@ -178,7 +179,10 @@ function readMissionDocument(
   if (read.watermark < read.sourceRevision || !read.document || !read.document.body.trim())
     throw runtimeSpawnError(
       "runtime_mission_unavailable",
-      `Task ${taskId} has no ready non-empty mission at harness/${logicalPath}.`,
+      [
+        `Task ${taskId} has no ready non-empty mission in the canonical projection at harness/${logicalPath}. `,
+        `If the file exists on disk, run ha doc sync --submit --path ${logicalPath}, then retry.`,
+      ].join(""),
     );
   return { path: path.join(packageRoot, "artifacts", "missions", `${name}.md`), body: read.document.body };
 }

@@ -475,6 +475,7 @@ export async function lifecycleAction(
     );
   if (resolvedLifecycle?.coordination === "reserve" && !preview)
     cell.assertTaskTransitionDocumentReady({
+      rootDir: cell.rootDir,
       projection: cell.projection,
       taskId,
       slot: "task.plan",
