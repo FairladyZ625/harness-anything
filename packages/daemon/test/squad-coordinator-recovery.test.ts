@@ -19,6 +19,7 @@ const SQUAD_RUN_ID = "squad_0123456789abcdef01234567",
   INSTANCE_ID = "instance-squad",
   LEADER_DISPATCH_ID = "dispatch_000000000000000000000001",
   LEADER_SESSION_ID = "runtime-leader-1",
+  SYNTHESIS_REPORT_PATH = `artifacts/reports/${SQUAD_RUN_ID}.md`,
   RESULT_SHA = "1".repeat(64),
   RESULT_REF = `artifact:runtime-result/sha256/${RESULT_SHA}`;
 
@@ -48,6 +49,9 @@ function makeRecoveryFixture(
     readonly currentLeaderRuntimeSessionId?: string | null;
     readonly pendingLeaderTriggers?: readonly Readonly<Record<string, unknown>>[];
     readonly rejectWorkerOnce?: string;
+    readonly leaderReport?: boolean;
+    readonly mirrorLeaderReport?: boolean;
+    readonly observedWorkerRuntimeSessionIds?: readonly string[];
   },
 ): RecoveryFixture {
   const workers = options.workers ?? [],
@@ -68,13 +72,73 @@ function makeRecoveryFixture(
     ]),
     rows: { squadRunId: string; revision: number; state: Readonly<Record<string, unknown>> }[] = [],
     spawns: JsonObject[] = [],
-    resultBodies = new Map<string, Uint8Array>();
+    resultBodies = new Map<string, Uint8Array>(),
+    reportLogicalPath = `tasks/${TASK_ID}/${SYNTHESIS_REPORT_PATH}`,
+    reportDocument = options.leaderReport
+      ? {
+          path: reportLogicalPath,
+          blobSha256: "a".repeat(64),
+          body: "# Squad synthesis\n\nVerified worker outcomes.",
+          size: 44,
+          mediaType: "text/markdown",
+          policyId: "markdown-body-replaceable/v1",
+          workspaceRevision: 2,
+        }
+      : null,
+    reportEvent = options.leaderReport
+      ? {
+          schema: "doc-event/v1",
+          eventId: "event-squad-synthesis",
+          workspaceRevision: 2,
+          opId: "op-squad-synthesis",
+          type: "documents_written",
+          actor: {
+            principal: { personId: "person-squad" },
+            executor: { kind: "agent", id: `runtime-session:${LEADER_SESSION_ID}` },
+          },
+          source: "local",
+          occurredAt: "2026-08-27T00:00:30.000Z",
+          payload: {
+            executionId: "execution-squad",
+            baseLedgerSha: { repoId: "squad-recovery", revision: 1, headDigest: `sha256:${"b".repeat(64)}` },
+            changes: [
+              {
+                path: reportLogicalPath,
+                baseBlobSha256: null,
+                candidate: {
+                  sha256: reportDocument!.blobSha256,
+                  size: reportDocument!.size,
+                  mediaType: "text/markdown",
+                },
+                policyId: reportDocument!.policyId,
+                regionProofs: [],
+              },
+            ],
+          },
+        }
+      : null;
+  const mirrorReportEvent =
+      options.mirrorLeaderReport && reportEvent
+        ? {
+            ...reportEvent,
+            eventId: "event-squad-synthesis-mirror",
+            workspaceRevision: 3,
+            opId: "op-squad-synthesis-mirror",
+            actor: {
+              principal: { personId: "person-squad" },
+              executor: { kind: "agent" as const, id: "runtime-session:unrelated-observer" },
+            },
+          }
+        : null,
+    reportEvents = [reportEvent, mirrorReportEvent].filter((event) => event !== null);
   let reacquired = 0,
     nextSpawn = 0,
     nextResult = 2,
     rejectedWorker = false;
 
   if (options.leaderResult !== undefined) resultBodies.set(RESULT_SHA, new TextEncoder().encode(options.leaderResult));
+  if (reportDocument !== null)
+    resultBodies.set(reportDocument.blobSha256, new TextEncoder().encode(reportDocument.body));
 
   for (const [runtimeSessionId, dispatchId] of dispatchBySession)
     openDispatchStream(rootDir, {
@@ -98,7 +162,7 @@ function makeRecoveryFixture(
     model: null,
     effort: null,
     leaderAgentId: "leader",
-    roster: "leader -> sol, terra",
+    roster: "leader -> sol, terra\nsynthesis -> artifacts/reports/{squadRunId}.md",
     workers: ["sol", "terra"],
     leaderTurnBudget: options.leaderTurnBudget,
     binding: { actor: { principal: { personId: "person-squad" }, executor: null }, source: "local" },
@@ -121,7 +185,7 @@ function makeRecoveryFixture(
       runtimeSessionId: worker.runtimeSessionId,
       rejection: null,
     })),
-    observedWorkerRuntimeSessionIds: [],
+    observedWorkerRuntimeSessionIds: options.observedWorkerRuntimeSessionIds ?? [],
     workerWaits: [],
     pendingLeaderTriggers: options.pendingLeaderTriggers ?? [],
     phase: options.currentLeaderRuntimeSessionId === null ? "planning" : "leader_running",
@@ -178,6 +242,11 @@ function makeRecoveryFixture(
         sessions.find((session) => session.runtimeSessionId === runtimeSessionId) ?? null,
     } as unknown as TaskProjection,
     store = {
+      read: () => ({
+        schema: "canonical-event-stream/v1",
+        revision: reportEvents.at(-1)?.workspaceRevision ?? 0,
+        events: reportEvents,
+      }),
       readContentBlob: (sha256: string) => resultBodies.get(sha256) ?? null,
     } as CanonicalEventStore;
   return {
@@ -323,7 +392,7 @@ test("a failed leader runtime turn is recorded and re-asked instead of terminati
   });
 });
 
-test("an empty non-converged plan re-asks the leader instead of failing the run", async () => {
+test("an empty runtime batch is rejected with an error visible to the leader", async () => {
   await withRootDir(async (rootDir) => {
     const fixture = makeRecoveryFixture(rootDir, {
       leaderOutcome: "succeeded",
@@ -333,9 +402,78 @@ test("an empty non-converged plan re-asks the leader instead of failing the run"
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
     assert.equal(fixture.spawns.length, 1);
-    assert.match(String(fixture.spawns[0]?.prompt), /Leader returned no work and did not declare convergence\./u);
+    assert.match(String(fixture.spawns[0]?.prompt), /Leader runtime-batch\/v1 dispatches must be a non-empty array\./u);
     const status = fixture.coordinator.status(SQUAD_RUN_ID);
     assert.equal(status.status, "leader_running", String(status.error));
+  });
+});
+
+test("convergence fails when no worker dispatch reached a terminal state", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: "succeeded",
+      leaderResult: JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
+      leaderTurnBudget: 3,
+      leaderReport: true,
+    });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+
+    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "failed");
+    assert.equal(status.error, "Leader declared convergence without a terminal worker dispatch.");
+  });
+});
+
+test("convergence fails when the leader did not author the roster-declared synthesis report", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: "succeeded",
+      leaderResult: JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
+      leaderTurnBudget: 3,
+      workers: [
+        {
+          workerId: "sol",
+          dispatchId: "dispatch_000000000000000000000002",
+          runtimeSessionId: "runtime-worker-sol",
+          outcome: "succeeded",
+        },
+      ],
+      observedWorkerRuntimeSessionIds: ["runtime-worker-sol"],
+    });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+
+    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "failed");
+    assert.equal(
+      status.error,
+      `Leader declared convergence without leader-authored synthesis report ${SYNTHESIS_REPORT_PATH}.`,
+    );
+  });
+});
+
+test("convergence preserves leader authorship when a later observer mirrors the current report blob", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: "succeeded",
+      leaderResult: JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
+      leaderTurnBudget: 3,
+      leaderReport: true,
+      mirrorLeaderReport: true,
+      workers: [
+        {
+          workerId: "sol",
+          dispatchId: "dispatch_000000000000000000000002",
+          runtimeSessionId: "runtime-worker-sol",
+          outcome: "succeeded",
+        },
+      ],
+      observedWorkerRuntimeSessionIds: ["runtime-worker-sol"],
+    });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+
+    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "converged", String(status.error));
+    assert.equal(status.error, null);
   });
 });
 
