@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  assessFactRetirement,
   canStartExecution,
   assessTransitionDocument,
   compileTaskProgress,
@@ -11,7 +12,10 @@ import {
   runtimeSessionIdFromActor,
   stableStringify,
   taskProgressWritePlan,
+  validFactStillHoldsAttestation,
   type CompletionReadinessContext,
+  type FactRetirementAssessment,
+  type FactStillHoldsAttestation,
   type TaskProgressEventV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -118,8 +122,9 @@ export async function completeTask(cell: any, action: RepoTaskAction, binding: R
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     initial = await cell.service.read(taskId),
     executionId = cell.completeExecutionId(action, initial.snapshot, taskId),
-    allowed = ["kind", "taskId", "executionId", "verb", "commandType", "ci", "paths"],
-    paths = cell.cellStringList(action.paths);
+    allowed = ["kind", "taskId", "executionId", "verb", "commandType", "ci", "paths", "factHolds"],
+    paths = cell.cellStringList(action.paths),
+    factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds);
   if (
     Object.keys(action).some((field) => !allowed.includes(field)) ||
     (action.ci !== undefined && action.ci !== "passed") ||
@@ -140,6 +145,7 @@ export async function completeTask(cell: any, action: RepoTaskAction, binding: R
         executionId,
         ...(action.ci === "passed" ? { ci: "passed" } : {}),
         ...(paths.length ? { paths } : {}),
+        ...(factRetirementAttestations.length ? { factHolds: factRetirementAttestations } : {}),
       },
       binding,
       cell.input.repoId,
@@ -166,9 +172,26 @@ export async function completeTask(cell: any, action: RepoTaskAction, binding: R
       ),
       blocker = completionBlockers(current.snapshot, executionId, completion)[0];
     if (!blocker) {
+      const retirement = factRetirementAssessment(cell, taskId, factRetirementAttestations);
+      if (!retirement.ready)
+        return cell.completionStopped(
+          facadeOpId,
+          current.snapshot,
+          executionId,
+          factRetirementBlocker(taskId, executionId, retirement),
+          steps,
+        );
       let completed: WriteReceipt;
       try {
-        completed = await cell.lifecycleAction({ kind: "task-complete", taskId, executionId }, binding);
+        completed = await cell.lifecycleAction(
+          {
+            kind: "task-complete",
+            taskId,
+            executionId,
+            ...(factRetirementAttestations.length ? { factRetirementAttestations } : {}),
+          },
+          binding,
+        );
       } catch (error) {
         const published = cell.projection.readTaskCompletion(taskId, executionId);
         if (!published) throw error;
@@ -247,6 +270,88 @@ export async function completeTask(cell: any, action: RepoTaskAction, binding: R
     steps,
     "re-dispatch",
   );
+}
+
+function stillHoldsAttestations(cell: any, value: unknown): readonly FactStillHoldsAttestation[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((attestation) => !validFactStillHoldsAttestation(attestation)))
+    throw cell.cellCodedError(
+      "invalid_command",
+      "Each --fact-holds value requires one canonical Fact ref and a non-empty rationale of at most 199 characters.",
+    );
+  const attestations = value.map((attestation) => ({
+      factRef: String((attestation as FactStillHoldsAttestation).factRef),
+      rationale: String((attestation as FactStillHoldsAttestation).rationale).trim(),
+    })),
+    facts = new Set(attestations.map(({ factRef }) => factRef));
+  if (facts.size !== attestations.length)
+    throw cell.cellCodedError("invalid_command", "Complete accepts at most one --fact-holds rationale per Fact.");
+  return Object.freeze(attestations);
+}
+
+function factRetirementAssessment(
+  cell: any,
+  taskId: string,
+  stillHoldsAttestations: readonly FactStillHoldsAttestation[],
+): FactRetirementAssessment {
+  const relationRead = cell.projection.readRelationQuery({}),
+    relationReady = relationRead.status === "ready";
+  if (!relationReady)
+    throw cell.cellCodedError(
+      "content_not_ready",
+      `Relation projection is not ready for Fact retirement assessment on Task ${taskId}.`,
+    );
+  const decisionIds = [
+      ...new Set(
+        relationRead.rows.flatMap((edge: any) => {
+          if (
+            edge.state !== "active" ||
+            edge.relationType !== "derives" ||
+            edge.targetRef !== `task/${taskId}` ||
+            typeof edge.sourceRef !== "string"
+          )
+            return [];
+          const source = /^decision\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})(?:\/[A-Za-z0-9][A-Za-z0-9_-]*)?$/u.exec(
+            edge.sourceRef,
+          );
+          return source?.[1] ? [source[1]] : [];
+        }),
+      ),
+    ],
+    decisionRead = cell.projection.readDecisions(decisionIds),
+    decisionReady = decisionRead.status === "ready";
+  if (!decisionReady)
+    throw cell.cellCodedError(
+      "content_not_ready",
+      `Decision projection is not ready for Fact retirement assessment on Task ${taskId}.`,
+    );
+  return assessFactRetirement({
+    taskId,
+    decisions: decisionRead.decisions,
+    relations: relationRead.rows,
+    stillHoldsAttestations,
+  });
+}
+
+function factRetirementBlocker(taskId: string, executionId: string, assessment: FactRetirementAssessment) {
+  const details = assessment.undischarged
+      .map(({ factRef, viaClaim, viaDecision }) => `- ${factRef} via ${viaClaim} (${viaDecision})`)
+      .join("\n"),
+    first = assessment.undischarged[0]!.factRef,
+    factId = first.slice("fact/".length);
+  return {
+    code: assessment.code,
+    gate: "fact-retirement",
+    next: {
+      command:
+        `ha fact record --task ${taskId} --statement <new-observation> --source <source> ` +
+        `--supersedes ${first} --rationale <why-it-replaces-the-upstream-fact>, or ` +
+        `ha task complete ${taskId} --execution-id ${executionId} --fact-holds ${factId}:<why-it-still-holds>`,
+      reason:
+        "Standing upstream evidencing Facts lack an explicit retirement disposition:\n" +
+        `${details}\nRecord a task-produced superseding Fact or attest that each Fact still holds with rationale.`,
+    },
+  } as const;
 }
 
 export function completionContext(

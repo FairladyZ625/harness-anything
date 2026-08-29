@@ -63,6 +63,9 @@ export {
 export { freshnessReasonOf } from "./decision-coverage.ts";
 export type { FreshnessReason, FreshnessReasonInput } from "./decision-coverage.ts";
 
+export { assessFactRetirement, validFactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
+export type { FactRetirementAssessment, FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
+
 export { summarizeWorkspace, workspaceTaskStatus } from "./workspace-summary.ts";
 
 export {

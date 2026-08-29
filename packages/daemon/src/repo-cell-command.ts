@@ -275,6 +275,14 @@ export function buildCommand(
       type: "CompleteTask",
       taskId,
       executionId: requiredCellText(action.executionId, "executionId"),
+      ...(Array.isArray(action.factRetirementAttestations) && action.factRetirementAttestations.length
+        ? {
+            factRetirementAttestations: action.factRetirementAttestations as unknown as Extract<
+              TaskLifecycleCommand,
+              { readonly type: "CompleteTask" }
+            >["factRetirementAttestations"],
+          }
+        : {}),
     });
   throw cellCodedError(
     "unsupported_command",

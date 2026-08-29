@@ -127,6 +127,7 @@ export function completeExecutionId(action: RepoTaskAction, snapshot: Snapshot, 
     `${cellStringList(action.paths)
       .map((value) => ` --path ${value}`)
       .join("")}`,
+    `${factHoldsFlags(action.factHolds)}`,
     "",
   ].join("");
   return rejectExecutionSelection(
@@ -158,8 +159,22 @@ export function completeRetryCommand(taskId: string, executionId: string, action
     `${cellStringList(action.paths)
       .map((value) => ` --path ${value}`)
       .join("")}`,
+    `${factHoldsFlags(action.factHolds)}`,
     "",
   ].join("");
+}
+
+function factHoldsFlags(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  return value
+    .flatMap((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+      const row = entry as Readonly<Record<string, unknown>>;
+      if (typeof row.factRef !== "string" || typeof row.rationale !== "string") return [];
+      const factId = row.factRef.startsWith("fact/") ? row.factRef.slice("fact/".length) : row.factRef;
+      return [` --fact-holds ${factId}:${JSON.stringify(row.rationale)}`];
+    })
+    .join("");
 }
 
 export function submitLeaseRequiredMessage(

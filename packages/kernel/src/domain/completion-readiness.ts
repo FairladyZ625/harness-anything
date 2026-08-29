@@ -15,7 +15,8 @@ export type CompletionBlockerCode =
   | "lease_held"
   | "doc_sync_required"
   | "gate_witness_missing"
-  | "fact_missing";
+  | "fact_missing"
+  | "fact_retirement_undeclared";
 export interface CompletionNext {
   readonly command: string;
   readonly reason: string;
