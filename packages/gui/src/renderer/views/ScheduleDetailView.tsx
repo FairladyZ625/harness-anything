@@ -718,12 +718,11 @@ function ScheduleRunsTab({
                     </span>
                   ) : (
                     <span className="text-[11px] text-text-faint">
-                      {t("schedules.runs.output")}
                       {occurrence.reportRef !== null
-                        ? ` report`
+                        ? t("schedules.runs.outputReport")
                         : occurrence.detail !== null
-                          ? ` ${occurrence.detail}`
-                          : " —"}
+                          ? `${t("schedules.runs.output")} ${occurrence.detail}`
+                          : t("schedules.runs.outputNone")}
                     </span>
                   )}
                 </div>

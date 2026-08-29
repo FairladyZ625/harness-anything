@@ -571,6 +571,8 @@
   "schedules.runs.missedAggregate": "错过(聚合计数)",
   "schedules.runs.notRun": "未执行",
   "schedules.runs.output": "产出:",
+  "schedules.runs.outputReport": "→ 报告",
+  "schedules.runs.outputNone": "未投影产物引用",
   "schedules.runs.nodeTip": "认领该 occurrence 的节点",
   "schedules.runs.pendingBackend": "完整运行历史(repo.schedules.runs)待后端定时计划任务落地;当前展示列表读已投影的 occurrence。",
   "schedules.runs.empty": "尚无已投影的 occurrence。",

@@ -571,6 +571,8 @@
   "schedules.runs.missedAggregate": "missed (aggregate)",
   "schedules.runs.notRun": "not executed",
   "schedules.runs.output": "output:",
+  "schedules.runs.outputReport": "→ Report",
+  "schedules.runs.outputNone": "no artifact ref projected",
   "schedules.runs.nodeTip": "the node that claimed this occurrence",
   "schedules.runs.pendingBackend": "Full run history (repo.schedules.runs) is pending the backend schedule task; showing the occurrences the list read already projects.",
   "schedules.runs.empty": "No occurrences projected yet.",
