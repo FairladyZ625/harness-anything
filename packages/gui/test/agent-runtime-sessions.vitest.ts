@@ -524,7 +524,7 @@ const squadRunDetail = {
       {
         attemptId: "worker-2",
         workerId: "sol",
-        leaderTurnId: null,
+        leaderTurnId: "leader-1",
         dispatchId: null,
         runtimeSessionId: null,
         rejection: "Runtime dispatch was rejected.",
@@ -637,30 +637,16 @@ describe("sessions page: squad run detail", () => {
     expect(wait).toContain(reason);
   });
 
-  it("keeps attempts without turn linkage in their own group with rejections visible", () => {
+  it("keeps rejected attempts under their leader turn with the failure visible", () => {
     const markup = detailView();
-    expect(markup).toContain("Worker attempts without turn linkage (1)");
-    expect(markup).toMatch(/data-testid="squad-run-unlinked"/u);
     expect(markup).toContain("worker-2");
     expect(markup).toContain("sol");
     expect(markup).toContain("rejected: Runtime dispatch was rejected.");
     expect(markup).toContain("no dispatch");
     expect(markup).toMatch(/data-testid="squad-run-attempt-worker-2"/u);
-    // 全关联时不再渲染未关联组。
-    const linked = detailView({
-      detail: {
-        ...squadRunDetail,
-        run: {
-          ...squadRunDetail.run,
-          workerAttempts: squadRunDetail.run.workerAttempts.map((attempt) => ({
-            ...attempt,
-            leaderTurnId: "leader-1",
-          })),
-        },
-      },
-    });
-    expect(linked).not.toContain("Worker attempts without turn linkage");
-    expect(linked).not.toMatch(/data-testid="squad-run-unlinked"/u);
+    expect(markup.indexOf('data-testid="squad-run-attempt-worker-2"')).toBeLessThan(
+      markup.indexOf('data-testid="squad-run-turn-leader-2"'),
+    );
   });
 
   it("surfaces the run error line and read failures without inventing flow", () => {

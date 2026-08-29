@@ -49,8 +49,8 @@ export interface SquadRunLeaderTurnDto {
 export interface SquadRunWorkerAttemptDto {
   readonly attemptId: string;
   readonly workerId: string;
-  /** 派发该 attempt 的 leader 轮次(扇出树父子边);null = 存量状态,不得猜轮次。 */
-  readonly leaderTurnId: string | null;
+  /** 派发该 attempt 的 leader 轮次(扇出树父子边)。 */
+  readonly leaderTurnId: string;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
   readonly rejection: string | null;
@@ -183,7 +183,7 @@ function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAtte
       "endedAt",
     ]) &&
     [value.attemptId, value.workerId].every(squadRunText) &&
-    (value.leaderTurnId === null || squadRunText(value.leaderTurnId)) &&
+    squadRunText(value.leaderTurnId) &&
     (value.dispatchId === null || squadRunText(value.dispatchId)) &&
     (value.runtimeSessionId === null || squadRunText(value.runtimeSessionId)) &&
     (value.rejection === null || squadRunText(value.rejection)) &&

@@ -69,66 +69,6 @@ function seedRunningSquadRun(rootDir: string, squadRunId: string): void {
   });
 }
 
-/** 存量形态:早于 leaderTurnId 字段的 run,attempt 没有父子边。 */
-function seedLegacySquadRun(rootDir: string, squadRunId: string): void {
-  openDispatchStream(rootDir, {
-    dispatchId: "dispatch_00000000000000000000c3d4",
-    taskId: "task-squad",
-    executionId: "execution-squad",
-    runtimeSessionId: "runtime-legacy-leader",
-    instanceId: "instance-squad",
-    startedAt: "2026-08-27T11:00:00.000Z",
-  });
-  appendRuntimeWorkerRecord(rootDir, "dispatch_00000000000000000000c3d4", {
-    kind: "squad_run_state",
-    squadRunId,
-    revision: 2,
-    state: {
-      schema: "squad-run/v1",
-      squadRunId,
-      stateDispatchId: "dispatch_00000000000000000000c3d4",
-      squadId: "core-squad",
-      taskId: "task-squad",
-      runtimeInstanceId: "instance-squad",
-      cwd: rootDir,
-      mission: "legacy witness",
-      model: null,
-      effort: null,
-      leaderAgentId: "terra",
-      roster: "terra -> sol",
-      workers: ["sol"],
-      leaderTurnBudget: 8,
-      binding: { actor: { principal: { personId: "person-squad" }, executor: null }, source: "local" },
-      leaderTurns: [
-        {
-          turnId: "leader-1",
-          trigger: { kind: "initial" },
-          dispatchId: "dispatch_00000000000000000000c3d4",
-          runtimeSessionId: "runtime-legacy-leader",
-          decision: { kind: "converged" },
-        },
-      ],
-      leaderProviderSessionId: null,
-      currentLeaderRuntimeSessionId: null,
-      workerAttempts: [
-        {
-          attemptId: "worker-1",
-          workerId: "sol",
-          dispatchId: null,
-          runtimeSessionId: null,
-          rejection: null,
-        },
-      ],
-      observedWorkerRuntimeSessionIds: [],
-      workerWaits: [],
-      pendingLeaderTriggers: [],
-      phase: "converged",
-      revision: 2,
-      error: null,
-    },
-  });
-}
-
 /** leader 派工的归档结算行:outcome/resultRef 是 receipt 原文的既有时实来源。 */
 function leaderArchive(): Record<string, unknown> {
   return {
@@ -283,20 +223,6 @@ test("a pruned or missing receipt blob reads as null instead of failing the deta
     const squad = coordinator(rootDir, { receiptBlob: null });
     await squad.observeOutcome(leaderOutcome("runtime-leader"));
     const detail = squad.read("squad_0123456789abcdef01234567");
-    assert.equal(detail.run.leaderTurns[0]?.resultText, null);
-    assert.deepEqual(validateSquadRunRead(detail), []);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("a legacy attempt without turn linkage stays null instead of guessing a parent", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-detail-"));
-  try {
-    seedLegacySquadRun(rootDir, "squad_0123456789abcdef99887766");
-    const squad = coordinator(rootDir);
-    const detail = squad.read("squad_0123456789abcdef99887766");
-    assert.equal(detail.run.workerAttempts[0]?.leaderTurnId, null);
     assert.equal(detail.run.leaderTurns[0]?.resultText, null);
     assert.deepEqual(validateSquadRunRead(detail), []);
   } finally {

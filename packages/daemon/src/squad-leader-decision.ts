@@ -61,8 +61,8 @@ export type LeaderTurn = {
 export type WorkerAttempt = {
   readonly attemptId: string;
   readonly workerId: string;
-  /** 派发该 attempt 的 leader 轮次(扇出树父子边);存量状态缺此字段 → DTO 归一为 null。 */
-  readonly leaderTurnId: string | null;
+  /** 派发该 attempt 的 leader 轮次(扇出树父子边)。 */
+  readonly leaderTurnId: string;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
   readonly rejection: string | null;

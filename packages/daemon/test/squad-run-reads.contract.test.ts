@@ -110,7 +110,7 @@ const detail = {
       {
         attemptId: "worker-2",
         workerId: "sol",
-        leaderTurnId: null,
+        leaderTurnId: "leader-1",
         dispatchId: null,
         runtimeSessionId: null,
         rejection: "Runtime dispatch was rejected.",
@@ -202,7 +202,7 @@ test("squad run read validator locks the orchestration-flow wire shape", () => {
     }),
     [],
   );
-  // 扇出树的父子边与 receipt 原文是锁死的 wire 字段:缺字段或错类型都不得过。
+  // 扇出树的父子边与 receipt 原文是锁死的 wire 字段:缺字段、null 或错类型都不得过。
   assert.notDeepEqual(
     validateSquadRunRead({
       ...detail,
@@ -221,10 +221,7 @@ test("squad run read validator locks the orchestration-flow wire shape", () => {
       ...detail,
       run: {
         ...detail.run,
-        workerAttempts: detail.run.workerAttempts.map((attempt: { readonly leaderTurnId: string | null }) => {
-          const { leaderTurnId, ...rest } = attempt;
-          return leaderTurnId === null ? rest : { ...rest, leaderTurnId: 7 };
-        }),
+        workerAttempts: detail.run.workerAttempts.map((attempt: object) => ({ ...attempt, leaderTurnId: null })),
       },
     }),
     [],

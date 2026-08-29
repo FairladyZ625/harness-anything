@@ -352,7 +352,6 @@
   "agentRuntime.squadRunsEmptyWindow": "该时间窗({range})内没有 squad run。放宽范围或清空检索。",
   "agentRuntime.squadRunSelectEmpty": "选中一个编排单元,查看 leader→worker 扇出树。",
   "agentRuntime.squadRunLeaderTurnsSection": "Leader 轮次({count})",
-  "agentRuntime.squadRunUnlinkedSection": "未关联轮次的 worker 尝试({count})",
   "agentRuntime.squadRunNoTurns": "尚无 leader 轮次记录。",
   "agentRuntime.squadRunReceipt": "leader receipt 原文",
   "agentRuntime.squadRunNoReceipt": "尚无 receipt 原文",

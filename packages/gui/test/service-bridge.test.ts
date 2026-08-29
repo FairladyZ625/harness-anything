@@ -283,13 +283,14 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       [{ turnId: "leader-1", trigger: { kind: "initial" }, decision: { kind: "converged" } }],
     );
     assert.deepEqual(
-      squadRun.run.workerAttempts.map(({ attemptId, workerId, status, startedAt }) => ({
+      squadRun.run.workerAttempts.map(({ attemptId, workerId, leaderTurnId, status, startedAt }) => ({
         attemptId,
         workerId,
+        leaderTurnId,
         status,
         startedAt,
       })),
-      [{ attemptId: "worker-1", workerId: "terra", status: null, startedAt: null }],
+      [{ attemptId: "worker-1", workerId: "terra", leaderTurnId: "leader-1", status: null, startedAt: null }],
     );
     assert.equal(typeof squadRun.run.leaderTurns[0]?.startedAt, "string");
     const squadRunList = parseDaemonGuiReadResult("repo.squad.runs.list", results.get("repo.squad.runs.list"));
@@ -574,6 +575,7 @@ function seedSquadRunState(rootDir: string, repoId: string): string {
         {
           attemptId: "worker-1",
           workerId: "terra",
+          leaderTurnId: "leader-1",
           dispatchId: workerDispatchId,
           runtimeSessionId: "runtime-squad-worker",
           rejection: null,
