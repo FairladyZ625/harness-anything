@@ -1,6 +1,7 @@
 import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { ActiveRuntime, ProviderFrame } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
+import { isSquadDecisionResult } from "./squad-leader-decision.ts";
 
 const quota =
     /\b(?:quota|usage limit|credit balance|insufficient[_ -]?quota|resource[_ -]?exhausted)\b|使用上限|配额/iu,
@@ -97,10 +98,16 @@ function runtimeExitOutcome(active: ActiveRuntime, exitCode: number | null): Run
   if (active.cancelRequested) return "cancelled";
   if (exitCode === null || active.protocolError) return "unknown";
   if (exitCode !== 0) return "failed";
-  const writeEvidenceRequired = active.kindId !== "agy" && active.permissionMode !== "read-only";
+  const writeEvidenceRequired = active.kindId !== "agy" && active.permissionMode !== "read-only",
+    squadControlEvidence =
+      active.squadId !== null &&
+      active.delegatedBy === null &&
+      active.finalText !== null &&
+      isSquadDecisionResult(active.finalText);
   if (
     active.providerOutcome === "succeeded" &&
-    (active.planIncomplete || (writeEvidenceRequired && !active.writeItemObserved && !active.planObserved))
+    (active.planIncomplete ||
+      (writeEvidenceRequired && !active.writeItemObserved && !active.planObserved && !squadControlEvidence))
   )
     return "unknown";
   return active.providerOutcome ?? "unknown";

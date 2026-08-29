@@ -5,7 +5,11 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { AgentDefinitionSnapshot, RuntimeInstallationWitness } from "../../kernel/src/index.ts";
+import {
+  makeTaskEventStore,
+  type AgentDefinitionSnapshot,
+  type RuntimeInstallationWitness,
+} from "../../kernel/src/index.ts";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
@@ -81,12 +85,13 @@ test("a local binding executor names the parent runtime session when the caller 
   }
 });
 
-test("a leader-only squad dispatch keeps its squad attribution after settlement archiving", async () => {
+test("a leader-only squad decision keeps attribution and settles success or failure from its process exit", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-parent-session-archive-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     taskId = "task_parent_session_archive",
     executionId = "execution-parent-session-archive";
+  let launches = 0;
   mkdirSync(root);
   git(root, "init", "-q");
   git(root, "config", "user.name", "Parent Session Test");
@@ -101,7 +106,7 @@ test("a leader-only squad dispatch keeps its squad attribution after settlement 
       daemonId: "parent-session-archive",
       endpoint: path.join(userRoot, "parent-session-archive.sock"),
     },
-    runtimeInstances: () => [runtimeInstance("codex-parent")],
+    runtimeInstances: () => [{ ...runtimeInstance("codex-parent"), permissionMode: "workspace-write" }],
     prepareRuntimeLaunch: async (instanceId, request) => ({
       definition: definition(instanceId, request.model ?? "codex-parent-model"),
       installation,
@@ -111,7 +116,11 @@ test("a leader-only squad dispatch keeps its squad attribution after settlement 
       cwd: request.cwd,
       prompt: request.prompt,
     }),
-    runtimeLaunch: () => fakeProcess(7103, "success"),
+    runtimeLaunch: () => {
+      const attempt = launches;
+      launches += 1;
+      return fakeProcess(7103 + attempt, attempt === 0 ? "converged" : "failed-converged");
+    },
   });
   try {
     await installSquad(cell);
@@ -139,6 +148,8 @@ test("a leader-only squad dispatch keeps its squad attribution after settlement 
           readonly squadId?: string;
           readonly parentRuntimeSessionId?: string;
           readonly endedAt: string | null;
+          readonly outcome: string | null;
+          readonly status: string;
           readonly dispatchPath?: string | null;
         }[];
       };
@@ -149,19 +160,77 @@ test("a leader-only squad dispatch keeps its squad attribution after settlement 
     assert.ok(leaderRow, "settled leader row keeps its squad attribution");
     assert.equal(Object.hasOwn(leaderRow, "parentRuntimeSessionId"), false);
     assert.equal(leaderRow.squadId, "parent-squad");
+    assert.equal(leaderRow.outcome, "succeeded");
+    assert.equal(leaderRow.status, "succeeded");
     const document = (await cell.read("repo.tasks.document.read", {
         taskId,
         path: `artifacts/dispatches/${String(receipt.dispatchId)}.json`,
       })) as { readonly body: string },
       archived = JSON.parse(document.body) as Record<string, unknown>;
     assert.equal(archived.squadId, "parent-squad");
+    assert.equal(archived.outcome, "succeeded");
     assert.equal(Object.hasOwn(archived, "parentRuntimeSessionId"), false);
     assert.equal(Object.hasOwn(archived, "delegatedByAgentId"), false);
+    assertLeaseReleasedBeforeOutcome(root, taskId, executionId, String(receipt.runtimeSessionId));
+
+    const failedTaskId = "task_parent_session_archive_failed",
+      failedExecutionId = "execution-parent-session-archive-failed";
+    await startTask(cell, root, failedTaskId, failedExecutionId);
+    const failedReceipt = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "codex-parent",
+        agentId: "parent-leader",
+        squadId: "parent-squad",
+        cwd: { scope: "repo-root" },
+        prompt: "Exit non-zero after declaring convergence.",
+        taskId: failedTaskId,
+        idempotencyKey: "parent-session-archive-failed",
+      },
+      personBinding,
+    );
+    const failedRows = await eventually(async () => {
+        const result = (await cell.read("repo.task.dispatches", { taskId: failedTaskId })) as {
+          readonly dispatches: readonly {
+            readonly runtimeSessionId: string;
+            readonly endedAt: string | null;
+            readonly outcome: string | null;
+            readonly status: string;
+          }[];
+        };
+        return result.dispatches.some((row) => row.endedAt !== null) ? result.dispatches : null;
+      }),
+      failedRow = failedRows.find((row) => row.runtimeSessionId === failedReceipt.runtimeSessionId);
+    assert.ok(failedRow, "failed leader dispatch settles");
+    assert.equal(failedRow.outcome, "failed");
+    assert.equal(failedRow.status, "failed");
+    assertLeaseReleasedBeforeOutcome(root, failedTaskId, failedExecutionId, String(failedReceipt.runtimeSessionId));
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
   }
 });
+
+function assertLeaseReleasedBeforeOutcome(
+  rootDir: string,
+  taskId: string,
+  executionId: string,
+  runtimeSessionId: string,
+): void {
+  const events = makeTaskEventStore({ repoId: "parent-session-archive", rootDir }).read().events,
+    releaseIndex = events.findIndex(
+      (event) =>
+        event.type === "lease_released" &&
+        event.taskId === taskId &&
+        event.payload.execution.executionId === executionId,
+    ),
+    outcomeIndex = events.findIndex(
+      (event) =>
+        event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+    );
+  assert.ok(releaseIndex >= 0, `execution lease ${executionId} was released`);
+  assert.ok(outcomeIndex >= 0, `runtime session ${runtimeSessionId} has a terminal outcome`);
+  assert.ok(releaseIndex < outcomeIndex, "lease release precedes the terminal runtime outcome");
+}
 
 async function installSquad(cell: Awaited<ReturnType<typeof openRepoCell>>): Promise<void> {
   for (const declaration of [
@@ -256,7 +325,7 @@ function definition(instanceId: string, model: string): AgentDefinitionSnapshot 
   };
 }
 
-function fakeProcess(pid: number, behavior: "success" | "429"): RuntimeProcess {
+function fakeProcess(pid: number, behavior: "success" | "converged" | "failed-converged" | "429"): RuntimeProcess {
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null,
     terminated = false;
@@ -275,11 +344,20 @@ function fakeProcess(pid: number, behavior: "success" | "429"): RuntimeProcess {
           ...(behavior === "success"
             ? [{ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } }]
             : []),
-          { type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } },
+          {
+            type: "item.completed",
+            item: {
+              id: "message",
+              type: "agent_message",
+              text: behavior.includes("converged")
+                ? JSON.stringify({ schema: "squad-decision/v1", action: "converged" })
+                : "done",
+            },
+          },
           { type: "turn.completed" },
         ];
         output?.(`${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
-        exit?.(behavior === "429" ? 1 : 0);
+        exit?.(behavior === "429" || behavior === "failed-converged" ? 1 : 0);
       });
     },
     terminate: () => {
