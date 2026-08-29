@@ -1275,10 +1275,10 @@
         ]
       },
       "allowlistPolicy": {
-        "allowed": true,
-        "location": "tools/check-file-complexity.mjs",
-        "adrOrDecisionRequired": true,
-        "notes": "Current exceptions live in the checker; ADR-0023 D6 requires governed treatment for allowlist growth."
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "No path allowlist is used; transitional per-file ceilings are derived from the Git merge base."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -1318,9 +1318,9 @@
       },
       "deterministic": true,
       "positiveControl": {
-        "status": "documented-gap",
+        "status": "covered",
         "evidence": [
-          "No dedicated positive-control fixture is registered for check-file-complexity."
+          "tools/check-file-complexity.test.mjs"
         ]
       }
     },
