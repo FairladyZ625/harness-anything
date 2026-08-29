@@ -620,6 +620,110 @@ test("malformed leader results exhaust the declared budget after exactly that ma
   });
 });
 
+test("one callback turn drains more worker outcomes than the leader turn budget", async () => {
+  await withRootDir(async (rootDir) => {
+    const workers = Array.from({ length: 6 }, (_, index) => ({
+        workerId: index % 2 === 0 ? "sol" : "terra",
+        dispatchId: `dispatch_${(index + 2).toString(16).padStart(24, "0")}`,
+        runtimeSessionId: `runtime-worker-${index + 1}`,
+        outcome: null,
+      })),
+      fixture = makeRecoveryFixture(rootDir, {
+        leaderOutcome: null,
+        leaderTurnBudget: 3,
+        workers,
+        leaderReport: true,
+      });
+
+    for (const worker of workers) {
+      fixture.completeWorker(worker.runtimeSessionId);
+      await fixture.coordinator.observeOutcome(outcomeEvent(worker.runtimeSessionId));
+    }
+    let status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "leader_running");
+    assert.equal(status.pendingLeaderCallbackCount, workers.length);
+    assert.equal(fixture.spawns.length, 0, "callbacks queue while the leader is running");
+
+    fixture.completeLeader(LEADER_SESSION_ID, JSON.stringify({ schema: "squad-decision/v1", action: "waiting" }));
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+
+    status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "leader_running", String(status.error));
+    assert.equal(status.pendingLeaderCallbackCount, 0);
+    assert.equal((status.leaders as unknown[]).length, 2);
+    assert.equal(fixture.spawns.length, 1);
+    assert.match(String(fixture.spawns[0]?.prompt), /Merged callback batch: total=6; sources=worker_outcome:6/u);
+    for (const [index, worker] of workers.entries())
+      assert.match(
+        String(fixture.spawns[0]?.prompt),
+        new RegExp(`attempt=worker-${index + 1} .*session=${worker.runtimeSessionId} status=succeeded`, "u"),
+      );
+
+    const callbackSessionId = String(status.currentLeaderRuntimeSessionId);
+    fixture.completeLeader(callbackSessionId, JSON.stringify({ schema: "squad-decision/v1", action: "converged" }));
+    await fixture.coordinator.observeOutcome(outcomeEvent(callbackSessionId));
+
+    status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "converged", String(status.error));
+    assert.equal((status.leaders as unknown[]).length, 2);
+    assert.equal(status.error, null);
+  });
+});
+
+test("a leader retry remains primary while coalescing queued worker outcomes", async () => {
+  await withRootDir(async (rootDir) => {
+    const workers = [
+        {
+          workerId: "sol",
+          dispatchId: "dispatch_000000000000000000000002",
+          runtimeSessionId: "runtime-worker-sol",
+          outcome: null,
+        },
+        {
+          workerId: "terra",
+          dispatchId: "dispatch_000000000000000000000003",
+          runtimeSessionId: "runtime-worker-terra",
+          outcome: null,
+        },
+      ] as const,
+      fixture = makeRecoveryFixture(rootDir, {
+        leaderOutcome: "succeeded",
+        leaderResult: "not json",
+        leaderTurnBudget: 3,
+        workers,
+        leaderReport: true,
+      });
+    for (const worker of workers) {
+      fixture.completeWorker(worker.runtimeSessionId);
+      await fixture.coordinator.observeOutcome(outcomeEvent(worker.runtimeSessionId));
+    }
+
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+
+    let status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "leader_running", String(status.error));
+    assert.equal(status.pendingLeaderCallbackCount, 0);
+    assert.deepEqual((status.leaders as { readonly trigger: unknown }[])[1]?.trigger, {
+      kind: "leader_retry",
+      turnId: "leader-1",
+      reason: "Leader result was not JSON.",
+    });
+    assert.equal(fixture.spawns[0]?.providerSessionId, "provider-leader");
+    assert.equal(fixture.spawns[0]?.idempotencyKey, `${SQUAD_RUN_ID}:leader:retry:leader-1`);
+    assert.match(
+      String(fixture.spawns[0]?.prompt),
+      /Merged callback batch: total=3; sources=leader_retry:1,worker_outcome:2/u,
+    );
+    assert.match(String(fixture.spawns[0]?.prompt), /Previous turn could not advance: Leader result was not JSON\./u);
+
+    const retrySessionId = String(status.currentLeaderRuntimeSessionId);
+    fixture.completeLeader(retrySessionId, JSON.stringify({ schema: "squad-decision/v1", action: "converged" }));
+    await fixture.coordinator.observeOutcome(outcomeEvent(retrySessionId));
+    status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "converged", String(status.error));
+  });
+});
+
 test("a rejected worker attempt does not block a later dispatch to the same worker", async () => {
   await withRootDir(async (rootDir) => {
     const plan = JSON.stringify({
