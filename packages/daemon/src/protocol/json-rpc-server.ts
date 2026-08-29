@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { DaemonHost } from "../daemon-host.ts";
-import type { FleetEdgeTaskRequest } from "../fleet-edge-task.ts";
-import type { FleetEdgeConflictExitRequest, FleetEdgeDocSyncRequest } from "../fleet-edge-doc-sync.ts";
 import type { DaemonRequestLogEntry } from "../request-log.ts";
 import type { DaemonTrafficLogEntry } from "../conn-log.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
@@ -11,11 +9,18 @@ import {
   daemonProtocolError,
   isDaemonGuiActionMethod,
   isDaemonGuiReadMethod,
+  isDaemonRpcMethod,
   isDaemonStreamMethod,
   jsonRpcMethodContracts,
   makeDaemonCommandReceipt,
   parseDaemonRpcParams,
-  type DaemonSessionEnvironment,
+  type DaemonFleetTaskAction,
+  type DaemonGuiActionMethod,
+  type DaemonGuiRpcReadMethod,
+  type DaemonRpcCall,
+  type DaemonRpcMethod,
+  type DaemonRpcResult,
+  type DaemonStreamMethod,
 } from "./daemon-protocol.contract.ts";
 import {
   parseDaemonGuiActionResult,
@@ -77,36 +82,38 @@ export function createJsonRpcProtocolServer(options: {
       traffic(typeof request.method === "string" ? request.method : null, startedAt, 0, false, "-32600");
       return rpcError(id, -32600, "Invalid Request");
     }
-    if (!jsonRpcMethodContracts.some((entry) => entry.method === request.method)) {
+    if (!isDaemonRpcMethod(request.method)) {
       traffic(request.method, startedAt, 0, false, "-32601");
       return rpcError(id, -32601, "Method not found");
     }
-    const reply = (result: JsonObject): JsonRpcResponse | undefined => {
+    const reply = <Method extends DaemonRpcMethod>(
+      method: Method,
+      result: DaemonRpcResult<Method>,
+    ): JsonRpcResponse | undefined => {
       const durationMs = Date.now() - startedAt;
-      record(request.method, observed, result, durationMs);
-      traffic(request.method, startedAt, durationMs, result.ok === true, resultErrorCode(result));
+      record(method, observed, result, durationMs);
+      traffic(method, startedAt, durationMs, resultOk(result), resultErrorCode(result));
       return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
     };
     const parsed = parseDaemonRpcParams(request.method, request.params);
     if (!parsed.ok)
-      return reply(
-        daemonProtocolError(request.method, "invalid_request", parsed.errors.join("; ")) as unknown as JsonObject,
-      );
-    const params = parsed.params;
+      return reply(request.method, daemonProtocolError(request.method, "invalid_request", parsed.errors.join("; ")));
+    const call = parsed.call,
+      { method, params } = call;
     observed = { ...observed, repoId: repoIdFromParams(params) };
-    if (request.method === "protocol.hello") {
+    if (method === "protocol.hello") {
       if (!isContractVersionCompatible(params.protocolVersion, currentDaemonProtocolVersion)) {
         const mismatch = {
           _tag: "ProtocolVersionMismatchError",
           code: "incompatible_protocol_version",
           message: "Use the daemon protocol version reported by this binary.",
         } satisfies Extract<CoreDomainError, { readonly _tag: "ProtocolVersionMismatchError" }>;
-        return reply(daemonProtocolError("protocol.hello", mismatch.code, mismatch.message) as unknown as JsonObject);
+        return reply(method, daemonProtocolError("protocol.hello", mismatch.code, mismatch.message));
       }
       if (params.sessionEnvironment === undefined) Reflect.deleteProperty(options.authContext, "sessionEnvironment");
       else
         Object.assign(options.authContext, {
-          sessionEnvironment: params.sessionEnvironment as DaemonSessionEnvironment,
+          sessionEnvironment: params.sessionEnvironment,
         });
       const buildStatus = options.buildObserver?.status();
       if (buildStatus?.drifted) {
@@ -115,154 +122,143 @@ export function createJsonRpcProtocolServer(options: {
           "daemon_build_stale",
           `Daemon build is stale: loaded ${buildStatus.loadedBuildId ?? "missing"}, ` +
             `disk ${buildStatus.diskBuildId ?? "missing"}. Restarting once to load the disk build.`,
-        ) as unknown as JsonObject;
-        const response = reply({
+        );
+        const staleResult = {
           ...stale,
           loadedBuildId: buildStatus.loadedBuildId,
           diskBuildId: buildStatus.diskBuildId,
-        });
+        };
+        const response = reply(method, staleResult);
         setImmediate(() => options.requestShutdown?.());
         return response;
       }
       handshaken = true;
-      return reply({
+      return reply(method, {
         ok: true,
         protocolVersion: currentDaemonProtocolVersion,
         methods: jsonRpcMethodContracts.map((entry) => entry.method),
         build: { ...options.build },
       });
     }
-    if (!handshaken)
-      return reply(
-        daemonProtocolError(request.method, "hello_required", "Call protocol.hello first.") as unknown as JsonObject,
-      );
-    if (request.method === "daemon.status")
-      return reply({ ok: true, ...options.host.status() } as unknown as JsonObject);
-    if (request.method === "daemon.stop") {
+    if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
+    if (method === "daemon.status") return reply(method, { ok: true, ...options.host.status() });
+    if (method === "daemon.stop") {
       if (options.authContext.transportKind !== "unix-socket" || options.authContext.assignmentBinding)
         return reply(
+          method,
           daemonProtocolError(
             "daemon-stop",
             "local_transport_required",
             "Stop is available only through the local session token.",
-          ) as unknown as JsonObject,
+          ),
         );
       if (!options.requestShutdown)
         return reply(
-          daemonProtocolError(
-            "daemon-stop",
-            "shutdown_unavailable",
-            "This daemon composition has no shutdown owner.",
-          ) as unknown as JsonObject,
+          method,
+          daemonProtocolError("daemon-stop", "shutdown_unavailable", "This daemon composition has no shutdown owner."),
         );
-      const response = reply({ ok: true, command: "daemon-stop", pid: process.pid });
+      const response = reply(method, { ok: true, command: "daemon-stop", pid: process.pid });
       options.requestShutdown();
       return response;
     }
-    if (request.method === "daemon.repo.bootstrap") {
+    if (method === "daemon.repo.bootstrap") {
       try {
-        return reply(
-          (await options.host.bootstrap(
-            params as unknown as Parameters<DaemonHost["bootstrap"]>[0],
-            options.authContext,
-          )) as JsonObject,
-        );
+        return reply(method, await options.host.bootstrap(params, options.authContext));
       } catch (error) {
         return reply(
-          daemonProtocolError("init", rpcServerErrorCode(error), protocolErrorMessage(error)) as unknown as JsonObject,
+          method,
+          daemonProtocolError("init", rpcServerErrorCode(error), protocolErrorMessage(error)),
         );
       }
     }
-    if (request.method === "daemon.repo.register" || request.method === "daemon.repo.unregister") {
+    if (method === "daemon.repo.register" || method === "daemon.repo.unregister") {
       try {
         return reply(
-          (await options.host.admin(
-            request.method.endsWith("unregister")
-              ? { kind: "unregister", repoId: params.repoId as string }
+          method,
+          await options.host.admin(
+            method === "daemon.repo.unregister"
+              ? { kind: "unregister", repoId: params.repoId }
               : {
                   kind: "register",
-                  repoId: params.repoId as string,
-                  rootDir: params.rootDir as string,
+                  repoId: params.repoId,
+                  rootDir: params.rootDir,
                   ...(typeof params.mode === "string"
                     ? { mode: params.mode as "local" | "remote-center" | "remote-edge" }
                     : {}),
                 },
             options.authContext,
-          )) as JsonObject,
+          ),
         );
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (request.method.startsWith("daemon.runtimeInstance.")) {
+    if (isRuntimeInstanceCall(call)) {
+      const { method, params } = call;
       try {
-        return reply(
-          await options.host.runtimeInstance(request.method, params.payload as JsonObject, options.authContext),
-        );
+        return reply(method, await options.host.runtimeInstance(method, params.payload, options.authContext));
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (request.method.startsWith("repo.runtimeInstance.auth.")) {
-      const repo = (params.repo as JsonObject).repoId as string;
+    if (isRuntimeInstanceAuthCall(call)) {
+      const { method, params } = call,
+        repo = params.repo.repoId;
+      try {
+        return reply(method, await options.host.runtimeInstanceAuth(repo, method, params.payload, options.authContext));
+      } catch (error) {
+        return reply(
+          method,
+          daemonProtocolError(
+            method,
+            rpcServerErrorCode(error),
+            protocolErrorMessage(error),
+          ),
+        );
+      }
+    }
+    if (method === "daemon.fleet.center.start" || method === "daemon.fleet.edge.sync") {
       try {
         return reply(
-          await options.host.runtimeInstanceAuth(
-            repo,
-            request.method,
-            params.payload as JsonObject,
+          method,
+          await (method === "daemon.fleet.center.start" ? options.host.fleet.startCenter : options.host.fleet.edgeSync)(
+            params.payload,
             options.authContext,
           ),
         );
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (request.method === "daemon.fleet.center.start" || request.method === "daemon.fleet.edge.sync") {
-      try {
-        return reply(
-          (await (
-            request.method === "daemon.fleet.center.start"
-              ? options.host.fleet.startCenter
-              : options.host.fleet.edgeSync
-          )(params.payload as JsonObject, options.authContext)) as unknown as JsonObject,
-        );
-      } catch (error) {
-        return reply(
-          daemonProtocolError(
-            request.method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ) as unknown as JsonObject,
-        );
-      }
-    }
-    if (request.method === "daemon.fleet.task.run") {
+    if (method === "daemon.fleet.task.run") {
       // Loaded lazily: schema-closure imports this module in a zero-dependency checkout, and the fleet edge stack reaches the kernel barrel.
       try {
         if (options.authContext.transportKind !== "unix-socket" || options.authContext.assignmentBinding)
           throw Object.assign(new Error("This control is available only through the local session token."), {
             code: "local_transport_required",
           });
-        const fleetPayload = params.payload as JsonObject,
+        const fleetPayload = params.payload,
           fleetAction = fleetPayload.action;
         if (isJsonObject(fleetAction) && fleetAction.kind === "fleet-runtime") {
           if (
@@ -278,10 +274,11 @@ export function createJsonRpcProtocolServer(options: {
               code: "invalid_field",
             });
           return reply(
-            (await options.host.fleet.edgeRuntime(
-              { ...fleetPayload, method: fleetAction.method, action: fleetAction.payload } as JsonObject,
+            method,
+            await options.host.fleet.edgeRuntime(
+              { ...fleetPayload, method: fleetAction.method, action: fleetAction.payload },
               options.authContext,
-            )) as unknown as JsonObject,
+            ),
           );
         }
         if (isJsonObject(fleetAction) && fleetAction.kind === "fleet-schedule") {
@@ -290,29 +287,36 @@ export function createJsonRpcProtocolServer(options: {
               code: "invalid_field",
             });
           return reply(
-            (await options.host.fleet.edgeRuntime(
-              { ...fleetPayload, method: "repo.schedule.run", action: fleetAction.payload } as JsonObject,
+            method,
+            await options.host.fleet.edgeRuntime(
+              { ...fleetPayload, method: "repo.schedule.run", action: fleetAction.payload },
               options.authContext,
-            )) as unknown as JsonObject,
+            ),
           );
         }
         const { runFleetEdgeTask } = await import("../fleet-edge-task.ts");
         return reply(
-          (await runFleetEdgeTask({
-            payload: params.payload as unknown as FleetEdgeTaskRequest["payload"],
-          })) as unknown as JsonObject,
+          method,
+          await runFleetEdgeTask({
+            payload: {
+              ...params.payload,
+              // The two non-task discriminants return above; the remainder is FleetTaskAction.
+              action: fleetAction as DaemonFleetTaskAction,
+            },
+          }),
         );
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (request.method === "daemon.fleet.doc.sync" || request.method === "daemon.fleet.conflict.exit") {
+    if (method === "daemon.fleet.doc.sync" || method === "daemon.fleet.conflict.exit") {
       try {
         if (options.authContext.transportKind !== "unix-socket" || options.authContext.assignmentBinding)
           throw Object.assign(new Error("This control is available only through the local session token."), {
@@ -320,211 +324,228 @@ export function createJsonRpcProtocolServer(options: {
           }); // Lazy for the same schema-closure reason as the task channel.
         const { runFleetEdgeDocSync, runFleetEdgeConflictExit } = await import("../fleet-edge-doc-sync.ts");
         return reply(
-          (await (request.method === "daemon.fleet.doc.sync"
-            ? runFleetEdgeDocSync({ payload: params.payload as unknown as FleetEdgeDocSyncRequest["payload"] })
+          method,
+          await (method === "daemon.fleet.doc.sync"
+            ? runFleetEdgeDocSync({ payload: params.payload })
             : runFleetEdgeConflictExit({
-                payload: params.payload as unknown as FleetEdgeConflictExitRequest["payload"],
-              }))) as unknown as JsonObject,
+                payload: params.payload,
+              })),
         );
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (request.method === "daemon.gui.system.read") {
+    if (method === "daemon.gui.system.read") {
       try {
-        return reply(
-          parseDaemonGuiReadResult(request.method, options.host.system(options.authContext)) as unknown as JsonObject,
-        );
+        return reply(method, parseDaemonGuiReadResult(method, options.host.system(options.authContext)));
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (request.method === "daemon.gui.control.receipt") {
+    if (method === "daemon.gui.control.receipt") {
       try {
         return reply(
+          method,
           parseDaemonGuiReadResult(
-            request.method,
-            options.host.controlReceipt(String((params.payload as JsonObject).operationId), options.authContext),
-          ) as unknown as JsonObject,
+            method,
+            options.host.controlReceipt(params.payload.operationId, options.authContext),
+          ),
         );
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (request.method === "daemon.gui.control.request") {
+    if (method === "daemon.gui.control.request") {
       try {
         return reply(
-          parseDaemonGuiActionResult(
-            request.method,
-            await options.host.requestControl(params.payload as JsonObject, options.authContext),
-          ) as unknown as JsonObject,
+          method,
+          parseDaemonGuiActionResult(method, await options.host.requestControl(params.payload, options.authContext)),
         );
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (isDaemonStreamMethod(request.method)) {
-      const repo = (params.repo as JsonObject).repoId as string,
-        payload = params.payload as JsonObject;
+    if (isDaemonStreamCall(call)) {
+      const { method, params } = call,
+        repo = params.repo.repoId;
       try {
         const subscription: Subscription =
-            request.method === "repo.agentRuntime.attach"
+            method === "repo.agentRuntime.attach"
               ? await options.host.attach(
                   repo,
-                  payload.runtimeSessionId as string,
-                  payload.afterCursor as string,
+                  params.payload.runtimeSessionId,
+                  params.payload.afterCursor,
                   options.authContext,
                 )
               : await options.host.terminalAttach(
                   repo,
-                  payload.sessionId as string,
-                  payload.afterSeq as number,
+                  params.payload.sessionId,
+                  params.payload.afterSeq,
                   options.authContext,
                 ),
-          initial = parseDaemonStreamResult(request.method, subscription.initial);
+          initial = parseDaemonStreamResult(method, subscription.initial);
         if (initial.ok) {
           subscriptions.add(subscription);
-          const eventMethod = daemonStreamFacets.find((facet) => facet.method === request.method)!.eventMethod;
+          const eventMethod = daemonStreamFacets.find((facet) => facet.method === method)!.eventMethod;
           setImmediate(() => pump(subscription, eventMethod));
         }
-        return reply(initial as unknown as JsonObject);
+        return reply(method, initial);
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (isDaemonGuiReadMethod(request.method)) {
-      const repo = (params.repo as JsonObject).repoId as string;
+    if (isRepoGuiReadCall(call)) {
+      const { method, params } = call,
+        repo = params.repo.repoId;
       try {
         return reply(
+          method,
           parseDaemonGuiReadResult(
-            request.method,
+            method,
             await options.host.read(
               repo,
-              request.method,
+              method,
               (params.payload as JsonObject | undefined) ?? {},
               options.authContext,
             ),
-          ) as unknown as JsonObject,
+          ),
         );
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (request.method === "repo.agentRuntime.spawn") {
-      const repo = (params.repo as JsonObject).repoId as string;
+    if (method === "repo.agentRuntime.spawn") {
+      const repo = params.repo.repoId;
       try {
         return reply(
+          method,
           parseDaemonGuiActionResult(
-            request.method,
-            await options.host.spawnRuntime(repo, params.payload as JsonObject, options.authContext),
-          ) as unknown as JsonObject,
+            method,
+            await options.host.spawnRuntime(repo, params.payload, options.authContext),
+          ),
         );
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (request.method === "repo.agentRuntime.cancel") {
-      const repo = (params.repo as JsonObject).repoId as string;
+    if (method === "repo.agentRuntime.cancel") {
+      const repo = params.repo.repoId;
       try {
         return reply(
+          method,
           parseDaemonGuiActionResult(
-            request.method,
-            await options.host.cancelRuntime(repo, params.payload as JsonObject, options.authContext),
-          ) as unknown as JsonObject,
+            method,
+            await options.host.cancelRuntime(repo, params.payload, options.authContext),
+          ),
         );
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    if (request.method === "repo.gui.catalog.reread" || request.method.startsWith("repo.terminal.")) {
-      const repo = (params.repo as JsonObject).repoId as string;
+    if (isTerminalActionCall(call)) {
+      const { method, params } = call,
+        repo = params.repo.repoId;
       try {
         return reply(
+          method,
           parseDaemonGuiActionResult(
-            request.method as import("./daemon-protocol.contract.ts").DaemonGuiActionMethod,
-            await options.host.terminalAction(repo, request.method, params.payload as JsonObject, options.authContext),
-          ) as unknown as JsonObject,
+            method,
+            await options.host.terminalAction(repo, method, params.payload, options.authContext),
+          ),
         );
       } catch (error) {
         return reply(
+          method,
           daemonProtocolError(
-            request.method,
+            method,
             rpcServerErrorCode(error),
             protocolErrorMessage(error),
-          ) as unknown as JsonObject,
+          ),
         );
       }
     }
-    const repo = (params.repo as JsonObject).repoId as string;
+    // All non-repository branches above return. The remaining discriminants are the
+    // contracted repo command family, whose params always carry repo + payload.
+    const commandCall = call as DaemonRepoPayloadCall,
+      { method: commandMethod, params: commandParams } = commandCall,
+      repo = commandParams.repo.repoId;
     let action: JsonObject & { readonly kind: string };
     try {
-      action = actionForDaemonMethod(request.method, params.payload as JsonObject);
+      action = actionForDaemonMethod(commandMethod, commandParams.payload);
     } catch (error) {
       return reply(
+        commandMethod,
         daemonProtocolError(
-          request.method,
+          commandMethod,
           rpcServerErrorCode(error),
-          protocolErrorMessage(error),
-        ) as unknown as JsonObject,
+         protocolErrorMessage(error),
+        ),
       );
     }
     observed = { ...observed, command: action.kind, executor: declaredExecutorOrNull(action) };
     if (action.kind === "preset-run-start" || action.kind === "preset-run-status")
-      return reply((await options.host.presetRun(repo, action, options.authContext)) as unknown as JsonObject);
+      return reply(commandMethod, await options.host.presetRun(repo, action, options.authContext));
     const receipt = await options.host.run(repo, action, options.authContext),
       result = makeDaemonCommandReceipt(action.kind, receipt);
     return reply(
-      isDaemonGuiActionMethod(request.method)
-        ? (parseDaemonGuiActionResult(request.method, result) as unknown as JsonObject)
-        : result,
+      commandMethod,
+      isDaemonGuiActionMethod(commandMethod) ? parseDaemonGuiActionResult(commandMethod, result) : result,
     );
   };
   return {
@@ -551,7 +572,7 @@ export function createJsonRpcProtocolServer(options: {
   }
   // Repo-scoped by design: the log lives in the repository's local root, so a request that binds no
   // repository (protocol.hello, daemon.status, registry admin) has nowhere to be filed and is skipped.
-  function record(method: string, observed: ObservedRequest, result: JsonObject, durationMs: number): void {
+  function record(method: string, observed: ObservedRequest, result: object, durationMs: number): void {
     if (!options.recordRequest || !observed.repoId) return;
     options.recordRequest({
       method,
@@ -560,10 +581,10 @@ export function createJsonRpcProtocolServer(options: {
       connectionId,
       auth: options.authContext,
       executor: observed.executor,
-      ok: result.ok === true,
-      outcome: typeof result.outcome === "string" ? result.outcome : null,
+      ok: resultOk(result),
+      outcome: "outcome" in result && typeof result.outcome === "string" ? result.outcome : null,
       code: resultErrorCode(result),
-      opId: typeof result.opId === "string" ? result.opId : null,
+      opId: "opId" in result && typeof result.opId === "string" ? result.opId : null,
       durationMs,
     });
   }
@@ -589,6 +610,43 @@ export function createJsonRpcProtocolServer(options: {
   }
 }
 
+type DaemonRpcCallFor<Method extends DaemonRpcMethod> = Extract<DaemonRpcCall, { readonly method: Method }>;
+type RuntimeInstanceMethod = Extract<DaemonRpcMethod, `daemon.runtimeInstance.${string}`>;
+type RuntimeInstanceAuthMethod = Extract<DaemonRpcMethod, `repo.runtimeInstance.auth.${string}`>;
+type RepoGuiReadMethod = Exclude<DaemonGuiRpcReadMethod, "daemon.gui.system.read" | "daemon.gui.control.receipt">;
+type TerminalActionMethod = "repo.gui.catalog.reread" | Extract<DaemonGuiActionMethod, `repo.terminal.${string}`>;
+type WithRepoPayload<Call> = Call extends {
+  readonly params: {
+    readonly repo: { readonly repoId: string };
+    readonly payload: JsonObject;
+  };
+}
+  ? Call
+  : never;
+type DaemonRepoPayloadCall = WithRepoPayload<DaemonRpcCall>;
+
+function isRuntimeInstanceCall(call: DaemonRpcCall): call is DaemonRpcCallFor<RuntimeInstanceMethod> {
+  return call.method.startsWith("daemon.runtimeInstance.");
+}
+function isRuntimeInstanceAuthCall(call: DaemonRpcCall): call is DaemonRpcCallFor<RuntimeInstanceAuthMethod> {
+  return call.method.startsWith("repo.runtimeInstance.auth.");
+}
+function isDaemonStreamCall(call: DaemonRpcCall): call is DaemonRpcCallFor<DaemonStreamMethod> {
+  return isDaemonStreamMethod(call.method);
+}
+function isRepoGuiReadCall(call: DaemonRpcCall): call is DaemonRpcCallFor<RepoGuiReadMethod> {
+  return (
+    isDaemonGuiReadMethod(call.method) &&
+    call.method !== "daemon.gui.system.read" &&
+    call.method !== "daemon.gui.control.receipt"
+  );
+}
+function isTerminalActionCall(call: DaemonRpcCall): call is DaemonRpcCallFor<TerminalActionMethod> {
+  return (
+    call.method === "repo.gui.catalog.reread" ||
+    (isDaemonGuiActionMethod(call.method) && call.method.startsWith("repo.terminal."))
+  );
+}
 function repoIdFromParams(params: JsonObject): string {
   const repo = params.repo;
   return isJsonObject(repo) && typeof repo.repoId === "string" ? repo.repoId : "";
@@ -601,9 +659,12 @@ function declaredExecutorOrNull(action: JsonObject): DaemonRequestLogEntry["exec
     ? { kind: "agent", id: executor.id }
     : null;
 }
-function resultErrorCode(result: JsonObject): string | null {
-  if (typeof result.code === "string") return result.code;
-  const error = result.error;
+function resultOk(result: object): boolean {
+  return "ok" in result && result.ok === true;
+}
+function resultErrorCode(result: object): string | null {
+  if ("code" in result && typeof result.code === "string") return result.code;
+  const error = "error" in result ? result.error : undefined;
   return isJsonObject(error) && typeof error.code === "string" ? error.code : null;
 }
 function rpcError(id: JsonRpcId, errorCode: number, message: string): JsonRpcResponse {

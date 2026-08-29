@@ -139,11 +139,14 @@ export function parseDaemonGuiActionResponse(
   value: unknown,
 ): DaemonGuiActionResult | DaemonProtocolErrorResult {
   if (isJsonObject(value) && value.opId === "N/A") {
-    const errors = validateDaemonProtocolError(value);
-    if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
-    return value as unknown as DaemonProtocolErrorResult;
+    if (!isDaemonProtocolErrorResult(value))
+      throw new DaemonProtocolContractError("invalid_result", validateDaemonProtocolError(value).join("; "));
+    return value;
   }
   return parseDaemonGuiActionResult(method, value);
+}
+function isDaemonProtocolErrorResult(value: unknown): value is DaemonProtocolErrorResult {
+  return validateDaemonProtocolError(value).length === 0;
 }
 export function parseDaemonStreamResult<M extends DaemonStreamMethod>(
   method: M,

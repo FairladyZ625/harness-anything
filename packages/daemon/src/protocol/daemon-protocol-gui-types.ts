@@ -55,14 +55,14 @@ export type RpcShape = {
   readonly open?: boolean;
 };
 
-export const shape = (fields: RpcShape["fields"], open = false): RpcShape => ({
+export const shape = <const Fields extends RpcShape["fields"]>(fields: Fields, open = false) => ({
   fields,
   open,
 });
 
-export const optionalEnum = (values: readonly string[]): RpcEnumRule => ({
+export const optionalEnum = <const Values extends readonly string[]>(values: Values) => ({
   values,
-  optional: true,
+  optional: true as const,
 });
 
 export const observeTailKinds = ["events", "repo-log", "daemon-log", "dispatch"] as const;

@@ -24,6 +24,35 @@ import type {
 } from "../api/renderer-dto.ts";
 import type { FirstRunApi } from "../api/first-run-contract.ts";
 import { isRendererRecord } from "./result-validation.ts";
+import type { DaemonRpcMethodMap, DaemonRpcResult } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+
+type GuiInvokeFacet =
+  (typeof import("../../../daemon/src/protocol/daemon-protocol.contract.ts").daemonGuiInvokeFacets)[number];
+type GuiRpcMethod = GuiInvokeFacet["method"] & keyof DaemonRpcMethodMap;
+type GuiBridgeMethodFor<Method extends GuiRpcMethod> = Extract<
+  GuiInvokeFacet,
+  { readonly method: Method }
+>["guiBridgeMethod"];
+type GuiInput<Value> =
+  Value extends ReadonlyArray<infer Item>
+    ? ReadonlyArray<GuiInput<Item>>
+    : Value extends object
+      ? string extends keyof Value
+        ? object
+        : { readonly [Key in keyof Value]: GuiInput<Value[Key]> }
+      : Value;
+type GuiBridgeParams<Method extends GuiRpcMethod> = DaemonRpcMethodMap[Method]["params"] extends {
+  readonly repo: { readonly repoId: infer RepoId };
+  readonly payload: infer Payload extends object;
+}
+  ? { readonly repoId: RepoId } & GuiInput<Payload>
+  : DaemonRpcMethodMap[Method]["params"] extends {
+        readonly repo: { readonly repoId: infer RepoId };
+      }
+    ? { readonly repoId: RepoId }
+    : DaemonRpcMethodMap[Method]["params"] extends { readonly payload: infer Payload extends object }
+      ? GuiInput<Payload>
+      : GuiInput<DaemonRpcMethodMap[Method]["params"]>;
 
 type HarnessBridge = Record<GuiBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
   readonly capabilities?: unknown;
@@ -362,43 +391,43 @@ export interface DecisionProposalInput {
 
 export const harnessClient = {
   async getSystemStatus(): Promise<SystemStatusSuccess> {
-    return readSystemStatus(await invokeBridge("getSystemStatus"));
+    return readSystemStatus(await invoke("daemon.gui.system.read", {}, "getSystemStatus"));
   },
   async requestDaemonControl(payload: {
     readonly kind: "refresh" | "restart";
     readonly authorityRepoId: string;
     readonly reason?: string;
   }): Promise<DaemonControlReceipt> {
-    return readDaemonControlReceipt(await invokeBridge("requestDaemonControl", payload));
+    return readDaemonControlReceipt(await invoke("daemon.gui.control.request", payload, "requestDaemonControl"));
   },
   async getDaemonControlReceipt(payload: { readonly operationId: string }): Promise<DaemonControlReceipt> {
-    return readDaemonControlReceipt(await invokeBridge("getDaemonControlReceipt", payload));
+    return readDaemonControlReceipt(await invoke("daemon.gui.control.receipt", payload, "getDaemonControlReceipt"));
   },
   async tailObservability(payload: ObserveTailRequest): Promise<ObserveTailRead> {
-    return readObserveTailResult(await invokeBridge("tailObservability", payload));
+    return readObserveTailResult(await invoke("observe.tail", payload, "tailObservability"));
   },
   async getTasks(payload: RepoScope & TaskQueryFacets): Promise<TaskListSuccess> {
-    return readTaskListResult(await invokeBridge("getTasks", payload));
+    return readTaskListResult(await invoke("repo.tasks.list", payload, "getTasks"));
   },
   async getAgenda(payload: RepoScope & { readonly limit?: number; readonly cursor?: string }): Promise<AgendaSuccess> {
     return readAgendaResult(await invokeBridge("getAgenda", payload));
   },
   async getSettings(payload: RepoScope): Promise<SettingsSuccess> {
-    return readSettingsResult(await invokeBridge("getSettings", payload));
+    return readSettingsResult(await invoke("repo.settings.read", payload, "getSettings"));
   },
   async updateSettings(payload: SettingsUpdateInput): Promise<GuiActionResult> {
-    return readGuiActionResult(await invokeBridge("updateSettings", payload));
+    return readGuiActionResult(await invoke("repo.settings.update", payload, "updateSettings"));
   },
   async getWorkspaceSummary(payload: RepoScope): Promise<WorkspaceSummarySuccess> {
-    return readWorkspaceSummaryResult(await invokeBridge("getWorkspaceSummary", payload));
+    return readWorkspaceSummaryResult(await invoke("repo.workspace.summary.read", payload, "getWorkspaceSummary"));
   },
   async getTaskDocument(
     payload: RepoScope & { readonly taskId: string; readonly path: string },
   ): Promise<TaskDocumentProjectionRead> {
-    return readTaskDocumentResult(await invokeBridge("getTaskDocument", payload));
+    return readTaskDocumentResult(await invoke("repo.tasks.document.read", payload, "getTaskDocument"));
   },
   async getTaskDocuments(payload: RepoScope & { readonly taskId: string }): Promise<TaskDocumentListProjectionRead> {
-    return readTaskDocumentListResult(await invokeBridge("getTaskDocuments", payload));
+    return readTaskDocumentListResult(await invoke("repo.tasks.documents.list", payload, "getTaskDocuments"));
   },
   async getTaskDispatches(
     payload: RepoScope &
@@ -407,19 +436,21 @@ export const harnessClient = {
         | { readonly taskIds: readonly string[]; readonly limit?: number; readonly cursor?: string }
       ),
   ): Promise<TaskDispatchesRead> {
-    return readTaskDispatchesResult(await invokeBridge("getTaskDispatches", payload));
+    return readTaskDispatchesResult(await invoke("repo.task.dispatches", payload, "getTaskDispatches"));
   },
   async getRelationGraph(payload: RepoScope & RelationQueryFacets): Promise<RelationGraphSuccess> {
-    return readRelationGraphResult(await invokeBridge("getRelationGraph", payload));
+    return readRelationGraphResult(await invoke("repo.triadic.relationGraph", payload, "getRelationGraph"));
   },
   async getRelationFacts(payload: RepoScope & RelationFactFacetQuery): Promise<RelationFactFacetSuccess> {
-    return readRelationFactFacetResult(await invokeBridge("getRelationGraph", payload));
+    return readRelationFactFacetResult(await invoke("repo.triadic.relationGraph", payload, "getRelationGraph"));
   },
   async getDecisions(payload: RepoScope): Promise<DecisionListSuccess> {
-    return readDecisionListResult(await invokeBridge("getDecisions", payload));
+    return readDecisionListResult(await invoke("repo.decisions.list", payload, "getDecisions"));
   },
   async getDecisionSummaries(payload: RepoScope): Promise<DecisionSummaryListSuccess> {
-    return readDecisionSummaryListResult(await invokeBridge("getDecisions", { ...payload, projection: "summary" }));
+    return readDecisionSummaryListResult(
+      await invoke("repo.decisions.list", { ...payload, projection: "summary" }, "getDecisions"),
+    );
   },
   async listDecisionControls(
     payload: RepoScope & {
@@ -429,15 +460,15 @@ export const harnessClient = {
       readonly productLine?: string;
     },
   ): Promise<DecisionControlListSuccess> {
-    return readDecisionControlList(await invokeBridge("listDecisions", payload));
+    return readDecisionControlList(await invoke("repo.decision.list", payload, "listDecisions"));
   },
   async showDecision(
     payload: RepoScope & { readonly decisionId: string; readonly includeBody?: boolean },
   ): Promise<DecisionShowSuccess> {
-    return readDecisionShowResult(await invokeBridge("showDecision", payload));
+    return readDecisionShowResult(await invoke("repo.decision.show", payload, "showDecision"));
   },
   async proposeDecision(payload: RepoScope & DecisionProposalInput): Promise<GuiActionResult> {
-    return readGuiActionResult(await invokeBridge("proposeDecision", payload));
+    return readGuiActionResult(await invoke("repo.decision.propose", payload, "proposeDecision"));
   },
   async acceptDecision(
     payload: RepoScope & {
@@ -446,22 +477,22 @@ export const harnessClient = {
       readonly judgmentOnlyRationale?: string;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invokeBridge("acceptDecision", payload));
+    return readGuiActionResult(await invoke("repo.decision.accept", payload, "acceptDecision"));
   },
   async rejectDecision(
     payload: RepoScope & { readonly decisionId: string; readonly reason: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invokeBridge("rejectDecision", payload));
+    return readGuiActionResult(await invoke("repo.decision.reject", payload, "rejectDecision"));
   },
   async deferDecision(
     payload: RepoScope & { readonly decisionId: string; readonly reason: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invokeBridge("deferDecision", payload));
+    return readGuiActionResult(await invoke("repo.decision.defer", payload, "deferDecision"));
   },
   async startTask(
     payload: RepoScope & { readonly taskId: string; readonly executionId: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invokeBridge("startTask", payload));
+    return readGuiActionResult(await invoke("repo.task.start", payload, "startTask"));
   },
   async appendTaskProgress(
     payload: RepoScope & {
@@ -472,7 +503,7 @@ export const harnessClient = {
       readonly baseDocumentSha256?: string | null;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invokeBridge("appendTaskProgress", payload));
+    return readGuiActionResult(await invoke("repo.task.progress.append", payload, "appendTaskProgress"));
   },
   async submitTask(
     payload: RepoScope & {
@@ -481,7 +512,7 @@ export const harnessClient = {
       readonly submission: GuiSubmissionV1;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invokeBridge("submitTask", payload));
+    return readGuiActionResult(await invoke("repo.task.submit", payload, "submitTask"));
   },
   /** 台账 pin 的唯一 GUI 写通道:daemon 侧就是 `ha task pin` 的 pinned-only amend。 */
   async pinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
@@ -491,26 +522,30 @@ export const harnessClient = {
     return readGuiActionResult(await invokeBridge("unpinTask", payload));
   },
   async showReceipt(payload: RepoScope & { readonly opId: string }): Promise<GuiActionResult> {
-    return readGuiActionResult(await invokeBridge("showReceipt", payload));
+    return readGuiActionResult(await invoke("repo.receipt.show", payload, "showReceipt"));
   },
   async getCatalogSnapshot(payload: RepoScope): Promise<CatalogSnapshotSuccess> {
-    return readCatalogSnapshot(await invokeBridge("getCatalogSnapshot", payload));
+    return readCatalogSnapshot(await invoke("repo.gui.catalog.snapshot", payload, "getCatalogSnapshot"));
   },
   async getCatalogPreset(
     payload: RepoScope & { readonly presetId: string; readonly profileId?: string; readonly locale?: string },
   ): Promise<CatalogPresetSuccess> {
-    return readCatalogPreset(await invokeBridge("getCatalogPreset", payload));
+    return readCatalogPreset(await invoke("repo.gui.catalog.preset.read", payload, "getCatalogPreset"));
   },
   async rereadCatalog(payload: RepoScope & { readonly expectedDigest?: string }): Promise<CatalogRereadReceipt> {
-    return readCatalogRereadReceipt(await invokeBridge("rereadCatalog", payload));
+    return readCatalogRereadReceipt(await invoke("repo.gui.catalog.reread", payload, "rereadCatalog"));
   },
 };
 
-async function invokeBridge(method: GuiBridgeMethod, payload: object | null = null): Promise<unknown> {
+async function invoke<Method extends keyof DaemonRpcMethodMap>(
+  method: Method & GuiRpcMethod,
+  params: GuiBridgeParams<Method & GuiRpcMethod>,
+  bridgeMethod: GuiBridgeMethodFor<Method & GuiRpcMethod>,
+): Promise<DaemonRpcResult<Method>> {
   const bridge = window.harness;
-  if (!bridge || typeof bridge[method] !== "function")
-    throw new Error(`Harness preload bridge is unavailable for ${method}.`);
-  return bridge[method](payload);
+  if (!bridge || typeof bridge[bridgeMethod] !== "function")
+    throw new Error(`Harness preload bridge is unavailable for ${method} (${bridgeMethod}).`);
+  return bridge[bridgeMethod](params) as Promise<DaemonRpcResult<Method>>;
 }
 
 function readTaskDocumentListResult(value: unknown): TaskDocumentListProjectionRead {
@@ -538,24 +573,27 @@ function readTaskDocumentListResult(value: unknown): TaskDocumentListProjectionR
 }
 
 function readSettingsResult(value: unknown): SettingsSuccess {
-  if (
-    !isRendererRecord(value) ||
-    value.schema !== "daemon.settings-read/v1" ||
-    value.ok !== true ||
-    !isRendererRecord(value.settings) ||
-    value.settings.schema !== "settings/v1" ||
-    value.settings.settingsId !== "repository" ||
-    ![value.settings.defaultVertical, value.settings.defaultPreset, value.settings.defaultProfile].every(
+  if (!isSettingsSuccess(value)) throw new Error(localErrorHint(value, "Settings bridge returned an invalid result."));
+  return value;
+}
+
+function isSettingsSuccess(value: unknown): value is SettingsSuccess {
+  if (!isRendererRecord(value) || !isRendererRecord(value.settings)) return false;
+  const settings = value.settings;
+  return (
+    value.schema === "daemon.settings-read/v1" &&
+    value.ok === true &&
+    settings.schema === "settings/v1" &&
+    settings.settingsId === "repository" &&
+    [settings.defaultVertical, settings.defaultPreset, settings.defaultProfile].every(
       (field) => typeof field === "string" && field.length > 0,
-    ) ||
-    !["en-US", "zh-CN"].includes(String(value.settings.locale)) ||
-    !isRendererRecord(value.settings.scaffolds) ||
-    ![value.settings.scaffolds.task, value.settings.scaffolds.repository].every(
+    ) &&
+    ["en-US", "zh-CN"].includes(String(settings.locale)) &&
+    isRendererRecord(settings.scaffolds) &&
+    [settings.scaffolds.task, settings.scaffolds.repository].every(
       (field) => typeof field === "string" && field.length > 0,
     )
-  )
-    throw new Error(localErrorHint(value, "Settings bridge returned an invalid result."));
-  return value as unknown as SettingsSuccess;
+  );
 }
 
 function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {
@@ -921,54 +959,76 @@ function readDecisionShowResult(value: unknown): DecisionShowSuccess {
 }
 
 function readSystemStatus(value: unknown): SystemStatusSuccess {
-  if (
-    !isRendererRecord(value) ||
-    value.schema !== "gui-system-status/v1" ||
-    value.ok !== true ||
-    typeof value.observedAt !== "string" ||
-    !isRendererRecord(value.daemon) ||
-    !Array.isArray(value.repos) ||
-    value.repos.some(
-      (repo) =>
-        !isRendererRecord(repo) ||
-        typeof repo.repoId !== "string" ||
-        typeof repo.displayName !== "string" ||
-        !["enabled", "disabled"].includes(String(repo.registrationState)) ||
-        !["warming", "attached", "unavailable", "not_loaded"].includes(String(repo.cellState)),
-    )
-  )
+  if (!isSystemStatusSuccess(value))
     throw new Error(localErrorHint(value, "System status bridge returned an invalid result."));
-  return value as unknown as SystemStatusSuccess;
+  return value;
 }
 function readDaemonControlReceipt(value: unknown): DaemonControlReceipt {
-  if (
-    !isRendererRecord(value) ||
-    value.schema !== "daemon-control-receipt/v1" ||
-    typeof value.ok !== "boolean" ||
-    !["pending", "op_rejected"].includes(String(value.outcome)) ||
-    !["refresh", "restart"].includes(String(value.kind)) ||
-    typeof value.operationId !== "string" ||
-    !["queued", "draining", "starting", "settled", "failed"].includes(String(value.phase))
-  )
+  if (!isDaemonControlReceipt(value))
     throw new Error(localErrorHint(value, "Daemon control bridge returned an invalid receipt."));
-  return value as unknown as DaemonControlReceipt;
+  return value;
 }
 function readCatalogSnapshot(value: unknown): CatalogSnapshotSuccess {
-  if (
-    !isRendererRecord(value) ||
-    value.schema !== "gui-catalog-snapshot/v1" ||
-    value.ok !== true ||
-    !["ready", "pending"].includes(String(value.status)) ||
-    typeof value.repoId !== "string" ||
-    !isRendererRecord(value.defaults) ||
-    !Array.isArray(value.presets) ||
-    !Array.isArray(value.verticals) ||
-    !Array.isArray(value.templates) ||
-    !Array.isArray(value.adapters) ||
-    !isRendererRecord(value.scaffolds) ||
-    !Array.isArray(value.scaffolds.task) ||
-    !Array.isArray(value.scaffolds.repository) ||
-    !value.presets.every(
+  if (!isCatalogSnapshotSuccess(value))
+    throw new Error(localErrorHint(value, "Catalog snapshot bridge returned an invalid result."));
+  return value;
+}
+function readCatalogPreset(value: unknown): CatalogPresetSuccess {
+  if (!isCatalogPresetSuccess(value))
+    throw new Error(localErrorHint(value, "Catalog preset bridge returned an invalid result."));
+  return value;
+}
+function readCatalogRereadReceipt(value: unknown): CatalogRereadReceipt {
+  if (!isCatalogRereadReceipt(value))
+    throw new Error(localErrorHint(value, "Catalog reread bridge returned an invalid receipt."));
+  return value;
+}
+
+function isSystemStatusSuccess(value: unknown): value is SystemStatusSuccess {
+  return (
+    isRendererRecord(value) &&
+    value.schema === "gui-system-status/v1" &&
+    value.ok === true &&
+    typeof value.observedAt === "string" &&
+    isRendererRecord(value.daemon) &&
+    Array.isArray(value.repos) &&
+    value.repos.every(
+      (repo) =>
+        isRendererRecord(repo) &&
+        typeof repo.repoId === "string" &&
+        typeof repo.displayName === "string" &&
+        ["enabled", "disabled"].includes(String(repo.registrationState)) &&
+        ["warming", "attached", "unavailable", "not_loaded"].includes(String(repo.cellState)),
+    )
+  );
+}
+function isDaemonControlReceipt(value: unknown): value is DaemonControlReceipt {
+  return (
+    isRendererRecord(value) &&
+    value.schema === "daemon-control-receipt/v1" &&
+    typeof value.ok === "boolean" &&
+    ["pending", "op_rejected"].includes(String(value.outcome)) &&
+    ["refresh", "restart"].includes(String(value.kind)) &&
+    typeof value.operationId === "string" &&
+    ["queued", "draining", "starting", "settled", "failed"].includes(String(value.phase))
+  );
+}
+function isCatalogSnapshotSuccess(value: unknown): value is CatalogSnapshotSuccess {
+  return (
+    isRendererRecord(value) &&
+    value.schema === "gui-catalog-snapshot/v1" &&
+    value.ok === true &&
+    ["ready", "pending"].includes(String(value.status)) &&
+    typeof value.repoId === "string" &&
+    isRendererRecord(value.defaults) &&
+    Array.isArray(value.presets) &&
+    Array.isArray(value.verticals) &&
+    Array.isArray(value.templates) &&
+    Array.isArray(value.adapters) &&
+    isRendererRecord(value.scaffolds) &&
+    Array.isArray(value.scaffolds.task) &&
+    Array.isArray(value.scaffolds.repository) &&
+    value.presets.every(
       (row) =>
         isRendererRecord(row) &&
         Array.isArray(row.profiles) &&
@@ -976,20 +1036,18 @@ function readCatalogSnapshot(value: unknown): CatalogSnapshotSuccess {
           (profile) => isRendererRecord(profile) && typeof profile.id === "string" && typeof profile.title === "string",
         ),
     )
-  )
-    throw new Error(localErrorHint(value, "Catalog snapshot bridge returned an invalid result."));
-  return value as unknown as CatalogSnapshotSuccess;
+  );
 }
-function readCatalogPreset(value: unknown): CatalogPresetSuccess {
-  if (
-    !isRendererRecord(value) ||
-    value.schema !== "gui-catalog-preset/v1" ||
-    value.ok !== true ||
-    typeof value.repoId !== "string" ||
-    !isRendererRecord(value.preset) ||
-    !isRendererRecord(value.resolved) ||
-    !Array.isArray(value.resolved.documents) ||
-    !value.resolved.documents.every(
+function isCatalogPresetSuccess(value: unknown): value is CatalogPresetSuccess {
+  return (
+    isRendererRecord(value) &&
+    value.schema === "gui-catalog-preset/v1" &&
+    value.ok === true &&
+    typeof value.repoId === "string" &&
+    isRendererRecord(value.preset) &&
+    isRendererRecord(value.resolved) &&
+    Array.isArray(value.resolved.documents) &&
+    value.resolved.documents.every(
       (row) =>
         isRendererRecord(row) &&
         typeof row.slot === "string" &&
@@ -997,21 +1055,17 @@ function readCatalogPreset(value: unknown): CatalogPresetSuccess {
         typeof row.body === "string" &&
         typeof row.mediaType === "string",
     )
-  )
-    throw new Error(localErrorHint(value, "Catalog preset bridge returned an invalid result."));
-  return value as unknown as CatalogPresetSuccess;
+  );
 }
-function readCatalogRereadReceipt(value: unknown): CatalogRereadReceipt {
-  if (
-    !isRendererRecord(value) ||
-    value.schema !== "catalog-reread-receipt/v1" ||
-    typeof value.ok !== "boolean" ||
-    !["applied", "op_rejected"].includes(String(value.outcome)) ||
-    typeof value.operationId !== "string" ||
-    typeof value.repoId !== "string"
-  )
-    throw new Error(localErrorHint(value, "Catalog reread bridge returned an invalid receipt."));
-  return value as unknown as CatalogRereadReceipt;
+function isCatalogRereadReceipt(value: unknown): value is CatalogRereadReceipt {
+  return (
+    isRendererRecord(value) &&
+    value.schema === "catalog-reread-receipt/v1" &&
+    typeof value.ok === "boolean" &&
+    ["applied", "op_rejected"].includes(String(value.outcome)) &&
+    typeof value.operationId === "string" &&
+    typeof value.repoId === "string"
+  );
 }
 
 function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProjectionRow {

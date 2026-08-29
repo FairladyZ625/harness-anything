@@ -18,7 +18,12 @@ import {
   validateGuiSubmission,
 } from "./daemon-protocol-validate-entities.ts";
 import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
-import { allDaemonProtocolMethods } from "./daemon-protocol.contract.ts";
+import {
+  allDaemonProtocolMethods,
+  type DaemonRpcCall,
+  type DaemonRpcMethod,
+  type DaemonRpcWireParams,
+} from "./daemon-protocol.contract.ts";
 import { decisionStateWords, relationStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import {
   DaemonProtocolContractError,
@@ -44,13 +49,18 @@ export function isDaemonStreamMethod(method: string): method is DaemonStreamMeth
   return daemonStreamFacets.some((entry) => entry.method === method);
 }
 
+export function isDaemonRpcMethod(method: string): method is DaemonRpcMethod {
+  return allDaemonProtocolMethods.some((entry) => entry.method === method);
+}
+
 // The executor declaration surface, derived from the same shapes validateDaemonRpcCall enforces — never
 // a hand-copied method list. repo.task.run accepts the executor inside its open action envelope; every
 // other method accepts payload.executor exactly when its payload shape declares the field (the preset
 // methods and repo.agentRuntime.spawn do). The CLI injects on this predicate, so a newly contracted
 // command that does not declare executor is simply never injected into.
 export function daemonMethodAcceptsPayloadExecutor(method: string): boolean {
-  const payload = allDaemonProtocolMethods.find((entry) => entry.method === method)?.params.fields.payload;
+  const fields = allDaemonProtocolMethods.find((entry) => entry.method === method)?.params.fields,
+    payload = fields && "payload" in fields ? fields.payload : undefined;
   return (
     typeof payload === "object" && payload !== null && "fields" in payload && Object.hasOwn(payload.fields, "executor")
   );
@@ -229,13 +239,40 @@ export function validateTaskDispatchesPayload(value: unknown): string[] {
   return [];
 }
 
+export type ParsedDaemonRpcParams<Method extends DaemonRpcMethod> =
+  | {
+      readonly ok: true;
+      readonly params: DaemonRpcWireParams<Method>;
+      readonly call: DaemonRpcCall<Method>;
+    }
+  | { readonly ok: false; readonly errors: readonly string[] };
+
+export function parseDaemonRpcParams<Method extends DaemonRpcMethod>(
+  method: Method,
+  params: unknown,
+): ParsedDaemonRpcParams<Method>;
 export function parseDaemonRpcParams(
   method: string,
   params: unknown,
-): { readonly ok: true; readonly params: JsonObject } | { readonly ok: false; readonly errors: readonly string[] } {
+):
+  | { readonly ok: true; readonly params: JsonObject; readonly call: DaemonRpcCall }
+  | { readonly ok: false; readonly errors: readonly string[] };
+export function parseDaemonRpcParams(
+  method: string,
+  params: unknown,
+):
+  | { readonly ok: true; readonly params: JsonObject; readonly call: DaemonRpcCall }
+  | { readonly ok: false; readonly errors: readonly string[] } {
   const candidateParams = params === undefined ? {} : params,
     errors = validateDaemonRpcCall({ method, params: candidateParams });
-  return errors.length ? { ok: false, errors } : { ok: true, params: candidateParams as JsonObject };
+  if (errors.length) return { ok: false, errors };
+  if (!isDaemonRpcMethod(method)) return { ok: false, errors: ["RPC method is not contracted"] };
+  const typedParams = candidateParams as DaemonRpcWireParams<DaemonRpcMethod>;
+  return {
+    ok: true,
+    params: typedParams,
+    call: { method, params: typedParams } as DaemonRpcCall,
+  };
 }
 
 export function validateShape(value: unknown, expected: RpcShape, prefix: string): string[] {
