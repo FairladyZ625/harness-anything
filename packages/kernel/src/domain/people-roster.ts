@@ -247,6 +247,8 @@ function setPersonRole(
     throw new PeopleRosterContractError("the owner role is reserved for the bootstrap creator");
   if (held.roles.includes("owner") && rolePolicy.roleId !== "owner")
     throw new PeopleRosterContractError(`bootstrap creator ${personId} must retain the owner role`);
+  if (held.roles.includes("owner") && !rolePolicy.commandClasses.includes("admin"))
+    throw new PeopleRosterContractError("the owner role must retain the admin command class");
   const roles = withRolePolicy(roster.roles, rolePolicy),
     people = roster.people.map((person) =>
       person.personId === personId ? { ...person, roles: [rolePolicy.roleId] } : person,

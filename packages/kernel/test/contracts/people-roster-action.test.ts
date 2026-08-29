@@ -110,10 +110,12 @@ test("roster transitions preserve the bootstrap owner and an enabled admin", () 
       person: { ...owner, personId: "person_alice", displayName: "Alice", roles: ["admin"], credentials: [] },
       rolePolicy: { roleId: "admin", commandClasses: ["admin"] },
     }),
-    ownerWithoutAdmin = applyPeopleRosterAction(alice.body, {
-      kind: "people-set-role",
-      personId: owner.personId,
-      rolePolicy: { roleId: "owner", commandClasses: ["repo-read"] },
+    aliceRoster = parsePeopleRosterDocument(alice.body),
+    ownerWithoutAdmin = serializePeopleRosterDocument({
+      ...aliceRoster,
+      roles: aliceRoster.roles.map((role) =>
+        role.roleId === "owner" ? { ...role, commandClasses: ["repo-read"] } : role,
+      ),
     });
 
   const rejected = [
@@ -129,8 +131,14 @@ test("roster transitions preserve the bootstrap owner and an enabled admin", () 
         personId: "person_alice",
         rolePolicy: { roleId: "owner", commandClasses: ["admin"] },
       }),
+    () =>
+      applyPeopleRosterAction(alice.body, {
+        kind: "people-set-role",
+        personId: owner.personId,
+        rolePolicy: { roleId: "owner", commandClasses: ["repo-read"] },
+      }),
     () => applyPeopleRosterAction(bootstrapped.body, { kind: "people-remove", personId: owner.personId }),
-    () => applyPeopleRosterAction(ownerWithoutAdmin.body, { kind: "people-remove", personId: "person_alice" }),
+    () => applyPeopleRosterAction(ownerWithoutAdmin, { kind: "people-remove", personId: "person_alice" }),
   ];
   for (const transition of rejected)
     assert.throws(transition, (error) => {
