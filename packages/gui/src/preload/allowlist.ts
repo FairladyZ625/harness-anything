@@ -106,15 +106,23 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
     if (emptyRepoMethods.has(method) && Object.keys(payload).some((key) => key !== "repoId"))
       throw new Error(`Preload ${method} fields are not allowed.`);
     if (queryRepoMethods.has(method as PreloadApiMethod)) {
+      // A relation-graph facet selector is a different read, not a page window over the
+      // wide one: mirror the daemon's closure rule (facet + its own selectors, and never
+      // both a facet and a legacy status/time/page field) so the renderer is rejected here
+      // instead of at the daemon boundary.
       const fields =
         method === "getAgenda"
           ? ["repoId", "limit", "cursor"]
           : method === "getTasks"
             ? ["repoId", "status", "changedAfterRevision", "updatedAfter", "updatedBefore", "limit", "cursor"]
-            : ["repoId", "status", "updatedAfter", "updatedBefore", "limit", "cursor"];
+            : payload.facet === undefined
+              ? ["repoId", "status", "updatedAfter", "updatedBefore", "limit", "cursor"]
+              : ["repoId", "facet", "relationType", "state", "direction"];
       if (!closed(payload, fields)) throw new Error(`Preload ${method} fields are not allowed.`);
       if (!validQueryPayload(method, payload)) throw new Error(`Preload ${method} query facets are invalid.`);
     }
+    if (method === "getDecisions" && !validDecisionListPayload(payload))
+      throw new Error("Preload getDecisions request is invalid.");
     if (method === "getTaskDispatches" && !validTaskDispatchesPayload(payload))
       throw new Error("Preload getTaskDispatches request is invalid.");
   } else if (isPreloadPayloadRecord(payload) && Object.hasOwn(payload, "repoId")) {
@@ -341,6 +349,7 @@ function validQueryPayload(method: string, value: Record<string, unknown>): bool
   const after = value.updatedAfter,
     before = value.updatedBefore,
     changedAfterRevision = value.changedAfterRevision,
+    facet = value.facet,
     states =
       method === "getTasks"
         ? ["planned", "active", "blocked", "in_review", "done", "cancelled"]
@@ -349,6 +358,13 @@ function validQueryPayload(method: string, value: Record<string, unknown>): bool
       (value.limit === undefined ||
         (Number.isSafeInteger(value.limit) && Number(value.limit) >= 1 && Number(value.limit) <= 500)) &&
       (value.cursor === undefined || (typeof value.cursor === "string" && value.cursor.length > 0));
+  if (method === "getRelationGraph" && facet !== undefined)
+    return (
+      ["edges", "facts", "coverageRows", "factAnchors"].includes(String(facet)) &&
+      (facet !== "edges" || validRelationEdgeFacetSelectors(value)) &&
+      (facet === "edges" ||
+        (value.relationType === undefined && value.state === undefined && value.direction === undefined))
+    );
   return method === "getAgenda"
     ? common
     : common &&
@@ -358,6 +374,20 @@ function validQueryPayload(method: string, value: Record<string, unknown>): bool
         (value.status === undefined || (typeof value.status === "string" && states.includes(value.status))) &&
         [after, before].every((item) => item === undefined || isUtcTimestamp(item)) &&
         !(typeof after === "string" && typeof before === "string" && after > before);
+}
+/** Selectors exist only on the edge facet, and `state` there shares the edge-state vocabulary. */
+function validRelationEdgeFacetSelectors(value: Record<string, unknown>): boolean {
+  return (
+    (value.relationType === undefined || typeof value.relationType === "string") &&
+    (value.state === undefined ||
+      (typeof value.state === "string" && ["active", "edge_retired", "deleted"].includes(value.state))) &&
+    (value.direction === undefined || ["directed", "undirected"].includes(String(value.direction)))
+  );
+}
+/** `repo.decisions.list` carries one selector: the summary projection the mounted chrome reads. */
+function validDecisionListPayload(value: Record<string, unknown>): boolean {
+  if (!closed(value, ["repoId", "projection"])) return false;
+  return value.projection === undefined || ["summary", "full"].includes(String(value.projection));
 }
 function validTaskDispatchesPayload(value: Record<string, unknown>): boolean {
   if (!closed(value, ["repoId", "taskId", "taskIds", "limit", "cursor"])) return false;

@@ -6,8 +6,6 @@ export function adaptRepoProject(
   repo: SystemRepoRow | undefined,
   presetId: string | undefined,
   watermarkAt: string,
-  decisionCount: number,
-  factCount: number,
 ): Project {
   return {
     id: repoId,
@@ -16,7 +14,5 @@ export function adaptRepoProject(
     preset: presetId ?? "unknown / 未投影",
     engines: [],
     watermarkAt,
-    decisionCount,
-    factCount,
   };
 }

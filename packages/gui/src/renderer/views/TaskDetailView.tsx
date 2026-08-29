@@ -18,10 +18,11 @@ import {
   TaskEvidenceTab,
   TaskOverviewTab,
   TaskRelationsTab,
+  type TaskDecisionRef,
 } from "../components/taskDetail/TaskDetailSections.tsx";
 import { TaskDocumentSidebar, TaskFilesTab } from "../components/taskDetail/TaskFilesTab.tsx";
 import { PhaseSteps } from "../components/taskDetail/PhaseSteps.tsx";
-import type { DecisionRow, RelationEdge, TaskRow } from "../model/types.ts";
+import type { RelationEdge, TaskRow } from "../model/types.ts";
 import { isExternal } from "../model/types.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import { t } from "../i18n/index.tsx";
@@ -58,7 +59,8 @@ export function TaskDetailView({
   onBack: () => void;
   tasks?: TaskRow[];
   relations?: RelationEdge[];
-  decisions?: DecisionRow[];
+  /** 身份/标题/状态即可(常驻摘要投影就够);证据页签自己读全量决策行。 */
+  decisions?: readonly TaskDecisionRef[];
   onSelect?: (id: string) => void;
   projectName: string;
   fromViewLabel?: string;
@@ -273,13 +275,7 @@ export function TaskDetailView({
             ) : activeTab === "dispatch" ? (
               <TaskDispatchTab task={task} focusedSessionId={focusedSessionId} onNavigateEntity={onNavigateEntity} />
             ) : activeTab === "evidence" ? (
-              <TaskEvidenceTab
-                task={task}
-                tasks={tasks}
-                relations={relations}
-                decisions={decisions}
-                onNavigateEntity={onNavigateEntity}
-              />
+              <TaskEvidenceTab task={task} tasks={tasks} relations={relations} onNavigateEntity={onNavigateEntity} />
             ) : activeTab === "relations" ? (
               <TaskRelationsTab
                 task={task}

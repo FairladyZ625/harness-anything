@@ -6,6 +6,7 @@
  */
 
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "./types";
+import type { TaskTriageDecisionRef } from "../components/taskDetail/TaskDetailSections.tsx";
 import type { FactTriageItem } from "./fact-triage";
 import { SIGNAL_LABEL } from "./fact-triage";
 import { normalizeDecisionId } from "./triadic";
@@ -22,7 +23,7 @@ import { normalizeDecisionId } from "./triadic";
 export function buildFactTriageContext(
   item: FactTriageItem,
   relations: readonly RelationEdge[],
-  decisions: readonly DecisionRow[],
+  decisions: readonly TaskTriageDecisionRef[],
   tasks: readonly TaskRow[],
 ): string {
   const { fact, signals, citingDecisionIds } = item;

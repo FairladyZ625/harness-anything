@@ -141,8 +141,6 @@ export const FIXTURE_PROJECT: Project = {
   preset: "preset-g10",
   engines: ["local"],
   watermarkAt: AT,
-  decisionCount: 1,
-  factCount: 1,
 };
 
 const DECISION_STATES = [

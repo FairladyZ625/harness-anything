@@ -2,12 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { consumeKnownError } from "../api/error-consumption.ts";
-import {
-  harnessClient,
-  type DecisionListSuccess,
-  type DecisionProposalInput,
-  type RelationGraphSuccess,
-} from "./api-client.ts";
+import { harnessClient, type DecisionListSuccess, type DecisionProposalInput } from "./api-client.ts";
 import type { DecisionRow, RelationEdge } from "./model/types.ts";
 import { triadicQueryKeys } from "./triadic-data.ts";
 import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
@@ -148,25 +143,19 @@ export function useDecisionActions(repoId: string) {
     documentSha256: receipt.documentSha256,
     worktreeVisible: receipt.worktreeVisible,
   });
-  const refresh = async (): Promise<{ decisions: DecisionListSuccess; graph: RelationGraphSuccess }> => {
+  const refresh = async (): Promise<{ decisions: DecisionListSuccess }> => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: triadicQueryKeys.decisions(repoId) }),
-      queryClient.invalidateQueries({ queryKey: triadicQueryKeys.graph(repoId) }),
+      // 一次失效覆盖全部三元切面(derives/摘要/事实/完整投影):挂载中的查询按
+      // react-query 默认 refetchType:"active" 重取,没挂载的只标记 stale。
+      queryClient.invalidateQueries({ queryKey: triadicQueryKeys.all(repoId) }),
       queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId) }),
     ]);
-    const [decisions, graph] = await Promise.all([
-      queryClient.fetchQuery({
-        queryKey: triadicQueryKeys.decisions(repoId),
-        queryFn: () => harnessClient.getDecisions({ repoId }),
-        staleTime: 0,
-      }),
-      queryClient.fetchQuery({
-        queryKey: triadicQueryKeys.graph(repoId),
-        queryFn: () => harnessClient.getRelationGraph({ repoId }),
-        staleTime: 0,
-      }),
-    ]);
-    return { decisions, graph };
+    const decisions = await queryClient.fetchQuery({
+      queryKey: triadicQueryKeys.decisions(repoId),
+      queryFn: () => harnessClient.getDecisions({ repoId }),
+      staleTime: 0,
+    });
+    return { decisions };
   };
   const failure = (key: string, kind: DecisionMutationFeedback["kind"], settlement: DecisionSettlement) =>
     publish(key, {
