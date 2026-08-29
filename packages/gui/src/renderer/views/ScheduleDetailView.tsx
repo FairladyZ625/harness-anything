@@ -488,7 +488,8 @@ function ScheduleOverviewTab({
   readonly onSelectEntity: (ref: string) => void;
   readonly onOpenRun: (occurrenceId: string) => void;
 }) {
-  const availabilityKey = AVAILABILITY_META[row.executionAvailability];
+  const availabilityKey = AVAILABILITY_META[row.executionAvailability],
+    agentTarget = row.target.kind === "agent" ? row.target : null;
   return (
     <div className="grid gap-3 lg:grid-cols-[5fr_7fr]">
       <div className="min-w-0">
@@ -542,30 +543,32 @@ function ScheduleOverviewTab({
               <Field label={t("schedules.fields.timezone")} value={row.trigger.timezone ?? "—"} />
               <Field label={t("schedules.fields.definitionRevision")} value={String(row.definitionRevision)} />
               <Field label={t("schedules.fields.updatedAt")} value={time(row.updatedAt)} />
-              <Field label={t("schedules.fields.model")} value={row.target.model ?? "—"} />
-              <Field label={t("schedules.fields.cwd")} value={row.target.cwd ?? "—"} />
+              <Field label={t("schedules.fields.model")} value={agentTarget?.model ?? "—"} />
+              <Field label={t("schedules.fields.cwd")} value={agentTarget?.cwd ?? "—"} />
             </FieldGrid>
             {/* G10: displayed entity ids are paths — the agent and runtime-instance
                 ids stay activatable links. Run sessions are the exception by design:
                 they render embedded in this hub, never as a jump to the global list. */}
-            <div className="mt-2 flex flex-wrap gap-3">
-              <button
-                type="button"
-                data-testid={`schedule-agent-link-${row.target.agentId}`}
-                onClick={() => onSelectEntity(`agent/${row.target.agentId}`)}
-                className="font-mono text-[11px] text-accent hover:underline"
-              >
-                {t("schedules.fields.agent")}: {row.target.agentId}
-              </button>
-              <button
-                type="button"
-                data-testid={`schedule-instance-link-${row.target.runtimeInstanceId}`}
-                onClick={() => onSelectEntity(`provider/${row.target.runtimeInstanceId}`)}
-                className="font-mono text-[11px] text-accent hover:underline"
-              >
-                {t("schedules.fields.instance")}: {row.target.runtimeInstanceId}
-              </button>
-            </div>
+            {agentTarget && (
+              <div className="mt-2 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  data-testid={`schedule-agent-link-${agentTarget.agentId}`}
+                  onClick={() => onSelectEntity(`agent/${agentTarget.agentId}`)}
+                  className="font-mono text-[11px] text-accent hover:underline"
+                >
+                  {t("schedules.fields.agent")}: {agentTarget.agentId}
+                </button>
+                <button
+                  type="button"
+                  data-testid={`schedule-instance-link-${agentTarget.runtimeInstanceId}`}
+                  onClick={() => onSelectEntity(`provider/${agentTarget.runtimeInstanceId}`)}
+                  className="font-mono text-[11px] text-accent hover:underline"
+                >
+                  {t("schedules.fields.instance")}: {agentTarget.runtimeInstanceId}
+                </button>
+              </div>
+            )}
           </CardBody>
         </Card>
         <Card testId="schedule-overview-execution">

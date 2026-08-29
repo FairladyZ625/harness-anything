@@ -73,7 +73,8 @@ export function ScheduleForm({
   readonly onCancel: () => void;
   readonly onSubmit: (input: ScheduleDefinitionInput) => void;
 }) {
-  const duration = durationOf(initial?.trigger.everyMs ?? 30 * UNIT_MS.m),
+  const initialAgentTarget = initial?.target.kind === "agent" ? initial.target : undefined,
+    duration = durationOf(initial?.trigger.everyMs ?? 30 * UNIT_MS.m),
     [scheduleId, setScheduleId] = useState(initial?.scheduleId ?? ""),
     [name, setName] = useState(initial?.name ?? ""),
     [triggerKind, setTriggerKind] = useState<TriggerKind>("interval"),
@@ -83,11 +84,11 @@ export function ScheduleForm({
     [cronTime, setCronTime] = useState("02:30"),
     [cronWeekdays, setCronWeekdays] = useState<ReadonlySet<number>>(() => new Set([1])),
     [cronTimezone, setCronTimezone] = useState("UTC"),
-    [agentId, setAgentId] = useState(initial?.target.agentId ?? options.agents[0]?.agentId ?? ""),
-    [runtimeInstanceId, setRuntimeInstanceId] = useState(initial?.target.runtimeInstanceId ?? ""),
-    [model, setModel] = useState(initial?.target.model ?? ""),
-    [reasoningEffort, setReasoningEffort] = useState(initial?.target.reasoningEffort ?? ""),
-    [cwd, setCwd] = useState(initial?.target.cwd ?? "."),
+    [agentId, setAgentId] = useState(initialAgentTarget?.agentId ?? options.agents[0]?.agentId ?? ""),
+    [runtimeInstanceId, setRuntimeInstanceId] = useState(initialAgentTarget?.runtimeInstanceId ?? ""),
+    [model, setModel] = useState(initialAgentTarget?.model ?? ""),
+    [reasoningEffort, setReasoningEffort] = useState(initialAgentTarget?.reasoningEffort ?? ""),
+    [cwd, setCwd] = useState(initialAgentTarget?.cwd ?? "."),
     [mission, setMission] = useState(initial?.mission ?? ""),
     // Purpose + routing are semantic scaffolding (design §4); the write path for
     // `mode`/`routing` fields is pending the backend task, stated in the UI below.
