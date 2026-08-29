@@ -346,6 +346,7 @@
   "agentRuntime.squadRunPhasePlanning": "规划中",
   "agentRuntime.squadRunPhaseLeaderRunning": "leader 运行中",
   "agentRuntime.squadRunPhaseWorkersRunning": "worker 运行中",
+  "agentRuntime.squadRunPhaseCancelled": "已取消",
   "agentRuntime.squadRunPhaseConverged": "已收敛",
   "agentRuntime.squadRunPhaseFailed": "已失败",
   "agentRuntime.squadRunsEmptyWindow": "该时间窗({range})内没有 squad run。放宽范围或清空检索。",

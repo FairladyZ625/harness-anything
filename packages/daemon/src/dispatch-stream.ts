@@ -127,6 +127,10 @@ type SummaryCacheEntry = {
 const summaryCache = new Map<string, SummaryCacheEntry>();
 const summaryHeadBytes = 16 * 1024;
 const summaryTailBytes = 128 * 1024;
+const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
+const dispatchStreamWriteLimitBytes = 500 * 1024 * 1024;
+const readLimitWarnings = new Set<string>();
+const writeLimitWarnings = new Set<string>();
 const summaryKinds = new Set([
   "provider_binding",
   "process_started",
@@ -135,6 +139,7 @@ const summaryKinds = new Set([
   "attempt_outcome",
   "fallback_state",
   "squad_run_state",
+  "squad_run_cancelled",
 ]);
 
 export function openDispatchStream(
@@ -189,6 +194,8 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
   const target = dispatchStreamPath(rootDir, dispatchId),
     header = readDispatchStreamHeader(rootDir, dispatchId);
   summaryCache.delete(target);
+  readLimitWarnings.delete(target);
+  writeLimitWarnings.delete(target);
   if (existsSync(target)) unlinkSync(target);
   if (header?.taskId)
     removeDispatchLiveIndexEntries(rootDir, [
@@ -335,7 +342,13 @@ export function readDispatchStream(
   readonly records: readonly DispatchStreamRecord[];
 } | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
-  if (!existsSync(target) || !statSync(target).isFile()) return null;
+  if (!existsSync(target)) return null;
+  const stat = statSync(target);
+  if (!stat.isFile()) return null;
+  if (stat.size > dispatchStreamReadLimitBytes) {
+    warnOnce(readLimitWarnings, target, `skipping full read of ${path.basename(target)} at ${String(stat.size)} bytes`);
+    return null;
+  }
   const lines = readFileSync(target, "utf8").split(/\r?\n/u).filter(Boolean),
     first = parseRecord(lines[0]);
   if (!isHeader(first) || first.dispatchId !== dispatchId) return null;
@@ -468,10 +481,35 @@ function appendJsonl(target: string, value: unknown): void {
   summaryCache.delete(target);
   const descriptor = openSync(target, fsConstants.O_APPEND | fsConstants.O_WRONLY);
   try {
+    const size = fstatSync(descriptor).size;
+    if (size >= dispatchStreamWriteLimitBytes && unboundedDispatchRecord(value)) {
+      warnOnce(
+        writeLimitWarnings,
+        target,
+        `${path.basename(target)} reached ${String(dispatchStreamWriteLimitBytes)} bytes; dropping unbounded output`,
+      );
+      return;
+    }
     writeFileSync(descriptor, `${JSON.stringify(scrubProviderValue(value))}\n`, "utf8");
   } finally {
     closeSync(descriptor);
   }
+}
+
+function unboundedDispatchRecord(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (["provider_event", "provider_output_invalid", "provider_stderr"].includes(String(record.kind))) return true;
+  if (record.kind !== "squad_run_state") return false;
+  const state = record.state;
+  if (!state || typeof state !== "object" || Array.isArray(state)) return true;
+  return !["cancelled", "converged", "failed"].includes(String((state as Record<string, unknown>).phase));
+}
+
+function warnOnce(warnings: Set<string>, target: string, detail: string): void {
+  if (warnings.has(target)) return;
+  warnings.add(target);
+  console.warn(`[runtime-dispatch] ${detail}`);
 }
 
 function summarizeDispatch(

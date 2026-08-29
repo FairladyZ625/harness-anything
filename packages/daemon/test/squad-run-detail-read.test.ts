@@ -239,6 +239,7 @@ function coordinator(
         dispatchId: "dispatch_00000000000000000000b2c3",
         runtimeSessionId: "runtime-worker-1",
       }),
+      cancel: async (): Promise<JsonObject> => ({ ok: true, outcome: "applied" }),
     }),
   });
 }

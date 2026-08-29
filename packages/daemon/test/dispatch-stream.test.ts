@@ -1,17 +1,20 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync, statSync, truncateSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   appendRuntimeWorkerRecord,
   dispatchLiveIndexPath,
+  dispatchStreamPath,
   openDispatchStream,
   readDispatchLiveIndex,
   readDispatchStream,
   readDispatchStreamSummary,
 } from "../src/dispatch-stream.ts";
+import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
+import { cancelRuntime } from "../src/runtime-spawn-control.ts";
 
 test("the live index rebuilds exactly from dispatch stream headers", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-live-index-"));
@@ -102,6 +105,121 @@ test("dispatch summaries skip provider bodies and refresh when lifecycle records
       ["process_started", "process_exit"],
     );
   } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("adoption skips a stream above Node's string limit while runtime cancel still stops the process", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-oversized-read-"));
+  const warning = console.warn,
+    warnings: string[] = [];
+  console.warn = (value: unknown) => warnings.push(String(value));
+  try {
+    const dispatchId = "dispatch_777777777777777777777777",
+      target = dispatchStreamPath(rootDir, dispatchId);
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-oversized",
+      executionId: "execution-oversized",
+      runtimeSessionId: "runtime_777777777777777777777777",
+      instanceId: "instance-1",
+      startedAt: "2026-08-29T00:00:00.000Z",
+      dispatchOpId: "dispatch-op-oversized",
+      kindId: "codex",
+      permissionMode: null,
+      binding: {
+        actor: { principal: { personId: "operator" }, executor: null },
+        source: "local",
+      },
+      cwd: rootDir,
+      prompt: "oversized adoption",
+      model: "gpt-5.6-sol",
+      reasoningEffort: null,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+    truncateSync(target, 600 * 1024 * 1024);
+
+    const adopted = new Map(),
+      context = {
+        input: { rootDir, repoId: "oversized-read" },
+        requiredRuntimeProjection: () => ({
+          readRuntimeSessions: () => [
+            {
+              runtimeSessionId: "runtime_777777777777777777777777",
+              liveness: "live",
+              outcome: null,
+            },
+          ],
+        }),
+        processes: adopted,
+      };
+    await adoptRuntimes(context);
+    assert.equal(adopted.size, 1);
+    assert.equal(readDispatchStream(rootDir, dispatchId), null);
+    assert.equal(statSync(target).size, 600 * 1024 * 1024);
+    assert.match(warnings.join("\n"), /skipping full read/u);
+    let terminated = false,
+      published = false;
+    const runtimeSessionId = "runtime_777777777777777777777777",
+      active = adopted.get(runtimeSessionId);
+    assert.ok(active);
+    active.process.terminateTree = async () => {
+      terminated = true;
+    };
+    const receipt = await cancelRuntime(
+      {
+        ...context,
+        publishExit: async () => {
+          published = true;
+        },
+        controlReceipt: () => ({ ok: true, detail: "cancelled" }),
+      },
+      { runtimeSessionId },
+      { actor: { principal: { personId: "operator" }, executor: null }, source: "local" },
+    );
+    assert.equal(receipt.detail, "cancelled");
+    assert.equal(terminated, true);
+    assert.equal(published, true);
+  } finally {
+    console.warn = warning;
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the dispatch fuse drops unbounded output but preserves terminal records", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-write-fuse-"));
+  const warning = console.warn,
+    warnings: string[] = [];
+  console.warn = (value: unknown) => warnings.push(String(value));
+  try {
+    const dispatchId = "dispatch_888888888888888888888888",
+      target = dispatchStreamPath(rootDir, dispatchId);
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-fused",
+      executionId: "execution-fused",
+      runtimeSessionId: "runtime_888888888888888888888888",
+      instanceId: "instance-1",
+      startedAt: "2026-08-29T00:00:00.000Z",
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 8765 });
+    truncateSync(target, 500 * 1024 * 1024 - 1);
+    appendFileSync(target, "\n");
+    const cappedSize = statSync(target).size;
+
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { text: "dropped" } });
+    assert.equal(statSync(target).size, cappedSize);
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 1, signal: null });
+    assert.ok(statSync(target).size > cappedSize);
+    assert.deepEqual(readDispatchStreamSummary(rootDir, dispatchId)?.process, {
+      pid: 8765,
+      exitCode: 1,
+      signal: null,
+      exited: true,
+    });
+    assert.match(warnings.join("\n"), /dropping unbounded output/u);
+  } finally {
+    console.warn = warning;
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

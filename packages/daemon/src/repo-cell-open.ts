@@ -135,14 +135,26 @@ export async function openRepoCell(input: {
   /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
   readonly fleetRoster?: () => FleetRoster | null;
 }): Promise<RepoCell> {
+  const lock = await acquireWorkspaceLock(input.rootDir);
+  try {
+    return await openLockedRepoCell(input, lock);
+  } catch (error) {
+    await lock.close();
+    throw error;
+  }
+}
+
+async function openLockedRepoCell(
+  input: Parameters<typeof openRepoCell>[0],
+  lock: Awaited<ReturnType<typeof acquireWorkspaceLock>>,
+): Promise<RepoCell> {
   const rootDir = input.rootDir,
     mode = input.mode ?? "local",
     now = input.now ?? (() => new Date().toISOString());
   let readSettings = (): SettingsV1 => {
     throw cellCodedError("projection_pending", "Settings projection is unavailable while the RepoCell is opening.");
   };
-  const lock = await acquireWorkspaceLock(rootDir),
-    generation = Date.now() * 1_000 + (process.pid % 1_000);
+  const generation = Date.now() * 1_000 + (process.pid % 1_000);
   const activeWriter: WriterGeneration = {
       workspaceId: input.repoId,
       generation,
@@ -151,15 +163,10 @@ export async function openRepoCell(input: {
     writerToken = bindWriterGenerationToken(activeWriter);
   let authoredBranch = input.authoredBranch,
     bootstrapReceipt: RepoBootstrapReceipt | undefined;
-  try {
-    if (input.bootstrap) {
-      bootstrapReceipt = bootstrapRepo(input.bootstrap, activeWriter, writerToken, authoredBranch);
-      authoredBranch = bootstrapReceipt.authoredBranch;
-      input.onBootstrap?.(bootstrapReceipt);
-    }
-  } catch (error) {
-    await lock.close();
-    throw error;
+  if (input.bootstrap) {
+    bootstrapReceipt = bootstrapRepo(input.bootstrap, activeWriter, writerToken, authoredBranch);
+    authoredBranch = bootstrapReceipt.authoredBranch;
+    input.onBootstrap?.(bootstrapReceipt);
   }
   const presetProcess = createPresetProcessService({
     rootDir,
@@ -201,7 +208,6 @@ export async function openRepoCell(input: {
   } catch (error) {
     runtimeStream.close();
     await presetProcess.close();
-    await lock.close();
     throw error;
   }
   let { store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = core;

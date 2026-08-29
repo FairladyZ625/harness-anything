@@ -72,6 +72,7 @@ const PHASE_KEY: Readonly<Record<SquadRunSummaryDto["phase"], string>> = {
   planning: "agentRuntime.squadRunPhasePlanning",
   leader_running: "agentRuntime.squadRunPhaseLeaderRunning",
   workers_running: "agentRuntime.squadRunPhaseWorkersRunning",
+  cancelled: "agentRuntime.squadRunPhaseCancelled",
   converged: "agentRuntime.squadRunPhaseConverged",
   failed: "agentRuntime.squadRunPhaseFailed",
 };
@@ -79,6 +80,7 @@ const PHASE_TONE: Readonly<Record<SquadRunSummaryDto["phase"], string>> = {
   planning: "text-status-unknown",
   leader_running: "text-status-active",
   workers_running: "text-status-active",
+  cancelled: "text-status-unknown",
   converged: "text-status-done",
   failed: "text-status-blocked",
 };

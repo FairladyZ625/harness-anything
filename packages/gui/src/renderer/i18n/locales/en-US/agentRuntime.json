@@ -346,6 +346,7 @@
   "agentRuntime.squadRunPhasePlanning": "Planning",
   "agentRuntime.squadRunPhaseLeaderRunning": "Leader running",
   "agentRuntime.squadRunPhaseWorkersRunning": "Workers running",
+  "agentRuntime.squadRunPhaseCancelled": "Cancelled",
   "agentRuntime.squadRunPhaseConverged": "Converged",
   "agentRuntime.squadRunPhaseFailed": "Failed",
   "agentRuntime.squadRunsEmptyWindow": "No squad runs in this range ({range}). Widen the range or clear the search.",

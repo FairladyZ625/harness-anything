@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync, truncateSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,7 +11,7 @@ import type {
   TaskProjection,
 } from "../../kernel/src/index.ts";
 import { makeSquadCoordinator } from "../src/squad-coordinator.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
 const SQUAD_RUN_ID = "squad_0123456789abcdef01234567",
@@ -33,8 +33,10 @@ type SeedWorker = {
 type RecoveryFixture = {
   readonly coordinator: ReturnType<typeof makeSquadCoordinator>;
   readonly spawns: JsonObject[];
+  readonly cancellations: JsonObject[];
   readonly reacquired: () => number;
   readonly state: () => Readonly<Record<string, unknown>>;
+  readonly resetProjection: () => void;
   readonly completeLeader: (runtimeSessionId: string, result: string) => void;
   readonly completeWorker: (runtimeSessionId: string) => void;
 };
@@ -72,6 +74,7 @@ function makeRecoveryFixture(
     ]),
     rows: { squadRunId: string; revision: number; state: Readonly<Record<string, unknown>> }[] = [],
     spawns: JsonObject[] = [],
+    cancellations: JsonObject[] = [],
     resultBodies = new Map<string, Uint8Array>(),
     reportLogicalPath = `tasks/${TASK_ID}/${SYNTHESIS_REPORT_PATH}`,
     reportDocument = options.leaderReport
@@ -284,14 +287,22 @@ function makeRecoveryFixture(
           sessions.push(runtimeSession(runtimeSessionId, null, null, "provider-leader"));
           return Promise.resolve({ ok: true, dispatchId, runtimeSessionId });
         },
+        cancel: (payload) => {
+          cancellations.push(payload);
+          return Promise.resolve({ ok: true, outcome: "applied" });
+        },
       }),
     }),
     spawns,
+    cancellations,
     reacquired: () => reacquired,
     state: () => {
       const state = rows.find((row) => row.squadRunId === SQUAD_RUN_ID)?.state;
       assert.ok(state);
       return state;
+    },
+    resetProjection: () => {
+      rows.length = 0;
     },
     completeLeader: (runtimeSessionId, result) => {
       const index = sessions.findIndex((session) => session.runtimeSessionId === runtimeSessionId);
@@ -540,6 +551,42 @@ test("reconcile resumes a durable leader retry left pending between daemon turns
     assert.equal(fixture.spawns.length, 1);
     const status = fixture.coordinator.status(SQUAD_RUN_ID);
     assert.equal(status.status, "leader_running", String(status.error));
+  });
+});
+
+test("squad cancel persists a terminal phase before stopping every member and reconcile stays inert", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: null,
+      leaderTurnBudget: 3,
+      workers: [
+        {
+          workerId: "sol",
+          dispatchId: "dispatch_000000000000000000000002",
+          runtimeSessionId: "runtime-worker-sol",
+          outcome: null,
+        },
+      ],
+    });
+    const streamPath = dispatchStreamPath(rootDir, LEADER_DISPATCH_ID);
+    truncateSync(streamPath, 500 * 1024 * 1024 - 1);
+    appendFileSync(streamPath, "\n");
+    const receipt = await fixture.coordinator.cancel(SQUAD_RUN_ID, {
+      actor: { principal: { personId: "person-operator" }, executor: null },
+      source: "local",
+    });
+
+    assert.equal(receipt.ok, true);
+    assert.equal(receipt.status, "cancelled");
+    assert.equal(fixture.state().phase, "cancelled");
+    assert.deepEqual(
+      fixture.cancellations.map((payload) => payload.runtimeSessionId),
+      [LEADER_SESSION_ID, "runtime-worker-sol"],
+    );
+    fixture.resetProjection();
+    await fixture.coordinator.reconcile();
+    assert.equal(fixture.coordinator.status(SQUAD_RUN_ID).status, "cancelled");
+    assert.equal(fixture.spawns.length, 0, "a durable cancellation must not resume after reconciliation");
   });
 });
 

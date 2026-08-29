@@ -29,14 +29,16 @@ export async function adoptRuntimes(context: any): Promise<void> {
       | undefined;
     const metadata = adoptableMetadata(header);
     if (!session || session.liveness === "exited" || session.outcome !== null || !metadata) continue;
-    const stream = readDispatchStream(context.input.rootDir, header.dispatchId);
+    const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
+      stream = fullStream ?? readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
     if (!stream?.process) continue;
     const runtimeProcess = adoptNativeProcess(
       context.input.rootDir,
       stream.header.dispatchId,
       stream.process.pid,
-      durableOutputRecordCount(stream.records),
+      durableOutputRecordCount(fullStream?.records ?? []),
     );
+    if (!fullStream) runtimeProcess.release?.();
     const active = createActiveRuntime({
       process: runtimeProcess,
       dispatchId: stream.header.dispatchId,
@@ -79,7 +81,7 @@ export async function adoptRuntimes(context: any): Promise<void> {
       providerSessionId: stream.providerSessionId,
     });
     context.processes.set(active.runtimeSessionId, active);
-    await restoreDurableOutputRecords(context, active, stream.records);
+    await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
     if (session.liveness !== "live") {
       await context.publishRuntimeEvent(
         "runtime_session_liveness_changed",
@@ -88,11 +90,13 @@ export async function adoptRuntimes(context: any): Promise<void> {
         active.binding,
       );
     }
-    attachActiveRuntime(context, active);
+    if (fullStream) attachActiveRuntime(context, active);
     const processState = stream.process;
     if (processState && !processState.exited && !runtimePidIsAlive(processState.pid)) {
       const timer = setTimeout(() => {
-        const current = readDispatchStream(context.input.rootDir, active.dispatchId);
+        const current =
+          readDispatchStream(context.input.rootDir, active.dispatchId) ??
+          readDispatchStreamSummary(context.input.rootDir, active.dispatchId);
         if (!current?.process?.exited && context.processes.get(active.runtimeSessionId) === active) {
           const reason = `runtime process ${String(processState.pid)} is no longer alive after daemon restart`;
           active.lossReason = reason;
