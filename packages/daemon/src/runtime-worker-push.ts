@@ -47,7 +47,7 @@ function samePath(left: string, right: string): boolean {
   return canonicalPath(left) === canonicalPath(right);
 }
 
-function canonicalPath(value: string): string {
+export function canonicalPath(value: string): string {
   try {
     return realpathSync.native(value).replaceAll("\\", "/").replace(/\/+$/u, "");
   } catch {

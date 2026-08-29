@@ -29,8 +29,10 @@ test("GUI worktree refuses an absent daemon then reuses the canonical resident",
     );
     assert.equal(bootstrapped.ok, true, JSON.stringify(bootstrapped));
     await daemon.stop();
+    mkdirSync(path.join(rootDir, ".git", "worktrees", "feature"), { recursive: true });
     mkdirSync(worktree, { recursive: true });
     writeFileSync(path.join(worktree, ".git"), "gitdir: ../../.git/worktrees/feature\n", "utf8");
+    writeFileSync(path.join(rootDir, ".git", "worktrees", "feature", "commondir"), "../..\n", "utf8");
 
     const refusal = (await createLocalGuiServiceBridge(worktree).invoke("getTasks", {
       repoId: "gui-host-root",

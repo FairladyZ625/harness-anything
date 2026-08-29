@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   acquireDaemonAutostartFlight,
@@ -8,6 +8,7 @@ import {
 } from "../daemon-singleton.ts";
 import { daemonLifecycleLogPath, readDaemonLifecycleRecords } from "../lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../process-port.ts";
+import { canonicalPath } from "../runtime-worker-push.ts";
 import { readRegisteredRepos } from "./local-daemon-target.ts";
 export interface DaemonLaunchSpec {
   readonly command: string;
@@ -292,17 +293,13 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 export function daemonCheckoutRoot(rootDir: string): string {
-  let current = canonicalPath(rootDir);
+  let current = canonicalPath(path.resolve(rootDir));
   for (;;) {
     if (existsSync(path.join(current, ".git"))) return current;
     const parent = path.dirname(current);
     if (parent === current) return canonicalPath(rootDir);
     current = parent;
   }
-}
-function canonicalPath(value: string): string {
-  const resolved = path.resolve(value);
-  return existsSync(resolved) ? realpathSync.native(resolved) : resolved;
 }
 function sameGitRepository(left: string, right: string): boolean {
   const leftCommon = gitCommonDirectory(left),
