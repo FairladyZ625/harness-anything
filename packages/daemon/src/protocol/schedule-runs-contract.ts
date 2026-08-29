@@ -36,16 +36,16 @@ export function validateScheduleRuns(value: unknown): readonly string[] {
     !exactFields(value, ["ok", "status", "scheduleId", "runs", "totals", "truncated", "watermark", "sourceRevision"]) ||
     value.ok !== true ||
     !["ready", "pending"].includes(String(value.status)) ||
-    !nonEmpty(value.scheduleId) ||
+    !nonEmptyText(value.scheduleId) ||
     !Array.isArray(value.runs) ||
     !value.runs.every(validRunRow) ||
     !isJsonObject(value.totals) ||
     !exactFields(value.totals, ["runs", "missed"]) ||
-    !count(value.totals.runs) ||
-    !count(value.totals.missed) ||
+    !nonNegInt(value.totals.runs) ||
+    !nonNegInt(value.totals.missed) ||
     typeof value.truncated !== "boolean" ||
-    !count(value.watermark) ||
-    !count(value.sourceRevision)
+    !nonNegInt(value.watermark) ||
+    !nonNegInt(value.sourceRevision)
   )
     return ["schedule runs result is invalid"];
   return rejectSecretKeys(value);
@@ -69,7 +69,7 @@ function validRunRow(value: unknown): boolean {
       "dispatchId",
       "runtimeSessionId",
     ]) &&
-    nonEmpty(value.occurrenceId) &&
+    nonEmptyText(value.occurrenceId) &&
     ["scheduled", "manual"].includes(String(value.kind)) &&
     utc(value.scheduledFor) &&
     nullableUtc(value.claimedAt) &&
@@ -77,7 +77,7 @@ function validRunRow(value: unknown): boolean {
     nullableText(value.nodeId) &&
     nullableText(value.assignmentId) &&
     ["running", "missed", "succeeded", "failed", "unknown", "cancelled"].includes(String(value.outcome)) &&
-    (value.durationMs === null || count(value.durationMs)) &&
+    (value.durationMs === null || nonNegInt(value.durationMs)) &&
     (value.reportRef === null ||
       (typeof value.reportRef === "string" &&
         /^artifact:runtime-result\/sha256\/[0-9a-f]{64}$/u.test(value.reportRef))) &&
@@ -92,12 +92,12 @@ function exactFields(value: Readonly<Record<string, unknown>>, fields: readonly 
   return Object.keys(value).length === fields.length && fields.every((field) => Object.hasOwn(value, field));
 }
 
-function nonEmpty(value: unknown): value is string {
+function nonEmptyText(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
 function nullableText(value: unknown): boolean {
-  return value === null || nonEmpty(value);
+  return value === null || nonEmptyText(value);
 }
 
 function utc(value: unknown): boolean {
@@ -108,6 +108,6 @@ function nullableUtc(value: unknown): boolean {
   return value === null || utc(value);
 }
 
-function count(value: unknown): boolean {
+function nonNegInt(value: unknown): boolean {
   return Number.isSafeInteger(value) && Number(value) >= 0;
 }
