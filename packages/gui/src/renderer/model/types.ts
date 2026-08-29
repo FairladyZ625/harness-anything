@@ -109,6 +109,13 @@ export interface TaskRow {
   /** 该 task 由哪条 decision 派生（生成式派生时必填；顶层独立 task 可空） */
   spawningDecision?: string;
   /**
+   * 派生该 task 的全部 decision id(daemon `repo.tasks.list` 的
+   * `placement.spawningDecisionIds`,由 active directed `derives` 边推导)。
+   * 与上面的单数字段并存:徽章/链接用 `spawningDecisionOf`(先看这里),
+   * 关系页签要完整列表。
+   */
+  spawningDecisionIds?: string[];
+  /**
    * 台账 pin(task/v1 `pinned`,经 `ha task pin` 写入):「我当下正在做的」,
    * 与 coordinationStatus=active 正交——进行中未必在做,在做未必进行中。
    */
@@ -277,9 +284,6 @@ export interface Project {
   engines: EngineId[];
   /** 投影 watermark 时间 */
   watermarkAt: string;
-  // 三元语投影计数
-  decisionCount?: number;
-  factCount?: number;
 }
 
 export interface EventEntry {

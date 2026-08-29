@@ -20,7 +20,30 @@ import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { useTaskDocumentQuery } from "../../task-data.ts";
 import { buildTriadicRendererData, triadicQueryKeys } from "../../triadic-data.ts";
 import { formatTime } from "../../model/time.ts";
-import type { DecisionRow, RelationEdge, TaskRow } from "../../model/types.ts";
+import type { RelationEdge, TaskRow } from "../../model/types.ts";
+
+/**
+ * 关系页签实际读取的决策字段:身份 + 标题 + 状态。刻意窄于 `DecisionRow`,
+ * 让它既能吃全量决策行,也能吃常驻的摘要投影——任务详情因此不必为标题查表
+ * 而读 4.2 MB 的决策全量行。
+ */
+export interface TaskDecisionRef {
+  readonly decisionId: string;
+  readonly title: string;
+  readonly state: string;
+}
+
+/**
+ * 证据页签的复制上下文还要 `riskTier`/`question`——比上面的身份引用多两个字段,
+ * 仍远窄于 `DecisionRow`,所以它既吃全量决策行,也吃投影原行。
+ */
+export interface TaskTriageDecisionRef {
+  readonly decisionId: string;
+  readonly title: string;
+  readonly state: string;
+  readonly riskTier?: string | null;
+  readonly question?: string;
+}
 import { activeProducesFactRefs, normalizeTaskId } from "../../model/triadic.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { buildFactTriage, SIGNAL_LABEL, type FactTriageItem } from "../../model/fact-triage.ts";
@@ -301,17 +324,18 @@ const EMPTY_DECISION_LIST = { ok: true, decisions: [], warnings: [] } as const;
 // W5:全局「事实分诊」列表页撤销,triage 信号并入本页签——同一关系投影上现算
 // (buildFactTriage 纯前端派生,不新增读面),带信号的 fact 排前、severity 降序,
 // 分诊队列的排序语义在 task 邻域内保留。
+// 本页签读完整三元投影(图 + 决策全量行),读面归页签自己:复制上下文要
+// `riskTier`/`question` 这类只有全量决策行才带的字段,而摘要投影只够徽章与标题。
+// 键与完整投影视图共享,从决策/图视图进来时命中同一份缓存。
 export function TaskEvidenceTab({
   task,
   tasks = [],
   relations = [],
-  decisions = [],
   onNavigateEntity,
 }: {
   readonly task: TaskRow;
   readonly tasks?: readonly TaskRow[];
   readonly relations?: readonly RelationEdge[];
-  readonly decisions?: readonly DecisionRow[];
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
   const graph = useQuery({
@@ -319,6 +343,12 @@ export function TaskEvidenceTab({
     queryFn: () => harnessClient.getRelationGraph({ repoId: task.projectId }),
     staleTime: 10_000,
   });
+  const decisionRows = useQuery({
+    queryKey: triadicQueryKeys.decisions(task.projectId),
+    queryFn: () => harnessClient.getDecisions({ repoId: task.projectId }),
+    staleTime: 10_000,
+  });
+  const decisions = decisionRows.data?.decisions ?? [];
   const ownedFactRefs = new Set(
     activeProducesFactRefs(graph.data?.edges ?? [], `task/${task.taskId}`).map((edge) => edge.targetRef),
   );
@@ -404,7 +434,7 @@ function FactRow({
   readonly fact: RelationFactRow;
   readonly item: FactTriageItem | null;
   readonly relations: readonly RelationEdge[];
-  readonly decisions: readonly DecisionRow[];
+  readonly decisions: readonly TaskTriageDecisionRef[];
   readonly tasks: readonly TaskRow[];
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
@@ -482,7 +512,7 @@ export function TaskRelationsTab({
   readonly task: TaskRow;
   readonly tasks?: readonly TaskRow[];
   readonly relations?: readonly RelationEdge[];
-  readonly decisions?: readonly DecisionRow[];
+  readonly decisions?: readonly TaskDecisionRef[];
   readonly onSelect?: (taskId: string) => void;
   readonly onNavigateDecision?: (decisionId: string) => void;
   readonly onNavigateEntity?: (ref: string) => void;
@@ -502,7 +532,8 @@ export function TaskRelationsTab({
   for (const edge of [...outEdges, ...inEdges]) {
     for (const ref of [edge.from, edge.to]) if (ref.startsWith("decision/")) decisionIds.add(ref.split("/")[1] ?? "");
   }
-  if (task.spawningDecision) decisionIds.add(task.spawningDecision);
+  for (const id of task.spawningDecisionIds ?? (task.spawningDecision ? [task.spawningDecision] : []))
+    decisionIds.add(id);
   const relatedDecisions = decisions.filter((decision) => decisionIds.has(decision.decisionId));
 
   return (
@@ -915,7 +946,7 @@ function EntityButton({
   );
 }
 
-function peerTitle(ref: string, tasks: readonly TaskRow[], decisions: readonly DecisionRow[]): string {
+function peerTitle(ref: string, tasks: readonly TaskRow[], decisions: readonly TaskDecisionRef[]): string {
   if (ref.startsWith("decision/"))
     return decisions.find((decision) => decision.decisionId === ref.split("/")[1])?.title ?? "";
   if (ref.startsWith("task/") || !ref.includes("/"))

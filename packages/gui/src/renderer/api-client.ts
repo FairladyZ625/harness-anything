@@ -69,17 +69,62 @@ export interface TaskQueryFacets {
   readonly limit?: number;
   readonly cursor?: string;
 }
-export interface RelationQueryFacets {
+/** Legacy wide read: no facet selector, optionally narrowed by status/time/page. */
+export interface RelationPageQuery {
   readonly status?: string;
   readonly updatedAfter?: string;
   readonly updatedBefore?: string;
   readonly limit?: number;
   readonly cursor?: string;
 }
+/** `repo.triadic.relationGraph` facet read: one row array, every other array empty. */
+export interface RelationEdgeFacetQuery {
+  readonly facet: "edges";
+  readonly relationType?: string;
+  readonly state?: "active" | "edge_retired" | "deleted";
+  readonly direction?: "directed" | "undirected";
+}
+export interface RelationFactFacetQuery {
+  readonly facet: "facts";
+}
+export type RelationQueryFacets = RelationPageQuery | RelationEdgeFacetQuery | RelationFactFacetQuery;
 
 export interface DecisionListSuccess {
   readonly ok: true;
   readonly decisions: ReadonlyArray<DecisionProjectionRow>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+}
+
+/**
+ * `repo.decisions.list {projection:"summary"}` row: identity + scope only. The summary
+ * projection exists so always-mounted chrome (⌘K palette, task-detail decision titles)
+ * never has to pull `chosen`/`rejected`/`claims`/`judgmentConsents`, which is where the
+ * 4.2 MB full decision response spends its bytes.
+ */
+export interface DecisionSummaryRow {
+  readonly decisionId: string;
+  readonly title: string;
+  readonly state: DecisionProjectionRow["state"];
+  readonly appliesTo: { readonly modules: readonly string[]; readonly productLines: readonly string[] };
+}
+export interface DecisionSummaryListSuccess {
+  readonly ok: true;
+  readonly projection: "summary";
+  readonly decisions: ReadonlyArray<DecisionSummaryRow>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+}
+
+/** `repo.triadic.relationGraph {facet:"facts"}` row: the palette's fact vocabulary. */
+export interface RelationFactSummaryRow {
+  readonly anchor: string;
+  readonly text: string;
+  readonly category: "lesson" | "finding" | "progress";
+  readonly taskId?: string;
+}
+export interface RelationFactFacetSuccess {
+  readonly ok: true;
+  readonly facet: "facts";
+  readonly facts: ReadonlyArray<RelationFactSummaryRow>;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
 export type WorkspaceSummarySuccess = WorkspaceSummaryRead;
@@ -340,8 +385,14 @@ export const harnessClient = {
   async getRelationGraph(payload: RepoScope & RelationQueryFacets): Promise<RelationGraphSuccess> {
     return readRelationGraphResult(await invokeBridge("getRelationGraph", payload));
   },
+  async getRelationFacts(payload: RepoScope & RelationFactFacetQuery): Promise<RelationFactFacetSuccess> {
+    return readRelationFactFacetResult(await invokeBridge("getRelationGraph", payload));
+  },
   async getDecisions(payload: RepoScope): Promise<DecisionListSuccess> {
     return readDecisionListResult(await invokeBridge("getDecisions", payload));
+  },
+  async getDecisionSummaries(payload: RepoScope): Promise<DecisionSummaryListSuccess> {
+    return readDecisionSummaryListResult(await invokeBridge("getDecisions", { ...payload, projection: "summary" }));
   },
   async listDecisionControls(
     payload: RepoScope & {
@@ -643,6 +694,70 @@ function readDecisionListResult(value: unknown): DecisionListSuccess {
     decisions: result.decisions.filter(isDecisionProjectionRow),
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
   };
+}
+
+/** Summary rows are a different wire shape than `decision-row/v1`; never filter them
+ *  through `isDecisionProjectionRow`, which would silently drop every row. */
+function readDecisionSummaryListResult(value: unknown): DecisionSummaryListSuccess {
+  const result = value as Partial<DecisionSummaryListSuccess>;
+  const rows = result?.decisions;
+  if (
+    !result ||
+    result.ok !== true ||
+    result.projection !== "summary" ||
+    !Array.isArray(rows) ||
+    !rows.every(isDecisionSummaryRow)
+  ) {
+    throw new Error(localErrorHint(value, "Decision summary bridge returned an invalid result."));
+  }
+  return {
+    ok: true,
+    projection: "summary",
+    decisions: rows,
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+  };
+}
+
+function isDecisionSummaryRow(value: unknown): value is DecisionSummaryRow {
+  if (!isRendererRecord(value)) return false;
+  const appliesTo = value.appliesTo;
+  return (
+    typeof value.decisionId === "string" &&
+    typeof value.title === "string" &&
+    typeof value.state === "string" &&
+    isRendererRecord(appliesTo) &&
+    Array.isArray(appliesTo.modules) &&
+    Array.isArray(appliesTo.productLines)
+  );
+}
+
+function readRelationFactFacetResult(value: unknown): RelationFactFacetSuccess {
+  const result = value as Partial<RelationFactFacetSuccess>;
+  if (
+    !result ||
+    result.ok !== true ||
+    result.facet !== "facts" ||
+    !Array.isArray(result.facts) ||
+    !result.facts.every(isRelationFactSummaryRow)
+  ) {
+    throw new Error(localErrorHint(value, "Relation fact facet bridge returned an invalid result."));
+  }
+  return {
+    ok: true,
+    facet: "facts",
+    facts: result.facts,
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+  };
+}
+
+function isRelationFactSummaryRow(value: unknown): value is RelationFactSummaryRow {
+  if (!isRendererRecord(value)) return false;
+  return (
+    typeof value.anchor === "string" &&
+    typeof value.text === "string" &&
+    (value.category === "lesson" || value.category === "finding" || value.category === "progress") &&
+    (value.taskId === undefined || typeof value.taskId === "string")
+  );
 }
 
 function readGuiActionResult(value: unknown): GuiActionResult {

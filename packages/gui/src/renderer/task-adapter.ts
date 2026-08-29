@@ -1,5 +1,5 @@
 import type { TaskSnapshotProjectionRow } from "../api/renderer-dto.ts";
-import type { DecisionRow, RelationEdge, TaskRow } from "./model/types.ts";
+import type { TaskRow } from "./model/types.ts";
 
 /**
  * Maps the rebuild L2 task snapshot onto the renderer view model. UI-only
@@ -7,25 +7,20 @@ import type { DecisionRow, RelationEdge, TaskRow } from "./model/types.ts";
  * canonical snapshot without recreating the retired GUI projection schema.
  */
 
-export interface TaskAdaptContext {
-  readonly relationState?: "ready" | "loading" | "error";
-  readonly relations?: ReadonlyArray<RelationEdge>;
-  readonly decisions?: ReadonlyArray<DecisionRow>;
-  readonly relationWarnings?: ReadonlyArray<{
-    readonly severity?: string;
-    readonly code?: string;
-    readonly message?: string;
-  }>;
-}
-
+/**
+ * 派生 placement 不再需要 renderer 侧上下文:decision→task 的 `derives` 派生由
+ * daemon 在 `repo.tasks.list` 的 `row.placement` 里完成(`moduleKeys` /
+ * `productLines` / `spawningDecisionIds`,同一批 active derives 边的同一结果),
+ * 任务行适配因此不依赖任何三元读取——这是把三元读取从应用根上摘掉的必要条件。
+ */
 function adaptProjectionRow(
   row: TaskSnapshotProjectionRow,
   projectId: string,
   projectionStatus: "ready" | "pending",
-  context: TaskAdaptContext,
 ): TaskRow {
   const task = row.snapshot.task!;
-  const placement = placementFor(row, context);
+  const placement = row.placement;
+  const spawningDecisionIds = [...(placement.spawningDecisionIds ?? [])];
   const gates = row.closeoutAssessment.gates.map((gate) => ({
     name: gate.gateId,
     ok:
@@ -73,9 +68,11 @@ function adaptProjectionRow(
         : placement.moduleKeys.length === 1
           ? placement.moduleKeys[0]!
           : `multiple (${placement.moduleKeys.join(", ")})`,
-    moduleKeys: placement.moduleKeys,
-    productLines: placement.productLines,
-    ...(placement.warning ? { placementWarning: placement.warning } : {}),
+    moduleKeys: [...placement.moduleKeys],
+    productLines: [...placement.productLines],
+    ...(spawningDecisionIds.length > 1
+      ? { placementWarning: "存在多个 spawning decision，placement 已合并但来源不唯一" }
+      : {}),
     placementProvenance: row.placement.provenance,
     packagePath: row.packagePath,
     taskClass: task.taskClass,
@@ -85,7 +82,8 @@ function adaptProjectionRow(
     profile: task.metadata?.profileId,
     createdBy: task.createdBy.principal.personId,
     parentTaskId: row.placement.parentTaskId ?? undefined,
-    ...(placement.spawningDecision ? { spawningDecision: placement.spawningDecision } : {}),
+    spawningDecisionIds,
+    ...(spawningDecisionIds.length === 1 ? { spawningDecision: spawningDecisionIds[0] } : {}),
     ...(task.pinned === true ? { pinned: true } : {}),
     currentNode: task.currentNode,
     iteration: task.iteration,
@@ -109,42 +107,6 @@ function adaptProjectionRow(
     ...(task.metadata?.urgency ? { urgency: task.metadata.urgency } : {}),
     docs: [],
     events: lifecycleEvents(row, projectId),
-  };
-}
-
-function placementFor(
-  row: TaskSnapshotProjectionRow,
-  context: TaskAdaptContext,
-): { moduleKeys: string[]; productLines: string[]; spawningDecision?: string; warning?: string } {
-  if (
-    (context.relationState !== undefined && context.relationState !== "ready") ||
-    (context.relationWarnings ?? []).some((warning) => warning.severity === "hard-fail")
-  ) {
-    return { moduleKeys: [], productLines: [], warning: "relation projection 未就绪，无法判定 derived placement" };
-  }
-  const relations = context.relations ?? [],
-    decisionById = new Map((context.decisions ?? []).map((decision) => [decision.decisionId, decision]));
-  const derives = relations.filter(
-    (edge) =>
-      edge.kind === "derives" &&
-      /* @gate-identity check-gui-status-judgments/gui-status-054 */
-      edge.state === "active" &&
-      edge.direction === "directed" &&
-      edge.to === `task/${row.taskId}` &&
-      edge.from.startsWith("decision/"),
-  );
-  if (derives.length === 0)
-    return { moduleKeys: [...row.placement.moduleKeys], productLines: [...row.placement.productLines] };
-  const ids = [...new Set(derives.map((edge) => edge.from.split("/")[1]).filter((id): id is string => Boolean(id)))],
-    scopes = ids.map((id) => decisionById.get(id)?.appliesTo);
-  if (scopes.some((scope) => scope === undefined))
-    return { moduleKeys: [], productLines: [], warning: "派生决策 scope 未完整投影" };
-  return {
-    moduleKeys: [...new Set(scopes.flatMap((scope) => scope!.modules))].sort(),
-    productLines: [...new Set(scopes.flatMap((scope) => scope!.productLines))].sort(),
-    ...(ids.length === 1
-      ? { spawningDecision: ids[0] }
-      : { warning: "存在多个 spawning decision，placement 已合并但来源不唯一" }),
   };
 }
 
@@ -220,9 +182,8 @@ export function adaptProjectionRows(
   rows: ReadonlyArray<TaskSnapshotProjectionRow>,
   projectId: string,
   projectionStatus: "ready" | "pending" = "ready",
-  context: TaskAdaptContext = {},
 ): TaskRow[] {
-  const base = rows.map((row) => adaptProjectionRow(row, projectId, projectionStatus, context));
+  const base = rows.map((row) => adaptProjectionRow(row, projectId, projectionStatus));
   const parentById = new Map<string, string | undefined>();
   const titleById = new Map<string, string>();
   for (const task of base) {

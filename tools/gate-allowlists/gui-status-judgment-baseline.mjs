@@ -58,7 +58,6 @@ export const guiStatusJudgmentBaseline = Object.freeze([
   { key: "gui-status-051", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["passed"] }, // point-comparison: passed @ adaptProjectionRow.gates.ok
   { key: "gui-status-052", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["blocked"] }, // point-comparison: blocked @ adaptProjectionRow.blockingLabel
   { key: "gui-status-053", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["unknown"] }, // point-comparison: unknown @ adaptProjectionRow.blockingLabel
-  { key: "gui-status-054", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ placementFor.derives
   { key: "gui-status-055", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["superseded_fact"] }, // point-comparison: superseded_fact @ buildTriadicRendererData.facts.invalidated
   { key: "gui-status-056", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ adaptRelationRows
   { key: "gui-status-057", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ adaptDecisionRows

@@ -46,7 +46,14 @@ export function normalizeTaskId(raw: string): string {
   return raw.replace(/^task\//, "").split("/")[0];
 }
 
-export function spawningDecisionOf(task: TaskRow, relations: RelationEdge[]): string | undefined {
+/**
+ * 看板/列表行上的决策来源徽章。第一优先级是 daemon 在 `repo.tasks.list`
+ * `placement.spawningDecisionIds` 里推导好的同一批 active directed `derives` 边
+ * (F-84CF0391);`relations` 里恰好带着同一切面时结果一致,边切面还没到位时也不缺徽章。
+ */
+export function spawningDecisionOf(task: TaskRow, relations: RelationEdge[] = []): string | undefined {
+  const fromRow = task.spawningDecisionIds ?? [];
+  if (fromRow.length === 1) return fromRow[0];
   const decisionIds = [
     ...new Set(
       relations

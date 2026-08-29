@@ -26,7 +26,13 @@ import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, useTasksQuery } from "./task-data.ts";
-import { useTriadicProjectionQuery } from "./triadic-data.ts";
+import {
+  useActiveEdgesQuery,
+  useDecisionDerivesQuery,
+  useDecisionSummaryQuery,
+  usePaletteFactsQuery,
+  useTriadicProjectionQuery,
+} from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
 import { SessionsView } from "./views/SessionsView.tsx";
@@ -51,6 +57,20 @@ import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.ts
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
 import { FirstRunGuide, FirstRunWizard } from "./components/FirstRunWizard.tsx";
 
+/**
+ * 渲染完整三元投影(图 + 决策全量行)的视图。只有这些视图挂载时才读完整投影;
+ * 看板/总览之外的普通页(presets/adapters/settings/system/…)与任务看板本身都不在其中。
+ */
+const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
+  "overview",
+  "graph",
+  "decisions",
+  "decisionPool",
+  "decisionDetail",
+  "factDetail",
+  "freshness",
+]);
+
 function AppShell() {
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -67,26 +87,34 @@ function AppShell() {
   const tasksQuery = useTasksQuery(activeRepoId);
   const workspaceSummaryQuery = useWorkspaceSummaryQuery(activeRepoId);
   const lastLedgerCut = useRef<string | null>(null);
-  const triadicQuery = useTriadicProjectionQuery(activeRepoId);
   const catalogQuery = useCatalogSnapshot(activeRepoId);
   const taskActions = useTaskActions(projectId);
   const decisionActions = useDecisionActions(projectId);
+  // 应用位置由视图导航历史栈持有(REQ-GUI-01):view/selectedId/previewId/
+  // focusedEntityRef/taskFilters/drill 全部从 location 派生,变更走 navigate()
+  // (推栈)或 updateLocation()(原地改)。与图内 FocusHistoryBar 并存:那是
+  // 聚光灯的实体焦点微历史,这是跨视图的应用位置历史。
+  // 它在三元读取之前解析:读哪个切面由「现在挂载的是哪个界面」决定。
+  const { location, navigate, updateLocation, back, forward, canBack, canForward } = useViewHistory(
+    projectId,
+    initialLocation(),
+  );
+  // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
+  useLocationRestore(location, document.body);
+  const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
+  const setTaskFilters = (next: TaskFilters) => updateLocation({ taskFilters: next });
+  const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [setupGuide, setSetupGuide] = useState<"provider" | "agent" | null>(null);
+  const terminalDock = useRef<TerminalDockHandle>(null);
+
+  // placement 不再由 renderer 二次推导:repo.tasks.list 的 row.placement 已带
+  // daemon 侧由同一批 active derives 边算出的 moduleKeys/productLines/
+  // spawningDecisionIds(F-84CF0391),所以任务行适配不再依赖任何三元读取。
   const tasks = useMemo(
-    () =>
-      adaptProjectionRows(tasksQuery.data?.rows ?? [], projectId, tasksQuery.data?.status, {
-        relationState: triadicQuery.relationState,
-        relations: triadicQuery.relations,
-        decisions: triadicQuery.decisions,
-        relationWarnings: triadicQuery.relationWarnings,
-      }),
-    [
-      projectId,
-      tasksQuery.data,
-      triadicQuery.relationState,
-      triadicQuery.relations,
-      triadicQuery.decisions,
-      triadicQuery.relationWarnings,
-    ],
+    () => adaptProjectionRows(tasksQuery.data?.rows ?? [], projectId, tasksQuery.data?.status),
+    [projectId, tasksQuery.data],
   );
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
   const project = adaptRepoProject(
@@ -94,10 +122,41 @@ function AppShell() {
     activeRepo,
     catalogQuery.data?.defaults.presetId,
     tasks[0]?.lastKnownAt ?? systemQuery.data?.observedAt ?? new Date(0).toISOString(),
-    triadicQuery.decisions.length,
-    triadicQuery.facts.length,
   );
   const { favorites, toggleFavorite } = useFavorites(projectId);
+
+  const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
+  const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
+  const previewTask = useMemo(() => tasks.find((t) => t.taskId === previewId) ?? null, [previewId, tasks]);
+  const filteredProjectTasks = useMemo(
+    () => applyTaskFilters(projectTasks, taskFilters, favorites),
+    [projectTasks, taskFilters, favorites],
+  );
+
+  // ----------------------------------------------------------------三元读取分层
+  // 常驻 chrome 只读两个窄面(≈4.5% 的完整对);⌘K 的事实切面、边切面与完整投影
+  // 都由「当前挂载的界面」决定,没人看就不请求(裁决 2026-08-29;fact F-9E166C6B:
+  // 根级全量重取曾占 GUI 收到字节的 99.13%)。
+  const decisionDerives = useDecisionDerivesQuery(activeRepoId);
+  const decisionSummary = useDecisionSummaryQuery(activeRepoId);
+  const paletteFacts = usePaletteFactsQuery(activeRepoId, paletteOpen);
+  const fullProjectionMounted = FULL_TRIADIC_PROJECTION_VIEWS.has(view);
+  const triadicQuery = useTriadicProjectionQuery(activeRepoId, { enabled: fullProjectionMounted });
+  // 任务预览抽屉、任务详情与会话页渲染的是关系边本身;完整图已在缓存里(刚从图/
+  // 决策视图过来)就直接用它,不把同一批边读两遍。
+  const edgeSurfaceMounted = previewTask !== null || selected !== null || view === "sessions";
+  const activeEdges = useActiveEdgesQuery(activeRepoId, edgeSurfaceMounted && !triadicQuery.graphAvailable);
+
+  const decisions = triadicQuery.decisions;
+  const facts = triadicQuery.facts;
+  const coverageRows = triadicQuery.coverageRows;
+  const factAnchors = triadicQuery.factAnchors;
+  /** 完整投影视图用的关系集合:只在那些视图挂载时有值。 */
+  const relations = triadicQuery.relations;
+  /** 边级界面用的关系集合:完整图可用时是全量边,否则是 active 边切面。 */
+  const edgeRelations = triadicQuery.graphAvailable ? triadicQuery.relations : activeEdges.relations;
+  /** 看板/列表徽章用的关系集合:根级 derives 切面,任何视图下都在。 */
+  const boardRelations = decisionDerives.relations;
 
   useEffect(() => {
     if (!activeRepoId || !tasksQuery.data) return;
@@ -113,37 +172,6 @@ function AppShell() {
     // Start it only after the primary workspace is ready, then retain the result for Agent/Provider.
     void prewarmRuntimeInstanceCatalog(queryClient);
   }, [queryClient, systemQuery.isSuccess, tasksQuery.isSuccess]);
-
-  const decisions = triadicQuery.decisions;
-  const facts = triadicQuery.facts;
-  const relations = triadicQuery.relations;
-  const coverageRows = triadicQuery.coverageRows;
-  const factAnchors = triadicQuery.factAnchors;
-  // 应用位置由视图导航历史栈持有(REQ-GUI-01):view/selectedId/previewId/
-  // focusedEntityRef/taskFilters/drill 全部从 location 派生,变更走 navigate()
-  // (推栈)或 updateLocation()(原地改)。与图内 FocusHistoryBar 并存:那是
-  // 聚光灯的实体焦点微历史,这是跨视图的应用位置历史。
-  const { location, navigate, updateLocation, back, forward, canBack, canForward } = useViewHistory(
-    projectId,
-    initialLocation(),
-  );
-  // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
-  useLocationRestore(location, document.body);
-  const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
-  const setTaskFilters = (next: TaskFilters) => updateLocation({ taskFilters: next });
-  const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [terminalOpen, setTerminalOpen] = useState(false);
-  const [setupGuide, setSetupGuide] = useState<"provider" | "agent" | null>(null);
-  const terminalDock = useRef<TerminalDockHandle>(null);
-
-  const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
-  const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
-  const previewTask = useMemo(() => tasks.find((t) => t.taskId === previewId) ?? null, [previewId, tasks]);
-  const filteredProjectTasks = useMemo(
-    () => applyTaskFilters(projectTasks, taskFilters, favorites),
-    [projectTasks, taskFilters, favorites],
-  );
 
   // The badge is the daemon's canonical inbox count; renderer rows are not a second census.
   const inboxCount = workspaceSummaryQuery.data?.decisions.inboxCount;
@@ -228,9 +256,11 @@ function AppShell() {
   });
 
   // ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。纯前端派生,不消费写 IPC。
+  // 决策条目来自常驻的摘要投影,事实条目来自面板打开时才读的事实切面——面板合上
+  // 时不持有任何三元投影。
   const paletteEntries = useMemo(
-    () => buildPaletteIndex(projectTasks, decisions, facts),
-    [projectTasks, decisions, facts],
+    () => buildPaletteIndex(projectTasks, decisionSummary.decisions, paletteFacts.facts),
+    [projectTasks, decisionSummary.decisions, paletteFacts.facts],
   );
 
   useAppShortcuts({
@@ -436,8 +466,8 @@ function AppShell() {
               <TaskDetailView
                 task={selected}
                 tasks={tasks}
-                relations={relations}
-                decisions={decisions}
+                relations={edgeRelations}
+                decisions={decisionSummary.decisions}
                 onBack={() => updateLocation({ selectedId: null })}
                 onSelect={(id) => updateLocation({ selectedId: id })}
                 projectName={project.name}
@@ -483,7 +513,7 @@ function AppShell() {
                 onFiltersChange={setTaskFilters}
                 onSelect={openTaskPreview}
                 drill={drill}
-                relations={relations}
+                relations={boardRelations}
                 favorites={favorites}
                 onToggleFavorite={toggleFavorite}
                 onStartTask={taskActions.startTask}
@@ -512,7 +542,7 @@ function AppShell() {
                 decisions={decisions}
                 tasks={projectTasks}
                 relations={relations}
-                loading={triadicQuery.isLoading}
+                loading={triadicQuery.isPending}
                 onBack={back}
                 projectName={project.name}
                 fromViewLabel={navLabel(view)}
@@ -531,7 +561,7 @@ function AppShell() {
                 relations={relations}
                 factAnchors={factAnchors}
                 coverageRows={coverageRows}
-                loading={triadicQuery.isLoading}
+                loading={triadicQuery.isPending}
                 onNavigateEntity={navigateToEntity}
                 onNavigateDecision={navigateToDecision}
                 onNavigateTask={navigateToTask}
@@ -604,7 +634,7 @@ function AppShell() {
             ) : view === "sessions" ? (
               <SessionsView
                 repoId={projectId}
-                relations={relations}
+                relations={edgeRelations}
                 focusedEntityRef={focusedEntityRef}
                 onSelectEntity={selectRuntimeEntity}
                 // W5:「编排」段随入口撤销;session → task 的出口改指 Task 详情(派工链所在)。
@@ -666,7 +696,7 @@ function AppShell() {
       <TaskPreviewDrawer
         task={previewTask}
         tasks={projectTasks}
-        relations={relations}
+        relations={edgeRelations}
         onClose={() => updateLocation({ previewId: null })}
         onOpenDetail={openTaskDetail}
         onPreviewTask={openTaskPreview}
