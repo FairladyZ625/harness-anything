@@ -89,6 +89,32 @@ export const create: Transition = {
  * unleased active execution of the current round.
  * Exported so the daemon preview and this transition answer with one rule instead of two. */
 export function canStartExecution(snapshot: TaskLifecycleSnapshot, executionId: string): boolean {
+  return taskHasDispatchLineage(snapshot) && canStartExecutionState(snapshot, executionId);
+}
+
+/** A dispatch must be traceable to either a Decision or an observed Fact. */
+export function taskHasDispatchLineage(snapshot: TaskLifecycleSnapshot): boolean {
+  const taskId = snapshot.task?.taskId;
+  if (!taskId) return false;
+  const taskRef = `task/${taskId}`;
+  return (snapshot.decisionRelations ?? []).some(
+    ({ sourceRef, targetRef, relationType, state }) =>
+      state === "active" &&
+      ((sourceRef.startsWith("decision/") && targetRef === taskRef && ["derives", "relates"].includes(relationType)) ||
+        (sourceRef === taskRef && targetRef.startsWith("fact/") && relationType === "relates")),
+  );
+}
+
+export function taskDispatchLineageNextAction(taskId: string): string {
+  return [
+    `Task ${taskId} has no active dispatch lineage. Add either an active Decision derives/relates edge `,
+    "or a Task relates Fact edge, then retry. Commands: ",
+    "ha decision relate <decision-id> --anchor CH<n> --type derives --target task/",
+    `${taskId} --rationale <why>; or ha task relate ${taskId} relates fact/F-XXXXXXXX --rationale <why>.`,
+  ].join("");
+}
+
+function canStartExecutionState(snapshot: TaskLifecycleSnapshot, executionId: string): boolean {
   const task = snapshot.task,
     rejoin = snapshot.executions.find((value) => value.executionId === executionId),
     round = snapshot.executions.find(
@@ -125,7 +151,9 @@ export const start: Transition = {
       proof = rawProof as Partial<StartExecutionProof>,
       issues = revisionIssues(snapshot, command),
       reservation = proof.reservation;
-    if (!canStartExecution(snapshot, command.executionId))
+    if (!taskHasDispatchLineage(snapshot))
+      issues.push(lifecycleContractIssue("orphan_task", taskDispatchLineageNextAction(command.taskId)));
+    else if (!canStartExecutionState(snapshot, command.executionId))
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",

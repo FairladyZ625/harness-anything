@@ -36,6 +36,18 @@ export function lifecycleFixture(): { readonly events: readonly TaskEventV1[]; r
   run(command(implementer, 1, {
     type: "CreateReplayTask", taskId: "task-1", title: "Fixture", taskClass: "standard", graph: REPLAY_TASK_GRAPH, completionGateIds: [], presetSnapshotDigest: null
   }), { taskIdUnique: true, actorBinding: implementer });
+  snapshot = {
+    ...snapshot,
+    decisionRelations: [
+      {
+        relationId: "fixture-decision-task",
+        sourceRef: "decision/dec-fixture/CH1",
+        targetRef: "task/task-1",
+        relationType: "derives",
+        state: "active",
+      },
+    ],
+  };
   run(command(implementer, 2, {
     type: "StartExecution", taskId: "task-1", executionId: "execution-1"
   }), {

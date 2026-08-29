@@ -24,6 +24,25 @@ export const replayGraph = {
   maxIterations: 1 as const
 };
 
+export function fixtureDispatchRead(projection: ReturnType<typeof makeTaskProjection>, taskId: string) {
+  const current = projection.read(taskId);
+  return {
+    ...current,
+    snapshot: {
+      ...current.snapshot,
+      decisionRelations: [
+        {
+          relationId: "fixture-decision-task",
+          sourceRef: "decision/dec-fixture/CH1",
+          targetRef: `task/${taskId}`,
+          relationType: "derives",
+          state: "active",
+        },
+      ],
+    },
+  };
+}
+
 export function lifecycleHarness() {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-"));
   git(rootDir, "init", "--quiet");
@@ -37,7 +56,7 @@ export function lifecycleHarness() {
   const realProjection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
   let failProjection = false;
   const projection = {
-    read: realProjection.read,
+    read: (taskId: string) => fixtureDispatchRead(realProjection, taskId),
     readOperation: realProjection.readOperation,
     readTaskOperation: realProjection.readTaskOperation,
     readDocument: realProjection.readDocument,

@@ -425,13 +425,13 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   defineLedgerWriteCommand({
     id: "task-relate",
     phase: "W3",
-    path: ["task", "relate", "<source-task-id>", "depends-on", "<target-task-id>"],
-    summary: "Declare a cycle-checked depends-on edge owned by the source Task.",
+    path: ["task", "relate", "<source-task-id>", "<relation-type>", "<target-ref>"],
+    summary: "Declare a depends-on Task edge or a relates Fact edge owned by the source Task.",
     method: "repo.task.run",
     inputs: [
       cliInput("--rationale", "single", true, {
         code: "missing_field",
-        nextAction: "Add --rationale <why-this-dependency-is-required>.",
+        nextAction: "Add --rationale <why-this-relation-is-required>.",
       }),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",

@@ -276,6 +276,15 @@ function bootstrapAndStart(rootDir: string) {
   const snapshot = {
       ...emptyTaskLifecycleSnapshot(1),
       task: event.payload.task,
+      decisionRelations: [
+        {
+          relationId: "fixture-decision-task",
+          sourceRef: "decision/dec-fixture/CH1",
+          targetRef: `task/${event.taskId}`,
+          relationType: "derives",
+          state: "active",
+        },
+      ],
     },
     command = {
       ...normalizeTaskLifecycleCommand(

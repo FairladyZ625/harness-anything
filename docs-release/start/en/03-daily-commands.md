@@ -10,6 +10,8 @@ A cheat sheet for the commands you'll reach for most. Add `--json` to any comman
 | `ha task create --title <title>` | Create a new task package. |
 | `ha task list` | List task packages, with state / module / search filters. |
 | `ha task show <id>` | Show one task with projected status, metadata, hierarchy, relation edges, and fact anchors. |
+| `ha task start <id>` | Acquire an execution lease after dispatch-lineage admission. |
+| `ha task relate <id> relates fact/F-XXXXXXXX --rationale <text>` | Tie a task to the Fact that authorizes dispatch. |
 | `ha task transition <id> <state>` | Move a task to a new lifecycle state. |
 | `ha decision propose --title <t> ...` | Propose a decision (question, chosen, rejected, why-not). |
 | `ha decision accept <id>` | Adjudicate a proposed decision — the evidence checkpoint. |
@@ -23,9 +25,15 @@ A cheat sheet for the commands you'll reach for most. Add `--json` to any comman
 **Task lifecycle**
 ```bash
 ha task create --title "Implement slice"
-ha task transition <id> active
+ha decision relate <decision-id> --anchor CH1 --type derives --target task/<id> --rationale "..."
+# Or: ha task relate <id> relates fact/F-XXXXXXXX --rationale "..."
+ha task start <id>
 ha task progress append <id> --text "Implemented first slice"
 ```
+
+`ha task start` and `ha runtime run <instance> --task <id>` return
+`orphan_task` until one of those active relation edges exists. The refusal names
+both commands and leaves the task unleased.
 
 **Decisions**
 ```bash

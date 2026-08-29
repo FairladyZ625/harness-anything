@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { applyTransition, canonicalGateReceipts, compileCompletionGateWitness, completionBlockers, eventObjectTarget, normalizeTaskLifecycleCommand, serializeCanonicalEvent, sha256Text, type TaskEventV1 } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskProjection, reduceTaskEvent, serializeEventHead, serializeTaskEvent, TASK_LEASE_BROKER_CONTRACT } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "../src/task-lifecycle-service.ts";
-import { lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
+import { fixtureDispatchRead, lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } };
 const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(rootDir: string, intent: C, meta: { readonly eventId: string; readonly workspaceRevision: number; readonly occurredAt: string }, expectedRevision = meta.workspaceRevision - 1) =>
@@ -21,7 +21,11 @@ test("completion blocker matrix returns one canonical next for every substantive
     const created = await harness.create(), started = await harness.start("execution-1"), submitted = await harness.submit("execution-1"), reviewed = await harness.review("execution-1", "acceptance", "approved"), consented = await harness.consent("execution-1");
     const ready = { closeout: "ready" as const, closeoutPath: "tasks/task-1/closeout.md", eligibleDirtyPaths: [] as string[] };
     const withGates = (gateIds: readonly string[]) => ({ ...consented.snapshot, task: { ...consented.snapshot.task!, completionGateIds: gateIds } });
-    const orphanMilestone = { ...consented.snapshot, task: { ...consented.snapshot.task!, taskClass: "milestone" as const } };
+    const orphanMilestone = {
+      ...consented.snapshot,
+      task: { ...consented.snapshot.task!, taskClass: "milestone" as const },
+      decisionRelations: [],
+    };
     const cases = [
       ["not_in_review", started.snapshot, ready],
       ["closeout_placeholder", consented.snapshot, { ...ready, closeout: "placeholder" as const }],
@@ -96,7 +100,10 @@ test("transition service freezes targets and makes create/start idempotent by op
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
-    const service = makeTaskLifecycleService({ eventStore, projection });
+    const service = makeTaskLifecycleService({
+      eventStore,
+      projection: { ...projection, read: (taskId) => fixtureDispatchRead(projection!, taskId) },
+    });
     const create = command(rootDir, { type: "CreateReplayTask" as const, taskId: "task-1", title: "Replay task", taskClass: "standard" as const, graph: replayGraph,
       completionGateIds: [], presetSnapshotDigest: null }, { eventId: "event-create", workspaceRevision: 1, occurredAt: "2026-08-11T00:00:00.000Z" });
     const createProof = { taskIdUnique: true as const, actorBinding: actor };

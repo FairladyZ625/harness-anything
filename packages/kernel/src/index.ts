@@ -34,6 +34,8 @@ export {
   normalizeTaskLifecycleCommand,
   requiredGateWitnessCount,
   reviewDigest,
+  taskDispatchLineageNextAction,
+  taskHasDispatchLineage,
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
 export { isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";

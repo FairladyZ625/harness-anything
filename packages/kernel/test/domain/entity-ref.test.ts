@@ -163,6 +163,7 @@ test("relation whitelist implements the ratified physical-direction matrix", () 
   assert.equal(isAllowedRelationKindTriple("decision", "relates", "task"), true);
   assert.equal(isAllowedRelationKindTriple("decision", "implements", "task"), false);
   assert.equal(isAllowedRelationKindTriple("decision", "supports", "task"), false);
+  assert.equal(isAllowedRelationKindTriple("task", "relates", "fact"), true);
   // decision->decision: derives (spawns a child decision) and supports join the set.
   assert.equal(isAllowedRelationKindTriple("decision", "derives", "decision"), true);
   assert.equal(isAllowedRelationKindTriple("decision", "supports", "decision"), true);

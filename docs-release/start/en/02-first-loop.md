@@ -90,7 +90,18 @@ $ ha --actor human:you fact record --task task_01KWPP52D062Q7BWTD8BCNDRWF \
     --statement "Redirect loops when the session cookie is missing" \
     --source "manual repro" --confidence high
 ok command="fact record" fact=F-7K3M2Q9R path=facts/F-7K3M2Q9R.md
+
+$ ha --actor human:you task relate task_01KWPP52D062Q7BWTD8BCNDRWF \
+    relates fact/F-7K3M2Q9R --rationale "This observation triggered the work"
+
+$ ha --actor human:you task start task_01KWPP52D062Q7BWTD8BCNDRWF
+ok command="task start" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=active
 ```
+
+Task creation stays lightweight, but dispatch does not allow an orphan. `task
+start` and `runtime run --task` require either an active Decision
+`derives`/`relates` edge to the Task, or the Task `relates` edge to a Fact. An
+`orphan_task` receipt prints both repair commands and does not acquire a lease.
 
 Now propose a decision — the WHY — and adjudicate it:
 

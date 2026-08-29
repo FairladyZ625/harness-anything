@@ -12,6 +12,8 @@ import {
   isLedgerLayoutMigrationEvent,
   isTerminalStatus,
   lifecycleDocumentPaths,
+  taskDispatchLineageNextAction,
+  taskHasDispatchLineage,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
@@ -480,6 +482,8 @@ export async function lifecycleAction(
       slot: "task.plan",
       transition: "task.start",
     });
+  if (resolvedLifecycle?.coordination === "reserve" && !preview && !taskHasDispatchLineage(current.snapshot))
+    throw cell.cellCodedError("orphan_task", taskDispatchLineageNextAction(taskId));
   const canonicalAction = preview ? cell.withoutDryRun(action) : action;
   const normalized = cell.buildCommand(
     canonicalAction,

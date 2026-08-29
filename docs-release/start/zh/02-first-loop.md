@@ -78,7 +78,17 @@ $ ha --actor human:you fact record --task task_01KWPP52D062Q7BWTD8BCNDRWF \
     --statement "Redirect loops when the session cookie is missing" \
     --source "manual repro" --confidence high
 ok command="fact record" fact=F-7K3M2Q9R path=facts/F-7K3M2Q9R.md
+
+$ ha --actor human:you task relate task_01KWPP52D062Q7BWTD8BCNDRWF \
+    relates fact/F-7K3M2Q9R --rationale "这条观察触发了该任务"
+
+$ ha --actor human:you task start task_01KWPP52D062Q7BWTD8BCNDRWF
+ok command="task start" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=active
 ```
+
+创建 task 仍保持轻量，但派工不能产生孤儿。`task start` 与 `runtime run --task`
+要求 Decision 到 Task 有一条 active `derives`/`relates` 边，或 Task 到 Fact
+有一条 active `relates` 边。`orphan_task` 回执会列出两种补边命令，并且不会取得租约。
 
 现在提议一个决策——为什么——并裁决它：
 

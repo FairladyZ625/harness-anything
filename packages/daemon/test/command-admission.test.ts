@@ -94,6 +94,20 @@ test("Settings CLI read uses the common read topology while update forwards from
   assert.equal(byId.get("settings-update")?.commandClass, "repo-write");
 });
 
+test("task start remains center-serialized while task-bound runtime run inherits that admission", () => {
+  const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
+  assert.deepEqual(byId.get("task-start")?.admission, {
+    local: "direct",
+    "remote-center": "via-assignment",
+    "remote-edge": "via-center-forward",
+  });
+  assert.deepEqual(byId.get("runtime-run")?.admission, {
+    local: "direct",
+    "remote-center": "via-assignment",
+    "remote-edge": "direct",
+  });
+});
+
 test("Settings locale-only updates use local admission while repository fields keep center routing", () => {
   const descriptor = new Map(daemonProtocolCommands.map((command) => [command.id, command])).get("settings-update")!;
   assert.deepEqual(settingsCommandTopology(descriptor, { kind: "settings-update", locale: "zh-CN" }).admission, {

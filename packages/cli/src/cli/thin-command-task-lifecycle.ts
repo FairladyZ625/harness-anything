@@ -136,11 +136,17 @@ export function parseRelate(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  const target = args[4];
-  if (args[3] !== "depends-on" || !nonEmpty(target))
+  const relationType = args[3],
+    target = args[4],
+    dependency = relationType === "depends-on" && nonEmpty(target),
+    factRelation = relationType === "relates" && /^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(target ?? "");
+  if (!dependency && !factRelation)
     return rejected(
       "invalid_field",
-      `Run ha task relate ${taskId} depends-on <target-task-id> --rationale <text>.`,
+      [
+        `Run ha task relate ${taskId} depends-on <target-task-id> --rationale <text>, `,
+        `or ha task relate ${taskId} relates fact/F-XXXXXXXX --rationale <text>.`,
+      ].join(""),
       json,
     );
   const f = readFlags("task-relate", args.slice(5), inputs);
@@ -148,8 +154,8 @@ export function parseRelate(
   return accepted(rootDir, repoId, json, {
     kind: "task-relate",
     taskId,
-    target: `task/${target}`,
-    relationType: "depends-on",
+    target: dependency ? `task/${target}` : target,
+    relationType,
     rationale: f.one.get("--rationale"),
     ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
   });

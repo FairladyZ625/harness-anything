@@ -161,6 +161,13 @@ export const canonicalRelationDirections: readonly CanonicalRelationDirection[] 
     reads: "the task evidences the target fact",
     registration: "ratified",
   },
+  {
+    type: "relates",
+    sourceKind: "task",
+    targetKind: "fact",
+    reads: "the task relates to the target fact",
+    registration: "ratified",
+  },
   // fact → fact: only the target is stale; the source is the replacement.
   {
     type: "supersedes-fact",

@@ -225,6 +225,7 @@ export type TaskEventV1 =
   | TaskMutationEvent;
 export type TaskLifecycleErrorCode =
   | "invalid_schema"
+  | "orphan_task"
   | "invalid_transition"
   | "invalid_proof"
   | "invalid_graph"

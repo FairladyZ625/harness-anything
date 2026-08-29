@@ -197,9 +197,24 @@ function completeProof() {
   };
 }
 
+function withDispatchLineage(snapshot) {
+  return {
+    ...snapshot,
+    decisionRelations: [
+      {
+        relationId: "fixture-decision-task",
+        sourceRef: "decision/dec-fixture/CH1",
+        targetRef: "task/task-1",
+        relationType: "derives",
+        state: "active",
+      },
+    ],
+  };
+}
+
 function firstRound() {
   const created = applyTransition(emptyTaskLifecycleSnapshot(), create(), createProof());
-  const started = applyTransition(created.snapshot, start(2), startProof());
+  const started = applyTransition(withDispatchLineage(created.snapshot), start(2), startProof());
   const submitted = applyTransition(started.snapshot, submit(3), submitProof());
   const approved = applyTransition(submitted.snapshot, review(4), reviewProof());
   const recorded = approved.snapshot.reviews[0];
@@ -252,7 +267,7 @@ test("G10 block, unblock, and cancel are catalog transitions while unrelated act
     /force and an auditable reason/u,
   );
 
-  const started = applyTransition(created.snapshot, start(2), startProof());
+  const started = applyTransition(withDispatchLineage(created.snapshot), start(2), startProof());
   assert.throws(() => applyTransition(started.snapshot, transition(3, "blocked"), {}), /unleased/u);
   const { submitted } = firstRound();
   assert.equal(applyTransition(submitted.snapshot, transition(4, "blocked"), {}).snapshot.task.status, "blocked");
@@ -547,7 +562,8 @@ test("G34 replay preserves reject to new execution to approved consent to comple
     assert.doesNotThrow(() => serializeTaskEvent(event));
     replayed = reduceTaskEvent(replayed, event);
   }
-  assert.deepEqual(replayed, completed.snapshot);
+  const { decisionRelations: _decisionRelations, ...completedWithoutRelations } = completed.snapshot;
+  assert.deepEqual(replayed, completedWithoutRelations);
   assert.equal(replayed.task.status, "done");
   assert.equal(replayed.executions[1].state, "accepted");
   assert.throws(

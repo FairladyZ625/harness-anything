@@ -10,6 +10,8 @@
 | `ha task create --title <title>` | 创建一个新任务包。 |
 | `ha task list` | 列出任务包，带状态/模块/搜索过滤。 |
 | `ha task show <id>` | 查看单个任务的投影状态、元数据、层级、关系边和事实锚。 |
+| `ha task start <id>` | 通过派工关系门后取得 execution lease。 |
+| `ha task relate <id> relates fact/F-XXXXXXXX --rationale <text>` | 把 task 关联到允许派工的 Fact。 |
 | `ha task transition <id> <state>` | 把任务移到新的生命周期状态。 |
 | `ha decision propose --title <t> ...` | 提议一个决策（问题、已选、已拒、为何不）。 |
 | `ha decision accept <id>` | 裁决一个提议的决策——证据检查点。 |
@@ -23,9 +25,15 @@
 **任务生命周期**
 ```bash
 ha task create --title "Implement slice"
-ha task transition <id> active
+ha decision relate <decision-id> --anchor CH1 --type derives --target task/<id> --rationale "..."
+# 或：ha task relate <id> relates fact/F-XXXXXXXX --rationale "..."
+ha task start <id>
 ha task progress append <id> --text "Implemented first slice"
 ```
+
+在上述任一 active 关系边存在之前，`ha task start` 与
+`ha runtime run <instance> --task <id>` 都会返回 `orphan_task`。拒绝回执会列出两种补边命令，
+且不会给 task 上租约。
 
 **决策**
 ```bash

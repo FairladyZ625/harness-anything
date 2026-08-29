@@ -121,6 +121,16 @@ test("daemon command declarations keep their declared positional in usage", () =
   const taskStart = daemonProtocolCommands.find((command) => command.id === "task-start");
   assert.ok(taskStart);
   assert.match(taskStart.usage, /task start <task-id>/u);
+  const taskRelate = daemonProtocolCommands.find((command) => command.id === "task-relate");
+  assert.ok(taskRelate);
+  assert.match(taskRelate.usage, /task relate <source-task-id> <relation-type> <target-ref>/u);
+  assert.deepEqual(
+    taskRelate.inputs.map((input) => [input.name, input.required]),
+    [
+      ["--rationale", true],
+      ["--dry-run", false],
+    ],
+  );
   const repoBootstrap = daemonProtocolCommands.find((command) => command.id === "repo-bootstrap");
   assert.ok(repoBootstrap);
   assert.match(repoBootstrap.usage, /--repo-id <repo-id>/u);

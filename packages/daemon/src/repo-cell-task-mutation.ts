@@ -186,21 +186,26 @@ export function taskMutation(
   }
   if (action.kind === "task-relate") {
     const target = cell.requiredCellText(action.target, "target"),
-      targetTask = /^task\/([^/]+)$/u.exec(target)?.[1];
-    if (action.relationType !== "depends-on" || !targetTask)
+      targetTask = /^task\/([^/]+)$/u.exec(target)?.[1],
+      dependency = action.relationType === "depends-on" && Boolean(targetTask),
+      factRelation = action.relationType === "relates" && /^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(target);
+    if (!dependency && !factRelation)
       throw cell.cellCodedError(
         "invalid_relation",
-        "Use ha task relate <task-id> --depends-on <task-id> --rationale <text>.",
+        [
+          "Use ha task relate <task-id> depends-on <task-id> --rationale <text>, or ",
+          "ha task relate <task-id> relates fact/F-XXXXXXXX --rationale <text>.",
+        ].join(""),
       );
-    if (!cell.projectedTaskIds().has(targetTask))
+    if (!cell.relationEndpointExists(target))
       throw cell.cellCodedError(
         "relation_target_not_found",
-        `Create relation target ${targetTask} before adding the dependency.`,
+        `Create relation target ${target} before adding the relation.`,
       );
     const basis = {
         source: `task/${task.taskId}`,
         target,
-        type: "depends-on" as const,
+        type: action.relationType as "depends-on" | "relates",
         direction: "directed" as const,
       },
       relation: EntityRelationRecord = {
@@ -220,7 +225,7 @@ export function taskMutation(
     const issues = validateRelationRecordsForHost(`task/${task.taskId}`, [...relations, relation]);
     if (issues.length)
       throw cell.cellCodedError("invalid_relation", `${issues[0]!.message}; fix the endpoints or rationale and retry.`);
-    if (cell.dependencyPath(target, `task/${task.taskId}`))
+    if (dependency && cell.dependencyPath(target, `task/${task.taskId}`))
       throw cell.cellCodedError(
         "relation_cycle",
         `Remove the dependency path from ${target} to task/${task.taskId} before adding this edge.`,

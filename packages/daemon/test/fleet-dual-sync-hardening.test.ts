@@ -143,6 +143,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
     );
     // The holder naming its held execution keeps decideDocWrite's holder check
     // as its authority: the same actor holding the lease may push explicitly.
+    await traceFixtureTask(cell, "task-direct", { actor, source: assignmentSource });
     const started = await cell.run(
       { kind: "task-start", taskId: "task-direct", executionId: "exe-f1" },
       { actor, source: assignmentSource },
@@ -228,7 +229,8 @@ test("F2: a crash after the atomic bundle commit replays both the transition and
       target = path.join(root, "harness", logical),
       original = readFileSync(target, "utf8"),
       body = `${realizedTaskPlan("Crash")}\n## Carried\n\nCarry the realized plan with the start transition.\n`;
-    const base = mirrorCut(created.cut);
+    const traced = await traceFixtureTask(cell, "task-crash", binding),
+      base = mirrorCut(traced.cut);
     armed = true;
     const failed = await cell.run(
       {
@@ -279,7 +281,8 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
       logical = `${packagePath}/task_plan.md`,
       target = path.join(root, "harness", logical),
       original = readFileSync(target, "utf8");
-    const base = mirrorCut(created.cut);
+    const traced = await traceFixtureTask(cell, "task-fence", binding),
+      base = mirrorCut(traced.cut);
     const rolled = await cell.run(
       {
         kind: "task-start",
@@ -329,6 +332,36 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
     await cell.close();
   }
 });
+
+type HardeningCell = Awaited<ReturnType<typeof openRepoCell>>;
+type HardeningBinding = Parameters<HardeningCell["run"]>[1];
+
+async function traceFixtureTask(cell: HardeningCell, taskId: string, binding: HardeningBinding) {
+  const fact = await cell.run(
+      {
+        kind: "fact-record",
+        statement: `Fixture lineage for ${taskId}.`,
+        evidenceSource: "test:fleet-dual-sync-hardening",
+        confidence: "high",
+        memoryClass: "semantic",
+        memoryTags: [],
+      },
+      binding,
+    ),
+    related = await cell.run(
+      {
+        kind: "task-relate",
+        taskId,
+        target: `fact/${String((fact as Record<string, unknown>).factId)}`,
+        relationType: "relates",
+        rationale: "The fixture observation authorizes dispatch.",
+      },
+      binding,
+    );
+  assert.equal(fact.outcome, "applied", JSON.stringify(fact));
+  assert.equal(related.outcome, "applied", JSON.stringify(related));
+  return related;
+}
 
 function mirrorCutFixture(
   name: string,

@@ -56,6 +56,7 @@ test("every reversed-direction pair keeps exactly one canonical writable side", 
   // Blocking: task --depends-on--> task blocks the source; the mirrored task --blocks--> task is retired.
   assert.equal(isAllowedRelationKindTriple("task", "depends-on", "task"), true);
   assert.equal(isAllowedRelationKindTriple("task", "blocks", "task"), false);
+  assert.equal(isAllowedRelationKindTriple("task", "relates", "fact"), true);
 });
 
 test("every replaced reverse alias is refused on the mirrored endpoint pair", () => {

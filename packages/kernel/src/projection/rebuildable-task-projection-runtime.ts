@@ -121,34 +121,49 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
       taskId,
     ).map((value) => JSON.parse(String(value.value_json)) as TaskLifecycleSnapshot["reviews"][number]);
   const lease = now === undefined ? storedLease(db, taskId) : effectiveLease(db, taskId, now);
-  // The stored snapshot is pure task-aggregate state; the decision relations this task is a
-  // target of are stamped at read time as-of the applied cut, the same join the live lease uses.
-  const decisionRelations = (
-    queryRows(db, "SELECT row_json FROM relation_edge WHERE target_ref = ?", `task/${taskId}`) as readonly {
-      readonly row_json: string;
-    }[]
-  ).map((edge) => {
-    const parsed = JSON.parse(edge.row_json) as {
-      readonly relationId: string;
-      readonly sourceRef: string;
-      readonly targetRef: string;
-      readonly relationType: string;
-      readonly state: string;
-    };
-    return {
-      relationId: parsed.relationId,
-      sourceRef: parsed.sourceRef,
-      targetRef: parsed.targetRef,
-      relationType: parsed.relationType,
-      state: parsed.state,
-    };
-  });
+  // The stored snapshot is pure task-aggregate state; task-related Decision and Fact edges are
+  // stamped at read time as-of the applied cut, the same join the live lease uses.
+  const taskRef = `task/${taskId}`,
+    eventRelations = (
+      queryRows(
+        db,
+        "SELECT row_json FROM relation_edge WHERE target_ref = ? OR source_ref = ? ORDER BY relation_id",
+        taskRef,
+        taskRef,
+      ) as readonly {
+        readonly row_json: string;
+      }[]
+    ).map((edge) => {
+      const parsed = JSON.parse(edge.row_json) as {
+        readonly relationId: string;
+        readonly sourceRef: string;
+        readonly targetRef: string;
+        readonly relationType: string;
+        readonly state: string;
+      };
+      return parsed;
+    }),
+    taskRelations = queryRows(
+      db,
+      [
+        "SELECT relation_id, source_ref, target_ref, relation_type, state FROM task_relation",
+        "WHERE target_ref = ? OR source_ref = ? ORDER BY relation_id",
+      ].join(" "),
+      taskRef,
+      taskRef,
+    ).map((row) => ({
+      relationId: String(row.relation_id),
+      sourceRef: String(row.source_ref),
+      targetRef: String(row.target_ref),
+      relationType: String(row.relation_type),
+      state: String(row.state),
+    }));
   return {
     ...snapshot,
     executions,
     reviews,
     lease: lease?.phase === "released" ? null : lease,
-    decisionRelations,
+    decisionRelations: [...eventRelations, ...taskRelations],
   };
 }
 

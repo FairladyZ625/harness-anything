@@ -295,6 +295,16 @@ test("task lifecycle and read surfaces parse every F03 F04 F05 leaf into closed 
         dryRun: true,
       },
     ],
+    [
+      ["task", "relate", "task-1", "relates", "fact/F-ABCDEFGH", "--rationale", "Observed trigger"],
+      {
+        kind: "task-relate",
+        taskId: "task-1",
+        target: "fact/F-ABCDEFGH",
+        relationType: "relates",
+        rationale: "Observed trigger",
+      },
+    ],
   ] as const;
   for (const [argv, expected] of cases) {
     const parsed = parseThinCommand(argv);
