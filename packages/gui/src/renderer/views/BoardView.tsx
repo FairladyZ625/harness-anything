@@ -165,7 +165,7 @@ function Column({
   onToggleFavorite,
 }: {
   status: SnapshotStatus;
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   onSelect: (id: string) => void;
   rejecting: boolean;
   relations: RelationEdge[];
@@ -242,7 +242,7 @@ export function BoardView({
   onStartTask,
   mutationFeedback,
 }: {
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   allTasks: TaskRow[];
   filters: TaskFilters;
   onFiltersChange: (filters: TaskFilters) => void;

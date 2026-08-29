@@ -28,7 +28,7 @@ export function TaskPreviewDrawer({
   onPreviewTask,
 }: {
   task: TaskRow | null;
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   relations: RelationEdge[];
   onClose: () => void;
   onOpenDetail: (id: string) => void;

@@ -1,30 +1,19 @@
 import type { DatabaseSync } from "node:sqlite";
-import {
-  decisionDocumentProse,
-  type DecisionDocumentState,
-} from "../domain/decision-event.ts";
+import { decisionDocumentProse, type DecisionDocumentState } from "../domain/decision-event.ts";
 import type { DocumentState } from "../domain/doc-sync.contract.ts";
-import type {
-  DecisionBodyRow,
-  DecisionRelationEdgeRow,
-} from "./decision-projection-model.ts";
+import type { DecisionBodyRow, DecisionRelationEdgeRow } from "./decision-projection-model.ts";
 import { readDecisionRow } from "./decision-projection-reads.ts";
+import { queryRows } from "./rebuildable-task-projection-sql.ts";
 
-export function readDecisionBody(
-  db: DatabaseSync,
-  decisionId: string,
-): DecisionBodyRow | null {
+export function readDecisionBody(db: DatabaseSync, decisionId: string): DecisionBodyRow | null {
   const path = `decisions/decision-${decisionId}/decision.md`,
-    row = db
-      .prepare("SELECT value_json FROM document WHERE path=?")
-      .get(path) as { readonly value_json: string } | undefined;
+    row = db.prepare("SELECT value_json FROM document WHERE path=?").get(path) as
+      | { readonly value_json: string }
+      | undefined;
   return row ? decisionBodyFromDocument(decisionId, row.value_json) : null;
 }
 
-export function decisionBodyFromDocument(
-  decisionId: string,
-  valueJson: string,
-): DecisionBodyRow {
+export function decisionBodyFromDocument(decisionId: string, valueJson: string): DecisionBodyRow {
   const path = `decisions/decision-${decisionId}/decision.md`,
     document = JSON.parse(valueJson) as DocumentState;
   return {
@@ -37,21 +26,14 @@ export function decisionBodyFromDocument(
   };
 }
 
-export function readDecisionDocumentState(
-  db: DatabaseSync,
-  decisionId: string,
-): DecisionDocumentState | null {
+export function readDecisionDocumentState(db: DatabaseSync, decisionId: string): DecisionDocumentState | null {
   const row = readDecisionRow(db, decisionId);
   if (!row) return null;
   const { body: _body, ...decision } = row,
-    relations = (
-      db
-        .prepare(
-          "SELECT row_json FROM relation_edge WHERE owner_ref=? ORDER BY relation_id",
-        )
-        .all(`decision/${decisionId}`) as unknown as readonly {
-        readonly row_json: string;
-      }[]
+    relations = queryRows<{ readonly row_json: string }>(
+      db,
+      "SELECT row_json FROM relation_edge WHERE owner_ref=? ORDER BY relation_id",
+      `decision/${decisionId}`,
     )
       .map((entry) => JSON.parse(entry.row_json) as DecisionRelationEdgeRow)
       .map((edge) => ({

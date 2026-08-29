@@ -74,7 +74,7 @@ export function spawningDecisionOf(task: TaskRow, relations: RelationEdge[] = []
   return task.spawningDecision ? normalizeDecisionId(task.spawningDecision) : undefined;
 }
 
-export function derivedTasks(decision: DecisionRow, relations: RelationEdge[], tasks: TaskRow[]): TaskRow[] {
+export function derivedTasks(decision: DecisionRow, relations: RelationEdge[], tasks: readonly TaskRow[]): TaskRow[] {
   const taskIds = relations
     .filter(
       (relation) =>

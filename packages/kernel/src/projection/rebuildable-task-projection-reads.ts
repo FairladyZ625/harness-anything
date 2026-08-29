@@ -16,6 +16,7 @@ import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { markRuntimeSessionsUnknown, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import {
   parseEventJson,
+  queryRows,
   refreshStateDigestAtSourceCut,
   transaction,
   watermark,
@@ -50,27 +51,26 @@ export function listProjection(
     ) {
       const rows =
         /* @gate-identity check-bypass-write-boundary/bypass-write-012 */
-        db
-          .prepare(
-            [
-              "SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path,",
-              "COALESCE(task_generation.generation, 'v1') AS generation,",
-              "task_snapshot.workspace_revision AS workspace_revision,",
-              `${taskCreatedAtSql("task_snapshot.task_id")} AS created_at,`,
-              "event_index.event_json AS event_json FROM task_snapshot",
-              "LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)",
-              "JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision",
-              "ORDER BY task_snapshot.task_id",
-            ].join(" "),
-          )
-          .all() as unknown as readonly {
+        queryRows<{
           readonly task_id: string;
           readonly package_path: string | null;
           readonly generation: "v0" | "v1";
           readonly workspace_revision: number;
           readonly created_at: string | null;
           readonly event_json: string;
-        }[];
+        }>(
+          db,
+          [
+            "SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path,",
+            "COALESCE(task_generation.generation, 'v1') AS generation,",
+            "task_snapshot.workspace_revision AS workspace_revision,",
+            `${taskCreatedAtSql("task_snapshot.task_id")} AS created_at,`,
+            "event_index.event_json AS event_json FROM task_snapshot",
+            "LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)",
+            "JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision",
+            "ORDER BY task_snapshot.task_id",
+          ].join(" "),
+        );
       return {
         status: current === round.sourceRevision ? "ready" : "pending",
         rows: rows.map((row) => ({

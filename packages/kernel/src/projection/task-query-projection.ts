@@ -5,6 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
 import type { ReplayTaskStatus, TaskV1 } from "../domain/task.ts";
+import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 
 /**
  * Narrow-query companions for the rebuildable task projection. Everything here
@@ -98,36 +99,36 @@ export function readTaskRuntimeBatchPage(
     taskIds = remaining.slice(0, limit),
     last = taskIds.at(-1),
     encoded = JSON.stringify(taskIds);
-  const taskRows = db
-    .prepare(
-      `WITH requested(task_order, task_id) AS MATERIALIZED (
+  const taskRows = queryRows<{
+    readonly task_id: string;
+    readonly title: string;
+    readonly package_path: string | null;
+  }>(
+    db,
+    `WITH requested(task_order, task_id) AS MATERIALIZED (
       SELECT CAST(key AS INTEGER), value FROM json_each(?)
     )
     SELECT requested.task_id, json_extract(task_snapshot.snapshot_json, '$.task.title') AS title,
       task_package.package_path FROM requested JOIN task_snapshot USING(task_id)
     LEFT JOIN task_package USING(task_id) ORDER BY requested.task_order`,
-    )
-    .all(encoded) as unknown as readonly {
-    readonly task_id: string;
-    readonly title: string;
-    readonly package_path: string | null;
-  }[];
+    encoded,
+  );
   const tasks = new Map(taskRows.map((row) => [row.task_id, row])),
     sessions = new Map<string, RuntimeSession[]>();
-  const sessionRows = db
-    .prepare(
-      `WITH requested(task_order, task_id) AS MATERIALIZED (
+  const sessionRows = queryRows<{
+    readonly task_id: string;
+    readonly value_json: string;
+  }>(
+    db,
+    `WITH requested(task_order, task_id) AS MATERIALIZED (
       SELECT CAST(key AS INTEGER), value FROM json_each(?)
     )
     SELECT requested.task_id, runtime_session.value_json FROM requested
     JOIN runtime_session_task_binding USING(task_id) JOIN runtime_session USING(runtime_session_id)
     ORDER BY requested.task_order, runtime_session.runtime_session_id,
       runtime_session_task_binding.bound_at, runtime_session_task_binding.execution_id`,
-    )
-    .all(encoded) as unknown as readonly {
-    readonly task_id: string;
-    readonly value_json: string;
-  }[];
+    encoded,
+  );
   for (const row of sessionRows) {
     const values = sessions.get(row.task_id) ?? [];
     values.push(JSON.parse(row.value_json) as RuntimeSession);
@@ -212,12 +213,9 @@ export function refreshTaskRelationProjection(
 
 /** Every task-owned edge, ordered by relation id — the event-side task rows of the converged relation graph. */
 export function readTaskRelationRows(db: DatabaseSync): readonly TaskRelationProjectionRow[] {
-  return (
-    db
-      .prepare(
-        "SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index FROM task_relation ORDER BY relation_id",
-      )
-      .all() as unknown as readonly Record<string, unknown>[]
+  return queryRows(
+    db,
+    "SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index FROM task_relation ORDER BY relation_id",
   ).map(taskRelationRow);
 }
 
@@ -241,12 +239,7 @@ export function readTaskRelationsByTargets(
       WHERE relation_edge.target_ref = requested_targets.target_ref AND relation_edge.relation_type = ?
     )
     SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index FROM matching_rows ORDER BY target_order, relation_id`;
-  return (
-    db.prepare(sql).all(JSON.stringify(targetRefs), relationType, relationType) as unknown as readonly Record<
-      string,
-      unknown
-    >[]
-  ).map(taskRelationRow);
+  return queryRows(db, sql, JSON.stringify(targetRefs), relationType, relationType).map(taskRelationRow);
 }
 
 /** Indexed transitive depends-on read. The path token prevents cycles from being traversed,
@@ -295,12 +288,15 @@ export function readTaskDependencyClosureRows(
     SELECT 0 AS overflow, seed_order, depth, visited_path, relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index FROM dependency_rows
     UNION ALL SELECT 1, -1, -1, '', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dependency_overflow
     ORDER BY overflow DESC, depth, seed_order, visited_path, relation_id`;
-  const records = db
-    .prepare(sql)
-    .all(JSON.stringify(sourceRefs), maxDepth, maxDepth, maxDepth, maxDepth) as unknown as readonly (Record<
-    string,
-    unknown
-  > & { readonly overflow: number })[];
+  const records = queryRows<ProjectionSqlRow & { readonly overflow: number }>(
+    db,
+    sql,
+    JSON.stringify(sourceRefs),
+    maxDepth,
+    maxDepth,
+    maxDepth,
+    maxDepth,
+  );
   if (records[0]?.overflow === 1) throw new Error(`dependency closure depth limit ${maxDepth} exceeded`);
   const rows = new Map<string, TaskRelationProjectionRow>();
   for (const record of records)
@@ -325,11 +321,10 @@ export function readTaskStatusRows(
   const sql = scoped
     ? "SELECT task_id, status FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?)) ORDER BY task_id"
     : "SELECT task_id, status FROM task_snapshot ORDER BY task_id";
-  return (
-    db.prepare(sql).all(...(scoped ? [JSON.stringify(taskIds)] : [])) as unknown as readonly {
-      readonly task_id: string;
-      readonly status: string | null;
-    }[]
+  return queryRows<{ readonly task_id: string; readonly status: string | null }>(
+    db,
+    sql,
+    ...(scoped ? [JSON.stringify(taskIds)] : []),
   ).map((row) => ({ taskId: row.task_id, status: row.status }));
 }
 
@@ -372,7 +367,7 @@ export function listTaskRowsNarrow(
     pageLimit = query.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(query.limit);
   const sql = `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, ${taskCreatedAtSql("task_snapshot.task_id")} AS created_at, task_snapshot.updated_at AS updated_at, task_snapshot.pinned AS pinned FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${query.pinnedFirst ? "task_snapshot.pinned DESC, " : ""}task_snapshot.task_id${pageLimit === null ? "" : " LIMIT ?"}`;
   if (pageLimit !== null) values.push(pageLimit + 1);
-  const raw = db.prepare(sql).all(...values) as unknown as readonly NarrowTaskRow[],
+  const raw = queryRows<NarrowTaskRow & ProjectionSqlRow>(db, sql, ...values),
     visible = pageLimit === null ? raw : raw.slice(0, pageLimit);
   if (pageLimit === null) return { rows: visible, page: null };
   const last = visible.at(-1);
@@ -443,7 +438,7 @@ export function readTaskRelationPage(
     pageLimit = query.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(query.limit);
   const sql = `SELECT * FROM (${taskRows} UNION ALL ${eventRows})${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY relation_id${pageLimit === null ? "" : " LIMIT ?"}`;
   if (pageLimit !== null) values.push(pageLimit + 1);
-  const raw = db.prepare(sql).all(...values) as unknown as readonly Record<string, unknown>[],
+  const raw = queryRows(db, sql, ...values),
     visible = pageLimit === null ? raw : raw.slice(0, pageLimit),
     rows = visible.map(taskRelationRow);
   if (pageLimit === null) return { rows, page: null };

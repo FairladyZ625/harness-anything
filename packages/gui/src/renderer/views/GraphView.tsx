@@ -72,7 +72,7 @@ function GraphViewInner({
   entries = [],
   onOpenPalette = () => {},
 }: {
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   relations: RelationEdge[];
   decisions: DecisionRow[];
   facts: FactRef[];

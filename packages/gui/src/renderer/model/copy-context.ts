@@ -120,7 +120,7 @@ export function buildEntityJumpContext(
   relations: RelationEdge[],
   decisions: DecisionRow[],
   facts: FactRef[],
-  tasks: TaskRow[],
+  tasks: readonly TaskRow[],
   problem = "正在检查该实体的状态、关系与证据，请据此继续调查或起草后续工作。",
 ): string {
   const lines: string[] = [];
@@ -209,7 +209,7 @@ function endpointBelongsToEntity(endpoint: string, entityRef: string): boolean {
   return endpoint.replace(/^task\//, "").split("/")[0] === taskId;
 }
 
-function entitySummary(ref: string, decisions: DecisionRow[], facts: FactRef[], tasks: TaskRow[]): string {
+function entitySummary(ref: string, decisions: DecisionRow[], facts: FactRef[], tasks: readonly TaskRow[]): string {
   if (ref.startsWith("decision/")) {
     const id = normalizeDecisionId(ref);
     const decision = decisions.find((candidate) => candidate.decisionId === id);

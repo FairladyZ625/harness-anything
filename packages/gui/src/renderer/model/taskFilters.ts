@@ -99,8 +99,11 @@ export function matchesTask(task: TaskRow, filters: TaskFilters, favorites?: Rea
   return true;
 }
 
-export const applyTaskFilters = (tasks: TaskRow[], filters: TaskFilters, favorites?: ReadonlySet<string>) =>
-  tasks.filter((task) => matchesTask(task, filters, favorites));
+export const applyTaskFilters = (
+  tasks: readonly TaskRow[],
+  filters: TaskFilters,
+  favorites?: ReadonlySet<string>,
+): readonly TaskRow[] => tasks.filter((task) => matchesTask(task, filters, favorites));
 
 export const taskFilterSummary = (filters: TaskFilters): string[] => {
   const parts: string[] = [];

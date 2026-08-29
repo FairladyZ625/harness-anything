@@ -72,7 +72,7 @@ export function DecisionsView({
   coverageRows = [],
 }: {
   decisions: DecisionRow[];
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   relations: RelationEdge[];
   facts: FactRef[];
   onCallAgent?: (cmd: string) => void;

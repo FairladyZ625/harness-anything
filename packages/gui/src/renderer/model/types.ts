@@ -21,37 +21,37 @@ export type EngineId = string;
 export type DocGroup = "必读" | "计划" | "设计" | "进度" | "收口" | "证据";
 
 export interface DocEntry {
-  path: string;
-  title: string;
-  group: DocGroup;
-  required: boolean;
+  readonly path: string;
+  readonly title: string;
+  readonly group: DocGroup;
+  readonly required: boolean;
   /** 文档完成度：true=已存在，false=缺失（required+missing 即收口阻塞项） */
-  present: boolean;
+  readonly present: boolean;
   /** 未完成文档 read 时不能把 absent 当 missing。 */
-  presence?: "present" | "missing" | "unknown";
+  readonly presence?: "present" | "missing" | "unknown";
   /** 工作树内容与已提交投影不同(或仅存在于工作树):树节点上标注「未提交」。 */
-  uncommitted?: boolean;
+  readonly uncommitted?: boolean;
 }
 
 /** materialization gate / check 结果——任务详情收口区的"原因"维度 */
 export interface GateResult {
-  name: string;
-  ok: boolean | null;
-  detail?: string;
+  readonly name: string;
+  readonly ok: boolean | null;
+  readonly detail?: string;
 }
 
 export type BlockingState = "blocked" | "clear" | "unknown";
 
 export interface BlockingContributor {
-  relationId: string;
+  readonly relationId: string;
   /** The only writable task→task blocking verb (canonical direction: source is blocked). */
-  kind: "depends-on";
-  sourceTaskId: string;
-  targetTaskId: string;
-  rationale?: string;
+  readonly kind: "depends-on";
+  readonly sourceTaskId: string;
+  readonly targetTaskId: string;
+  readonly rationale?: string;
 }
 
-export interface TaskRow {
+interface TaskRowFields {
   taskId: string;
   title: string;
   projectId: string;
@@ -60,8 +60,8 @@ export interface TaskRow {
   canonicalStatus?: CanonicalStatus;
   blocking?: BlockingState;
   blockingLabel?: string;
-  blockers?: BlockingContributor[];
-  blockingWarnings?: string[];
+  blockers?: readonly BlockingContributor[];
+  blockingWarnings?: readonly string[];
   rawStatus: string;
   freshness: Freshness;
   packageDisposition: PackageDisposition;
@@ -70,10 +70,13 @@ export interface TaskRow {
   origin?: "native" | "archival" | "external";
   source: "local-document" | "external-engine" | "snapshot-cache";
   module: string;
-  moduleKeys?: string[];
-  productLines?: string[];
+  moduleKeys?: readonly string[];
+  productLines?: readonly string[];
   placementWarning?: string;
-  placementProvenance?: ReadonlyArray<{ kind: "l2" | "decision-relation" | "canonical-event"; ref: string }>;
+  placementProvenance?: ReadonlyArray<{
+    readonly kind: "l2" | "decision-relation" | "canonical-event";
+    readonly ref: string;
+  }>;
   packagePath?: string | null;
   taskClass?: NonNullable<TaskSnapshotProjectionRow["snapshot"]["task"]>["taskClass"];
   workKind?: NonNullable<NonNullable<TaskSnapshotProjectionRow["snapshot"]["task"]>["metadata"]>["workKind"];
@@ -85,13 +88,13 @@ export interface TaskRow {
   iteration?: 0 | 1;
   activeExecutionId?: string;
   leaseExpiresAt?: string;
-  events?: EventEntry[];
+  events?: readonly EventEntry[];
   /** task_bootstrapped occurredAt; null when the ledger has no reliable creation event. */
   createdAt?: string | null;
   lastKnownAt: string;
   /** closeoutReadiness=ready 的起始时间，用于等待时长统计 */
   waitingSince?: string;
-  gates: GateResult[];
+  gates: readonly GateResult[];
   closeoutBlocker?: TaskSnapshotProjectionRow["closeoutAssessment"]["blocker"];
   snapshotAvailability?: TaskSnapshotProjectionRow["snapshotAvailability"];
   reviews?: TaskSnapshotProjectionRow["snapshot"]["reviews"];
@@ -102,7 +105,7 @@ export interface TaskRow {
   executions?: TaskSnapshotProjectionRow["snapshot"]["executions"];
   /** execution evidence 投影原样透传(同上)。 */
   executionEvidence?: TaskSnapshotProjectionRow["executionEvidence"];
-  docs: DocEntry[];
+  docs: readonly DocEntry[];
   // 三元语继承字段（E47/E49）：默认从 spawningDecision 继承，可覆盖
   riskTier?: RiskTier;
   urgency?: Urgency;
@@ -114,7 +117,7 @@ export interface TaskRow {
    * 与上面的单数字段并存:徽章/链接用 `spawningDecisionOf`(先看这里),
    * 关系页签要完整列表。
    */
-  spawningDecisionIds?: string[];
+  spawningDecisionIds?: readonly string[];
   /**
    * 台账 pin(task/v1 `pinned`,经 `ha task pin` 写入):「我当下正在做的」,
    * 与 coordinationStatus=active 正交——进行中未必在做,在做未必进行中。
@@ -135,6 +138,9 @@ export interface TaskRow {
   /** root task 的标题(查表填入,便于分组标签展示) */
   rootTitle?: string;
 }
+
+/** Renderer task state is an immutable view over one projection cut. */
+export type TaskRow = Readonly<TaskRowFields>;
 
 /** GUI relation names are the kernel entity-relations/v1 vocabulary verbatim. */
 export type RelationKind = RelationType;
@@ -201,10 +207,10 @@ export type DecisionJudgmentConsent = DecisionProjectionRow["judgmentConsents"][
 export type DecisionBody = NonNullable<DecisionProjectionRow["body"]>;
 
 export interface ProvenanceEntry {
-  runtime: "claude-code" | "codex" | "antigravity" | "zcode" | string;
-  sessionId: string;
+  readonly runtime: "claude-code" | "codex" | "antigravity" | "zcode" | string;
+  readonly sessionId: string;
   /** 绑定时刻——一个 session 滚动绑多个 entity 时，用它回溯定位「当初那段」 */
-  boundAt: string;
+  readonly boundAt: string;
 }
 
 export interface DecisionRow {
@@ -287,10 +293,10 @@ export interface Project {
 }
 
 export interface EventEntry {
-  at: string;
-  projectId: string;
-  taskId: string;
-  summary: string;
+  readonly at: string;
+  readonly projectId: string;
+  readonly taskId: string;
+  readonly summary: string;
 }
 
 export const isExternal = (t: TaskRow) => t.origin === "external" || (t.origin === undefined && t.engine !== "local");

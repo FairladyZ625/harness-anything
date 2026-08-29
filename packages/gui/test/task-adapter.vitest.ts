@@ -125,6 +125,32 @@ describe("adaptProjectionRows", () => {
     expect(adaptProjectionRows([row()], "repo-test", "pending")[0]?.freshness).toBe("stale-but-usable");
   });
 
+  it("preserves readonly projection arrays instead of copying them at the renderer boundary", () => {
+    const input = row({
+      blockingAssessment: {
+        taskId: "task-x",
+        state: "blocked",
+        blockers: [
+          { relationId: "rel_0000000000000001", kind: "depends-on", sourceTaskId: "task-x", targetTaskId: "task-y" },
+        ],
+        warnings: ["cycle detected"],
+      },
+      placement: {
+        ...row().placement,
+        moduleKeys: ["gui"],
+        productLines: ["desktop"],
+        spawningDecisionIds: ["dec-source"],
+      },
+    });
+    const [task] = adaptProjectionRows([input], "repo-test");
+
+    expect(task?.blockers).toBe(input.blockingAssessment.blockers);
+    expect(task?.blockingWarnings).toBe(input.blockingAssessment.warnings);
+    expect(task?.moduleKeys).toBe(input.placement.moduleKeys);
+    expect(task?.productLines).toBe(input.placement.productLines);
+    expect(task?.spawningDecisionIds).toBe(input.placement.spawningDecisionIds);
+  });
+
   it("passes execution outputs and receipts through untouched for the closeout tab (W5)", () => {
     const execution = {
       schema: "execution/v1" as const,

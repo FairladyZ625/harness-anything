@@ -124,7 +124,7 @@ export interface PrdCluster {
   /** 根 taskId;未投影块为 UNPROJECTED_MODULE 哨兵。 */
   rootId: string;
   title: string;
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   progress: ZoneProgress;
 }
 

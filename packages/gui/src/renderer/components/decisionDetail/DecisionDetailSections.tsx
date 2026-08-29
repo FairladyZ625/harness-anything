@@ -116,7 +116,7 @@ export function RelationsPanel({
   onNavigateEntity,
 }: {
   decision: DecisionRow;
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   relations: RelationEdge[];
   onNavigateDecision: (decisionId: string) => void;
   onNavigateTask?: (taskId: string) => void;

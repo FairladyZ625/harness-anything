@@ -10,6 +10,7 @@ import type { ActorIdentity, WriteSource } from "../domain/write-chain.contract.
 import type { FactAnchorRow } from "./relation-graph-projection.ts";
 import { factLiveness } from "../domain/fact-liveness.ts";
 import { ftsQuery } from "./fts-query.ts";
+import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 
 export interface FactProjectionRow {
   readonly schema: "fact-row/v1";
@@ -221,7 +222,7 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
 }
 
 const factRowSelect = "SELECT row_json FROM fact";
-interface FactRecord {
+interface FactRecord extends ProjectionSqlRow {
   readonly row_json: string;
 }
 // Liveness only ever consults the incoming supersedes-fact edges of the facts being
@@ -234,15 +235,15 @@ function livenessRelations(
   if (targetRefs !== undefined && targetRefs.length === 0) return [];
   const scoped = targetRefs !== undefined && targetRefs.length <= 900;
   const where = scoped ? ` WHERE target_ref IN (${targetRefs.map(() => "?").join(",")})` : "";
-  return db
-    .prepare(
-      `SELECT target_ref AS targetRef, relation_type AS relationType, state FROM relation_edge${where} ORDER BY relation_id`,
-    )
-    .all(...(scoped ? targetRefs : [])) as unknown as readonly {
+  return queryRows<{
     readonly targetRef: string;
     readonly relationType: string;
     readonly state: string;
-  }[];
+  }>(
+    db,
+    `SELECT target_ref AS targetRef, relation_type AS relationType, state FROM relation_edge${where} ORDER BY relation_id`,
+    ...(scoped ? targetRefs : []),
+  );
 }
 function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): readonly FactProjectionRow[] {
   const raw = records.map((record) => JSON.parse(record.row_json) as Omit<FactProjectionRow, "state">),
@@ -255,9 +256,7 @@ function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): reado
 function listFactRows(db: DatabaseSync, where: string, values: readonly string[]): readonly FactProjectionRow[] {
   return decodeFactRows(
     db,
-    db
-      .prepare(`${factRowSelect}${where} ORDER BY observed_at DESC, fact_id`)
-      .all(...values) as unknown as readonly FactRecord[],
+    queryRows<FactRecord>(db, `${factRowSelect}${where} ORDER BY observed_at DESC, fact_id`, ...values),
   );
 }
 export function readFactRow(db: DatabaseSync, factId: string): FactProjectionRow | null {
@@ -321,7 +320,7 @@ export function searchFactRowsPage(
     limitSql = pageLimit === null ? "" : " LIMIT ?",
     sql = `${factRowSelect}${whereSql} ORDER BY observed_at DESC, fact_id${limitSql}`;
   if (pageLimit !== null) values.push(String(pageLimit + 1));
-  const records = db.prepare(sql).all(...values) as unknown as readonly FactRecord[];
+  const records = queryRows<FactRecord>(db, sql, ...values);
   const visible = pageLimit === null ? records : records.slice(0, pageLimit),
     decoded = decodeFactRows(db, visible);
   const rows = memoryRefs === null ? decoded : decoded.filter((row) => memoryRefs.has(row.ref));
@@ -343,13 +342,10 @@ export function readFactGraphRows(db: DatabaseSync): {
   readonly factAnchors: readonly FactAnchorRow[];
   readonly facts: readonly FactProjectionRow[];
 } {
-  const edges = (
-    db
-      .prepare(
-        "SELECT row_json FROM relation_edge" +
-          " WHERE owner_ref LIKE 'fact/%' OR target_ref LIKE 'fact/%' ORDER BY relation_id",
-      )
-      .all() as unknown as readonly { readonly row_json: string }[]
+  const edges = queryRows<{ readonly row_json: string }>(
+    db,
+    "SELECT row_json FROM relation_edge" +
+      " WHERE owner_ref LIKE 'fact/%' OR target_ref LIKE 'fact/%' ORDER BY relation_id",
   ).map((row) => JSON.parse(row.row_json) as FactRelationEdgeRow);
   const factAnchors = readFactAnchorRows(db);
   return { edges, factAnchors, facts: listFactRows(db, "", []) };
@@ -360,16 +356,12 @@ export function readFactAnchorRows(db: DatabaseSync, refs?: readonly string[]): 
   const scoped = refs !== undefined && refs.length <= 900;
   const where = scoped ? ` WHERE ref IN (${refs.map(() => "?").join(",")})` : "";
   const memoryRefs = refs !== undefined && !scoped ? new Set(refs) : null;
-  const rows = (
-    db
-      .prepare(`SELECT ref, task_id, fact_id, op_id FROM fact${where} ORDER BY ref`)
-      .all(...(scoped ? refs : [])) as unknown as readonly {
-      readonly ref: string;
-      readonly task_id: string | null;
-      readonly fact_id: string;
-      readonly op_id: string;
-    }[]
-  ).map((row) => ({
+  const rows = queryRows<{
+    readonly ref: string;
+    readonly task_id: string | null;
+    readonly fact_id: string;
+    readonly op_id: string;
+  }>(db, `SELECT ref, task_id, fact_id, op_id FROM fact${where} ORDER BY ref`, ...(scoped ? refs : [])).map((row) => ({
     factRef: row.ref,
     ...(row.task_id ? { taskId: row.task_id } : {}),
     factId: row.fact_id,

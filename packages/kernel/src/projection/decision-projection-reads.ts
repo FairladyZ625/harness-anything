@@ -20,6 +20,7 @@ import type {
   DecisionRelationEdgeRow,
 } from "./decision-projection-model.ts";
 import { ftsQuery } from "./fts-query.ts";
+import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 import { checkedPageLimit, decodePageCursor, encodePageCursor, type ProjectionPage } from "./task-query-projection.ts";
 
 export function readDecisionRow(db: DatabaseSync, decisionId: string, withBody = true): DecisionProjectionRow | null {
@@ -106,12 +107,10 @@ export function readDecisionRows(
       ), '[]') AS pins_json
     FROM requested_decisions JOIN decision ON decision.decision_id = requested_decisions.decision_id ${bodyJoin}
     ORDER BY requested_decisions.request_order`;
-  return (db.prepare(sql).all(JSON.stringify(decisionIds)) as unknown as readonly DecisionCollectionRecord[]).map(
-    decisionCollectionRow,
-  );
+  return queryRows<DecisionCollectionRecord>(db, sql, JSON.stringify(decisionIds)).map(decisionCollectionRow);
 }
 
-interface DecisionCollectionRecord extends Record<string, unknown> {
+interface DecisionCollectionRecord extends ProjectionSqlRow {
   readonly decision_id: string;
   readonly state: string;
   readonly title: string;
@@ -223,10 +222,10 @@ export function listDecisionRows(db: DatabaseSync, filters: DecisionListFilters)
     where.push("EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.productLines') WHERE value=?)");
     values.push(filters.productLine);
   }
-  return (
-    db
-      .prepare(`SELECT decision_id FROM decision${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`)
-      .all(...values) as unknown as readonly { readonly decision_id: string }[]
+  return queryRows<{ readonly decision_id: string }>(
+    db,
+    `SELECT decision_id FROM decision${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`,
+    ...values,
   )
     .map((row) => row.decision_id)
     .filter((decisionId) => {
@@ -262,21 +261,21 @@ export function listDecisionAgendaRowsPage(
   }
   const limit = query.limit === undefined ? 100 : checkedPageLimit(query.limit);
   values.push(limit + 1);
-  const raw = db
-      .prepare(
-        [
-          "SELECT decision_id, title, risk_tier, urgency, proposed_at FROM decision",
-          `WHERE ${where.join(" AND ")}`,
-          "ORDER BY decision_id LIMIT ?",
-        ].join(" "),
-      )
-      .all(...values) as unknown as readonly {
+  const raw = queryRows<{
       readonly decision_id: string;
       readonly title: string;
       readonly risk_tier: DecisionAgendaProjectionRow["riskTier"];
       readonly urgency: DecisionAgendaProjectionRow["urgency"];
       readonly proposed_at: string;
-    }[],
+    }>(
+      db,
+      [
+        "SELECT decision_id, title, risk_tier, urgency, proposed_at FROM decision",
+        `WHERE ${where.join(" AND ")}`,
+        "ORDER BY decision_id LIMIT ?",
+      ].join(" "),
+      ...values,
+    ),
     visible = raw.slice(0, limit),
     rows = visible.map((row) => ({
       decisionId: row.decision_id,
@@ -324,16 +323,14 @@ export function readDecisionGraphRows(db: DatabaseSync): {
   readonly decisionAnchors: readonly DecisionAnchorRow[];
   readonly coverageRows: readonly DecisionCoverageRow[];
 } {
-  const edges = (
-      db
-        .prepare("SELECT row_json FROM relation_edge WHERE owner_ref NOT LIKE 'fact/%' ORDER BY relation_id")
-        .all() as unknown as readonly { readonly row_json: string }[]
+  const edges = queryRows<{ readonly row_json: string }>(
+      db,
+      "SELECT row_json FROM relation_edge WHERE owner_ref NOT LIKE 'fact/%' ORDER BY relation_id",
     ).map((r) => JSON.parse(r.row_json) as DecisionRelationEdgeRow),
     anchors = decisionAnchorIndex(db),
-    decisionAnchors = (
-      db.prepare("SELECT decision_id FROM decision ORDER BY decision_id").all() as unknown as readonly {
-        readonly decision_id: string;
-      }[]
+    decisionAnchors = queryRows<{ readonly decision_id: string }>(
+      db,
+      "SELECT decision_id FROM decision ORDER BY decision_id",
     ).map((r) => ({
       decisionId: r.decision_id,
       decisionRef: `decision/${r.decision_id}`,
@@ -345,18 +342,13 @@ export function readDecisionGraphRows(db: DatabaseSync): {
 
 export function decisionAnchorIndex(db: DatabaseSync): ReadonlyMap<string, readonly string[]> {
   const map = new Map<string, string[]>();
-  for (const row of db.prepare("SELECT decision_id FROM decision").all() as unknown as readonly {
-    readonly decision_id: string;
-  }[])
+  for (const row of queryRows<{ readonly decision_id: string }>(db, "SELECT decision_id FROM decision"))
     map.set(row.decision_id, [`decision/${row.decision_id}`]);
   for (const sql of [
     "SELECT decision_id, option_id AS anchor FROM decision_option",
     "SELECT decision_id, claim_id AS anchor FROM decision_claim",
   ])
-    for (const row of db.prepare(sql).all() as unknown as readonly {
-      readonly decision_id: string;
-      readonly anchor: string;
-    }[])
+    for (const row of queryRows<{ readonly decision_id: string; readonly anchor: string }>(db, sql))
       map.get(row.decision_id)?.push(`decision/${row.decision_id}/${row.anchor}`);
   for (const refs of map.values()) refs.sort();
   return map;

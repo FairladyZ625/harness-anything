@@ -57,7 +57,7 @@ export function TaskDetailView({
 }: {
   task: TaskRow;
   onBack: () => void;
-  tasks?: TaskRow[];
+  tasks?: readonly TaskRow[];
   relations?: RelationEdge[];
   /** 身份/标题/状态即可(常驻摘要投影就够);证据页签自己读全量决策行。 */
   decisions?: readonly TaskDecisionRef[];

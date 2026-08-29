@@ -155,9 +155,7 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
 export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
   const rows =
     /* @gate-identity check-bypass-write-boundary/bypass-write-025 */
-    db
-      .prepare("SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision")
-      .all(taskId) as unknown as readonly Record<string, unknown>[];
+    queryRows(db, "SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision", taskId);
   return rows.map((row) => ({
     taskId: String(row.task_id),
     executionId: String(row.execution_id),

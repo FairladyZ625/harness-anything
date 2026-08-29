@@ -64,7 +64,7 @@ export function DecisionDetailView({
   repoId: string;
   decisionId: string | null;
   decisions: DecisionRow[];
-  tasks?: TaskRow[];
+  tasks?: readonly TaskRow[];
   relations?: RelationEdge[];
   loading: boolean;
   onBack: () => void;
