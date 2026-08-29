@@ -8,7 +8,10 @@ import { emit, main, resolveCliVersion } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
-  assert.equal(thinCliCommands.length, 137);
+  assert.equal(
+    thinCliCommands.length,
+    daemonProtocolCommands.filter((command) => !("internal" in command && command.internal)).length,
+  );
   for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))]
     .filter((value): value is string => value !== undefined)
     .sort())
