@@ -9,5 +9,8 @@
       "types": "./dist/index.d.ts",
       "default": "./src/index.ts"
     }
+  },
+  "dependencies": {
+    "cron-parser": "5.10.0"
   }
 }

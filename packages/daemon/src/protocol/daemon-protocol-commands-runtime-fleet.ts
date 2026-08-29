@@ -326,7 +326,10 @@ export const scheduleShowJsonFields = Object.freeze(["scheduleId"] as const),
   scheduleUpdateJsonAllowedFields = Object.freeze([
     ...scheduleUpdateJsonFields,
     "name",
+    "mode",
     "everyMs",
+    "cronExpression",
+    "timezone",
     "agentId",
     "runtimeInstanceId",
     "mission",
@@ -356,7 +359,7 @@ export const scheduleProtocolCommands = Object.freeze([
     id: "schedule-create",
     phase: "Schedule-S3",
     path: ["schedule", "create", "<schedule-id>"],
-    summary: "Create an interval Schedule targeting one declared Agent and runtime instance.",
+    summary: "Create an interval or cron Schedule targeting one declared Agent and runtime instance.",
     method: "repo.task.run",
     positional: "scheduleId",
     inputs: [
@@ -364,9 +367,27 @@ export const scheduleProtocolCommands = Object.freeze([
         code: "missing_field",
         nextAction: "Add --name <schedule-name>.",
       }),
-      cliInput("--every", "single", true, {
-        code: "missing_field",
-        nextAction: "Add --every <duration>, for example 30m or 2h; the minimum is 1m.",
+      cliInput(
+        "--mode",
+        "single",
+        true,
+        {
+          code: "missing_field",
+          nextAction: "Add --mode detect or --mode remediate.",
+        },
+        { enum: ["detect", "remediate"] },
+      ),
+      cliInput("--every", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use --every <duration>, for example 30m or 2h; the minimum is 1m.",
+      }),
+      cliInput("--cron", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one five-field cron expression, for example '30 2 * * *'.",
+      }),
+      cliInput("--timezone", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one IANA timezone with --cron, for example Asia/Taipei.",
       }),
       cliInput("--agent", "single", true, {
         code: "missing_field",
@@ -418,6 +439,23 @@ export const scheduleProtocolCommands = Object.freeze([
     inputs: [],
   }),
   defineCenterForwardReadCommand({
+    id: "schedule-runs",
+    phase: "Schedule-S5",
+    path: ["schedule", "runs", "<schedule-id>"],
+    summary: "List occurrence history, including active, settled, and missed runs.",
+    method: "repo.task.run",
+    positional: "scheduleId",
+    inputs: [
+      cliInput(
+        "--limit",
+        "single",
+        false,
+        { code: "invalid_field", nextAction: "Use --limit with an integer from 1 to 200." },
+        { regex: "^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$" },
+      ),
+    ],
+  }),
+  defineCenterForwardReadCommand({
     id: "schedule-show",
     phase: "Schedule-S3",
     path: ["schedule", "show", "<schedule-id>"],
@@ -435,6 +473,16 @@ export const scheduleProtocolCommands = Object.freeze([
     positional: "scheduleId",
     inputs: [
       scheduleFromFileInput(scheduleUpdateJsonFields, scheduleUpdateJsonAllowedFields),
+      cliInput(
+        "--mode",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use detect or remediate.",
+        },
+        { enum: ["detect", "remediate"] },
+      ),
       cliInput("--name", "single", false, {
         code: "invalid_field",
         nextAction: "Use one non-empty Schedule name.",
@@ -442,6 +490,14 @@ export const scheduleProtocolCommands = Object.freeze([
       cliInput("--every", "single", false, {
         code: "invalid_field",
         nextAction: "Use one duration such as 30m or 2h; the minimum is 1m.",
+      }),
+      cliInput("--cron", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one five-field cron expression, for example '30 2 * * *'.",
+      }),
+      cliInput("--timezone", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one IANA timezone for a cron trigger, for example Asia/Taipei.",
       }),
       cliInput("--agent", "single", false, {
         code: "invalid_field",

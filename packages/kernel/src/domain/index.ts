@@ -171,7 +171,16 @@ export {
   updateScheduleV1,
   validateScheduleV1,
 } from "./schedule.ts";
-export type { ScheduleMissedReason, ScheduleRunOutcome, ScheduleV1 } from "./schedule.ts";
+export type {
+  ScheduleActiveRunV1,
+  ScheduleLastRunV1,
+  ScheduleMissedReason,
+  ScheduleMode,
+  ScheduleRunOutcome,
+  ScheduleTargetV1,
+  ScheduleTriggerV1,
+  ScheduleV1,
+} from "./schedule.ts";
 export {
   compileScheduleDefinitionEvent,
   compileScheduleDeletedEvent,

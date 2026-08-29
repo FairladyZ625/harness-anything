@@ -11,7 +11,7 @@ import {
   type ThinCommand,
   unsupportedCommandHint,
 } from "./cli/thin-command.ts";
-import { renderScheduleList, renderScheduleShow } from "./cli/thin-command-schedule.ts";
+import { renderScheduleList, renderScheduleRuns, renderScheduleShow } from "./cli/thin-command-schedule.ts";
 import {
   daemonAutostartFailureCode,
   daemonBuildStaleCode,
@@ -114,7 +114,7 @@ export function emit(receipt: Record<string, unknown>, json: boolean): void {
     );
   else if (receipt.ok === true || (receipt.command === "migrate-import" && typeof receipt.summary === "string")) {
     const summary = contractMigrationDryRunSummary(receipt);
-    const scheduleOutput = renderScheduleList(receipt) ?? renderScheduleShow(receipt);
+    const scheduleOutput = renderScheduleList(receipt) ?? renderScheduleShow(receipt) ?? renderScheduleRuns(receipt);
     if (scheduleOutput !== null) console.log(scheduleOutput);
     else if (
       receipt.command === "task-create" &&

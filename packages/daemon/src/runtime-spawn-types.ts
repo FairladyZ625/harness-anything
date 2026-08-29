@@ -43,6 +43,7 @@ export type RuntimeBinding = {
 export interface TrustedScheduleRuntime {
   readonly scheduleId: string;
   readonly claimFence: string;
+  readonly mode: "detect" | "remediate";
 }
 
 export interface TrustedScheduleSpawn extends TrustedScheduleRuntime {

@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "status": "ready",
+  "scheduleId": "probe",
+  "runs": [
+    {
+      "occurrenceId": "missed_bad",
+      "kind": "scheduled",
+      "scheduledFor": "not-a-time",
+      "claimedAt": null,
+      "endedAt": null,
+      "nodeId": null,
+      "assignmentId": null,
+      "outcome": "missed",
+      "durationMs": null,
+      "reportRef": null,
+      "missedReason": null,
+      "dispatchId": null,
+      "runtimeSessionId": null
+    }
+  ],
+  "totals": { "runs": 1, "missed": 1 },
+  "truncated": false,
+  "watermark": 1,
+  "sourceRevision": 1
+}

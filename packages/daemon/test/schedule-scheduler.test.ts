@@ -205,6 +205,28 @@ test("a long stop aggregates missed intervals and never catches them up", async 
   scheduler.close();
 });
 
+test("a cron Schedule arms at the next declared wall-clock occurrence", async () => {
+  const clock = fakeClock("2026-08-27T18:00:00.000Z"),
+    daily = schedule("daily-wall-clock");
+  daily.spec = {
+    ...daily.spec,
+    trigger: { kind: "cron", expression: "30 2 * * *", timezone: "Asia/Taipei" },
+  };
+  daily.status.automaticEvaluatedThrough = "2026-08-26T18:30:00.000Z";
+  const repo = fixtureRepo("cron-wall-clock", "local", [daily]),
+    scheduler = makeScheduleScheduler({
+      cells: new Map([[repo.repoId, repo.cell]]),
+      localBinding,
+      now: clock.now,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+  await scheduler.start();
+  assert.deepEqual(repo.missed, []);
+  assert.equal(clock.liveTimers()[0]!.delayMs, 30 * 60_000);
+  scheduler.close();
+});
+
 test("an active Schedule records the next tick as single-flight missed", async () => {
   const clock = fakeClock("2026-08-27T10:30:00.000Z"),
     active = schedule("active");
@@ -326,6 +348,7 @@ function schedule(scheduleId: string): MutableSchedule {
   return createScheduleV1({
     scheduleId,
     name: scheduleId,
+    mode: "detect",
     spec: {
       trigger: { kind: "interval", everyMs: 30 * 60_000, anchorAt: "2026-08-27T10:00:00.000Z" },
       target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },

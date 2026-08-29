@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createScheduleV1 } from "../../kernel/src/index.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import { parseScheduleDuration, renderScheduleList, renderScheduleShow } from "../src/cli/thin-command-schedule.ts";
+import {
+  parseScheduleDuration,
+  renderScheduleList,
+  renderScheduleRuns,
+  renderScheduleShow,
+} from "../src/cli/thin-command-schedule.ts";
 
 test("Schedule CLI exposes CRUD and run-control commands with closed inputs", () => {
   const created = parseThinCommand([
@@ -12,6 +17,8 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
     "e2e-probe",
     "--name",
     "E2E probe",
+    "--mode",
+    "detect",
     "--every",
     "30m",
     "--agent",
@@ -30,6 +37,7 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
       kind: "schedule-create",
       scheduleId: "e2e-probe",
       name: "E2E probe",
+      mode: "detect",
       everyMs: 1_800_000,
       agentId: "probe-agent",
       runtimeInstanceId: "codex-probe",
@@ -46,6 +54,9 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
   const shown = parseThinCommand(["schedule", "show", "e2e-probe"]);
   assert.equal(shown.ok, true);
   if (shown.ok) assert.deepEqual(shown.command.action, { kind: "schedule-show", scheduleId: "e2e-probe" });
+  const runs = parseThinCommand(["schedule", "runs", "e2e-probe", "--limit", "25"]);
+  assert.equal(runs.ok, true);
+  if (runs.ok) assert.deepEqual(runs.command.action, { kind: "schedule-runs", scheduleId: "e2e-probe", limit: 25 });
   const updated = parseThinCommand([
     "schedule",
     "update",
@@ -104,13 +115,15 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
   assert.equal(parseScheduleDuration("1d"), 86_400_000);
 });
 
-test("Schedule CLI rejects cron, sub-minute intervals, and ambiguous missions", () => {
+test("Schedule CLI accepts cron and rejects ambiguous triggers, sub-minute intervals, and missions", () => {
   const base = [
     "schedule",
     "create",
     "probe",
     "--name",
     "Probe",
+    "--mode",
+    "detect",
     "--every",
     "5m",
     "--agent",
@@ -121,11 +134,81 @@ test("Schedule CLI rejects cron, sub-minute intervals, and ambiguous missions", 
   assert.equal(parseThinCommand([...base, "--mission", "one", "--mission-file", "mission.md"]).ok, false);
   assert.equal(parseThinCommand([...base, "--cron", "* * * * *", "--mission", "one"]).ok, false);
   assert.equal(parseThinCommand([...base, "--timezone", "UTC", "--mission", "one"]).ok, false);
-  assert.equal(parseThinCommand([...base.slice(0, 6), "30s", ...base.slice(7), "--mission", "one"]).ok, false);
+  const subMinute = [...base];
+  subMinute[subMinute.indexOf("5m")] = "30s";
+  assert.equal(parseThinCommand([...subMinute, "--mission", "one"]).ok, false);
+  const cron = parseThinCommand([
+    "schedule",
+    "create",
+    "daily",
+    "--name",
+    "Daily",
+    "--mode",
+    "detect",
+    "--cron",
+    "30 2 * * *",
+    "--timezone",
+    "Asia/Taipei",
+    "--agent",
+    "agent",
+    "--instance",
+    "instance",
+    "--mission",
+    "one",
+  ]);
+  assert.equal(cron.ok, true);
+  if (cron.ok)
+    assert.deepEqual(cron.command.action, {
+      kind: "schedule-create",
+      scheduleId: "daily",
+      name: "Daily",
+      mode: "detect",
+      cronExpression: "30 2 * * *",
+      timezone: "Asia/Taipei",
+      agentId: "agent",
+      runtimeInstanceId: "instance",
+      mission: "one",
+    });
   assert.equal(parseThinCommand(["schedule", "update", "probe"]).ok, false);
   assert.equal(
     parseThinCommand(["schedule", "update", "probe", "--mission", "one", "--mission-file", "mission.md"]).ok,
     false,
+  );
+});
+
+test("Schedule runs human renderer uses the occurrence projection", () => {
+  assert.equal(
+    renderScheduleRuns({
+      command: "schedule-runs",
+      evidence: JSON.stringify({
+        schema: "schedule-runs/v1",
+        ok: true,
+        status: "ready",
+        scheduleId: "daily",
+        runs: [
+          {
+            occurrenceId: "occurrence-1",
+            kind: "scheduled",
+            scheduledFor: "2026-08-27T18:30:00.000Z",
+            claimedAt: "2026-08-27T18:30:01.000Z",
+            endedAt: "2026-08-27T18:30:03.000Z",
+            nodeId: "local",
+            assignmentId: null,
+            outcome: "succeeded",
+            durationMs: 2_000,
+            reportRef: `artifact:runtime-result/sha256/${"a".repeat(64)}`,
+            missedReason: null,
+            dispatchId: "dispatch-1",
+            runtimeSessionId: "runtime-1",
+          },
+        ],
+        totals: { runs: 1, missed: 0 },
+        truncated: false,
+        watermark: 4,
+        sourceRevision: 4,
+      }),
+    }),
+    `occurrence-1\t2026-08-27T18:30:00.000Z\tsucceeded\tlocal\t2000ms\tartifact:runtime-result/sha256/${"a".repeat(64)}`,
   );
 });
 
@@ -158,6 +241,7 @@ test("Schedule list human renderer shows state, next occurrence, and single-flig
     armed = createScheduleV1({
       scheduleId: "armed",
       name: "Armed",
+      mode: "detect",
       spec: {
         trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-08-26T13:59:00.000Z" },
         target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
@@ -170,6 +254,7 @@ test("Schedule list human renderer shows state, next occurrence, and single-flig
       scheduleId: "paused",
       name: "Paused",
       state: "paused",
+      mode: "detect",
       spec: {
         trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-08-26T13:59:00.000Z" },
         target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },

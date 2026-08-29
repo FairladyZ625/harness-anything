@@ -30,8 +30,14 @@ import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 export type ScheduleListRow = {
   readonly scheduleId: string;
   readonly state: "armed" | "paused";
+  readonly mode: "detect" | "remediate";
   readonly spec: {
-    readonly trigger: { readonly kind: "interval"; readonly everyMs: number; readonly anchorAt: string };
+    readonly trigger:
+      | { readonly kind: "interval"; readonly everyMs: number; readonly anchorAt: string }
+      | { readonly kind: "cron"; readonly expression: string; readonly timezone: string };
+    readonly target:
+      | { readonly kind: "agent"; readonly agentId: string; readonly runtimeInstanceId: string }
+      | { readonly kind: "squad"; readonly squadId: string };
   };
   readonly status: {
     readonly automaticEvaluatedThrough: string;
@@ -100,15 +106,21 @@ export function daemonCommandReceiptRejectionCode(receipt: Readonly<Record<strin
 
 function scheduleListRow(value: unknown): value is ScheduleListRow {
   if (!isJsonObject(value) || !isJsonObject(value.spec) || !isJsonObject(value.status)) return false;
-  const trigger = value.spec.trigger;
+  const trigger = value.spec.trigger,
+    target = value.spec.target;
   return (
     isJsonObject(trigger) &&
+    isJsonObject(target) &&
     nonEmpty(value.scheduleId) &&
     (value.state === "armed" || value.state === "paused") &&
-    trigger.kind === "interval" &&
-    integer(trigger.everyMs) &&
-    Number(trigger.everyMs) >= 60_000 &&
-    nonEmpty(trigger.anchorAt) &&
+    (value.mode === "detect" || value.mode === "remediate") &&
+    ((trigger.kind === "interval" &&
+      integer(trigger.everyMs) &&
+      Number(trigger.everyMs) >= 60_000 &&
+      nonEmpty(trigger.anchorAt)) ||
+      (trigger.kind === "cron" && nonEmpty(trigger.expression) && nonEmpty(trigger.timezone))) &&
+    ((target.kind === "agent" && nonEmpty(target.agentId) && nonEmpty(target.runtimeInstanceId)) ||
+      (target.kind === "squad" && nonEmpty(target.squadId))) &&
     nonEmpty(value.status.automaticEvaluatedThrough) &&
     nonEmpty(value.updatedAt) &&
     integer(value.definitionRevision) &&

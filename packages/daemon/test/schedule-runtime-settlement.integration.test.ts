@@ -119,6 +119,7 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
               kind: "schedule-create",
               scheduleId,
               name: "Settlement probe",
+              mode: "detect",
               everyMs: 300_000,
               agentId: "settlement-agent",
               runtimeInstanceId: definition.instanceId,

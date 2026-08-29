@@ -12,7 +12,10 @@ import {
   updateScheduleV1,
   validateScheduleV1,
   type ScheduleMissedReason,
+  type ScheduleMode,
   type ScheduleRunOutcome,
+  type ScheduleTargetV1,
+  type ScheduleTriggerV1,
   type ScheduleV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -27,6 +30,7 @@ import {
 import { resolvePacketAction, type PacketActionContract } from "./repo-cell-action-parse.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TrustedScheduleSpawn } from "./runtime-spawn.ts";
+import { readScheduleRuns } from "./schedule-runs-read.ts";
 
 type ScheduleClaimKind = "scheduled" | "manual";
 type ScheduleClaimInput = {
@@ -101,6 +105,17 @@ export async function dispatchClaimedSchedule<TReceipt>(input: {
   const active = input.schedule.status.activeRun;
   if (!active) throw new Error(`Schedule ${input.schedule.scheduleId} has no claimed occurrence to dispatch.`);
   const target = input.schedule.spec.target;
+  if (target.kind !== "agent") {
+    const receipt = await input.settleFailure({
+      scheduleId: input.schedule.scheduleId,
+      claimFence: active.claimFence,
+      outcome: "failed",
+      endedAt: input.now(),
+      detail: `Schedule target ${target.kind} is declared but has no dispatch route.`,
+      idempotencyKey: `${input.idempotencyKey}:dispatch-unsupported`,
+    });
+    return { kind: "spawn-failed", error: new Error("schedule target has no dispatch route"), receipt } as const;
+  }
   let spawned: ScheduleSpawnReceipt;
   try {
     spawned = await input.spawn({
@@ -112,6 +127,7 @@ export async function dispatchClaimedSchedule<TReceipt>(input: {
       ...(target.model ? { model: target.model } : {}),
       ...(target.reasoningEffort ? { effort: target.reasoningEffort } : {}),
       ...(target.cwd ? { cwd: target.cwd } : {}),
+      mode: input.schedule.mode,
     });
   } catch (error) {
     const receipt = await input.settleFailure({
@@ -280,6 +296,11 @@ export function makeRepoCellScheduleActions(cell: any) {
       throw cell.cellCodedError(
         "schedule_single_flight_active",
         `Schedule ${input.scheduleId} already has active occurrence ${schedule.status.activeRun.occurrenceId}.`,
+      );
+    if (schedule.spec.target.kind !== "agent")
+      throw cell.cellCodedError(
+        "schedule_target_unavailable",
+        `Schedule ${input.scheduleId} target ${schedule.spec.target.kind} is declared but has no dispatch route.`,
       );
     if (!timestamp(input.scheduledFor))
       throw cell.cellCodedError("invalid_command", "Schedule occurrence time must be an ISO-8601 UTC timestamp.");
@@ -523,6 +544,28 @@ export function makeRepoCellScheduleActions(cell: any) {
           summary: schedules.length ? `${schedules.length} schedule(s)` : "No schedules.",
         } as WriteReceipt;
       }
+      if (action.kind === "schedule-runs") {
+        const scheduleId = cell.requiredCellText(action.scheduleId, "scheduleId"),
+          result = readScheduleRuns(cell, scheduleId, action.limit === undefined ? 50 : Number(action.limit)),
+          revision = result.watermark,
+          opId = cell.operationId(action, binding, cell.input.repoId, revision);
+        return {
+          outcome: "applied",
+          opId,
+          revision,
+          evidence: JSON.stringify({ schema: "schedule-runs/v1", ...result }),
+          visibility: "center",
+          proof: {
+            committedRevision: revision,
+            appliedCut: result.watermark,
+            durable: true,
+            canonicalVisible: true,
+            worktreeVisible: null,
+          },
+          scheduleId,
+          summary: `${result.runs.length} of ${result.totals.runs} Schedule occurrence(s)`,
+        } as WriteReceipt;
+      }
       const scheduleId = cell.requiredCellText(action.scheduleId, "scheduleId"),
         idempotencyKey =
           typeof action.idempotencyKey === "string" && action.idempotencyKey.trim()
@@ -553,8 +596,9 @@ export function makeRepoCellScheduleActions(cell: any) {
             scheduleId,
             name: cell.requiredCellText(action.name, "name"),
             state: action.disabled === true ? "paused" : "armed",
+            mode: requiredScheduleMode(action.mode),
             spec: {
-              trigger: { kind: "interval", everyMs: Number(action.everyMs), anchorAt: occurredAt },
+              trigger: scheduleTriggerFromCreate(action, occurredAt),
               target: {
                 kind: "agent",
                 agentId: cell.requiredCellText(action.agentId, "agentId"),
@@ -576,7 +620,10 @@ export function makeRepoCellScheduleActions(cell: any) {
         if (replayed) return replayed;
         const fields = [
           "name",
+          "mode",
           "everyMs",
+          "cronExpression",
+          "timezone",
           "agentId",
           "runtimeInstanceId",
           "mission",
@@ -588,37 +635,49 @@ export function makeRepoCellScheduleActions(cell: any) {
           throw cell.cellCodedError("invalid_command", "Schedule update requires at least one definition field.");
         const { schedule, revision } = read(scheduleId),
           occurredAt = cell.now(),
-          everyMs = Object.hasOwn(action, "everyMs") ? Number(action.everyMs) : schedule.spec.trigger.everyMs,
+          trigger = scheduleTriggerFromUpdate(action, schedule.spec.trigger, occurredAt),
           optionalTarget = (field: "model" | "reasoningEffort" | "cwd"): string | undefined =>
             Object.hasOwn(action, field)
               ? action[field] === null
                 ? undefined
                 : cell.requiredCellText(action[field], field)
-              : schedule.spec.target[field],
+              : schedule.spec.target.kind === "agent"
+                ? schedule.spec.target[field]
+                : undefined,
+          target: ScheduleTargetV1 =
+            schedule.spec.target.kind === "agent" ||
+            Object.hasOwn(action, "agentId") ||
+            Object.hasOwn(action, "runtimeInstanceId")
+              ? {
+                  kind: "agent",
+                  agentId: Object.hasOwn(action, "agentId")
+                    ? cell.requiredCellText(action.agentId, "agentId")
+                    : schedule.spec.target.kind === "agent"
+                      ? schedule.spec.target.agentId
+                      : cell.requiredCellText(undefined, "agentId"),
+                  runtimeInstanceId: Object.hasOwn(action, "runtimeInstanceId")
+                    ? cell.requiredCellText(action.runtimeInstanceId, "runtimeInstanceId")
+                    : schedule.spec.target.kind === "agent"
+                      ? schedule.spec.target.runtimeInstanceId
+                      : cell.requiredCellText(undefined, "runtimeInstanceId"),
+                  ...(optionalTarget("model") ? { model: optionalTarget("model") } : {}),
+                  ...(optionalTarget("reasoningEffort") ? { reasoningEffort: optionalTarget("reasoningEffort") } : {}),
+                  ...(optionalTarget("cwd") ? { cwd: optionalTarget("cwd") } : {}),
+                }
+              : schedule.spec.target,
           spec = {
-            trigger: {
-              kind: "interval" as const,
-              everyMs,
-              anchorAt: everyMs === schedule.spec.trigger.everyMs ? schedule.spec.trigger.anchorAt : occurredAt,
-            },
-            target: {
-              kind: "agent" as const,
-              agentId: Object.hasOwn(action, "agentId")
-                ? cell.requiredCellText(action.agentId, "agentId")
-                : schedule.spec.target.agentId,
-              runtimeInstanceId: Object.hasOwn(action, "runtimeInstanceId")
-                ? cell.requiredCellText(action.runtimeInstanceId, "runtimeInstanceId")
-                : schedule.spec.target.runtimeInstanceId,
-              ...(optionalTarget("model") ? { model: optionalTarget("model") } : {}),
-              ...(optionalTarget("reasoningEffort") ? { reasoningEffort: optionalTarget("reasoningEffort") } : {}),
-              ...(optionalTarget("cwd") ? { cwd: optionalTarget("cwd") } : {}),
-            },
+            trigger,
+            target,
             mission: Object.hasOwn(action, "mission")
               ? cell.requiredCellText(action.mission, "mission")
               : schedule.spec.mission,
           },
-          name = Object.hasOwn(action, "name") ? cell.requiredCellText(action.name, "name") : schedule.name;
-        if (JSON.stringify({ name, spec }) === JSON.stringify({ name: schedule.name, spec: schedule.spec }))
+          name = Object.hasOwn(action, "name") ? cell.requiredCellText(action.name, "name") : schedule.name,
+          mode = Object.hasOwn(action, "mode") ? requiredScheduleMode(action.mode) : schedule.mode;
+        if (
+          JSON.stringify({ name, mode, spec }) ===
+          JSON.stringify({ name: schedule.name, mode: schedule.mode, spec: schedule.spec })
+        )
           return {
             outcome: "no_changes",
             opId: cell.operationId(updateAction, binding, cell.input.repoId, 0),
@@ -630,7 +689,7 @@ export function makeRepoCellScheduleActions(cell: any) {
         return publish(
           updateAction,
           binding,
-          updateScheduleV1({ schedule, name, spec, occurredAt }),
+          updateScheduleV1({ schedule, name, mode, spec, occurredAt }),
           "schedule_updated",
           { expectedRevision: revision },
         );
@@ -756,4 +815,51 @@ export function makeRepoCellScheduleActions(cell: any) {
 function requiredDeletionBase(value: string | undefined): string {
   if (typeof value === "string" && /^[0-9a-f]{64}$/u.test(value)) return value;
   throw new Error("Schedule deletion requires the current declaration document hash.");
+}
+
+function requiredScheduleMode(value: unknown): ScheduleMode {
+  if (value === "detect" || value === "remediate") return value;
+  throw Object.assign(new Error("Schedule mode must be detect or remediate."), { code: "invalid_command" });
+}
+
+function scheduleTriggerFromCreate(action: RepoTaskAction, occurredAt: string): ScheduleTriggerV1 {
+  if (Object.hasOwn(action, "everyMs") === Object.hasOwn(action, "cronExpression"))
+    throw Object.assign(new Error("Schedule creation requires exactly one interval or cron trigger."), {
+      code: "invalid_command",
+    });
+  return Object.hasOwn(action, "everyMs")
+    ? { kind: "interval", everyMs: Number(action.everyMs), anchorAt: occurredAt }
+    : {
+        kind: "cron",
+        expression: String(action.cronExpression),
+        timezone: String(action.timezone),
+      };
+}
+
+function scheduleTriggerFromUpdate(
+  action: RepoTaskAction,
+  current: ScheduleTriggerV1,
+  occurredAt: string,
+): ScheduleTriggerV1 {
+  if (
+    Object.hasOwn(action, "everyMs") &&
+    (Object.hasOwn(action, "cronExpression") || Object.hasOwn(action, "timezone"))
+  )
+    throw Object.assign(new Error("Schedule update cannot combine interval and cron trigger fields."), {
+      code: "invalid_command",
+    });
+  if (Object.hasOwn(action, "everyMs"))
+    return { kind: "interval", everyMs: Number(action.everyMs), anchorAt: occurredAt };
+  if (Object.hasOwn(action, "cronExpression"))
+    return {
+      kind: "cron",
+      expression: String(action.cronExpression),
+      timezone: String(action.timezone),
+    };
+  if (Object.hasOwn(action, "timezone")) {
+    if (current.kind !== "cron")
+      throw Object.assign(new Error("Schedule timezone can only update a cron trigger."), { code: "invalid_command" });
+    return { ...current, timezone: String(action.timezone) };
+  }
+  return current;
 }

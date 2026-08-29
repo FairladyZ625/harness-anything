@@ -19,6 +19,7 @@ import {
   DAEMON_PROTOCOL_ERROR_SCHEMA,
   DAEMON_RELATION_GRAPH_SCHEMA,
   DAEMON_SCHEDULES_LIST_SCHEMA,
+  DAEMON_SCHEDULE_RUNS_SCHEMA,
   DAEMON_SQUAD_ENTITY_CATALOG_SCHEMA,
   DAEMON_SQUAD_ENTITY_DETAIL_SCHEMA,
   DAEMON_SQUAD_RUN_LIST_SCHEMA,
@@ -285,6 +286,14 @@ export const daemonGuiReadSchemas = Object.freeze([
     writer: "packages/daemon/src/protocol/schedules-gui-contract.ts#serializeSchedulesList",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-schedules-list-invalid.json"]),
+  },
+  {
+    id: DAEMON_SCHEDULE_RUNS_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_SCHEDULE_RUNS_SCHEMA",
+    parser: "packages/daemon/src/schedule-runs-read.ts#validateScheduleRuns",
+    writer: "packages/daemon/src/schedule-runs-read.ts#serializeScheduleRuns",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-schedule-runs-invalid.json"]),
   },
 ]);
 
