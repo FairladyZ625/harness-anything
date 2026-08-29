@@ -5,7 +5,7 @@
 //   根级 chrome 只读 derives 边切面 + 决策摘要;事实切面归 ⌘K 面板;完整投影归渲染
 //   它的视图。台账 cut 变化只重取挂载中的查询。这里直接挂真实的 App,断言桥上真正
 //   发出的读面,而不是断言某个内部函数被调用过。
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
