@@ -49,26 +49,10 @@ jobs:
           echo "release_tag=${release_tag}" >> "${GITHUB_OUTPUT}"
           echo "release_version=${release_tag#gui-v}" >> "${GITHUB_OUTPUT}"
 
-  build:
+  build-macos:
     needs: release-context
-    name: build ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: macos-arm64
-            os: macos-14
-            artifact_dir: macos-arm64
-            builder_args: --mac --arm64
-          - name: windows-x64
-            os: windows-latest
-            artifact_dir: windows-x64
-            builder_args: --win --x64
-          - name: linux-x64
-            os: ubuntu-latest
-            artifact_dir: linux-x64
-            builder_args: --linux AppImage deb --x64
+    name: build macos-arm64
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
         with:
@@ -79,10 +63,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Install Linux packaging tools
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y fakeroot dpkg
-
       - run: npm ci
 
       - name: Prepare GUI desktop runtime
@@ -92,14 +72,14 @@ jobs:
       - name: Build GUI package
         working-directory: packages/gui
         env:
-          HARNESS_GUI_BUILDER_OUTPUT: ../../dist/gui-release/${{ matrix.artifact_dir }}
+          HARNESS_GUI_BUILDER_OUTPUT: ../../dist/gui-release/macos-arm64
           WIN_CSC_LINK: ""
           CSC_LINK: ""
-        run: npx electron-builder --config electron-builder.config.mjs ${{ matrix.builder_args }}
+        run: npx electron-builder --config electron-builder.config.mjs --mac --arm64
 
       - name: Write SHA256SUMS
         env:
-          ARTIFACT_DIR: ${{ matrix.artifact_dir }}
+          ARTIFACT_DIR: macos-arm64
         shell: bash
         run: |
           set -euo pipefail
@@ -110,7 +90,7 @@ jobs:
 
           const root = path.resolve("dist/gui-release", process.env.ARTIFACT_DIR);
           const files = [];
-          const releaseAssetPattern = /\.(?:AppImage|blockmap|deb|dmg|exe|zip)$/u;
+          const releaseAssetPattern = /\.(?:blockmap|dmg|zip)$/u;
           function walk(dir) {
             for (const entry of readdirSync(dir, { withFileTypes: true })) {
               const fullPath = path.join(dir, entry.name);
@@ -134,20 +114,20 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: gui-${{ matrix.artifact_dir }}
-          path: dist/gui-release/${{ matrix.artifact_dir }}/
+          name: gui-macos-arm64
+          path: dist/gui-release/macos-arm64/
           if-no-files-found: error
           retention-days: 14
 
   release:
     needs:
       - release-context
-      - build
+      - build-macos
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: gui-*
+          name: gui-macos-arm64
           path: dist/gui-release-artifacts
 
       - name: Write release notes
@@ -164,18 +144,12 @@ jobs:
 
           ## Signing status
 
-          These artifacts are unsigned and unnotarized by design. No Apple Developer ID, Apple notarization, or Windows code-signing certificate is used for this pre-release.
+          These artifacts are unsigned and unnotarized by design. No Apple Developer ID or Apple notarization is used for this pre-release.
 
           ## Artifacts
 
           - macOS arm64: unsigned dmg and zip.
-          - Windows x64: unsigned NSIS installer. Build produced by CI; Windows runtime/install flow not manually tested.
-          - Linux x64: unsigned AppImage and deb. Build produced by CI; Linux runtime/install flow not manually tested.
-          - SHA256SUMS files are included per platform.
-
-          ## Notes
-
-          The Windows and Linux packages are first-pass CI artifacts for inspection and smoke distribution. Treat them as unverified until platform-specific install and runtime testing is completed.
+          - SHA256SUMS-macos-arm64.txt is included.
           EOF
 
       - name: Create or update draft GitHub Release
@@ -194,7 +168,14 @@ jobs:
             gh release create "${RELEASE_TAG}" --draft --prerelease --title "${title}" --notes-file release-notes.md --target "${GITHUB_SHA}"
           fi
 
-          mapfile -d '' assets < <(find dist/gui-release-artifacts -type f \( -name '*.AppImage' -o -name '*.blockmap' -o -name '*.deb' -o -name '*.dmg' -o -name '*.exe' -o -name '*.zip' -o -name 'SHA256SUMS-*.txt' \) -print0)
+          mapfile -d '' assets < <(
+            find dist/gui-release-artifacts -type f \( \
+              -name '*.blockmap' -o \
+              -name '*.dmg' -o \
+              -name '*.zip' -o \
+              -name 'SHA256SUMS-*.txt' \
+            \) -print0
+          )
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "No release assets found." >&2
             exit 1
