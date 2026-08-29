@@ -8,7 +8,7 @@ import {
 } from "../domain/task-lifecycle.contract.ts";
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type LeaseV1 } from "../domain/execution.ts";
 import { markRuntimeSessionUnknown, type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
-import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import { canonicalJson, queryPreparedRows, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import type { LeaseInterval } from "./projection-reads.ts";
 import type { RuntimeSessionPageQuery, RuntimeSessionPageRead } from "./task-projection-port.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
@@ -153,9 +153,11 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
 }
 
 export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
-  const rows =
+  const rows = queryPreparedRows(
     /* @gate-identity check-bypass-write-boundary/bypass-write-025 */
-    queryRows(db, "SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision", taskId);
+    db.prepare("SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision"),
+    taskId,
+  );
   return rows.map((row) => ({
     taskId: String(row.task_id),
     executionId: String(row.execution_id),

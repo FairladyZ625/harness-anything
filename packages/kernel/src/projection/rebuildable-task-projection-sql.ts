@@ -1,7 +1,7 @@
 // @write-boundary-exemption rebuildable-projection
 
 import { DatabaseSync } from "node:sqlite";
-import type { SQLOutputValue } from "node:sqlite";
+import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import {
   normalizePersistedCanonicalEvent,
@@ -117,7 +117,13 @@ export function queryRows<Row extends ProjectionSqlRow = ProjectionSqlRow>(
   sql: string,
   ...values: readonly SqlValue[]
 ): readonly Row[] {
-  return prepareQuery(db, sql).all(...values) as Row[];
+  return queryPreparedRows<Row>(prepareQuery(db, sql), ...values);
+}
+export function queryPreparedRows<Row extends ProjectionSqlRow = ProjectionSqlRow>(
+  statement: StatementSync,
+  ...values: readonly SqlValue[]
+): readonly Row[] {
+  return statement.all(...values) as Row[];
 }
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalizeContractValue(value));

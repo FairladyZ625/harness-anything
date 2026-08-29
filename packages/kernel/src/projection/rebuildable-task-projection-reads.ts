@@ -16,7 +16,7 @@ import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { markRuntimeSessionsUnknown, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import {
   parseEventJson,
-  queryRows,
+  queryPreparedRows,
   refreshStateDigestAtSourceCut,
   transaction,
   watermark,
@@ -49,17 +49,16 @@ export function listProjection(
       query.cursor === undefined &&
       query.pinnedFirst !== true
     ) {
-      const rows =
+      const rows = queryPreparedRows<{
+        readonly task_id: string;
+        readonly package_path: string | null;
+        readonly generation: "v0" | "v1";
+        readonly workspace_revision: number;
+        readonly created_at: string | null;
+        readonly event_json: string;
+      }>(
         /* @gate-identity check-bypass-write-boundary/bypass-write-012 */
-        queryRows<{
-          readonly task_id: string;
-          readonly package_path: string | null;
-          readonly generation: "v0" | "v1";
-          readonly workspace_revision: number;
-          readonly created_at: string | null;
-          readonly event_json: string;
-        }>(
-          db,
+        db.prepare(
           [
             "SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path,",
             "COALESCE(task_generation.generation, 'v1') AS generation,",
@@ -70,7 +69,8 @@ export function listProjection(
             "JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision",
             "ORDER BY task_snapshot.task_id",
           ].join(" "),
-        );
+        ),
+      );
       return {
         status: current === round.sourceRevision ? "ready" : "pending",
         rows: rows.map((row) => ({
