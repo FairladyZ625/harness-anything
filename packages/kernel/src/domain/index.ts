@@ -112,7 +112,15 @@ export type {
   DecisionEventV1,
   DecisionState,
 } from "./decision-event.ts";
-export { compileFactWrite, factConfidenceLevels, factMemoryClasses, factWritePlan, isFactId } from "./fact-event.ts";
+export {
+  compileFactWrite,
+  factConfidenceLevels,
+  factMemoryClasses,
+  factMemoryTags,
+  factWritePlan,
+  isFactId,
+  validateFactEvent,
+} from "./fact-event.ts";
 export type { FactConfidence, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
 
 export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";
@@ -238,6 +246,7 @@ export type {
 export { EntitySchemaContractError } from "./entity-json-schema.ts";
 
 export { compileEntityUpsert, isEntityEvent } from "./entity-event.ts";
+export type { EntityEventV1, LegacyAgentEntityEventV1, StoredEntityEventV1 } from "./entity-event.ts";
 export type { CiRunObservationEventV1 } from "./ci-run-observation-event.ts";
 export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";
 

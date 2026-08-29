@@ -115,6 +115,7 @@ export type {
 export {
   DOC_POLICY_ID,
   decideDocWrite,
+  docByteLength,
   docSyncWritePlan,
   documentPath,
   isDocEvent,
@@ -141,6 +142,7 @@ export type {
   DocEventChange,
   DocEventV1,
   DocWriteIntent,
+  PersistedCanonicalEventV1,
 } from "./domain/doc-sync.contract.ts";
 export {
   MIGRATION_DOCUMENT_POLICY_ID,
@@ -213,7 +215,11 @@ export { projectDecisionReadiness } from "./projection/decision-readiness-projec
 export type { DecisionListFilters, DecisionProjectionRow } from "./projection/decision-event-projection.ts";
 export type { FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
 export { buildColdCoverage, readLegacyMigrationSource } from "./projection/cold-rebuild-source.ts";
-export type { ColdDecisionProjectionRow, ColdRebuildIssue } from "./projection/cold-rebuild-source.ts";
+export type {
+  ColdDecisionProjectionRow,
+  ColdRebuildIssue,
+  ColdRebuildSource,
+} from "./projection/cold-rebuild-source.ts";
 export { readMarkdownSource, taskEntryToRow } from "./projection/sqlite-task-source.ts";
 export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";

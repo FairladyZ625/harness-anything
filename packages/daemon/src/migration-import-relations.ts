@@ -3,20 +3,70 @@ import {
   deriveRelationId,
   isMigrationImportEvent,
   type ActorIdentity,
+  type CanonicalEventStore,
+  type ColdRebuildSource,
   type MigrationImportEventV1,
   type RelationGraphEdgeRow,
+  type TaskProjection,
 } from "../../kernel/src/index.ts";
-import type { Draft, ImportCounts, ImportedRelation, Prepared } from "./migration-import-types.ts";
+import type {
+  Draft,
+  EntityKind,
+  IdRemapping,
+  ImportCounts,
+  ImportedRelation,
+  Prepared,
+  Skip,
+  SourceGitIdentity,
+} from "./migration-import-types.ts";
 
-export function reboundRelation(
-  context: any,
-  row: RelationGraphEdgeRow,
-): {
+export interface ReboundRelation {
   readonly oldId: string;
   readonly sourcePath: string;
   readonly ownerRef: string;
   readonly record: ImportedRelation;
-} | null {
+}
+
+interface MigrationRelationsContext {
+  readonly reboundRef: (ref: string) => string | null;
+  readonly skips: Skip[];
+  readonly cold: ColdRebuildSource;
+  readonly taskMap: Map<string, string>;
+  readonly decisionMap: Map<string, string>;
+  readonly factMap: Map<string, string>;
+  readonly relationMap: Map<string, string>;
+  readonly prepare: (
+    sourceKey: string,
+    actor: ActorIdentity,
+    kind: string,
+    migratedFrom: string,
+    occurredAt: string,
+    workspaceRevision: number,
+    entity: MigrationImportEventV1["payload"]["entity"],
+    blobs: Prepared["blobs"],
+  ) => Prepared;
+  readonly sourceKey: string;
+  readonly actorFor: (entityId: string) => ActorIdentity;
+  readonly input: {
+    readonly store: CanonicalEventStore;
+    readonly projection: TaskProjection;
+    readonly now: () => string;
+  };
+  readonly attribution: ReadonlyMap<string, ActorIdentity["principal"]>;
+  readonly attributionUse: Record<"restored" | "fallback", number>;
+  readonly actor: ActorIdentity;
+  readonly migrationOperationId: (sourceKey: string, kind: string, migratedFrom: string) => string;
+  readonly sourceGit: SourceGitIdentity;
+  readonly migrationImportError: (code: string, detail: string) => Error;
+  readonly idRemapConflict: (kind: IdRemapping["entityType"], sourceId: string, targetId: string) => Error;
+  readonly remappings: IdRemapping[];
+  readonly taskRead: { readonly entries: readonly unknown[] };
+  readonly prepared: readonly Prepared[];
+  readonly alreadyImported: Readonly<Record<EntityKind, number>>;
+  readonly migratedEdges: readonly RelationGraphEdgeRow[];
+}
+
+export function reboundRelation(context: MigrationRelationsContext, row: RelationGraphEdgeRow): ReboundRelation | null {
   const source = context.reboundRef(row.sourceRef),
     target = context.reboundRef(row.targetRef),
     ownerRef = context.reboundRef(row.ownerRef);
@@ -43,9 +93,9 @@ export function reboundRelation(
     strength: row.strength,
     origin: "imported_snapshot",
     rationale: row.rationale,
-    state: (row.state as string) === "retired" ? "edge_retired" : row.state,
+    state: String(row.state) === "retired" ? "edge_retired" : row.state,
   };
-  const legacyRelationId = [...(context.cold.legacyRelationIds as ReadonlyMap<string, string>).entries()].find(
+  const legacyRelationId = [...context.cold.legacyRelationIds.entries()].find(
     ([, canonicalId]) => canonicalId === row.relationId,
   )?.[0];
   return {
@@ -56,7 +106,7 @@ export function reboundRelation(
   };
 }
 
-export function reboundRef(context: any, ref: string): string | null {
+export function reboundRef(context: MigrationRelationsContext, ref: string): string | null {
   const task = /^task\/([^/]+)$/u.exec(ref);
   if (task) return context.taskMap.has(task[1]!) ? `task/${context.taskMap.get(task[1]!)}` : null;
   const decision = /^decision\/([^/]+)(\/.*)?$/u.exec(ref);
@@ -74,8 +124,8 @@ export function reboundRef(context: any, ref: string): string | null {
 }
 
 export function prepareRelation(
-  context: any,
-  value: NonNullable<ReturnType<typeof context.reboundRelation>>,
+  context: MigrationRelationsContext,
+  value: ReboundRelation,
   workspaceRevision: number,
 ): Prepared {
   return context.prepare(
@@ -94,20 +144,20 @@ export function prepareRelation(
   );
 }
 
-export function dropMap(context: any, kind: Draft["kind"], id: string): void {
+export function dropMap(context: MigrationRelationsContext, kind: Draft["kind"], id: string): void {
   if (kind === "task") context.taskMap.delete(id);
   if (kind === "decision") context.decisionMap.delete(id);
   if (kind === "fact") context.factMap.delete(id);
 }
 
-export function actorFor(context: any, entityId: string): ActorIdentity {
+export function actorFor(context: MigrationRelationsContext, entityId: string): ActorIdentity {
   const principal = context.attribution.get(entityId);
   context.attributionUse[principal ? "restored" : "fallback"] += 1;
   return principal ? { principal, executor: context.actor.executor } : context.actor;
 }
 
 export function existingSourceEntity(
-  context: any,
+  context: MigrationRelationsContext,
   kind: MigrationImportEventV1["payload"]["entity"]["kind"],
   migratedFrom: string,
 ): MigrationImportEventV1["payload"]["entity"] | null {
@@ -139,7 +189,7 @@ export function existingSourceEntity(
 }
 
 export function mappedIdentifier(
-  context: any,
+  context: MigrationRelationsContext,
   kind: "task" | "decision",
   sourceId: string,
   occupied: ReadonlySet<string>,
@@ -165,29 +215,24 @@ export function mappedIdentifier(
   return targetId;
 }
 
-export function sourceCounts(context: any): ImportCounts {
+export function sourceCounts(context: MigrationRelationsContext): ImportCounts {
   return {
     task:
       context.taskRead.entries.length +
-      context.skips.filter(
-        ({ entityType, reason }: { readonly entityType: string; readonly reason: string }) =>
-          entityType === "task" && reason === "INDEX.md is malformed",
-      ).length,
+      context.skips.filter(({ entityType, reason }) => entityType === "task" && reason === "INDEX.md is malformed")
+        .length,
     decision:
-      context.cold.decisions.length +
-      context.cold.issues.filter(({ entityType }: { readonly entityType: string }) => entityType === "decision").length,
-    fact:
-      context.cold.facts.length +
-      context.cold.issues.filter(({ entityType }: { readonly entityType: string }) => entityType === "fact").length,
+      context.cold.decisions.length + context.cold.issues.filter(({ entityType }) => entityType === "decision").length,
+    fact: context.cold.facts.length + context.cold.issues.filter(({ entityType }) => entityType === "fact").length,
     relation:
       context.cold.truth.edges.length +
-      context.cold.issues.filter(({ entityType }: { readonly entityType: string }) => entityType === "relation").length,
+      context.cold.issues.filter(({ entityType }) => entityType === "relation").length,
     coverage: buildColdCoverage(context.cold, context.cold.truth.edges).length,
   };
 }
 
-export function preparedCounts(context: any): ImportCounts {
-  const kind = (name: keyof typeof context.alreadyImported): number =>
+export function preparedCounts(context: MigrationRelationsContext): ImportCounts {
+  const kind = (name: "task" | "decision" | "fact" | "relation"): number =>
     context.prepared.filter(
       ({ event }: Prepared) => isMigrationImportEvent(event) && event.payload.entity.kind === name,
     ).length + context.alreadyImported[name];
@@ -202,7 +247,7 @@ export function preparedCounts(context: any): ImportCounts {
   };
 }
 
-export function projectedCounts(context: any): ImportCounts {
+export function projectedCounts(context: MigrationRelationsContext): ImportCounts {
   const taskIds = new Set(context.taskMap.values()),
     decisionIds = new Set(context.decisionMap.values()),
     factRefs = new Set(context.factMap.values()),
@@ -212,21 +257,15 @@ export function projectedCounts(context: any): ImportCounts {
   return {
     task: context.input.projection
       .list()
-      .rows.filter(
-        ({ taskId, generation }: { readonly taskId: string; readonly generation: string }) =>
-          taskIds.has(taskId) && generation === "v0",
-      ).length,
-    decision: decisions.decisionAnchors.filter(({ decisionId }: { readonly decisionId: string }) =>
-      decisionIds.has(decisionId),
-    ).length,
-    fact: facts.facts.filter(({ ref }: { readonly ref: string }) => factRefs.has(ref)).length,
+      .rows.filter(({ taskId, generation }) => taskIds.has(taskId) && generation === "v0").length,
+    decision: decisions.decisionAnchors.filter(({ decisionId }) => decisionIds.has(decisionId)).length,
+    fact: facts.facts.filter(({ ref }) => factRefs.has(ref)).length,
     relation: new Set(
       [...decisions.edges, ...facts.edges]
         .filter(({ relationId }) => relationIds.has(relationId))
         .map(({ relationId }) => relationId),
     ).size,
-    coverage: decisions.coverageRows.filter(({ decisionRef }: { readonly decisionRef: string }) =>
-      decisionIds.has(decisionRef.slice("decision/".length)),
-    ).length,
+    coverage: decisions.coverageRows.filter(({ decisionRef }) => decisionIds.has(decisionRef.slice("decision/".length)))
+      .length,
   };
 }

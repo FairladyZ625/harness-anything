@@ -1,3 +1,4 @@
+import type { CanonicalEventAppendReceipt, CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import {
   closeoutTask as closeoutTaskImpl,
   declareExecutionExecutor as declareExecutionExecutorImpl,
@@ -80,30 +81,39 @@ import {
   taskWipEnteringAction as taskWipEnteringActionImpl,
   wipSnapshotEntries as wipSnapshotEntriesImpl,
 } from "./repo-cell-task-query.ts";
-import { runtimeIngressEventTypes } from "./repo-cell-types.ts";
+import type { TaskQueryCell } from "./repo-cell-task-query.ts";
+import { runtimeIngressEventTypes, type PublicPublication, type RepoTaskAction } from "./repo-cell-types.ts";
+import type { TaskQueryReadModel } from "./task-query-read.ts";
+import type { makeSquadCoordinator } from "./squad-coordinator.ts";
 
 export function createRepoCellActionContext(bindings: {
-  readonly input: any;
-  readonly rootDir: any;
+  readonly input: { readonly repoId: string };
+  readonly rootDir: string;
   readonly now: () => string;
-  readonly publicPublication: (value: any) => any;
-  readonly getProjection: () => any;
-  readonly getStore: () => any;
-  readonly getEntityActionExecutor: () => any;
-  readonly getService: () => any;
-  readonly getRecovery: () => any;
+  readonly publicPublication: (value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">) => PublicPublication;
+  readonly getProjection: () => TaskProjection;
+  readonly getStore: () => CanonicalEventStore;
+  readonly getEntityActionExecutor: () => unknown;
+  readonly getService: () => unknown;
+  readonly getRecovery: () => unknown;
   readonly getRecoveryUncertain: () => boolean;
   readonly setRecoveryUncertain: (value: boolean) => void;
   readonly getKnownTaskIds: () => Set<string> | null;
   readonly setKnownTaskIds: (value: Set<string> | null) => void;
-  readonly getSquadCoordinator: () => any;
-}): any {
+  readonly getSquadCoordinator: () => ReturnType<typeof makeSquadCoordinator>;
+}) {
+  const taskQueryContext: { current: TaskQueryCell | null } = { current: null };
   const bind =
-    <Args extends readonly unknown[], Result>(implementation: (context: any, ...args: Args) => Result) =>
-    (...args: Args): Result =>
-      implementation(context, ...args);
+    <Args extends readonly unknown[], Result>(implementation: (context: TaskQueryCell, ...args: Args) => Result) =>
+    (...args: Args): Result => {
+      if (taskQueryContext.current === null) throw new Error("RepoCell action context is not initialized");
+      return implementation(taskQueryContext.current, ...args);
+    };
+  const unavailableTaskQuery = (): never => {
+    throw new Error("RepoCell task query functions are not installed");
+  };
 
-  const context: any = {
+  const context = {
     cellCodedError,
     input: bindings.input,
     runtimeIngressEventTypes,
@@ -123,6 +133,9 @@ export function createRepoCellActionContext(bindings: {
     listTasks: bind(listTasksImpl),
     listRelations: bind(listRelationsImpl),
     reviewTask: bind(reviewTaskImpl),
+    taskListQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),
+    relationQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),
+    queryRead: (): TaskQueryReadModel => unavailableTaskQuery(),
     publishGeneratedArtifact,
     rootDir: bindings.rootDir,
     get entityActionExecutor() {
@@ -159,8 +172,12 @@ export function createRepoCellActionContext(bindings: {
     workspaceText,
     buildCommand,
     withServerMeta,
-    proofFor: (command: any, snapshot: any, binding: any, projection: any) =>
-      proofFor(command, snapshot, binding, projection, bindings.rootDir),
+    proofFor: (
+      command: Parameters<typeof proofFor>[0],
+      snapshot: Parameters<typeof proofFor>[1],
+      binding: Parameters<typeof proofFor>[2],
+      projection: Parameters<typeof proofFor>[3],
+    ) => proofFor(command, snapshot, binding, projection, bindings.rootDir),
     lifecycleReceipt,
     publicPublication: bindings.publicPublication,
     explicitExecutionId,
@@ -213,5 +230,6 @@ export function createRepoCellActionContext(bindings: {
     },
   };
 
+  taskQueryContext.current = context;
   return context;
 }

@@ -9,6 +9,7 @@ import {
   contentObjectRelativePath,
   deriveRelationId,
   decisionMachineDigest,
+  docByteLength,
   docSyncWritePlan,
   documentPath,
   eventObjectRelativePath,
@@ -19,7 +20,10 @@ import {
   OPAQUE_TEXTUAL_POLICY_ID,
   ledgerGitPath,
   migrationImportWritePlan,
+  parseCanonicalEvent,
   readLegacyMigrationSource,
+  factMemoryTags,
+  relationTypes,
   reduceDecisionDocument,
   renderFactsDocument,
   reviewDigest,
@@ -28,22 +32,31 @@ import {
   serializePersistedCanonicalEvent,
   sha256Text,
   stableStringify,
+  validateFactEvent,
   type CanonicalEventV1,
+  type CanonicalEventStore,
   type DecisionDocumentState,
   type DecisionEventV1,
   type DocEventV1,
+  type FactEventV1,
   type MigrationImportEventV1,
+  type FactMemoryTag,
+  type PersistedCanonicalEventV1,
   type PublicationFile,
+  type RelationFactRow,
+  type RelationType,
   type TaskEventV1,
+  type TaskProjection,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { DocEventChange } from "../../kernel/src/index.ts";
+import { isJsonObject, type JsonValue } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 interface LegacyFact {
   readonly legacyRef: string;
   readonly canonicalRef: string;
-  readonly row: any;
+  readonly row: RelationFactRow;
 }
 interface MappedLegacyFact extends LegacyFact {
   readonly mapId: string;
@@ -75,7 +88,7 @@ interface FactRekeyPlan {
   readonly facts: readonly LegacyFact[];
   readonly map: ReadonlyMap<string, string>;
   readonly relationMap: ReadonlyMap<string, string>;
-  readonly eventRewrites: readonly { readonly event: CanonicalEventV1; readonly body: string }[];
+  readonly eventRewrites: readonly { readonly event: PersistedCanonicalEventV1; readonly body: string }[];
   readonly authoredRewrites: readonly {
     readonly path: string;
     readonly body: string;
@@ -98,8 +111,8 @@ export function runFactRekey(input: {
   readonly action: RepoTaskAction;
   readonly binding: RepoCellBinding;
   readonly rootDir: string;
-  readonly store: any;
-  readonly projection: any;
+  readonly store: CanonicalEventStore;
+  readonly projection: TaskProjection;
   readonly now: () => string;
 }): WriteReceipt {
   const plan = buildPlan(input.rootDir, input.store);
@@ -107,7 +120,7 @@ export function runFactRekey(input: {
   const digest = sha256Text(mapBody);
   const markerOpId = `op_${sha256Text(`fact-rekey\0${digest}`)}`;
   const existingMarker = migrationEvents(input.rootDir, input.store).find(
-    (event: CanonicalEventV1) =>
+    (event: PersistedCanonicalEventV1) =>
       isMigrationImportEvent(event) &&
       event.payload.entity.kind === "id-map" &&
       event.payload.entity.importId === `fact-rekey-${digest.slice(0, 16)}`,
@@ -226,7 +239,7 @@ export function runFactRekey(input: {
       [...additional.values()],
     );
   input.projection.rebuild();
-  const cut = input.store.currentCut(),
+  const cut = appended.cut,
     projected = input.projection.list(),
     receipt: WriteReceipt = {
       outcome: "applied",
@@ -252,11 +265,11 @@ export function runFactRekey(input: {
   return receipt;
 }
 
-function buildPlan(rootDir: string, store: any): FactRekeyPlan {
+function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
   const events = migrationEvents(rootDir, store),
     cold = readLegacyMigrationSource(rootDir),
     legacyEventRevisions = new Map<string, number>(),
-    rows = new Map(cold.facts.map((row: any) => [`fact/${row.taskId}/${row.factId}`, row]));
+    rows = new Map(cold.facts.map((row) => [`fact/${row.taskId}/${row.factId}`, row]));
   for (const event of events) {
     if (isFactEvent(event) && event.taskId && event.payload.factsDocumentClaim.path !== `facts/${event.factId}.md`)
       legacyEventRevisions.set(`fact/${event.taskId}/${event.factId}`, event.workspaceRevision);
@@ -271,13 +284,13 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
     layout = resolveHarnessLayout(rootDir);
   const legacyDocumentRefs = new Set(
     cold.facts
-      .filter((row: any) => {
+      .filter((row) => {
         if (!row.taskId) return false;
         const factsPath = layout.taskDocumentPath(row.taskId, legacyFactsDocumentName());
         if (!existsSync(factsPath)) return false;
         return new RegExp(`fact_id\\s*:\\s*${row.factId}\\b`, "u").test(readFileSync(factsPath, "utf8"));
       })
-      .map((row: any) => `fact/${row.taskId}/${row.factId}`),
+      .map((row) => `fact/${row.taskId}/${row.factId}`),
   );
   const legacyEntries = [...cold.legacyFactRefs.entries()].filter(
     ([legacy]) => /^fact\/[^/]+\/F-/u.test(legacy) && (legacyEventRefs.has(legacy) || legacyDocumentRefs.has(legacy)),
@@ -288,8 +301,8 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
   });
   const occupied = new Set(
     cold.facts
-      .filter((row: any) => !facts.some((fact) => fact.legacyRef === `fact/${row.taskId}/${row.factId}`))
-      .map((row: any) => row.factId),
+      .filter((row) => !facts.some((fact) => fact.legacyRef === `fact/${row.taskId}/${row.factId}`))
+      .map((row) => row.factId),
   );
   const duplicateCounts = new Map<string, number>();
   for (const fact of facts) duplicateCounts.set(fact.row.factId, (duplicateCounts.get(fact.row.factId) ?? 0) + 1);
@@ -311,7 +324,7 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
   for (const event of events)
     if (event.schema === "entity-event/v1" && event.payload.entityKind === "squad")
       currentSquadClaims.set(event.payload.entityId, event.payload.declarationDocumentClaim);
-  const eventRewrites: { event: CanonicalEventV1; body: string }[] = [],
+  const eventRewrites: { event: PersistedCanonicalEventV1; body: string }[] = [],
     rewrittenEntityBlobs = new Map<string, RewrittenEntityBlob>(),
     rewrittenEntityPaths = new Set<string>(),
     decisionStates = new Map<string, DecisionDocumentState>(),
@@ -327,9 +340,9 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
     );
   for (const event of events) {
     const agentRewrite = rewriteRetiredAgentEntity(event, store);
-    let next: any;
+    let next: PersistedCanonicalEventV1;
     if (agentRewrite !== null) {
-      next = transform(agentRewrite.event, mapRef, relationMap);
+      next = transformCanonicalEvent(agentRewrite.event, mapRef, relationMap);
       rewrittenEntityBlobs.set(agentRewrite.blob.sha256, agentRewrite.blob);
       rewrittenEntityPaths.add(agentRewrite.path);
       rewriteCounts.agent += 1;
@@ -338,19 +351,18 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
       if (!target) continue;
       const factId = target.slice("fact/".length),
         { factsDocumentClaim: _claim, ...payload } = event.payload;
-      next = compileFactWrite({
-        event: {
-          ...event,
-          factId,
-          payload: {
-            ...payload,
-            provenance: canonicalProvenance(payload.provenance),
-            supersedes: payload.supersedes
-              ? { ...payload.supersedes, factRef: mapRef(payload.supersedes.factRef) }
-              : undefined,
-          },
-        } as any,
-      }).event;
+      const draft: Parameters<typeof compileFactWrite>[0]["event"] = {
+        ...event,
+        factId,
+        payload: {
+          ...payload,
+          provenance: canonicalProvenance(payload.provenance),
+          supersedes: payload.supersedes
+            ? { ...payload.supersedes, factRef: mapRef(payload.supersedes.factRef) }
+            : undefined,
+        },
+      };
+      next = compileFactWrite({ event: draft }).event;
     } else if (isMigrationImportEvent(event) && event.payload.entity.kind === "fact") {
       const entity = event.payload.entity,
         legacyRef = entity.fact.taskId ? `fact/${entity.fact.taskId}/${entity.fact.factId}` : "",
@@ -359,7 +371,7 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
       if (target && fact) {
         const factId = target.slice("fact/".length),
           document = factDocument(fact, factId, event.workspaceRevision);
-        next = transform(
+        next = transformCanonicalEvent(
           {
             ...event,
             payload: {
@@ -380,14 +392,18 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
           mapRef,
           relationMap,
         );
-      } else next = transform(event, mapRef, relationMap);
-    } else next = transform(event, mapRef, relationMap);
-    if (next?.schema === "settings-event/v1" && Object.hasOwn(next.payload.settings, "locale")) {
+      } else next = transformCanonicalEvent(event, mapRef, relationMap);
+    } else next = transformCanonicalEvent(event, mapRef, relationMap);
+    if (
+      next.schema === "settings-event/v1" &&
+      isJsonObject(next.payload.settings) &&
+      Object.hasOwn(next.payload.settings, "locale")
+    ) {
       const { locale: _locale, ...settings } = next.payload.settings;
-      next = { ...next, payload: { ...next.payload, settings } };
+      next = parseCanonicalEvent(`${stableStringify({ ...next, payload: { ...next.payload, settings } })}\n`);
       rewriteCounts.settings += 1;
     }
-    if (next?.schema === "migration-import-event/v1" && next.payload.entity.kind === "decision") {
+    if (next.schema === "migration-import-event/v1" && next.payload.entity.kind === "decision") {
       const decision = next.payload.entity.decision,
         importedRelations = decisionRelations.get(decision.decisionId) ?? [];
       decisionStates.set(decision.decisionId, {
@@ -395,7 +411,7 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
         relations: mergeDecisionRelations(decision.relations, importedRelations),
       });
     }
-    if (next?.schema === "migration-import-event/v1" && next.payload.entity.kind === "relation") {
+    if (next.schema === "migration-import-event/v1" && next.payload.entity.kind === "relation") {
       const decisionId = /^decision\/([^/]+)$/u.exec(next.payload.entity.ownerRef)?.[1];
       if (decisionId) {
         const relation = next.payload.entity.relation,
@@ -410,20 +426,20 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
           });
       }
     }
-    if (next?.schema === "agent-entity-event/v1" && next.payload.entityKind === "squad") {
+    if (next.schema === "agent-entity-event/v1" && next.payload.entityKind === "squad") {
       const claim = currentSquadClaims.get(next.payload.entityId);
       if (claim) next = rekeySupersededLegacyEntityClaim(next, claim);
     }
-    if (next?.schema === "decision-event/v1") {
+    if (next.schema === "decision-event/v1") {
       const current = decisionStates.get(next.decisionId) ?? null;
-      next = rekeyDecisionProofs(next as DecisionEventV1, current);
+      next = rekeyDecisionProofs(next, current);
       try {
         decisionStates.set(next.decisionId, reduceDecisionDocument(current, next));
       } catch (error) {
         consumeKnownError(error);
       }
     }
-    if (next?.schema === "task-event/v1" && next.type === "review_consent_recorded")
+    if (next.schema === "task-event/v1" && next.type === "review_consent_recorded")
       next = rekeyReviewConsentProof(next);
     if (stableStringify(next) !== stableStringify(event))
       eventRewrites.push({ event: next, body: serializePersistedCanonicalEvent(next) });
@@ -443,7 +459,9 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
     authoredRoot = layout.authoredRoot,
     legacyTaskFacts = new Map(
       facts
-        .map((fact) => layout.taskDocumentPath(fact.row.taskId, legacyFactsDocumentName()))
+        .flatMap((fact) =>
+          fact.row.taskId ? [layout.taskDocumentPath(fact.row.taskId, legacyFactsDocumentName())] : [],
+        )
         .filter((file) => existsSync(file))
         .map(
           (file) => [path.relative(authoredRoot, file).split(path.sep).join("/"), readFileSync(file, "utf8")] as const,
@@ -497,7 +515,7 @@ function buildPlan(rootDir: string, store: any): FactRekeyPlan {
   };
 }
 
-function committedDocumentBody(rootDir: string, store: any, logicalPath: string): string {
+function committedDocumentBody(rootDir: string, store: CanonicalEventStore, logicalPath: string): string {
   const ledger = resolveLedgerGitLayout(rootDir),
     bytes = localGitObjectRefStore.readPath(
       ledger.rootDir,
@@ -508,7 +526,9 @@ function committedDocumentBody(rootDir: string, store: any, logicalPath: string)
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
-function projectDocumentStates(events: readonly CanonicalEventV1[]): ReadonlyMap<string, MigrationDocumentState> {
+function projectDocumentStates(
+  events: readonly PersistedCanonicalEventV1[],
+): ReadonlyMap<string, MigrationDocumentState> {
   const states = new Map<string, MigrationDocumentState>();
   for (const event of events) {
     for (const retirement of canonicalDocumentRetirements(event)) states.delete(retirement.path);
@@ -518,8 +538,8 @@ function projectDocumentStates(events: readonly CanonicalEventV1[]): ReadonlyMap
 }
 
 function rewriteRetiredAgentEntity(
-  event: CanonicalEventV1,
-  store: any,
+  event: PersistedCanonicalEventV1,
+  store: CanonicalEventStore,
 ): { readonly event: CanonicalEventV1; readonly path: string; readonly blob: RewrittenEntityBlob } | null {
   if (!isEntityEvent(event) || event.payload.entityKind !== "agent") return null;
   const claim = event.payload.declarationDocumentClaim,
@@ -595,7 +615,7 @@ function legacyFactsDocumentName(): string {
   return ["facts", "md"].join(".");
 }
 
-function migrationEvents(rootDir: string, store: any): CanonicalEventV1[] {
+function migrationEvents(rootDir: string, store: CanonicalEventStore): PersistedCanonicalEventV1[] {
   const ledger = resolveLedgerGitLayout(rootDir),
     commit = store.currentCommit().sha,
     prefix = ledgerGitPath(ledger, "events/");
@@ -604,7 +624,7 @@ function migrationEvents(rootDir: string, store: any): CanonicalEventV1[] {
     .filter(({ target }) => target.startsWith(prefix) && !target.endsWith("/head.json") && target.endsWith(".json"));
   if (entries.length === 0) return [];
   const output = localGitObjectRefStore.batch(ledger.rootDir, `${entries.map(({ oid }) => oid).join("\n")}\n`);
-  const events: CanonicalEventV1[] = [];
+  const events: PersistedCanonicalEventV1[] = [];
   let cursor = 0;
   for (const _entry of entries) {
     const headerEnd = output.indexOf(10, cursor);
@@ -614,7 +634,8 @@ function migrationEvents(rootDir: string, store: any): CanonicalEventV1[] {
       body = output.subarray(start, start + size).toString("utf8");
     cursor = start + size + 1;
     try {
-      events.push(JSON.parse(body) as CanonicalEventV1);
+      const value: unknown = JSON.parse(body);
+      events.push(normalizeLegacyFactEvent(value) ?? parseCanonicalEvent(body));
     } catch (error) {
       consumeKnownError(error);
       continue;
@@ -623,12 +644,56 @@ function migrationEvents(rootDir: string, store: any): CanonicalEventV1[] {
   return events.sort((left, right) => left.workspaceRevision - right.workspaceRevision);
 }
 
+function normalizeLegacyFactEvent(value: unknown): FactEventV1 | null {
+  if (!isJsonObject(value) || value.schema !== "fact-event/v1" || !isJsonObject(value.payload)) return null;
+  const payload = value.payload;
+  if (!Array.isArray(payload.provenance) || !isJsonObject(payload.factsDocumentClaim)) return null;
+  const provenance = payload.provenance.map((entry) => {
+    if (
+      !isJsonObject(entry) ||
+      typeof entry.runtime !== "string" ||
+      (typeof entry.sessionId !== "string" && entry.sessionId !== null) ||
+      typeof entry.boundAt !== "string"
+    )
+      return null;
+    return {
+      ...entry,
+      runtime: entry.runtime,
+      sessionId: entry.sessionId,
+      boundAt: entry.boundAt,
+      transcriptReachability:
+        entry.transcriptReachability === "dispatch_stream_only" || entry.transcriptReachability === "unavailable"
+          ? entry.transcriptReachability
+          : ("by_session_id" as const),
+    };
+  });
+  if (provenance.some((entry) => entry === null) || typeof value.factId !== "string") return null;
+  const normalized = { ...value, schema: "fact-event/v1" as const, payload: { ...payload, provenance } };
+  const legacySupersedes = isJsonObject(payload.supersedes) ? payload.supersedes : null,
+    legacySupersededFactId =
+      typeof legacySupersedes?.factRef === "string"
+        ? /^fact\/[^/]+\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(legacySupersedes.factRef)?.[1]
+        : undefined;
+  const validationCandidate = {
+    ...normalized,
+    payload: {
+      ...normalized.payload,
+      factsDocumentClaim: { ...payload.factsDocumentClaim, path: `facts/${value.factId}.md` },
+      ...(legacySupersededFactId && legacySupersedes
+        ? { supersedes: { ...legacySupersedes, factRef: `fact/${legacySupersededFactId}` } }
+        : {}),
+    },
+  };
+  if (validateFactEvent(validationCandidate).length > 0 || !isFactEvent(normalized)) return null;
+  return normalized;
+}
+
 function buildAuthoredRekeyEvents(
   plan: FactRekeyPlan,
   input: {
     readonly binding: RepoCellBinding;
     readonly now: () => string;
-    readonly store: any;
+    readonly store: CanonicalEventStore;
     readonly rootDir: string;
   },
   firstRevision: number,
@@ -643,18 +708,17 @@ function buildAuthoredRekeyEvents(
   }[];
 }[] {
   const rewriteChanges: DocEventV1["payload"]["changes"] = plan.authoredRewrites.map(
-      (document) =>
-        ({
-          path: documentPath(document.path),
-          baseBlobSha256: document.baseBlobSha256,
-          candidate: {
-            sha256: sha256Text(document.body),
-            size: Buffer.byteLength(document.body),
-            mediaType: document.path.endsWith(".md") ? ("text/markdown" as const) : ("text/plain" as const),
-          },
-          policyId: OPAQUE_TEXTUAL_POLICY_ID,
-          regionProofs: [],
-        }) as unknown as DocEventChange,
+      (document): DocEventChange => ({
+        path: documentPath(document.path),
+        baseBlobSha256: document.baseBlobSha256,
+        candidate: {
+          sha256: sha256Text(document.body),
+          size: docByteLength(Buffer.byteLength(document.body)),
+          mediaType: document.path.endsWith(".md") ? ("text/markdown" as const) : ("text/plain" as const),
+        },
+        policyId: OPAQUE_TEXTUAL_POLICY_ID,
+        regionProofs: [],
+      }),
     ),
     bundles: ReturnType<typeof docEventBundle>[] = [];
   let revision = firstRevision;
@@ -676,12 +740,12 @@ function buildAuthoredRekeyEvents(
               baseBlobSha256,
               candidate: {
                 sha256: candidateBlobSha256,
-                size: Buffer.byteLength(document.body),
+                size: docByteLength(Buffer.byteLength(document.body)),
                 mediaType: "text/markdown",
               },
               policyId: OPAQUE_TEXTUAL_POLICY_ID,
               regionProofs: [],
-            } as unknown as DocEventChange,
+            },
           ],
           [document],
           undefined,
@@ -701,7 +765,7 @@ function buildAuthoredRekeyEvents(
             candidate: null,
             policyId: OPAQUE_TEXTUAL_POLICY_ID,
             regionProofs: [],
-          } as unknown as DocEventChange,
+          },
         ],
         [],
         "fact records were re-keyed",
@@ -716,7 +780,7 @@ function docEventBundle(
   input: {
     readonly binding: RepoCellBinding;
     readonly now: () => string;
-    readonly store: any;
+    readonly store: CanonicalEventStore;
   },
   revision: number,
   changes: DocEventV1["payload"]["changes"],
@@ -774,7 +838,7 @@ function buildDocsOnlyBundles(
           observedAt: fact.row.observedAt,
           confidence: fact.row.confidence,
           memoryClass: fact.row.memoryClass,
-          memoryTags: fact.row.memoryTags,
+          memoryTags: canonicalMemoryTags(fact.row.memoryTags),
           provenance: canonicalProvenance(fact.row.provenance),
         },
       },
@@ -807,55 +871,98 @@ function transform(
   value: unknown,
   mapRef: (value: string) => string,
   relationMap: ReadonlyMap<string, string>,
-): unknown {
+): JsonValue {
   if (typeof value === "string") return relationMap.get(value) ?? mapRef(value);
   if (Array.isArray(value)) return value.map((entry) => transform(entry, mapRef, relationMap));
-  if (!value || typeof value !== "object") return value;
-  const output: Record<string, unknown> = Object.fromEntries(
+  if (value === null || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value)))
+    return value;
+  if (!isJsonObject(value)) throw new Error("fact rekey encountered a non-JSON event value");
+  const output: Record<string, JsonValue> = Object.fromEntries(
     Object.entries(value).map(([key, entry]) => [key, transform(entry, mapRef, relationMap)]),
   );
   if (
     typeof output.source === "string" &&
     typeof output.target === "string" &&
-    typeof output.type === "string" &&
+    isRelationType(output.type) &&
     output.direction === "directed"
   )
     output.relation_id = deriveRelationId({
       source: output.source,
       target: output.target,
-      type: output.type as any,
+      type: output.type,
       direction: output.direction,
     });
   return output;
 }
 
+function transformCanonicalEvent(
+  event: PersistedCanonicalEventV1,
+  mapRef: (value: string) => string,
+  relationMap: ReadonlyMap<string, string>,
+): PersistedCanonicalEventV1 {
+  const transformed = transform(event, mapRef, relationMap);
+  return parseCanonicalEvent(`${stableStringify(transformed)}\n`);
+}
+
+function isRelationType(value: JsonValue | undefined): value is RelationType {
+  return typeof value === "string" && relationTypes.some((candidate) => candidate === value);
+}
+
 export function rekeyDecisionProofs(event: DecisionEventV1, current: DecisionDocumentState | null): DecisionEventV1 {
   if (current === null) return event;
-  const sourcePayload = event.payload as any,
-    payload: Record<string, unknown> = { ...sourcePayload };
-  if (event.type === "decision_accepted" || event.type === "decision_rejected" || event.type === "decision_deferred")
-    payload.judgmentConsent = {
-      ...sourcePayload.judgmentConsent,
-      machineDigest: decisionMachineDigest(current),
-    };
-  if (
-    sourcePayload.contentPin !== undefined &&
-    (event.type === "decision_accepted" ||
-      event.type === "decision_rejected" ||
-      event.type === "decision_deferred" ||
-      event.type === "decision_superseded" ||
-      event.type === "decision_retired" ||
-      event.type === "decision_amended" ||
-      event.type === "decision_repinned")
-  ) {
-    const reduced = reduceDecisionDocument(current, event);
-    payload.contentPin = {
-      ...sourcePayload.contentPin,
-      state: reduced.state,
-      digest: decisionMachineDigest(reduced),
-    };
+  switch (event.type) {
+    case "decision_accepted":
+    case "decision_rejected":
+    case "decision_deferred": {
+      const judgmentConsent = {
+        ...event.payload.judgmentConsent,
+        machineDigest: decisionMachineDigest(current),
+      };
+      if (event.payload.contentPin === undefined)
+        return replaceDecisionPayload(event, { ...event.payload, judgmentConsent });
+      const reduced = reduceDecisionDocument(current, event);
+      return replaceDecisionPayload(event, {
+        ...event.payload,
+        judgmentConsent,
+        contentPin: {
+          ...event.payload.contentPin,
+          state: reduced.state,
+          digest: decisionMachineDigest(reduced),
+        },
+      });
+    }
+    case "decision_superseded":
+    case "decision_retired":
+    case "decision_repinned": {
+      if (event.payload.contentPin === undefined) return event;
+      const reduced = reduceDecisionDocument(current, event);
+      return replaceDecisionPayload(event, {
+        ...event.payload,
+        contentPin: {
+          ...event.payload.contentPin,
+          state: reduced.state,
+          digest: decisionMachineDigest(reduced),
+        },
+      });
+    }
+    case "decision_amended": {
+      const reduced = reduceDecisionDocument(current, event);
+      return replaceDecisionPayload(event, {
+        ...event.payload,
+        contentPin: {
+          ...event.payload.contentPin,
+          state: reduced.state,
+          digest: decisionMachineDigest(reduced),
+        },
+      });
+    }
+    default:
+      return event;
   }
-  return { ...event, payload } as DecisionEventV1;
+}
+
+function replaceDecisionPayload<Event extends DecisionEventV1>(event: Event, payload: Event["payload"]): Event {
+  return Object.assign({}, event, { payload });
 }
 
 export function rekeyReviewConsentProof(
@@ -914,6 +1021,15 @@ function canonicalProvenance(
         ? value.transcriptReachability
         : "by_session_id",
   }));
+}
+
+function canonicalMemoryTags(values: readonly string[]): readonly FactMemoryTag[] {
+  if (values.every(isFactMemoryTag)) return values;
+  throw new Error("legacy fact contains an unsupported memory tag");
+}
+
+function isFactMemoryTag(value: string): value is FactMemoryTag {
+  return factMemoryTags.some((candidate) => candidate === value);
 }
 
 function authoredFiles(root: string): readonly { readonly relativePath: string; readonly body: string }[] {

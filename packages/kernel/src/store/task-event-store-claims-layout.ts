@@ -10,6 +10,7 @@ import {
   isMigrationImportEvent,
   isTaskEvent,
   type CanonicalEventV1,
+  type PersistedCanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
 import { migrationImportClaims, migrationImportContentClaims } from "../domain/migration-import-event.ts";
 import { type LedgerLayoutMigrationEventV1 } from "../domain/ledger-layout-migration-event.ts";
@@ -30,12 +31,13 @@ import {
 } from "./task-event-store-layout.ts";
 
 // Canonical document claim extraction plus flat-to-sharded layout auditing.
-export function canonicalDocumentClaims(event: CanonicalEventV1): readonly {
+export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): readonly {
   readonly path: string;
   readonly sha256: string;
   readonly size: number;
   readonly mediaType: string;
 }[] {
+  if (isEntityEvent(event)) return [event.payload.declarationDocumentClaim];
   if (isScheduleEvent(event))
     return "declarationDocumentClaim" in event.payload ? [event.payload.declarationDocumentClaim] : [];
   if (isSettingsEvent(event)) return [event.payload.harnessDocumentClaim];
@@ -44,39 +46,38 @@ export function canonicalDocumentClaims(event: CanonicalEventV1): readonly {
     ? event.payload.changes.flatMap(({ path: target, candidate }) =>
         candidate === null ? [] : [{ path: target, ...candidate }],
       )
-    : isEntityEvent(event)
-      ? [event.payload.declarationDocumentClaim]
-      : isTaskEvent(event)
-        ? [
-            ...(event.payload.documentClaims ?? []),
-            ...(event.payload.carriedDocumentClaims ?? []).map(({ path: target, candidate }) => ({
-              path: target,
-              ...candidate,
-            })),
-          ]
-        : isTaskBootstrapEvent(event)
-          ? event.payload.initialDocumentClaims
-          : isSnapshotUpgradeEvent(event)
-            ? [event.payload.taskContractClaim]
-            : isTaskProgressEvent(event)
-              ? [
-                  event.payload.resultDocumentClaim,
-                  ...(event.payload.carriedDocumentClaims ?? []).map(({ path: target, candidate }) => ({
-                    path: target,
-                    ...candidate,
-                  })),
-                ]
-              : isFactEvent(event)
-                ? [event.payload.factsDocumentClaim]
-                : isDecisionEvent(event)
-                  ? [event.payload.decisionDocumentClaim]
-                  : isMigrationImportEvent(event)
-                    ? migrationImportClaims(event)
-                    : [];
+    : isTaskEvent(event)
+      ? [
+          ...(event.payload.documentClaims ?? []),
+          ...(event.payload.carriedDocumentClaims ?? []).map(({ path: target, candidate }) => ({
+            path: target,
+            ...candidate,
+          })),
+        ]
+      : isTaskBootstrapEvent(event)
+        ? event.payload.initialDocumentClaims
+        : isSnapshotUpgradeEvent(event)
+          ? [event.payload.taskContractClaim]
+          : isTaskProgressEvent(event)
+            ? [
+                event.payload.resultDocumentClaim,
+                ...(event.payload.carriedDocumentClaims ?? []).map(({ path: target, candidate }) => ({
+                  path: target,
+                  ...candidate,
+                })),
+              ]
+            : isFactEvent(event)
+              ? [event.payload.factsDocumentClaim]
+              : isDecisionEvent(event)
+                ? [event.payload.decisionDocumentClaim]
+                : isMigrationImportEvent(event)
+                  ? migrationImportClaims(event)
+                  : [];
 }
 export function canonicalDocumentRetirements(
-  event: CanonicalEventV1,
+  event: PersistedCanonicalEventV1,
 ): readonly { readonly path: string; readonly baseBlobSha256: string }[] {
+  if (isEntityEvent(event)) return [];
   if (isScheduleEvent(event) && "declarationDocumentRetirement" in event.payload)
     return [event.payload.declarationDocumentRetirement];
   return isDocEvent(event)

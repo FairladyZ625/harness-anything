@@ -2,7 +2,7 @@ import { validateCurrentEntityEvent, validateEntityEvent } from "./entity-event.
 import { validateCiRunObservationEvent, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";
 import { validateAgentRuntimeEvent, validateCurrentAgentRuntimeEvent } from "./agent-runtime.ts";
 import { validateCurrentDecisionEvent, validateDecisionEvent } from "./decision-event.ts";
-import type { CanonicalEventV1, DocEventV1 } from "./doc-sync-types.ts";
+import type { CanonicalEventV1, DocEventV1, PersistedCanonicalEventV1 } from "./doc-sync-types.ts";
 import { validateCurrentDocEvent } from "./doc-sync-validation.ts";
 import { validateCurrentFactEvent, validateFactEvent } from "./fact-event.ts";
 import {
@@ -126,7 +126,7 @@ export function serializeCanonicalEvent(event: CanonicalEventV1): string {
   return canonicalEventBytes(event);
 }
 
-export function serializePersistedCanonicalEvent(event: CanonicalEventV1): string {
+export function serializePersistedCanonicalEvent(event: PersistedCanonicalEventV1): string {
   const normalized = normalizePersistedCanonicalEvent(event),
     entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
     errors = entry?.validate(normalized) ?? ["canonical event schema is unknown"];
@@ -151,8 +151,8 @@ export function parseCanonicalEvent(body: string): CanonicalEventV1 {
   return value as unknown as CanonicalEventV1;
 }
 
-export function normalizePersistedCanonicalEvent(event: CanonicalEventV1): CanonicalEventV1 {
-  return normalizeTimestampFields(event) as CanonicalEventV1;
+export function normalizePersistedCanonicalEvent<Event extends PersistedCanonicalEventV1>(event: Event): Event {
+  return normalizeTimestampFields(event) as Event;
 }
 
 function normalizeTimestampFields(value: unknown, field = ""): unknown {
@@ -164,7 +164,7 @@ function normalizeTimestampFields(value: unknown, field = ""): unknown {
   return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, normalizeTimestampFields(nested, key)]));
 }
 
-function canonicalEventBytes(event: CanonicalEventV1): string {
+function canonicalEventBytes(event: PersistedCanonicalEventV1): string {
   return `${JSON.stringify(canonicalizeWriteValue(event))}\n`;
 }
 

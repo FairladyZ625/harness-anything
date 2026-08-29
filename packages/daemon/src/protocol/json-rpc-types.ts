@@ -26,8 +26,25 @@ export interface JsonRpcErrorResponse {
   readonly error: JsonRpcErrorObject;
 }
 export type JsonRpcResponse<Result = unknown> = JsonRpcSuccessResponse<Result> | JsonRpcErrorResponse;
+export function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return isJsonObject(value);
+}
 export function isJsonObject(value: unknown): value is JsonObject {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return (
+    value !== null && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(isJsonValue)
+  );
+}
+export function isJsonArray(value: unknown): value is ReadonlyArray<JsonValue> {
+  return Array.isArray(value) && value.every(isJsonValue);
+}
+export function hasProperty<Key extends string>(
+  value: JsonObject,
+  key: Key,
+): value is JsonObject & Readonly<Record<Key, JsonValue>> {
+  return Object.hasOwn(value, key);
 }
 export function isUtcTimestamp(value: unknown): value is string {
   if (typeof value !== "string") return false;

@@ -7,7 +7,7 @@
  *
  * 默认全选 = 不改变现状;未知状态归 OTHER_STATUS_BUCKET("其他") 不崩。
  */
-import type { DecisionState, SnapshotStatus, TaskRow, DecisionRow } from "../model/types";
+import type { DecisionState, SnapshotStatus, TaskRow, DecisionRow, FactRef } from "../model/types";
 import { BOARD_COLUMNS } from "../model/types";
 
 export const OTHER_STATUS_BUCKET = "__other__" as const;
@@ -35,14 +35,8 @@ export interface EntityStatusFilterState {
 /** 默认全选(含 other 桶),不改变现状。 */
 export function defaultEntityStatusFilter(): EntityStatusFilterState {
   return {
-    taskStatuses: new Set<TaskStatusFilterKey>([
-      ...TASK_STATUS_FILTER_OPTIONS,
-      OTHER_STATUS_BUCKET,
-    ]),
-    decisionStates: new Set<DecisionStateFilterKey>([
-      ...DECISION_STATE_FILTER_OPTIONS,
-      OTHER_STATUS_BUCKET,
-    ]),
+    taskStatuses: new Set<TaskStatusFilterKey>([...TASK_STATUS_FILTER_OPTIONS, OTHER_STATUS_BUCKET]),
+    decisionStates: new Set<DecisionStateFilterKey>([...DECISION_STATE_FILTER_OPTIONS, OTHER_STATUS_BUCKET]),
   };
 }
 
@@ -81,15 +75,17 @@ export function decisionStateOffCount(filter: EntityStatusFilterState): number {
  */
 export function nodePassesEntityStatusFilter(
   entity: "task" | "decision" | "fact" | string,
-  row: { coordinationStatus?: string; state?: string } | null | undefined,
+  row: { coordinationStatus?: string; state?: string } | FactRef | null | undefined,
   filter: EntityStatusFilterState,
 ): boolean {
   if (entity === "fact") return true;
   if (entity === "task") {
-    return filter.taskStatuses.has(normalizeTaskStatusKey(row?.coordinationStatus));
+    const status = row && "coordinationStatus" in row ? row.coordinationStatus : undefined;
+    return filter.taskStatuses.has(normalizeTaskStatusKey(status));
   }
   if (entity === "decision") {
-    return filter.decisionStates.has(normalizeDecisionStateKey(row?.state));
+    const state = row && "state" in row ? row.state : undefined;
+    return filter.decisionStates.has(normalizeDecisionStateKey(state));
   }
   return true;
 }
