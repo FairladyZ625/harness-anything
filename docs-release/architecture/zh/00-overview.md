@@ -6,91 +6,81 @@
 
 ## 一切所依托的那一句话
 
-有两个存储,而它们并不对等。
+有三种存储角色，而它们并不对等。
 
-> 你 git 仓库里的 Markdown 是真相的来源。SQLite 是一个可重建的投影——一个快速的读缓存,你
-> 随时可以删掉它,再从 Markdown 重新生成。
+> Git 承载的 canonical 事件与撰写好的 Markdown 是已发布的记录；本地 WAL 在写入
+> 物化到 Git 之前持久保存已接受的写入；SQLite 则是可重建的读投影。
 
 三个知识原语——decision、task、fact——以带 YAML frontmatter 的纯 Markdown 撰写；执行链也
-会被撰写：Session、Execution 与 Review 保存谁完成了某一轮交付、提交了什么、由谁裁决。系统
-正确性不依赖数据库文件存活；Markdown 持久且权威，SQLite 仍是可丢弃的投影（ADR-0027 D1、D5）。
+会被撰写：Session、Execution 与 Review 保存谁完成了某一轮交付、提交了什么、由谁裁决。每一次
+被接受的变更还会成为 canonical 事件。在发布窗口内，`.harness/wal/` 可能含有尚未进入 Git
+的已接受事件；读取会把它们与 Git 中的事件流合并。系统正确性不依赖 SQLite 数据库
+存活，它仍是可丢弃的投影（ADR-0027 D1、D5）。
 
-记住这处不对称。它是解释所有层为什么这样排布的唯一事实:写入朝着 Markdown 与 git **向下**流
-动;读取则由一个**投影**来提供,任何写入都能让它失效,任何命令都能把它重建。
+记住这处不对称。写入先跨过 daemon 边界，在 WAL 中变得持久，再发布到 Markdown 与 Git；
+读取由投影提供，投影可以从合并后的 canonical 事件流追平或重建。
 
 ## 各个层
 
 ```text
-  ┌───────────────────────────────────────────────────────────┐
-  │  CLI 命令面                     packages/cli/              │
-  │  `ha` 命令(TypeScript / Node)                             │
-  └───────────────────────────────┬───────────────────────────┘
-                                  │
-  ┌───────────────────────────────▼───────────────────────────┐
-  │  应用层 / 生命周期              packages/application/       │
-  │  编排 + 门                                                  │
-  │  task-lifecycle-orchestrator.ts · task-lifecycle-gates.ts  │
-  └───────────────────────────────┬───────────────────────────┘
-                                  │
-  ┌───────────────────────────────▼───────────────────────────┐
-  │  内核 Kernel                    packages/kernel/src/       │
-  │                                                            │
-  │    domain/              实体模型与生命周期                  │
-  │    schemas/             frontmatter 模式(effect Schema)   │
-  │    store/               Markdown 读写 + 写日志             │
-  │    write-coordination/  单一写路径                         │
-  │    projection/          SQLite 读模型                      │
-  └───────────────────────────────┬───────────────────────────┘
-                                  │
-  ┌───────────────────────────────▼───────────────────────────┐
-  │  持久存储                       git + 纯 Markdown 文件      │
-  └───────────────────────────────────────────────────────────┘
+写路径
+  packages/cli/ + packages/gui/       薄协议客户端
+                 |
+                 v 本地 daemon RPC
+  packages/daemon/src/                DaemonHost + 每仓 RepoCell
+                 |
+                 v 串行命令处理
+  packages/application/               编排服务
+  packages/kernel/src/domain/         契约 + 冻结写计划
+                 |
+                 v 先追加，后物化
+  packages/kernel/src/store/          .harness/wal/ -> Git 台账
 
-  同为公开:packages/adapters/ (运行时绑定)
-            packages/gui/      (同一份数据上的只读视图)
+读路径
+  合并后的 WAL + Git canonical 事件流
+                 |
+                 v 追平或重建
+  packages/kernel/src/projection/     SQLite -> CLI / GUI
 ```
 
 自上而下读这个栈,每一层都只干一件事。
 
-**CLI 命令面 —— `packages/cli/`。** 这就是 `ha`,代理或人真正敲下的那个命令。它解析参数、判断
-你指的是哪个实体和哪个操作,然后把请求往下递。它自己不持有任何真相;它是通往应用层的一道门。
-一个新代理用 `--help` 能发现的命令,就是全部的公开面——凡是承重的动作,没有一个不能从这里触达。
+**交付面 —— `packages/cli/` 与 `packages/gui/`。** `ha` 负责解析和呈现命令，但不会组合
+application 或 kernel 写者。持久化命令都通过 daemon 协议发送；GUI 也是该协议的客户端。
+这些交付面可以请求写入，但不拥有写状态。
 
-**应用层 / 生命周期编排 + 门 —— `packages/application/`。** 这一层运行各个生命周期。当一个 task
-从一个状态移向下一个状态时,一个编排器(`task-lifecycle-orchestrator.ts`)把步骤排好序,一组门
-(`task-lifecycle-gates.ts`)决定这次移动是否被允许。门默认关闭(fail closed):默认答案是**拒绝**,
-只有当检查通过时,状态迁移才推进。"done 就是真的 done"是在这里被真正强制的,而不只是被描述。
+**本地 daemon 与 RepoCell —— `packages/daemon/src/`。** Daemon host 把请求路由到其
+canonical 仓库对应的 RepoCell。该 cell 解析归因与授权，持有活跃写者代际，并串行排队
+写入，使同一时刻只有一个操作推进该仓库。这里是单一写路径的协调点。
 
-**内核 Kernel —— `packages/kernel/src/`。** 内核是被刻意保持精简的那部分。它内部有五个街区:
+**应用服务与 kernel domain。** `packages/application/` 里的服务和 daemon 中的专用
+handler 编排各类命令。契约、迁移、schema 与冻结写计划位于 `packages/kernel/src/domain/`
+和 `packages/kernel/src/schemas/`。无效或未授权的命令会在事件追加前被拒绝。
 
-- `domain/` 装着实体模型和它们的生命周期——decision 和 task 的状态机,以及完全没有生命周期的
-  fact 模型。
-- `schemas/` 装着用 effect-Schema 写的 frontmatter 模式。它们是磁盘上每个文件都必须满足的契约:
-  字段名、模式(pattern),以及在记录被存下之前就拒掉畸形数据的完整性规则。
-- `store/` 负责 Markdown 读写,并持有写日志——记录写了什么、怎么写的。
-- `write-coordination/` 是单一写路径。每一个承重的写入都从这里汇入,以便由一个执行点来盖章、
-  校验、提交。
-- `projection/` 构建并读取 SQLite 模型——读侧所依托的那个可重建缓存。
+**Canonical 事件存储 —— `packages/kernel/src/store/`。** `wal-shadow-event-store.ts`
+先把已接受的事件与内容 blob 追加到本地 WAL。`wal-git-materializer.ts` 再按修订号
+将待处理事件发布到 Git，并一起推进 canonical ref 与 authored ref。在这个发布窗口内，
+读取会合并 WAL 与 Git；恢复流程会重试任何未完成的 cut。
 
-**持久存储 —— git + 纯 Markdown。** 栈的最底部只是一个仓库里的文件。每一个被接受的写入,最终
-都落成一次 commit。这一层你可以 clone、可以 diff、可以在 pull request 里评审、可以冷交接给另一个
-代理。它是唯一一层丢了就无法恢复的——这正是为什么真相在它这里,而不在数据库那里。
+**已发布台账与投影。** Git 保存可供 clone、diff 与评审的已落定 canonical 事件和撰写好的
+Markdown。本地 WAL 是已接受写入等待发布时的持久交接状态，不是已发布台账的对等副本。
+`packages/kernel/src/projection/` 从 canonical 事件流构建 SQLite 读模型；数据库可以追平或重建。
 
-**adapters 与 GUI。** `packages/adapters/` 把内核绑定到具体运行时;`packages/gui/` 是同一份被投影
-数据之上的只读视图。两者都不是第二个真相来源——它们都坐在同一个 Markdown-加-投影的内核之上。
+**Adapters。** `packages/adapters/` 提供特定运行时的绑定，不会创造第二条写路或第二个真相来源。
 
 ## 一个请求如何流动
 
-写和读沿着同一个栈,往相反的方向走。
+写和读共用 daemon 边界，此后走向不同的存储路径。
 
-一次**写入**从 CLI 进入,被应用层的生命周期规则塑形,通过(或未通过)它的门,并且——如果被
-接受——走过单一写路径。claim 创建一轮 Execution；submit 封存 Session binding 与六字段
-Submission Packet；Review 为那一轮 Execution 记录检查过的 Evidence 与 rationale。这些是协调
-的领域命令，不是互不相干的 status edit（ADR-0027 D1-D3、D5）。
+一次**写入**从薄客户端进入并跨过本地 daemon 协议。该仓库的 RepoCell 将其串行化；
+application 与 domain handler 强制它的生命周期规则、授权与冻结写计划。如果被接受，
+canonical 事件会先在 `.harness/wal/` 中变得持久，随后由 Git materializer 把待处理事件及其
+撰写文档发布成有序 commit。claim、submit 与 review 仍是协调的领域命令（ADR-0027 D1-D3、D5）；
+CLI 本身不写这些 Markdown 文件或 Git ref。
 
-一次**读取**则由投影来提供。如果 SQLite 缓存是新鲜的,读取就很快;如果它缺失或陈旧,投影层会
-先从 Markdown 把它重建出来。无论哪种方式,答案都是从文件推导出来的,绝不来自躺在聊天记录里的
-文字。
+一次**读取**也经过 daemon，通常由 SQLite 投影提供。投影从 canonical 事件流追平；该事件流
+会合并已发布的 Git cut 与 WAL 中仍在等待发布的已接受事件。如果数据库缺失，可以从该 canonical
+事件流重建。无论哪种方式，答案都来自持久的结构化记录，绝不来自聊天记录里的文字。
 
 ## 接下来去哪
 

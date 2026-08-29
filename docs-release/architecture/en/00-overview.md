@@ -8,114 +8,100 @@ the layers are, what each one does, and where the truth actually sits.
 
 ## The one line everything rests on
 
-There are two stores, and they are not peers.
+There are three storage roles, and they are not peers.
 
-> Markdown in your git repository is the source of truth. SQLite is a
-> rebuildable projection — a fast read cache you can delete and regenerate from
-> the Markdown at any time.
+> Git-backed canonical events and authored Markdown are the published record.
+> The local WAL durably holds accepted writes until they are materialized to
+> git; SQLite is a rebuildable read projection.
 
 The three knowledge primitives — decision, task, and fact — are authored in
 plain Markdown with YAML frontmatter. The execution chain is authored too:
 Session, Execution, and Review records preserve who performed one delivery
-round, what was submitted, and who judged it. Nothing about correctness depends
-on the database surviving; Markdown is authoritative and SQLite remains a
-disposable projection (ADR-0027 D1, D5).
+round, what was submitted, and who judged it. Each accepted mutation is also a
+canonical event. During the publication window, `.harness/wal/` can contain
+accepted events that are not in git yet; reads merge those events with the
+git-backed stream. Nothing about correctness depends on the SQLite database
+surviving; it remains a disposable projection (ADR-0027 D1, D5).
 
-Hold onto that asymmetry. It is the single fact that explains why the layers are
-arranged the way they are: writes flow *down* toward Markdown and git; reads are
-served *from* a projection that any write can invalidate and any command can
-rebuild.
+Hold onto that asymmetry. It explains why the layers are arranged the way they
+are: writes cross the daemon boundary, become durable in the WAL, and are then
+published to Markdown and git; reads are served from a projection that can catch
+up or rebuild from the merged canonical stream.
 
 ## The layers
 
 ```text
-  ┌───────────────────────────────────────────────────────────┐
-  │  CLI command surface            packages/cli/              │
-  │  the `ha` command (TypeScript / Node)                      │
-  └───────────────────────────────┬───────────────────────────┘
-                                  │
-  ┌───────────────────────────────▼───────────────────────────┐
-  │  Application / lifecycle        packages/application/      │
-  │  orchestration + gates                                     │
-  │  task-lifecycle-orchestrator.ts · task-lifecycle-gates.ts  │
-  └───────────────────────────────┬───────────────────────────┘
-                                  │
-  ┌───────────────────────────────▼───────────────────────────┐
-  │  Kernel                         packages/kernel/src/       │
-  │                                                            │
-  │    domain/              entity models & lifecycles         │
-  │    schemas/             frontmatter schemas (effect Schema)│
-  │    store/               Markdown I/O + write journal       │
-  │    write-coordination/  the single write path              │
-  │    projection/          SQLite read model                  │
-  └───────────────────────────────┬───────────────────────────┘
-                                  │
-  ┌───────────────────────────────▼───────────────────────────┐
-  │  Durable store                  git + plain Markdown files │
-  └───────────────────────────────────────────────────────────┘
+write path
+  packages/cli/ + packages/gui/       thin protocol clients
+                 |
+                 v local daemon RPC
+  packages/daemon/src/                DaemonHost + per-repo RepoCell
+                 |
+                 v serialized command handling
+  packages/application/               orchestration services
+  packages/kernel/src/domain/         contracts + frozen write plans
+                 |
+                 v append, then materialize
+  packages/kernel/src/store/          .harness/wal/ -> git ledger
 
-  Also public: packages/adapters/ (runtime bindings)
-               packages/gui/      (a read view over the same data)
+read path
+  merged WAL + git canonical stream
+                 |
+                 v catch up or rebuild
+  packages/kernel/src/projection/     SQLite -> CLI / GUI
 ```
 
 Read the stack top to bottom and each layer has one job.
 
-**CLI command surface — `packages/cli/`.** This is `ha`, the command an agent or
-a human actually types. It parses arguments, resolves which entity and operation
-you mean, and hands the request down. It owns no truth of its own; it is a
-doorway into the application layer. The commands a fresh agent can discover with
-`--help` are the entire public surface — nothing load-bearing happens that isn't
-reachable from here.
+**Delivery surfaces — `packages/cli/` and `packages/gui/`.** `ha` parses and
+renders commands, but it does not compose application or kernel writers. Durable
+commands are sent through the daemon protocol. The GUI is another client of that
+protocol. These surfaces can request a write; they do not own write state.
 
-**Application / lifecycle orchestration + gates — `packages/application/`.** This
-layer runs the lifecycles. When a task moves from one state to the next, an
-orchestrator (`task-lifecycle-orchestrator.ts`) sequences the steps and a set of
-gates (`task-lifecycle-gates.ts`) decide whether the move is allowed. Gates fail
-closed: the default answer is *reject*, and a transition proceeds only when its
-checks pass. This is where "done means done" is actually enforced, not merely
-described.
+**Local daemon and RepoCell — `packages/daemon/src/`.** The daemon host routes a
+request to the RepoCell for its canonical repository. That cell resolves
+attribution and authorization, holds the active writer generation, and queues
+writes so only one operation advances the repository at a time. This is the
+coordination point for the single write path.
 
-**Kernel — `packages/kernel/src/`.** The kernel is the part deliberately kept
-small. It has five internal neighborhoods:
+**Application services and kernel domain.** Services in `packages/application/`
+and specialized daemon handlers orchestrate each command family. The contracts,
+transitions, schemas, and frozen write plans live under
+`packages/kernel/src/domain/` and `packages/kernel/src/schemas/`. Invalid or
+unauthorized commands are rejected before an event is appended.
 
-- `domain/` holds the entity models and their lifecycles — the state machines
-  for decisions and tasks, and the fact model that has no lifecycle at all.
-- `schemas/` holds the frontmatter schemas, written in effect-Schema. These are
-  the contracts every file on disk must satisfy: field names, patterns, and
-  integrity rules that reject malformed records before they are ever stored.
-- `store/` performs Markdown I/O and owns the write journal — the record of what
-  was written and how.
-- `write-coordination/` is the single write path. Every load-bearing write funnels
-  through here so that one enforcement point stamps, validates, and commits it.
-- `projection/` builds and reads the SQLite model — the rebuildable cache the
-  read side is served from.
+**Canonical event store — `packages/kernel/src/store/`.** The implementation in
+`wal-shadow-event-store.ts` appends accepted events and their content blobs to
+the local WAL first. `wal-git-materializer.ts` publishes pending revisions to git
+in order and advances the canonical and authored refs together. Reads merge WAL
+and git during that publication window; recovery retries any pending cut.
 
-**Durable store — git + plain Markdown.** The bottom of the stack is just files
-in a repository. Every accepted write ends as a commit. This is the layer you can
-clone, diff, review in a pull request, and hand to another agent cold. It is the
-only layer whose loss you cannot recover from — which is exactly why it, and not
-the database, is the source of truth.
+**Published ledger and projection.** Git holds the settled canonical events and
+authored Markdown that you can clone, diff, and review. The local WAL is durable
+handoff state for accepted writes awaiting publication, not a peer copy of the
+published ledger. `packages/kernel/src/projection/` builds the SQLite read model
+from the canonical stream; the database can be caught up or rebuilt.
 
-**Adapters and GUI.** `packages/adapters/` binds the kernel to concrete runtimes;
-`packages/gui/` is a read-oriented view over the same projected data. Neither is a
-second source of truth — both sit on top of the same Markdown-and-projection core.
+**Adapters.** `packages/adapters/` supplies runtime-specific bindings. It does
+not create a second write path or source of truth.
 
 ## How a request moves
 
-A write and a read travel opposite directions through the same stack.
+A write and a read share the daemon boundary, then take different storage paths.
 
-A **write** enters at the CLI, is shaped by the application layer's lifecycle
-rules, passes (or fails) its gates, and — if accepted — goes through the single
-write path, which validates it against a schema, stamps it, writes it atomically
-to Markdown, and commits it to git. Claim creates one Execution; submit seals
-Session bindings and a six-field Submission Packet; Review records inspected
-Evidence and rationale for that exact Execution. These are coordinated domain
-commands, not unrelated status edits (ADR-0027 D1-D3, D5).
+A **write** enters through a thin client and crosses the local daemon protocol.
+The repository's RepoCell serializes it; application and domain handlers enforce
+its lifecycle rules, authorization, and frozen write plan. If accepted, the
+canonical event becomes durable in `.harness/wal/`. The Git materializer then
+publishes pending events and their authored documents as an ordered commit.
+Claim, submit, and review remain coordinated domain commands (ADR-0027 D1-D3,
+D5); the CLI never writes those Markdown files or git refs itself.
 
-A **read** is served from the projection. If the SQLite cache is fresh, the read
-is fast; if it is missing or stale, the projection layer rebuilds it from the
-Markdown first. Either way the answer is derived from the files, never from prose
-sitting in a transcript.
+A **read** also enters through the daemon and is normally served from the SQLite
+projection. The projection catches up from the canonical stream, which merges
+the published Git cut with any accepted events still pending in the WAL. If the
+database is missing, it can be rebuilt from that canonical stream. Either way the
+answer comes from durable structured records, never from prose in a transcript.
 
 ## Where to go next
 
