@@ -159,7 +159,7 @@ function DrilldownPanel({
   onToggleFavorite,
 }: {
   active: ActiveCell | null;
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   groupBy: LaneGroupBy;
   onSelect: (id: string) => void;
   relations: RelationEdge[];
@@ -230,7 +230,7 @@ export function SwimlaneBoard({
   favorites,
   onToggleFavorite,
 }: {
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   groupBy: LaneGroupBy;
   onSelect: (id: string) => void;
   drill: { lane: string; status: SnapshotStatus; groupBy: LaneGroupBy } | null;

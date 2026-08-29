@@ -37,7 +37,7 @@ export function FactDetailView({
 }: {
   factRef: string | null;
   facts: FactRef[];
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   decisions: DecisionRow[];
   relations: RelationEdge[];
   factAnchors: ReadonlyArray<FactAnchorRow>;
@@ -118,7 +118,7 @@ function NeighborhoodPane({
   onNavigateEntity,
 }: {
   focusRef: string | null;
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   decisions: DecisionRow[];
   facts: FactRef[];
   relations: RelationEdge[];

@@ -111,7 +111,7 @@ export function ListView({
   onToggleFavorite,
   embedded = false,
 }: {
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   allTasks: TaskRow[];
   filters: TaskFilters;
   onFiltersChange: (filters: TaskFilters) => void;

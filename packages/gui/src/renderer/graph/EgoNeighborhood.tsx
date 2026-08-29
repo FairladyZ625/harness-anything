@@ -61,7 +61,7 @@ export function defaultNeighborhoodFilters(): EgoNeighborhoodFilters {
 
 export type EgoNeighborhoodProps = {
   focusRef: string | null;
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   decisions: DecisionRow[];
   facts: FactRef[];
   relations: RelationEdge[];

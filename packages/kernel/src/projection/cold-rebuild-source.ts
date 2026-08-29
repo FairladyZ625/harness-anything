@@ -536,7 +536,8 @@ function parseLegacyFacts(
     candidates += 1;
     const fields = flowFields(line.slice(line.indexOf("{") + 1, line.lastIndexOf("}"))),
       factId = coldRebuildScalar(fields.fact_id),
-      provenance = flowObjects(fields.provenance),
+      rawProvenance = flowObjects(fields.provenance),
+      provenance = rawProvenance.every(isRelationFactProvenance) ? rawProvenance : null,
       tags = flowArray(fields.memoryTags),
       migrated = flowFields(stripBraces(fields.migration)).state === "migrated";
     if (
@@ -546,7 +547,7 @@ function parseLegacyFacts(
       !coldRebuildScalar(fields.observedAt) ||
       !["low", "medium", "high"].includes(coldRebuildScalar(fields.confidence)) ||
       !["semantic", "episodic", "procedural", ""].includes(coldRebuildScalar(fields.memoryClass)) ||
-      !provenance.length
+      !provenance?.length
     ) {
       issues.push({
         entityType: "fact",
@@ -585,7 +586,7 @@ function parseLegacyFacts(
         provenance: provenance.map((entry) => ({
           ...entry,
           boundAt: canonicalTimestamp(entry.boundAt ?? ""),
-        })) as unknown as RelationFactRow["provenance"],
+        })),
         liveness: "standing",
       });
       anchors.push({ factRef: ref, taskId, factId, sourcePath: portablePath });
@@ -1003,6 +1004,11 @@ function coldRebuildStrings(value: unknown): readonly string[] {
 }
 function isColdRebuildRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function isRelationFactProvenance(
+  value: Readonly<Record<string, string>>,
+): value is RelationFactRow["provenance"][number] {
+  return Boolean(value.runtime && value.sessionId && value.boundAt);
 }
 function isRelation(value: unknown): value is EntityRelationRecord {
   return (

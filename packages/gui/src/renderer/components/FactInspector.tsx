@@ -66,7 +66,7 @@ export function FactInspector({
 }: {
   factRef: string;
   facts: FactRef[];
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   decisions: DecisionRow[];
   relations: RelationEdge[];
   /** 关闭按钮;缺省(详情页整栏复用)不渲染。 */

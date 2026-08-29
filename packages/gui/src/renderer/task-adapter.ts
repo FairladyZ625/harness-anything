@@ -20,7 +20,7 @@ function adaptProjectionRow(
 ): TaskRow {
   const task = row.snapshot.task!;
   const placement = row.placement;
-  const spawningDecisionIds = [...(placement.spawningDecisionIds ?? [])];
+  const spawningDecisionIds = placement.spawningDecisionIds;
   const gates = row.closeoutAssessment.gates.map((gate) => ({
     name: gate.gateId,
     ok:
@@ -48,8 +48,8 @@ function adaptProjectionRow(
           blocking.state === "unknown"
           ? "阻塞关系未能确定"
           : "当前投影无 active blocking relation",
-    blockers: [...blocking.blockers],
-    blockingWarnings: [...blocking.warnings],
+    blockers: blocking.blockers,
+    blockingWarnings: blocking.warnings,
     rawStatus: `${task.status}/${task.currentNode}`,
     freshness: projectionStatus === "ready" ? "fresh" : "stale-but-usable",
     packageDisposition: row.placement.packageDisposition,
@@ -68,8 +68,8 @@ function adaptProjectionRow(
         : placement.moduleKeys.length === 1
           ? placement.moduleKeys[0]!
           : `multiple (${placement.moduleKeys.join(", ")})`,
-    moduleKeys: [...placement.moduleKeys],
-    productLines: [...placement.productLines],
+    moduleKeys: placement.moduleKeys,
+    productLines: placement.productLines,
     ...(spawningDecisionIds.length > 1
       ? { placementWarning: "存在多个 spawning decision，placement 已合并但来源不唯一" }
       : {}),
@@ -182,7 +182,7 @@ export function adaptProjectionRows(
   rows: ReadonlyArray<TaskSnapshotProjectionRow>,
   projectId: string,
   projectionStatus: "ready" | "pending" = "ready",
-): TaskRow[] {
+): readonly TaskRow[] {
   const base = rows.map((row) => adaptProjectionRow(row, projectId, projectionStatus));
   const parentById = new Map<string, string | undefined>();
   const titleById = new Map<string, string>();

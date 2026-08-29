@@ -109,7 +109,7 @@ export function DecisionPreviewDrawer({
   onNavigateEntity,
 }: {
   decision: DecisionRow | null;
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   relations: RelationEdge[];
   onClose: () => void;
   onOpenDetail: (decisionId: string) => void;

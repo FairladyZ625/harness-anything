@@ -35,7 +35,7 @@ export function OverviewView({
   onOpenSystem,
 }: {
   project: Project;
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   decisions: DecisionRow[];
   workspaceSummary: WorkspaceSummaryRead;
   relations: RelationEdge[];

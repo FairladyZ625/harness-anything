@@ -5,6 +5,7 @@ import type { EntityRelationRecord } from "../domain/entity-relation.ts";
 import { assertDecisionAdmission, decisionState, fail } from "./decision-projection-admission.ts";
 import { readDecisionBody } from "./decision-projection-documents.ts";
 import type { DecisionRelationEdgeRow } from "./decision-projection-model.ts";
+import { queryRows } from "./rebuildable-task-projection-sql.ts";
 
 export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): void {
   assertDecisionAdmission(db, event);
@@ -239,18 +240,14 @@ function refreshDecisionFts(db: DatabaseSync, decisionId: string): void {
     | { readonly title: string; readonly question: string }
     | undefined;
   if (!row) return;
-  const options = (
-      db.prepare("SELECT text FROM decision_option WHERE decision_id=?").all(decisionId) as unknown as readonly {
-        readonly text: string;
-      }[]
+  const options = queryRows<{ readonly text: string }>(
+      db,
+      "SELECT text FROM decision_option WHERE decision_id=?",
+      decisionId,
     )
       .map((o) => o.text)
       .join(" "),
-    claims = (
-      db.prepare("SELECT text FROM decision_claim WHERE decision_id=?").all(decisionId) as unknown as readonly {
-        readonly text: string;
-      }[]
-    )
+    claims = queryRows<{ readonly text: string }>(db, "SELECT text FROM decision_claim WHERE decision_id=?", decisionId)
       .map((c) => c.text)
       .join(" "),
     body = readDecisionBody(db, decisionId)?.body ?? "";

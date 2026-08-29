@@ -10,6 +10,7 @@ import { consumeKnownError } from "../error-consumption.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { readDecisionDocumentState } from "./decision-projection-documents.ts";
 import { FactProjectionError } from "./fact-event-projection.ts";
+import { queryRows } from "./rebuildable-task-projection-sql.ts";
 
 export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1): void {
   const row = decisionState(db, event.decisionId);
@@ -207,12 +208,16 @@ export function decisionState(
 
 function decisionAnchorRefs(db: DatabaseSync, id: string): string[] {
   const root = `decision/${id}`,
-    option = db.prepare("SELECT option_id FROM decision_option WHERE decision_id=?").all(id) as unknown as readonly {
-      readonly option_id: string;
-    }[],
-    claims = db.prepare("SELECT claim_id FROM decision_claim WHERE decision_id=?").all(id) as unknown as readonly {
-      readonly claim_id: string;
-    }[];
+    option = queryRows<{ readonly option_id: string }>(
+      db,
+      "SELECT option_id FROM decision_option WHERE decision_id=?",
+      id,
+    ),
+    claims = queryRows<{ readonly claim_id: string }>(
+      db,
+      "SELECT claim_id FROM decision_claim WHERE decision_id=?",
+      id,
+    );
   return [root, ...option.map((o) => `${root}/${o.option_id}`), ...claims.map((c) => `${root}/${c.claim_id}`)].sort();
 }
 

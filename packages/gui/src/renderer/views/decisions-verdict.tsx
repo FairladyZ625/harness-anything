@@ -206,7 +206,7 @@ export function VerdictCard({
   d: DecisionRow;
   decisions: DecisionRow[];
   facts: FactRef[];
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   relations: RelationEdge[];
   onCallAgent?: (cmd: string) => void;
   onJudge: (

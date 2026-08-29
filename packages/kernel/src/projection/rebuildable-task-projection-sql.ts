@@ -1,6 +1,7 @@
 // @write-boundary-exemption rebuildable-projection
 
 import { DatabaseSync } from "node:sqlite";
+import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import {
   normalizePersistedCanonicalEvent,
@@ -103,19 +104,26 @@ export function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlVal
 export function prepareQuery(db: DatabaseSync, sql: string) {
   return /* @gate-identity check-bypass-write-boundary/bypass-write-036 */ db.prepare(sql);
 }
-export function queryRow(
+export type ProjectionSqlRow = Readonly<Record<string, SQLOutputValue>>;
+export function queryRow<Row extends ProjectionSqlRow = ProjectionSqlRow>(
   db: DatabaseSync,
   sql: string,
   ...values: readonly SqlValue[]
-): Record<string, unknown> | undefined {
-  return prepareQuery(db, sql).get(...values) as Record<string, unknown> | undefined;
+): Row | undefined {
+  return prepareQuery(db, sql).get(...values) as Row | undefined;
 }
-export function queryRows(
+export function queryRows<Row extends ProjectionSqlRow = ProjectionSqlRow>(
   db: DatabaseSync,
   sql: string,
   ...values: readonly SqlValue[]
-): readonly Record<string, unknown>[] {
-  return prepareQuery(db, sql).all(...values) as unknown as readonly Record<string, unknown>[];
+): readonly Row[] {
+  return queryPreparedRows<Row>(prepareQuery(db, sql), ...values);
+}
+export function queryPreparedRows<Row extends ProjectionSqlRow = ProjectionSqlRow>(
+  statement: StatementSync,
+  ...values: readonly SqlValue[]
+): readonly Row[] {
+  return statement.all(...values) as Row[];
 }
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalizeContractValue(value));

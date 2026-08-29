@@ -20,7 +20,7 @@ import { TerritoryModeBar, type WorkspaceMode } from "./TerritoryModeBar.tsx";
  */
 export interface EntityWorkspaceProps {
   focusedEntityRef: string | null;
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   relations: RelationEdge[];
   decisions: DecisionRow[];
   facts: FactRef[];
@@ -56,9 +56,7 @@ export function EntityWorkspace({
   onOpenPalette,
 }: EntityWorkspaceProps) {
   // lineage 仅 decision 有谱系。
-  const canShowLineage = focusedEntityRef
-    ? FOCUS_REF_DECISION.test(focusedEntityRef)
-    : false;
+  const canShowLineage = focusedEntityRef ? FOCUS_REF_DECISION.test(focusedEntityRef) : false;
 
   // territory/spotlight 是画布内模式(非导航态),由工作台本地持有。
   const [viewMode, setViewMode] = useState<ViewMode>("territory");
@@ -87,11 +85,7 @@ export function EntityWorkspace({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <TerritoryModeBar
-        mode={mode}
-        canShowLineage={canShowLineage}
-        onModeChange={handleModeChange}
-      />
+      <TerritoryModeBar mode={mode} canShowLineage={canShowLineage} onModeChange={handleModeChange} />
 
       <div className="flex min-h-0 flex-1 flex-col">
         {lineageActive ? (

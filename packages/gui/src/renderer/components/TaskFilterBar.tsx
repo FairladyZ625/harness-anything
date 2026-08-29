@@ -144,7 +144,7 @@ export function TaskFilterBar({
   contextLabel,
   favorites,
 }: {
-  tasks: TaskRow[];
+  tasks: readonly TaskRow[];
   filteredCount: number;
   filters: TaskFilters;
   onChange: (filters: TaskFilters) => void;
