@@ -73,6 +73,7 @@ export function makeSquadCoordinator(input: {
   readonly reacquireTaskLease: (taskId: string, binding: RuntimeBinding) => Promise<void>;
   readonly runtimeSpawner: () => {
     readonly spawn: (payload: JsonObject, binding: RuntimeBinding) => Promise<JsonObject>;
+    readonly cancel: (payload: JsonObject, binding: RuntimeBinding) => Promise<JsonObject>;
   };
 }) {
   const start = async (action: JsonObject, binding: RuntimeBinding): Promise<JsonObject> => {
@@ -162,6 +163,54 @@ export function makeSquadCoordinator(input: {
       ...detail,
       status: state.phase,
       summary: `squad-run ${state.squadId}: ${state.phase}`,
+      exitCode: 0,
+    };
+  };
+
+  const cancel = async (squadRunId: string, binding: RuntimeBinding): Promise<JsonObject> => {
+    if (!validSquadRunId(squadRunId))
+      return rejection(
+        "squad-cancel",
+        "invalid_squad_run_id",
+        "Use the squad_<24 lowercase hex characters> handle returned by ha squad run.",
+      );
+    const state = readSquadRunState(squadRunId);
+    if (!state) return rejection("squad-cancel", "squad_run_not_found", `Squad run ${squadRunId} does not exist.`);
+    if (state.phase !== "cancelled")
+      writeState(
+        revise(state, {
+          currentLeaderRuntimeSessionId: null,
+          workerWaits: [],
+          pendingLeaderTriggers: [],
+          phase: "cancelled",
+          error: null,
+        }),
+      );
+    const runtimeSessionIds = [
+      ...state.leaderTurns.map((turn) => turn.runtimeSessionId),
+      ...state.workerAttempts.flatMap((attempt) => (attempt.runtimeSessionId ? [attempt.runtimeSessionId] : [])),
+    ];
+    const results = await Promise.allSettled(
+      [...new Set(runtimeSessionIds)].map((runtimeSessionId) =>
+        input.runtimeSpawner().cancel({ runtimeSessionId }, binding),
+      ),
+    );
+    const failures = results.filter((result) => result.status === "rejected");
+    if (failures.length > 0)
+      return rejection(
+        "squad-cancel",
+        "squad_cancel_incomplete",
+        `Squad run ${squadRunId} is durably cancelled, but ${String(failures.length)} runtime cancellation(s) failed.`,
+      );
+    return {
+      schema: "command-receipt/v2",
+      ok: true,
+      command: "squad-cancel",
+      outcome: "applied",
+      squadRunId,
+      status: "cancelled",
+      summary: `squad-run ${state.squadId}: cancelled`,
+      nextAction: null,
       exitCode: 0,
     };
   };
@@ -645,6 +694,23 @@ export function makeSquadCoordinator(input: {
     const states = new Map<string, SquadState>();
     for (const stream of readDispatchStreamSummaries(input.rootDir)) {
       for (const record of stream.records) {
+        if (record.kind === "squad_run_cancelled") {
+          const squadRunId = record.squadRunId,
+            revision = record.revision;
+          if (typeof squadRunId !== "string" || !Number.isSafeInteger(revision)) continue;
+          const current = states.get(squadRunId);
+          if (current && current.revision < Number(revision))
+            states.set(squadRunId, {
+              ...current,
+              currentLeaderRuntimeSessionId: null,
+              workerWaits: [],
+              pendingLeaderTriggers: [],
+              phase: "cancelled",
+              revision: Number(revision),
+              error: null,
+            });
+          continue;
+        }
         if (record.kind !== "squad_run_state") continue;
         const state = squadState(record.state);
         if (!state) continue;
@@ -672,6 +738,12 @@ export function makeSquadCoordinator(input: {
       revision: state.revision,
       state,
     });
+    if (state.phase === "cancelled")
+      appendRuntimeWorkerRecord(input.rootDir, state.stateDispatchId, {
+        kind: "squad_run_cancelled",
+        squadRunId: state.squadRunId,
+        revision: state.revision,
+      });
     projection.upsertSquadRun({ squadRunId: state.squadRunId, revision: state.revision, state });
   }
 
@@ -788,7 +860,7 @@ export function makeSquadCoordinator(input: {
     };
   }
 
-  return { start, status, list, read, observeOutcome, reconcile };
+  return { start, status, cancel, list, read, observeOutcome, reconcile };
 }
 
 function squadState(value: unknown): SquadState | null {
@@ -818,7 +890,7 @@ function revise(
 }
 
 function terminal(state: SquadState): boolean {
-  return state.phase === "converged" || state.phase === "failed";
+  return state.phase === "cancelled" || state.phase === "converged" || state.phase === "failed";
 }
 
 function requiredSquadText(value: unknown, field: string): string {

@@ -172,6 +172,15 @@ export const agentProtocolCommands = Object.freeze([
     positional: "squadRunId",
     inputs: [],
   }),
+  defineRuntimeLocalWriteCommand({
+    id: "squad-cancel",
+    phase: "Runtime-B",
+    path: ["squad", "cancel", "<squad-run-id>"],
+    summary: "Durably cancel a Squad run and terminate its leader and worker runtimes.",
+    method: "repo.task.run",
+    positional: "squadRunId",
+    inputs: [],
+  }),
   defineLedgerWriteCommand({
     id: "ledger-migrate",
     phase: "Migration-A",

@@ -105,6 +105,14 @@ export function createRepoCellApi(context: any): RepoCell {
     };
     if (action.kind === "squad-run")
       return enqueuePublication(() => context.squadCoordinator.start(action, binding) as unknown as WriteReceipt);
+    if (action.kind === "squad-cancel")
+      return enqueuePublication(
+        () =>
+          context.squadCoordinator.cancel(
+            context.requiredCellText(action.squadRunId, "squadRunId"),
+            binding,
+          ) as unknown as WriteReceipt,
+      );
     if (action.kind === "squad-status")
       return Promise.resolve(
         context.squadCoordinator.status(

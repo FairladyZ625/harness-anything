@@ -27,7 +27,6 @@ export async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ re
   let descriptor: number;
   try {
     descriptor = openSync(lockPath, "wx", 0o600);
-    writeFileSync(descriptor, `${process.pid}\n`, "utf8");
   } catch (error) {
     if (!staleWriterLock(lockPath))
       throw cellCodedError(
@@ -38,13 +37,27 @@ export async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ re
     unlinkSync(lockPath);
     try {
       descriptor = openSync(lockPath, "wx", 0o600);
-      writeFileSync(descriptor, `${process.pid}\n`, "utf8");
     } catch (retry) {
       throw cellCodedError(
         "writer_rejected",
         `Workspace writer lock recovery raced for ${rootDir}: ${cellErrorMessage(retry)}`,
       );
     }
+  }
+  try {
+    writeFileSync(descriptor, `${process.pid}\n`, "utf8");
+  } catch (error) {
+    closeSync(descriptor);
+    try {
+      unlinkSync(lockPath);
+    } catch (cleanupError) {
+      if (cellErrorCode(cleanupError) !== "ENOENT") throw cleanupError;
+      consumeKnownError(cleanupError);
+    }
+    throw cellCodedError(
+      "writer_rejected",
+      `Workspace writer lock could not be initialized for ${rootDir}: ${cellErrorMessage(error)}`,
+    );
   }
   let closed = false;
   return {

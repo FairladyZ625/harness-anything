@@ -1,4 +1,4 @@
-export type SquadRunPhase = "planning" | "leader_running" | "workers_running" | "converged" | "failed";
+export type SquadRunPhase = "planning" | "leader_running" | "workers_running" | "cancelled" | "converged" | "failed";
 
 export interface SquadRunSummaryDto {
   readonly squadRunId: string;
@@ -79,7 +79,14 @@ export type SquadRunReadResult = {
   readonly sourceRevision: number;
 };
 
-const phases: readonly SquadRunPhase[] = ["planning", "leader_running", "workers_running", "converged", "failed"];
+const phases: readonly SquadRunPhase[] = [
+  "planning",
+  "leader_running",
+  "workers_running",
+  "cancelled",
+  "converged",
+  "failed",
+];
 const turnStatuses: readonly SquadRunTurnStatus[] = ["running", "succeeded", "failed", "unknown", "cancelled", "lost"];
 
 export function validateSquadRunsList(value: unknown): readonly string[] {
