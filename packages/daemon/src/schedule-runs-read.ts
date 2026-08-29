@@ -233,7 +233,8 @@ function missedOccurrences(trigger: ScheduleTriggerV1, from: string, to: string,
 }
 
 function missedOccurrenceId(scheduleId: string, scheduledFor: string, reason: ScheduleMissedReason): string {
-  return `missed_${createHash("sha256").update(`${scheduleId}\0${scheduledFor}\0${reason}`).digest("hex").slice(0, 24)}`;
+  const digest = createHash("sha256").update(`${scheduleId}\0${scheduledFor}\0${reason}`).digest("hex");
+  return `missed_${digest.slice(0, 24)}`;
 }
 
 function scheduleReportRef(detail: string | undefined): string | null {
