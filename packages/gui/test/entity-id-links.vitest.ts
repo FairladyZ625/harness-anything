@@ -12,7 +12,8 @@ import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
 import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
 import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
 import { FreshnessView } from "../src/renderer/views/FreshnessView.tsx";
-import { freshnessCandidates } from "../src/renderer/model/freshness.ts";
+import { freshnessCandidates, inDebtScopeCoverageRows } from "../src/renderer/model/freshness.ts";
+import type { DecisionRow } from "../src/renderer/model/types.ts";
 import { EntityWorkspace } from "../src/renderer/components/EntityWorkspace.tsx";
 import { PresetsView } from "../src/renderer/views/PresetsView.tsx";
 import { AdaptersView } from "../src/renderer/views/AdaptersView.tsx";
@@ -864,6 +865,98 @@ describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
     });
     expect(candidates[1].reason).toBe("no-live-evidence");
     expect(candidates[2].reason).toBe("fulfillment-undeclared");
+  });
+
+  /**
+   * 生命周期终态过滤(泽宇 2026-08-29 亲裁):rejected/superseded/outcome_retired/
+   * deferred 的决策已经离开"等待补齐"轨道,承重 claim 不再算未覆盖债——分子(候选)与
+   * 分母(总数)同一口径都要排除,否则比例失真。decision 缺位(理论上不应发生)时
+   * 不猜状态,保留该行。
+   */
+  it("生命周期终态过滤:rejected/superseded/outcome_retired/deferred 不算未覆盖债,分子分母同一口径", () => {
+    const terminalDecision = (id: string, state: DecisionRow["state"]): DecisionRow => ({
+      decisionId: id,
+      title: `G10 探针决策(${state})`,
+      state,
+      question: "终态决策的承重 claim 还算债吗?",
+      chosen: [],
+      rejected: [{ id: "RJ1", text: "不采纳", evidence: [], whyNot: "已否决" }],
+      claims: [{ id: "CH1", text: "终态决策的承重论点", loadBearing: true, fulfillment: null }],
+      judgmentConsents: [],
+    });
+    const terminalIds = ["dec_g10rejected", "dec_g10superseded", "dec_g10outcomeretired", "dec_g10deferred"] as const;
+    const terminalStates: readonly DecisionRow["state"][] = ["rejected", "superseded", "outcome_retired", "deferred"];
+    const decisionsWithTerminal = [
+      ...FIXTURE_DECISIONS,
+      ...terminalIds.map((id, index) => terminalDecision(id, terminalStates[index]!)),
+    ];
+    const terminalRows = terminalIds.map((id) =>
+      freshnessCoverage({
+        decisionRef: `decision/${id}`,
+        claimRef: `decision/${id}/CH1`,
+        status: "uncovered",
+        fulfillment: null,
+        refutingFactRefs: [],
+        freshnessReason: "fulfillment-undeclared",
+      }),
+    );
+    const activeUncoveredRow = freshnessCoverage({
+      status: "uncovered",
+      refutingFactRefs: [FACT_REF],
+      freshnessReason: "refuted",
+    });
+    // decision 不在 decisions 列表里(理论上不应发生)——不猜状态,保留在范围内。
+    const unknownDecisionRow = freshnessCoverage({
+      decisionRef: "decision/dec_g10unknown",
+      claimRef: "decision/dec_g10unknown/CH1",
+      status: "uncovered",
+      fulfillment: null,
+      refutingFactRefs: [],
+      freshnessReason: "fulfillment-undeclared",
+    });
+    const coveredRowSameDecision = freshnessCoverage({ claimRef: `decision/${DECISION_ID}/CH9`, status: "covered" });
+    const rows = [...terminalRows, activeUncoveredRow, unknownDecisionRow, coveredRowSameDecision];
+
+    const candidates = freshnessCandidates(decisionsWithTerminal, rows);
+    expect(candidates.map((candidate) => candidate.decisionId).sort()).toEqual([DECISION_ID, "dec_g10unknown"].sort());
+
+    const scoped = inDebtScopeCoverageRows(decisionsWithTerminal, rows);
+    expect(scoped).toEqual([activeUncoveredRow, unknownDecisionRow, coveredRowSameDecision]);
+  });
+
+  it("面板计数:header 的分子分母都排除终态决策的承重 claim", async () => {
+    const rejectedDecision: DecisionRow = {
+      decisionId: "dec_g10rejected",
+      title: "G10 探针决策(rejected)",
+      state: "rejected",
+      question: "终态决策的承重 claim 还算债吗?",
+      chosen: [],
+      rejected: [{ id: "RJ1", text: "不采纳", evidence: [], whyNot: "已否决" }],
+      claims: [{ id: "CH1", text: "终态决策的承重论点", loadBearing: true, fulfillment: null }],
+      judgmentConsents: [],
+    };
+    const rows = [
+      freshnessCoverage({
+        decisionRef: `decision/${rejectedDecision.decisionId}`,
+        claimRef: `decision/${rejectedDecision.decisionId}/CH1`,
+        status: "uncovered",
+        fulfillment: null,
+        refutingFactRefs: [],
+        freshnessReason: "fulfillment-undeclared",
+      }),
+      freshnessCoverage({
+        status: "uncovered",
+        refutingFactRefs: [FACT_REF],
+        freshnessReason: "refuted",
+      }),
+    ];
+    const container = await mountFreshness({
+      decisions: [...FIXTURE_DECISIONS, rejectedDecision],
+      coverageRows: rows,
+    });
+    expect(container.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(1);
+    const counts = container.querySelector("[data-testid='freshness-counts']");
+    expect(counts?.textContent).toContain("1 / 1 ");
   });
 
   it("正向:候选行可跳转——决策链接与反驳事实链接都带出正确 ref", async () => {

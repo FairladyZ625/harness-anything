@@ -72,4 +72,5 @@ export const guiStatusJudgmentBaseline = Object.freeze([
   { key: "gui-status-066", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["failed"] }, // point-comparison: failed @ ListView.riskCount
   { key: "gui-status-067", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ LaneCard.archived
   { key: "gui-status-068", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ activeProducesFactRefs
+  { key: "gui-status-069", classification: "domain-judgment", kind: "group", shape: "proper-subset", words: ["in_effect","proposed"] }, // proper-subset: in_effect, proposed @ DEBT_SCOPE_DECISION_STATES
 ]);
