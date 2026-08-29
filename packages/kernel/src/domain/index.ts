@@ -169,7 +169,14 @@ export type {
   RelationType,
 } from "./entity-relation.ts";
 
-export type { EngineError, BindingInvariantError, ArtifactStoreError, TemplateLibraryError } from "./errors.ts";
+export { normalizeDomainError } from "./errors.ts";
+export type {
+  ArtifactStoreError,
+  BindingInvariantError,
+  CoreDomainError,
+  EngineError,
+  TemplateLibraryError,
+} from "./errors.ts";
 
 export {
   createScheduleV1,

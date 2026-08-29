@@ -1,6 +1,13 @@
 #!/usr/bin/env node
+import { cliErrorMessage } from "./cli-error.ts";
 import { cliFailure, emitMeta, taskCreateHelpCatalog } from "./cli-meta.ts";
-import { contractMigrationDryRunSummary, humanError, renderDispatchRow, renderRuntimeBatchRow } from "./cli-render.ts";
+import {
+  cliDispatchError,
+  contractMigrationDryRunSummary,
+  humanError,
+  renderDispatchRow,
+  renderRuntimeBatchRow,
+} from "./cli-render.ts";
 import { isRuntimeFacadeCommand, runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
 import {
   cliCommandDomains,
@@ -61,7 +68,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       cliFailure(
         parsed.command.action.kind,
         "invalid_field",
-        `--json-input @- could not read stdin: ${error instanceof Error ? error.message : String(error)}`,
+        `--json-input @- could not read stdin: ${cliErrorMessage(error)}`,
       ),
       parsed.command.json,
     );
@@ -79,18 +86,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       targetCode = daemonTargetFailureCode(error),
       buildStaleCode = daemonBuildStaleCode(error),
       direct = autostartCode ?? targetCode ?? buildStaleCode;
-    emit(
-      cliFailure(
-        parsed.command.action.kind,
-        direct ?? timeoutCode ?? "daemon_unavailable",
-        direct
-          ? error instanceof Error
-            ? error.message
-            : String(error)
-          : `Local daemon request failed. Cause: ${error instanceof Error ? error.message : String(error)}`,
-      ),
-      parsed.command.json,
-    );
+    const failure = cliDispatchError({ error, directCode: direct, timeoutCode });
+    emit(cliFailure(parsed.command.action.kind, failure.code, failure.hint), parsed.command.json);
     return 1;
   }
 }

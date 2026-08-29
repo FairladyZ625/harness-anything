@@ -1,4 +1,5 @@
 import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
+import { cliErrorMessage } from "./cli-error.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import { relayRuntimeAuthTerminal, runCommandThroughDaemon } from "./daemon/client.ts";
 import { randomUUID } from "node:crypto";
@@ -33,7 +34,7 @@ export async function runRuntimeAuthCommand(
     return runtimeRejected(
       command.action.kind,
       "daemon_disconnect",
-      `The sign-in terminal stream failed: ${error instanceof Error ? error.message : String(error)}. ` +
+      `The sign-in terminal stream failed: ${cliErrorMessage(error)}. ` +
         `The isolated state root keeps whatever the provider already stored; re-run the command to try again.`,
     );
   }

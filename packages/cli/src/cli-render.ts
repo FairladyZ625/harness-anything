@@ -1,5 +1,19 @@
 import type { RuntimeBatchResult } from "./cli-types.ts";
+import { cliErrorMessage } from "./cli-error.ts";
 import { consumeKnownError } from "./daemon/client.ts";
+
+type ReceiptFailure =
+  | { readonly _tag: "ReceiptFailure"; readonly errorCode: string; readonly hint: string }
+  | {
+      readonly _tag: "SquadLeaderFailure";
+      readonly errorCode: string;
+      readonly leader: { readonly code: string; readonly hint: string };
+    };
+
+type CliDispatchFailure =
+  | { readonly _tag: "DirectDaemonFailure"; readonly errorCode: string; readonly message: string }
+  | { readonly _tag: "DaemonResponseTimeout"; readonly errorCode: string; readonly message: string }
+  | { readonly _tag: "DaemonUnavailable"; readonly errorCode: string; readonly message: string };
 
 export function humanError(receipt: Record<string, unknown>): {
   readonly code: string;
@@ -16,13 +30,40 @@ export function humanError(receipt: Record<string, unknown>): {
             ? receipt.next
             : "Command failed.",
     leader = receipt.leader && typeof receipt.leader === "object" ? (receipt.leader as Record<string, unknown>) : null,
-    nested = leader ? humanError(leader) : null;
-  return code === "squad_leader_failed" && nested && nested.code !== "unknown"
-    ? {
-        code,
-        hint: `Leader dispatch rejected: code=${nested.code} hint=${nested.hint}`,
-      }
-    : { code, hint };
+    nested = leader ? humanError(leader) : null,
+    failure: ReceiptFailure =
+      code === "squad_leader_failed" && nested && nested.code !== "unknown"
+        ? { _tag: "SquadLeaderFailure", errorCode: code, leader: nested }
+        : { _tag: "ReceiptFailure", errorCode: code, hint };
+  switch (failure._tag) {
+    case "ReceiptFailure":
+      return { code: failure.errorCode, hint: failure.hint };
+    case "SquadLeaderFailure":
+      return {
+        code: failure.errorCode,
+        hint: `Leader dispatch rejected: code=${failure.leader.code} hint=${failure.leader.hint}`,
+      };
+  }
+}
+
+export function cliDispatchError(input: {
+  readonly error: unknown;
+  readonly directCode: string | null;
+  readonly timeoutCode: "daemon_response_timeout" | null;
+}): { readonly code: string; readonly hint: string } {
+  const message = cliErrorMessage(input.error);
+  let failure: CliDispatchFailure;
+  if (input.directCode !== null) failure = { _tag: "DirectDaemonFailure", errorCode: input.directCode, message };
+  else if (input.timeoutCode !== null)
+    failure = { _tag: "DaemonResponseTimeout", errorCode: input.timeoutCode, message };
+  else failure = { _tag: "DaemonUnavailable", errorCode: "daemon_unavailable", message };
+  switch (failure._tag) {
+    case "DirectDaemonFailure":
+      return { code: failure.errorCode, hint: failure.message };
+    case "DaemonResponseTimeout":
+    case "DaemonUnavailable":
+      return { code: failure.errorCode, hint: `Local daemon request failed. Cause: ${failure.message}` };
+  }
 }
 
 export function renderRuntimeBatchRow(value: unknown): string {

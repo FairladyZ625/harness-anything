@@ -18,6 +18,7 @@ import {
   resolveLocalDaemonTarget,
 } from "../../../daemon/src/client/local-daemon-target.ts";
 import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
+import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route.ts";
 
@@ -603,12 +604,9 @@ export async function fleetTaskRoute(
     try {
       packet = JSON.parse(file ? readFileSync(file, "utf8") : String(jsonInput));
     } catch (error) {
-      throw Object.assign(
-        new Error(
-          `${source} could not be read as JSON on this edge: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-        { code: "invalid_field" },
-      );
+      throw Object.assign(new Error(`${source} could not be read as JSON on this edge: ${cliErrorMessage(error)}`), {
+        code: "invalid_field",
+      });
     }
     if (packet === null || typeof packet !== "object" || Array.isArray(packet))
       throw Object.assign(new Error(`${source} must contain one JSON object.`), { code: "invalid_field" });

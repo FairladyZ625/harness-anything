@@ -1,4 +1,5 @@
 import { unknownFieldViolation } from "../../daemon/src/protocol/json-rpc-types.ts";
+import { cliErrorMessage } from "./cli-error.ts";
 import { runtimeBatchDefaultConcurrency, runtimeBatchMaxConcurrency } from "./cli-types.ts";
 import type { RuntimeBatchDeclaration, RuntimeBatchEntry } from "./cli-types.ts";
 import { runtimeBatchDeclarationFields, runtimeRunEfforts } from "./cli/thin-command.ts";
@@ -11,7 +12,7 @@ export function readRuntimeBatch(command: ThinCommand): RuntimeBatchDeclaration 
   try {
     value = JSON.parse(readFileSync(path.resolve(command.rootDir, String(command.action.batchFile)), "utf8"));
   } catch (error) {
-    throw new Error(`Could not read batch declaration: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Could not read batch declaration: ${cliErrorMessage(error)}`);
   }
   return parseRuntimeBatchDeclaration(value, "Batch");
 }

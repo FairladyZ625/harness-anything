@@ -1,4 +1,5 @@
 import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
+import { cliErrorMessage } from "./cli-error.ts";
 import { runtimeRejected } from "./cli-runtime-auth.ts";
 import { readRuntimeBatch } from "./cli-runtime-batch-input.ts";
 import { runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
@@ -16,11 +17,7 @@ export async function runRuntimeBatch(
     declaration = readRuntimeBatch(command);
   } catch (error) {
     consumeKnownError(error);
-    return runtimeRejected(
-      "runtime-batch",
-      "batch_file_invalid",
-      error instanceof Error ? error.message : String(error),
-    );
+    return runtimeRejected("runtime-batch", "batch_file_invalid", cliErrorMessage(error));
   }
   return runRuntimeBatchDeclaration(command, declaration, writeActivity);
 }
@@ -69,11 +66,7 @@ export async function runRuntimeBatchDeclaration(
         receipt = await leaseAwareSpawn(entry);
       } catch (error) {
         consumeKnownError(error);
-        receipt = runtimeRejected(
-          "runtime-run",
-          "batch_dispatch_failed",
-          error instanceof Error ? error.message : String(error),
-        );
+        receipt = runtimeRejected("runtime-run", "batch_dispatch_failed", cliErrorMessage(error));
       }
       results[index] = runtimeBatchResult(index, entry, receipt);
     }
