@@ -215,6 +215,13 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       "--title",
       "Automatic lease",
     ]);
+    const automaticPackagePath = String(automaticTask.packagePath),
+      automaticPlanPath = `${automaticPackagePath}/task_plan.md`,
+      oneSectionMissing = realizedPlan("Automatic lease").replace(
+        /\n\n## CI\/Gate Authority Stop Condition\n\n[^\n]+/u,
+        "",
+      );
+    writeFileSync(path.join(root, "harness", automaticPlanPath), oneSectionMissing);
     const automaticArgs = [
         "runtime",
         "run",
@@ -228,13 +235,39 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       placeholderLease = runMaybe(root, env, automaticArgs);
     assert.equal(placeholderLease.status, 1);
     assert.equal(placeholderLease.receipt.code, "plan_placeholder");
-    const automaticPackagePath = String(automaticTask.packagePath);
+    assert.match(
+      String(placeholderLease.receipt.nextAction),
+      /task\.plan readiness judged the canonical projection document at workspace revision \d+/u,
+    );
+    assert.match(
+      String(placeholderLease.receipt.nextAction),
+      /missing required section is: CI\/Gate Authority Stop Condition/u,
+    );
+    assert.doesNotMatch(String(placeholderLease.receipt.nextAction), /missing required sections are: Brief/u);
+    assert.match(
+      String(placeholderLease.receipt.nextAction),
+      new RegExp(`ha doc sync --submit --path ${automaticPlanPath}`, "u"),
+    );
     writeFileSync(path.join(root, "harness", automaticPackagePath, "task_plan.md"), realizedPlan("Automatic lease"));
-    run(root, env, ["doc", "sync", "--submit", "--path", `${automaticPackagePath}/task_plan.md`]);
+    const automaticPlanSync = run(root, env, ["doc", "sync", "--submit", "--path", automaticPlanPath]);
     const automaticLease = runMaybe(root, env, automaticArgs);
     assert.equal(automaticLease.status, 0, JSON.stringify(automaticLease));
     assert.equal(automaticLease.receipt.outcome, "running");
     assert.equal(typeof automaticLease.receipt.dispatchId, "string");
+    context.diagnostic(
+      `revision-aware plan hint: ${JSON.stringify({
+        before: {
+          outcome: placeholderLease.receipt.outcome,
+          code: placeholderLease.receipt.code,
+          nextAction: placeholderLease.receipt.nextAction,
+        },
+        sync: { outcome: automaticPlanSync.outcome, summary: automaticPlanSync.summary },
+        after: {
+          outcome: automaticLease.receipt.outcome,
+          dispatchId: automaticLease.receipt.dispatchId,
+        },
+      })}`,
+    );
     const resumed = run(root, env, [
       "runtime",
       "run",
@@ -448,18 +481,28 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     ]);
     assert.equal(mismatch.status, 1);
     assert.equal(mismatch.receipt.code, "agent_runtime_type_mismatch");
-    const existingSource = path.join(root, "existing-mission.txt");
-    writeFileSync(existingSource, "existing mission");
-    run(root, env, [
-      "task",
-      "artifact",
-      "add",
+    const existingMissionPath = `${packagePath}/artifacts/missions/existing-mission.md`;
+    mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
+    writeFileSync(path.join(root, "harness", existingMissionPath), "existing mission");
+    const unsyncedMission = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--mission",
+      "existing-mission",
+      "--task",
       taskId,
-      "--source",
-      "existing-mission.txt",
-      "--destination",
-      "missions/existing-mission.md",
+      "--no-stream",
     ]);
+    assert.equal(unsyncedMission.status, 1);
+    assert.equal(unsyncedMission.receipt.code, "runtime_mission_unavailable");
+    assert.match(
+      String(unsyncedMission.receipt.nextAction),
+      new RegExp(`ha doc sync --submit --path ${existingMissionPath}`, "u"),
+    );
+    const missionStatus = run(root, env, ["doc", "status", "--path", existingMissionPath]);
+    assert.match(String(missionStatus.evidence), /"state":"eligible"/u);
+    const missionSync = run(root, env, ["doc", "sync", "--submit", "--path", existingMissionPath]);
     const retiredPromptFile = runMaybe(root, env, [
       "runtime",
       "run",
@@ -487,6 +530,18 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       ) as Record<string, unknown>;
     const reusedMission = readFileSync(path.join(artifactRoot, "missions", `${reusedDispatchId}.md`), "utf8"),
       reusedReport = readFileSync(path.join(artifactRoot, "reports", `${reusedDispatchId}.md`), "utf8");
+    context.diagnostic(
+      `hand-written mission route: ${JSON.stringify({
+        before: {
+          outcome: unsyncedMission.receipt.outcome,
+          code: unsyncedMission.receipt.code,
+          nextAction: unsyncedMission.receipt.nextAction,
+        },
+        status: { outcome: missionStatus.outcome, evidence: missionStatus.evidence },
+        sync: { outcome: missionSync.outcome, summary: missionSync.summary },
+        after: { outcome: reused.outcome, dispatchId: reusedDispatchId },
+      })}`,
+    );
     assert.equal(reusedDispatch.missionRef, `${packagePath}/artifacts/missions/${reusedDispatchId}.md`);
     assert.deepEqual(
       readdirSync(path.join(artifactRoot, "missions")).sort(),

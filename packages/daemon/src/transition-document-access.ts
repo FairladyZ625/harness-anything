@@ -1,7 +1,12 @@
+import { existsSync, lstatSync, readFileSync } from "node:fs";
+import path from "node:path";
 import {
+  assessTransitionDocument,
   assertTransitionDocumentReady,
   normalizeRelativeDocumentPath,
   requireTransitionDocumentKind,
+  resolveHarnessLayout,
+  sha256Text,
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 
@@ -11,6 +16,9 @@ export interface TaskTransitionDocument {
   readonly packagePath: string;
   readonly path: string;
   readonly body: string;
+  readonly blobSha256: string;
+  readonly workspaceRevision: number;
+  readonly source: "canonical projection" | "submitted candidate";
 }
 
 export function readTaskTransitionDocument(input: {
@@ -64,18 +72,25 @@ export function readTaskTransitionDocument(input: {
   }
   if (!documentPath.startsWith(`${task.packagePath}/`))
     throw transitionDocumentAccessError("content_not_ready", `Task ${input.taskId} ${input.slot} leaves its package.`);
-  const overridden = input.bodyOverrides?.get(documentPath);
-  if (overridden !== undefined) return { packagePath: task.packagePath, path: documentPath, body: overridden };
   const documentRead = input.projection.readDocument(documentPath);
   if (documentRead.watermark < documentRead.sourceRevision || !documentRead.document)
     throw transitionDocumentAccessError(
       "content_not_ready",
       `Task ${input.taskId} ${input.slot} projection is not ready at ${documentPath}.`,
     );
-  return { packagePath: task.packagePath, path: documentPath, body: documentRead.document.body };
+  const overridden = input.bodyOverrides?.get(documentPath);
+  return {
+    packagePath: task.packagePath,
+    path: documentPath,
+    body: overridden ?? documentRead.document.body,
+    blobSha256: overridden === undefined ? documentRead.document.blobSha256 : sha256Text(overridden),
+    workspaceRevision: documentRead.document.workspaceRevision,
+    source: overridden === undefined ? "canonical projection" : "submitted candidate",
+  };
 }
 
 export function assertTaskTransitionDocumentReady(input: {
+  readonly rootDir: string;
   readonly projection: TaskProjection;
   readonly taskId: string;
   readonly slot: TaskTransitionDocumentSlot;
@@ -92,14 +107,57 @@ export function assertTaskTransitionDocumentReady(input: {
   try {
     assertTransitionDocumentReady(kind, document.body);
   } catch (error) {
-    if (error && typeof error === "object")
+    if (error && typeof error === "object") {
+      const projectedMissing = transitionMissingSections(error),
+        diskBody = document.source === "canonical projection" ? readOnDiskBody(input.rootDir, document.path) : null,
+        diskDiffers = diskBody !== null && diskBody !== document.body,
+        actionableMissing = diskDiffers ? assessTransitionDocument(kind, diskBody).missingSections : projectedMissing,
+        revision =
+          document.source === "canonical projection"
+            ? `canonical projection document at workspace revision ${document.workspaceRevision}`
+            : `submitted candidate against canonical projection workspace revision ${document.workspaceRevision}`,
+        missing = missingSectionsHint(actionableMissing),
+        recovery = diskDiffers
+          ? `The on-disk harness/${document.path} differs; ${missing} ${
+              actionableMissing.length ? "Complete that content, then run" : "Run"
+            } ha doc sync --submit --path ${document.path}, then retry.`
+          : [
+              `${missing}`,
+              ` Edit harness/${document.path}, then run ha doc sync --submit --path ${document.path} and retry.`,
+            ].join("");
       Object.assign(error, {
         documentPath: document.path,
-        message: `${(error as Error).message} Edit harness/${document.path}, then retry.`,
+        missingSections: actionableMissing,
+        projectedMissingSections: projectedMissing,
+        message: [
+          `${String((error as { readonly code?: unknown }).code ?? "content_not_ready")}:`,
+          `${kind} readiness judged the ${revision} (blob sha256 ${document.blobSha256}).`,
+          recovery,
+        ].join(" "),
       });
+    }
     throw error;
   }
   return document;
+}
+
+function readOnDiskBody(rootDir: string, documentPath: string): string | null {
+  const target = path.join(resolveHarnessLayout(rootDir).authoredRoot, ...documentPath.split("/"));
+  return existsSync(target) && !lstatSync(target).isSymbolicLink() && lstatSync(target).isFile()
+    ? readFileSync(target, "utf8")
+    : null;
+}
+
+function transitionMissingSections(error: object): readonly string[] {
+  return "missingSections" in error && Array.isArray(error.missingSections)
+    ? error.missingSections.filter((value): value is string => typeof value === "string")
+    : [];
+}
+
+function missingSectionsHint(sections: readonly string[]): string {
+  return sections.length === 0
+    ? "it has no missing required sections."
+    : `its missing required ${sections.length === 1 ? "section is" : "sections are"}: ${sections.join(", ")}.`;
 }
 
 function transitionDocumentAccessError(code: string, message: string): Error {

@@ -9,7 +9,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
-import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 test("task start, inline submit, and code-doc reconcile reuse daemon-known lifecycle state", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-hitrate-lifecycle-")),
@@ -57,12 +57,25 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
       holder,
     );
     assert.equal(fact.outcome, "applied", JSON.stringify(fact));
+    const packagePath = String((created as { readonly packagePath?: unknown }).packagePath),
+      planPath = `${packagePath}/task_plan.md`,
+      oneSectionMissing = realizedTaskPlan("Lifecycle hit rate").replace(
+        /\n\n## CI\/Gate Authority Stop Condition\n\n[^\n]+/u,
+        "",
+      );
+    writeFileSync(path.join(rootDir, "harness", planPath), oneSectionMissing);
     const placeholder = await cell.run({ kind: "task-start", taskId, executionId }, holder);
     assert.equal(placeholder.outcome, "op_rejected", JSON.stringify(placeholder));
     assert.equal(placeholder.code, "plan_placeholder");
-    assert.match(placeholder.nextAction ?? "", /task_plan\.md/u);
-    const packagePath = String((created as { readonly packagePath?: unknown }).packagePath),
-      closeoutPath = `${packagePath}/closeout.md`;
+    assert.match(
+      placeholder.nextAction ?? "",
+      /task\.plan readiness judged the canonical projection document at workspace revision \d+/u,
+    );
+    assert.match(placeholder.nextAction ?? "", /The on-disk harness\/tasks\/.*\/task_plan\.md differs/u);
+    assert.match(placeholder.nextAction ?? "", /missing required section is: CI\/Gate Authority Stop Condition/u);
+    assert.match(placeholder.nextAction ?? "", new RegExp(`ha doc sync --submit --path ${planPath}`, "u"));
+    assert.doesNotMatch(placeholder.nextAction ?? "", /missing required sections are: Brief/u);
+    const closeoutPath = `${packagePath}/closeout.md`;
     await realizeTaskPlanFixture(
       rootDir,
       packagePath,
