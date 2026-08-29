@@ -8,6 +8,25 @@ export type LeaderDecision =
       readonly dispatches: readonly WorkerPlan[];
     };
 
+type SquadDecision = Extract<LeaderDecision, { readonly kind: "converged" | "waiting" }>;
+
+export function squadDecisionFromValue(value: unknown): SquadDecision | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (row.schema !== "squad-decision/v1") return null;
+  if (row.action === "converged") return { kind: "converged" };
+  if (row.action === "waiting") return { kind: "waiting" };
+  return null;
+}
+
+export function isSquadDecisionResult(text: string): boolean {
+  try {
+    return squadDecisionFromValue(JSON.parse(text.trim())) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export type WorkerWaitTrigger = {
   readonly kind: "worker_wait";
   readonly runtimeSessionId: string;
@@ -142,9 +161,9 @@ export function parseLeaderDecision(
     throw new Error("Leader result was not JSON.");
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Leader result was not an object.");
+  const squadDecision = squadDecisionFromValue(value);
+  if (squadDecision !== null) return squadDecision;
   const row = value as Record<string, unknown>;
-  if (row.schema === "squad-decision/v1" && row.action === "converged") return { kind: "converged" };
-  if (row.schema === "squad-decision/v1" && row.action === "waiting") return { kind: "waiting" };
   if (row.schema !== "runtime-batch/v1" || !Array.isArray(row.dispatches))
     throw new Error("Leader result must be runtime-batch/v1 or a waiting/converged squad-decision/v1.");
   if (row.dispatches.length === 0) throw new Error("Leader runtime-batch/v1 dispatches must be a non-empty array.");

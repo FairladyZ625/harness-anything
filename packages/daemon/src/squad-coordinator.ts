@@ -450,6 +450,7 @@ export function makeSquadCoordinator(input: {
         {
           runtimeInstanceId: state.runtimeInstanceId,
           agentId: state.leaderAgentId,
+          squadId: state.squadId,
           permissionMode: state.permissionMode ?? "read-only",
           prompt,
           cwd: cwdPayload(input.rootDir, state.cwd),
