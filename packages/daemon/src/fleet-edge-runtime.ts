@@ -399,7 +399,8 @@ export function openFleetEdgeRuntime(input: {
       });
     if (command.outcome !== "applied") return scheduleResult(actionKind, command);
     const receipt = command.receipt as JsonObject;
-    if (actionKind === "schedule-list" || actionKind === "schedule-show") return scheduleResult(actionKind, command);
+    if (["schedule-list", "schedule-runs", "schedule-show"].includes(actionKind))
+      return scheduleResult(actionKind, command);
     if (actionKind !== "schedule-run-now") {
       await syncScheduleMirror();
       return scheduleResult(actionKind, command);

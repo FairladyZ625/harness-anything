@@ -32,6 +32,7 @@ const allowedStaticGraph = new Set([
   "packages/daemon/src/protocol/daemon-protocol-validate-task.ts",
   "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
   "packages/daemon/src/protocol/json-rpc-types.ts",
+  "packages/daemon/src/protocol/schedule-runs-contract.ts",
   "packages/preset/src/preset-command-contract.ts",
 ]);
 

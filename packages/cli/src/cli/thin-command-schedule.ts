@@ -3,8 +3,8 @@ import {
   parseScheduleListReceipt,
   type ScheduleListRow,
 } from "../../../daemon/src/protocol/daemon-protocol-validate-results.ts";
+import { validateScheduleRuns, type ScheduleRunsResult } from "../../../daemon/src/protocol/schedule-runs-contract.ts";
 import { consumeKnownError } from "../daemon/client.ts";
-import { validateScheduleRuns, type ScheduleRunsResult } from "../../../daemon/src/schedule-runs-read.ts";
 import { accepted, nonEmpty, optionalFlags, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 

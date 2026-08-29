@@ -7,7 +7,12 @@ import path from "node:path";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../../daemon/src/dispatch-stream.ts";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import {
+  compileScheduleDefinitionEvent,
+  createScheduleV1,
+  makeTaskEventStore,
+  makeTaskProjection,
+} from "../../kernel/src/index.ts";
 import {
   daemonGuiReadMethods,
   type DaemonGuiRpcReadMethod,
@@ -31,6 +36,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     task: { taskId: "task-gui-smoke", title: "Resident GUI task" },
     beforeRestart: (rootDir: string, repoId: string) => {
       seedRuntime(rootDir, repoId);
+      seedSchedule(rootDir, repoId);
       seedSquadRunState(rootDir, repoId);
     },
   });
@@ -128,11 +134,13 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                           ? { ...scope, squadId: "core-squad" }
                           : contract.id === "squad.run.read"
                             ? { ...scope, squadRunId: seededSquadRun }
-                            : contract.id === "ci.observatory.read"
-                              ? { ...scope, window: 10 }
-                              : contract.id === "gui.catalog.preset.read"
-                                ? { ...scope, presetId: catalog.defaults.presetId }
-                                : scope;
+                            : contract.id === "schedules.runs"
+                              ? { ...scope, scheduleId: "schedule-gui-smoke" }
+                              : contract.id === "ci.observatory.read"
+                                ? { ...scope, window: 10 }
+                                : contract.id === "gui.catalog.preset.read"
+                                  ? { ...scope, presetId: catalog.defaults.presetId }
+                                  : scope;
       const result = await bridge.invoke(contract.guiBridgeMethod, payload);
       const parsed =
         contract.id === "gui.control.receipt"
@@ -586,6 +594,37 @@ function seedSquadRunState(rootDir: string, repoId: string): string {
   projection.markSquadRunProjectionDirty();
   projection.close();
   return squadRunId;
+}
+
+function seedSchedule(rootDir: string, repoId: string): void {
+  const store = makeTaskEventStore({ rootDir, repoId }),
+    workspaceRevision = store.read().revision + 1,
+    occurredAt = "2026-08-13T00:04:00.000Z",
+    actor = { principal: { personId: "person-gui" }, executor: null } as const,
+    schedule = createScheduleV1({
+      scheduleId: "schedule-gui-smoke",
+      name: "Resident GUI schedule",
+      mode: "detect",
+      spec: {
+        trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: occurredAt },
+        target: { kind: "agent", agentId: "terra", runtimeInstanceId: "codex-gui" },
+        mission: "Exercise the resident daemon Schedule reads.",
+      },
+      actor,
+      occurredAt,
+    }),
+    bundle = compileScheduleDefinitionEvent({
+      type: "schedule_created",
+      schedule,
+      eventId: `event-schedule-gui-${workspaceRevision}`,
+      opId: `op-schedule-gui-${workspaceRevision}`,
+      workspaceRevision,
+      actor,
+      source: "local",
+      occurredAt,
+    });
+  store.append(bundle);
+  void store.drain();
 }
 
 test("local GUI bridge fails closed without explicit daemon registration and never autostarts", async () => {
