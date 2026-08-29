@@ -13,6 +13,37 @@ const require = createRequire(import.meta.url);
 const guiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(guiRoot, "../..");
 const rendererUrl = "http://127.0.0.1:5173";
+
+// Auto fast-forward the local checkout to origin/main before building, so the
+// launcher always ships the latest merged GUI. Main is never developed on
+// directly — all work lands through worktree PRs — so a clean fast-forward is
+// always safe. Skip loudly (never fail the launch) when the checkout is not on
+// main or the working tree is dirty; the daemon reads its canonical ledger from
+// ~/.harness, not this source tree, so a source fast-forward does not disturb it.
+function fastForwardToOriginMain() {
+  const branch = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  }).stdout?.trim();
+  if (branch !== "main") {
+    log(`on '${branch}', not main — skipping auto fast-forward`);
+    return;
+  }
+  if (spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8" }).stdout?.trim()) {
+    log("working tree dirty — skipping auto fast-forward");
+    return;
+  }
+  log("fetching origin/main...");
+  if (spawnSync("git", ["fetch", "origin", "main"], { cwd: repoRoot, stdio: "inherit" }).status !== 0) {
+    log("git fetch failed — building current checkout");
+    return;
+  }
+  const ff = spawnSync("git", ["merge", "--ff-only", "origin/main"], { cwd: repoRoot, encoding: "utf8" });
+  if (ff.status === 0) log("fast-forwarded to origin/main");
+  else log(`not fast-forwardable (local diverged?) — building current checkout: ${(ff.stderr || "").trim()}`);
+}
+fastForwardToOriginMain();
+
 const electronPath = require("electron");
 // Resolve vite's own bin script through Node's module resolution rather than shelling
 // out to npx: npx.cmd resolves its own npm-cli.js relative to the invoking npm script's
@@ -28,7 +59,7 @@ function log(message) {
 log("building preload bundle...");
 const preloadBuild = spawnSync(process.execPath, [viteBin, "build", "--config", "vite.preload.config.ts"], {
   cwd: guiRoot,
-  stdio: "inherit"
+  stdio: "inherit",
 });
 if (preloadBuild.status !== 0) {
   console.error("[dev-electron] preload build failed");
@@ -39,7 +70,7 @@ log(`starting renderer dev server at ${rendererUrl} ...`);
 const vite = spawn(process.execPath, [viteBin, "--host", "127.0.0.1", "--port", "5173", "--strictPort"], {
   cwd: guiRoot,
   env: { ...process.env, BROWSER: "none" },
-  stdio: ["ignore", "pipe", "pipe"]
+  stdio: ["ignore", "pipe", "pipe"],
 });
 // Forwarding stdout (previously discarded) surfaces Vite's own diagnostics, including its
 // "ready in" banner, in the launcher log instead of the poll loop being the only witness.
@@ -73,7 +104,7 @@ async function stopVite() {
   vite.kill("SIGTERM");
   const closed = once(vite, "close");
   const timedOut = new Promise((resolveSleep) => setTimeout(() => resolveSleep("timeout"), 5_000));
-  if (await Promise.race([closed, timedOut]) === "timeout") {
+  if ((await Promise.race([closed, timedOut])) === "timeout") {
     vite.kill("SIGKILL");
     await once(vite, "close").catch(() => undefined);
   }
@@ -93,9 +124,9 @@ const electron = spawn(electronPath, [path.join(guiRoot, "src/main/electron-main
   env: {
     ...process.env,
     ELECTRON_RENDERER_URL: rendererUrl,
-    HARNESS_GUI_ROOT: process.env.HARNESS_GUI_ROOT ?? repoRoot
+    HARNESS_GUI_ROOT: process.env.HARNESS_GUI_ROOT ?? repoRoot,
   },
-  stdio: "inherit"
+  stdio: "inherit",
 });
 
 const shutdown = async (code) => {
