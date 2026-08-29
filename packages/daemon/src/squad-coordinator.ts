@@ -490,11 +490,12 @@ export function makeSquadCoordinator(input: {
     if (state.leaderTurns.length >= state.leaderTurnBudget)
       throw new Error(`leader turn budget ${state.leaderTurnBudget} exhausted`);
     if (trigger.kind !== "initial") await input.reacquireTaskLease(state.taskId, state.binding);
-    const turnId = `leader-${state.leaderTurns.length + 1}`,
+    const drainedTriggers = trigger.kind === "initial" ? [] : state.pendingLeaderTriggers,
+      turnId = `leader-${state.leaderTurns.length + 1}`,
       prompt =
         trigger.kind === "initial"
           ? initialLeaderPrompt(state)
-          : callbackLeaderPrompt(state, trigger, dispatchRows(state)),
+          : callbackLeaderPrompt(state, drainedTriggers, dispatchRows(state)),
       receipt = await input.runtimeSpawner().spawn(
         {
           runtimeInstanceId: state.runtimeInstanceId,
@@ -531,8 +532,7 @@ export function makeSquadCoordinator(input: {
           },
         ],
         currentLeaderRuntimeSessionId: runtimeSessionId,
-        pendingLeaderTriggers:
-          trigger.kind === "initial" ? state.pendingLeaderTriggers : state.pendingLeaderTriggers.slice(1),
+        pendingLeaderTriggers: trigger.kind === "initial" ? state.pendingLeaderTriggers : [],
         phase: "leader_running",
         error: null,
       });

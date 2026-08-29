@@ -107,18 +107,22 @@ export function initialLeaderPrompt(state: LeaderPromptState): string {
 
 export function callbackLeaderPrompt(
   state: LeaderPromptState,
-  trigger: LeaderTrigger,
+  triggers: readonly LeaderTrigger[],
   rows: readonly TaskDispatchRow[],
 ): string {
-  const statusRows = statusRowsForPrompt(state, rows);
+  const statusRows = statusRowsForPrompt(state, rows),
+    retries = triggers.filter((trigger) => trigger.kind === "leader_retry"),
+    waits = triggers.filter((trigger) => trigger.kind === "worker_wait"),
+    sourceCounts = new Map<string, number>();
+  for (const trigger of triggers) sourceCounts.set(trigger.kind, (sourceCounts.get(trigger.kind) ?? 0) + 1);
   return [
-    trigger.kind === "leader_retry" ? "# Squad leader retry" : "# Squad worker callback",
-    `Trigger: ${JSON.stringify(trigger)}`,
-    ...(trigger.kind === "leader_retry"
-      ? [`Previous turn could not advance: ${trigger.reason}`]
-      : trigger.kind === "worker_wait"
-        ? [`Wait completed: ${trigger.reason}`]
-        : []),
+    retries.length > 0 ? "# Squad leader retry" : "# Squad worker callback",
+    `Merged callback batch: total=${String(triggers.length)}; sources=${[...sourceCounts]
+      .map(([kind, count]) => `${kind}:${String(count)}`)
+      .join(",")}`,
+    `Triggers: ${JSON.stringify(triggers)}`,
+    ...retries.map((trigger) => `Previous turn could not advance: ${trigger.reason}`),
+    ...waits.map((trigger) => `Wait completed: ${trigger.reason}`),
     "Review the durable TaskDispatchRow receipts below. " +
       "Return runtime-batch/v1 to reassign or add work. " +
       "Every runtime-batch/v1 must contain at least one dispatch. " +
