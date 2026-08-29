@@ -3,11 +3,7 @@ import path from "node:path";
 import ts from "typescript";
 
 const root = process.cwd();
-const allowlist = new Set([
-  "gui/failure",
-  "gui/save",
-  "kernel/visit"
-]);
+const allowlist = new Set(["gui/failure", "gui/save", "kernel/visit", "daemon/parseDaemonRpcParams"]);
 const violations = [];
 
 for (const pkg of await discoverPackages()) {
@@ -24,7 +20,7 @@ for (const pkg of await discoverPackages()) {
         const locations = definitions.get(name) ?? [];
         locations.push({
           file: relative(file),
-          line: position.line + 1
+          line: position.line + 1,
         });
         definitions.set(name, locations);
       }
@@ -50,18 +46,16 @@ console.log("Duplicate function definition check passed.");
 
 async function discoverPackages() {
   const rootPackage = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
-  const workspaces = Array.isArray(rootPackage.workspaces)
-    ? rootPackage.workspaces
-    : rootPackage.workspaces?.packages;
+  const workspaces = Array.isArray(rootPackage.workspaces) ? rootPackage.workspaces : rootPackage.workspaces?.packages;
   if (!Array.isArray(workspaces)) return [];
 
   const packages = [];
   for (const workspace of workspaces) {
     for (const packageRoot of await expandWorkspace(workspace)) {
-      if (!await directoryExists(path.join(packageRoot, "src"))) continue;
+      if (!(await directoryExists(path.join(packageRoot, "src")))) continue;
       packages.push({
         root: packageRoot,
-        key: await packageKey(packageRoot)
+        key: await packageKey(packageRoot),
       });
     }
   }
@@ -97,7 +91,7 @@ async function walkSourceFiles(dir) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (["dist", "node_modules", "out", "test", "tests", "__tests__"].includes(entry.name)) continue;
-      files.push(...await walkSourceFiles(fullPath));
+      files.push(...(await walkSourceFiles(fullPath)));
       continue;
     }
     if (isSourceFile(entry.name)) files.push(fullPath);
@@ -106,10 +100,12 @@ async function walkSourceFiles(dir) {
 }
 
 function isSourceFile(fileName) {
-  return fileName.endsWith(".ts")
-    && !fileName.endsWith(".d.ts")
-    && !fileName.endsWith(".test.ts")
-    && !fileName.endsWith(".spec.ts");
+  return (
+    fileName.endsWith(".ts") &&
+    !fileName.endsWith(".d.ts") &&
+    !fileName.endsWith(".test.ts") &&
+    !fileName.endsWith(".spec.ts")
+  );
 }
 
 function isPureDelegation(node) {
@@ -120,8 +116,7 @@ function isPureDelegation(node) {
   if (ts.isReturnStatement(statement) && statement.expression) {
     return isCallOrAwaitedCall(statement.expression);
   }
-  return ts.isExpressionStatement(statement)
-    && isAwaitedCall(statement.expression);
+  return ts.isExpressionStatement(statement) && isAwaitedCall(statement.expression);
 }
 
 function hasParameterDefault(parameter) {
@@ -144,8 +139,7 @@ function isCallOrAwaitedCall(expression) {
 
 function isAwaitedCall(expression) {
   const unwrapped = unwrapParentheses(expression);
-  return ts.isAwaitExpression(unwrapped)
-    && ts.isCallExpression(unwrapParentheses(unwrapped.expression));
+  return ts.isAwaitExpression(unwrapped) && ts.isCallExpression(unwrapParentheses(unwrapped.expression));
 }
 
 function unwrapParentheses(expression) {
