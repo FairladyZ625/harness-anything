@@ -1,4 +1,4 @@
-import { type WriteReceipt } from "../../kernel/src/index.ts";
+import { normalizeDomainError, type WriteReceipt } from "../../kernel/src/index.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type RepoTaskAction } from "./repo-cell.ts";
 
@@ -36,9 +36,17 @@ export function recoverableRunId(action: RepoTaskAction): string | undefined {
 }
 
 export function code(error: unknown): string {
-  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-    ? error.code
-    : "daemon_error";
+  const normalized = normalizeDomainError(error);
+  switch (normalized._tag) {
+    case "LeaseConflictError":
+    case "TaskNotFoundError":
+    case "InvalidWritePlanError":
+    case "ProtocolVersionMismatchError":
+    case "OtherCodedError":
+      return normalized.code;
+    case "UnclassifiedError":
+      return "daemon_error";
+  }
 }
 
 export function makeWarmingSettlement(): {
@@ -53,7 +61,7 @@ export function makeWarmingSettlement(): {
 }
 
 export function daemonErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return normalizeDomainError(error).message;
 }
 
 export function attachBudgetError(repoId: string, timeoutMs: number): Error {

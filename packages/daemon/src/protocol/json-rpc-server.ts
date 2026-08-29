@@ -31,6 +31,7 @@ import {
 } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
 import { isContractVersionCompatible } from "../../../kernel/src/domain/contract-version.ts";
+import type { CoreDomainError } from "../../../kernel/src/index.ts";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 export interface JsonRpcProtocolServer {
   readonly handle: (
@@ -94,14 +95,14 @@ export function createJsonRpcProtocolServer(options: {
     const params = parsed.params;
     observed = { ...observed, repoId: repoIdFromParams(params) };
     if (request.method === "protocol.hello") {
-      if (!isContractVersionCompatible(params.protocolVersion, currentDaemonProtocolVersion))
-        return reply(
-          daemonProtocolError(
-            "protocol.hello",
-            "incompatible_protocol_version",
-            "Use the daemon protocol version reported by this binary.",
-          ) as unknown as JsonObject,
-        );
+      if (!isContractVersionCompatible(params.protocolVersion, currentDaemonProtocolVersion)) {
+        const mismatch = {
+          _tag: "ProtocolVersionMismatchError",
+          code: "incompatible_protocol_version",
+          message: "Use the daemon protocol version reported by this binary.",
+        } satisfies Extract<CoreDomainError, { readonly _tag: "ProtocolVersionMismatchError" }>;
+        return reply(daemonProtocolError("protocol.hello", mismatch.code, mismatch.message) as unknown as JsonObject);
+      }
       if (params.sessionEnvironment === undefined) Reflect.deleteProperty(options.authContext, "sessionEnvironment");
       else
         Object.assign(options.authContext, {
@@ -168,11 +169,7 @@ export function createJsonRpcProtocolServer(options: {
         );
       } catch (error) {
         return reply(
-          daemonProtocolError(
-            "init",
-            rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
-          ) as unknown as JsonObject,
+          daemonProtocolError("init", rpcServerErrorCode(error), protocolErrorMessage(error)) as unknown as JsonObject,
         );
       }
     }
@@ -198,7 +195,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -213,7 +210,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -234,7 +231,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -253,7 +250,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -310,7 +307,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -334,7 +331,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -349,7 +346,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -367,7 +364,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -385,7 +382,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -420,7 +417,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -444,7 +441,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -463,7 +460,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -482,7 +479,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -501,7 +498,7 @@ export function createJsonRpcProtocolServer(options: {
           daemonProtocolError(
             request.method,
             rpcServerErrorCode(error),
-            error instanceof Error ? error.message : String(error),
+            protocolErrorMessage(error),
           ) as unknown as JsonObject,
         );
       }
@@ -515,7 +512,7 @@ export function createJsonRpcProtocolServer(options: {
         daemonProtocolError(
           request.method,
           rpcServerErrorCode(error),
-          error instanceof Error ? error.message : String(error),
+          protocolErrorMessage(error),
         ) as unknown as JsonObject,
       );
     }
@@ -616,4 +613,19 @@ function rpcServerErrorCode(error: unknown): string {
   return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
     ? error.code
     : "bootstrap_failed";
+}
+
+type ProtocolDispatchError =
+  | { readonly _tag: "NativeError"; readonly message: string }
+  | { readonly _tag: "UnknownThrownValue"; readonly message: string };
+
+function protocolErrorMessage(error: unknown): string {
+  let normalized: ProtocolDispatchError;
+  if (error instanceof Error) normalized = { _tag: "NativeError", message: error.message };
+  else normalized = { _tag: "UnknownThrownValue", message: String(error) };
+  switch (normalized._tag) {
+    case "NativeError":
+    case "UnknownThrownValue":
+      return normalized.message;
+  }
 }

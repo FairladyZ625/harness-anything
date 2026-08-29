@@ -2,19 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Schema } from "effect";
-import {
-  domainStatuses
-} from "../../src/domain/lifecycle-status.ts";
-import {
-  decisionStates
-} from "../../src/domain/decision-event.ts";
-import {
-  packageDispositions
-} from "../../src/domain/package-disposition.ts";
-import {
-  priorityTiers,
-  taskWorkKinds
-} from "../../src/domain/task-metadata.ts";
+import { domainStatuses } from "../../src/domain/lifecycle-status.ts";
+import { decisionStates } from "../../src/domain/decision-event.ts";
+import { packageDispositions } from "../../src/domain/package-disposition.ts";
+import { priorityTiers, taskWorkKinds } from "../../src/domain/task-metadata.ts";
+import { coreDomainError, normalizeDomainError } from "../../src/domain/errors.ts";
 import { DomainStatusSchema, TaskFrontmatterSchema } from "../../src/schemas/registry.ts";
 
 test("domain status constants are accepted by the schema registry", () => {
@@ -42,16 +34,18 @@ test("task frontmatter schema accepts every domain package disposition", () => {
         titleSnapshot: null,
         url: null,
         bindingCreatedAt: "2026-06-11T00:00:00.000Z",
-        bindingFingerprint: "sha256:0123456789abcdef"
+        bindingFingerprint: "sha256:0123456789abcdef",
       },
       packageDisposition: disposition,
       vertical: "software/coding",
       preset: "standard-task",
-      provenance: [{
-        runtime: "human",
-        sessionId: "human-cli-1783036800000",
-        boundAt: "2026-06-11T00:00:00.000Z"
-      }]
+      provenance: [
+        {
+          runtime: "human",
+          sessionId: "human-cli-1783036800000",
+          boundAt: "2026-06-11T00:00:00.000Z",
+        },
+      ],
     });
 
     assert.equal(decoded.packageDisposition, disposition);
@@ -73,7 +67,35 @@ test("task frontmatter schema accepts every task metadata vocabulary value", () 
   }
 });
 
-function taskFixture(metadata: { readonly workKind?: string; readonly riskTier?: string; readonly urgency?: string }): Record<string, unknown> {
+test("core domain error tags preserve their established machine-readable codes", () => {
+  const cases = [
+    ["LeaseConflictError", "lease_conflict"],
+    ["TaskNotFoundError", "task_not_found"],
+    ["InvalidWritePlanError", "invalid_write_plan"],
+    ["ProtocolVersionMismatchError", "incompatible_protocol_version"],
+  ] as const;
+
+  for (const [tag, code] of cases) {
+    const error = coreDomainError(tag, "unchanged hint");
+    assert.deepEqual(error, { _tag: tag, code, message: "unchanged hint" });
+    assert.deepEqual(normalizeDomainError(Object.assign(new Error(error.message), { code })), error);
+  }
+  assert.deepEqual(normalizeDomainError(Object.assign(new Error("other"), { code: "other_code" })), {
+    _tag: "OtherCodedError",
+    code: "other_code",
+    message: "other",
+  });
+  assert.deepEqual(normalizeDomainError("plain failure"), {
+    _tag: "UnclassifiedError",
+    message: "plain failure",
+  });
+});
+
+function taskFixture(metadata: {
+  readonly workKind?: string;
+  readonly riskTier?: string;
+  readonly urgency?: string;
+}): Record<string, unknown> {
   return {
     schema: "task-package/v2",
     task_id: "task-1",
@@ -86,16 +108,18 @@ function taskFixture(metadata: { readonly workKind?: string; readonly riskTier?:
       titleSnapshot: null,
       url: null,
       bindingCreatedAt: "2026-06-11T00:00:00.000Z",
-      bindingFingerprint: "sha256:0123456789abcdef"
+      bindingFingerprint: "sha256:0123456789abcdef",
     },
     packageDisposition: "active",
     ...metadata,
     vertical: "software/coding",
     preset: "standard-task",
-    provenance: [{
-      runtime: "human",
-      sessionId: "human-cli-1783036800000",
-      boundAt: "2026-06-11T00:00:00.000Z"
-    }]
+    provenance: [
+      {
+        runtime: "human",
+        sessionId: "human-cli-1783036800000",
+        boundAt: "2026-06-11T00:00:00.000Z",
+      },
+    ],
   };
 }

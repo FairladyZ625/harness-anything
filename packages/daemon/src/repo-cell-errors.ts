@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { VcsCommandError } from "../../kernel/src/index.ts";
+import { VcsCommandError, normalizeDomainError } from "../../kernel/src/index.ts";
 
 export function cellCodedError(code: string, text: string): Error {
   const error = new Error(text) as Error & { code: string };
@@ -19,13 +19,21 @@ export function errorOperationId(error: unknown): string | null {
 }
 
 export function cellErrorCode(error: unknown): string {
-  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-    ? error.code
-    : "service_rejected";
+  const normalized = normalizeDomainError(error);
+  switch (normalized._tag) {
+    case "LeaseConflictError":
+    case "TaskNotFoundError":
+    case "InvalidWritePlanError":
+    case "ProtocolVersionMismatchError":
+    case "OtherCodedError":
+      return normalized.code;
+    case "UnclassifiedError":
+      return "service_rejected";
+  }
 }
 
 export function cellErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return normalizeDomainError(error).message;
 }
 
 export function publishGeneratedArtifact(input: {
@@ -47,13 +55,22 @@ export function publishGeneratedArtifact(input: {
 
 export function fatalCellError(error: unknown): boolean {
   if (error instanceof VcsCommandError) return true;
-  if (!error || typeof error !== "object" || !("code" in error)) return true;
-  return [
-    "invalid_store",
-    "legacy_shape",
-    "op_conflict",
-    "revision_conflict",
-    "publication_indeterminate",
-    "writer_rejected",
-  ].includes(String(error.code));
+  const normalized = normalizeDomainError(error);
+  switch (normalized._tag) {
+    case "UnclassifiedError":
+      return true;
+    case "LeaseConflictError":
+    case "TaskNotFoundError":
+    case "InvalidWritePlanError":
+    case "ProtocolVersionMismatchError":
+    case "OtherCodedError":
+      return [
+        "invalid_store",
+        "legacy_shape",
+        "op_conflict",
+        "revision_conflict",
+        "publication_indeterminate",
+        "writer_rejected",
+      ].includes(normalized.code);
+  }
 }

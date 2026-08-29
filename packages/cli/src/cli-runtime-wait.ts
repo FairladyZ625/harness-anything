@@ -1,5 +1,6 @@
 import type { AgentRuntimeSessionResult } from "../../daemon/src/agent-runtime-contract.ts";
 import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
+import { cliErrorMessage } from "./cli-error.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import {
   consumeKnownError,
@@ -134,7 +135,7 @@ async function waitForStreamedRuntime(
     );
   } catch (error) {
     consumeKnownError(error);
-    writeActivity(`[stream] ${error instanceof Error ? error.message : String(error)}\n`);
+    writeActivity(`[stream] ${cliErrorMessage(error)}\n`);
   }
   return streamAttached ? { detach, signal: await streamSignal } : { detach };
 }
@@ -261,8 +262,7 @@ async function readDaemonSubscription(
       consumeKnownError(error);
       reset();
       if (!recoverableSubscriptionFailure(error)) throw error;
-      if (await daemonGone(command))
-        return { kind: "daemon-gone", cause: error instanceof Error ? error.message : String(error) };
+      if (await daemonGone(command)) return { kind: "daemon-gone", cause: cliErrorMessage(error) };
       await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** attempt++, 5_000)));
     }
   }
@@ -273,7 +273,7 @@ function recoverableSubscriptionFailure(error: unknown): boolean {
       error && typeof error === "object" && typeof (error as { readonly code?: unknown }).code === "string"
         ? String((error as { readonly code: string }).code)
         : null,
-    message = error instanceof Error ? error.message : String(error);
+    message = cliErrorMessage(error);
   return (
     ["daemon_response_timeout", "daemon_closed", "ECONNREFUSED", "ECONNRESET", "ENOENT"].includes(String(code)) ||
     message === "daemon_unavailable" ||

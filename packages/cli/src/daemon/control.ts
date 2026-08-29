@@ -23,6 +23,7 @@ import {
   releaseDaemonSingletonLock,
 } from "../../../daemon/src/daemon-singleton.ts";
 import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
+import { cliErrorMessage } from "../cli-error.ts";
 import { cliDaemonServeLaunch, consumeKnownError } from "./client.ts";
 import { daemonRepoModeWords } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { firstCliCommandIndex } from "../cli/thin-command.ts";
@@ -519,7 +520,7 @@ function code(error: unknown): string {
   return ["ENOENT", "ECONNREFUSED", "ETIMEDOUT"].includes(value) ? "daemon_unavailable" : value;
 }
 function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return cliErrorMessage(error);
 }
 const guiRequire = createRequire(import.meta.url);
 export interface GuiLaunchDependencies {
