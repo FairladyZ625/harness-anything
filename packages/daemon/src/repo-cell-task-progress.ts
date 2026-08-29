@@ -294,8 +294,9 @@ function factRetirementAssessment(
   taskId: string,
   stillHoldsAttestations: readonly FactStillHoldsAttestation[],
 ): FactRetirementAssessment {
-  const relationRead = cell.projection.readRelationQuery({});
-  if (relationRead.status !== "ready")
+  const relationRead = cell.projection.readRelationQuery({}),
+    relationReady = relationRead.status === "ready";
+  if (!relationReady)
     throw cell.cellCodedError(
       "content_not_ready",
       `Relation projection is not ready for Fact retirement assessment on Task ${taskId}.`,
@@ -317,8 +318,9 @@ function factRetirementAssessment(
         }),
       ),
     ],
-    decisionRead = cell.projection.readDecisions(decisionIds);
-  if (decisionRead.status !== "ready")
+    decisionRead = cell.projection.readDecisions(decisionIds),
+    decisionReady = decisionRead.status === "ready";
+  if (!decisionReady)
     throw cell.cellCodedError(
       "content_not_ready",
       `Decision projection is not ready for Fact retirement assessment on Task ${taskId}.`,
