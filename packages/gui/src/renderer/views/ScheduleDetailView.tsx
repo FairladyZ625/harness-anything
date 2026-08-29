@@ -89,6 +89,12 @@ const MISSED_REASON_META: Record<string, MessageKey> = {
 
 const time = (iso: string | null): string => (iso === null ? "—" : (formatTime(iso, { style: "date-time" }) ?? iso));
 
+/** Shared styling for the occurrence shortcut buttons (keeps lines under the
+ * 120-character budget without compressing the class string). */
+const OCCURRENCE_CHIP_CLASS =
+  "rounded border border-border px-2 py-0.5 font-mono text-[11px] text-text-muted " +
+  "hover:border-accent hover:text-accent";
+
 // Word → label lookups stay total: an unknown daemon word renders as its own
 // text (missed reasons) or the shared "unknown" label (outcomes), never a crash.
 const outcomeLabel = (outcome: string): MessageKey =>
@@ -592,7 +598,7 @@ function ScheduleOverviewTab({
                   type="button"
                   data-testid={`schedule-open-run-${row.activeRun.occurrenceId}`}
                   onClick={() => onOpenRun(row.activeRun?.occurrenceId ?? "")}
-                  className="rounded border border-border px-2 py-0.5 font-mono text-[11px] text-text-muted hover:border-accent hover:text-accent"
+                  className={OCCURRENCE_CHIP_CLASS}
                 >
                   {row.activeRun.occurrenceId}
                 </button>
@@ -611,7 +617,7 @@ function ScheduleOverviewTab({
                   type="button"
                   data-testid={`schedule-open-run-${row.lastRun.occurrenceId}`}
                   onClick={() => onOpenRun(row.lastRun?.occurrenceId ?? "")}
-                  className="rounded border border-border px-2 py-0.5 font-mono text-[11px] text-text-muted hover:border-accent hover:text-accent"
+                  className={OCCURRENCE_CHIP_CLASS}
                 >
                   {row.lastRun.occurrenceId}
                 </button>

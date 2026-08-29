@@ -534,7 +534,11 @@ function FilterGroup<T extends string>({
             disabled={disabled}
             aria-pressed={option.value === value}
             onClick={() => onChange(option.value)}
-            className={`px-2 py-0.5 text-[10.5px] ${option.value === value ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"}`}
+            className={
+              option.value === value
+                ? "bg-accent font-semibold text-accent-fg px-2 py-0.5 text-[10.5px]"
+                : "text-text-muted hover:bg-surface px-2 py-0.5 text-[10.5px]"
+            }
           >
             {option.label}
           </button>

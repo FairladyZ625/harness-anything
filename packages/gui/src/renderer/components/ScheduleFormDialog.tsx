@@ -29,6 +29,11 @@ function durationOf(everyMs: number): { readonly amount: string; readonly unit: 
 
 /** Calendar UI → cron expression (design Q5 leaning b): the builder emits the
  * trigger spec the daemon will evaluate; the renderer never computes nextRun. */
+/** Shared segment-toggle styling so the guided-form buttons stay under the
+ * 120-character line budget (G36) without compressing the class strings. */
+const SEGMENT_ON_CLASS = "bg-accent font-semibold text-accent-fg px-2.5 py-0.5 text-[11px]";
+const SEGMENT_OFF_CLASS = "text-text-muted hover:bg-surface px-2.5 py-0.5 text-[11px]";
+
 export function buildCronExpression(
   frequency: CronFrequency,
   time: string,
@@ -399,7 +404,7 @@ export function ScheduleForm({
             data-testid="schedule-form-purpose-detect"
             aria-pressed={mode === "detect"}
             onClick={() => setMode("detect")}
-            className={`px-2.5 py-0.5 text-[11px] ${mode === "detect" ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"}`}
+            className={mode === "detect" ? SEGMENT_ON_CLASS : SEGMENT_OFF_CLASS}
           >
             {t("schedules.form.purpose.detect")}
           </button>
@@ -408,7 +413,7 @@ export function ScheduleForm({
             data-testid="schedule-form-purpose-remediate"
             aria-pressed={mode === "remediate"}
             onClick={() => setMode("remediate")}
-            className={`px-2.5 py-0.5 text-[11px] ${mode === "remediate" ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"}`}
+            className={mode === "remediate" ? SEGMENT_ON_CLASS : SEGMENT_OFF_CLASS}
           >
             {t("schedules.form.purpose.remediate")}
           </button>
@@ -572,7 +577,7 @@ function TriggerKindButton({
       data-testid={`schedule-form-trigger-${kind}`}
       aria-pressed={active}
       onClick={() => onSelect(kind)}
-      className={`px-2.5 py-0.5 text-[11px] ${active ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"}`}
+      className={active ? SEGMENT_ON_CLASS : SEGMENT_OFF_CLASS}
     >
       {t(kind === "interval" ? "schedules.form.trigger.interval" : "schedules.form.trigger.cron")}
     </button>
@@ -618,7 +623,8 @@ function ModeCard({
 }) {
   return (
     <div
-      className={`rounded border px-2.5 py-2 text-[11.5px] leading-relaxed text-text-muted ${active ? "border-accent/60 bg-accent/[0.05]" : "border-border"}`}
+      className={`rounded border px-2.5 py-2 text-[11.5px] leading-relaxed text-text-muted
+        ${active ? "border-accent/60 bg-accent/[0.05]" : "border-border"}`}
     >
       <b className="mb-1 block text-[12px] text-text">{title}</b>
       {children}
