@@ -26,6 +26,7 @@ import {
   type WriteSource,
 } from "../../kernel/src/index.ts";
 import { authorizeAction } from "./authorization.ts";
+import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
@@ -201,6 +202,7 @@ export function scanDocCandidates(input: {
         null,
         null,
         retirementBase ? "deletion_forbidden" : null,
+        retirementBase ? "deletion_forbidden" : null,
       );
     const { mediaType, policyId } = classification;
     if (candidate === base)
@@ -335,12 +337,11 @@ export function validateSelectedDocPaths(rootDir: string, selected: readonly str
   }
   const missing = scan.rows
     .filter((row) => row.state === "clean" && row.baseBlobSha256 === null && row.candidateBlobSha256 === null)
-    .map((row) => row.path);
-  if (missing.length > 0)
-    throw docSyncError(
-      "document_not_found",
-      `selected doc-sync path does not match an authored candidate: ${missing.join(", ")}; run ha doc status`,
-    );
+    .map((row) => ({
+      ...row,
+      reason: "selected doc-sync path does not match an authored candidate",
+    }));
+  if (missing[0]) throw docSyncError("document_not_found", blockedCandidateNextAction(missing[0]));
 }
 
 export function intentFromScan(
