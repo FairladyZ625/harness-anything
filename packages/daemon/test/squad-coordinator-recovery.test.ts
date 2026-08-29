@@ -377,6 +377,7 @@ test("a malformed leader result re-asks the same leader session instead of faili
 
     assert.equal(fixture.spawns.length, 1);
     assert.equal(fixture.reacquired(), 1);
+    assert.equal(fixture.spawns[0]?.squadId, "core-squad");
     assert.equal(fixture.spawns[0]?.providerSessionId, "provider-leader");
     assert.equal(fixture.spawns[0]?.idempotencyKey, `${SQUAD_RUN_ID}:leader:retry:leader-1`);
     assert.match(String(fixture.spawns[0]?.prompt), /Leader result was not JSON\./u);

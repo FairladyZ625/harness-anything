@@ -23,6 +23,34 @@ test("an exit-zero attempt with an incomplete plan settles as unknown", () => {
   );
 });
 
+test("a write-capable squad leader converged decision settles as succeeded without per-turn write evidence", () => {
+  const result = classifyRuntimeExit(
+    active({
+      squadId: "core-squad",
+      delegatedBy: null,
+      finalText: JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
+      writeItemObserved: false,
+      planObserved: false,
+    }),
+    0,
+  );
+  assert.equal(result.outcome, "succeeded");
+});
+
+test("a non-zero squad leader exit is failed even when its final text declares convergence", () => {
+  const result = classifyRuntimeExit(
+    active({
+      squadId: "core-squad",
+      delegatedBy: null,
+      finalText: JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
+      writeItemObserved: false,
+      planObserved: false,
+    }),
+    1,
+  );
+  assert.equal(result.outcome, "failed");
+});
+
 function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
   return {
     dispatchId: "dispatch_0123456789abcdef01234567",
