@@ -16,6 +16,7 @@ import type {
 } from "./task-lifecycle-event.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
 import { closeoutReadiness } from "./closeout-readiness.ts";
+import { validFactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import type {
   CodeDocProof,
   CompleteTaskCommand,
@@ -317,6 +318,13 @@ export const complete: Transition = {
       current = execution(snapshot, command.executionId),
       assessment = closeoutReadiness(snapshot);
     if (
+      command.factRetirementAttestations !== undefined &&
+      (!Array.isArray(command.factRetirementAttestations) ||
+        command.factRetirementAttestations.length === 0 ||
+        command.factRetirementAttestations.some((attestation) => !validFactStillHoldsAttestation(attestation)))
+    )
+      issues.push(lifecycleContractIssue("invalid_schema", "CompleteTask Fact retirement attestations are invalid"));
+    if (
       task?.status !== "in_review" ||
       task.currentNode !== "review" ||
       current?.state !== "submitted" ||
@@ -378,6 +386,9 @@ export const complete: Transition = {
       event: envelope<TaskCompletedEvent>(command, "task_completed", {
         task,
         execution: nextExecution,
+        ...(command.factRetirementAttestations?.length
+          ? { factRetirementAttestations: command.factRetirementAttestations }
+          : {}),
       }),
     };
   },

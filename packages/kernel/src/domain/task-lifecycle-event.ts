@@ -27,6 +27,7 @@ import type { EventEnvelope } from "./write-chain.contract.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { isValidDocEventChange, type DocEventChange } from "./doc-sync.contract.ts";
 import { timestamp } from "./timestamp.ts";
+import { validFactStillHoldsAttestation, type FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 export const taskEventTypes = [
   "task_created",
   "execution_started",
@@ -165,7 +166,11 @@ export type CompletionGateVerifiedEvent = TaskEventEnvelope<
 >;
 export type TaskCompletedEvent = TaskEventEnvelope<
   "task_completed",
-  { readonly task: TaskV1; readonly execution: ExecutionV1 }
+  {
+    readonly task: TaskV1;
+    readonly execution: ExecutionV1;
+    readonly factRetirementAttestations?: readonly FactStillHoldsAttestation[];
+  }
 >;
 export interface TaskMutationV1 {
   readonly command:
@@ -296,14 +301,17 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     fields = lifecyclePayloadFields(
       String(value.type),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "edge"),
+      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "factRetirementAttestations"),
     ),
     claims = payload.documentClaims;
   const claimlessFields =
     value.type === "task_created"
       ? ["task"]
-      : lifecyclePayloadFields(String(value.type), Object.hasOwn(payload, "edge")).filter(
-          (field) => field !== "documentClaims",
-        );
+      : lifecyclePayloadFields(
+          String(value.type),
+          Object.hasOwn(payload, "edge"),
+          Object.hasOwn(payload, "factRetirementAttestations"),
+        ).filter((field) => field !== "documentClaims");
   const payloadFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   const validPayloadFields =
     (value.type === "task_created" || value.type === "lease_renewed") && claims === undefined
@@ -371,6 +379,14 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     issues.push(...validateCodeDocWitnessV1(payload.witness, allowUnknownFields));
   if (value.type === "code_doc_repointed") issues.push(...validateCodeDocRepointV1(payload.record, allowUnknownFields));
   if (
+    value.type === "task_completed" &&
+    payload.factRetirementAttestations !== undefined &&
+    (!Array.isArray(payload.factRetirementAttestations) ||
+      payload.factRetirementAttestations.length === 0 ||
+      payload.factRetirementAttestations.some((attestation) => !validFactStillHoldsAttestation(attestation)))
+  )
+    issues.push(invalidEventPayloadIssue("task completion Fact retirement attestations are invalid"));
+  if (
     value.type === "code_doc_repointed" &&
     isRecord(payload.record) &&
     isRecord(payload.execution) &&
@@ -413,7 +429,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     issues.push(invalidEventPayloadIssue("payload Task identity must match the envelope"));
   return issues;
 }
-function lifecyclePayloadFields(type: string, edge: boolean): readonly string[] {
+function lifecyclePayloadFields(type: string, edge: boolean, factRetirementAttestations = false): readonly string[] {
   const common = ["task", "execution", "documentClaims"];
   if (type === "task_created") return ["task", "documentClaims"];
   if (type === "execution_started" || type === "lease_renewed")
@@ -424,6 +440,8 @@ function lifecyclePayloadFields(type: string, edge: boolean): readonly string[] 
   if (type === "review_consent_recorded") return [...common, "review", "consent"];
   if (type === "code_doc_reconciled" || type === "completion_gate_verified") return [...common, "witness"];
   if (type === "code_doc_repointed") return [...common, "record"];
+  if (type === "task_completed")
+    return [...common, ...(factRetirementAttestations ? ["factRetirementAttestations"] : [])];
   if (type === "lease_released") return [...common, "releasedLease", "mutation"];
   if (type.startsWith("task_") && !["task_created", "task_completed"].includes(type))
     return ["task", "mutation", "documentClaims"];

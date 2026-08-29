@@ -128,7 +128,15 @@ export function parseComplete(
   const f = readFlags("task-complete", args.slice(3), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
   const executionId = f.one.get("--execution-id"),
-    paths = f.many.get("--path") ?? [];
+    paths = f.many.get("--path") ?? [],
+    factHolds = (f.many.get("--fact-holds") ?? []).map((value) => {
+      const separator = value.indexOf(":"),
+        suppliedRef = value.slice(0, separator);
+      return {
+        factRef: suppliedRef.startsWith("fact/") ? suppliedRef : `fact/${suppliedRef}`,
+        rationale: value.slice(separator + 1),
+      };
+    });
   return accepted(rootDir, repoId, json, {
     kind: "task-complete",
     verb: args[1],
@@ -137,5 +145,6 @@ export function parseComplete(
     ...(executionId ? { executionId } : {}),
     ...(f.one.get("--ci") ? { ci: f.one.get("--ci") } : {}),
     ...(paths.length ? { paths } : {}),
+    ...(factHolds.length ? { factHolds } : {}),
   });
 }

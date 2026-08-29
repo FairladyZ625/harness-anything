@@ -256,6 +256,19 @@ export const taskExecutionProtocolCommands = Object.freeze([
         nextAction:
           "Provide each canonical code path with --path; the submitted commit and iteration are derived automatically.",
       }),
+      cliInput(
+        "--fact-holds",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use --fact-holds F-XXXXXXXX:<non-empty-rationale> once per standing upstream Fact.",
+        },
+        {
+          format: "<fact-id>:<rationale>",
+          regex: "^(?:fact/)?F-[0-9A-HJKMNP-TV-Z]{8}:.+$",
+        },
+      ),
     ],
   }),
   defineCenterForwardReadCommand({

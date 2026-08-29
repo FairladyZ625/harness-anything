@@ -522,8 +522,13 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
       completionGateIds: command.completionGateIds,
       presetSnapshotDigest: command.presetSnapshotDigest,
     };
-  if (command.type === "StartExecution" || command.type === "CompleteTask")
-    return { ...common, executionId: command.executionId };
+  if (command.type === "StartExecution") return { ...common, executionId: command.executionId };
+  if (command.type === "CompleteTask")
+    return {
+      ...common,
+      executionId: command.executionId,
+      factRetirementAttestations: command.factRetirementAttestations ?? [],
+    };
   if (command.type === "TransitionTask")
     return {
       ...common,
@@ -615,8 +620,13 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
       completionGateIds: event.payload.task.completionGateIds,
       presetSnapshotDigest: event.payload.task.presetSnapshotDigest,
     };
-  if (event.type === "execution_started" || event.type === "task_completed")
-    return { ...common, executionId: event.payload.execution.executionId };
+  if (event.type === "execution_started") return { ...common, executionId: event.payload.execution.executionId };
+  if (event.type === "task_completed")
+    return {
+      ...common,
+      executionId: event.payload.execution.executionId,
+      factRetirementAttestations: event.payload.factRetirementAttestations ?? [],
+    };
   if (event.type === "lease_renewed")
     return { ...common, executionId: event.payload.execution.executionId, expiresAt: event.payload.lease.expiresAt };
   if (event.type === "task_transitioned")

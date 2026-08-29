@@ -57,6 +57,8 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "passed",
       "--path",
       "packages/kernel/src/domain/task.ts",
+      "--fact-holds",
+      "F-ABCDEFGH:The upstream observation remains true after this task.",
     ]);
   for (const parsed of [submit, declare, review, consent, reconcile, complete])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
@@ -130,6 +132,12 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       executionId: "execution-1",
       ci: "passed",
       paths: ["packages/kernel/src/domain/task.ts"],
+      factHolds: [
+        {
+          factRef: "fact/F-ABCDEFGH",
+          rationale: "The upstream observation remains true after this task.",
+        },
+      ],
     });
   const derivedDeclare = parseThinCommand([
       "task",

@@ -12,6 +12,7 @@ import type { TaskEdgeTaken, TaskGraphV1 } from "./task-graph.ts";
 import type { NormalizedCommandEnvelope } from "./write-chain.contract.ts";
 import type { LeaseChangeReason, TaskEventType, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
+import type { FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 
 // Shared public contract shapes and internal transition protocol.
 export interface TaskLifecycleSnapshot {
@@ -93,6 +94,7 @@ export interface RepointCodeDocIntent extends Intent<"RepointCodeDoc"> {
 }
 export interface CompleteTaskIntent extends Intent<"CompleteTask"> {
   readonly executionId: string;
+  readonly factRetirementAttestations?: readonly FactStillHoldsAttestation[];
 }
 export type TaskLifecycleCommandIntent =
   | CreateReplayTaskIntent
@@ -204,9 +206,9 @@ export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTas
               ? CodeDocProof
               : C extends RepointCodeDocCommand
                 ? RepointCodeDocProof
-              : C extends CompleteTaskCommand
-                ? CompleteTaskProof
-                : never;
+                : C extends CompleteTaskCommand
+                  ? CompleteTaskProof
+                  : never;
 export interface TransitionResult {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly event: TaskEventV1;
