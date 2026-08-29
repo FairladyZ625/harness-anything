@@ -17,6 +17,7 @@ export async function runE2EProbeJourney({
   now = () => new Date().toISOString(),
   injectFault,
   prepareGui = true,
+  warmDaemon = true,
 } = {}) {
   const runId = `probe-${now().replaceAll(/[^0-9A-Za-z]/gu, "-")}-${randomUUID().slice(0, 8)}`,
     runRoot = path.join(outputRoot, runId),
@@ -29,6 +30,15 @@ export async function runE2EProbeJourney({
   mkdirSync(runRoot, { recursive: true, mode: 0o700 });
   try {
     if (prepareGui) prepareE2EProbeGui(workspaceRoot, env);
+    // The GUI answers projection reads with a 200 ms transport deadline. A scheduled run launches
+    // the app while its own daemon is still cold or catching up, so that first read overruns the
+    // deadline and the task sidebar stalls in its loading state until the probe's 20 s wait expires.
+    // Manual runs pass only because an earlier command already warmed the daemon. Pay that cost here,
+    // outside the GUI's budget, so both paths reach a ready projection before the window opens.
+    if (warmDaemon) {
+      currentStep = "warm_daemon";
+      await warmDaemonProjection({ rootDir, workspaceRoot, env });
+    }
     currentStep = "launch_gui";
     const [{ default: electronPath }, { _electron: electron }] = await Promise.all([
       import("electron"),
@@ -251,6 +261,37 @@ export async function recordE2EProbeFailure({
     taskId,
     deduplicated: false,
   };
+}
+
+export async function warmDaemonProjection({
+  rootDir = repositoryRoot,
+  workspaceRoot = repositoryRoot,
+  env = process.env,
+  attempts = 30,
+  delayMs = 1_000,
+  readProjection = () => runCliJson(workspaceRoot, rootDir, ["task", "list"], env),
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  let lastDetail = "the daemon answered no projection read";
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const status = projectionStatus(await readProjection());
+      if (status === "ready") return { attempts: attempt + 1, status };
+      lastDetail = `projection status ${status ?? "unknown"} after ${attempt + 1} read(s)`;
+    } catch (error) {
+      lastDetail = error instanceof Error ? error.message : String(error);
+    }
+    if (attempt + 1 < attempts) await sleep(delayMs);
+  }
+  throw probeError("daemon_projection_unready", `Daemon projection never reached ready: ${lastDetail}.`);
+}
+
+function projectionStatus(receipt) {
+  try {
+    return JSON.parse(receipt.evidence).status ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function agentRun() {
