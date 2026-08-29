@@ -13,12 +13,7 @@ import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rp
 import type { DaemonShutdownExchange } from "../../../daemon/src/client/local-json-rpc-shutdown.ts";
 import { detachedProcessOptions, terminateProcess } from "../../../daemon/src/process-port.ts";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import {
-  DaemonAutostartError,
-  ensureLocalDaemonRunning,
-  isDaemonUnreachable,
-  runtimeDaemonStartRefusal,
-} from "../../../daemon/src/client/daemon-autostart.ts";
+import { ensureLocalDaemonRunning, runtimeDaemonStartRefusal } from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 import {
   daemonProcessAlive,
@@ -102,37 +97,8 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       if (refusal) return finish(daemonFailure("daemon-serve", "daemon_start_runtime_forbidden", refusal.hint), 1);
       return serve(userRoot, daemonId, finish);
     }
-    if (command === "start") {
-      if (!argv.includes("--service"))
-        return finish(
-          daemonFailure(
-            "daemon-start",
-            "service_required",
-            "Use `ha daemon start --service` to start the resident daemon; other CLI commands start it on demand.",
-          ),
-          2,
-        );
-      let running: Record<string, unknown> | null = null;
-      try {
-        running = await status(userRoot, daemonId, argv);
-      } catch (error) {
-        consumeKnownError(error);
-      }
-      if (running?.ok === true) return finish(running, 0);
-      const runtimeRefusal = runtimeDaemonStartRefusal();
-      if (runtimeRefusal)
-        return finish(daemonFailure("daemon-start", "daemon_start_runtime_forbidden", runtimeRefusal.hint), 1);
-      const started = await ensureLocalDaemonRunning({
-        socketPath: localUserDaemonEndpoint(userRoot, daemonId),
-        invokingRoot,
-        launch: () => cliDaemonServeLaunch(userRoot, daemonId),
-        onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
-      });
-      return started.ok
-        ? finish(await status(userRoot, daemonId, argv), 0)
-        : finish(daemonFailure("daemon-start", started.code ?? "daemon_start_failed", started.hint), 1);
-    }
-    if (command === "status") return finish(await status(userRoot, daemonId, argv, true), 0);
+    if (command === "start") return startDaemonService(argv, userRoot, daemonId, invokingRoot, finish);
+    if (command === "status") return finish(await status(userRoot, daemonId, argv), 0);
     if (command === "stop") {
       const pid = readDaemonPid(userRoot, daemonId);
       if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1);
@@ -164,6 +130,42 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
   } catch (error) {
     return finish(daemonFailure(`daemon-${command ?? "unknown"}`, code(error), message(error)), 1);
   }
+}
+async function startDaemonService(
+  argv: readonly string[],
+  userRoot: string,
+  daemonId: string,
+  invokingRoot: string,
+  finish: ControlFinisher,
+): Promise<number> {
+  if (!argv.includes("--service"))
+    return finish(
+      daemonFailure(
+        "daemon-start",
+        "service_required",
+        "Use `ha daemon start --service` to start the resident daemon; other CLI commands start it on demand.",
+      ),
+      2,
+    );
+  let running: Record<string, unknown> | null = null;
+  try {
+    running = await status(userRoot, daemonId, argv);
+  } catch (error) {
+    consumeKnownError(error);
+  }
+  if (running?.ok === true) return finish(running, 0);
+  const runtimeRefusal = runtimeDaemonStartRefusal();
+  if (runtimeRefusal)
+    return finish(daemonFailure("daemon-start", "daemon_start_runtime_forbidden", runtimeRefusal.hint), 1);
+  const started = await ensureLocalDaemonRunning({
+    socketPath: localUserDaemonEndpoint(userRoot, daemonId),
+    invokingRoot,
+    launch: () => cliDaemonServeLaunch(userRoot, daemonId),
+    onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
+  });
+  return started.ok
+    ? finish(await status(userRoot, daemonId, argv), 0)
+    : finish(daemonFailure("daemon-start", started.code ?? "daemon_start_failed", started.hint), 1);
 }
 async function fleetControl(
   argv: readonly string[],
@@ -307,7 +309,6 @@ async function status(
   userRoot: string,
   daemonId: string,
   argv: readonly string[] = [],
-  autostart = false,
 ): Promise<Record<string, unknown>> {
   const root = path.resolve(daemonOption(argv, "--root") ?? process.cwd()),
     repoIdOverride = daemonOption(argv, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID;
@@ -322,24 +323,7 @@ async function status(
     }
   })();
   const endpoint = resolved?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
-    request = () => requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75);
-  let result: Record<string, unknown>;
-  try {
-    result = await request();
-  } catch (error) {
-    if (!autostart || !isDaemonUnreachable(error)) throw error;
-    consumeKnownError(error);
-    const refusal = runtimeDaemonStartRefusal();
-    if (refusal) throw new DaemonAutostartError({ ok: false, ...refusal, attempts: 0 });
-    const started = await ensureLocalDaemonRunning({
-      socketPath: endpoint,
-      invokingRoot: root,
-      launch: () => cliDaemonServeLaunch(userRoot, daemonId),
-      onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
-    });
-    if (!started.ok) throw new DaemonAutostartError(started);
-    result = await request();
-  }
+    result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75);
   const target = {
       endpoint,
       daemonId,

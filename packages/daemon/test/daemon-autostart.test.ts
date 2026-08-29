@@ -41,18 +41,27 @@ test("a worktree is refused before spawn while the registered canonical checkout
   const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-host-root-")),
     canonical = path.join(parent, "repo"),
     worktree = path.join(canonical, ".worktrees", "feature"),
+    independent = path.join(parent, "independent"),
     userRoot = path.join(parent, "user");
   try {
     mkdirSync(path.join(canonical, ".git"), { recursive: true });
+    mkdirSync(path.join(canonical, ".git", "worktrees", "feature"), { recursive: true });
     mkdirSync(worktree, { recursive: true });
+    mkdirSync(path.join(independent, ".git"), { recursive: true });
     mkdirSync(userRoot);
     writeFileSync(path.join(worktree, ".git"), "gitdir: ../../.git/worktrees/feature\n", "utf8");
+    writeFileSync(path.join(canonical, ".git", "worktrees", "feature", "commondir"), "../..\n", "utf8");
     writeFileSync(
       path.join(userRoot, "registry.json"),
       `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [{ repoId: "canonical", canonicalRoot: canonical, state: "enabled" }] })}\n`,
       "utf8",
     );
     assert.equal(daemonHostStartRefusal({ invokingRoot: path.join(canonical, "packages"), userRoot }), null);
+    assert.equal(
+      daemonHostStartRefusal({ invokingRoot: independent, userRoot }),
+      null,
+      "a different, not-yet-registered repository owns its own checkout identity",
+    );
     const refusal = daemonHostStartRefusal({ invokingRoot: worktree, userRoot });
     assert.equal(refusal?.code, "daemon_start_noncanonical_checkout");
     assert.match(refusal?.hint ?? "", /A worktree may connect to an existing daemon but cannot host it/u);

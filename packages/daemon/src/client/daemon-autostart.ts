@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   acquireDaemonAutostartFlight,
@@ -68,20 +68,20 @@ export function daemonHostStartRefusal(input: {
   readonly userRoot: string;
 }): { readonly code: "daemon_start_noncanonical_checkout"; readonly hint: string } | null {
   const invokingCheckout = daemonCheckoutRoot(input.invokingRoot),
-    enabled = readRegisteredRepos(input.userRoot).filter((repo) => repo.state === "enabled"),
-    canonical = enabled
-      .filter((repo) => pathContains(repo.canonicalRoot, invokingCheckout))
-      .sort(
-        (left, right) => path.resolve(right.canonicalRoot).length - path.resolve(left.canonicalRoot).length,
-      )[0]?.canonicalRoot;
-  if (enabled.length === 0 || (canonical && canonicalPath(canonical) === invokingCheckout)) return null;
-  const registeredRoot = canonicalPath(canonical ?? enabled[0]!.canonicalRoot);
+    registered = readRegisteredRepos(input.userRoot)
+      .filter((repo) => repo.state === "enabled")
+      .map((repo) => daemonCheckoutRoot(repo.canonicalRoot))
+      .find(
+        (registeredRoot) => registeredRoot === invokingCheckout || sameGitRepository(registeredRoot, invokingCheckout),
+      );
+  if (!registered || registered === invokingCheckout) return null;
   return {
     code: "daemon_start_noncanonical_checkout",
     hint: [
       `Refusing daemon start from non-canonical checkout ${JSON.stringify(invokingCheckout)}.`,
-      `The shared daemon must be hosted from the registered canonical checkout ${JSON.stringify(registeredRoot)}.`,
-      `A worktree may connect to an existing daemon but cannot host it; run \`ha daemon status --root ${JSON.stringify(registeredRoot)}\`, then retry this command.`,
+      `This repository is already registered from ${JSON.stringify(registered)}.`,
+      "A worktree may connect to an existing daemon but cannot host it.",
+      `Run \`ha daemon status --root ${JSON.stringify(registered)}\`, then retry this command.`,
     ].join(" "),
   };
 }
@@ -304,7 +304,20 @@ function canonicalPath(value: string): string {
   const resolved = path.resolve(value);
   return existsSync(resolved) ? realpathSync.native(resolved) : resolved;
 }
-function pathContains(parent: string, child: string): boolean {
-  const relative = path.relative(canonicalPath(parent), child);
-  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+function sameGitRepository(left: string, right: string): boolean {
+  const leftCommon = gitCommonDirectory(left),
+    rightCommon = gitCommonDirectory(right);
+  return leftCommon !== null && rightCommon !== null && leftCommon === rightCommon;
+}
+function gitCommonDirectory(checkoutRoot: string): string | null {
+  const marker = path.join(checkoutRoot, ".git");
+  if (!existsSync(marker)) return null;
+  if (statSync(marker).isDirectory()) return canonicalPath(marker);
+  const gitdir = /^gitdir:\s*(.+)$/u.exec(readFileSync(marker, "utf8").trim())?.[1];
+  if (!gitdir) return null;
+  const administrativeRoot = canonicalPath(path.resolve(checkoutRoot, gitdir)),
+    commonPath = path.join(administrativeRoot, "commondir");
+  if (!existsSync(commonPath)) return administrativeRoot;
+  const relativeCommon = readFileSync(commonPath, "utf8").trim();
+  return relativeCommon ? canonicalPath(path.resolve(administrativeRoot, relativeCommon)) : administrativeRoot;
 }
