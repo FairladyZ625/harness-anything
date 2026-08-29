@@ -814,7 +814,7 @@ export function makeSquadCoordinator(input: {
           return {
             attemptId: attempt.attemptId,
             workerId: attempt.workerId,
-            leaderTurnId: attempt.leaderTurnId ?? null,
+            leaderTurnId: attempt.leaderTurnId,
             dispatchId: attempt.dispatchId,
             runtimeSessionId: attempt.runtimeSessionId,
             rejection: attempt.rejection,

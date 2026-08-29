@@ -21,7 +21,7 @@ import { LiveDot } from "../runtime/parts.tsx";
  * 该轮派发的 worker attempt 挂在轮次下(attempt.leaderTurnId 是父子边);轮次行内
  * 可展开该轮 receipt 原文(leader 的原始输出——「为何收敛/为何失败」的第一证据);
  * 轮次/尝试行都直达 session/<id>,任务出口直达 task 详情——与单会话段共用同一组
- * 可寻址导航。早于 leaderTurnId 字段的存量 run,其 attempt 归入尾部未关联组。
+ * 可寻址导航。
  */
 export function SquadRunDetail({
   detail,
@@ -102,7 +102,6 @@ export function SquadRunDetail({
           ))
         )}
       </section>
-      <UnlinkedAttempts attempts={run.workerAttempts} onSelectEntity={onSelectEntity} />
     </div>
   );
 }
@@ -162,28 +161,6 @@ function TurnSection({
           ))}
         </div>
       )}
-    </section>
-  );
-}
-
-/** 存量 run(早于 leaderTurnId 字段)的 attempt 无父子边:整组呈现,不猜轮次。 */
-function UnlinkedAttempts({
-  attempts,
-  onSelectEntity,
-}: {
-  readonly attempts: readonly SquadRunWorkerAttemptDto[];
-  readonly onSelectEntity: (ref: string) => void;
-}) {
-  const unlinked = attempts.filter((attempt) => attempt.leaderTurnId === null);
-  if (unlinked.length === 0) return null;
-  return (
-    <section data-testid="squad-run-unlinked">
-      <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
-        {t("agentRuntime.squadRunUnlinkedSection", { count: unlinked.length })}
-      </h3>
-      {unlinked.map((attempt) => (
-        <AttemptRow key={attempt.attemptId} attempt={attempt} onSelectEntity={onSelectEntity} />
-      ))}
     </section>
   );
 }
