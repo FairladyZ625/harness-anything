@@ -34,6 +34,7 @@ function dto(
     definitionRevision: 7,
     trigger: { kind: "interval", everyMs: 1_800_000, timezone: null, summary: "every 30m" },
     target: {
+      kind: "agent",
       agentId: "probe-agent",
       runtimeInstanceId: "codex-schedule",
       model: "gpt-5.6",

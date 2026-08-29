@@ -394,6 +394,7 @@ export default Object.freeze({
     "Schedule-S4",
     "Persons-Registry",
     "PLT-TestEng-W1",
+    "Schedule-S5",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([

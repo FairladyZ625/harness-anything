@@ -31,6 +31,7 @@ function row(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRowDto {
     definitionRevision: 7,
     trigger: { kind: "interval", everyMs: 7_200_000, timezone: null, summary: "every 2h" },
     target: {
+      kind: "agent",
       agentId: "probe-agent",
       runtimeInstanceId: "codex-schedule",
       model: "gpt-5.6",
