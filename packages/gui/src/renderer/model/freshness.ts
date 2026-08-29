@@ -40,7 +40,9 @@ const REASON_RANK: Record<FreshnessReason, number> = {
 };
 
 /** 仍在"未覆盖债"统计范围内的决策状态——生命周期终态不再等待补齐。 */
-const DEBT_SCOPE_DECISION_STATES: ReadonlySet<DecisionRow["state"]> = new Set(["in_effect", "proposed"]);
+const DEBT_SCOPE_DECISION_STATES: ReadonlySet<DecisionRow["state"]> = new Set(
+  /* @gate-identity check-gui-status-judgments/gui-status-069 */ ["in_effect", "proposed"],
+);
 
 function decisionOf(byId: ReadonlyMap<string, DecisionRow>, decisionRef: string): DecisionRow | null {
   return byId.get(decisionRef.replace(/^decision\//u, "")) ?? null;
