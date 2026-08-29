@@ -13,6 +13,7 @@ import { makeTransportDerivedIdentityProvider } from "./identity/transport-deriv
 import type { DaemonCommandClass, PeopleRoster } from "./identity/types.ts";
 import { type RepoCellBinding } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
+import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 
 export function localSystemBinding(
   rootDir: string,
@@ -117,7 +118,24 @@ export async function binding(
   });
   if (!resolved.ok) throw hostCodedError(resolved.code, resolved.message);
   const actor = { principal: { personId: resolved.actor.personId }, executor };
+  assertRuntimeScheduleCommandClass(rootDir, actor, required);
   return deriveLocalBinding(roster, actor, resolved.actor.roles, required, returnDeniedDocDetail);
+}
+
+export function assertRuntimeScheduleCommandClass(
+  rootDir: string,
+  actor: RepoCellBinding["actor"],
+  required: DaemonCommandClass,
+): void {
+  const executorId = actor.executor?.kind === "agent" ? actor.executor.id : null,
+    match = executorId === null ? null : /^runtime-session:(runtime_[a-z0-9]+)$/u.exec(executorId);
+  if (!match || required === "repo-read") return;
+  const header = readDispatchStreamHeaders(rootDir).find(({ runtimeSessionId }) => runtimeSessionId === match[1]);
+  if (header?.schedule?.mode === "detect")
+    throw hostCodedError(
+      "rbac_forbidden",
+      `Detect Schedule runtime ${match[1]} is structurally limited to repo-read commands.`,
+    );
 }
 
 export function declaredExecutor(value: unknown): RepoCellBinding["actor"]["executor"] {

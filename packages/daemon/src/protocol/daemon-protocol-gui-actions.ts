@@ -304,7 +304,10 @@ export const daemonGuiActionMethods = Object.freeze([
     shape({
       scheduleId: "string",
       name: "string",
-      everyMs: "number",
+      mode: "string",
+      everyMs: "number?",
+      cronExpression: "string?",
+      timezone: "string?",
       agentId: "string",
       runtimeInstanceId: "string",
       mission: "string",
@@ -324,7 +327,10 @@ export const daemonGuiActionMethods = Object.freeze([
     shape({
       scheduleId: "string",
       name: "string",
-      everyMs: "number",
+      mode: "string",
+      everyMs: "number?",
+      cronExpression: "string?",
+      timezone: "string?",
       agentId: "string",
       runtimeInstanceId: "string",
       mission: "string",

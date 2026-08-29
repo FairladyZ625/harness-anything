@@ -206,6 +206,7 @@ const frames = [
       kind: "schedule-create",
       scheduleId: "probe",
       name: "Probe",
+      mode: "detect",
       everyMs: 60_000,
       agentId: "probe-agent",
       runtimeInstanceId: "probe-instance",
@@ -269,6 +270,7 @@ test("Fleet transport union round-trips every closed wire variant", () => {
   const scheduleCommand = frames.find((frame) => frame.schema === "fleet.schedule.command/v1")!;
   for (const action of [
     { kind: "schedule-show", scheduleId: "probe" },
+    { kind: "schedule-runs", scheduleId: "probe", limit: 25 },
     {
       kind: "schedule-update",
       scheduleId: "probe",
@@ -277,6 +279,12 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       reasoningEffort: null,
       cwd: null,
       idempotencyKey: "update-probe",
+    },
+    {
+      kind: "schedule-update",
+      scheduleId: "probe",
+      cronExpression: "30 2 * * *",
+      timezone: "Asia/Taipei",
     },
     { kind: "schedule-delete", scheduleId: "probe", reason: "retired", idempotencyKey: "delete-probe" },
     {

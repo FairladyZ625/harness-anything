@@ -15,6 +15,7 @@ import { listProjectedTaskDocuments, readProjectedDocument } from "./doc-sync-ac
 import { makeGitReadinessSource } from "./process-port.ts";
 import { readObserveTail } from "./observe-tail.ts";
 import { readSchedulesGui } from "./schedules-gui-read.ts";
+import { readScheduleRuns } from "./schedule-runs-read.ts";
 import {
   commandClassForAction,
   commandDescriptorForAction,
@@ -246,6 +247,12 @@ export function createRepoCellApi(context: any): RepoCell {
     "repo.squad.run.read": (payload: Readonly<Record<string, unknown>>) =>
       context.squadCoordinator.read(context.requiredCellText(payload.squadRunId, "squadRunId")),
     "repo.schedules.list": () => readSchedulesGui(context),
+    "repo.schedules.runs": (payload: Readonly<Record<string, unknown>>) =>
+      readScheduleRuns(
+        context,
+        context.requiredCellText(payload.scheduleId, "scheduleId"),
+        payload.limit === undefined ? 50 : Number(payload.limit),
+      ),
     "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
     "repo.tasks.document.read": (payload) => readProjectedDocument(context.rootDir, context.projection, payload),
     "repo.tasks.documents.list": (payload) => listProjectedTaskDocuments(context.rootDir, context.projection, payload),

@@ -17,28 +17,35 @@ test("Schedule interval occurrences keep the creation anchor without fixed-delay
   assert.equal(nextScheduleOccurrence(trigger, "2026-08-26T10:05:30.000Z"), "2026-08-26T10:06:00.000Z");
 });
 
-test("Schedule rejects deferred trigger kinds, non-agent targets, and non-UTC instants", () => {
+test("Schedule cron occurrences preserve daily wall-clock time in the declared timezone", () => {
+  const trigger = { kind: "cron" as const, expression: "30 2 * * *", timezone: "Asia/Taipei" };
+  assert.equal(nextScheduleOccurrence(trigger, "2026-08-26T18:29:00.000Z"), "2026-08-26T18:30:00.000Z");
+  assert.equal(nextScheduleOccurrence(trigger, "2026-08-26T18:30:00.000Z"), "2026-08-27T18:30:00.000Z");
+});
+
+test("Schedule validates cron, mode, squad placeholders, and UTC instants", () => {
   const schedule = fixtureSchedule();
   assert.notDeepEqual(
     validateScheduleV1({
       ...schedule,
       spec: {
         ...schedule.spec,
-        trigger: { kind: "cron", expression: "0 8 * * *", timeZone: "Asia/Taipei" },
+        trigger: { kind: "cron", expression: "not cron", timezone: "Asia/Taipei" },
       },
     }),
     [],
   );
-  assert.notDeepEqual(
+  assert.deepEqual(
     validateScheduleV1({
       ...schedule,
       spec: {
         ...schedule.spec,
-        target: { kind: "squad", squadId: "squad-heartbeat", runtimeInstanceId: "runtime-local" },
+        target: { kind: "squad", squadId: "squad-heartbeat" },
       },
     }),
     [],
   );
+  assert.notDeepEqual(validateScheduleV1({ ...schedule, mode: "observe" }), []);
   assert.notDeepEqual(validateScheduleV1({ ...schedule, createdAt: "2026-08-26T18:00:00+08:00" }), []);
 });
 
@@ -46,6 +53,7 @@ test("Schedule creation trims authored text and starts with an empty projected r
   const schedule = createScheduleV1({
     scheduleId: "schedule-heartbeat",
     name: "  Repository heartbeat  ",
+    mode: "detect",
     spec: {
       trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-26T10:00:00.000Z" },
       target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
@@ -80,6 +88,7 @@ test("Schedule update replaces the complete declaration while retaining projecte
     updated = updateScheduleV1({
       schedule: withHistory,
       name: "  Daily health  ",
+      mode: "remediate",
       spec: {
         trigger: { kind: "interval", everyMs: 3_600_000, anchorAt: "2026-08-26T11:00:00.000Z" },
         target: {
@@ -95,6 +104,7 @@ test("Schedule update replaces the complete declaration while retaining projecte
       occurredAt: "2026-08-26T11:00:00.000Z",
     });
   assert.equal(updated.name, "Daily health");
+  assert.equal(updated.mode, "remediate");
   assert.equal(updated.spec.mission, "Review repository health.");
   assert.equal(updated.createdAt, original.createdAt);
   assert.equal(updated.updatedAt, "2026-08-26T11:00:00.000Z");
@@ -105,6 +115,7 @@ function fixtureSchedule(): ScheduleV1 {
   return createScheduleV1({
     scheduleId: "schedule-heartbeat",
     name: "Repository heartbeat",
+    mode: "detect",
     spec: {
       trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-26T10:00:00.000Z" },
       target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },

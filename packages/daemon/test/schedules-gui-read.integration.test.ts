@@ -166,6 +166,7 @@ test(
                 kind: "schedule-create",
                 scheduleId: "heartbeat-probe",
                 name: "Heartbeat probe",
+                mode: "detect",
                 everyMs: 300_000,
                 agentId: "probe-agent",
                 runtimeInstanceId: definition.instanceId,
@@ -201,6 +202,7 @@ test(
         assert.deepEqual(created.trigger, {
           kind: "interval",
           everyMs: 300_000,
+          expression: null,
           timezone: null,
           summary: "every 5m",
         });
@@ -360,6 +362,7 @@ test(
               kind: "schedule-create",
               scheduleId: "heartbeat-probe",
               name: "Heartbeat probe",
+              mode: "detect",
               everyMs: 300_000,
               agentId: "probe-agent",
               runtimeInstanceId: definition.instanceId,

@@ -447,7 +447,7 @@ export function makeRuntimeSpawner(input: {
       protocolFamily = runtimeKind.protocolFamily,
       workerGitEnvironment = taskId
         ? await prepareWorkerGitEnvironment(runtimeInstanceId)
-        : trustedSchedule
+        : trustedSchedule?.mode === "remediate"
           ? await input.prepareWorkerGitEnvironment?.(runtimeInstanceId)
           : undefined;
     // Enforced runtimes replace HOME and TMPDIR, so a task worker needs the daemon's sealed callback
@@ -476,6 +476,7 @@ export function makeRuntimeSpawner(input: {
                 ? {
                     HARNESS_SCHEDULE_ID: trustedSchedule.scheduleId,
                     HARNESS_SCHEDULE_CLAIM_FENCE: trustedSchedule.claimFence,
+                    HARNESS_SCHEDULE_MODE: trustedSchedule.mode,
                   }
                 : {}),
             },
@@ -676,10 +677,11 @@ export function makeRuntimeSpawner(input: {
           cwd: scheduled.cwd ? { scope: "repo-relative", path: scheduled.cwd } : { scope: "repo-root" },
           ...(scheduled.model ? { model: scheduled.model } : {}),
           ...(scheduled.effort ? { effort: scheduled.effort } : {}),
+          ...(scheduled.mode === "detect" ? { permissionMode: "read-only" } : {}),
         },
         binding,
         undefined,
-        { scheduleId: scheduled.scheduleId, claimFence: scheduled.claimFence },
+        { scheduleId: scheduled.scheduleId, claimFence: scheduled.claimFence, mode: scheduled.mode },
       ),
     adopt: () => adoptRuntimes(extracted),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),

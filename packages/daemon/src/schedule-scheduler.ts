@@ -1,4 +1,5 @@
 import { consumeKnownError, nextScheduleOccurrence, type ScheduleMissedReason } from "../../kernel/src/index.ts";
+import type { ScheduleTriggerV1 } from "../../kernel/src/index.ts";
 import type { DaemonCommandClass } from "./identity/types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {
@@ -246,7 +247,7 @@ function evaluateSchedule(
   schedule: ScheduleListRow,
   observedAt: string,
 ): { readonly due: DueOccurrence | null; readonly missed: MissedOccurrences | null } {
-  if (schedule.state !== "armed") return { due: null, missed: null };
+  if (schedule.state !== "armed" || schedule.spec.target.kind !== "agent") return { due: null, missed: null };
   const cursor =
       Date.parse(schedule.updatedAt) > Date.parse(schedule.status.automaticEvaluatedThrough)
         ? schedule.updatedAt
@@ -265,9 +266,7 @@ function evaluateSchedule(
       },
       missed: null,
     };
-  const everyMs = schedule.spec.trigger.everyMs,
-    count = Math.floor((observedMs - firstMs) / everyMs) + 1,
-    latest = new Date(firstMs + (count - 1) * everyMs).toISOString(),
+  const { count, latest } = occurrencesThrough(schedule.spec.trigger, first, observedAt),
     latestAdmitted = observedMs - Date.parse(latest) <= scheduleAdmissionWindowMs,
     missedCount = schedule.status.activeRun ? count : latestAdmitted ? count - 1 : count,
     reason: ScheduleMissedReason = schedule.status.activeRun ? "single_flight" : "scheduler_unavailable";
@@ -278,7 +277,7 @@ function evaluateSchedule(
         target,
         scheduleId: schedule.scheduleId,
         from: first,
-        to: new Date(firstMs + (missedCount - 1) * everyMs).toISOString(),
+        to: occurrenceAt(schedule.spec.trigger, first, missedCount - 1),
         count: missedCount,
         reason,
         definitionRevision: schedule.definitionRevision,
@@ -295,6 +294,33 @@ function evaluateSchedule(
     },
     missed: null,
   };
+}
+
+function occurrencesThrough(
+  trigger: ScheduleTriggerV1,
+  first: string,
+  observedAt: string,
+): { readonly count: number; readonly latest: string } {
+  if (trigger.kind === "interval") {
+    const count = Math.floor((Date.parse(observedAt) - Date.parse(first)) / trigger.everyMs) + 1;
+    return { count, latest: new Date(Date.parse(first) + (count - 1) * trigger.everyMs).toISOString() };
+  }
+  let count = 1,
+    latest = first;
+  while (true) {
+    const next = nextScheduleOccurrence(trigger, latest);
+    if (next > observedAt) return { count, latest };
+    latest = next;
+    count += 1;
+  }
+}
+
+function occurrenceAt(trigger: ScheduleTriggerV1, first: string, offset: number): string {
+  if (offset < 1) return first;
+  if (trigger.kind === "interval") return new Date(Date.parse(first) + offset * trigger.everyMs).toISOString();
+  let occurrence = first;
+  for (let index = 0; index < offset; index += 1) occurrence = nextScheduleOccurrence(trigger, occurrence);
+  return occurrence;
 }
 
 async function recordMissed(input: MissedOccurrences): Promise<void> {

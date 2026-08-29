@@ -423,28 +423,39 @@ const taskAssignmentScope = shape({ kind: one("task"), taskId: id, executionId: 
   assignmentScope: Check = (value) => taskAssignmentScope(value) || scheduleAssignmentScope(value);
 const scheduleMission: Check = (value) => typeof value === "string" && value.length > 0 && value.length <= 32 * 1024,
   scheduleActionShapes: Readonly<Record<string, Check>> = {
-    "schedule-create": optionalShape(
-      {
-        kind: one("schedule-create"),
-        scheduleId: id,
-        name: text,
-        everyMs: (value) => positiveInt(value) && Number(value) >= 60_000,
-        agentId: id,
-        runtimeInstanceId: id,
-        mission: scheduleMission,
-        model: text,
-        reasoningEffort: one("minimal", "low", "medium", "high", "xhigh"),
-        cwd: logicalPath,
-        disabled: boolean,
-        idempotencyKey: text,
-      },
-      ["kind", "scheduleId", "name", "everyMs", "agentId", "runtimeInstanceId", "mission"],
-    ),
+    "schedule-create": (value) =>
+      optionalShape(
+        {
+          kind: one("schedule-create"),
+          scheduleId: id,
+          name: text,
+          mode: one("detect", "remediate"),
+          everyMs: (item) => positiveInt(item) && Number(item) >= 60_000,
+          cronExpression: text,
+          timezone: text,
+          agentId: id,
+          runtimeInstanceId: id,
+          mission: scheduleMission,
+          model: text,
+          reasoningEffort: one("minimal", "low", "medium", "high", "xhigh"),
+          cwd: logicalPath,
+          disabled: boolean,
+          idempotencyKey: text,
+        },
+        ["kind", "scheduleId", "name", "mode", "agentId", "runtimeInstanceId", "mission"],
+      )(value) &&
+      record(value) &&
+      Object.hasOwn(value, "everyMs") !== Object.hasOwn(value, "cronExpression") &&
+      Object.hasOwn(value, "cronExpression") === Object.hasOwn(value, "timezone"),
     "schedule-enable": optionalShape({ kind: one("schedule-enable"), scheduleId: id, idempotencyKey: text }, [
       "kind",
       "scheduleId",
     ]),
     "schedule-list": optionalShape({ kind: one("schedule-list"), scheduleId: id }, ["kind", "scheduleId"]),
+    "schedule-runs": optionalShape({ kind: one("schedule-runs"), scheduleId: id, limit: positiveInt }, [
+      "kind",
+      "scheduleId",
+    ]),
     "schedule-show": optionalShape({ kind: one("schedule-show"), scheduleId: id }, ["kind", "scheduleId"]),
     "schedule-update": (value) =>
       optionalShape(
@@ -452,7 +463,10 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
           kind: one("schedule-update"),
           scheduleId: id,
           name: text,
+          mode: one("detect", "remediate"),
           everyMs: (item) => positiveInt(item) && Number(item) >= 60_000,
+          cronExpression: text,
+          timezone: text,
           agentId: id,
           runtimeInstanceId: id,
           mission: scheduleMission,
@@ -464,9 +478,24 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
         ["kind", "scheduleId"],
       )(value) &&
       record(value) &&
-      ["name", "everyMs", "agentId", "runtimeInstanceId", "mission", "model", "reasoningEffort", "cwd"].some((field) =>
-        Object.hasOwn(value, field),
-      ),
+      [
+        "name",
+        "mode",
+        "everyMs",
+        "cronExpression",
+        "timezone",
+        "agentId",
+        "runtimeInstanceId",
+        "mission",
+        "model",
+        "reasoningEffort",
+        "cwd",
+      ].some((field) => Object.hasOwn(value, field)) &&
+      !(
+        Object.hasOwn(value, "everyMs") &&
+        (Object.hasOwn(value, "cronExpression") || Object.hasOwn(value, "timezone"))
+      ) &&
+      (!Object.hasOwn(value, "cronExpression") || Object.hasOwn(value, "timezone")),
     "schedule-delete": optionalShape(
       { kind: one("schedule-delete"), scheduleId: id, reason: text, idempotencyKey: text },
       ["kind", "scheduleId"],

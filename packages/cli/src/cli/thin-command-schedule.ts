@@ -3,6 +3,7 @@ import {
   parseScheduleListReceipt,
   type ScheduleListRow,
 } from "../../../daemon/src/protocol/daemon-protocol-validate-results.ts";
+import { validateScheduleRuns, type ScheduleRunsResult } from "../../../daemon/src/protocol/schedule-runs-contract.ts";
 import { consumeKnownError } from "../daemon/client.ts";
 import { accepted, nonEmpty, optionalFlags, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
@@ -38,6 +39,12 @@ export function parseSchedule(
     return rejected("missing_field", `Use ha schedule ${args[1] ?? "<command>"} <schedule-id>.`, json);
   const idempotencyKey = flags.one.get("--idempotency-key"),
     retry = idempotencyKey ? { idempotencyKey } : {};
+  if (route.id === "schedule-runs")
+    return accepted(rootDir, repoId, json, {
+      kind: route.id,
+      scheduleId,
+      ...(flags.one.has("--limit") ? { limit: Number(flags.one.get("--limit")) } : {}),
+    });
   if (route.id === "schedule-delete")
     return accepted(rootDir, repoId, json, {
       kind: route.id,
@@ -49,9 +56,14 @@ export function parseSchedule(
     const mission = flags.one.get("--mission"),
       missionFile = flags.one.get("--mission-file"),
       every = flags.one.get("--every"),
+      cronExpression = flags.one.get("--cron"),
+      timezone = flags.one.get("--timezone"),
       updateFlags = [
         "--name",
+        "--mode",
         "--every",
+        "--cron",
+        "--timezone",
         "--agent",
         "--instance",
         "--mission",
@@ -62,6 +74,9 @@ export function parseSchedule(
       ];
     if (mission && missionFile)
       return rejected("invalid_field", "Use --mission <text> or --mission-file <path>, not both.", json);
+    if (every && (cronExpression || timezone))
+      return rejected("invalid_field", "Use --every or --cron/--timezone, not both.", json);
+    if (cronExpression && !timezone) return rejected("missing_field", "Add --timezone <IANA-zone> with --cron.", json);
     if (!updateFlags.some((flag) => flags.one.has(flag)))
       return rejected("missing_field", "Change at least one Schedule definition field.", json);
     const everyMs = every === undefined ? undefined : parseScheduleDuration(every);
@@ -76,6 +91,7 @@ export function parseSchedule(
       scheduleId,
       ...optionalFlags(flags.one, [
         ["--name", "name"],
+        ["--mode", "mode"],
         ["--agent", "agentId"],
         ["--instance", "runtimeInstanceId"],
         ["--model", "model"],
@@ -83,17 +99,25 @@ export function parseSchedule(
         ["--cwd", "cwd"],
       ]),
       ...(everyMs === undefined ? {} : { everyMs }),
+      ...(cronExpression === undefined ? {} : { cronExpression }),
+      ...(timezone === undefined ? {} : { timezone }),
       ...(mission ? { mission } : missionFile ? { missionFile } : {}),
       ...retry,
     });
   }
   if (route.id !== "schedule-create") return accepted(rootDir, repoId, json, { kind: route.id, scheduleId, ...retry });
   const mission = flags.one.get("--mission"),
-    missionFile = flags.one.get("--mission-file");
+    missionFile = flags.one.get("--mission-file"),
+    every = flags.one.get("--every"),
+    cronExpression = flags.one.get("--cron"),
+    timezone = flags.one.get("--timezone");
   if (Boolean(mission) === Boolean(missionFile))
     return rejected("missing_field", "Use exactly one of --mission <text> or --mission-file <path>.", json);
-  const every = flags.one.get("--every")!,
-    everyMs = parseScheduleDuration(every);
+  if (Boolean(every) === Boolean(cronExpression))
+    return rejected("missing_field", "Use exactly one of --every <duration> or --cron <expression>.", json);
+  if (cronExpression && !timezone) return rejected("missing_field", "Add --timezone <IANA-zone> with --cron.", json);
+  if (!cronExpression && timezone) return rejected("invalid_field", "Use --timezone only with --cron.", json);
+  const everyMs = every === undefined ? undefined : parseScheduleDuration(every);
   if (everyMs === null)
     return rejected(
       "invalid_field",
@@ -104,7 +128,8 @@ export function parseSchedule(
     kind: "schedule-create",
     scheduleId,
     name: flags.one.get("--name"),
-    everyMs,
+    mode: flags.one.get("--mode"),
+    ...(everyMs === undefined ? { cronExpression, timezone } : { everyMs }),
     agentId: flags.one.get("--agent"),
     runtimeInstanceId: flags.one.get("--instance"),
     ...(mission ? { mission } : { missionFile }),
@@ -150,4 +175,31 @@ export function renderScheduleShow(receipt: Record<string, unknown>): string | n
   if (receipt.command !== "schedule-show" || receipt.schedule === null || typeof receipt.schedule !== "object")
     return null;
   return JSON.stringify(receipt.schedule, null, 2);
+}
+
+export function renderScheduleRuns(receipt: Record<string, unknown>): string | null {
+  if (receipt.command !== "schedule-runs" || typeof receipt.evidence !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(receipt.evidence);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const { schema, ...result } = parsed as Record<string, unknown>;
+    if (schema !== "schedule-runs/v1" || validateScheduleRuns(result).length) return null;
+    const runs = (result as unknown as ScheduleRunsResult).runs;
+    if (!runs.length) return "No Schedule occurrences.";
+    return runs
+      .map((run) =>
+        [
+          run.occurrenceId,
+          run.scheduledFor,
+          run.outcome,
+          run.nodeId ?? "none",
+          run.durationMs === null ? "none" : `${run.durationMs}ms`,
+          run.reportRef ?? run.missedReason ?? "none",
+        ].join("\t"),
+      )
+      .join("\n");
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
 }

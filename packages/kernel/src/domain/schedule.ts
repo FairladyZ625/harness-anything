@@ -1,3 +1,4 @@
+import { CronExpressionParser } from "cron-parser";
 import type { EntityDocumentJsonSchema, EntityJsonObjectSchema } from "./entity-json-schema.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
 import { ENTITY_ID_PATTERN } from "./entity-ref.ts";
@@ -6,6 +7,7 @@ import { timestamp } from "./timestamp.ts";
 import { hasContractFields, isNonEmptyString, isRecord } from "./write-chain.contract.ts";
 
 export const scheduleStates = ["armed", "paused"] as const;
+export const scheduleModes = ["detect", "remediate"] as const;
 export const scheduleMissedReasons = ["scheduler_unavailable", "single_flight"] as const;
 export const scheduleRunOutcomes = ["succeeded", "failed", "unknown", "cancelled"] as const;
 export const scheduleDefinitionEventTypes = [
@@ -28,6 +30,7 @@ export const scheduleEventTypes = [
   ...scheduleRunEventTypes,
 ] as const;
 export type ScheduleState = (typeof scheduleStates)[number];
+export type ScheduleMode = (typeof scheduleModes)[number];
 export type ScheduleMissedReason = (typeof scheduleMissedReasons)[number];
 export type ScheduleRunOutcome = (typeof scheduleRunOutcomes)[number];
 export type ScheduleDefinitionEventType = (typeof scheduleDefinitionEventTypes)[number];
@@ -35,9 +38,11 @@ export type ScheduleDeletionEventType = (typeof scheduleDeletionEventTypes)[numb
 export type ScheduleRunEventType = (typeof scheduleRunEventTypes)[number];
 export type ScheduleEventType = (typeof scheduleEventTypes)[number];
 
-export type ScheduleTriggerV1 = { readonly kind: "interval"; readonly everyMs: number; readonly anchorAt: string };
+export type ScheduleTriggerV1 =
+  | { readonly kind: "interval"; readonly everyMs: number; readonly anchorAt: string }
+  | { readonly kind: "cron"; readonly expression: string; readonly timezone: string };
 
-export interface ScheduleTargetV1 {
+export interface ScheduleAgentTargetV1 {
   readonly kind: "agent";
   readonly agentId: string;
   readonly runtimeInstanceId: string;
@@ -46,11 +51,19 @@ export interface ScheduleTargetV1 {
   readonly cwd?: string;
 }
 
+export interface ScheduleSquadTargetV1 {
+  readonly kind: "squad";
+  readonly squadId: string;
+}
+
+export type ScheduleTargetV1 = ScheduleAgentTargetV1 | ScheduleSquadTargetV1;
+
 export interface ScheduleDefinitionV1 {
   readonly schema: "schedule/v1";
   readonly scheduleId: string;
   readonly name: string;
   readonly state: ScheduleState;
+  readonly mode: ScheduleMode;
   readonly spec: {
     readonly trigger: ScheduleTriggerV1;
     readonly target: ScheduleTargetV1;
@@ -102,9 +115,11 @@ export type ScheduleV1 = ScheduleDefinitionV1 & { readonly status: ScheduleRunVi
 const triggerSchema: EntityJsonObjectSchema = {
   type: "object",
   properties: {
-    kind: { type: "string", const: "interval" },
+    kind: { type: "string", enum: ["interval", "cron"] },
     everyMs: { type: "integer", minimum: 60_000 },
     anchorAt: { type: "string", minLength: 1 },
+    expression: { type: "string", minLength: 1 },
+    timezone: { type: "string", minLength: 1 },
   },
   required: ["kind"],
   additionalProperties: false,
@@ -112,14 +127,15 @@ const triggerSchema: EntityJsonObjectSchema = {
 const targetSchema: EntityJsonObjectSchema = {
   type: "object",
   properties: {
-    kind: { type: "string", const: "agent" },
+    kind: { type: "string", enum: ["agent", "squad"] },
     agentId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
     runtimeInstanceId: { type: "string", minLength: 1 },
     model: { type: "string", minLength: 1 },
     reasoningEffort: { type: "string", minLength: 1 },
     cwd: { type: "string", minLength: 1 },
+    squadId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
   },
-  required: ["kind", "agentId", "runtimeInstanceId"],
+  required: ["kind"],
   additionalProperties: false,
 };
 const definitionProperties = {
@@ -127,6 +143,7 @@ const definitionProperties = {
   scheduleId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
   name: { type: "string", minLength: 1 },
   state: { type: "string", enum: scheduleStates },
+  mode: { type: "string", enum: scheduleModes },
   spec: {
     type: "object",
     properties: {
@@ -141,7 +158,17 @@ const definitionProperties = {
   createdBy: { type: "object", properties: {}, required: [], additionalProperties: true },
   updatedAt: { type: "string", minLength: 1 },
 } as const;
-const definitionFields = ["schema", "scheduleId", "name", "state", "spec", "createdAt", "createdBy", "updatedAt"];
+const definitionFields = [
+  "schema",
+  "scheduleId",
+  "name",
+  "state",
+  "mode",
+  "spec",
+  "createdAt",
+  "createdBy",
+  "updatedAt",
+];
 
 export const SCHEDULE_DEFINITION_V1_SCHEMA: EntityDocumentJsonSchema<ScheduleDefinitionV1> = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -187,6 +214,7 @@ export function createScheduleV1(input: {
   readonly scheduleId: string;
   readonly name: string;
   readonly state?: ScheduleState;
+  readonly mode: ScheduleMode;
   readonly spec: ScheduleDefinitionV1["spec"];
   readonly actor: ActorIdentity;
   readonly occurredAt: string;
@@ -196,6 +224,7 @@ export function createScheduleV1(input: {
     scheduleId: input.scheduleId,
     name: input.name.trim(),
     state: input.state ?? "armed",
+    mode: input.mode,
     spec: { ...input.spec, mission: input.spec.mission.trim() },
     createdAt: input.occurredAt,
     createdBy: input.actor,
@@ -220,12 +249,14 @@ export function createScheduleV1(input: {
 export function updateScheduleV1(input: {
   readonly schedule: ScheduleV1;
   readonly name: string;
+  readonly mode: ScheduleMode;
   readonly spec: ScheduleDefinitionV1["spec"];
   readonly occurredAt: string;
 }): ScheduleV1 {
   const schedule: ScheduleV1 = {
     ...input.schedule,
     name: input.name.trim(),
+    mode: input.mode,
     spec: { ...input.spec, mission: input.spec.mission.trim() },
     updatedAt: input.occurredAt,
   };
@@ -240,6 +271,7 @@ export function scheduleDefinition(schedule: ScheduleV1): ScheduleDefinitionV1 {
     scheduleId: schedule.scheduleId,
     name: schedule.name,
     state: schedule.state,
+    mode: schedule.mode,
     spec: schedule.spec,
     createdAt: schedule.createdAt,
     createdBy: schedule.createdBy,
@@ -260,6 +292,7 @@ export function validateScheduleDefinitionV1(value: unknown, allowUnknownFields 
     !new RegExp(ENTITY_ID_PATTERN, "u").test(value.scheduleId) ||
     !isNonEmptyString(value.name) ||
     !scheduleStates.includes(value.state as ScheduleState) ||
+    !scheduleModes.includes(value.mode as ScheduleMode) ||
     !timestamp(value.createdAt) ||
     !timestamp(value.updatedAt) ||
     validateActorIdentity(value.createdBy, allowUnknownFields).length > 0 ||
@@ -284,6 +317,14 @@ export function validateScheduleV1(value: unknown, allowUnknownFields = false): 
 
 export function nextScheduleOccurrence(trigger: ScheduleTriggerV1, after: string): string {
   if (!timestamp(after) || !validTrigger(trigger, false)) throw new Error("schedule trigger or cursor is invalid");
+  if (trigger.kind === "cron")
+    return CronExpressionParser.parse(trigger.expression, {
+      currentDate: after,
+      tz: trigger.timezone,
+    })
+      .next()
+      .toDate()
+      .toISOString();
   const anchor = Date.parse(trigger.anchorAt),
     cursor = Date.parse(after),
     steps = Math.max(1, Math.floor((cursor - anchor) / trigger.everyMs) + 1);
@@ -301,18 +342,42 @@ function validSpec(value: unknown, allowUnknownFields: boolean): boolean {
 }
 
 function validTrigger(value: unknown, allowUnknownFields: boolean): value is ScheduleTriggerV1 {
-  return (
-    isRecord(value) &&
-    hasContractFields(value, ["kind", "everyMs", "anchorAt"], allowUnknownFields) &&
-    value.kind === "interval" &&
-    Number.isSafeInteger(value.everyMs) &&
-    Number(value.everyMs) >= 60_000 &&
-    timestamp(value.anchorAt)
-  );
+  if (!isRecord(value)) return false;
+  if (value.kind === "interval")
+    return (
+      hasContractFields(value, ["kind", "everyMs", "anchorAt"], allowUnknownFields) &&
+      Number.isSafeInteger(value.everyMs) &&
+      Number(value.everyMs) >= 60_000 &&
+      timestamp(value.anchorAt)
+    );
+  if (
+    value.kind !== "cron" ||
+    !hasContractFields(value, ["kind", "expression", "timezone"], allowUnknownFields) ||
+    !isNonEmptyString(value.expression) ||
+    !isNonEmptyString(value.timezone) ||
+    value.expression.trim().split(/\s+/u).length !== 5 ||
+    value.expression.includes("H")
+  )
+    return false;
+  try {
+    CronExpressionParser.parse(value.expression, {
+      currentDate: "2026-01-01T00:00:00.000Z",
+      tz: value.timezone,
+    }).next();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function validTarget(value: unknown, allowUnknownFields: boolean): value is ScheduleTargetV1 {
   if (!isRecord(value)) return false;
+  if (value.kind === "squad")
+    return (
+      hasContractFields(value, ["kind", "squadId"], allowUnknownFields) &&
+      typeof value.squadId === "string" &&
+      new RegExp(ENTITY_ID_PATTERN, "u").test(value.squadId)
+    );
   const optional = ["model", "reasoningEffort", "cwd"],
     required = ["kind", "agentId", "runtimeInstanceId"];
   return (

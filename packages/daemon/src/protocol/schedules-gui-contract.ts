@@ -7,15 +7,21 @@ import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
  * packages/daemon/src/schedules-gui-read.ts,protocol 目录不引 kernel barrel。 */
 export type ScheduleExecutionAvailability = "local" | "claimed-elsewhere" | "unassigned" | "not-on-this-node";
 
-/** Kernel `ScheduleTriggerV1` only defines the interval trigger, so the wire carries
- * exactly that variant — a schedule entity with any other trigger shape is rejected
- * by the read-side join instead of being recast here. */
-export type ScheduleGuiTriggerDto = {
-  readonly kind: "interval";
-  readonly everyMs: number;
-  readonly timezone: null;
-  readonly summary: string;
-};
+export type ScheduleGuiTriggerDto =
+  | {
+      readonly kind: "interval";
+      readonly everyMs: number;
+      readonly expression: null;
+      readonly timezone: null;
+      readonly summary: string;
+    }
+  | {
+      readonly kind: "cron";
+      readonly everyMs: null;
+      readonly expression: string;
+      readonly timezone: string;
+      readonly summary: string;
+    };
 
 export interface ScheduleGuiActionFacet {
   readonly available: boolean;
@@ -44,16 +50,20 @@ export interface ScheduleGuiRowDto {
   readonly scheduleId: string;
   readonly name: string;
   readonly state: "armed" | "paused";
+  readonly mode: "detect" | "remediate";
   readonly definitionResidency: "ledger";
   readonly definitionRevision: number;
   readonly trigger: ScheduleGuiTriggerDto;
-  readonly target: {
-    readonly agentId: string;
-    readonly runtimeInstanceId: string;
-    readonly model: string | null;
-    readonly reasoningEffort: string | null;
-    readonly cwd: string | null;
-  };
+  readonly target:
+    | {
+        readonly kind: "agent";
+        readonly agentId: string;
+        readonly runtimeInstanceId: string;
+        readonly model: string | null;
+        readonly reasoningEffort: string | null;
+        readonly cwd: string | null;
+      }
+    | { readonly kind: "squad"; readonly squadId: string };
   readonly mission: string;
   readonly executionAvailability: ScheduleExecutionAvailability;
   readonly claim: { readonly nodeId: string | null; readonly assignmentId: string | null };
@@ -122,6 +132,7 @@ const scheduleGuiRowFields = [
   "scheduleId",
   "name",
   "state",
+  "mode",
   "definitionResidency",
   "definitionRevision",
   "trigger",
@@ -177,12 +188,31 @@ function nullableNonEmpty(value: unknown): boolean {
 function validTriggerDto(value: unknown): boolean {
   return (
     isJsonObject(value) &&
-    value.kind === "interval" &&
-    Object.keys(value).length === 4 &&
-    Number.isSafeInteger(value.everyMs) &&
-    Number(value.everyMs) >= 60_000 &&
-    value.timezone === null &&
+    Object.keys(value).length === 5 &&
+    ((value.kind === "interval" &&
+      Number.isSafeInteger(value.everyMs) &&
+      Number(value.everyMs) >= 60_000 &&
+      value.expression === null &&
+      value.timezone === null) ||
+      (value.kind === "cron" &&
+        value.everyMs === null &&
+        scheduleNonEmptyText(value.expression) &&
+        scheduleNonEmptyText(value.timezone))) &&
     scheduleNonEmptyText(value.summary)
+  );
+}
+
+function validTargetDto(value: unknown): boolean {
+  if (!isJsonObject(value)) return false;
+  if (value.kind === "squad") return Object.keys(value).length === 2 && scheduleNonEmptyText(value.squadId);
+  return (
+    value.kind === "agent" &&
+    Object.keys(value).length === 6 &&
+    scheduleNonEmptyText(value.agentId) &&
+    scheduleNonEmptyText(value.runtimeInstanceId) &&
+    nullableNonEmpty(value.model) &&
+    nullableNonEmpty(value.reasoningEffort) &&
+    nullableNonEmpty(value.cwd)
   );
 }
 
@@ -262,17 +292,12 @@ export function validateSchedulesList(value: unknown): readonly string[] {
       !scheduleNonEmptyText(row.scheduleId) ||
       !scheduleNonEmptyText(row.name) ||
       !["armed", "paused"].includes(String(row.state)) ||
+      !["detect", "remediate"].includes(String(row.mode)) ||
       row.definitionResidency !== "ledger" ||
       !Number.isSafeInteger(row.definitionRevision) ||
       Number(row.definitionRevision) < 0 ||
       !validTriggerDto(row.trigger) ||
-      !isJsonObject(row.target) ||
-      Object.keys(row.target).length !== 5 ||
-      !scheduleNonEmptyText(row.target.agentId) ||
-      !scheduleNonEmptyText(row.target.runtimeInstanceId) ||
-      !nullableNonEmpty(row.target.model) ||
-      !nullableNonEmpty(row.target.reasoningEffort) ||
-      !nullableNonEmpty(row.target.cwd) ||
+      !validTargetDto(row.target) ||
       typeof row.mission !== "string" ||
       !scheduleGuiAvailabilityWords.includes(String(row.executionAvailability)) ||
       !isJsonObject(row.claim) ||

@@ -19,6 +19,7 @@ import type {
 import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import type { SquadRunReadResult, SquadRunsListResult } from "../squad-run-contract.ts";
 import type { SchedulesListResult } from "./schedules-gui-contract.ts";
+import type { ScheduleRunsResult } from "../schedule-runs-read.ts";
 import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
@@ -310,6 +311,7 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.squad.runs.list": SquadRunsListResult;
   readonly "repo.squad.run.read": SquadRunReadResult;
   readonly "repo.schedules.list": SchedulesListResult;
+  readonly "repo.schedules.runs": ScheduleRunsResult;
   readonly "repo.gui.catalog.snapshot": JsonObject;
   readonly "repo.gui.catalog.preset.read": JsonObject;
   readonly "repo.terminal.sessions.list": JsonObject;
@@ -374,6 +376,7 @@ export type DaemonGuiReadPayloadMap = {
     readonly squadRunId: string;
   };
   readonly "repo.schedules.list": Readonly<Record<string, never>>;
+  readonly "repo.schedules.runs": { readonly scheduleId: string; readonly limit?: number };
   readonly "repo.gui.catalog.snapshot": Readonly<Record<string, never>>;
   readonly "repo.gui.catalog.preset.read": {
     readonly presetId: string;

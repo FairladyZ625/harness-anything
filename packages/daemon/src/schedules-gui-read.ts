@@ -51,19 +51,22 @@ interface RosterAssignment {
 }
 
 function triggerDtoOf(schedule: ScheduleV1): ScheduleGuiTriggerDto {
-  const trigger = schedule.spec.trigger as Readonly<Record<string, unknown>>,
-    everyMs = trigger.everyMs;
-  if (trigger.kind === "interval" && typeof everyMs === "number" && Number.isSafeInteger(everyMs) && everyMs >= 60_000)
+  const trigger = schedule.spec.trigger;
+  if (trigger.kind === "interval")
     return {
       kind: "interval",
-      everyMs,
+      everyMs: trigger.everyMs,
+      expression: null,
       timezone: null,
-      summary: `every ${formatEveryMs(everyMs)}`,
+      summary: `every ${formatEveryMs(trigger.everyMs)}`,
     };
-  // Kernel ScheduleTriggerV1 only defines interval triggers, so anything else means
-  // the ledger entity escaped its write-side schema; refuse to recast it as a
-  // fabricated cadence (nextScheduleOccurrence below throws the same way).
-  throw new Error(`schedule ${schedule.scheduleId} has a trigger the interval contract does not define`);
+  return {
+    kind: "cron",
+    everyMs: null,
+    expression: trigger.expression,
+    timezone: trigger.timezone,
+    summary: `${trigger.expression} (${trigger.timezone})`,
+  };
 }
 
 function formatEveryMs(everyMs: number): string {
@@ -172,9 +175,16 @@ function runNowFacet(input: {
   readonly availability: ScheduleExecutionAvailability;
   readonly active: { readonly occurrenceId: string; readonly nodeId: string } | null;
   readonly claimNodeId: string | null;
+  readonly targetKind: "agent" | "squad";
 }): ScheduleGuiActionFacet {
   const admission = admissionFacet("schedule-run-now", input.mode);
   if (!admission.available) return admission;
+  if (input.targetKind === "squad")
+    return {
+      available: false,
+      code: "schedule_target_unavailable",
+      nextAction: "Squad targets are schema placeholders and do not have a Schedule dispatch route yet.",
+    };
   if (input.state === "paused")
     return {
       available: false,
@@ -274,16 +284,21 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
         scheduleId: schedule.scheduleId,
         name: schedule.name,
         state: schedule.state,
+        mode: schedule.mode,
         definitionResidency: "ledger",
         definitionRevision: row.workspaceRevision,
         trigger: triggerDtoOf(schedule),
-        target: {
-          agentId: schedule.spec.target.agentId,
-          runtimeInstanceId: schedule.spec.target.runtimeInstanceId,
-          model: schedule.spec.target.model ?? null,
-          reasoningEffort: schedule.spec.target.reasoningEffort ?? null,
-          cwd: schedule.spec.target.cwd ?? null,
-        },
+        target:
+          schedule.spec.target.kind === "agent"
+            ? {
+                kind: "agent",
+                agentId: schedule.spec.target.agentId,
+                runtimeInstanceId: schedule.spec.target.runtimeInstanceId,
+                model: schedule.spec.target.model ?? null,
+                reasoningEffort: schedule.spec.target.reasoningEffort ?? null,
+                cwd: schedule.spec.target.cwd ?? null,
+              }
+            : { kind: "squad", squadId: schedule.spec.target.squadId },
         mission: schedule.spec.mission,
         executionAvailability: availability,
         claim: active
@@ -305,6 +320,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
               ? { occurrenceId: schedule.status.activeRun.occurrenceId, nodeId: schedule.status.activeRun.nodeId }
               : null,
             claimNodeId: assignment?.nodeId ?? null,
+            targetKind: schedule.spec.target.kind,
           }),
         },
         activeRun: active,
@@ -356,7 +372,8 @@ function scheduleOptions(
               : [],
       })),
     cwd = new Set<string>([".", ...trackedDirectories(context.rootDir)]);
-  for (const schedule of schedules) if (schedule.target.cwd) cwd.add(schedule.target.cwd);
+  for (const schedule of schedules)
+    if (schedule.target.kind === "agent" && schedule.target.cwd) cwd.add(schedule.target.cwd);
   return {
     agents: agents.sort((left, right) => left.agentId.localeCompare(right.agentId)),
     instances: instances.sort((left, right) => left.instanceId.localeCompare(right.instanceId)),

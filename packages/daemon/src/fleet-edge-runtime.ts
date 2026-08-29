@@ -229,29 +229,22 @@ export function openFleetEdgeRuntime(input: {
                 } catch {
                   throw edgeRuntimeError(
                     "runtime_mission_unavailable",
-                    `Task ${taskId} mission ${name} is unreadable; ` +
-                      "run ha daemon fleet edge sync, then retry.",
+                    `Task ${taskId} mission ${name} is unreadable; ` + "run ha daemon fleet edge sync, then retry.",
                   );
                 }
                 if (!body.trim())
-                  throw edgeRuntimeError(
-                    "runtime_mission_unavailable",
-                    `Task ${taskId} mission ${name} is empty.`,
-                  );
+                  throw edgeRuntimeError("runtime_mission_unavailable", `Task ${taskId} mission ${name} is empty.`);
                 return { path: missionPath, body };
               })()
             : null,
           baseMission =
-            `Your task package is ${packageRoot}.\n` +
-            "Read task_plan.md in that package and complete the task.";
+            `Your task package is ${packageRoot}.\n` + "Read task_plan.md in that package and complete the task.";
         return {
           executionId: assigned.scope.executionId,
           packageRoot,
           planPath,
           plan,
-          mission: mission
-            ? `${baseMission}\n\n# Mission: ${missionName}\n\n${mission.body.trim()}`
-            : baseMission,
+          mission: mission ? `${baseMission}\n\n# Mission: ${missionName}\n\n${mission.body.trim()}` : baseMission,
           missionPath: mission?.path ?? null,
           missionBody: mission?.body ?? null,
         };
@@ -406,7 +399,8 @@ export function openFleetEdgeRuntime(input: {
       });
     if (command.outcome !== "applied") return scheduleResult(actionKind, command);
     const receipt = command.receipt as JsonObject;
-    if (actionKind === "schedule-list" || actionKind === "schedule-show") return scheduleResult(actionKind, command);
+    if (["schedule-list", "schedule-runs", "schedule-show"].includes(actionKind))
+      return scheduleResult(actionKind, command);
     if (actionKind !== "schedule-run-now") {
       await syncScheduleMirror();
       return scheduleResult(actionKind, command);
@@ -423,7 +417,8 @@ export function openFleetEdgeRuntime(input: {
       !active ||
       active.nodeId !== request.nodeId ||
       active.assignmentId !== request.assignmentId ||
-      typeof active.claimFence !== "string"
+      typeof active.claimFence !== "string" ||
+      target.kind !== "agent"
     )
       throw edgeRuntimeError(
         "schedule_claim_invalid",

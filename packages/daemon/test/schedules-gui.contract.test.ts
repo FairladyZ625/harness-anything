@@ -12,7 +12,10 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { daemonGuiReadSchemas } from "../src/protocol/daemon-protocol-schema-registry.ts";
-import { DAEMON_SCHEDULES_LIST_SCHEMA } from "../src/protocol/daemon-protocol-schema-ids.ts";
+import {
+  DAEMON_SCHEDULES_LIST_SCHEMA,
+  DAEMON_SCHEDULE_RUNS_SCHEMA,
+} from "../src/protocol/daemon-protocol-schema-ids.ts";
 import {
   deriveScheduleExecutionAvailability,
   readSchedulesGui,
@@ -47,6 +50,7 @@ const roster = (nodeIds: readonly string[], scheduleIds: readonly string[]): Fle
 const armedSchedule = createScheduleV1({
   scheduleId: "heartbeat-probe",
   name: "Heartbeat probe",
+  mode: "detect",
   spec: {
     trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-27T07:00:00.000Z" },
     target: { kind: "agent", agentId: "probe-agent", runtimeInstanceId: "codex-schedule" },
@@ -88,6 +92,30 @@ test("the schedules list read facet is registered and payload-closed", () => {
   );
 });
 
+test("the Schedule runs facet is registered with a closed occurrence query", () => {
+  const facet = daemonGuiReadMethods.find(({ method }) => method === "repo.schedules.runs");
+  assert.ok(facet, "repo.schedules.runs must be registered");
+  assert.equal(facet.guiBridgeMethod, "listScheduleRuns");
+  assert.equal(facet.outputSchemaId, DAEMON_SCHEDULE_RUNS_SCHEMA.id);
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.schedules.runs",
+      params: { repo: { repoId: "schedule-gui" }, payload: { scheduleId: "heartbeat-probe", limit: 25 } },
+    }),
+    [],
+  );
+  assert.notDeepEqual(
+    validateDaemonRpcCall({
+      method: "repo.schedules.runs",
+      params: {
+        repo: { repoId: "schedule-gui" },
+        payload: { scheduleId: "heartbeat-probe", limit: 25, includeSecrets: true },
+      },
+    }),
+    [],
+  );
+});
+
 test("the six schedule GUI actions reuse the canonical action kinds", () => {
   const methods = daemonGuiActionMethods
     .filter(({ method }) => method.startsWith("repo.schedule."))
@@ -111,6 +139,7 @@ test("the six schedule GUI actions reuse the canonical action kinds", () => {
   const definition = {
     scheduleId: "heartbeat-probe",
     name: "Heartbeat probe",
+    mode: "detect",
     everyMs: 300_000,
     agentId: "probe-agent",
     runtimeInstanceId: "codex-schedule",
@@ -142,7 +171,13 @@ test("the schedules list validator locks the joined wire shape", () => {
   assert.equal(row.state, "armed");
   assert.equal(row.definitionResidency, "ledger");
   assert.equal(row.definitionRevision, 3);
-  assert.deepEqual(row.trigger, { kind: "interval", everyMs: 1_800_000, timezone: null, summary: "every 30m" });
+  assert.deepEqual(row.trigger, {
+    kind: "interval",
+    everyMs: 1_800_000,
+    expression: null,
+    timezone: null,
+    summary: "every 30m",
+  });
   assert.equal(row.executionAvailability, "local");
   assert.deepEqual(row.claim, { nodeId: null, assignmentId: null });
   assert.equal(row.nextRunAt, "2026-08-27T08:30:00.000Z");
@@ -235,10 +270,7 @@ test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass 
   );
 });
 
-test("a trigger outside the kernel interval contract is refused, never recast", () => {
-  // Kernel ScheduleTriggerV1 defines only interval triggers with everyMs >= 60_000;
-  // a ledger entity that escaped that shape must fail the read instead of gaining a
-  // fabricated cadence DTO (the deleted forward-compat branch used to mint cron rows).
+test("trigger DTO variants remain closed and malformed intervals are refused", () => {
   const malformed = {
     ...armedSchedule,
     spec: {
@@ -256,7 +288,7 @@ test("a trigger outside the kernel interval contract is refused, never recast", 
           },
         }),
       ),
-    /interval contract does not define/u,
+    /schedule trigger or cursor is invalid/u,
   );
   const result = readSchedulesGui(guiContext());
   assert.notDeepEqual(
@@ -270,7 +302,7 @@ test("a trigger outside the kernel interval contract is refused, never recast", 
       ],
     }),
     [],
-    "a cron trigger DTO must stay invalid on the wire",
+    "a cron trigger DTO without its required timezone must stay invalid on the wire",
   );
 });
 
@@ -507,4 +539,10 @@ test("the schedules list schema is registry-closed with a negative fixture", () 
     ),
     [],
   );
+});
+
+test("the Schedule runs schema is registry-closed with a negative fixture", () => {
+  const entry = daemonGuiReadSchemas.find(({ id }) => id === DAEMON_SCHEDULE_RUNS_SCHEMA.id);
+  assert.ok(entry, "the Schedule runs schema must be registered");
+  assert.deepEqual(entry.negativeFixtures, ["packages/daemon/fixtures/contracts/daemon-schedule-runs-invalid.json"]);
 });

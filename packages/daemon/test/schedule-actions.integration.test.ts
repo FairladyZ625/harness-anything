@@ -38,6 +38,8 @@ test("run-now launches only after an applied claim, stays single-flight, and set
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null,
     launchCount = 0,
+    preparedPermissionMode: string | undefined,
+    workerGitEnvironmentRequests = 0,
     launched: { readonly env: NodeJS.ProcessEnv; readonly prompt: string } | null = null;
   try {
     git(root, "init", "-q");
@@ -72,21 +74,28 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           isolationState: "enforced",
         },
       ],
-      prepareRuntimeLaunch: async (_instanceId, request) => ({
-        definition,
-        installation: {
-          installationId: definition.installationId,
-          kindId: definition.kindId,
+      prepareRuntimeLaunch: async (_instanceId, request) => {
+        preparedPermissionMode = request.permissionMode;
+        return {
+          definition,
+          installation: {
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            executablePath: "/opt/test/codex",
+            version: "1.0.0",
+            observedAt: "2026-08-26T00:00:00.000Z",
+          },
           executablePath: "/opt/test/codex",
-          version: "1.0.0",
-          observedAt: "2026-08-26T00:00:00.000Z",
-        },
-        executablePath: "/opt/test/codex",
-        args: [],
-        env: {},
-        cwd: request.cwd,
-        prompt: request.prompt,
-      }),
+          args: [],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
+      prepareWorkerGitEnvironment: async () => {
+        workerGitEnvironmentRequests += 1;
+        return { GITHUB_TOKEN: "must-not-reach-detect-runtime" };
+      },
       runtimeLaunch: (prepared) => {
         launchCount += 1;
         launched = { env: prepared.env, prompt: prepared.prompt };
@@ -131,6 +140,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           kind: "schedule-create",
           scheduleId: "e2e-probe",
           name: "E2E probe",
+          mode: "detect",
           everyMs: 300_000,
           agentId: "probe-agent",
           runtimeInstanceId: definition.instanceId,
@@ -145,6 +155,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           kind: "schedule-create",
           scheduleId: "e2e-probe",
           name: "E2E probe",
+          mode: "detect",
           everyMs: 300_000,
           agentId: "probe-agent",
           runtimeInstanceId: definition.instanceId,
@@ -160,8 +171,12 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       );
       assert.equal(started.outcome, "applied", JSON.stringify(started));
       assert.equal(launchCount, 1);
+      assert.equal(preparedPermissionMode, "read-only");
+      assert.equal(workerGitEnvironmentRequests, 0);
       assert.equal((launched as { env: NodeJS.ProcessEnv } | null)?.env.HARNESS_TASK_BOUND, undefined);
       assert.equal((launched as { env: NodeJS.ProcessEnv } | null)?.env.HARNESS_SCHEDULE_ID, "e2e-probe");
+      assert.equal((launched as { env: NodeJS.ProcessEnv } | null)?.env.HARNESS_SCHEDULE_MODE, "detect");
+      assert.equal((launched as { env: NodeJS.ProcessEnv } | null)?.env.GITHUB_TOKEN, undefined);
       assert.match(
         (launched as { prompt: string } | null)?.prompt ?? "",
         /Schedule claim fence:[\s\S]*Assigned Mission/u,
@@ -262,6 +277,20 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         { automaticEvaluatedThrough: missedStatus?.automaticEvaluatedThrough, missedCount: missedStatus?.missedCount },
         { automaticEvaluatedThrough: missedAt, missedCount: 1 },
       );
+      const runHistoryReceipt = (await cell.run(
+          { kind: "schedule-runs", scheduleId: "e2e-probe", limit: 10 },
+          actor,
+        )) as unknown as { readonly evidence: string },
+        { schema: runHistorySchema, ...runHistory } = JSON.parse(runHistoryReceipt.evidence) as {
+          readonly schema: string;
+          readonly runs: readonly { readonly outcome: string; readonly reportRef: string | null }[];
+        };
+      assert.equal(runHistorySchema, "schedule-runs/v1");
+      assert.deepEqual(runHistory.runs.map(({ outcome }) => outcome).sort(), ["missed", "succeeded"]);
+      assert.match(
+        runHistory.runs.find(({ outcome }) => outcome === "succeeded")?.reportRef ?? "",
+        /^artifact:runtime-result\/sha256\/[0-9a-f]{64}$/u,
+      );
 
       writeFileSync(
         path.join(root, "schedule-update.json"),
@@ -330,6 +359,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
               kind: "schedule-create",
               scheduleId: "e2e-probe",
               name: "Recreated E2E probe",
+              mode: "detect",
               everyMs: 900_000,
               agentId: "probe-agent",
               runtimeInstanceId: definition.instanceId,
@@ -355,6 +385,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
               kind: "schedule-create",
               scheduleId: "restart-heartbeat",
               name: "Restart heartbeat",
+              mode: "detect",
               everyMs: 300_000,
               agentId: "probe-agent",
               runtimeInstanceId: definition.instanceId,
@@ -573,6 +604,7 @@ test(
         kind: "schedule-create",
         scheduleId,
         name: "E2E probe",
+        mode: "detect",
         everyMs: 300_000,
         agentId: "probe-agent",
         runtimeInstanceId: definition.instanceId,

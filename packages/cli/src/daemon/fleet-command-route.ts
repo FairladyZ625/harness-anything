@@ -1,10 +1,12 @@
 import path from "node:path";
 import { daemonUserRoot, readRegisteredRepos } from "../../../daemon/src/client/local-daemon-target.ts";
+import { canonicalRoot } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 
 const fleetScheduleKinds = [
   "schedule-create",
   "schedule-list",
+  "schedule-runs",
   "schedule-show",
   "schedule-update",
   "schedule-delete",
@@ -48,8 +50,9 @@ export async function fleetEdgeRegistration(
   env: NodeJS.ProcessEnv,
 ): Promise<(FleetEdgeConfigModule & { readonly workspaceRoot: string }) | null> {
   const { readFleetEdgeConfig } = await import("../../../daemon/src/client/fleet-edge-config.ts");
-  const commandRoot = path.resolve(command.rootDir),
+  const commandRoot = canonicalRoot(command.rootDir),
     registered = readRegisteredRepos(daemonUserRoot(env))
+      .map((repo) => ({ ...repo, canonicalRoot: canonicalRoot(repo.canonicalRoot, true) }))
       .filter(
         (repo) =>
           repo.state === "enabled" &&

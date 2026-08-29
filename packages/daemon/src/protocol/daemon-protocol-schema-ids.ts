@@ -143,6 +143,19 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
       "watermark",
       "sourceRevision",
     ]),
+  }),
+  DAEMON_SCHEDULE_RUNS_SCHEMA = Object.freeze({
+    id: "daemon.schedule-runs/v1",
+    required: Object.freeze([
+      "ok",
+      "status",
+      "scheduleId",
+      "runs",
+      "totals",
+      "truncated",
+      "watermark",
+      "sourceRevision",
+    ]),
   });
 
 export const GUI_SYSTEM_STATUS_SCHEMA = Object.freeze({
