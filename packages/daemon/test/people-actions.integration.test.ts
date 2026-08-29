@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, parsePeopleRosterDocument } from "../../kernel/src/index.ts";
-import { initRepo, actor } from "./migration-import.fixtures.ts";
+import { initRepo, actor, bootstrapPerson } from "./migration-import.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
@@ -109,7 +109,7 @@ test("People Action commands are the canonical write surface for people.yaml", a
   }
 });
 
-test("People Action commands cannot remove the last admin or downgrade the bootstrap owner", async () => {
+test("People Action commands cannot rewrite or downgrade the bootstrap owner role", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-people-invariants-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -144,12 +144,9 @@ test("People Action commands cannot remove the last admin or downgrade the boots
       },
       binding,
     );
-    assert.equal(ownerPolicyChanged.outcome, "applied");
-
-    const lastAdminRemoval = await cell.run({ kind: "people-remove", personId: "person_alice" }, binding);
-    assert.equal(lastAdminRemoval.outcome, "op_rejected");
-    assert.equal(lastAdminRemoval.code, "invalid_people_action");
-    assert.match(lastAdminRemoval.nextAction ?? "", /at least one enabled person with admin authority/u);
+    assert.equal(ownerPolicyChanged.outcome, "op_rejected");
+    assert.equal(ownerPolicyChanged.code, "invalid_people_action");
+    assert.match(ownerPolicyChanged.nextAction ?? "", /owner role must retain the admin command class/u);
 
     const ownerRemoval = await cell.run({ kind: "people-remove", personId: "person_zeyu" }, binding);
     assert.equal(ownerRemoval.outcome, "op_rejected");
@@ -172,7 +169,58 @@ test("People Action commands cannot remove the last admin or downgrade the boots
       makeTaskEventStore({ repoId: "people-invariants", rootDir: root })
         .read()
         .events.filter(({ schema }) => schema === "people-event/v1").length,
-      2,
+      1,
+    );
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("People Action commands cannot remove the last enabled admin", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-people-last-admin-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    const alice = {
+      ...bootstrapPerson,
+      personId: "person_alice",
+      displayName: "Alice",
+      roles: ["administrator"],
+      credentials: [],
+    };
+    initRepo(
+      root,
+      `${JSON.stringify(
+        {
+          schema: "harness-people/v1",
+          people: [bootstrapPerson, alice],
+          roles: [
+            { roleId: "owner", commandClasses: ["repo-read"] },
+            { roleId: "administrator", commandClasses: ["admin"] },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    cell = await openRepoCell({
+      repoId: workspaceId("people-last-admin"),
+      rootDir: canonicalRoot(root),
+      ownerId: "people-daemon",
+      now: () => "2026-08-27T02:15:00.000Z",
+    });
+    const removed = await cell.run(
+      { kind: "people-remove", personId: "person_alice" },
+      { actor, source: "local" as const },
+    );
+    assert.equal(removed.outcome, "op_rejected");
+    assert.equal(removed.code, "invalid_people_action");
+    assert.match(removed.nextAction ?? "", /at least one enabled person with admin authority/u);
+    assert.equal(
+      makeTaskEventStore({ repoId: "people-last-admin", rootDir: root })
+        .read()
+        .events.filter(({ schema }) => schema === "people-event/v1").length,
+      0,
     );
   } finally {
     await cell?.close();
