@@ -2,7 +2,12 @@ import { useMemo } from "react";
 import { HourglassMedium } from "@phosphor-icons/react";
 import type { DecisionRow } from "../model/types";
 import type { RelationCoverageRow } from "../../api/renderer-dto.ts";
-import { freshnessCandidates, type FreshnessCandidate, type FreshnessReason } from "../model/freshness.ts";
+import {
+  freshnessCandidates,
+  inDebtScopeCoverageRows,
+  type FreshnessCandidate,
+  type FreshnessReason,
+} from "../model/freshness.ts";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { StreamBody, StreamEmpty } from "../components/overview/streamParts.tsx";
 import { t } from "../i18n/index.tsx";
@@ -12,6 +17,9 @@ import { t } from "../i18n/index.tsx";
  * 数据只来自 canonical coverageRows(App 级 triadic 投影),判据见 model/freshness.ts。
  * 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):
  * 每行带 content-visibility:auto,离屏行的布局与绘制由渲染器跳过;标题报出真实总数。
+ * 计数范围只含 decision.state ∈ {in_effect, proposed}(2026-08-29 泽宇裁决):
+ * 生命周期终态(rejected/superseded/outcome_retired/deferred)不算未覆盖债,
+ * 分子分母同一口径,见 model/freshness.ts 的 inDebtScopeCoverageRows。
  */
 const REASON_CLASS: Record<FreshnessReason, string> = {
   refuted: "border-danger/50 bg-danger/10 text-danger",
@@ -86,6 +94,12 @@ export function FreshnessView({
   onNavigateEntity: (ref: string) => void;
 }) {
   const candidates = useMemo(() => freshnessCandidates(decisions, coverageRows), [decisions, coverageRows]);
+  // 分母与候选同一口径(in_effect/proposed):生命周期终态的承重 claim 既不算未覆盖债,
+  // 也不该仍算进"总承重 claim 数"——否则排除了分子却不排除分母,比例失真。
+  const inScopeTotal = useMemo(
+    () => inDebtScopeCoverageRows(decisions, coverageRows).length,
+    [decisions, coverageRows],
+  );
   const decisionsInvolved = new Set(candidates.map((candidate) => candidate.decisionId)).size;
   const basis = basisRevisionOf(coverageRows);
 
@@ -98,7 +112,7 @@ export function FreshnessView({
           <span className="font-mono text-[12px] text-text-faint" data-testid="freshness-counts">
             {t("views.freshnessView.counts", {
               uncovered: candidates.length,
-              total: coverageRows.length,
+              total: inScopeTotal,
               decisions: decisionsInvolved,
             })}
           </span>
