@@ -4,9 +4,10 @@ import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-cont
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import { bindingHasRole } from "./repo-cell-role-bindings.ts";
+import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 
 export function createDaemonHostControlApi(
-  context: any,
+  context: DaemonHostApiContext,
 ): Pick<
   DaemonHost,
   "requestControl" | "controlReceipt" | "issueRuntimeWitness" | "bindRuntimeWitness" | "publishRuntimeWitness"

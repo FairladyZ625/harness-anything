@@ -27,7 +27,7 @@ export interface ReboundRelation {
   readonly record: ImportedRelation;
 }
 
-interface MigrationRelationsContext {
+export interface MigrationRelationsContext {
   readonly reboundRef: (ref: string) => string | null;
   readonly skips: Skip[];
   readonly cold: ColdRebuildSource;

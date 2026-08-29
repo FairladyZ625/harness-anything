@@ -1,8 +1,12 @@
 import type { NodeProps } from "@xyflow/react";
 import { ArrowsOutSimple } from "@phosphor-icons/react";
-import type { TerritoryChip, TerritoryZone } from "../territory";
 import type { ZoneProgress } from "../territoryProgress";
-import { zoneHeaderH, ZONE_PROGRESS_H } from "../territoryLayout";
+import {
+  zoneHeaderH,
+  ZONE_PROGRESS_H,
+  type TerritoryChipFlowNode,
+  type TerritoryZoneFlowNode,
+} from "../territoryLayout";
 
 /**
  * L1 领地总览的两级节点(REQ-GUI-03 territory,archive 两级结构):
@@ -33,19 +37,11 @@ const PROGRESS_SEGMENTS: ReadonlyArray<{ key: keyof ZoneProgress; label: string;
   { key: "other", label: "其他", color: "var(--color-status-unknown)" },
 ];
 
-interface ZoneNodeData {
-  zone: TerritoryZone;
-  folded: boolean;
-  variant: "zone" | "landing";
-  onFold: (zoneId: string) => void;
-}
-
-export function TerritoryZoneNode({ data }: NodeProps) {
-  const d = data as unknown as ZoneNodeData;
-  const zone = d.zone;
+export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
+  const zone = data.zone;
   const axis = AXIS_VAR[zone.entity] ?? AXIS_VAR.task;
   const headerH = zoneHeaderH(zone);
-  const landing = d.variant === "landing";
+  const landing = data.variant === "landing";
 
   return (
     <div
@@ -74,12 +70,12 @@ export function TerritoryZoneNode({ data }: NodeProps) {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              d.onFold(zone.zoneId);
+              data.onFold(zone.zoneId);
             }}
-            title={d.folded ? "展开全部 chip" : "折叠(只显热点)"}
+            title={data.folded ? "展开全部 chip" : "折叠(只显热点)"}
             className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted hover:border-border-strong hover:text-text"
           >
-            {d.folded ? "▸" : "▾"}
+            {data.folded ? "▸" : "▾"}
           </button>
         </div>
         {zone.progress && zone.progress.total > 0 && <ZoneProgressBar progress={zone.progress} />}
@@ -122,24 +118,14 @@ function ZoneProgressBar({ progress }: { progress: ZoneProgress }) {
   );
 }
 
-interface ChipNodeData {
-  chip: TerritoryChip | null;
-  /** chip 为 null 时是 fold 提示行。 */
-  fold?: { zoneId: string; hidden: number };
-  onOpen: (navRef: string) => void;
-  onFold: (zoneId: string) => void;
-}
-
-export function TerritoryChipNode({ data }: NodeProps) {
-  const d = data as unknown as ChipNodeData;
-
-  if (!d.chip) {
-    const fold = d.fold!;
+export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
+  if (!data.chip) {
+    const fold = data.fold;
     return (
       <button
         onClick={(e) => {
           e.stopPropagation();
-          d.onFold(fold.zoneId);
+          data.onFold(fold.zoneId);
         }}
         data-testid="territory-fold"
         data-zone-id={fold.zoneId}
@@ -150,13 +136,13 @@ export function TerritoryChipNode({ data }: NodeProps) {
     );
   }
 
-  const chip = d.chip;
+  const chip = data.chip;
   const axis = AXIS_VAR[chip.entity] ?? AXIS_VAR.task;
   return (
     <div
       onClick={(e) => {
         e.stopPropagation();
-        d.onOpen(chip.navRef);
+        data.onOpen(chip.navRef);
       }}
       data-testid="territory-chip"
       data-nav-ref={chip.navRef}

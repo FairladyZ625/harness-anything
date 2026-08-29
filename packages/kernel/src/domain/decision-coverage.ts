@@ -30,7 +30,7 @@ export interface CoverageResult {
   readonly relationPath: readonly string[];
 }
 
-/** Input shape of {@link freshnessReasonOf}: any coverage row carrying the verdict fields. */
+/** Input shape of {@link freshnessReasonOf}: an arbitrary coverage row carrying the verdict fields. */
 export interface FreshnessReasonInput {
   readonly status: "covered" | "uncovered";
   readonly fulfillment: "evidenced" | "delivered" | "standing-policy" | null;

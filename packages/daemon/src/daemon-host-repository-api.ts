@@ -16,15 +16,29 @@ import type { DaemonHost } from "./daemon-host.ts";
 import {
   commandClassForAction,
   commandDescriptorForAction,
-  type DaemonGuiReadResultMap,
+  type DaemonGuiRpcReadMethod,
 } from "./protocol/daemon-protocol.contract.ts";
-import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { parseDaemonGuiReadResult } from "./protocol/gui-result-validation.ts";
+import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
-import { openRepoCell, type RepoCell, type RepoTaskAction } from "./repo-cell.ts";
+import { openRepoCell, type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell.ts";
+import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { settingsCommandTopology } from "./repo-mode.ts";
 
+function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
+  return (
+    method !== "daemon.gui.system.read" &&
+    method !== "daemon.gui.control.receipt" &&
+    method !== "observe.tail" &&
+    method !== "repo.workspace.summary.read" &&
+    method !== "repo.gui.catalog.snapshot" &&
+    method !== "repo.gui.catalog.preset.read" &&
+    method !== "repo.terminal.sessions.list"
+  );
+}
+
 export function createDaemonHostRepositoryApi(
-  context: any,
+  context: DaemonHostApiContext,
 ): Pick<DaemonHost, "bootstrap" | "admin" | "run" | "replica" | "presetRun" | "read"> {
   return {
     bootstrap: async (request, auth) => {
@@ -335,22 +349,25 @@ export function createDaemonHostRepositoryApi(
             : (context.unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`),
         );
       await context.binding(cell.status().rootDir, auth, "repo-read");
+      let result: unknown;
       if (method === "observe.tail")
-        return cell.observeTail(payload, {
+        result = await cell.observeTail(payload, {
           userRoot: context.input.userRoot,
           daemonId: context.input.daemonId,
-        }) as DaemonGuiReadResultMap[typeof method];
-      if (method === "repo.workspace.summary.read")
-        return cell.workspaceSummary() as DaemonGuiReadResultMap[typeof method];
-      if (method === "repo.gui.catalog.snapshot")
-        return (await cell.catalog.snapshot()) as unknown as DaemonGuiReadResultMap[typeof method];
-      if (method === "repo.gui.catalog.preset.read")
-        return (await cell.catalog.preset(payload as JsonObject)) as unknown as DaemonGuiReadResultMap[typeof method];
-      if (method === "repo.terminal.sessions.list")
-        return cell.terminal.list() as DaemonGuiReadResultMap[typeof method];
-      return cell.read(method as import("./repo-cell.ts").RepoCellReadMethod, payload) as Promise<
-        DaemonGuiReadResultMap[typeof method]
-      >;
+        });
+      else if (method === "repo.workspace.summary.read") result = cell.workspaceSummary();
+      else if (method === "repo.gui.catalog.snapshot") result = await cell.catalog.snapshot();
+      else if (method === "repo.gui.catalog.preset.read") {
+        if (!isJsonObject(payload))
+          throw context.hostCodedError("invalid_request", "Catalog preset payload must be JSON.");
+        result = await cell.catalog.preset(payload);
+      } else if (method === "repo.terminal.sessions.list") result = cell.terminal.list();
+      else {
+        if (!isRepoCellReadMethod(method))
+          throw context.hostCodedError("invalid_request", `${method} is not a repository read method.`);
+        result = await cell.read(method, payload);
+      }
+      return parseDaemonGuiReadResult(method, result);
     },
   };
 }

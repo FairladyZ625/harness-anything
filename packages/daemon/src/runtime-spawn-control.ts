@@ -3,10 +3,15 @@ import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-type
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
+import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
 const cancelDurableDrainTimeoutMs = 1_000;
 
-export async function cancelRuntime(context: any, payload: JsonObject, binding: RuntimeBinding): Promise<JsonObject> {
+export async function cancelRuntime(
+  context: RuntimeSpawnerContext,
+  payload: JsonObject,
+  binding: RuntimeBinding,
+): Promise<JsonObject> {
   const allowed = ["runtimeSessionId"],
     unknownField = unknownFieldViolation(payload, allowed);
   if (unknownField)
@@ -28,7 +33,7 @@ export async function cancelRuntime(context: any, payload: JsonObject, binding: 
   return context.controlReceipt(opId, runtimeSessionId, "already-exited");
 }
 
-export function closeRuntimes(context: any): void {
+export function closeRuntimes(context: RuntimeSpawnerContext): void {
   const active = [...context.processes.values()];
   context.processes.clear();
   for (const entry of active) entry.process.release?.();

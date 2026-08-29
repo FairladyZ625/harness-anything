@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   compileTaskLifecycleWrite,
+  isTaskEvent,
   lifecycleDocumentFetchPaths,
   parseDocWriteIntent,
   reduceTaskEvent,
@@ -14,6 +15,25 @@ import {
 import { adjudicateDocIntent, claimBytes, recycleClaims, rejectDocSyncAction } from "./doc-sync-actions.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
+import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+
+export type TaskCommandWithDocsAction = RepoTaskAction & {
+  readonly docChanges: readonly {
+    readonly path: string;
+    readonly baseBlobSha256: string | null;
+    readonly policyId: string;
+    readonly candidate: {
+      readonly ref: string;
+      readonly sha256: string;
+      readonly size: number;
+      readonly mediaType: string;
+    };
+  }[];
+  readonly mirrorBaseCut?: {
+    readonly revision: number;
+    readonly headDigest: string;
+  };
+};
 
 // Class-A sync (design-v2 §3): one serial cell command carries the lifecycle
 // intent AND the locally changed task-package documents with their mirror
@@ -21,24 +41,8 @@ import { assertTaskTransitionDocumentReady } from "./transition-document-access.
 // any conflict voids the whole command, so a task can never complete at the
 // center while its closing documents stay behind on the edge.
 export async function runTaskCommandWithDocs(
-  cell: any,
-  action: RepoTaskAction & {
-    readonly docChanges: readonly {
-      readonly path: string;
-      readonly baseBlobSha256: string | null;
-      readonly policyId: string;
-      readonly candidate: {
-        readonly ref: string;
-        readonly sha256: string;
-        readonly size: number;
-        readonly mediaType: string;
-      };
-    }[];
-    readonly mirrorBaseCut?: {
-      readonly revision: number;
-      readonly headDigest: string;
-    };
-  },
+  cell: RepoCellActionContext,
+  action: TaskCommandWithDocsAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
   const { docChanges, mirrorBaseCut, ...taskAction } = action,
@@ -248,7 +252,11 @@ export async function runTaskCommandWithDocs(
   } as WriteReceipt;
 }
 
-export function taskSurfaceWrite(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export function taskSurfaceWrite(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt {
   const taskId = cell.requiredCellText(
       action.kind === "task-supersede" ? action.oldTaskId : action.taskId,
       action.kind === "task-supersede" ? "oldTaskId" : "taskId",
@@ -280,7 +288,8 @@ export function taskSurfaceWrite(cell: any, action: RepoTaskAction, binding: Rep
     const published = cell.store
       .read()
       .events.some(
-        (event: TaskEventV1) =>
+        (event) =>
+          isTaskEvent(event) &&
           event.type === "execution_started" &&
           event.taskId === taskId &&
           event.payload.execution.executionId === reservation.executionId,

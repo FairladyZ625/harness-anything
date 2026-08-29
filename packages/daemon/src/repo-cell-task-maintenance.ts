@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto";
 import { createEntityStore, requireEntityStoreKindContract, type WriteReceipt } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
-export function archiveTasks(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export function archiveTasks(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt {
   const selected = [
     ...new Set(
       Array.isArray(action.taskIds)
@@ -10,7 +15,7 @@ export function archiveTasks(cell: any, action: RepoTaskAction, binding: RepoCel
         : cell
             .queryRead()
             .guiTasks()
-            .rows.filter((row: any) => {
+            .rows.filter((row) => {
               const state = /^state:(.+)$/u.exec(String(action.filter ?? ""))?.[1],
                 before = typeof action.before === "string" ? Date.parse(action.before) : Number.NaN;
               if (action.before && Number.isNaN(before))
@@ -23,7 +28,7 @@ export function archiveTasks(cell: any, action: RepoTaskAction, binding: RepoCel
                 (!action.before || Date.parse(row.updatedAt) < before)
               );
             })
-            .map((row: any) => row.taskId),
+            .map((row) => row.taskId),
     ),
   ];
   if (!selected.length)
@@ -47,7 +52,11 @@ export function archiveTasks(cell: any, action: RepoTaskAction, binding: RepoCel
   } as WriteReceipt;
 }
 
-export function supersedeWithNewTask(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export function supersedeWithNewTask(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt {
   const oldTaskId = cell.requiredCellText(action.oldTaskId, "oldTaskId"),
     old = cell.projection.read(oldTaskId);
   if (!cell.projectionReady(old) || !old.snapshot.task)
@@ -103,7 +112,11 @@ export function supersedeWithNewTask(cell: any, action: RepoTaskAction, binding:
   } as WriteReceipt;
 }
 
-export function migrateTaskContracts(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export function migrateTaskContracts(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt {
   const candidates = typeof action.taskId === "string" ? [action.taskId] : [...cell.projectedTaskIds()],
     report = candidates.map((taskId) => {
       const current = cell.projection.read(taskId),
@@ -147,7 +160,7 @@ export function migrateTaskContracts(cell: any, action: RepoTaskAction, binding:
 }
 
 export function upsertEntity(
-  cell: any,
+  cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
   prepared: {

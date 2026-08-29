@@ -184,13 +184,15 @@ describe("genealogy time helpers", () => {
   });
 
   it("timeMsOf returns null when no timestamps", () => {
-    expect(timeMsOf(dec({ proposedAt: undefined, decidedAt: undefined } as any))).toBeNull();
+    const { proposedAt: _proposedAt, decidedAt: _decidedAt, ...withoutTime } = dec();
+    expect(timeMsOf(withoutTime)).toBeNull();
     expect(timeMsOf(dec({ proposedAt: "2026-08-01T00:00:00.000Z" }))).toBeGreaterThan(0);
   });
 
   it("dayKeyOf slices the date portion", () => {
     expect(dayKeyOf(dec({ proposedAt: "2026-08-13T10:00:00Z" }))).toBe("2026-08-13");
-    expect(dayKeyOf(dec({ proposedAt: undefined } as any))).toBe("NO_TIME");
+    const { proposedAt: _proposedAt, decidedAt: _decidedAt, ...withoutTime } = dec();
+    expect(dayKeyOf(withoutTime)).toBe("NO_TIME");
   });
 });
 

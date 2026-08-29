@@ -8,8 +8,13 @@ import {
 import { archiveRuntimeDispatch } from "./doc-sync-actions.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";
+import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
-export function appendRuntimeIngress(cell: any, action: RuntimeIngressAction, binding: RepoCellBinding): JsonObject {
+export function appendRuntimeIngress(
+  cell: RepoCellActionContext,
+  action: RuntimeIngressAction,
+  binding: RepoCellBinding,
+): JsonObject {
   const scope = binding.assignmentScope;
   if (!scope)
     throw cell.cellCodedError("assignment_required", "Runtime Fleet ingress requires an authenticated assignment.");
@@ -38,7 +43,7 @@ export function appendRuntimeIngress(cell: any, action: RuntimeIngressAction, bi
   if (action.type === "runtime_session_exited" || action.type === "runtime_session_outcome_observed") {
     const dispatch = cell.projection
         .readRuntimeDispatches()
-        .find((event: any) => event.payload.runtimeSessionId === action.payload.runtimeSessionId),
+        .find((event) => event.payload.runtimeSessionId === action.payload.runtimeSessionId),
       dispatchSource = dispatch?.source,
       ingressSource = binding.source;
     if (
@@ -122,7 +127,7 @@ export function appendRuntimeIngress(cell: any, action: RuntimeIngressAction, bi
   return cell.runtimeIngressReceipt(value);
 }
 
-export function runtimeIngressReceipt(cell: any, value: AgentRuntimeEventV1): JsonObject {
+export function runtimeIngressReceipt(cell: RepoCellActionContext, value: AgentRuntimeEventV1): JsonObject {
   const publication = cell.store.publication(value),
     visible = publication.cut.opId === value.opId && publication.cut.revision === value.workspaceRevision;
   return {

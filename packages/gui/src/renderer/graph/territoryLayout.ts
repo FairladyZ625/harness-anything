@@ -60,8 +60,44 @@ export interface TerritoryLayoutInput {
   onFold: (zoneId: string) => void;
 }
 
+export type TerritoryZoneNodeData = Record<string, unknown> & {
+  readonly zone: TerritoryZone;
+  readonly folded: boolean;
+  readonly variant: "zone" | "landing";
+  readonly onFold: (zoneId: string) => void;
+};
+
+export type TerritoryEntityChipNodeData = Record<string, unknown> & {
+  readonly chip: TerritoryChip;
+  readonly onOpen: (navRef: string) => void;
+};
+
+export type TerritoryFoldNodeData = Record<string, unknown> & {
+  readonly chip: null;
+  readonly fold: { readonly zoneId: string; readonly hidden: number };
+  readonly onFold: (zoneId: string) => void;
+};
+
+export type TerritoryZoneFlowNode = Node<TerritoryZoneNodeData, "territoryZone">;
+export type TerritoryEntityChipFlowNode = Node<TerritoryEntityChipNodeData, "territoryChip">;
+export type TerritoryFoldFlowNode = Node<TerritoryFoldNodeData, "territoryChip">;
+export type TerritoryChipFlowNode = TerritoryEntityChipFlowNode | TerritoryFoldFlowNode;
+export type TerritoryFlowNode = TerritoryZoneFlowNode | TerritoryChipFlowNode;
+
 export interface TerritoryLayout {
-  nodes: Node[];
+  nodes: TerritoryFlowNode[];
+}
+
+export function isTerritoryZoneNode(node: TerritoryFlowNode): node is TerritoryZoneFlowNode {
+  return node.type === "territoryZone";
+}
+
+export function isTerritoryEntityChipNode(node: TerritoryFlowNode): node is TerritoryEntityChipFlowNode {
+  return node.type === "territoryChip" && node.data.chip !== null;
+}
+
+export function isTerritoryFoldNode(node: TerritoryFlowNode): node is TerritoryFoldFlowNode {
+  return node.type === "territoryChip" && node.data.chip === null;
 }
 
 /** landing(孤立实体)伪 zone:复用 zone 壳的虚线变体。 */
@@ -82,7 +118,7 @@ export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
   const zones: TerritoryZone[] = [...partition.zones];
   if (partition.landing.length > 0) zones.push(landingZone(partition.landing));
 
-  const nodes: Node[] = [];
+  const nodes: TerritoryFlowNode[] = [];
   let cursorY = TOP_PAD;
 
   const rows = chunk(zones, gridCols);
@@ -167,10 +203,7 @@ function zoneHeight(zone: TerritoryZone, folded: boolean): number {
   const shown = visibleChips(zone, folded);
   const extra = shown.length < zone.chips.length ? 1 : 0; // fold 提示行
   const count = shown.length + extra;
-  const bodyH = Math.max(
-    ZONE_MIN_BODY_H,
-    count * CHIP_H + Math.max(0, count - 1) * CHIP_GAP,
-  );
+  const bodyH = Math.max(ZONE_MIN_BODY_H, count * CHIP_H + Math.max(0, count - 1) * CHIP_GAP);
   return zoneHeaderH(zone) + ZONE_BODY_PAD_Y * 2 + bodyH;
 }
 

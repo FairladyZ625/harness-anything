@@ -2,8 +2,9 @@
 import { Schema } from "effect";
 import { TaskFrontmatterSchema, type VerticalDefinition } from "./registry.ts";
 
-export function resolveTaskSchema(vertical: VerticalDefinition): Schema.Schema<any, any, never> {
-  let schema: Schema.Schema<any, any, never> = TaskFrontmatterSchema;
+export function resolveTaskSchema(vertical: VerticalDefinition): Schema.Schema.AnyNoContext {
+  // Effect's named existential schema type is required because each dynamic field changes the accumulated shape.
+  let schema: Schema.Schema.AnyNoContext = TaskFrontmatterSchema;
   for (const extension of vertical.entityFieldExtensions ?? []) {
     if (extension.extends !== "task") {
       throw new Error(`Unsupported task field extension target: ${extension.extends}`);

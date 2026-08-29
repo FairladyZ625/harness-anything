@@ -9,6 +9,9 @@ import {
   CHIP_GAP,
   EXPANDED_CHIP_CAP,
   FOLDED_CHIP_CAP,
+  isTerritoryEntityChipNode,
+  isTerritoryFoldNode,
+  isTerritoryZoneNode,
   zoneHeaderH,
   ZONE_BODY_PAD_Y,
 } from "../src/renderer/graph/territoryLayout.ts";
@@ -44,11 +47,7 @@ function task(overrides: Partial<TaskRow> = {}): TaskRow {
 
 function noop() {}
 
-function layout(opts: {
-  tasks: TaskRow[];
-  expandedZones?: ReadonlySet<string>;
-  containerWidth?: number;
-}) {
+function layout(opts: { tasks: TaskRow[]; expandedZones?: ReadonlySet<string>; containerWidth?: number }) {
   const partition = partitionForSkel("task", opts.tasks, [], [], [], []);
   return layoutTerritory({
     partition,
@@ -77,27 +76,25 @@ describe("layoutTerritory (two-level zone + chip)", () => {
 
   it("emits chips as separate nodes placed inside the zone body", () => {
     const { nodes } = layout({ tasks: many, containerWidth: 360 });
-    const zone = nodes.find((n) => n.type === "territoryZone")!;
-    const chips = nodes.filter((n) => n.type === "territoryChip" && (n.data as any).chip);
+    const zone = nodes.find(isTerritoryZoneNode)!;
+    const chips = nodes.filter(isTerritoryEntityChipNode);
     expect(zone).toBeDefined();
     expect(chips.length).toBeGreaterThan(0);
     for (const chip of chips) {
       expect(chip.position.x).toBeGreaterThanOrEqual(zone.position.x);
       expect(chip.position.x + chip.width!).toBeLessThanOrEqual(zone.position.x + zone.width!);
-      expect(chip.position.y).toBeGreaterThanOrEqual(
-        zone.position.y + zoneHeaderH((zone.data as any).zone) + ZONE_BODY_PAD_Y,
-      );
+      expect(chip.position.y).toBeGreaterThanOrEqual(zone.position.y + zoneHeaderH(zone.data.zone) + ZONE_BODY_PAD_Y);
       expect(chip.position.y + chip.height!).toBeLessThanOrEqual(zone.position.y + zone.height!);
     }
   });
 
   it("folds by default: FOLDED_CHIP_CAP chips + one fold row, not all 40", () => {
     const { nodes } = layout({ tasks: many, containerWidth: 360 });
-    const chips = nodes.filter((n) => n.type === "territoryChip" && (n.data as any).chip);
-    const folds = nodes.filter((n) => (n.data as any)?.fold);
+    const chips = nodes.filter(isTerritoryEntityChipNode);
+    const folds = nodes.filter(isTerritoryFoldNode);
     expect(chips).toHaveLength(FOLDED_CHIP_CAP);
     expect(folds).toHaveLength(1);
-    expect((folds[0]!.data as any).fold.hidden).toBe(40 - FOLDED_CHIP_CAP);
+    expect(folds[0]!.data.fold.hidden).toBe(40 - FOLDED_CHIP_CAP);
   });
 
   it("expands to the cap but never dumps thousands of chips", () => {
@@ -112,16 +109,14 @@ describe("layoutTerritory (two-level zone + chip)", () => {
       onOpen: noop,
       onFold: noop,
     });
-    const chips = nodes.filter((n) => n.type === "territoryChip" && (n.data as any).chip);
+    const chips = nodes.filter(isTerritoryEntityChipNode);
     expect(chips.length).toBeLessThanOrEqual(EXPANDED_CHIP_CAP);
     expect(chips.length).toBeGreaterThan(FOLDED_CHIP_CAP);
   });
 
   it("stacks chips with constant pitch so they never overlap", () => {
     const { nodes } = layout({ tasks: many, containerWidth: 360 });
-    const chips = nodes
-      .filter((n) => n.type === "territoryChip")
-      .sort((a, b) => a.position.y - b.position.y);
+    const chips = nodes.filter((n) => n.type === "territoryChip").sort((a, b) => a.position.y - b.position.y);
     for (let i = 1; i < chips.length; i += 1) {
       expect(chips[i]!.position.y - chips[i - 1]!.position.y).toBe(CHIP_H + CHIP_GAP);
     }
@@ -135,9 +130,7 @@ describe("layoutTerritory (two-level zone + chip)", () => {
       task({ taskId: "c0", rootTaskId: "rc", rootTitle: "C" }),
     ];
     const { nodes } = layout({ tasks, containerWidth: 360 });
-    const zones = nodes
-      .filter((n) => n.type === "territoryZone")
-      .sort((a, b) => a.position.y - b.position.y);
+    const zones = nodes.filter(isTerritoryZoneNode).sort((a, b) => a.position.y - b.position.y);
     expect(zones).toHaveLength(3);
     for (let i = 1; i < zones.length; i += 1) {
       const prev = zones[i - 1]!;
@@ -151,7 +144,7 @@ describe("layoutTerritory (two-level zone + chip)", () => {
       task({ taskId: "b0", rootTaskId: "rb", rootTitle: "B" }),
     ];
     const { nodes } = layout({ tasks, containerWidth: 360 * 3 });
-    const zones = nodes.filter((n) => n.type === "territoryZone");
+    const zones = nodes.filter(isTerritoryZoneNode);
     expect(zones).toHaveLength(2);
     expect(zones[0]!.position.y).toBe(zones[1]!.position.y);
     expect(zones[1]!.position.x).toBeGreaterThan(zones[0]!.position.x);

@@ -10,9 +10,10 @@ import {
 import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 
 export function createDaemonHostRuntimeApi(
-  context: any,
+  context: DaemonHostApiContext,
 ): Pick<
   DaemonHost,
   | "attach"

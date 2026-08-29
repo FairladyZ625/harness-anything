@@ -11,13 +11,14 @@ import {
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
+import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
 type CiRunArtifact = CiRunObservationEventV1["payload"] & { readonly schema: "ci-run-artifact/v1" };
 type CiWorkflowRun = { readonly databaseId: number; readonly headBranch: string; readonly createdAt: string };
 type RunGh = (command: string, args: readonly string[], options: { readonly cwd: string }) => Promise<string>;
 
 export async function pullAndIngestCiObservations(
-  cell: any,
+  cell: RepoCellActionContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
   runGh: RunGh = (command, args, options) => runProcessTextAsync(command, args, options.cwd),

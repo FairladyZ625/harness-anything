@@ -6,6 +6,7 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   type ActorIdentity,
+  type DaemonRepoMode,
   type DocSyncReceiptDetail,
 } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
@@ -18,6 +19,8 @@ import type { RepoCellBinding } from "./repo-cell-types.ts";
 import { withDerivedCommandClass } from "./repo-cell-role-bindings.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { TaskQueryJudgments } from "./task-query-read.ts";
+import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
+import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 
 export { causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 export { openRepoCell } from "./repo-cell-open.ts";
@@ -35,7 +38,32 @@ export const repoCellTaskQueryJudgments: TaskQueryJudgments = {
   blocking: (tasks, relations, state) => blockingOf(tasks, relations, state),
 };
 
-export function initializeRepoCell(context: any): any {
+export interface RepoCellCoreInput {
+  readonly input: {
+    readonly repoId: string;
+    readonly killpoint?: Parameters<typeof makeTaskEventStore>[0]["killpoint"];
+    readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+  };
+  readonly rootDir: string;
+  readonly authoredBranch?: string;
+  readonly activeWriterEpochGuard: (() => void) | null;
+  readonly activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
+  readonly mode: DaemonRepoMode;
+  readonly now: () => string;
+  readonly runtimeStream: AgentRuntimeStreamHub;
+}
+
+export interface RepoCellCore {
+  readonly store: ReturnType<typeof makeTaskEventStore>;
+  readonly recovery: ReturnType<ReturnType<typeof makeTaskEventStore>["recover"]>;
+  readonly projection: ReturnType<typeof makeTaskProjection>;
+  readonly entityActionExecutor: ReturnType<typeof makeEntityActionCatalogExecutor>;
+  readonly runtimeReads: ReturnType<typeof makeAgentRuntimeReadModel>;
+  readonly service: ReturnType<typeof makeTaskLifecycleService>;
+  readonly replica: ReturnType<typeof openReplicaCutSource>;
+}
+
+export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
   let pendingSettlementActor: ActorIdentity | null = null;
   const settleAuthoredCandidates = (actor: ActorIdentity): void => {

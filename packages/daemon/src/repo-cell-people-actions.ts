@@ -27,8 +27,9 @@ import {
 } from "./protocol/daemon-protocol-commands-people.ts";
 import { resolvePacketAction, type PacketActionContract } from "./repo-cell-action-parse.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoCellActionContext, RepoCellPeopleActions } from "./repo-cell-action-context.ts";
 
-export function makeRepoCellPeopleActions(cell: any) {
+export function makeRepoCellPeopleActions(cell: RepoCellActionContext): RepoCellPeopleActions {
   const run = (action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt => {
     const resolvedAction = resolvePeopleAction(cell.rootDir, action),
       occurredAt = cell.now(),

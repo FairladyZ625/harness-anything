@@ -3,9 +3,10 @@ import { sessionProvenance, taskBootstrapWritePlan, type WriteReceipt } from "..
 import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap } from "../../preset/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 export function readResult(
-  cell: any,
+  cell: RepoCellOperationalContext,
   opId: string,
   value: object,
   revision: number,
@@ -47,7 +48,7 @@ export function readResult(
 }
 
 export function previewResult(
-  cell: any,
+  cell: RepoCellOperationalContext,
   opId: string,
   value: object,
   revision: number,
@@ -76,7 +77,7 @@ export function previewResult(
   };
 }
 
-export function withLayoutAdvisory(cell: any, receipt: WriteReceipt): WriteReceipt {
+export function withLayoutAdvisory(cell: RepoCellOperationalContext, receipt: WriteReceipt): WriteReceipt {
   if (receipt.outcome !== "applied" || cell.store.layout() !== "flat/v1") return receipt;
   const advisory = [
     "This ledger still uses the legacy flat/v1 object layout; run ha migrate ",
@@ -93,7 +94,7 @@ export function withLayoutAdvisory(cell: any, receipt: WriteReceipt): WriteRecei
   } as WriteReceipt;
 }
 
-export function withHumanSummary(cell: any, receipt: WriteReceipt): WriteReceipt {
+export function withHumanSummary(cell: RepoCellOperationalContext, receipt: WriteReceipt): WriteReceipt {
   if (
     typeof (
       receipt as {
@@ -112,7 +113,7 @@ export function withHumanSummary(cell: any, receipt: WriteReceipt): WriteReceipt
       } as WriteReceipt);
 }
 
-export function dependencyPath(cell: any, start: string, goal: string): boolean {
+export function dependencyPath(cell: RepoCellOperationalContext, start: string, goal: string): boolean {
   const graph = new Map<string, string[]>();
   for (const edge of cell.queryRead().relationGraph().edges)
     if (edge.state === "active" && edge.relationType === "depends-on")
@@ -129,7 +130,7 @@ export function dependencyPath(cell: any, start: string, goal: string): boolean 
   return false;
 }
 
-export function relationEndpointExists(cell: any, ref: string): boolean {
+export function relationEndpointExists(cell: RepoCellOperationalContext, ref: string): boolean {
   const task = /^task\/([^/]+)$/u.exec(ref)?.[1];
   if (task) return cell.projectedTaskIds().has(task);
   const decision = /^decision\/([^/]+)/u.exec(ref)?.[1];
@@ -138,7 +139,11 @@ export function relationEndpointExists(cell: any, ref: string): boolean {
   return fact ? cell.projection.readFact(fact[1]!).fact !== null : false;
 }
 
-export function createTask(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export function createTask(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt {
   const dryRun = action.dryRun === true,
     canonicalAction = cell.withoutDryRun(action),
     canonicalOpId = cell.operationId(canonicalAction, binding, cell.input.repoId, 0),
@@ -152,7 +157,7 @@ export function createTask(cell: any, action: RepoTaskAction, binding: RepoCellB
     !dryRun && typeof canonicalAction.idempotencyKey === "string"
       ? cell.projection
           .list()
-          .rows.find((row: any) => row.snapshot.task?.metadata?.idempotencyKey === canonicalAction.idempotencyKey)
+          .rows.find((row) => row.snapshot.task?.metadata?.idempotencyKey === canonicalAction.idempotencyKey)
       : undefined;
   if (idempotent?.snapshot.task) {
     const current = cell.projection.read(idempotent.taskId);
@@ -300,7 +305,11 @@ export function createTask(cell: any, action: RepoTaskAction, binding: RepoCellB
   return receipt;
 }
 
-export function upgradePresetSnapshot(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export function upgradePresetSnapshot(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     projected = cell.projection.read(taskId),
     taskReady = projected.status === "ready";

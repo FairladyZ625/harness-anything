@@ -2,23 +2,30 @@ import { existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "../../../kernel/src/index.ts";
 
-import type { FleetCenterOptions, Upload } from "./center-types.ts";
+import { FleetFault, type FleetCenterOptions, type State, type Upload } from "./center-types.ts";
+
+export interface FleetLeaseClaimsContext {
+  readonly state: State;
+  readonly persist: () => void;
+  readonly FleetFault: typeof FleetFault;
+  readonly safeLocal: (repoId: string, child: string) => string;
+  readonly uploadPath: (uploadId: string, upload?: Upload) => string;
+}
 
 // A carried task-document bundle lands only through the lease-brokered task
 // command; once the cell applies it, the staged claim uploads are consumed.
 // The wrapper sits on the execution path only — an opId replay returns the
 // stored receipt without re-running, so a re-staged claim survives a replay.
-export function brokerHost(context: any, host: FleetCenterOptions["host"]): FleetCenterOptions["host"] {
+export function brokerHost(
+  context: FleetLeaseClaimsContext,
+  host: FleetCenterOptions["host"],
+): FleetCenterOptions["host"] {
   return {
     ...host,
     run: async (repoId, action, transport) => {
       const receipt = await host.run(repoId, action, transport);
       const binding = transport.assignmentBinding,
-        changes = (
-          action as {
-            readonly docChanges?: unknown;
-          }
-        ).docChanges;
+        changes = action.docChanges;
       if (receipt.outcome === "applied" && binding && Array.isArray(changes)) {
         let released = false;
         for (const uploadId of Object.keys(context.state.uploads)) {
@@ -51,7 +58,7 @@ export function brokerHost(context: any, host: FleetCenterOptions["host"]): Flee
 }
 
 export function verifyOwnedClaims(
-  context: any,
+  context: FleetLeaseClaimsContext,
   nodeId: string,
   assignmentId: string,
   changes: readonly {
@@ -61,7 +68,7 @@ export function verifyOwnedClaims(
   }[],
 ): void {
   for (const change of changes) {
-    const owned = Object.entries(context.state.uploads as Record<string, Upload>).some(
+    const owned = Object.entries(context.state.uploads).some(
       ([, candidate]) =>
         candidate.nodeId === nodeId &&
         candidate.assignmentId === assignmentId &&
@@ -72,7 +79,7 @@ export function verifyOwnedClaims(
 }
 
 export function discardOwnedClaims(
-  context: any,
+  context: FleetLeaseClaimsContext,
   nodeId: string,
   assignmentId: string,
   changes: readonly {
@@ -82,7 +89,7 @@ export function discardOwnedClaims(
   }[],
 ): void {
   let released = false;
-  for (const [uploadId, upload] of Object.entries(context.state.uploads as Record<string, Upload>)) {
+  for (const [uploadId, upload] of Object.entries(context.state.uploads)) {
     if (
       upload.nodeId !== nodeId ||
       upload.assignmentId !== assignmentId ||

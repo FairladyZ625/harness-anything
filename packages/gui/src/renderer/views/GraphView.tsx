@@ -41,6 +41,26 @@ import {
 
 export type ViewMode = "territory" | "spotlight";
 
+export interface GraphViewProps {
+  tasks: readonly TaskRow[];
+  relations: RelationEdge[];
+  decisions: DecisionRow[];
+  facts: FactRef[];
+  coverageRows?: ReadonlyArray<RelationCoverageRow>;
+  factAnchors?: ReadonlyArray<FactAnchorRow>;
+  onNavigateEntity?: (ref: string) => void;
+  onFocusEntityChange?: (ref: string | null) => void;
+  /** 最近访问 navRef 列表(App 层 pushRecent 维护),左栏 Recent 段数据源。 */
+  recentRefs?: ReadonlyArray<string>;
+  /** 统一实体索引(buildPaletteIndex 产物),左栏 typeahead 与 Recent 反解共用。 */
+  entries?: ReadonlyArray<PaletteEntry>;
+  /** 点击 ⌘K 徽标打开全局面板。 */
+  onOpenPalette?: () => void;
+  focusRef: string | null;
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
+}
+
 /**
  * 关系图页:领地 + 聚光灯双模式。
  *
@@ -71,25 +91,7 @@ function GraphViewInner({
   recentRefs = [],
   entries = [],
   onOpenPalette = () => {},
-}: {
-  tasks: readonly TaskRow[];
-  relations: RelationEdge[];
-  decisions: DecisionRow[];
-  facts: FactRef[];
-  coverageRows?: ReadonlyArray<RelationCoverageRow>;
-  factAnchors?: ReadonlyArray<FactAnchorRow>;
-  onNavigateEntity?: (ref: string) => void;
-  onFocusEntityChange?: (ref: string | null) => void;
-  /** 最近访问 navRef 列表(App 层 pushRecent 维护),左栏 Recent 段数据源。 */
-  recentRefs?: ReadonlyArray<string>;
-  /** 统一实体索引(buildPaletteIndex 产物),左栏 typeahead 与 Recent 反解共用。 */
-  entries?: ReadonlyArray<PaletteEntry>;
-  /** 点击 ⌘K 徽标打开全局面板。 */
-  onOpenPalette?: () => void;
-  focusRef: string | null;
-  viewMode: ViewMode;
-  onViewModeChange: (m: ViewMode) => void;
-}) {
+}: GraphViewProps) {
   const colorMode = useColorMode();
   const { setViewport } = useReactFlow();
 
@@ -394,7 +396,8 @@ function GraphViewInner({
                 nodeColor={(n) => {
                   if (n.type === "territoryZone") return "var(--color-border)";
                   if (n.type === "territoryChip") {
-                    const entity = (n.data as any)?.chip?.entity;
+                    const chip = n.data.chip,
+                      entity = chip !== null && typeof chip === "object" && "entity" in chip ? chip.entity : undefined;
                     if (entity === "decision") return "var(--color-axis-authority)";
                     if (entity === "fact") return "var(--color-axis-evidence)";
                     if (entity === "task") return "var(--color-axis-execution)";
@@ -454,7 +457,7 @@ function GraphViewInner({
   );
 }
 
-export function GraphView(props: any) {
+export function GraphView(props: GraphViewProps) {
   return (
     <ReactFlowProvider>
       <GraphViewInner {...props} />

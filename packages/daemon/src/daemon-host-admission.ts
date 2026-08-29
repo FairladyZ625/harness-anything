@@ -4,9 +4,10 @@ import type { CommandTopology } from "../../preset/src/preset-command-contract.t
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import { admitRepoMode, type RepoModeAdmission } from "./repo-mode.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
+import type { DaemonHostAdmissionContext } from "./daemon-host-context.ts";
 
 export function admitHostMode(
-  context: any,
+  context: DaemonHostAdmissionContext,
   repoId: string,
   command: CommandTopology,
   auth: DaemonAuthenticationContext,
@@ -32,7 +33,7 @@ export function admitHostMode(
 }
 
 export function requireHostMode(
-  context: any,
+  context: DaemonHostAdmissionContext,
   repoId: string,
   command: CommandTopology,
   auth: DaemonAuthenticationContext,
@@ -41,7 +42,12 @@ export function requireHostMode(
   if (!admission.ok) throw context.hostCodedError(admission.code, admission.nextAction);
 }
 
-export function settleControl(context: any, pending: DaemonControlReceipt, ok: boolean, error?: unknown): void {
+export function settleControl(
+  context: DaemonHostAdmissionContext,
+  pending: DaemonControlReceipt,
+  ok: boolean,
+  error?: unknown,
+): void {
   const completedAt = new Date().toISOString(),
     settled: DaemonControlReceipt = {
       ...pending,

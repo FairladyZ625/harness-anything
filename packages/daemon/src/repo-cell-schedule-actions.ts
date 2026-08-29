@@ -31,9 +31,11 @@ import { resolvePacketAction, type PacketActionContract } from "./repo-cell-acti
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TrustedScheduleSpawn } from "./runtime-spawn.ts";
 import { readScheduleRuns } from "./schedule-runs-read.ts";
+import type { RepoCellRuntimeContext, RepoCellScheduleActions } from "./repo-cell-action-context.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
 type ScheduleClaimKind = "scheduled" | "manual";
-type ScheduleClaimInput = {
+export type ScheduleClaimInput = {
   readonly scheduleId: string;
   readonly kind: ScheduleClaimKind;
   readonly scheduledFor: string;
@@ -43,11 +45,52 @@ type ScheduleClaimInput = {
   readonly idempotencyKey: string;
 };
 
+export interface ScheduleDispatchLinkInput {
+  readonly scheduleId: string;
+  readonly claimFence: string;
+  readonly dispatchId: string;
+  readonly runtimeSessionId: string;
+  readonly idempotencyKey: string;
+}
+
+export interface ScheduleSettleInput {
+  readonly scheduleId: string;
+  readonly claimFence: string;
+  readonly outcome: ScheduleRunOutcome;
+  readonly endedAt: string;
+  readonly detail?: string;
+  readonly idempotencyKey: string;
+}
+
+export interface ScheduleMissedInput {
+  readonly scheduleId: string;
+  readonly from: string;
+  readonly to: string;
+  readonly count: number;
+  readonly reason: ScheduleMissedReason;
+  readonly observedDefinitionRevision?: number;
+  readonly idempotencyKey: string;
+}
+
 type ScheduleSpawnReceipt = {
   readonly outcome: string;
   readonly dispatchId?: string;
   readonly runtimeSessionId?: string;
 };
+
+function isScheduleSpawnWriteReceipt(value: JsonObject): value is JsonObject & ScheduleSpawnReceipt & WriteReceipt {
+  return (
+    ["applied", "pending", "no_changes", "indeterminate", "op_rejected"].includes(String(value.outcome)) &&
+    typeof value.opId === "string" &&
+    value.opId.length > 0 &&
+    (value.dispatchId === undefined || typeof value.dispatchId === "string") &&
+    (value.runtimeSessionId === undefined || typeof value.runtimeSessionId === "string")
+  );
+}
+
+function isProjectedSchedule(value: unknown): value is ScheduleV1 {
+  return validateScheduleV1(value).length === 0;
+}
 
 const schedulePacketContracts: Readonly<Record<string, PacketActionContract>> = Object.freeze({
   "schedule-show": scheduleContract(scheduleShowJsonFields, scheduleShowJsonAllowedFields),
@@ -81,11 +124,14 @@ function invalidSchedulePacket(message: string): Error {
   return Object.assign(new Error(message), { code: "invalid_command" });
 }
 
-export async function dispatchClaimedSchedule<TReceipt>(input: {
+export async function dispatchClaimedSchedule<
+  TReceipt,
+  TSpawnReceipt extends ScheduleSpawnReceipt = ScheduleSpawnReceipt,
+>(input: {
   readonly schedule: ScheduleV1;
   readonly idempotencyKey: string;
   readonly now: () => string;
-  readonly spawn: (scheduled: TrustedScheduleSpawn) => Promise<ScheduleSpawnReceipt>;
+  readonly spawn: (scheduled: TrustedScheduleSpawn) => Promise<TSpawnReceipt>;
   readonly linkDispatch: (linked: {
     readonly scheduleId: string;
     readonly claimFence: string;
@@ -116,7 +162,7 @@ export async function dispatchClaimedSchedule<TReceipt>(input: {
     });
     return { kind: "spawn-failed", error: new Error("schedule target has no dispatch route"), receipt } as const;
   }
-  let spawned: ScheduleSpawnReceipt;
+  let spawned: TSpawnReceipt;
   try {
     spawned = await input.spawn({
       scheduleId: input.schedule.scheduleId,
@@ -153,13 +199,13 @@ export async function dispatchClaimedSchedule<TReceipt>(input: {
   return { kind: "linked", receipt, dispatchId, runtimeSessionId } as const;
 }
 
-export function makeRepoCellScheduleActions(cell: any) {
+export function makeRepoCellScheduleActions(cell: RepoCellRuntimeContext): RepoCellScheduleActions {
   const read = (scheduleId: string): { readonly schedule: ScheduleV1; readonly revision: number } => {
     const row = cell.projection.getEntity("schedule", scheduleId);
     if (!row) throw cell.cellCodedError("entity_not_found", `Schedule ${scheduleId} does not exist.`);
-    if (validateScheduleV1(row.value).length)
+    if (!isProjectedSchedule(row.value))
       throw cell.cellCodedError("invalid_store", `Schedule ${scheduleId} projection is invalid.`);
-    return { schedule: row.value as unknown as ScheduleV1, revision: row.workspaceRevision };
+    return { schedule: row.value, revision: row.workspaceRevision };
   };
   const replay = (action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt | null => {
     const opId = cell.operationId(action, binding, cell.input.repoId, 0),
@@ -333,16 +379,7 @@ export function makeRepoCellScheduleActions(cell: any) {
     return publish(claimAction, binding, updated, "schedule_occurrence_claimed", { expectedRevision: revision });
   };
 
-  const linkDispatch = (
-    input: {
-      readonly scheduleId: string;
-      readonly claimFence: string;
-      readonly dispatchId: string;
-      readonly runtimeSessionId: string;
-      readonly idempotencyKey: string;
-    },
-    binding: RepoCellBinding,
-  ): WriteReceipt => {
+  const linkDispatch = (input: ScheduleDispatchLinkInput, binding: RepoCellBinding): WriteReceipt => {
     const linkAction = {
         kind: "schedule-dispatch-link",
         scheduleId: input.scheduleId,
@@ -367,17 +404,7 @@ export function makeRepoCellScheduleActions(cell: any) {
     return publish(linkAction, binding, updated, "schedule_occurrence_dispatched", { expectedRevision: revision });
   };
 
-  const settle = (
-    input: {
-      readonly scheduleId: string;
-      readonly claimFence: string;
-      readonly outcome: ScheduleRunOutcome;
-      readonly endedAt: string;
-      readonly detail?: string;
-      readonly idempotencyKey: string;
-    },
-    binding: RepoCellBinding,
-  ): WriteReceipt => {
+  const settle = (input: ScheduleSettleInput, binding: RepoCellBinding): WriteReceipt => {
     const settleAction = {
         kind: "schedule-settle",
         scheduleId: input.scheduleId,
@@ -420,18 +447,7 @@ export function makeRepoCellScheduleActions(cell: any) {
     return publish(settleAction, binding, updated, "schedule_run_settled", { expectedRevision: revision });
   };
 
-  const recordMissed = (
-    input: {
-      readonly scheduleId: string;
-      readonly from: string;
-      readonly to: string;
-      readonly count: number;
-      readonly reason: ScheduleMissedReason;
-      readonly observedDefinitionRevision?: number;
-      readonly idempotencyKey: string;
-    },
-    binding: RepoCellBinding,
-  ): WriteReceipt => {
+  const recordMissed = (input: ScheduleMissedInput, binding: RepoCellBinding): WriteReceipt => {
     const missedAction = {
         kind: "schedule-missed",
         scheduleId: input.scheduleId,
@@ -487,23 +503,33 @@ export function makeRepoCellScheduleActions(cell: any) {
       active = schedule?.status.activeRun;
     if (claimed.outcome !== "applied" || !schedule || !active || cell.mode === "remote-center") return claimed;
     if (active.dispatchId && active.runtimeSessionId) return claimed;
-    const dispatched = await dispatchClaimedSchedule({
+    const dispatched = await dispatchClaimedSchedule<WriteReceipt, JsonObject & ScheduleSpawnReceipt & WriteReceipt>({
       schedule,
       idempotencyKey,
       now: cell.now,
-      spawn: (scheduled) => cell.runtimeSpawner.spawnScheduled(scheduled, binding),
+      spawn: async (scheduled) => {
+        const receipt = await cell.runtimeSpawner.spawnScheduled(scheduled, binding);
+        if (!isScheduleSpawnWriteReceipt(receipt))
+          throw cell.cellCodedError("invalid_runtime_receipt", "Scheduled runtime returned an invalid receipt.");
+        return receipt;
+      },
       linkDispatch: (linked) => linkDispatch(linked, binding),
       settleFailure: (failed) => settle(failed, binding),
     });
-    if (dispatched.kind === "spawn-failed")
-      return { ...dispatched.receipt, code: "schedule_dispatch_failed" } as WriteReceipt;
-    if (dispatched.kind === "spawn-unapplied")
-      return {
+    if (dispatched.kind === "spawn-failed") return { ...dispatched.receipt, code: "schedule_dispatch_failed" };
+    if (dispatched.kind === "spawn-unapplied") {
+      const pending: WriteReceipt & {
+        readonly scheduleId: string;
+        readonly schedule: ScheduleV1;
+        readonly claimFence: string;
+      } = {
         ...dispatched.receipt,
         scheduleId: schedule.scheduleId,
         schedule,
         claimFence: active.claimFence,
-      } as unknown as WriteReceipt;
+      };
+      return pending;
+    }
     return dispatched.receipt;
   };
 
@@ -516,9 +542,11 @@ export function makeRepoCellScheduleActions(cell: any) {
             binding.assignmentScope?.scope.kind === "schedule" ? binding.assignmentScope.scope.scheduleId : null,
           schedules = cell.projection
             .listEntities("schedule")
-            .filter((row: any) => assignmentScheduleId === null || row.value.scheduleId === assignmentScheduleId)
-            .map((row: any) => {
-              const schedule = row.value as ScheduleV1;
+            .filter((row) => assignmentScheduleId === null || row.value.scheduleId === assignmentScheduleId)
+            .map((row) => {
+              if (!isProjectedSchedule(row.value))
+                throw cell.cellCodedError("invalid_store", "Schedule projection contains an invalid row.");
+              const schedule = row.value;
               return {
                 ...schedule,
                 definitionRevision: row.workspaceRevision,

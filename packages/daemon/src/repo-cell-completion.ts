@@ -9,9 +9,10 @@ import {
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
 import { resolveTaskRootThreshold } from "./task-wip-settings.ts";
+import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
 export function publishCiWitness(
-  cell: any,
+  cell: RepoCellActionContext,
   taskId: string,
   executionId: string,
   snapshot: Snapshot,
@@ -84,7 +85,7 @@ export function publishCiWitness(
   return receipt;
 }
 
-export function completionKillpoint(cell: any, point: EventPublicationKillpoint, opId: string): void {
+export function completionKillpoint(cell: RepoCellActionContext, point: EventPublicationKillpoint, opId: string): void {
   try {
     cell.input.killpoint?.(point);
   } catch (cause) {
@@ -101,7 +102,7 @@ export function completionKillpoint(cell: any, point: EventPublicationKillpoint,
   }
 }
 
-export async function showTask(cell: any, taskId: string): Promise<WriteReceipt> {
+export async function showTask(cell: RepoCellActionContext, taskId: string): Promise<WriteReceipt> {
   const read = await cell.service.read(cell.requiredCellText(taskId, "taskId")),
     projected = cell.projection.read(taskId),
     progress = cell.projection.readProgress(taskId),

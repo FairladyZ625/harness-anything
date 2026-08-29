@@ -2,12 +2,13 @@ import { consumeKnownError, readDaemonRegistry } from "../../kernel/src/index.ts
 import { yieldToEventLoop } from "./process-port.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { latchReprobeThrottleMs } from "./repo-cell.ts";
+import type { DaemonHostRegistryContext } from "./daemon-host-context.ts";
 
 // Host-level latch self-heal, mirroring RepoCell's attemptRecovery cadence: a repo parked in
 // `unavailable` is re-opened (openRegistered) when a command touches it, throttled to one probe
 // per interval; a fresh latch earns one immediate probe, a failed probe keeps its stamp. Success
 // moves the repo into `cells` and out of `unavailable`; failure refreshes the reported cause.
-export async function attemptHostRecovery(context: any, repoId: string): Promise<void> {
+export async function attemptHostRecovery(context: DaemonHostRegistryContext, repoId: string): Promise<void> {
   await context.waitForWarming(repoId);
   if (context.cells.has(repoId) || context.warming.has(repoId) || !context.unavailable.has(repoId)) return;
   const probe = context.unavailableProbes.get(repoId) ?? makeRecoveryProbe(latchReprobeThrottleMs);
@@ -31,7 +32,7 @@ export async function attemptHostRecovery(context: any, repoId: string): Promise
   }
 }
 
-export async function waitForWarming(context: any, repoId: string): Promise<void> {
+export async function waitForWarming(context: DaemonHostRegistryContext, repoId: string): Promise<void> {
   const settlement = context.warmingSettlements.get(repoId);
   if (!settlement) return;
   void context.startInitialAttachments();
@@ -44,7 +45,7 @@ export async function waitForWarming(context: any, repoId: string): Promise<void
   });
 }
 
-export function startInitialAttachments(context: any): Promise<void> {
+export function startInitialAttachments(context: DaemonHostRegistryContext): Promise<void> {
   if (context.initialAttachments) return context.initialAttachments;
   context.initialAttachments = new Promise((resolve) =>
     setImmediate(() => {
@@ -54,7 +55,7 @@ export function startInitialAttachments(context: any): Promise<void> {
   return context.initialAttachments;
 }
 
-export async function attachInitial(context: any): Promise<void> {
+export async function attachInitial(context: DaemonHostRegistryContext): Promise<void> {
   // Attach one workspace per event-loop turn. RepoCell replay is largely synchronous;
   // yielding between repos keeps transport requests and shutdown signals responsive.
   const startedAt = performance.now();
@@ -83,9 +84,8 @@ export async function attachInitial(context: any): Promise<void> {
   context.input.recordLifecycle?.({
     event: "attachments_settled",
     attachTotal: context.repos.length,
-    attached: context.repos.filter((repo: { readonly repoId: string }) => context.cells.has(repo.repoId)).length,
-    unavailable: context.repos.filter((repo: { readonly repoId: string }) => context.unavailable.has(repo.repoId))
-      .length,
+    attached: context.repos.filter((repo) => context.cells.has(repo.repoId)).length,
+    unavailable: context.repos.filter((repo) => context.unavailable.has(repo.repoId)).length,
     pruned,
     durationMs: performance.now() - startedAt,
   });

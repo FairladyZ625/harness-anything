@@ -24,9 +24,10 @@ import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 export function appendProgress(
-  cell: any,
+  cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
   carried: {
@@ -59,7 +60,7 @@ export function appendProgress(
     recoveryExecutionId =
       lease?.executionId ??
       task.snapshot.executions.find(
-        (value: any) => value.iteration === task.snapshot.task?.iteration && value.state === "active",
+        (value) => value.iteration === task.snapshot.task?.iteration && value.state === "active",
       )?.executionId ??
       "progress-recovery",
     recoverySnapshot = lease?.phase === "orphaned" ? { ...task.snapshot, lease: null } : task.snapshot,
@@ -118,7 +119,11 @@ export function appendProgress(
   return receipt;
 }
 
-export async function completeTask(cell: any, action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> {
+export async function completeTask(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): Promise<WriteReceipt> {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     initial = await cell.service.read(taskId),
     executionId = cell.completeExecutionId(action, initial.snapshot, taskId),
@@ -221,7 +226,7 @@ export async function completeTask(cell: any, action: RepoTaskAction, binding: R
     }
     if (blocker.code === "code_doc_missing" && paths.length) {
       const submitted = current.snapshot.executions.find(
-        (candidate: any) =>
+        (candidate) =>
           candidate.executionId === executionId && candidate.iteration === current.snapshot.task?.iteration,
       );
       if (!submitted?.submission)
@@ -272,7 +277,10 @@ export async function completeTask(cell: any, action: RepoTaskAction, binding: R
   );
 }
 
-function stillHoldsAttestations(cell: any, value: unknown): readonly FactStillHoldsAttestation[] {
+function stillHoldsAttestations(
+  cell: RepoCellOperationalContext,
+  value: unknown,
+): readonly FactStillHoldsAttestation[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.some((attestation) => !validFactStillHoldsAttestation(attestation)))
     throw cell.cellCodedError(
@@ -290,7 +298,7 @@ function stillHoldsAttestations(cell: any, value: unknown): readonly FactStillHo
 }
 
 function factRetirementAssessment(
-  cell: any,
+  cell: RepoCellOperationalContext,
   taskId: string,
   stillHoldsAttestations: readonly FactStillHoldsAttestation[],
 ): FactRetirementAssessment {
@@ -303,7 +311,7 @@ function factRetirementAssessment(
     );
   const decisionIds = [
       ...new Set(
-        relationRead.rows.flatMap((edge: any) => {
+        relationRead.rows.flatMap((edge) => {
           if (
             edge.state !== "active" ||
             edge.relationType !== "derives" ||
@@ -355,7 +363,7 @@ function factRetirementBlocker(taskId: string, executionId: string, assessment: 
 }
 
 export function completionContext(
-  cell: any,
+  cell: RepoCellOperationalContext,
   taskId: string,
   snapshot: Snapshot,
   packagePath: string | null,

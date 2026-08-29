@@ -90,13 +90,14 @@ import type {
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { authorizeAction } from "./authorization.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
+import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
   exitNotificationTimeoutMs = 30_000;
 
-export function makeRuntimeSpawner(input: {
+export interface RuntimeSpawnerInput {
   readonly repoId: string;
   readonly rootDir: string;
   readonly daemonGeneration: number;
@@ -134,7 +135,9 @@ export function makeRuntimeSpawner(input: {
   ) => void;
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void | Promise<void>;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
-}) {
+}
+
+export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
     launch = input.launch ?? launchNative,
@@ -149,7 +152,7 @@ export function makeRuntimeSpawner(input: {
         : undefined;
     };
   let fallbackClosed = false;
-  const extracted = {
+  const extracted: RuntimeSpawnerContext = {
     input,
     requiredRuntimeStore,
     requiredRuntimeProjection,
@@ -690,14 +693,14 @@ export function makeRuntimeSpawner(input: {
       closeRuntimes(extracted);
     },
   };
-  async function publishRuntimeEvent<T extends AgentRuntimeEventV1["type"]>(
+  async function publishRuntimeEvent<T extends RuntimeEventType>(
     type: T,
-    payload: Extract<AgentRuntimeEventV1, { readonly type: T }>["payload"],
+    payload: RuntimeEventOf<T>["payload"],
     opId: string,
     binding: RuntimeBinding,
     resultBody?: string,
   ): Promise<{
-    readonly event: AgentRuntimeEventV1;
+    readonly event: RuntimeEventOf<T>;
     readonly publication?: ReturnType<CanonicalEventStore["append"]>;
     readonly receipt?: JsonObject;
   }> {

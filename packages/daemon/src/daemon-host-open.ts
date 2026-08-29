@@ -73,8 +73,9 @@ import { type RepoModeAdmission } from "./repo-mode.ts";
 import type { RuntimeLauncher } from "./runtime-spawn.ts";
 import { makeScheduleScheduler } from "./schedule-scheduler.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
+import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-host-context.ts";
 
-export async function openDaemonHost(input: {
+export interface DaemonHostOpenInput {
   readonly daemonId: string;
   readonly userRoot: string;
   readonly endpoint?: string;
@@ -88,7 +89,9 @@ export async function openDaemonHost(input: {
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   readonly attachTimeoutMs?: number;
   readonly openCell?: typeof openRepoCell;
-}): Promise<DaemonHost> {
+}
+
+export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
   const cells = new Map<string, RepoCell>(),
     warming = new Map<string, RepoCellStatus>(),
     warmingSettlements = new Map<string, ReturnType<typeof makeWarmingSettlement>>(),
@@ -220,7 +223,7 @@ export async function openDaemonHost(input: {
     if (repo.state !== "disabled") latchUnavailable(invalidRepoId(repo), invalidRegistryStatus(repo));
   const repos = initialRegistry.repos.filter((repo) => repo.state === "enabled");
   for (const repo of repos) markWarming(repo.repoId, warmingStatus(repo));
-  const extracted = {
+  const extracted: DaemonHostRegistryContext = {
     cells,
     input,
     settleWarming,
@@ -375,7 +378,7 @@ export async function openDaemonHost(input: {
       repos: [...validRows, ...invalidRows].sort((a, b) => a.repoId.localeCompare(b.repoId)),
     };
   };
-  const hostContext = {
+  const hostContext: DaemonHostApiContext = {
     cells,
     unavailable,
     input,

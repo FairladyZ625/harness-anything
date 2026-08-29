@@ -12,26 +12,36 @@ import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
 import { observeProviderFault } from "./runtime-provider-fault.ts";
+import {
+  runtimeEventHasType,
+  type RuntimeEventOf,
+  type RuntimeEventType,
+  type RuntimeSpawnerContext,
+} from "./runtime-spawn-context.ts";
 
-export async function publishRuntimeEvent<T extends AgentRuntimeEventV1["type"]>(
-  context: any,
+export async function publishRuntimeEvent<T extends RuntimeEventType>(
+  context: RuntimeSpawnerContext,
   type: T,
-  payload: AgentRuntimeEventV1["payload"],
+  payload: RuntimeEventOf<T>["payload"],
   opId: string,
   binding: RuntimeBinding,
   resultBody?: string,
 ): Promise<{
-  readonly event: AgentRuntimeEventV1;
+  readonly event: RuntimeEventOf<T>;
   readonly publication?: ReturnType<CanonicalEventStore["append"]>;
   readonly receipt?: JsonObject;
 }> {
-  if (context.input.remote)
-    return context.input.remote.publish({
+  if (context.input.remote) {
+    const published = await context.input.remote.publish({
       type,
       payload,
       opId,
       ...(resultBody === undefined ? {} : { resultBody }),
     });
+    if (!runtimeEventHasType(published.event, type))
+      throw context.runtimeSpawnError("invalid_runtime_event", "Remote runtime publication changed the event type.");
+    return { ...published, event: published.event };
+  }
   const store = context.requiredRuntimeStore(context.input),
     projection = context.requiredRuntimeProjection(context.input),
     value = {
@@ -45,9 +55,11 @@ export async function publishRuntimeEvent<T extends AgentRuntimeEventV1["type"]>
       occurredAt: context.input.now(),
       payload,
     } as AgentRuntimeEventV1;
+  if (!runtimeEventHasType(value, type))
+    throw context.runtimeSpawnError("invalid_runtime_event", "Runtime event construction changed the event type.");
   let blobs: readonly CanonicalContentBlob[] = [];
   if (resultBody !== undefined) {
-    if (value.type !== "runtime_session_outcome_observed")
+    if (!isRuntimeOutcomeEvent(value))
       throw context.runtimeSpawnError("invalid_runtime_event", "Only a runtime outcome can carry result bytes.");
     blobs = [{ ...value.payload.result, body: resultBody }];
   }
@@ -60,8 +72,14 @@ export async function publishRuntimeEvent<T extends AgentRuntimeEventV1["type"]>
   return { event: value, publication: appended };
 }
 
+function isRuntimeOutcomeEvent(
+  event: AgentRuntimeEventV1,
+): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }> {
+  return event.type === "runtime_session_outcome_observed";
+}
+
 export async function consumeProviderChunk(
-  context: any,
+  context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   chunk: string,
   flush: boolean,
@@ -76,7 +94,7 @@ export async function consumeProviderChunk(
 }
 
 export async function consumeProviderLine(
-  context: any,
+  context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   line: string,
   persisted = false,
@@ -116,7 +134,7 @@ export async function consumeProviderLine(
 }
 
 export async function consumeDurableOutput(
-  context: any,
+  context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   waitForFirstRecordMs = 0,
 ): Promise<void> {
@@ -138,7 +156,7 @@ export async function consumeDurableOutput(
 }
 
 export async function restoreDurableOutputRecords(
-  context: any,
+  context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   records: readonly Record<string, unknown>[],
 ): Promise<number> {
@@ -162,7 +180,7 @@ function durableOutputRecords(records: readonly Record<string, unknown>[]): read
   return records.filter((record) => record.kind === "provider_event" || record.kind === "provider_output_invalid");
 }
 
-export function captureErrorOutput(context: any, active: ActiveRuntime, chunk: string): void {
+export function captureErrorOutput(context: RuntimeSpawnerContext, active: ActiveRuntime, chunk: string): void {
   if (active.errorOverflowed || context.processes.get(active.runtimeSessionId) !== active) return;
   active.errorBuffer += chunk;
   if (Buffer.byteLength(active.errorBuffer) > context.providerErrorLimit) {
@@ -171,7 +189,11 @@ export function captureErrorOutput(context: any, active: ActiveRuntime, chunk: s
   }
 }
 
-export async function bindProvider(context: any, active: ActiveRuntime, identity: SessionIdentity): Promise<void> {
+export async function bindProvider(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  identity: SessionIdentity,
+): Promise<void> {
   const providerSessionId = identity.sessionId;
   if (
     providerSessionId === null ||
@@ -217,7 +239,7 @@ export async function bindProvider(context: any, active: ActiveRuntime, identity
     );
 }
 
-export function markProtocolError(context: any, active: ActiveRuntime): void {
+export function markProtocolError(context: RuntimeSpawnerContext, active: ActiveRuntime): void {
   if (active.protocolError) return;
   active.protocolError = true;
   context.input.stream.publish(active.runtimeSessionId, {

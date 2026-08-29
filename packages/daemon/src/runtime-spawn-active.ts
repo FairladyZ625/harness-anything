@@ -1,4 +1,5 @@
 import type { ActiveRuntime, ResumeProcessObservation } from "./runtime-spawn-types.ts";
+import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
 type ActiveRuntimeBase = Omit<
   ActiveRuntime,
@@ -55,7 +56,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
 }
 
 export function attachActiveRuntime(
-  context: any,
+  context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   resumeObservation?: ResumeProcessObservation,
 ): void {
