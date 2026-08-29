@@ -4,8 +4,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
+import { DOC_POLICY_ID, makeTaskEventStore, parseDocWriteIntent, sha256Text } from "../../kernel/src/index.ts";
+import { detail, touch } from "../src/doc-sync-details.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { blockedAuthoredCandidateWarning } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import { actor, git, initRepo, opaqueTextualMediaType, rows, write } from "./doc-sync-slice-a.fixtures.ts";
@@ -157,6 +159,14 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
     const missing = await cell.run({ kind: "doc-submit", paths: ["context/missing.md"] }, binding);
     assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
     assert.equal(missing.code, "document_not_found");
+    assert.equal(
+      missing.nextAction,
+      [
+        "resolve context/missing.md through doc-sync: selected doc-sync path does not match an authored candidate; ",
+        "then rerun ha doc sync --submit",
+      ].join(""),
+    );
+    assert.doesNotMatch(missing.nextAction ?? "", /ha doc status/u);
 
     const clean = await cell.run({ kind: "doc-submit", paths: ["context/selected.md"] }, binding);
     assert.equal(clean.outcome, "no_changes", JSON.stringify(clean));
@@ -166,6 +176,38 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("doc-sync details name only the first unresolved touch already in hand", () => {
+  const first = touch("context/first.md", "refresh-region-policy", 'base region is missing: "# First"'),
+    second = touch("context/second.md", "workspace-config", "path is owned by workspace-config"),
+    blocked = unresolvedDetail(first, second),
+    withoutRows = unresolvedDetail();
+  assert.equal(
+    blocked.nextAction,
+    [
+      'resolve context/first.md through refresh-region-policy: base region is missing: "# First"; ',
+      "then rerun ha doc sync --submit",
+    ].join(""),
+  );
+  assert.equal(blocked.nextAction.includes(second.path), false);
+  assert.doesNotMatch(blocked.nextAction, /ha doc status/u);
+  assert.doesNotMatch(withoutRows.nextAction, /ha doc status/u);
+});
+
+test("repo-cell warning names only the first blocked receipt row", () => {
+  const first = touch("context/first.md", "refresh-region-policy", 'base region is missing: "# First"'),
+    second = touch("context/second.md", "workspace-config", "path is owned by workspace-config"),
+    warning = blockedAuthoredCandidateWarning(unresolvedDetail(first, second));
+  assert.equal(
+    warning,
+    [
+      "[wal-materializer] authored doc candidate blocked; resolve context/first.md through ",
+      'refresh-region-policy: base region is missing: "# First"; then rerun ha doc sync --submit',
+    ].join(""),
+  );
+  assert.equal(warning?.includes(second.path), false);
+  assert.doesNotMatch(warning ?? "", /ha doc status/u);
 });
 
 test("task-scoped doc sync derives every dirty candidate from the task id", async () => {
@@ -229,7 +271,12 @@ test("doc retire deletes one projected document and returns an auditable retirem
     rmSync(path.join(rootDir, "harness", logical));
     const mutation = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
     assert.equal(rows(mutation.evidence)[0]?.state, "deletion");
+    assert.match(
+      mutation.detail?.nextAction ?? "",
+      /resolve context\/temporary\.md through deletion_forbidden: canonical document is missing from the worktree/u,
+    );
     assert.match(mutation.detail?.nextAction ?? "", new RegExp(`ha doc retire --path ${logical}`, "u"));
+    assert.doesNotMatch(mutation.detail?.nextAction ?? "", /ha doc status/u);
     assert.doesNotMatch(mutation.detail?.nextAction ?? "", /resolve blocked/iu);
     const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
@@ -267,6 +314,31 @@ test("doc retire deletes one projected document and returns an auditable retirem
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+function unresolvedDetail(...unresolvedTouches: ReturnType<typeof touch>[]) {
+  const current = {
+      repoId: "next-action-detail",
+      revision: 0,
+      headDigest: `sha256:${"0".repeat(64)}`,
+    },
+    intent = parseDocWriteIntent(
+      {
+        schema: "doc-write-intent/v1",
+        executionId: null,
+        baseLedgerSha: current,
+        changes: [
+          {
+            path: "context/first.md",
+            baseBlobSha256: null,
+            policyId: DOC_POLICY_ID,
+            candidate: null,
+          },
+        ],
+      },
+      current.repoId,
+    );
+  return detail(intent, current, "unresolved_touch", null, unresolvedTouches);
+}
 
 test("doc retire follows status for a Git-tracked document that was never projected", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-tracked-"));

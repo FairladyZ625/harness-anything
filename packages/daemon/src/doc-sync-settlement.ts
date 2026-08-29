@@ -12,7 +12,7 @@ import {
 import type { DocIntentChannel } from "./doc-sync-adjudication.ts";
 import { publicScan, type DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
-import { detail, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts";
+import { blockedCandidateNextAction, detail, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts";
 import { localProseSource, proof } from "./doc-sync-files.ts";
 
 export function scanReceipt(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
@@ -126,25 +126,20 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
           "opId",
         ].join("")
       : deletion
-        ? [
-            "run ha doc retire --path ",
-            `${deletion.path}`,
-            ' --reason "<reason>" for intentional retirement, or restore the ',
-            "document, then run ha doc status",
-          ].join("")
+        ? blockedCandidateNextAction(
+            deletion,
+            [
+              "run ha doc retire --path ",
+              deletion.path,
+              ' --reason "<reason>" for intentional retirement, or restore the ',
+              "document and rerun ha doc sync --submit",
+            ].join(""),
+          )
         : (executionChoice ??
           leaseConflict ??
           headingRestore ??
           (blocked
-            ? [
-                "resolve ",
-                `${blocked.path}`,
-                " through ",
-                `${blocked.requiredRoute ?? resolveDocRoute(documentPath(blocked.path)).requiredRoute}`,
-                ": ",
-                `${blocked.reason ?? "candidate is blocked"}`,
-                "; then rerun ha doc sync --submit",
-              ].join("")
+            ? blockedCandidateNextAction(blocked)
             : scan.rows.some((row) => row.state === "eligible")
               ? "submit this selection against the reported automatic base"
               : scan.rows.some((row) => row.state === "inapplicable")

@@ -6,10 +6,12 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   type ActorIdentity,
+  type DocSyncReceiptDetail,
 } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
+import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
@@ -55,12 +57,8 @@ export function initializeRepoCell(context: any): any {
     })
       .then((receipt) => {
         const detail = receipt.detail?.kind === "doc_sync" ? receipt.detail : undefined,
-          blocked = [
-            ...(detail?.unresolvedTouches ?? []).map((touch) => `${touch.path} (${touch.requiredRoute})`),
-            ...(detail?.deletions ?? []).map((deletion) => `${deletion.path} (deletion)`),
-          ];
-        if (blocked.length)
-          console.warn(`[wal-materializer] authored doc candidates blocked; run ha doc status: ${blocked.join(", ")}`);
+          warning = blockedAuthoredCandidateWarning(detail);
+        if (warning) console.warn(warning);
       })
       .catch((error) => {
         console.warn(
@@ -127,6 +125,13 @@ export function initializeRepoCell(context: any): any {
     service,
     replica,
   };
+}
+
+export function blockedAuthoredCandidateWarning(detail: DocSyncReceiptDetail | undefined): string | null {
+  const unresolved = detail?.unresolvedTouches[0],
+    deletion = detail?.deletions[0],
+    nextAction = unresolved ? blockedCandidateNextAction(unresolved) : deletion ? detail.nextAction : null;
+  return nextAction === null ? null : `[wal-materializer] authored doc candidate blocked; ${nextAction}`;
 }
 
 export function chainRepoCellWrite<T>(tail: Promise<void>, work: () => T | PromiseLike<T>): Promise<T> {

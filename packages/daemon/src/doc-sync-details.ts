@@ -3,6 +3,8 @@ import path from "node:path";
 import type { TaskProjection } from "../../kernel/src/index.ts";
 import {
   DOC_POLICY_ID,
+  documentPath,
+  resolveDocRoute,
   resolveHarnessLayout,
   sha256Bytes,
   stableStringify,
@@ -16,6 +18,20 @@ import {
 } from "../../kernel/src/index.ts";
 import type { Input } from "./doc-sync-command-actions.ts";
 import { localProseSource } from "./doc-sync-files.ts";
+
+interface BlockedCandidate {
+  readonly path: string;
+  readonly reason: string | null;
+  readonly requiredRoute: string | null;
+}
+
+export function blockedCandidateNextAction(
+  candidate: BlockedCandidate,
+  nextStep = "rerun ha doc sync --submit",
+): string {
+  const route = candidate.requiredRoute ?? resolveDocRoute(documentPath(candidate.path)).requiredRoute;
+  return `resolve ${candidate.path} through ${route}: ${candidate.reason ?? "candidate is blocked"}; then ${nextStep}`;
+}
 
 export function readDetail(
   input: Input,
@@ -68,7 +84,9 @@ export function detail(
     differences: [],
     unresolvedTouches,
     deletions: [],
-    nextAction: "run ha doc status, then ha doc sync --dry-run --path <path> and resubmit with a new opId",
+    nextAction: unresolvedTouches[0]
+      ? blockedCandidateNextAction(unresolvedTouches[0])
+      : "run ha doc sync --dry-run --path <path> and resubmit with a new opId",
   };
 }
 
