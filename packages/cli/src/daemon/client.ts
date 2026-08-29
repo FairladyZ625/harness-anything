@@ -107,7 +107,7 @@ async function withAutostart(
   request: () => Promise<JsonObject>,
   launch: () => DaemonLaunchSpec,
   socketPath: string,
-  options: { readonly autostart: boolean; readonly env: NodeJS.ProcessEnv },
+  options: { readonly autostart: boolean; readonly env: NodeJS.ProcessEnv; readonly invokingRoot: string },
 ): Promise<JsonObject> {
   try {
     return await request();
@@ -124,6 +124,7 @@ async function withAutostart(
     if (refusal) throw new DaemonAutostartError({ ok: false, ...refusal, attempts: 0 });
     const started = await ensureLocalDaemonRunning({
       socketPath,
+      invokingRoot: options.invokingRoot,
       launch,
       onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
     });
@@ -175,7 +176,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env },
+      { autostart, env, invokingRoot: command.rootDir },
     );
   }
   if (command.method.startsWith("daemon.runtimeInstance.")) {
@@ -199,7 +200,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env },
+      { autostart, env, invokingRoot: command.rootDir },
     );
   }
   const fleetSchedule = await fleetScheduleRoute(command, env);
@@ -217,7 +218,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env },
+      { autostart, env, invokingRoot: command.rootDir },
     );
   }
   const fleetRuntime = await fleetRuntimeRoute(command, env);
@@ -235,7 +236,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env },
+      { autostart, env, invokingRoot: command.rootDir },
     );
   }
   const fleetTask = await fleetTaskRoute(command, env);
@@ -253,7 +254,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env },
+      { autostart, env, invokingRoot: command.rootDir },
     );
   }
   const fleetDoc = await fleetDocRoute(command, env);
@@ -271,7 +272,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env },
+      { autostart, env, invokingRoot: command.rootDir },
     );
   }
   const target = {
@@ -294,7 +295,7 @@ export async function runCommandThroughDaemon(
     request,
     () => cliDaemonServeLaunch(target.userRoot, target.daemonId),
     target.socketPath,
-    { autostart, env },
+    { autostart, env, invokingRoot: command.rootDir },
   );
   result = await settleRepoWarming(result, request, target.userRoot, target.daemonId);
   if (command.action.kind !== "preset-run-start") return result;

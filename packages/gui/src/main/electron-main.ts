@@ -123,6 +123,7 @@ export async function startGuiApp(): Promise<void> {
     bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides(), packaged ? { packaged } : {}),
     controlled = addLocalMainControls({
       bridge,
+      invokingRoot: rootDir,
       target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }),
       clientBuildCommit: daemonBuildStamp().commit,
       ...(packaged ? { packaged } : {}),

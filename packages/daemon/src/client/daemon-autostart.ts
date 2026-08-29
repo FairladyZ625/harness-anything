@@ -1,3 +1,4 @@
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   acquireDaemonAutostartFlight,
@@ -7,12 +8,15 @@ import {
 } from "../daemon-singleton.ts";
 import { daemonLifecycleLogPath, readDaemonLifecycleRecords } from "../lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../process-port.ts";
+import { canonicalPath } from "../runtime-worker-push.ts";
+import { readRegisteredRepos } from "./local-daemon-target.ts";
 export interface DaemonLaunchSpec {
   readonly command: string;
   readonly args: readonly string[];
   readonly env: NodeJS.ProcessEnv;
 }
 export const autostartFailureCodes = [
+  "daemon_start_noncanonical_checkout",
   "daemon_start_runtime_forbidden",
   "daemon_spawn_not_found",
   "daemon_spawn_permission",
@@ -60,8 +64,31 @@ export function runtimeDaemonStartRefusal(
     ].join(" "),
   };
 }
+export function daemonHostStartRefusal(input: {
+  readonly invokingRoot: string;
+  readonly userRoot: string;
+}): { readonly code: "daemon_start_noncanonical_checkout"; readonly hint: string } | null {
+  const invokingCheckout = daemonCheckoutRoot(input.invokingRoot),
+    registered = readRegisteredRepos(input.userRoot)
+      .filter((repo) => repo.state === "enabled")
+      .map((repo) => daemonCheckoutRoot(repo.canonicalRoot))
+      .find(
+        (registeredRoot) => registeredRoot === invokingCheckout || sameGitRepository(registeredRoot, invokingCheckout),
+      );
+  if (!registered || registered === invokingCheckout) return null;
+  return {
+    code: "daemon_start_noncanonical_checkout",
+    hint: [
+      `Refusing daemon start from non-canonical checkout ${JSON.stringify(invokingCheckout)}.`,
+      `This repository is already registered from ${JSON.stringify(registered)}.`,
+      "A worktree may connect to an existing daemon but cannot host it.",
+      `Run \`ha daemon status --root ${JSON.stringify(registered)}\`, then retry this command.`,
+    ].join(" "),
+  };
+}
 export async function ensureLocalDaemonRunning(input: {
   readonly socketPath: string;
+  readonly invokingRoot: string;
   readonly launch: () => DaemonLaunchSpec;
   readonly readyTimeoutMs?: number;
   readonly probeIntervalMs?: number;
@@ -75,7 +102,13 @@ export async function ensureLocalDaemonRunning(input: {
     spawnDetached =
       input.spawnDetached ??
       ((launch: DaemonLaunchSpec) =>
-        startDetachedProcessChecked(launch.command, launch.args, launch.env, daemonLaunchOutputPath(launch)));
+        startDetachedProcessChecked(
+          launch.command,
+          launch.args,
+          launch.env,
+          daemonLaunchOutputPath(launch),
+          daemonCheckoutRoot(input.invokingRoot),
+        ));
   // A freshly started daemon can die between binding its socket and finishing
   // startup; confirm readiness with a second probe before declaring success.
   const ready = async () => {
@@ -93,6 +126,8 @@ export async function ensureLocalDaemonRunning(input: {
     launched = input.launch();
     const target = daemonLaunchTarget(launched);
     if (!target) throw new Error("daemon launch spec does not declare its --user-root and --daemon-id");
+    const refusal = daemonHostStartRefusal({ invokingRoot: input.invokingRoot, userRoot: target.userRoot });
+    if (refusal) return { ok: false, ...refusal, attempts: 0 };
     flight = await acquireDaemonAutostartFlight(target);
     // The probe belongs inside the claim: another caller may have bound the
     // socket between this process's initial probe and atomic lock creation.
@@ -256,4 +291,30 @@ function liveDaemonSingleton(launch: DaemonLaunchSpec): boolean {
 }
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+export function daemonCheckoutRoot(rootDir: string): string {
+  let current = canonicalPath(path.resolve(rootDir));
+  for (;;) {
+    if (existsSync(path.join(current, ".git"))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return canonicalPath(rootDir);
+    current = parent;
+  }
+}
+function sameGitRepository(left: string, right: string): boolean {
+  const leftCommon = gitCommonDirectory(left),
+    rightCommon = gitCommonDirectory(right);
+  return leftCommon !== null && rightCommon !== null && leftCommon === rightCommon;
+}
+function gitCommonDirectory(checkoutRoot: string): string | null {
+  const marker = path.join(checkoutRoot, ".git");
+  if (!existsSync(marker)) return null;
+  if (statSync(marker).isDirectory()) return canonicalPath(marker);
+  const gitdir = /^gitdir:\s*(.+)$/u.exec(readFileSync(marker, "utf8").trim())?.[1];
+  if (!gitdir) return null;
+  const administrativeRoot = canonicalPath(path.resolve(checkoutRoot, gitdir)),
+    commonPath = path.join(administrativeRoot, "commondir");
+  if (!existsSync(commonPath)) return administrativeRoot;
+  const relativeCommon = readFileSync(commonPath, "utf8").trim();
+  return relativeCommon ? canonicalPath(path.resolve(administrativeRoot, relativeCommon)) : administrativeRoot;
 }

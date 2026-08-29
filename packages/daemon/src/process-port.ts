@@ -11,12 +11,14 @@ export function startDetachedProcess(
   args: readonly string[],
   env: NodeJS.ProcessEnv,
   outputPath?: string,
+  cwd?: string,
 ): void {
   const outputFd = outputPath ? openDaemonOutputFd(outputPath) : null;
   try {
     const child = spawn(command, [...args], {
       ...detachedProcessOptions,
       ...(outputFd === null ? {} : { stdio: ["ignore", outputFd, outputFd] }),
+      ...(cwd ? { cwd } : {}),
       env,
     });
     child.once("spawn", () => {
@@ -39,6 +41,7 @@ export function startDetachedProcessChecked(
   args: readonly string[],
   env: NodeJS.ProcessEnv,
   outputPath?: string,
+  cwd?: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const outputFd = outputPath ? openDaemonOutputFd(outputPath) : null;
@@ -47,6 +50,7 @@ export function startDetachedProcessChecked(
       child = spawn(command, [...args], {
         ...detachedProcessOptions,
         ...(outputFd === null ? {} : { stdio: ["ignore", outputFd, outputFd] }),
+        ...(cwd ? { cwd } : {}),
         env,
       });
     } catch (error) {

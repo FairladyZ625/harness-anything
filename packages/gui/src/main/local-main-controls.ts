@@ -6,6 +6,7 @@ import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { consumeKnownError } from "../api/error-consumption.ts";
 import { createDaemonSupervisor } from "./daemon-supervisor.ts";
 import { daemonServeLaunch, type PackagedRuntime } from "./daemon-serve-launch.ts";
+import { daemonCheckoutRoot, daemonHostStartRefusal } from "../../../daemon/src/client/daemon-autostart.ts";
 import { createRuntimeInstanceCredentialController } from "./secure-credential-broker.ts";
 import type { CredentialPort } from "../../../daemon/src/agent-runtime-credential-port.ts";
 
@@ -17,6 +18,7 @@ type Target = {
 };
 export function addLocalMainControls(input: {
   readonly bridge: GuiServiceBridge;
+  readonly invokingRoot?: string;
   readonly target: (repoId?: string) => Promise<Target>;
   readonly clientBuildCommit: string | null;
   readonly packaged?: PackagedRuntime;
@@ -24,7 +26,8 @@ export function addLocalMainControls(input: {
 }): GuiServiceBridge {
   const supervisor = createDaemonSupervisor({
     authorize: async (payload) => asRecord(await input.bridge.invoke("requestDaemonControl", payload)),
-    restart: async (repoId) => restartResidentDaemon(await input.target(repoId), input.packaged),
+    restart: async (repoId) =>
+      restartResidentDaemon(await input.target(repoId), input.invokingRoot ?? process.cwd(), input.packaged),
   });
   // API-key creation remains main-process-bound so the daemon receives only an opaque
   // credential reference; the resulting create call returns to the registry-derived bridge.
@@ -76,7 +79,9 @@ export function addLocalMainControls(input: {
     return { ...value, daemon: { buildStale: stale, ...daemon } };
   }
 }
-async function restartResidentDaemon(target: Target, packaged?: PackagedRuntime) {
+async function restartResidentDaemon(target: Target, invokingRoot: string, packaged?: PackagedRuntime) {
+  const refusal = daemonHostStartRefusal({ invokingRoot, userRoot: target.userRoot });
+  if (refusal) throw Object.assign(new Error(refusal.hint), { code: refusal.code });
   const before = point(await requestDaemonJsonRpcAt(target.socketPath, "daemon.gui.system.read", {}, 500)),
     pid = readDaemonPid(target.userRoot, target.daemonId);
   if (pid === null || pid !== before.pid)
@@ -84,7 +89,13 @@ async function restartResidentDaemon(target: Target, packaged?: PackagedRuntime)
   terminateProcess(pid);
   await waitForExit(pid);
   const { command, args, env } = daemonServeLaunch(target, packaged);
-  startDetachedProcess(command, args, env, daemonLifecycleLogPath(target.userRoot, target.daemonId));
+  startDetachedProcess(
+    command,
+    args,
+    env,
+    daemonLifecycleLogPath(target.userRoot, target.daemonId),
+    daemonCheckoutRoot(invokingRoot),
+  );
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
       const after = point(await requestDaemonJsonRpcAt(target.socketPath, "daemon.gui.system.read", {}, 100));
