@@ -9,16 +9,17 @@ import {
   Panel,
   useReactFlow,
 } from "@xyflow/react";
+import type { EdgeMouseHandler, NodeMouseHandler } from "@xyflow/react";
 import type { ReactNode } from "react";
 import type { TaskRow, RelationEdge, DecisionRow, FactRef, RelationKind } from "../model/types";
 import type { FactAnchorRow } from "../../api/renderer-dto";
-import { endpointToNodeId } from "./endpoint";
+import { endpointToNodeId, type NodePos } from "./endpoint";
 import { GraphDrawer } from "./GraphDrawer";
 import { EgoNode } from "./nodes/EgoNode";
 import { InteractiveEdge } from "./edges/InteractiveEdge";
 import { useColorMode, minimapMaskColor } from "./colorMode";
 import { useEgoCanvas } from "./useEgoCanvas";
-import { layoutEgoCanvas, type EgoAxisFilter } from "./egoCanvas";
+import { layoutEgoCanvas, type EgoAxisFilter, type EgoFlowEdge, type EgoFlowNode } from "./egoCanvas";
 import { defaultKindFilter, edgePassesKindFilter, type FlowAnimMode } from "./relationVisual";
 import {
   defaultEntityStatusFilter,
@@ -169,12 +170,16 @@ function EgoNeighborhoodInner({
     if (!isStatusNarrowed(statusFilter)) return null;
     const ids = new Set<string>();
     for (const n of spotlight.nodes) {
-      const data = n.data as any;
+      const data = n.data;
       if (n.id === spotlight.focusId) {
         ids.add(n.id);
         continue;
       }
-      if (nodePassesEntityStatusFilter(data?.entity, data?.raw ?? data, statusFilter)) {
+      if (data.entity === "fact") {
+        ids.add(n.id);
+        continue;
+      }
+      if (nodePassesEntityStatusFilter(data.entity, data.raw, statusFilter)) {
         ids.add(n.id);
       }
     }
@@ -189,28 +194,26 @@ function EgoNeighborhoodInner({
         ...n,
         selected: n.id === canvas.selectId,
         data: {
-          ...(n.data as any),
+          ...n.data,
           onCollapse: canvas.collapseNode,
           onRefocus: openFocus,
           onNavigate: onNavigateEntity,
           ...(refocusTitle ? { refocusTitle } : {}),
         },
       }));
-  }, [spotlight, statusVisibleIds, canvas.selectId, canvas.collapseNode, openFocus, onNavigateEntity]);
+  }, [spotlight, statusVisibleIds, canvas.selectId, canvas.collapseNode, openFocus, onNavigateEntity, refocusTitle]);
 
   const displayEdges = useMemo(() => {
     if (!spotlight) return [];
     return spotlight.edges.filter((e) => {
-      if (!edgePassesKindFilter({ kind: (e.data as any)?.kind }, filters.kinds)) return false;
+      if (!e.data || !edgePassesKindFilter(e.data, filters.kinds)) return false;
       if (statusVisibleIds && (!statusVisibleIds.has(e.source) || !statusVisibleIds.has(e.target))) return false;
       return true;
     });
   }, [spotlight, filters.kinds, statusVisibleIds]);
 
   useEffect(() => {
-    const focusLabel = canvas.focusId
-      ? ((displayNodes.find((n) => n.id === canvas.focusId)?.data as any)?.label ?? null)
-      : null;
+    const focusLabel = canvas.focusId ? (displayNodes.find((n) => n.id === canvas.focusId)?.data.label ?? null) : null;
     onLayoutStats?.({ nodes: displayNodes.length, edges: displayEdges.length, focusLabel });
   }, [displayNodes, displayEdges.length, onLayoutStats, canvas.focusId]);
 
@@ -235,8 +238,8 @@ function EgoNeighborhoodInner({
   }, [canvas]);
 
   // 单击 = 就地展开成卡片并长出下一环邻居;再点收起(已展开邻居累计保留,画布不重排)。
-  const onNodeClick = useCallback(
-    (_: any, node: any) => {
+  const onNodeClick: NodeMouseHandler<EgoFlowNode> = useCallback(
+    (_, node) => {
       if (canvas.expanded.has(node.id)) canvas.collapseNode(node.id);
       else canvas.expandNode(node.id);
       canvas.selectNode(node.id);
@@ -245,16 +248,16 @@ function EgoNeighborhoodInner({
   );
 
   // 双击 = 设为画布中心(唯一会重排画布的节点交互)。
-  const onNodeDoubleClick = useCallback(
-    (_: any, node: any) => {
-      const navRef = (node.data as any)?.navRef ?? node.id;
+  const onNodeDoubleClick: NodeMouseHandler<EgoFlowNode> = useCallback(
+    (_, node) => {
+      const navRef = node.data.navRef;
       openFocus(navRef);
     },
     [openFocus],
   );
 
-  const onEdgeClick = useCallback(
-    (_: any, edge: any) => {
+  const onEdgeClick: EdgeMouseHandler<EgoFlowEdge> = useCallback(
+    (_, edge) => {
       canvas.clearSelect();
       setFocusEdgeId((prev) => (prev === edge.id ? null : edge.id));
     },
@@ -270,17 +273,19 @@ function EgoNeighborhoodInner({
   const drawerNodeId = canvas.selectId ?? canvas.focusId;
 
   const drawerNodesMap = useMemo(() => {
-    const map = new Map();
+    const map = new Map<string, NodePos>();
     if (spotlight) {
       for (const n of spotlight.nodes) {
-        const data = n.data as any;
+        const data = n.data;
         map.set(n.id, {
           id: n.id,
-          entity: data?.entity,
-          label: data?.label,
-          sub: data?.sub,
-          task: data?.entity === "task" ? data?.raw : undefined,
-          raw: data?.raw ?? data,
+          entity: data.entity,
+          label: data.label,
+          ...(data.sub ? { sub: data.sub } : {}),
+          task: data.entity === "task" ? (data.raw as TaskRow) : undefined,
+          raw: data.raw,
+          x: n.position.x,
+          y: n.position.y,
         });
       }
     }
@@ -315,7 +320,7 @@ function EgoNeighborhoodInner({
     // 写成 flex-col 会把这个侧栏压成底部横条 —— 横条按 shrink-0 占满整条带宽的高度,
     // 却只填得下 26rem,带内其余部分是纯空区,同时把画布高度吃掉(内容一多吃到 0)。
     <div className="relative flex h-full min-h-0 min-w-0 flex-1">
-      <ReactFlow
+      <ReactFlow<EgoFlowNode, EgoFlowEdge>
         nodes={displayNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
@@ -334,11 +339,11 @@ function EgoNeighborhoodInner({
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--color-border)" />
         <Controls className="bg-surface-raised border-border" />
-        <MiniMap
+        <MiniMap<EgoFlowNode>
           data-testid="graph-minimap"
           bgColor="var(--color-surface)"
           nodeColor={(n) => {
-            const entity = (n.data as any)?.entity;
+            const entity = n.data.entity;
             if (entity === "decision") return "var(--color-axis-authority)";
             if (entity === "fact") return "var(--color-axis-evidence)";
             return "var(--color-axis-execution)";
@@ -355,7 +360,7 @@ function EgoNeighborhoodInner({
       {(drawerNodeId || focusEdge) && (
         <GraphDrawer
           focusNode={drawerNodeId ? (drawerNodesMap.get(drawerNodeId) ?? undefined) : undefined}
-          focusEdge={focusEdge ? (focusEdge.data as unknown as RelationEdge) : undefined}
+          focusEdge={focusEdge?.data}
           nodes={drawerNodesMap}
           edges={relations}
           upCount={upCount}

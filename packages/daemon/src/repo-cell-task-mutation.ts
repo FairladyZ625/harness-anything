@@ -17,9 +17,10 @@ import {
 import { authorizeAction } from "./authorization.ts";
 import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
+import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
 export function taskMutation(
-  cell: any,
+  cell: RepoCellActionContext,
   action: RepoTaskAction,
   task: TaskV1,
   snapshot: Snapshot,
@@ -365,7 +366,7 @@ function optionalReleaseText(value: unknown): string | null {
 }
 
 function terminalExecutionRuntimeBinding(
-  cell: any,
+  cell: RepoCellActionContext,
   lease: LeaseV1,
   runtimeSessionId: string | null,
 ): TaskBoundRuntimeBinding | null {

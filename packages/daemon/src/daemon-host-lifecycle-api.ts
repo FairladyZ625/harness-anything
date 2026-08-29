@@ -1,7 +1,8 @@
 import type { DaemonHost } from "./daemon-host.ts";
+import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 
 export function createDaemonHostLifecycleApi(
-  context: any,
+  context: DaemonHostApiContext,
 ): Pick<DaemonHost, "status" | "startAttachments" | "attachmentsSettled" | "close"> {
   return {
     status: () => {

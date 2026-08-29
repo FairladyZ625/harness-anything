@@ -112,7 +112,15 @@ export type {
   DecisionEventV1,
   DecisionState,
 } from "./decision-event.ts";
-export { compileFactWrite, factConfidenceLevels, factMemoryClasses, factWritePlan, isFactId } from "./fact-event.ts";
+export {
+  compileFactWrite,
+  factConfidenceLevels,
+  factMemoryClasses,
+  factMemoryTags,
+  factWritePlan,
+  isFactId,
+  validateFactEvent,
+} from "./fact-event.ts";
 export type { FactConfidence, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
 
 export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";

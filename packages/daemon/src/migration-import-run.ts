@@ -54,6 +54,8 @@ import {
   reboundRef as reboundRefImpl,
   reboundRelation as reboundRelationImpl,
   sourceCounts as sourceCountsImpl,
+  type MigrationRelationsContext,
+  type ReboundRelation,
 } from "./migration-import-relations.ts";
 import {
   bySkip,
@@ -107,9 +109,80 @@ export interface MigrationImportRunInput {
   readonly shouldStop?: () => boolean;
 }
 
+export interface MigrationImportContext extends MigrationRelationsContext {
+  readonly sourceRoot: string;
+  readonly message: typeof message;
+  readonly timestamp: typeof timestamp;
+  readonly existingSourceEntity: (
+    kind: MigrationImportEventV1["payload"]["entity"]["kind"],
+    migratedFrom: string,
+  ) => MigrationImportEventV1["payload"]["entity"] | null;
+  readonly taskPackages: Map<string, string>;
+  readonly taskOccurredAt: Map<string, string>;
+  readonly mappedIdentifier: (
+    kind: "task" | "decision",
+    sourceId: string,
+    occupied: ReadonlySet<string>,
+    used: ReadonlySet<string>,
+  ) => string;
+  readonly existingTasks: Set<string>;
+  readonly taskStatus: typeof taskStatus;
+  readonly clean: typeof clean;
+  readonly drafts: Draft[];
+  readonly importedTaskMetadata: (
+    row: ReturnType<typeof taskEntryToRow>,
+    taskId: string,
+  ) => { readonly metadata?: ImportedTask["metadata"] };
+  readonly taskDocument: typeof taskDocument;
+  readonly claim: typeof claim;
+  readonly blob: typeof blob;
+  readonly sourceLayout: ReturnType<typeof resolveHarnessLayout>;
+  readonly packageOwners: Map<string, string>;
+  readonly authoredEntries: ReturnType<typeof authoredPaths>;
+  readonly portableMigrationPath: typeof portableMigrationPath;
+  readonly utf8File: typeof utf8File;
+  readonly decodeLegacyExecution: typeof decodeLegacyExecution;
+  readonly archivedExecution: typeof archivedExecution;
+  readonly packageDrafts: PackageDraft[];
+  readonly mediaType: typeof mediaType;
+  readonly resolveAuthoredConflict: typeof resolveAuthoredConflict;
+  readonly classifyAuthored: typeof classifyAuthored;
+  readonly destinationLayout: ReturnType<typeof resolveHarnessLayout>;
+  readonly resolutions: ReturnType<typeof parseResolutions>;
+  readonly PEOPLE_REGISTRY_SURFACE: typeof PEOPLE_REGISTRY_SURFACE;
+  readonly symlinkTarget: typeof symlinkTarget;
+  readonly referencedContent: typeof referencedContent;
+  readonly validDecision: typeof validDecision;
+  readonly existingDecisions: Set<string>;
+  readonly legacyDecisionState: typeof legacyDecisionState;
+  readonly preservedSourceDocument: typeof preservedSourceDocument;
+  readonly validFact: typeof validFact;
+  readonly existingFacts: Set<string>;
+  readonly factDocuments: Map<
+    string,
+    Array<{
+      readonly factId: string;
+      readonly statement: string;
+      readonly evidenceSource: string;
+      readonly observedAt: string;
+      readonly confidence: "low" | "medium" | "high";
+      readonly state: "standing";
+      readonly workspaceRevision: number;
+    }>
+  >;
+  readonly sourceGit: ReturnType<typeof validateSourceGit>;
+  readonly reboundRelation: (row: RelationGraphEdgeRow) => ReboundRelation | null;
+  readonly readFileSync: typeof readFileSync;
+  readonly compilePeopleRosterActionEvent: typeof compilePeopleRosterActionEvent;
+  readonly MIGRATION_IMPORT_SOURCE: typeof MIGRATION_IMPORT_SOURCE;
+  readonly PEOPLE_ROSTER_PATH: typeof PEOPLE_ROSTER_PATH;
+  readonly alreadyImported: Record<EntityKind, number>;
+  readonly taskRead: ReturnType<typeof readMarkdownSource>;
+}
+
 export async function runSingleMigrationImport(
   input: MigrationImportRunInput,
-  addFactImpl: (context: any, row: RelationFactRow) => void,
+  addFactImpl: (context: MigrationImportContext, row: RelationFactRow) => void,
 ): Promise<MigrationImportReceipt> {
   const sourceArg = requiredMigrationText(input.action.sourceRoot, "sourceRoot"),
     sourceRoot = realpathSync.native(path.resolve(sourceArg)),
@@ -196,7 +269,7 @@ export async function runSingleMigrationImport(
       relation: 0,
       coverage: 0,
     };
-  const extracted = {
+  const extracted: MigrationImportContext = {
     sourceRoot,
     message,
     skips,
@@ -223,7 +296,6 @@ export async function runSingleMigrationImport(
     sourceLayout,
     packageOwners,
     authoredEntries,
-    path,
     utf8File,
     decodeLegacyExecution,
     archivedExecution,

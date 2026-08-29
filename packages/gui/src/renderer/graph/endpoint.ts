@@ -1,4 +1,4 @@
-import type { RelationEdge } from "../model/types";
+import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types";
 
 export type EntityKind = "task" | "decision" | "fact";
 
@@ -10,7 +10,7 @@ export interface NodePos {
   color?: string;
   /** 仅 task 有（抽屉复用其详情） */
   task?: import("../model/types").TaskRow;
-  raw?: any;
+  raw?: TaskRow | DecisionRow | FactRef;
   x: number;
   y: number;
 }

@@ -8,9 +8,33 @@ import {
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { readDocReceipt } from "./doc-sync-actions.ts";
+import { cellCodedError } from "./repo-cell-errors.ts";
 import type { PublicPublication, RepoCellBinding, TaskProgressReceipt } from "./repo-cell-types.ts";
+import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
-export function receiptForOperation(cell: any, opId: string, binding: RepoCellBinding): WriteReceipt {
+export interface ProjectedTaskIdsContext {
+  knownTaskIds: Set<string> | null;
+  readonly projection: {
+    readonly list: () => {
+      readonly watermark: number;
+      readonly sourceRevision: number;
+      readonly rows: readonly { readonly taskId: string }[];
+    };
+  };
+  readonly store: {
+    readonly readBatch: (
+      cursor: string | null,
+      maxItems: number,
+    ) => {
+      readonly events: readonly CanonicalEventV1[];
+      readonly cursor: string | null;
+      readonly done: boolean;
+    };
+  };
+  readonly cellCodedError: typeof cellCodedError;
+}
+
+export function receiptForOperation(cell: RepoCellActionContext, opId: string, binding: RepoCellBinding): WriteReceipt {
   cell.requiredCellText(opId, "opId");
   const event = cell.store.readEvent(opId);
   if (event === null)
@@ -136,7 +160,7 @@ export function receiptForOperation(cell: any, opId: string, binding: RepoCellBi
 }
 
 export function canonicalSettlement(
-  cell: any,
+  cell: RepoCellActionContext,
   receipt: WriteReceipt,
   event: ReturnType<typeof cell.store.readEvent> & object,
 ): WriteReceipt {
@@ -162,7 +186,7 @@ export function canonicalSettlement(
       };
 }
 
-export function projectedTaskIds(cell: any): Set<string> {
+export function projectedTaskIds(cell: ProjectedTaskIdsContext): Set<string> {
   if (cell.knownTaskIds) return cell.knownTaskIds;
   const read = cell.projection.list();
   if (read.watermark === read.sourceRevision) {
@@ -200,7 +224,7 @@ export function projectedTaskIds(cell: any): Set<string> {
 }
 
 export function progressReceipt(
-  cell: any,
+  cell: RepoCellActionContext,
   event: TaskProgressEventV1,
   publication: PublicPublication,
 ): TaskProgressReceipt {

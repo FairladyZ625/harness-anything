@@ -7,14 +7,43 @@ import {
   isDomainStatus,
   readRelationGraphProjection,
   taskWipOccupyingStatuses,
+  type CanonicalEventStore,
   type DomainStatus,
+  type TaskProjection,
+  type TaskProjectionListQuery,
+  type TaskRelationQuery,
   type TaskWipSnapshotEntryV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { TaskQueryReadModel } from "./task-query-read.ts";
 import { resolveTaskRootThreshold, resolveTaskWipLimit } from "./task-wip-settings.ts";
 
-export function listTasks(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export interface TaskQueryCell {
+  readonly input: { readonly repoId: string };
+  readonly rootDir: string;
+  readonly projection: TaskProjection;
+  readonly store: Pick<CanonicalEventStore, "readHead">;
+  readonly taskListQueryFromAction: (action: RepoTaskAction) => TaskProjectionListQuery;
+  readonly relationQueryFromAction: (action: RepoTaskAction) => TaskRelationQuery;
+  readonly queryRead: () => TaskQueryReadModel;
+  readonly directChildCounts: () => Map<string, number>;
+  readonly operationId: (
+    action: RepoTaskAction,
+    binding: RepoCellBinding,
+    workspaceId: string,
+    expectedRevision: number,
+  ) => string;
+  readonly readResult: (opId: string, value: object, revision: number, worktreeVisible: boolean | null) => WriteReceipt;
+  readonly cellCodedError: (code: string, message: string) => Error;
+  readonly requiredCellText: (value: unknown, name: string) => string;
+  readonly wipSnapshotEntries: () => readonly TaskWipSnapshotEntryV1[];
+  readonly legacyReviewLint: typeof import("./repo-cell-review-lint.ts").legacyReviewLint;
+  readonly projectionReady: (value: { readonly status: string }) => boolean;
+  readonly now: () => string;
+}
+
+export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
   const query = cell.taskListQueryFromAction(action),
     hasPostFilter = ["module", "workKind", "riskTier", "urgency", "parentTaskId", "search"].some(
       (field) => action[field] !== undefined,
@@ -32,7 +61,7 @@ export function listTasks(cell: any, action: RepoTaskAction, binding: RepoCellBi
     rootSetting = resolveTaskRootThreshold(cell.rootDir),
     childCounts = cell.directChildCounts(),
     search = typeof action.search === "string" ? action.search.toLocaleLowerCase() : null;
-  const rows = read.rows.filter((row: any) => {
+  const rows = read.rows.filter((row) => {
     const task = row.snapshot.task,
       metadata = task?.metadata;
     return (
@@ -52,7 +81,7 @@ export function listTasks(cell: any, action: RepoTaskAction, binding: RepoCellBi
   return cell.readResult(
     cell.operationId(action, binding, cell.input.repoId, read.sourceRevision),
     {
-      rows: rows.map((row: any) => {
+      rows: rows.map((row) => {
         const task = row.snapshot.task,
           directChildCount = childCounts.get(row.taskId) ?? 0,
           rootAssessment = task
@@ -91,7 +120,7 @@ export function listTasks(cell: any, action: RepoTaskAction, binding: RepoCellBi
 }
 
 export function taskWipEnteringAction(
-  cell: any,
+  cell: TaskQueryCell,
   action: RepoTaskAction,
 ): {
   readonly taskId: string;
@@ -109,7 +138,7 @@ export function taskWipEnteringAction(
     : null;
 }
 
-export function assertTaskWipCapacity(cell: any, taskId: string, nextStatus: DomainStatus): void {
+export function assertTaskWipCapacity(cell: TaskQueryCell, taskId: string, nextStatus: DomainStatus): void {
   const tasks = cell.wipSnapshotEntries(),
     activating = tasks.find((task: TaskWipSnapshotEntryV1) => task.taskId === taskId);
   if (!activating) return;
@@ -134,7 +163,7 @@ export function assertTaskWipCapacity(cell: any, taskId: string, nextStatus: Dom
     );
 }
 
-export function wipSnapshotEntries(cell: any): readonly TaskWipSnapshotEntryV1[] {
+export function wipSnapshotEntries(cell: TaskQueryCell): readonly TaskWipSnapshotEntryV1[] {
   const l2 = new Map(
       readRelationGraphProjection({ rootDir: cell.rootDir }).taskRows.map((row) => [
         row.taskId,
@@ -142,7 +171,7 @@ export function wipSnapshotEntries(cell: any): readonly TaskWipSnapshotEntryV1[]
       ]),
     ),
     childCounts = cell.directChildCounts();
-  return cell.projection.list().rows.map((row: any) => {
+  return cell.projection.list().rows.map((row) => {
     const task = row.snapshot.task;
     return {
       taskId: row.taskId,
@@ -156,7 +185,7 @@ export function wipSnapshotEntries(cell: any): readonly TaskWipSnapshotEntryV1[]
   });
 }
 
-export function directChildCounts(cell: any): Map<string, number> {
+export function directChildCounts(cell: TaskQueryCell): Map<string, number> {
   const counts = new Map<string, number>();
   for (const row of cell.projection.list().rows) {
     const parentTaskId = row.snapshot.task?.metadata?.parentTaskId;
@@ -165,11 +194,11 @@ export function directChildCounts(cell: any): Map<string, number> {
   return counts;
 }
 
-export function listRelations(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export function listRelations(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
   const query = cell.relationQueryFromAction(action),
     read = Object.keys(query).length ? cell.queryRead().relationGraphPage(query) : cell.queryRead().relationGraph(),
     rows = read.edges.filter(
-      (edge: any) =>
+      (edge) =>
         (!action.entity || edge.sourceRef === action.entity || edge.targetRef === action.entity) &&
         (!action.source || edge.sourceRef === action.source) &&
         (!action.target || edge.targetRef === action.target) &&
@@ -189,7 +218,7 @@ export function listRelations(cell: any, action: RepoTaskAction, binding: RepoCe
   );
 }
 
-export function reviewTask(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export function reviewTask(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     current = cell.projection.read(taskId);
   if (!cell.projectionReady(current) || !current.snapshot.task || !current.packagePath)

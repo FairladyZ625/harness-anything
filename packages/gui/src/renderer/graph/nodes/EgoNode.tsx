@@ -1,10 +1,12 @@
 import type { MouseEvent } from "react";
 import { Handle, Position } from "@xyflow/react";
+import type { NodeProps } from "@xyflow/react";
 import { X, Crosshair, ArrowsOutSimple } from "@phosphor-icons/react";
 import { StatusBadge, CloseoutBadge, FreshnessTag } from "../../components/badges";
 import type { TaskRow, DecisionRow, FactRef } from "../../model/types";
 import { moduleDisplayLabel } from "../moduleAssignment";
 import { EntityRefLink } from "../../components/EntityRefLink.tsx";
+import type { EgoFlowNode } from "../egoCanvas.ts";
 
 /**
  * 无限画布 ego 节点(dec_01KXBGJQFQARSZHHQW1WADFDNC)。一个组件两态:
@@ -34,7 +36,7 @@ function EgoHandles() {
   );
 }
 
-export function EgoNode({ data, selected }: any) {
+export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
   const entity: Entity = data.entity;
   const axis = AXIS_VAR[entity];
   const focus = Boolean(data.focus);
@@ -82,9 +84,9 @@ export function EgoNode({ data, selected }: any) {
     );
   }
 
-  const stop = (fn?: (arg: any) => void, arg?: any) => (event: MouseEvent) => {
+  const stop = (fn?: (arg: string) => void, arg?: string) => (event: MouseEvent) => {
     event.stopPropagation();
-    fn?.(arg);
+    if (fn && arg !== undefined) fn(arg);
   };
 
   return (

@@ -1,5 +1,9 @@
 import { renderFactsDocument, sha256Text, type RelationFactRow } from "../../kernel/src/index.ts";
-import { runSingleMigrationImport, type MigrationImportRunInput } from "./migration-import-run.ts";
+import {
+  runSingleMigrationImport,
+  type MigrationImportContext,
+  type MigrationImportRunInput,
+} from "./migration-import-run.ts";
 import { combineMigrationReceipts, migrationSourceRoots } from "./migration-import-source.ts";
 import { migrationImportError } from "./migration-import-report.ts";
 import type { MigrationImportReceipt } from "./migration-import-types.ts";
@@ -30,7 +34,7 @@ export async function runMigrationImport(input: MigrationImportRunInput): Promis
   return combineMigrationReceipts(receipts, sourceRoots);
 }
 
-function addFact(context: any, row: RelationFactRow): void {
+function addFact(context: MigrationImportContext, row: RelationFactRow): void {
   const legacyRef = row.taskId ? `fact/${row.taskId}/${row.factId}` : row.ref,
     factRef = context.cold.legacyFactRefs.has(legacyRef) ? legacyRef : row.ref,
     occurredAt = context.timestamp(row.observedAt),
@@ -39,9 +43,7 @@ function addFact(context: any, row: RelationFactRow): void {
     context.skips.push({
       entityType: "fact",
       migratedFrom: factRef,
-      sourcePath:
-        context.cold.truth.factAnchors.find(({ factRef: ref }: { readonly factRef: string }) => ref === row.ref)
-          ?.sourcePath ?? factRef,
+      sourcePath: context.cold.truth.factAnchors.find(({ factRef: ref }) => ref === row.ref)?.sourcePath ?? factRef,
       reason:
         row.taskId !== undefined && !mappedTaskId
           ? "fact owner task was skipped"

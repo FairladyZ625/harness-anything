@@ -1,9 +1,7 @@
-import {
-  renderDecisionDocument,
-  type ColdDecisionProjectionRow,
-} from "../../kernel/src/index.ts";
+import { renderDecisionDocument, type ColdDecisionProjectionRow } from "../../kernel/src/index.ts";
+import type { MigrationImportContext } from "./migration-import-run.ts";
 
-export function addDecision(context: any, row: ColdDecisionProjectionRow): void {
+export function addDecision(context: MigrationImportContext, row: ColdDecisionProjectionRow): void {
   const occurredAt = context.timestamp(row.decidedAt) ?? context.timestamp(row.proposedAt);
   if (!occurredAt || !context.validDecision(row)) {
     context.skips.push({

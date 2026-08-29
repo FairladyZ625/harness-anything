@@ -7,8 +7,9 @@ import {
 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { RuntimeAttemptTerminal } from "./runtime-spawn.ts";
+import type { DaemonHostRegistryContext } from "./daemon-host-context.ts";
 
-export async function closeCell(context: any, repoId: string): Promise<void> {
+export async function closeCell(context: DaemonHostRegistryContext, repoId: string): Promise<void> {
   const cell = context.cells.get(repoId),
     closing = cell?.close();
   if (closing) await closing;
@@ -21,7 +22,7 @@ export async function closeCell(context: any, repoId: string): Promise<void> {
 // keeps the row as state=disabled so the root can be re-registered later; the lifecycle
 // log records exactly what was retired and when it was first registered.
 export function pruneMissingRoot(
-  context: any,
+  context: DaemonHostRegistryContext,
   repo: {
     readonly repoId: string;
     readonly canonicalRoot: string;
@@ -55,7 +56,7 @@ export function pruneMissingRoot(
 // performOpenRegistered. The dedupe entry survives until the underlying open truly settles so
 // a timed-out caller can never trigger a second concurrent open of the same root.
 export function openRegistered(
-  context: any,
+  context: DaemonHostRegistryContext,
   repo: {
     readonly repoId: string;
     readonly canonicalRoot: string;
@@ -79,7 +80,7 @@ export function openRegistered(
 }
 
 export function raceAttachBudget(
-  context: any,
+  context: DaemonHostRegistryContext,
   opening: Promise<void>,
   repoId: string,
   progress?: {
@@ -112,7 +113,7 @@ export function raceAttachBudget(
 }
 
 export async function performOpenRegistered(
-  context: any,
+  context: DaemonHostRegistryContext,
   repo: {
     readonly repoId: string;
     readonly canonicalRoot: string;
@@ -168,7 +169,7 @@ export async function performOpenRegistered(
   }
 }
 
-export async function refreshRegistry(context: any): Promise<void> {
+export async function refreshRegistry(context: DaemonHostRegistryContext): Promise<void> {
   const registry = readDaemonRegistry({ userRoot: context.input.userRoot }),
     enabled = new Map(registry.repos.filter((repo) => repo.state === "enabled").map((repo) => [repo.repoId, repo])),
     invalid = new Map(

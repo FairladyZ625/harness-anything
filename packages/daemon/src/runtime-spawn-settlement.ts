@@ -8,8 +8,14 @@ import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 import { pushWorkerBranch } from "./runtime-worker-push.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
+import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
-export async function publishExit(context: any, active: ActiveRuntime, code: number | null): Promise<void> {
+export async function publishExit(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  code: number | null,
+): Promise<void> {
   if (
     context.exiting.has(active.runtimeSessionId) ||
     (!context.input.remote && context.requiredRuntimeStore(context.input).readEvent(`${active.dispatchOpId}-exited`))
@@ -138,7 +144,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
     const completedTask = active.task,
       terminalTask =
         completedTask &&
-        [...(context.processes as Map<string, ActiveRuntime>).values()].some(
+        [...context.processes.values()].some(
           (candidate) =>
             candidate.task?.taskId === completedTask.taskId &&
             candidate.task.executionId === completedTask.executionId &&
@@ -203,10 +209,11 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
     );
     context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
     context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome });
-    if (active.onExitCommand !== null)
+    const onExitCommand = active.onExitCommand;
+    if (typeof onExitCommand === "string")
       setImmediate(() =>
         context.launchExitNotification({
-          command: active.onExitCommand,
+          command: onExitCommand,
           cwd: active.cwd,
           stream: active.stream,
           payload: {
@@ -225,7 +232,7 @@ export async function publishExit(context: any, active: ActiveRuntime, code: num
 }
 
 export function runtimeResultText(
-  context: any,
+  context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   code: number | null,
   outcome: "succeeded" | "failed" | "unknown" | "cancelled",
@@ -254,7 +261,7 @@ export function runtimeResultText(
 }
 
 export function applied(
-  context: any,
+  _context: RuntimeSpawnerContext,
   event: AgentRuntimeEventV1,
   publication: ReturnType<CanonicalEventStore["publication"]>,
   runtimeSessionId: string,
@@ -289,7 +296,12 @@ export function applied(
       };
 }
 
-export function controlReceipt(context: any, opId: string, runtimeSessionId: string, detail = "cancelled") {
+export function controlReceipt(
+  context: RuntimeSpawnerContext,
+  opId: string,
+  runtimeSessionId: string,
+  detail = "cancelled",
+): JsonObject {
   if (context.input.remote)
     return {
       schema: "command-receipt/v2",

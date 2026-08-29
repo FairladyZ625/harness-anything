@@ -120,7 +120,7 @@ describe("claim 锚定边的 join", () => {
     });
     expect(layout.neighborCount).toBe(3);
     expect(layout.edges.length).toBe(3);
-    const entities = layout.nodes.map((n) => (n.data as any).entity).sort();
+    const entities = layout.nodes.map((n) => n.data.entity).sort();
     expect(entities).toEqual(["decision", "decision", "fact", "task"]);
   });
 
@@ -235,8 +235,8 @@ describe("累积展开(决策 CH1:累计保留、永不重置)", () => {
     });
     // 收起 task_a 后节点集合不变(只是它从卡片变回 chip)。
     expect(collapsedLayout.nodes.map((n) => n.id).sort()).toEqual(expandedLayout.nodes.map((n) => n.id).sort());
-    expect((collapsedLayout.nodes.find((n) => n.id === "task_a")!.data as any).expanded).toBe(false);
-    expect((expandedLayout.nodes.find((n) => n.id === "task_a")!.data as any).expanded).toBe(true);
+    expect(collapsedLayout.nodes.find((n) => n.id === "task_a")!.data.expanded).toBe(false);
+    expect(expandedLayout.nodes.find((n) => n.id === "task_a")!.data.expanded).toBe(true);
   });
 
   it("chip 标注还有多少邻居没铺开", () => {
@@ -256,7 +256,7 @@ describe("累积展开(决策 CH1:累计保留、永不重置)", () => {
       expanded: new Set(),
       highlight: null,
     });
-    expect((layout.nodes.find((n) => n.id === "b")!.data as any).hiddenCount).toBe(1);
+    expect(layout.nodes.find((n) => n.id === "b")!.data.hiddenCount).toBe(1);
   });
 });
 
@@ -274,7 +274,7 @@ describe("筛选与高亮", () => {
       expanded: new Set(),
       highlight: null,
     });
-    expect(layout.nodes.some((n) => (n.data as any).entity === "fact")).toBe(false);
+    expect(layout.nodes.some((n) => n.data.entity === "fact")).toBe(false);
     expect(layout.nodes.some((n) => n.id === "decision/dec_1")).toBe(true);
   });
 
@@ -292,8 +292,8 @@ describe("筛选与高亮", () => {
       expanded: new Set(),
       highlight,
     });
-    expect((layout.nodes.find((n) => n.id === "task_a")!.data as any).dimmed).toBe(false);
-    expect((layout.nodes.find((n) => n.id === "decision/dec_up")!.data as any).dimmed).toBe(true);
+    expect(layout.nodes.find((n) => n.id === "task_a")!.data.dimmed).toBe(false);
+    expect(layout.nodes.find((n) => n.id === "decision/dec_up")!.data.dimmed).toBe(true);
     expect(layout.nodes).toHaveLength(4);
   });
 

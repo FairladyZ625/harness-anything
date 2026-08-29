@@ -30,6 +30,30 @@ export interface EgoNodeMeta {
   row: TaskRow | DecisionRow | FactRef;
 }
 
+export type EgoNodeData = Record<string, unknown> & {
+  id: string;
+  entity: EgoEntity;
+  raw: EgoNodeMeta["row"];
+  label: string;
+  sub?: string;
+  focus: boolean;
+  expanded: boolean;
+  hop: number;
+  degree: number;
+  hiddenCount: number;
+  dimmed: boolean;
+  color?: string;
+  navRef: string;
+  onCollapse?: (id: string) => void;
+  onRefocus?: (ref: string) => void;
+  onNavigate?: (ref: string) => void;
+  refocusTitle?: string;
+};
+
+export type EgoEdgeData = Record<string, unknown> & RelationEdge & { axis: SemanticAxis };
+export type EgoFlowNode = Node<EgoNodeData, "ego">;
+export type EgoFlowEdge = Edge<EgoEdgeData, "interactive">;
+
 export interface EgoAdjEntry {
   other: string;
   dir: "out" | "in";
@@ -245,8 +269,8 @@ export interface EgoCanvasInput {
 }
 
 export interface EgoCanvasLayout {
-  nodes: Node[];
-  edges: Edge[];
+  nodes: EgoFlowNode[];
+  edges: EgoFlowEdge[];
   focusId: string | null;
   focusEntity: EgoEntity | null;
   /** 可见节点数(不含焦点自身)。 */
@@ -353,7 +377,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
   }
 
   // ── 组装节点 ──
-  const nodes: Node[] = [];
+  const nodes: EgoFlowNode[] = [];
   for (const id of vis) {
     const meta = byId.get(id);
     if (!meta) continue;
@@ -394,7 +418,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
   }
 
   // ── 组装边:两端都可见 + 轴开 + 类型开 ──
-  const edges: Edge[] = [];
+  const edges: EgoFlowEdge[] = [];
   const seen = new Set<string>();
   const emit = (edge: RelationEdge, axis: SemanticAxis, key: string) => {
     const source = endpointToNodeId(edge.from);

@@ -3,11 +3,15 @@ import {
   assertCurrentWriter,
   projectDecisionReadiness,
   timestamp,
+  type CanonicalEventStore,
+  type DaemonRepoMode,
   type DecisionProjectionRow,
+  type EventPublicationKillpoint,
+  type TaskProjection,
   type TaskProjectionListQuery,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { type PresetRunReceiptV1 } from "../../preset/src/index.ts";
+import { type PresetRunReceiptV1, type createPresetProcessService } from "../../preset/src/index.ts";
 import { readAgentEntityGuiProjection } from "./agent-entities.ts";
 import { discoverAgentSkills } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
@@ -23,8 +27,9 @@ import {
   type DaemonGuiReadResultMap,
   type DaemonRelationGraphFacetPayload,
   type DaemonTaskDispatchesPayload,
+  type CanonicalRoot,
 } from "./protocol/daemon-protocol.contract.ts";
-import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { isJsonObject, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { recoveryCommandPolicy } from "./recovery-state.ts";
 import type { DaemonGuiReadHandlers, RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { withDerivedCommandClass } from "./repo-cell-role-bindings.ts";
@@ -34,8 +39,85 @@ import { chainRepoCellWrite, repoCellTaskQueryJudgments } from "./repo-cell.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 import { readCiObservatory } from "./ci-observatory-read.ts";
+import type {
+  RepoCellOperationalContext,
+  RepoCellPeopleActions,
+  RepoCellScheduleActions,
+  RepoCellSettingsActions,
+} from "./repo-cell-action-context.ts";
+import type { FleetRoster } from "./fleet-center-admission.ts";
+import type { makeRecoveryProbe } from "./recovery-state.ts";
+import type { makeRuntimeSpawner } from "./runtime-spawn.ts";
+import type { makeSquadCoordinator } from "./squad-coordinator.ts";
+import type { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
+import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
+import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
+import type {
+  ScheduleDispatchLinkInput,
+  ScheduleMissedInput,
+  ScheduleSettleInput,
+} from "./repo-cell-schedule-actions.ts";
 
-export function createRepoCellApi(context: any): RepoCell {
+export interface RepoCellApiContext {
+  readonly extracted: RepoCellOperationalContext;
+  readonly mode: DaemonRepoMode;
+  readonly fleetRoster: FleetRoster | null;
+  readonly input: {
+    readonly repoId: string;
+    readonly killpoint?: (point: EventPublicationKillpoint) => void;
+  };
+  readonly rejected: RepoCellOperationalContext["rejected"];
+  readonly operationId: RepoCellOperationalContext["operationId"];
+  readonly failed: RepoCellOperationalContext["failed"];
+  readonly fatalCellError: (error: unknown) => boolean;
+  readonly errorOperationId: RepoCellOperationalContext["errorOperationId"];
+  readonly cellCodedError: RepoCellOperationalContext["cellCodedError"];
+  readonly requiredCellText: RepoCellOperationalContext["requiredCellText"];
+  readonly dispatchRead: typeof import("./repo-cell-command.ts").dispatchRead;
+  state: RepoCell["status"] extends () => infer Status
+    ? Status extends { readonly state: infer State }
+      ? State
+      : never
+    : never;
+  readonly attemptRecovery: () => void;
+  causeClass: ReturnType<RepoCell["status"]>["causeClass"];
+  readonly latched: () => string;
+  readonly latchWith: (error: unknown) => void;
+  queueDepth: number;
+  tail: Promise<void>;
+  readonly activeWriter: Parameters<typeof assertCurrentWriter>[0];
+  readonly writerToken: Parameters<typeof assertCurrentWriter>[1];
+  activeWriterEpochGuard: (() => void) | null;
+  activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
+  readonly withLayoutAdvisory: (receipt: WriteReceipt) => WriteReceipt;
+  readonly withHumanSummary: (receipt: WriteReceipt) => WriteReceipt;
+  lastError: string | null;
+  recoveryUncertain: boolean;
+  readonly recoveryProbe: ReturnType<typeof makeRecoveryProbe>;
+  readonly replica: RepoCell["replica"];
+  readonly rootDir: CanonicalRoot;
+  readonly store: CanonicalEventStore;
+  readonly projection: TaskProjection;
+  readonly now: () => string;
+  readonly executeAction: RepoCellOperationalContext["executeAction"];
+  readonly squadCoordinator: ReturnType<typeof makeSquadCoordinator>;
+  readonly presetProcess: ReturnType<typeof createPresetProcessService>;
+  readonly runtimeReads: ReturnType<typeof makeAgentRuntimeReadModel>;
+  readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
+  readonly scheduleActions: RepoCellScheduleActions;
+  readonly settingsActions: RepoCellSettingsActions;
+  readonly peopleActions: RepoCellPeopleActions;
+  readonly appendRuntimeIngress: RepoCellOperationalContext["appendRuntimeIngress"];
+  bootstrapReceipt: RepoBootstrapReceipt | undefined;
+  readonly catalog: RepoCell["catalog"];
+  readonly terminal: RepoCell["terminal"];
+  readonly runtimeStream: AgentRuntimeStreamHub;
+  readonly generation: number;
+  readonly recovery: ReturnType<CanonicalEventStore["recover"]>;
+  readonly lock: { readonly close: () => Promise<void> };
+}
+
+export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
   const run = (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
     const command = settingsCommandTopology(commandDescriptorForAction(action.kind), action),
       commandClass = command.commandClass,
@@ -104,8 +186,17 @@ export function createRepoCellApi(context: any): RepoCell {
       );
       return pending.catch(failAction);
     };
-    if (action.kind === "squad-run")
+    if (action.kind === "squad-run") {
+      if (!isJsonObject(action))
+        return Promise.resolve(
+          context.rejected(
+            context.operationId(action, binding, context.input.repoId, 0),
+            "invalid_command",
+            "Squad input must contain only JSON values.",
+          ),
+        );
       return enqueuePublication(() => context.squadCoordinator.start(action, binding) as unknown as WriteReceipt);
+    }
     if (action.kind === "squad-cancel")
       return enqueuePublication(
         () =>
@@ -188,7 +279,19 @@ export function createRepoCellApi(context: any): RepoCell {
                   return false;
                 }
               },
-              publish: (produced: RepoTaskAction) => run(produced, binding),
+              publish: async (produced: RepoTaskAction) => {
+                const receipt = await run(produced, binding);
+                if (receipt.outcome === "no_changes")
+                  throw context.cellCodedError(
+                    "invalid_preset_receipt",
+                    "Preset-produced writes cannot settle as no_changes.",
+                  );
+                return {
+                  outcome: receipt.outcome,
+                  ...(receipt.code ? { code: receipt.code } : {}),
+                  ...(receipt.nextAction ? { nextAction: receipt.nextAction } : {}),
+                };
+              },
             },
           )
         : reject("unsupported_command", "Use repo.preset.run.start or repo.preset.run.status.");
@@ -294,7 +397,7 @@ export function createRepoCellApi(context: any): RepoCell {
       return {
         ok: true,
         ...(payload.projection === "full" ? { projection: "full" as const } : {}),
-        decisions: read.decisions.map((decision: any, index: number) => ({
+        decisions: read.decisions.map((decision, index: number) => ({
           ...decision,
           readiness: readiness[index]!,
         })),
@@ -606,11 +709,23 @@ export function createRepoCellApi(context: any): RepoCell {
     claimOccurrence: (input, binding) =>
       scheduleOperation("schedule-run-now", binding, () => context.scheduleActions.claimOccurrence(input, binding)),
     recordMissed: (input, binding) =>
-      scheduleOperation("schedule-settle", binding, () => context.scheduleActions.recordMissed(input, binding)),
+      scheduleOperation("schedule-settle", binding, () => {
+        if (!isScheduleMissedInput(input))
+          throw context.cellCodedError("invalid_command", "Schedule missed input is invalid.");
+        return context.scheduleActions.recordMissed(input, binding);
+      }),
     linkDispatch: (input, binding) =>
-      scheduleOperation("schedule-settle", binding, () => context.scheduleActions.linkDispatch(input, binding)),
+      scheduleOperation("schedule-settle", binding, () => {
+        if (!isScheduleDispatchLinkInput(input))
+          throw context.cellCodedError("invalid_command", "Schedule dispatch link input is invalid.");
+        return context.scheduleActions.linkDispatch(input, binding);
+      }),
     settle: (input, binding) =>
-      scheduleOperation("schedule-settle", binding, () => context.scheduleActions.settle(input, binding)),
+      scheduleOperation("schedule-settle", binding, () => {
+        if (!isScheduleSettleInput(input))
+          throw context.cellCodedError("invalid_command", "Schedule settlement input is invalid.");
+        return context.scheduleActions.settle(input, binding);
+      }),
   };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
@@ -681,4 +796,43 @@ export function createRepoCellApi(context: any): RepoCell {
       }
     },
   };
+}
+
+function isScheduleMissedInput(
+  value: Readonly<Record<string, unknown>>,
+): value is Readonly<Record<string, unknown>> & ScheduleMissedInput {
+  return (
+    typeof value.scheduleId === "string" &&
+    typeof value.from === "string" &&
+    typeof value.to === "string" &&
+    typeof value.count === "number" &&
+    typeof value.reason === "string" &&
+    typeof value.idempotencyKey === "string" &&
+    (value.observedDefinitionRevision === undefined || typeof value.observedDefinitionRevision === "number")
+  );
+}
+
+function isScheduleDispatchLinkInput(
+  value: Readonly<Record<string, unknown>>,
+): value is Readonly<Record<string, unknown>> & ScheduleDispatchLinkInput {
+  return (
+    typeof value.scheduleId === "string" &&
+    typeof value.claimFence === "string" &&
+    typeof value.dispatchId === "string" &&
+    typeof value.runtimeSessionId === "string" &&
+    typeof value.idempotencyKey === "string"
+  );
+}
+
+function isScheduleSettleInput(
+  value: Readonly<Record<string, unknown>>,
+): value is Readonly<Record<string, unknown>> & ScheduleSettleInput {
+  return (
+    typeof value.scheduleId === "string" &&
+    typeof value.claimFence === "string" &&
+    ["succeeded", "failed", "cancelled", "unknown"].includes(String(value.outcome)) &&
+    typeof value.endedAt === "string" &&
+    (value.detail === undefined || typeof value.detail === "string") &&
+    typeof value.idempotencyKey === "string"
+  );
 }

@@ -23,9 +23,11 @@ import { runFactRekey } from "./fact-rekey.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { actorHint } from "./repo-cell-proof.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 
 export async function executeAction(
-  cell: any,
+  cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
@@ -372,7 +374,7 @@ export async function executeAction(
       ).docChanges,
     )
   )
-    return cell.runTaskCommandWithDocs(action as RepoTaskAction & { readonly docChanges: readonly any[] }, binding);
+    return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
   if (action.kind === "task-contract-migrate") return cell.migrateTaskContracts(action, binding);
   if (action.kind === "task-archive" && (Array.isArray(action.taskIds) || typeof action.filter === "string"))
@@ -386,7 +388,11 @@ export async function executeAction(
   return cell.lifecycleAction(action, binding);
 }
 
-export async function closeoutTask(cell: any, action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> {
+export async function closeoutTask(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): Promise<WriteReceipt> {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     initial = await cell.service.read(taskId),
     opId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
@@ -413,7 +419,7 @@ export async function closeoutTask(cell: any, action: RepoTaskAction, binding: R
 }
 
 export async function lifecycleAction(
-  cell: any,
+  cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
@@ -541,7 +547,11 @@ export async function lifecycleAction(
   );
 }
 
-export function declareExecutionExecutor(cell: any, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export function declareExecutionExecutor(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     reason = cell.requiredCellText(action.reason, "reason"),
     current = cell.projection.read(taskId),

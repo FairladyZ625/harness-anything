@@ -73,7 +73,7 @@ describe("graph entity resolution (fact anchors without inventing bodies)", () =
       { from: "decision/dec_1/CH1", to: "fact/F-001", kind: "evidenced-by", provenance: "local-document" },
     ];
     const result = layoutFrom(relations, [{ factRef: "fact/F-001", taskId: "task_a", factId: "F-001" }]);
-    const entities = result.nodes.map((n) => (n.data as any).entity);
+    const entities = result.nodes.map((n) => n.data.entity);
     expect(entities.filter((e) => e === "decision")).toHaveLength(1);
     expect(entities.filter((e) => e === "task")).toHaveLength(1);
     expect(entities.filter((e) => e === "fact")).toHaveLength(1);
@@ -87,8 +87,8 @@ describe("graph entity resolution (fact anchors without inventing bodies)", () =
     const factNode = result.nodes.find((n) => n.id === "fact/F-001");
     expect(factNode).toBeDefined();
     // 标签退回锚点,正文为空 —— 不拿别处文字冒充观察。
-    expect((factNode!.data as any).raw.text).toBe("");
-    expect((factNode!.data as any).label).toBe("fact/F-001");
+    expect(factNode!.data.raw).toMatchObject({ text: "" });
+    expect(factNode!.data.label).toBe("fact/F-001");
   });
 
   it("does not invent fact nodes for refs absent from both facts and anchors", () => {

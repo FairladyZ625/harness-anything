@@ -12,8 +12,9 @@ import {
   type TaskSourceEntry,
 } from "../../kernel/src/index.ts";
 import type { ImportedTask } from "./migration-import-types.ts";
+import type { MigrationImportContext } from "./migration-import-run.ts";
 
-export function addTask(context: any, entry: TaskSourceEntry): void {
+export function addTask(context: MigrationImportContext, entry: TaskSourceEntry): void {
   let row;
   try {
     row = taskEntryToRow(context.sourceRoot, entry);
@@ -116,7 +117,7 @@ export function addTask(context: any, entry: TaskSourceEntry): void {
 }
 
 export function importedTaskMetadata(
-  context: any,
+  context: MigrationImportContext,
   row: ReturnType<typeof taskEntryToRow>,
   taskId: string,
 ): {
@@ -158,7 +159,7 @@ export function importedTaskMetadata(
   };
 }
 
-export function addTaskPackage(context: any, entry: TaskSourceEntry): void {
+export function addTaskPackage(context: MigrationImportContext, entry: TaskSourceEntry): void {
   const sourcePackage = context.portableMigrationPath(
       path.relative(context.sourceLayout.authoredRoot, path.dirname(entry.indexPath)),
     ),
@@ -222,7 +223,7 @@ export function addTaskPackage(context: any, entry: TaskSourceEntry): void {
   }
 }
 
-export function addRepoDocuments(context: any): void {
+export function addRepoDocuments(context: MigrationImportContext): void {
   for (const source of context.authoredEntries) {
     const classification = context.resolveAuthoredConflict(
       context.classifyAuthored(
@@ -289,7 +290,7 @@ export function addRepoDocuments(context: any): void {
     if ("error" in references) continue;
     const type = source.symlink ? "application/vnd.harness.symbolic-link" : context.mediaType(source.path),
       documentHash = sha256Text(body),
-      referenced = references.blobs.filter(({ sha256 }: { readonly sha256: string }) => sha256 !== documentHash);
+      referenced = references.blobs.filter(({ sha256 }) => sha256 !== documentHash);
     context.packageDrafts.push({
       migratedFrom: source.path,
       occurredAt,

@@ -8,14 +8,14 @@ import {
   TemplateCatalogSchema,
   VerticalDefinitionSchema,
   type TemplateCatalog,
-  type VerticalDefinition
+  type VerticalDefinition,
 } from "../../src/schemas/registry.ts";
 import { createEntityKindRegistry } from "../../src/domain/entity-kind-registry.ts";
 import {
   planTemplateMaterialization,
   validateExtensionInputShape,
   validateTemplateCatalog,
-  validateVerticalDefinition
+  validateVerticalDefinition,
 } from "../../src/domain/extension-model.ts";
 
 const templateCatalogUrl = new URL("../../fixtures/schemas/template-catalog/valid.json", import.meta.url);
@@ -31,7 +31,7 @@ test("vertical and template schemas decode clean-room extension fixtures", async
 });
 
 test("repository scaffold accepts the optional AGENTS.md composite slot", async () => {
-  const base = await readFixture(verticalDefinitionUrl) as { readonly repositoryScaffold: Record<string, unknown> };
+  const base = (await readFixture(verticalDefinitionUrl)) as { readonly repositoryScaffold: Record<string, unknown> };
 
   // Backward compatible: the slot is optional and older verticals still decode.
   const withoutEntry = Schema.decodeUnknownSync(VerticalDefinitionSchema)(base);
@@ -46,9 +46,9 @@ test("repository scaffold accepts the optional AGENTS.md composite slot", async 
         localePolicy: { prefer: "project", fallback: "en-US" },
         baseRef: "template://repository/agent-base@1",
         overlayRef: "template://repository/agent-overlay@1",
-        repoSpecificsAnchor: "## Repository Specifics"
-      }
-    }
+        repoSpecificsAnchor: "## Repository Specifics",
+      },
+    },
   };
   const decoded = Schema.decodeUnknownSync(VerticalDefinitionSchema)(withEntry);
   assert.equal(decoded.repositoryScaffold.agentsEntry?.baseRef, "template://repository/agent-base@1");
@@ -60,59 +60,73 @@ test("repository scaffold accepts the optional AGENTS.md composite slot", async 
     ...withEntry,
     repositoryScaffold: {
       ...withEntry.repositoryScaffold,
-      agentsEntry: { ...withEntry.repositoryScaffold.agentsEntry, bogus: true }
-    }
+      agentsEntry: { ...withEntry.repositoryScaffold.agentsEntry, bogus: true },
+    },
   };
   const shape = validateExtensionInputShape("vertical-definition", drifted);
   assert.equal(shape.ok, false);
-  assert.equal(shape.issues.some((issue) => issue.code === "unknown_extension_field"), true);
+  assert.equal(
+    shape.issues.some((issue) => issue.code === "unknown_extension_field"),
+    true,
+  );
 });
 
 test("template catalog validation fails closed on locale structure drift", async () => {
   const catalog = Schema.decodeUnknownSync(TemplateCatalogSchema)(await readFixture(templateCatalogUrl));
   const drifted: TemplateCatalog = {
     ...catalog,
-    documents: [{
-      ...catalog.documents[0],
-      locales: catalog.documents[0].locales.map((variant) => variant.locale === "zh-CN"
-        ? { ...variant, anchors: ["## Goal", "## Steps"] }
-        : variant)
-    }]
+    documents: [
+      {
+        ...catalog.documents[0],
+        locales: catalog.documents[0].locales.map((variant) =>
+          variant.locale === "zh-CN" ? { ...variant, anchors: ["## Goal", "## Steps"] } : variant,
+        ),
+      },
+    ],
   };
 
   const result = validateTemplateCatalog(drifted, {
-    resolveBody: ({ locale }) => locale.locale === "zh-CN"
-      ? "## Goal\n\n## Steps\n"
-      : resolveFixtureTemplateBody({ locale })
+    resolveBody: ({ locale }) =>
+      locale.locale === "zh-CN" ? "## Goal\n\n## Steps\n" : resolveFixtureTemplateBody({ locale }),
   });
 
   assert.equal(result.ok, false);
-  assert.equal(result.issues.some((issue) => issue.code === "template_locale_structure_mismatch"), true);
-  assert.equal(result.issues.some((issue) => issue.code === "missing_required_anchor"), true);
+  assert.equal(
+    result.issues.some((issue) => issue.code === "template_locale_structure_mismatch"),
+    true,
+  );
+  assert.equal(
+    result.issues.some((issue) => issue.code === "missing_required_anchor"),
+    true,
+  );
 });
 
 test("template materialization plans locale fallback without writing documents", async () => {
   const catalog = Schema.decodeUnknownSync(TemplateCatalogSchema)(await readFixture(templateCatalogUrl));
   const enOnlyCatalog: TemplateCatalog = {
     ...catalog,
-    documents: [{
-      ...catalog.documents[0],
-      locales: catalog.documents[0].locales.filter((variant) => variant.locale === "en-US")
-    }]
+    documents: [
+      {
+        ...catalog.documents[0],
+        locales: catalog.documents[0].locales.filter((variant) => variant.locale === "en-US"),
+      },
+    ],
   };
   const result = planTemplateMaterialization({
     catalog: enOnlyCatalog,
     locale: "zh-CN",
     resolveBody: resolveFixtureTemplateBody,
-    selections: [{
-      slot: "task.flow",
-      templateRef: "template://planning/task-flow@1",
-      materializeAs: "task_flow.md",
-      localePolicy: {
-        prefer: "project",
-        fallback: "en-US"
-      }
-    }]
+    selections: [
+      {
+        slot: "task.flow",
+        templateRef: "template://planning/task-flow@1",
+        materializeAs: "task_flow.md",
+        localePolicy: {
+          prefer: "project",
+          fallback: "en-US",
+        },
+      },
+    ],
   });
 
   assert.equal(result.ok, true);
@@ -125,12 +139,15 @@ test("vertical validation rejects lifecycle status mapping ownership", async () 
   const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
   const contaminated: VerticalDefinition = {
     ...vertical,
-    checkerProfile: `status${"Mapping"}`
+    checkerProfile: `status${"Mapping"}`,
   };
   const result = validateVerticalDefinition(contaminated);
 
   assert.equal(result.ok, false);
-  assert.equal(result.issues.some((issue) => issue.code === "status_mapping_forbidden"), true);
+  assert.equal(
+    result.issues.some((issue) => issue.code === "status_mapping_forbidden"),
+    true,
+  );
 });
 
 test("vertical validation accepts decision lifecycle and fact schema entity kinds", async () => {
@@ -150,17 +167,20 @@ test("vertical validation accepts decision lifecycle and fact schema entity kind
 });
 
 test("vertical schema rejects composite entity kinds in M3", async () => {
-  const vertical = await readFixture(verticalDefinitionUrl) as Record<string, any>;
-  vertical.entityKinds = [
-    ...vertical.entityKinds,
-    {
-      id: "milestone",
-      entityType: "composite",
-      contractEntity: true
-    }
-  ];
+  const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
+  const contaminated = {
+    ...vertical,
+    entityKinds: [
+      ...vertical.entityKinds,
+      {
+        id: "milestone",
+        entityType: "composite",
+        contractEntity: true,
+      },
+    ],
+  };
 
-  assert.throws(() => Schema.decodeUnknownSync(VerticalDefinitionSchema)(vertical));
+  assert.throws(() => Schema.decodeUnknownSync(VerticalDefinitionSchema)(contaminated));
 });
 
 test("vertical validation rejects schema entity package scaffolds", async () => {
@@ -171,14 +191,17 @@ test("vertical validation rejects schema entity package scaffolds", async () => 
       ...vertical.packageScaffolds,
       {
         entityKind: "fact",
-        templateSelections: []
-      }
-    ]
+        templateSelections: [],
+      },
+    ],
   };
   const result = validateVerticalDefinition(contaminated);
 
   assert.equal(result.ok, false);
-  assert.equal(result.issues.some((issue) => issue.code === "vertical_schema_scaffold_forbidden"), true);
+  assert.equal(
+    result.issues.some((issue) => issue.code === "vertical_schema_scaffold_forbidden"),
+    true,
+  );
 });
 
 test("vertical validation rejects schema entity repository roots", async () => {
@@ -192,27 +215,33 @@ test("vertical validation rejects schema entity repository roots", async () => {
         {
           entityKind: "fact",
           path: "{{paths.authoredRoot}}/facts",
-          create: "lazy"
-        }
-      ]
-    }
+          create: "lazy",
+        },
+      ],
+    },
   };
   const result = validateVerticalDefinition(contaminated);
 
   assert.equal(result.ok, false);
-  assert.equal(result.issues.some((issue) => issue.code === "vertical_schema_repository_scaffold_forbidden"), true);
+  assert.equal(
+    result.issues.some((issue) => issue.code === "vertical_schema_repository_scaffold_forbidden"),
+    true,
+  );
 });
 
 test("vertical validation rejects lifecycle entities without package scaffolds", async () => {
   const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
   const contaminated: VerticalDefinition = {
     ...vertical,
-    packageScaffolds: vertical.packageScaffolds.filter((scaffold) => scaffold.entityKind !== "decision")
+    packageScaffolds: vertical.packageScaffolds.filter((scaffold) => scaffold.entityKind !== "decision"),
   };
   const result = validateVerticalDefinition(contaminated);
 
   assert.equal(result.ok, false);
-  assert.equal(result.issues.some((issue) => issue.code === "vertical_lifecycle_scaffold_missing"), true);
+  assert.equal(
+    result.issues.some((issue) => issue.code === "vertical_lifecycle_scaffold_missing"),
+    true,
+  );
 });
 
 test("vertical validation rejects lifecycle entities without repository roots", async () => {
@@ -221,25 +250,33 @@ test("vertical validation rejects lifecycle entities without repository roots", 
     ...vertical,
     repositoryScaffold: {
       ...vertical.repositoryScaffold,
-      entityRoots: vertical.repositoryScaffold.entityRoots.filter((root) => root.entityKind !== "decision")
-    }
+      entityRoots: vertical.repositoryScaffold.entityRoots.filter((root) => root.entityKind !== "decision"),
+    },
   };
   const result = validateVerticalDefinition(contaminated);
 
   assert.equal(result.ok, false);
-  assert.equal(result.issues.some((issue) => issue.code === "vertical_lifecycle_repository_scaffold_missing"), true);
+  assert.equal(
+    result.issues.some((issue) => issue.code === "vertical_lifecycle_repository_scaffold_missing"),
+    true,
+  );
 });
 
 test("vertical validation rejects contract entity declarations that are not contract-bearing", async () => {
   const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
   const contaminated: VerticalDefinition = {
     ...vertical,
-    entityKinds: vertical.entityKinds.map((entity) => entity.id === "decision" ? { ...entity, contractEntity: false } : entity)
+    entityKinds: vertical.entityKinds.map((entity) =>
+      entity.id === "decision" ? { ...entity, contractEntity: false } : entity,
+    ),
   };
   const result = validateVerticalDefinition(contaminated);
 
   assert.equal(result.ok, false);
-  assert.equal(result.issues.some((issue) => issue.code === "vertical_contract_entity_disabled"), true);
+  assert.equal(
+    result.issues.some((issue) => issue.code === "vertical_contract_entity_disabled"),
+    true,
+  );
 });
 
 async function readFixture(url: URL): Promise<unknown> {

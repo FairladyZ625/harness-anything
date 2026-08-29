@@ -19,7 +19,11 @@ import type { FleetRoster } from "./fleet-center-admission.ts";
 import { commandClassForAction, type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
-import { createRepoCellActionContext } from "./repo-cell-action-context.ts";
+import {
+  createRepoCellActionContext,
+  type RepoCellOperationalContext,
+  type RepoCellRuntimeContext,
+} from "./repo-cell-action-context.ts";
 import { createRepoCellApi } from "./repo-cell-api.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
 import {
@@ -428,10 +432,13 @@ async function openLockedRepoCell(
     },
     getSquadCoordinator: () => squadCoordinator,
   });
-  const scheduleActions = makeRepoCellScheduleActions(extracted);
+  const runtimeContext = Object.assign(extracted, { mode, runtimeSpawner });
+  runtimeContext satisfies RepoCellRuntimeContext;
+  const scheduleActions = makeRepoCellScheduleActions(runtimeContext);
   const settingsActions = makeRepoCellSettingsActions(extracted);
   const peopleActions = makeRepoCellPeopleActions(extracted);
-  Object.assign(extracted, { mode, runtimeSpawner, scheduleActions, settingsActions, peopleActions });
+  const operationalContext = Object.assign(runtimeContext, { scheduleActions, settingsActions, peopleActions });
+  operationalContext satisfies RepoCellOperationalContext;
   if (input.bootstrap && !input.bootstrap.configureOnly) {
     const appended = settingsActions.initialize(
       ...input.bootstrap.settingsBootstrap,
@@ -490,7 +497,7 @@ async function openLockedRepoCell(
   schedule(() => squadCoordinator.reconcile());
 
   const apiContext = {
-    extracted,
+    extracted: operationalContext,
     mode,
     // Resolved per read so the schedule GUI join sees the host's current admission
     // snapshot even when this cell attached before the fleet center started.

@@ -22,8 +22,9 @@ import {
 import { writeFileDurably } from "./durable-file.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoCellActionContext, RepoCellSettingsActions } from "./repo-cell-action-context.ts";
 
-export function makeRepoCellSettingsActions(cell: any) {
+export function makeRepoCellSettingsActions(cell: RepoCellActionContext): RepoCellSettingsActions {
   const localPath = path.join(cell.rootDir, ...SETTINGS_LOCAL_PATH.split("/"));
 
   const readRepository = (): RepositorySettingsV1 => {

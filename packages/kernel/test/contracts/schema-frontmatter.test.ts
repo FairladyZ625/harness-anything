@@ -73,7 +73,7 @@ test("entity relations schema decodes and encodes the valid fixture", async () =
 
 test("Decision event schema rejects unknown fields and canonical-invalid values", async () => {
   const unknownField = await readJson(invalidDecisionFixtureUrl);
-  const base = (await readJson(validDecisionFixtureUrl)) as Record<string, any>;
+  const base = Schema.decodeUnknownSync(DecisionEventSchema)(await readJson(validDecisionFixtureUrl));
 
   assert.throws(() => Schema.decodeUnknownSync(DecisionEventSchema)(unknownField));
   assert.throws(() =>
@@ -95,8 +95,8 @@ test("Decision event schema rejects unknown fields and canonical-invalid values"
 
 test("entity relations schema rejects contract-critical invalid fixtures", async () => {
   const invalidEndpoint = await readJson(invalidEntityRelationsFixtureUrl);
-  const base = (await readJson(validEntityRelationsFixtureUrl)) as Record<string, any>;
-  const [relation] = base.relations as Array<Record<string, unknown>>;
+  const base = Schema.decodeUnknownSync(EntityRelationsSchema)(await readJson(validEntityRelationsFixtureUrl));
+  const [relation] = base.relations;
 
   assert.throws(() => Schema.decodeUnknownSync(EntityRelationsSchema)(invalidEndpoint));
   assert.throws(() =>

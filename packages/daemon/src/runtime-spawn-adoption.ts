@@ -11,22 +11,19 @@ import { adoptNativeProcess, runtimePidIsAlive } from "./runtime-spawn-process.t
 import { durableOutputRecordCount, restoreDurableOutputRecords } from "./runtime-spawn-provider-stream.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimePermissionMode } from "./runtime-permissions.ts";
+import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
-export async function adoptRuntimes(context: any): Promise<void> {
+export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<void> {
   const sessions = context.input.remote
     ? await context.input.remote.readRuntimeSessions()
     : context.requiredRuntimeProjection(context.input).readRuntimeSessions();
-  const byId = new Map(
-    sessions.map((session: { readonly runtimeSessionId: string }) => [session.runtimeSessionId, session]),
-  );
+  const byId = new Map(sessions.map((session) => [session.runtimeSessionId, session]));
   for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
     const fallbackSummary = header.fallbackAttempt
       ? readDispatchStreamSummary(context.input.rootDir, header.dispatchId)
       : null;
     if (fallbackSummary) context.reconcileFallback(fallbackSummary);
-    const session = byId.get(header.runtimeSessionId) as
-      | { readonly liveness: string; readonly outcome: string | null }
-      | undefined;
+    const session = byId.get(header.runtimeSessionId);
     const metadata = adoptableMetadata(header);
     if (!session || session.liveness === "exited" || session.outcome !== null || !metadata) continue;
     const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),

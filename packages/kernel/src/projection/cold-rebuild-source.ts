@@ -772,34 +772,39 @@ function addEventFactSource(
  * therefore fail the current fact-event validator. Parse enough of that envelope
  * to re-key its fact and relations without widening the normal read/validation path. */
 function parseLegacyFactEvent(body: string): FactEventV1 | null {
-  let value: any;
+  let value: unknown;
   try {
     value = JSON.parse(body);
   } catch (error) {
     consumeKnownError(error);
     return null;
   }
-  const payload = value?.payload;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>,
+    payloadValue = candidate.payload;
+  if (payloadValue === null || typeof payloadValue !== "object" || Array.isArray(payloadValue)) return null;
+  const payload = payloadValue as Record<string, unknown>;
   if (
-    !value ||
-    value.schema !== "fact-event/v1" ||
-    value.type !== "fact_recorded" ||
-    typeof value.taskId !== "string" ||
-    !value.taskId ||
-    !isFactId(String(value.factId)) ||
-    typeof value.opId !== "string" ||
-    typeof value.occurredAt !== "string" ||
-    !payload ||
+    candidate.schema !== "fact-event/v1" ||
+    candidate.type !== "fact_recorded" ||
+    typeof candidate.taskId !== "string" ||
+    !candidate.taskId ||
+    !isFactId(String(candidate.factId)) ||
+    typeof candidate.opId !== "string" ||
+    typeof candidate.occurredAt !== "string" ||
     typeof payload.statement !== "string" ||
     typeof payload.evidenceSource !== "string" ||
     typeof payload.observedAt !== "string" ||
+    typeof payload.confidence !== "string" ||
     !["low", "medium", "high"].includes(payload.confidence) ||
+    typeof payload.memoryClass !== "string" ||
     !["semantic", "episodic", "procedural"].includes(payload.memoryClass) ||
     !Array.isArray(payload.memoryTags) ||
     !Array.isArray(payload.provenance)
   )
     return null;
-  return value as FactEventV1;
+  const envelope = { ...candidate, schema: candidate.schema };
+  return isFactEvent(envelope) ? envelope : null;
 }
 
 function normalizeLegacyRelationRecord(
