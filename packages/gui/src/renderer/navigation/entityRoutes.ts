@@ -38,6 +38,14 @@ export function entityDetailTargetOf(ref: string): EntityDetailTarget | null {
   if (ref.startsWith("session/")) {
     return { view: "sessions", focusedEntityRef: ref };
   }
+  // schedule/<id> → 计划详情页 hub(Overview/Runs/Edit/Danger);后续路径段
+  // schedule/<id>/runs/<occurrenceId> 是 hub 内嵌的单次运行详情(M4),整段 ref
+  // 原样下发,由 SchedulesView 按 ref 结构分流——运行会话内嵌,不再跳全局会话页。
+  if (ref.startsWith("schedule/")) {
+    const scheduleId = ref.split("/")[1];
+    if (!scheduleId) return null;
+    return { view: "schedules", focusedEntityRef: ref };
+  }
   // preset/<id> → 目录页内详情(G7):与 task 详情同构的可寻址落点——
   // 落 presets 视图并以 focusedEntityRef 区分列表/详情,推栈回撤原路返回。
   if (ref.startsWith("preset/")) {

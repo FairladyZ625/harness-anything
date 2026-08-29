@@ -84,6 +84,21 @@ describe("entity detail target routing (W4)", () => {
     });
     expect(entityDetailTargetOf("preset/")).toBeNull();
   });
+
+  it("routes schedule refs to the schedules detail hub, keeping the embedded run segment (M2/M4)", () => {
+    // 列表行点击 → schedule/<id> hub;Runs 时间线行点击 → schedule/<id>/runs/<occurrence>
+    // 内嵌单次运行详情。整段 ref 原样下发,SchedulesView 按 ref 结构分流,运行会话
+    // 不再溢出到全局 Sessions Tab。
+    expect(entityDetailTargetOf("schedule/e2e-probe")).toEqual({
+      view: "schedules",
+      focusedEntityRef: "schedule/e2e-probe",
+    });
+    expect(entityDetailTargetOf("schedule/e2e-probe/runs/occ_86b0")).toEqual({
+      view: "schedules",
+      focusedEntityRef: "schedule/e2e-probe/runs/occ_86b0",
+    });
+    expect(entityDetailTargetOf("schedule/")).toBeNull();
+  });
 });
 
 describe("detail views in the view history stack (W4)", () => {

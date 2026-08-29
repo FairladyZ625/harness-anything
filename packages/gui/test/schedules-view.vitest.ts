@@ -6,7 +6,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SchedulesView, ScheduleWorkspace } from "../src/renderer/views/SchedulesView.tsx";
-import { schedulesClient, scheduleRef, scheduleRefId, scheduleRowById } from "../src/renderer/schedules-client.ts";
+import {
+  schedulesClient,
+  scheduleRef,
+  scheduleRefId,
+  scheduleRunRef,
+  scheduleRunRefOccurrence,
+  scheduleRowById,
+} from "../src/renderer/schedules-client.ts";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "../../daemon/src/protocol/schedules-gui-contract.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
@@ -107,8 +114,8 @@ afterEach(async () => {
   document.body.innerHTML = "";
 });
 
-describe("schedules plane (S4)", () => {
-  it("renders the daemon DTO without recomputing cadence or availability", async () => {
+describe("schedules plane (S4) — matrix list (M1)", () => {
+  it("renders the daemon DTO as a filterable matrix without recomputing cadence or availability", async () => {
     const container = await renderSurface(
       createElement(ScheduleWorkspace, {
         repoId: "repo-a",
@@ -125,12 +132,115 @@ describe("schedules plane (S4)", () => {
     expect(text).toMatch(/2026-08-27 \d{2}:30/u);
     expect(text).toContain("Runnable here");
     expect(text).toContain("missed 2");
-    expect(text).toContain("Scheduler unavailable");
+    expect(container.querySelector('[data-testid="schedules-matrix"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="schedule-action-runNow"]')).not.toBeNull();
+    // The retired 420px inspector is gone: the list pane is the only list surface.
+    expect(container.querySelector('[data-testid="schedules-inspector"]')).toBeNull();
   });
 
-  it("keeps run-now disabled with the daemon blocker on a remote center", async () => {
+  it("filters rows by state, and keeps mode/health facets off until the daemon projects them", async () => {
+    const first = dto({
+      missed: { count: 0, lastMissedAt: null, lastMissedReason: null },
+    }).schedules[0] as ScheduleGuiRowDto;
+    const container = await renderSurface(
+      createElement(ScheduleWorkspace, {
+        repoId: "repo-a",
+        data: dto(
+          {},
+          {
+            schedules: [
+              first,
+              {
+                ...first,
+                scheduleId: "paused-sweep",
+                name: "Paused sweep",
+                state: "paused",
+                lastRun: { ...first.lastRun!, outcome: "failed" },
+              },
+            ],
+          },
+        ),
+        pending: false,
+        focusedEntityRef: null,
+        onSelectEntity: noop,
+        onFocusSchedule: noop,
+      }),
+    );
+    expect(container.textContent).toContain("2 of 2");
+    await click(container, "schedules-filter-state-paused");
+    expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).toBeNull();
+    expect(container.querySelector('[data-testid="schedule-row-paused-sweep"]')).not.toBeNull();
+    await click(container, "schedules-filter-state-all");
+    // The renderer does not re-derive health/mode from outcomes: both facets stay
+    // disabled until the daemon projects the fields.
+    const modeFilter = container.querySelector<HTMLButtonElement>('[data-testid="schedules-filter-mode-detect"]');
+    expect(modeFilter?.disabled).toBe(true);
+    expect(
+      container.querySelector<HTMLElement>('[data-testid="schedules-filter-mode"]')?.getAttribute("data-tip"),
+    ).toContain("mode");
+    const healthFilter = container.querySelector<HTMLButtonElement>('[data-testid="schedules-filter-health-degraded"]');
+    expect(healthFilter?.disabled).toBe(true);
+    expect(
+      container.querySelector<HTMLElement>('[data-testid="schedules-filter-health"]')?.getAttribute("data-tip"),
+    ).toContain("health");
+  });
+
+  it("lights the mode/health facets and the spark when the daemon projects the rollup fields", async () => {
+    const base = dto().schedules[0] as ScheduleGuiRowDto & Record<string, unknown>;
+    const clean = {
+      ...base,
+      scheduleId: "clean-probe",
+      name: "Clean probe",
+      health: { recent: ["succeeded", "succeeded"], bucket: "clean" },
+    };
+    const degraded = {
+      ...base,
+      scheduleId: "degraded-probe",
+      name: "Degraded probe",
+      mode: "detect",
+      health: { recent: ["succeeded", "failed"], bucket: "degraded" },
+    };
+    const container = await renderSurface(
+      createElement(ScheduleWorkspace, {
+        repoId: "repo-a",
+        data: dto({}, { schedules: [clean, degraded] }),
+        pending: false,
+        focusedEntityRef: null,
+        onSelectEntity: noop,
+        onFocusSchedule: noop,
+      }),
+    );
+    const modeFilter = container.querySelector<HTMLButtonElement>('[data-testid="schedules-filter-mode-detect"]');
+    expect(modeFilter?.disabled).toBe(false);
+    await click(container, "schedules-filter-mode-detect");
+    expect(container.querySelector('[data-testid="schedule-row-clean-probe"]')).toBeNull();
+    expect(container.querySelector('[data-testid="schedule-row-degraded-probe"]')).not.toBeNull();
+    await click(container, "schedules-filter-mode-all");
+    const healthFilter = container.querySelector<HTMLButtonElement>('[data-testid="schedules-filter-health-degraded"]');
+    expect(healthFilter?.disabled).toBe(false);
+    await click(container, "schedules-filter-health-degraded");
+    expect(container.querySelector('[data-testid="schedule-row-clean-probe"]')).toBeNull();
+    expect(container.querySelector('[data-testid="schedule-row-degraded-probe"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="schedule-spark-degraded-probe"]')).not.toBeNull();
+  });
+
+  it("routes a row into the schedule/<id> detail hub through the entity router", async () => {
+    const onSelectEntity = vi.fn();
+    const container = await renderSurface(
+      createElement(ScheduleWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        focusedEntityRef: null,
+        onSelectEntity,
+        onFocusSchedule: noop,
+      }),
+    );
+    await click(container, "schedule-focus-heartbeat-probe");
+    expect(onSelectEntity).toHaveBeenCalledWith("schedule/heartbeat-probe");
+  });
+
+  it("renders the detail hub for a focused schedule/<id> ref and keeps action blockers from the daemon", async () => {
     const container = await renderSurface(
       createElement(ScheduleWorkspace, {
         repoId: "repo-a",
@@ -169,81 +279,21 @@ describe("schedules plane (S4)", () => {
           { repoMode: "remote-center", viewerNodeId: null },
         ),
         pending: false,
-        focusedEntityRef: null,
+        focusedEntityRef: "schedule/heartbeat-probe",
         onSelectEntity: noop,
         onFocusSchedule: noop,
       }),
     );
     const text = container.textContent ?? "";
+    expect(container.querySelector('[data-testid="schedule-detail"]')).not.toBeNull();
     expect(text).toContain("Runs elsewhere");
     expect(text).toContain("edge-one");
+    expect(text).toContain("Scan the previous day of pull requests.");
     for (const kind of ["enable", "disable", "runNow"]) {
       const button = container.querySelector<HTMLButtonElement>(`[data-testid="schedule-action-${kind}"]`);
       expect(button?.disabled, `${kind} must be disabled on a center`).toBe(true);
       expect(button?.getAttribute("data-tip")).toContain("Fleet assignment ingress");
     }
-    // The center shows no local provider or liveness claims at all.
-    expect(text).not.toContain("live");
-    expect(text).not.toContain("provider");
-  });
-
-  it("shows the active runtime only as the owner's claim, with session deep-links", async () => {
-    const onSelectEntity = vi.fn();
-    const container = await renderSurface(
-      createElement(ScheduleWorkspace, {
-        repoId: "repo-a",
-        data: dto({
-          executionAvailability: "claimed-elsewhere",
-          claim: { nodeId: "edge-two", assignmentId: "assignment-edge-two" },
-          actions: {
-            edit: { available: true, code: null, nextAction: null },
-            delete: {
-              available: false,
-              code: "schedule_single_flight_active",
-              nextAction: "Occurrence occurrence_now is already claimed by node edge-two.",
-            },
-            enable: { available: false, code: "no_changes", nextAction: "The Schedule is already armed." },
-            disable: { available: true, code: null, nextAction: null },
-            runNow: {
-              available: false,
-              code: "schedule_single_flight_active",
-              nextAction: "Occurrence occurrence_now is already claimed by node edge-two.",
-            },
-          },
-          activeRun: {
-            occurrenceId: "occurrence_now",
-            kind: "scheduled",
-            scheduledFor: "2026-08-27T08:00:00.000Z",
-            claimedAt: "2026-08-27T08:00:01.000Z",
-            nodeId: "edge-two",
-            assignmentId: "assignment-edge-two",
-            attemptIndex: 1,
-            dispatchId: "dispatch_000000000000000000000002",
-            runtimeSessionId: "runtime-active",
-          },
-        }),
-        pending: false,
-        focusedEntityRef: null,
-        onSelectEntity,
-        onFocusSchedule: noop,
-      }),
-    );
-    const text = container.textContent ?? "";
-    expect(text).toContain("Claimed elsewhere");
-    expect(text).toContain("occurrence_now");
-    expect(text).toContain("edge-two");
-    const runNow = container.querySelector<HTMLButtonElement>('[data-testid="schedule-action-runNow"]');
-    expect(runNow?.disabled).toBe(true);
-    expect(runNow?.getAttribute("data-tip")).toContain("occurrence_now");
-    const sessionLink = container.querySelector<HTMLButtonElement>(
-      '[data-testid="schedule-session-link-runtime-active"]',
-    );
-    expect(sessionLink).not.toBeNull();
-    sessionLink?.click();
-    expect(onSelectEntity).toHaveBeenCalledWith("session/runtime-active");
-    const agentLink = container.querySelector<HTMLButtonElement>('[data-testid="schedule-agent-link-probe-agent"]');
-    agentLink?.click();
-    expect(onSelectEntity).toHaveBeenCalledWith("agent/probe-agent");
   });
 
   it("runs enable/disable/run-now through the bridge and surfaces the receipt", async () => {
@@ -257,31 +307,26 @@ describe("schedules plane (S4)", () => {
       scheduleId: "heartbeat-probe",
     };
     const disable = vi.spyOn(schedulesClient, "disable").mockResolvedValue(receipt);
-    const onFocusSchedule = vi.fn();
     const container = await renderSurface(
       createElement(ScheduleWorkspace, {
         repoId: "repo-a",
         data: dto(),
         pending: false,
-        focusedEntityRef: null,
+        focusedEntityRef: "schedule/heartbeat-probe",
         onSelectEntity: noop,
-        onFocusSchedule,
+        onFocusSchedule: noop,
       }),
     );
-    container.querySelector<HTMLButtonElement>('[data-testid="schedule-action-disable"]')?.click();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await click(container, "schedule-action-disable");
+    await flush();
     expect(disable).toHaveBeenCalledWith("repo-a", "heartbeat-probe", expect.stringMatching(/^gui:schedule-disable:/u));
     const receiptNode = container.querySelector('[data-testid="schedule-action-receipt"]');
     expect(receiptNode?.textContent).toContain("schedule-disable");
     expect(receiptNode?.textContent).toContain("applied");
     expect(receiptNode?.textContent).toContain("op-disable-1");
-    container.querySelector<HTMLButtonElement>('[data-testid="schedule-focus-heartbeat-probe"]')?.click();
-    expect(onFocusSchedule).toHaveBeenCalledWith("schedule/heartbeat-probe");
   });
 
-  it("creates and edits through catalog selectors, and confirms deletion explicitly", async () => {
+  it("creates through the segmented dialog and edits in the hub's Edit tab, then confirms deletion in Danger", async () => {
     const receipt = (command: string) => ({
         ok: true,
         command,
@@ -295,26 +340,64 @@ describe("schedules plane (S4)", () => {
       update = vi.spyOn(schedulesClient, "update").mockResolvedValue(receipt("schedule-update")),
       remove = vi.spyOn(schedulesClient, "delete").mockResolvedValue(receipt("schedule-delete")),
       onFocusSchedule = vi.fn(),
-      container = await renderSurface(
+      focused = await renderSurface(
         createElement(ScheduleWorkspace, {
           repoId: "repo-a",
           data: dto(),
           pending: false,
-          focusedEntityRef: null,
+          focusedEntityRef: "schedule/heartbeat-probe",
           onSelectEntity: noop,
           onFocusSchedule,
         }),
       );
-    await click(container, "schedule-action-create");
-    await setValue(container, "schedule-form-id", "fresh-probe");
-    await setValue(container, "schedule-form-name", "Fresh probe");
-    await setValue(container, "schedule-form-mission", "Run the fresh probe.");
-    expect(container.querySelector('[data-testid="schedule-form-agent"]')?.tagName).toBe("SELECT");
-    expect(container.querySelector('[data-testid="schedule-form-instance"]')?.tagName).toBe("SELECT");
-    expect(container.querySelector('[data-testid="schedule-form-model"]')?.tagName).toBe("SELECT");
-    expect(container.querySelector('[data-testid="schedule-form-effort"]')?.tagName).toBe("SELECT");
-    expect(container.querySelector('[data-testid="schedule-form-cwd"]')?.tagName).toBe("SELECT");
-    await click(container, "schedule-form-submit");
+    // Edit happens in the hub now: the header button switches to the Edit tab.
+    await click(focused, "schedule-action-edit");
+    expect(focused.querySelector('[data-testid="schedule-form-sec-identity"]')).not.toBeNull();
+    expect(focused.querySelector('[data-testid="schedule-form-sec-routing"]')).not.toBeNull();
+    await setValue(focused, "schedule-form-name", "Edited heartbeat");
+    await click(focused, "schedule-form-submit");
+    await flush();
+    expect(update).toHaveBeenCalledWith(
+      "repo-a",
+      expect.objectContaining({ scheduleId: "heartbeat-probe", name: "Edited heartbeat" }),
+      expect.stringMatching(/^gui:schedule-update:/u),
+    );
+
+    await click(focused, "schedule-tab-danger");
+    await click(focused, "schedule-action-delete");
+    expect(remove).not.toHaveBeenCalled();
+    expect(focused.querySelector('[data-testid="schedule-delete-confirmation"]')).not.toBeNull();
+    await click(focused, "schedule-action-confirm-delete");
+    await flush();
+    expect(remove).toHaveBeenCalledWith(
+      "repo-a",
+      "heartbeat-probe",
+      expect.stringMatching(/^gui:schedule-delete:/u),
+      "Deleted from the Schedules GUI.",
+    );
+    expect(onFocusSchedule).toHaveBeenCalledWith(null);
+
+    // Create stays a dialog from the list pane.
+    const list = await renderSurface(
+      createElement(ScheduleWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        focusedEntityRef: null,
+        onSelectEntity: noop,
+        onFocusSchedule,
+      }),
+    );
+    await click(list, "schedule-action-create");
+    await setValue(list, "schedule-form-id", "fresh-probe");
+    await setValue(list, "schedule-form-name", "Fresh probe");
+    await setValue(list, "schedule-form-mission", "Run the fresh probe.");
+    expect(list.querySelector('[data-testid="schedule-form-agent"]')?.tagName).toBe("SELECT");
+    expect(list.querySelector('[data-testid="schedule-form-instance"]')?.tagName).toBe("SELECT");
+    expect(list.querySelector('[data-testid="schedule-form-model"]')?.tagName).toBe("SELECT");
+    expect(list.querySelector('[data-testid="schedule-form-effort"]')?.tagName).toBe("SELECT");
+    expect(list.querySelector('[data-testid="schedule-form-cwd"]')?.tagName).toBe("SELECT");
+    await click(list, "schedule-form-submit");
     await flush();
     expect(create).toHaveBeenCalledWith(
       "repo-a",
@@ -328,37 +411,21 @@ describe("schedules plane (S4)", () => {
       }),
       expect.stringMatching(/^gui:schedule-create:/u),
     );
-
-    await click(container, "schedule-action-edit");
-    await setValue(container, "schedule-form-name", "Edited heartbeat");
-    await click(container, "schedule-form-submit");
-    await flush();
-    expect(update).toHaveBeenCalledWith(
-      "repo-a",
-      expect.objectContaining({ scheduleId: "heartbeat-probe", name: "Edited heartbeat" }),
-      expect.stringMatching(/^gui:schedule-update:/u),
-    );
-
-    await click(container, "schedule-action-delete");
-    expect(remove).not.toHaveBeenCalled();
-    expect(container.querySelector('[data-testid="schedule-delete-confirmation"]')).not.toBeNull();
-    await click(container, "schedule-action-confirm-delete");
-    await flush();
-    expect(remove).toHaveBeenCalledWith(
-      "repo-a",
-      "heartbeat-probe",
-      expect.stringMatching(/^gui:schedule-delete:/u),
-      "Deleted from the Schedules GUI.",
-    );
-    expect(onFocusSchedule).toHaveBeenCalledWith(null);
+    expect(onFocusSchedule).toHaveBeenCalledWith("schedule/fresh-probe");
   });
 
-  it("focus resolves from the deep-link ref and falls back to the first row", () => {
+  it("focus resolves from the deep-link ref, including embedded run refs", () => {
     const rows = dto().schedules;
     expect(scheduleRefId("schedule/heartbeat-probe")).toBe("heartbeat-probe");
+    expect(scheduleRefId("schedule/heartbeat-probe/runs/occ_1")).toBe("heartbeat-probe");
     expect(scheduleRefId("schedule/")).toBe(null);
     expect(scheduleRefId("session/other")).toBe(null);
     expect(scheduleRef("heartbeat-probe")).toBe("schedule/heartbeat-probe");
+    expect(scheduleRunRef("heartbeat-probe", "occ_1")).toBe("schedule/heartbeat-probe/runs/occ_1");
+    expect(scheduleRunRefOccurrence("schedule/heartbeat-probe/runs/occ_1")).toBe("occ_1");
+    expect(scheduleRunRefOccurrence("schedule/heartbeat-probe")).toBe(null);
+    expect(scheduleRunRefOccurrence("schedule/heartbeat-probe/runs/")).toBe(null);
+    expect(scheduleRunRefOccurrence(null)).toBe(null);
     expect(scheduleRowById(rows, "heartbeat-probe")?.scheduleId).toBe("heartbeat-probe");
     expect(scheduleRowById(rows, "missing")).toBe(null);
     expect(scheduleRowById(rows, null)).toBe(null);
@@ -408,6 +475,8 @@ describe("schedules plane (S4)", () => {
     expect(text).toContain("edge-one");
     expect(text).toContain("No schedules yet");
     expect(container.querySelector('[data-testid="schedules-view"]')).not.toBeNull();
+    // A stale ref for a missing schedule falls back to the list, not an inspector.
+    expect(container.querySelector('[data-testid="schedules-inspector"]')).toBeNull();
   });
 });
 
