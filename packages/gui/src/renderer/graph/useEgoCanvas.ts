@@ -9,6 +9,7 @@ import {
   egoFocusIdOf,
   type EgoAxisFilter,
   type EgoGraph,
+  type EgoHopBudget,
 } from "./egoCanvas";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
 
@@ -27,8 +28,8 @@ import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
  *   expanded 减 —— 两者都不动已铺开的可见集,因此布局输入的列结构保持稳定。
  */
 
-/** 设焦点时默认铺开的跳数(上游 2 跳 + 下游 2 跳)。 */
-export const EGO_DEFAULT_HOPS = 2;
+/** 宿主未指定跳数时的默认铺开(上游 2 跳 + 下游 2 跳)。 */
+export const EGO_DEFAULT_HOPS: EgoHopBudget = { up: 2, down: 2 };
 
 export interface EgoCanvasState {
   graph: EgoGraph;
@@ -60,6 +61,7 @@ export function useEgoCanvas({
   schedules = [],
   axes,
   focusRef,
+  hops = EGO_DEFAULT_HOPS,
   allowedIds = null,
   layered = false,
 }: {
@@ -72,6 +74,8 @@ export function useEgoCanvas({
   schedules?: ReadonlyArray<ScheduleNodeRow>;
   axes: EgoAxisFilter;
   focusRef: string | null;
+  /** 铺开跳数预算(父 ↑ / 子 ↓ 各一)。变更时从当前焦点重铺,累积展开集随之清空。 */
+  hops?: EgoHopBudget;
   /** 重点模式的可见集;null = 不分层(全部可铺开)。焦点自身恒可见。 */
   allowedIds?: ReadonlySet<string> | null;
   /** 分层开关(重点模式)。翻转时从当前焦点重铺;数据刷新引起的集合内容变化不重排。 */
@@ -93,12 +97,12 @@ export function useEgoCanvas({
     (ref: string) => {
       const canonical = egoFocusIdOf(ref);
       setFocusId(canonical);
-      setShown(bfsShownFromFocus(graph, canonical, EGO_DEFAULT_HOPS, axes, allowedIds));
+      setShown(bfsShownFromFocus(graph, canonical, hops, axes, allowedIds));
       // 焦点默认展开成卡片(它是阅读主体),邻居保持紧凑 chip。
       setExpanded(new Set([canonical]));
       setSelectId(null);
     },
-    [graph, axes, allowedIds],
+    [graph, axes, hops, allowedIds],
   );
   // 稳定引用:外部 focusRef 变化时才重排,不因 openFocus 身份变动而重排。
   const openFocusRef = useRef(openFocus);
@@ -142,12 +146,13 @@ export function useEgoCanvas({
   }, []);
 
   // 外部焦点(领地 chip / 命令面板 / 焦点历史)到达 → 重排画布到该焦点。
-  // 密度分层开关翻转同样重铺(「只看重点 ↔ 全部」是显式的视图切换);重点集内容
-  // 随数据刷新变化不在此列 —— 那不是用户动作,不该清掉已铺开的画布。
+  // 密度分层开关翻转、跳数预算变更同样重铺(两者都是显式的视图切换,后者来自图谱页
+  // 的「父 ↑ / 子 ↓」步进器);重点集内容随数据刷新变化不在此列 —— 那不是用户动作,
+  // 不该清掉已铺开的画布。
   useEffect(() => {
     if (!focusRef) return;
     openFocusRef.current(focusRef);
-  }, [focusRef, layered]);
+  }, [focusRef, layered, hops]);
 
   return {
     graph,

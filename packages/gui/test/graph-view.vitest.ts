@@ -4,6 +4,8 @@ import type { TaskRow, DecisionRow, RelationEdge } from "../src/renderer/model/t
 import { buildEgoGraph, bfsShownFromFocus, layoutEgoCanvas, type EgoFilters } from "../src/renderer/graph/egoCanvas.ts";
 import { defaultAxisFilter, defaultKindFilter } from "../src/renderer/graph/relationVisual.ts";
 
+const HOPS_2 = { up: 2, down: 2 };
+
 /**
  * 实体解析的诚实性回归:fact 锚点可以成节点,但正文绝不编造。
  * (原挂在 computeSpotlightLayout 上,随三泳道布局一起迁到无限画布 ego。)
@@ -53,7 +55,7 @@ function layoutFrom(
   factAnchors: Array<{ factRef: string; taskId: string; factId: string }>,
 ) {
   const graph = buildEgoGraph([task()], [dec()], [], relations, factAnchors);
-  const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
+  const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
   return layoutEgoCanvas({
     focusId: "decision/dec_1",
     graph,

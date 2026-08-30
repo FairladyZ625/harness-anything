@@ -9,7 +9,10 @@ import {
   withAgentTaskCounts,
   type ScheduleNodeRow,
 } from "../src/renderer/graph/runtimeEntities.ts";
-import { buildEgoGraph, bfsShownFromFocus, EGO_DEFAULT_HOPS } from "../src/renderer/graph/egoCanvas.ts";
+import { buildEgoGraph, bfsShownFromFocus } from "../src/renderer/graph/egoCanvas.ts";
+// 修复:EGO_DEFAULT_HOPS 一直住在 useEgoCanvas,此前从 egoCanvas import 得到 undefined,
+// 这些用例靠「undefined = 无上限」在小夹具上碰巧全量可达而通过。
+import { EGO_DEFAULT_HOPS } from "../src/renderer/graph/useEgoCanvas.ts";
 import { partitionAll, partitionAgents, partitionSchedules } from "../src/renderer/graph/territory.ts";
 import type { AgentEntityGuiRow } from "../../../../daemon/src/agent-entities.ts";
 import type { ScheduleGuiRowDto } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";

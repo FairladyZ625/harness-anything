@@ -22,6 +22,8 @@ import type { PaletteEntry } from "../components/CommandPalette.tsx";
 import { TerritorySkelToggle, type TerritorySkel } from "../components/TerritoryModeBar";
 import { useColorMode, minimapMaskColor } from "../graph/colorMode";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
+import { EgoHopsControl } from "../graph/EgoHopsControl";
+import type { EgoHopBudget } from "../graph/egoCanvas";
 import { applyTerritoryDensity, partitionForSkel } from "../graph/territory";
 import { layoutTerritory } from "../graph/territoryLayout";
 import { defaultKindFilter, defaultAxisFilter, type FlowAnimMode } from "../graph/relationVisual";
@@ -119,6 +121,9 @@ function GraphViewInner({
   // 用户手动展开的 zone 集。上千实体的真实数据下,折叠态保证首屏可读。
   const [expandedZones, setExpandedZones] = useState<Set<string>>(() => new Set());
   const [flowMode, setFlowMode] = useState<FlowAnimMode>("focus");
+  // 聚焦铺开跳数(task_b4258de1):默认父 1 / 子 1,步进器在聚光灯工具条上。
+  // 住在页面级 state,所以同一 session 里换焦点实体时保留;展开集由画布自清。
+  const [hops, setHops] = useState<EgoHopBudget>({ up: 1, down: 1 });
   // 领地降噪开关(task_b92c5138):默认关 = 隐藏 cancelled/archived task(看板同规则,
   // 判定 isTaskArchiveNoise 单一定义);localStorage 按视图记忆,坏值回落默认。
   const [showArchived, setShowArchived] = useState(() =>
@@ -386,6 +391,7 @@ function GraphViewInner({
             : `聚光灯 · ${spotlightStats.nodes} 节点 · ${spotlightStats.edges} 边`}
         </span>
         <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} />
+        {viewMode === "spotlight" && <EgoHopsControl hops={hops} onHopsChange={setHops} />}
         {viewMode === "territory" && (
           <span
             className="inline-flex items-center gap-1 rounded bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted"
@@ -521,6 +527,7 @@ function GraphViewInner({
               flowMode,
               statusFilter: filters.entityStatus,
             }}
+            hops={hops}
             onNavigateEntity={onNavigateEntity}
             onSetTaskPin={onSetTaskPin}
             onRefocus={openFocus}

@@ -18,9 +18,15 @@ import { GraphDrawer } from "./GraphDrawer";
 import { EgoNode } from "./nodes/EgoNode";
 import { InteractiveEdge } from "./edges/InteractiveEdge";
 import { useColorMode, minimapMaskColor } from "./colorMode";
-import { useEgoCanvas } from "./useEgoCanvas";
+import { EGO_DEFAULT_HOPS, useEgoCanvas } from "./useEgoCanvas";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
-import { layoutEgoCanvas, type EgoAxisFilter, type EgoFlowEdge, type EgoFlowNode } from "./egoCanvas";
+import {
+  layoutEgoCanvas,
+  type EgoAxisFilter,
+  type EgoFlowEdge,
+  type EgoFlowNode,
+  type EgoHopBudget,
+} from "./egoCanvas";
 import { defaultKindFilter, edgePassesKindFilter, type FlowAnimMode } from "./relationVisual";
 import {
   defaultEntityStatusFilter,
@@ -73,6 +79,8 @@ export type EgoNeighborhoodProps = {
   agents?: ReadonlyArray<AgentNodeRow>;
   schedules?: ReadonlyArray<ScheduleNodeRow>;
   filters?: EgoNeighborhoodFilters;
+  /** 铺开跳数预算(父 ↑ / 子 ↓);缺省 = EGO_DEFAULT_HOPS(±2)。 */
+  hops?: EgoHopBudget;
   /** 重点模式可见集(null = 不分层)。 */
   focusSet?: { readonly taskIds: ReadonlySet<string>; readonly neighborIds: ReadonlySet<string> } | null;
   /** 重点模式开关(翻转时从当前焦点重铺)。 */
@@ -105,6 +113,7 @@ function EgoNeighborhoodInner({
   agents,
   schedules,
   filters,
+  hops = EGO_DEFAULT_HOPS,
   focusSet = null,
   densityFocus = false,
   onNavigateEntity,
@@ -114,7 +123,7 @@ function EgoNeighborhoodInner({
   panelSlot,
   refocusTitle,
   active = true,
-}: EgoNeighborhoodProps & { filters: EgoNeighborhoodFilters }) {
+}: EgoNeighborhoodProps & { filters: EgoNeighborhoodFilters; hops: EgoHopBudget }) {
   const colorMode = useColorMode();
   const { fitView } = useReactFlow();
 
@@ -137,6 +146,7 @@ function EgoNeighborhoodInner({
     schedules,
     axes: filters.axes,
     focusRef,
+    hops,
     allowedIds,
     layered: densityFocus,
   });
@@ -422,7 +432,11 @@ function EgoNeighborhoodInner({
 export function EgoNeighborhood(props: EgoNeighborhoodProps) {
   return (
     <ReactFlowProvider>
-      <EgoNeighborhoodInner {...props} filters={props.filters ?? defaultNeighborhoodFilters()} />
+      <EgoNeighborhoodInner
+        {...props}
+        filters={props.filters ?? defaultNeighborhoodFilters()}
+        hops={props.hops ?? EGO_DEFAULT_HOPS}
+      />
     </ReactFlowProvider>
   );
 }
