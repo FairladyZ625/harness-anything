@@ -246,6 +246,24 @@ const factDoc: EntityKindDoc = {
         ),
         field("provenance", true, "array", "绑定记录:runtime / sessionId / boundAt。"),
         field("supersedes", false, "object", "取代哪条事实及理由(fact/F-<id> + rationale)。"),
+        field(
+          "domainTypes",
+          false,
+          "array",
+          "领域类型(可多值):这条事实讲什么,如 架构 / bug / 技术栈。每个值必须是已登记的受控词,未登记会被拒。只能经 reclassify 改动。",
+        ),
+        field(
+          "registersDomainType",
+          false,
+          "string",
+          "本次记录顺带登记一个新的领域类型词(受控词表的唯一增长入口,与 domainTypes 互斥,不可变)。",
+        ),
+        field(
+          "reclassificationRationale",
+          false,
+          "string",
+          "重新归类的理由(仅 fact_reclassified 事件携带,1–199 字,不可变审计证据)。",
+        ),
       ],
     },
   ],
@@ -257,7 +275,7 @@ const factDoc: EntityKindDoc = {
     { type: "refuted-by", sourceKind: "decision", targetKind: "fact" },
     { type: "supersedes-fact", sourceKind: "fact", targetKind: "fact" },
   ],
-  actions: ["record", "search", "show"],
+  actions: ["record", "reclassify", "type-register", "search", "show"],
   guiEntry: { view: "graph", note: "关系图与 Task 详情·证据页签" },
   liveCount: null,
 };
