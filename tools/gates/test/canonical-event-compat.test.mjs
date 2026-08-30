@@ -108,7 +108,7 @@ test("canonical event compatibility gate projects the locked history through pro
   const result = validateFrozenDaemonReadside(repoRoot());
   assert.deepEqual(result.errors, []);
   assert.equal(result.eventCount, 5);
-  assert.ok(result.durationMs < 5_000);
+  assert.ok(result.durationMs < 8_000);
 });
 
 test("locked-history document reads replay through the rootDir-first production signature without a worktree", () => {

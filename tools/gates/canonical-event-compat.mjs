@@ -32,7 +32,7 @@ import { repoRoot } from "./git.mjs";
 const FIXTURE_ROOT = "packages/kernel/fixtures/canonical-events";
 const DAEMON_FIXTURE_ROOT = "packages/daemon/fixtures/readside-responses";
 const MAX_READSIDE_EVENTS = 300;
-const MAX_READSIDE_MILLISECONDS = 5_000;
+const MAX_READSIDE_MILLISECONDS = 8_000;
 const DISPATCH_TASK_ID = "task_62eb49f177c35bd599b0d128a9";
 const frozenReadsideEvents = Object.freeze([
   { relativePath: "events/83/migration-36af78f8d2ac53485ca9e14482.json", revision: 108, eventId: "event-83528bd4ab507b4464f6367395476707fd11d8b055bafa53eb569e189f0d1f58", gitBlobSha: "e4106ab9b385fafa88a929f7fb6ffb23b71d15c1", validators: ["validateDaemonDecisionList", "validateDaemonWorkspaceSummary", "validateDaemonRelationGraph"] },

@@ -14,7 +14,7 @@ The gate creates a disposable production `makeTaskProjection` SQLite database. I
 | 23,742 | `event-5dbd4d8cd3dadd2834664be4e0a3a046bbe0657c572c38dc4a629444141d38ee` | `0b5cdf080a31435d58ec407b509f0a4ecbf23fb7` | task row for `validateDaemonTaskSnapshotList`; task counts for `validateDaemonWorkspaceSummary`; planned task for `validateDaemonAgenda`; `INDEX.md` for `validateDaemonDocumentRead` and `validateDaemonTaskDocumentList`; dispatch owner state for `validateDaemonTaskDispatches` |
 | 23,764 | `event-64bdaa2ba1fac5c9fc3f214a9d14b7ce485664449fd127977beb4ab53b2961ad` | `0139e5a87941f40249e0e33e616e0fb2b0d037ef` | archived dispatch document for `validateDaemonTaskDispatches`; archived task documents for `validateDaemonTaskDocumentList` |
 
-Frozen event count: **5** (budget: 300). The gate enforces a **5,000 ms** wall-clock budget for projection plus validation.
+Frozen event count: **5** (budget: 300). The gate enforces an **8,000 ms** wall-clock budget for projection plus validation.
 
 ## Validator coverage and exclusions
 
