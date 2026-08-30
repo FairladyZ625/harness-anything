@@ -155,7 +155,13 @@ export type {
   MigrationDocumentClaim,
   MigrationImportEventV1,
 } from "./domain/migration-import-event.ts";
-export type { ArchivedExecutionV0, ExecutionV1, LeaseV1, ProjectedExecution } from "./domain/execution.ts";
+export type {
+  ArchivedExecutionV0,
+  ExecutionV1,
+  LeaseV1,
+  ProjectedExecution,
+  SubmissionV1,
+} from "./domain/execution.ts";
 export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
 export * from "./entity/registry.ts";
@@ -228,6 +234,12 @@ export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
+export {
+  createTaskCloseoutPacketTemplate,
+  taskCloseoutPacketSchema,
+  validateTaskCloseoutPacket,
+} from "./schemas/task-closeout-packet.ts";
+export type { CloseoutCiJudgment, TaskCloseoutPacket } from "./schemas/task-closeout-packet.ts";
 export {
   canonicalDocumentClaims,
   canonicalDocumentRetirements,

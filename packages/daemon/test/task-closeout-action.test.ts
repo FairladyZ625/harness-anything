@@ -110,7 +110,16 @@ function applied(stage: string): WriteReceipt {
     },
   };
 }
-function setup(initial = snapshot(), rejectStage?: CloseoutStep, setupCaller = caller) {
+function setup(
+  initial = snapshot(),
+  rejectStage?: CloseoutStep,
+  setupCaller = caller,
+  closeoutAction: Readonly<Record<string, unknown>> = {
+    kind: "task-closeout",
+    taskId,
+    fromFile: "judgment.json",
+  },
+) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-closeout-action-")),
     fromFile = "judgment.json";
   writeFileSync(path.join(rootDir, fromFile), JSON.stringify(judgment()));
@@ -122,7 +131,7 @@ function setup(initial = snapshot(), rejectStage?: CloseoutStep, setupCaller = c
     run = () =>
       runTaskCloseoutAction({
         rootDir,
-        action: { kind: "task-closeout", taskId, fromFile },
+        action: closeoutAction,
         caller: setupCaller,
         opId: "op-closeout",
         readWorkspaceText,
@@ -179,6 +188,97 @@ test("a submitted execution resumes at review instead of rejecting P2-06", async
       value.calls.map(({ stage }) => stage),
       ["review-execution", "review-consent", "complete"],
     );
+  } finally {
+    rmSync(value.rootDir, { recursive: true, force: true });
+  }
+});
+test("a submitted execution resumes when the packet omits its locked submission", async () => {
+  const value = setup(snapshot("in_review", [execution(executionId, "submitted")])),
+    { submission: _locked, ...resumePacket } = judgment();
+  writeFileSync(path.join(value.rootDir, "judgment.json"), JSON.stringify(resumePacket));
+  try {
+    assert.equal((await value.run()).outcome, "applied");
+    assert.deepEqual(
+      value.calls.map(({ stage }) => stage),
+      ["review-execution", "review-consent", "complete"],
+    );
+  } finally {
+    rmSync(value.rootDir, { recursive: true, force: true });
+  }
+});
+test("a mismatched resubmission reports the locked content and the omission repair", async () => {
+  const value = setup(snapshot("in_review", [execution(executionId, "submitted")]));
+  writeFileSync(
+    path.join(value.rootDir, "judgment.json"),
+    JSON.stringify({
+      ...judgment(),
+      submission: { ...judgment().submission, completionClaim: "Different but valid." },
+    }),
+  );
+  try {
+    const receipt = await value.run();
+    assert.equal(receipt.code, "submission_mismatch");
+    assert.match(String(receipt.nextAction), /"completionClaim": "Complete\."/u);
+    assert.match(String(receipt.nextAction), /Remove the submission section/u);
+    assert.equal(value.calls.length, 0);
+  } finally {
+    rmSync(value.rootDir, { recursive: true, force: true });
+  }
+});
+test("one invalid closeout response names every bad field", async () => {
+  const value = setup();
+  writeFileSync(
+    path.join(value.rootDir, "judgment.json"),
+    JSON.stringify({
+      submission: {
+        completionClaim: "",
+        deliverables: "command",
+        outputs: ["CLI"],
+        verificationNotes: ["tests"],
+        knownGaps: [],
+        residualRisks: [],
+        commitSha: "short",
+      },
+      review: { verdict: "PASS", reason: "", evidenceChecked: "tests" },
+      consent: { approved: false },
+      completion: { ci: "green", codeDocPaths: ["../escape"] },
+    }),
+  );
+  try {
+    const receipt = await value.run(),
+      report = String(receipt.nextAction);
+    assert.equal(receipt.code, "invalid_judgment");
+    for (const field of [
+      "packet.submission.completionClaim",
+      "packet.submission.deliverables",
+      "packet.submission.commitSha",
+      "packet.review.verdict",
+      "packet.review.reason",
+      "packet.review.evidenceChecked",
+      "packet.consent.approved",
+      "packet.completion.ci",
+      "packet.completion.codeDocPaths[0]",
+    ])
+      assert.equal(report.includes(field), true, report);
+    assert.match(report, /Closeout packet has 9 error\(s\)/u);
+    assert.equal(value.calls.length, 0);
+  } finally {
+    rmSync(value.rootDir, { recursive: true, force: true });
+  }
+});
+test("the task-aware template omits submission after submit and selects the contract CI value", async () => {
+  const value = setup(snapshot("in_review", [execution(executionId, "submitted")]), undefined, caller, {
+    kind: "task-closeout",
+    taskId,
+    printTemplate: true,
+  });
+  try {
+    const receipt = await value.run(),
+      template = JSON.parse(String(receipt.evidence)) as Record<string, unknown>;
+    assert.equal(receipt.outcome, "applied");
+    assert.equal(Object.hasOwn(template, "submission"), false);
+    assert.deepEqual(template.completion, { ci: "not_applicable", codeDocPaths: ["path/to/code-or-doc"] });
+    assert.equal(value.calls.length, 0);
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }

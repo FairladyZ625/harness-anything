@@ -24,6 +24,14 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
       packagePath = String(created.packagePath),
       closeoutPath = `${packagePath}/closeout.md`,
       commitSha = git(root, "rev-parse", "HEAD");
+    const schema = JSON.parse(
+        String(run(root, userRoot, ["task", "closeout", taskId, "--print-schema"]).summary),
+      ) as Record<string, unknown>,
+      initialTemplate = JSON.parse(
+        String(run(root, userRoot, ["task", "closeout", taskId, "--print-template"]).summary),
+      ) as Record<string, unknown>;
+    assert.equal(schema.$id, "harness://schema/task-closeout-packet/v1");
+    assert.ok(Object.hasOwn(initialTemplate, "submission"));
     writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Closeout E2E"));
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     run(root, userRoot, [
@@ -53,10 +61,13 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
     };
     writeFileSync(path.join(root, "submission.json"), JSON.stringify(submission));
     run(root, userRoot, ["task", "submit", taskId, "--from-file", "submission.json"], "agent:worker");
+    const resumeTemplate = JSON.parse(
+      String(run(root, userRoot, ["task", "closeout", taskId, "--print-template"]).summary),
+    ) as Record<string, unknown>;
+    assert.equal(Object.hasOwn(resumeTemplate, "submission"), false);
     writeFileSync(
       path.join(root, "judgment.json"),
       JSON.stringify({
-        submission,
         review: {
           verdict: "approved",
           reason: "Independent fixture review passed.",

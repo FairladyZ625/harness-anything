@@ -38,6 +38,18 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         code: "invalid_field",
         nextAction: "Pass --execution-id <execution-id> only when the daemon cannot derive a unique candidate.",
       }),
+      cliInput(
+        "--agent",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+          nextAction:
+            "Name an agent id or runtime-session:<id> from ha task dispatches; " +
+            "omit it when exactly one dispatch matches.",
+        },
+        { regex: "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+      ),
       cliInput("--reason", "single", true, {
         code: "missing_field",
         nextAction: "Add --reason <auditable-recovery-reason>.",

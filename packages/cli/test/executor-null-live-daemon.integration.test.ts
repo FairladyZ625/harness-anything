@@ -20,7 +20,7 @@ type TaskSnapshot = {
   readonly reviews: readonly { readonly verdict: string }[];
 };
 
-test("a live source daemon recovers a reviewed execution whose executor was omitted", async (context) => {
+test("a live source daemon refuses to declare an executor for a reviewed execution that was never dispatched", async (context) => {
   const parent = mkdtempSync(path.join(privateTemporaryRoot(), "executor-null-live.")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "edge-user-root"),
@@ -146,7 +146,7 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
     assert.equal(before.executions[0]?.actor.executor, null);
     assert.equal(before.reviews[0]?.verdict, "approved");
 
-    const declared = run(
+    const declaredResult = runMaybe(
       root,
       userRoot,
       daemonId,
@@ -161,44 +161,15 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
       ],
       "agent:worker",
     );
-    assert.equal(declared.outcome, "applied", JSON.stringify(declared));
-    writeFileSync(
-      path.join(root, "consent.json"),
-      JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }),
-    );
-    assert.equal(
-      run(root, userRoot, daemonId, [
-        "task",
-        "review-consent",
-        taskId,
-        "--execution-id",
-        executionId,
-        "--review-id",
-        reviewId,
-        "--consent-id",
-        "consent-executor-null-live",
-        "--from-file",
-        "consent.json",
-      ]).outcome,
-      "applied",
-    );
-    const completed = run(root, userRoot, daemonId, [
-        "task",
-        "complete",
-        taskId,
-        "--execution-id",
-        executionId,
-        "--ci",
-        "passed",
-      ]),
-      after = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId]));
-    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
-    assert.equal(after.task.status, "done");
-    assert.deepEqual(after.executions[0]?.actor.executor, { kind: "agent", id: "worker" });
-    assert.equal(
-      after.reviews.some((review) => review.verdict === "changes_requested"),
-      false,
-    );
+    assert.equal(declaredResult.status, 1, `${declaredResult.stderr}\n${declaredResult.stdout}`);
+    const declared = JSON.parse(declaredResult.stdout) as Record<string, unknown>;
+    assert.equal(declared.outcome, "op_rejected", JSON.stringify(declared));
+    assert.equal(declared.code, "invalid_proof", JSON.stringify(declared));
+    assert.match(String(declared.nextAction), /has no recorded runtime dispatch/u);
+    assert.match(String(declared.nextAction), new RegExp(`ha task dispatches ${taskId}`, "u"));
+    const after = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId]));
+    assert.equal(after.executions[0]?.actor.executor, null);
+    assert.equal(after.task.status, before.task.status);
     context.diagnostic(
       `executor-null-live-receipt=${JSON.stringify({
         daemonId,
@@ -214,9 +185,8 @@ test("a live source daemon recovers a reviewed execution whose executor was omit
           executor: before.executions[0]?.actor.executor,
           reviewVerdict: before.reviews[0]?.verdict,
         },
-        declared: { outcome: declared.outcome, opId: declared.opId },
-        completed: { outcome: completed.outcome, opId: completed.opId, taskStatus: after.task.status },
-        changesRequestedReviews: after.reviews.filter((review) => review.verdict === "changes_requested").length,
+        declared: { outcome: declared.outcome, code: declared.code, opId: declared.opId },
+        after: { taskStatus: after.task.status, executor: after.executions[0]?.actor.executor },
       })}`,
     );
 
