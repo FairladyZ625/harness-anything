@@ -7,10 +7,11 @@ import {
   canStartExecution,
   emptyTaskLifecycleSnapshot,
   normalizeTaskLifecycleCommand,
+  validateTransition,
   type CreateReplayTaskProof,
   type StartExecutionProof,
   type TaskLifecycleCommand,
-  type TaskLifecycleSnapshot
+  type TaskLifecycleSnapshot,
 } from "../../src/domain/task-lifecycle.contract.ts";
 import type { ActorAxes } from "../../src/domain/task.ts";
 
@@ -18,30 +19,59 @@ const implementer: ActorAxes = { principal: { personId: "person-owner" }, execut
 
 function command<C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(revision: number, intent: C) {
   return {
-    ...normalizeTaskLifecycleCommand({ workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: revision - 1 }, intent),
+    ...normalizeTaskLifecycleCommand(
+      { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: revision - 1 },
+      intent,
+    ),
     eventId: `event-${revision}`,
     workspaceRevision: revision,
-    occurredAt: `2026-08-17T00:0${revision - 1}:00.000Z`
+    occurredAt: `2026-08-17T00:0${revision - 1}:00.000Z`,
   };
 }
 
-function apply(snapshot: TaskLifecycleSnapshot, next: TaskLifecycleCommand, proof: CreateReplayTaskProof | StartExecutionProof): TaskLifecycleSnapshot {
+function apply(
+  snapshot: TaskLifecycleSnapshot,
+  next: TaskLifecycleCommand,
+  proof: CreateReplayTaskProof | StartExecutionProof,
+): TaskLifecycleSnapshot {
   return applyTransition(snapshot, next, proof as never).snapshot;
 }
 
 /** A task that has been created but never started: no execution exists yet. */
 function planned(): TaskLifecycleSnapshot {
-  return apply(emptyTaskLifecycleSnapshot(), command(1, {
-    type: "CreateReplayTask", taskId: "task-1", title: "Fixture", taskClass: "standard", graph: REPLAY_TASK_GRAPH, completionGateIds: [], presetSnapshotDigest: null
-  }) as TaskLifecycleCommand, { taskIdUnique: true, actorBinding: implementer });
+  return apply(
+    emptyTaskLifecycleSnapshot(),
+    command(1, {
+      type: "CreateReplayTask",
+      taskId: "task-1",
+      title: "Fixture",
+      taskClass: "standard",
+      graph: REPLAY_TASK_GRAPH,
+      completionGateIds: [],
+      presetSnapshotDigest: null,
+    }) as TaskLifecycleCommand,
+    { taskIdUnique: true, actorBinding: implementer },
+  );
 }
 
 /** A task with one active execution and a held lease. */
 function started(): TaskLifecycleSnapshot {
-  return apply(planned(), command(2, { type: "StartExecution", taskId: "task-1", executionId: "execution-1" }) as TaskLifecycleCommand, {
-    actorBinding: implementer,
-    reservation: { taskId: "task-1", executionId: "execution-1", expiresAt: "2026-08-17T01:00:00.000Z", ttlMs: 1_800_000, previousHolder: null, reason: "initial_claim", version: 0 }
-  });
+  return apply(
+    planned(),
+    command(2, { type: "StartExecution", taskId: "task-1", executionId: "execution-1" }) as TaskLifecycleCommand,
+    {
+      actorBinding: implementer,
+      reservation: {
+        taskId: "task-1",
+        executionId: "execution-1",
+        expiresAt: "2026-08-17T01:00:00.000Z",
+        ttlMs: 1_800_000,
+        previousHolder: null,
+        reason: "initial_claim",
+        version: 0,
+      },
+    },
+  );
 }
 
 test("a fresh task admits any execution id", () => {
@@ -57,6 +87,34 @@ test("a held lease blocks StartExecution regardless of the execution id", () => 
   assert.equal(canStartExecution(held, "execution-fresh"), false);
 });
 
+test("two edge commands with the same expected version cannot both commit", () => {
+  const initial = planned(),
+    candidate = command(2, {
+      type: "StartExecution",
+      taskId: "task-1",
+      executionId: "execution-1",
+    }) as TaskLifecycleCommand,
+    proof: StartExecutionProof = {
+      actorBinding: implementer,
+      reservation: {
+        taskId: "task-1",
+        executionId: "execution-1",
+        expiresAt: "2026-08-17T01:00:00.000Z",
+        ttlMs: 1_800_000,
+        previousHolder: null,
+        reason: "initial_claim",
+        version: 0,
+      },
+    },
+    winner = applyTransition(initial, candidate, proof).snapshot,
+    loserIssues = validateTransition(winner, candidate, proof);
+  assert.ok(
+    loserIssues.some(({ message }) => message.includes("expected revision")),
+    JSON.stringify(loserIssues),
+  );
+  assert.equal(winner.revision, 2);
+});
+
 // The reported failure: the lease expires silently, `progress append` tells you to run `task start`,
 // and `task start` then rejects. The only way back in is to rejoin the execution that is still active.
 test("after the lease expires, only rejoining the round's active execution is admissible", () => {
@@ -68,6 +126,6 @@ test("after the lease expires, only rejoining the round's active execution is ad
   assert.equal(
     canStartExecution(expired, "execution-fresh"),
     false,
-    "allocating a fresh id cannot be admitted while an active execution exists — the daemon preview used to hardcode admissible:true here"
+    "allocating a fresh id cannot be admitted while an active execution exists — the daemon preview used to hardcode admissible:true here",
   );
 });

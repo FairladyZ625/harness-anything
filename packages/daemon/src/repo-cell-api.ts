@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   assertCurrentWriter,
+  getExecutableEntityAction,
   projectDecisionReadiness,
   timestamp,
   type CanonicalEventStore,
@@ -38,6 +39,7 @@ import { admitRepoMode, settingsCommandTopology } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { chainRepoCellWrite, repoCellTaskQueryJudgments } from "./repo-cell.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
+import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 import { readCiObservatory } from "./ci-observatory-read.ts";
 import type {
@@ -146,10 +148,12 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       );
     const failAction = (error: unknown): WriteReceipt => {
       if (context.fatalCellError(error)) context.latchWith(error);
-      return context.failed(
+      const receipt = context.failed(
         context.errorOperationId(error) ?? context.operationId(action, binding, context.input.repoId, 0),
         error,
       );
+      const contract = getExecutableEntityAction(action.kind);
+      return contract?.target.kind === "task" ? deriveActionResult(contract, action, receipt) : receipt;
     };
     const enqueuePublication = (execute: () => WriteReceipt | Promise<WriteReceipt>): Promise<WriteReceipt> => {
       context.queueDepth += 1;

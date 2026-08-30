@@ -47,10 +47,15 @@ test("registered declaration Entity kinds explain the same contract shape from t
     });
   }
   assert.deepEqual(
-    { catalogRef: explanations[0]!.transitions.catalogRef, available: explanations[0]!.transitions.available },
+    {
+      catalogRef: explanations[0]!.transitions.catalogRef,
+      available: explanations[0]!.transitions.available,
+      declared: explanations[0]!.transitions.actions.map(({ id }) => id),
+    },
     {
       catalogRef: "kernel/agent-declaration/v1",
-      available: ["configure", "activate", "retire"],
+      available: [],
+      declared: ["configure", "activate", "retire"],
     },
   );
   assert.deepEqual(

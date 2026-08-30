@@ -4842,10 +4842,10 @@
     },
     {
       "id": "ontology-explain-executable-actions",
-      "command": "node tools/gates/ontology-explain-executable-actions.mjs",
+      "command": "node tools/gates/ontology-explain-executable-actions.mjs --mode ratchet",
       "category": "boundary",
       "tier": "pr-advisory",
-      "tierReason": "Phase G0 baseline observation only; G1 may promote this gate after explain exposes only executable actions.",
+      "tierReason": "Phase G1 ratchet: entity explain may advertise only actions with executable metadata.",
       "authoritySource": [
         "task_6afb9b18781322b945d268d8f2",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f2-action-catalog-大部分是可解释名字不是可执行-action-authority"
@@ -4889,10 +4889,10 @@
     },
     {
       "id": "ontology-daemon-specialization-lines",
-      "command": "node tools/gates/ontology-daemon-specialization-lines.mjs --base origin/main",
+      "command": "node tools/gates/ontology-daemon-specialization-lines.mjs --mode ratchet --base origin/main",
       "category": "boundary",
       "tier": "pr-advisory",
-      "tierReason": "Phase G0 shrink-only observation; promotion from advisory requires a separate CEO decision.",
+      "tierReason": "Phase G1 ratchet: audited daemon specialization files may only shrink from the committed baseline.",
       "authoritySource": [
         "task_6afb9b18781322b945d268d8f2",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f5-daemon-特化赘肉没有删除规模与结构都给出反证"
@@ -4937,10 +4937,10 @@
     },
     {
       "id": "ontology-action-concurrency",
-      "command": "node tools/gates/ontology-action-concurrency.mjs",
+      "command": "node tools/gates/ontology-action-concurrency.mjs --mode ratchet",
       "category": "boundary",
       "tier": "pr-advisory",
-      "tierReason": "Phase G0 baseline observation only; G1 may promote this gate after Action definitions declare concurrency semantics.",
+      "tierReason": "Phase G1 ratchet: every catalog Action declares its concurrency semantics.",
       "authoritySource": [
         "task_6afb9b18781322b945d268d8f2",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f9-中心多edge并发是最强的真实收益但它来自专用机制而非ontology-action模型"

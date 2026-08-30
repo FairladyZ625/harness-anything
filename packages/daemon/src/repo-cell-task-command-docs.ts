@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   compileTaskLifecycleWrite,
+  getExecutableEntityAction,
   isTaskEvent,
   lifecycleDocumentFetchPaths,
   parseDocWriteIntent,
@@ -149,7 +150,7 @@ export async function runTaskCommandWithDocs(
   // The lifecycle service publishes one task event whose carried-document
   // claims and machine lifecycle claims share the same canonical commit.
   // Projection replay therefore restores both sides after any crash.
-  const resolvedLifecycle = cell.resolveLifecycleAction(taskAction),
+  const resolvedLifecycle = getExecutableEntityAction(taskAction.kind)?.execution?.lifecycle,
     bodyOverrides = new Map(
       carriedChanges.map((change) => {
         const blob = adjudication.decision.blobs.find((candidate) => candidate.sha256 === change.candidate!.sha256);
@@ -157,7 +158,7 @@ export async function runTaskCommandWithDocs(
         return [change.path, blob.body] as const;
       }),
     );
-  if (resolvedLifecycle?.coordination === "reserve")
+  if (resolvedLifecycle?.coordination === "reserve" && taskAction.dryRun !== true)
     try {
       assertTaskTransitionDocumentReady({
         rootDir: cell.rootDir,

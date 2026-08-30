@@ -47,6 +47,14 @@ test("one named kind-contract authority explains all twelve entity kinds with on
   const explanations = expectedKinds.map(explainEntityKind);
   const shape = Object.keys(explanations[0]!).sort();
   for (const explanation of explanations) assert.deepEqual(Object.keys(explanation).sort(), shape, explanation.kind);
+  for (const explanation of explanations)
+    assert.deepEqual(
+      explanation.transitions.available,
+      (getEntityKindContract(explanation.kind)?.actionCatalog?.actions ?? [])
+        .filter(({ execution }) => execution !== null)
+        .map(({ id }) => id),
+      `${explanation.kind} available Actions`,
+    );
   assert.deepEqual(explanations.find(({ kind }) => kind === "task")?.sdkExposure, {
     sdk: { target: "TaskCapability", schemaId: "task-frontmatter" },
     agentCapability: { target: "task", schemaId: "task-frontmatter" },
@@ -70,9 +78,17 @@ test("one named kind-contract authority explains all twelve entity kinds with on
   const settings = explanations.find(({ kind }) => kind === "settings");
   assert.deepEqual(settings?.residency, { authored: "ledger", current: "projection" });
   assert.deepEqual(settings?.statusVocabulary, []);
-  assert.deepEqual(settings?.transitions.available, ["read", "update"]);
+  assert.deepEqual(settings?.transitions.available, []);
+  assert.deepEqual(
+    settings?.transitions.actions.map(({ id }) => id),
+    ["read", "update"],
+  );
   const person = explanations.find(({ kind }) => kind === "person");
-  assert.deepEqual(person?.transitions.available, ["add", "set-role", "bind", "remove"]);
+  assert.deepEqual(person?.transitions.available, []);
+  assert.deepEqual(
+    person?.transitions.actions.map(({ id }) => id),
+    ["add", "set-role", "bind", "remove"],
+  );
   assert.deepEqual(person?.authoring, { kind: "people-event", contractRef: "people-event/v1" });
 });
 

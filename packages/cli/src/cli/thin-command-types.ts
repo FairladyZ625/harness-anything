@@ -26,6 +26,10 @@ export interface ThinCliInput {
   readonly required: boolean;
   readonly enum?: readonly string[];
   readonly regex?: string;
+  readonly field?: string;
+  readonly projection?: "number" | "fact-hold-array";
+  readonly requiredWhen?: { readonly field: string; readonly values: readonly string[] };
+  readonly allowedWhen?: { readonly field: string; readonly values: readonly string[] };
   readonly error: { readonly code: string; readonly nextAction: string };
 }
 
@@ -33,5 +37,10 @@ export type ProtocolCommand = (typeof daemonProtocolCommands)[number];
 
 export type ThinCliInputDirectory = ReadonlyMap<
   string,
-  { readonly inputs: readonly ThinCliInput[]; readonly helpCommand: string }
+  {
+    readonly inputs: readonly ThinCliInput[];
+    readonly helpCommand: string;
+    readonly actionDefaults?: Readonly<Record<string, unknown>>;
+    readonly actionConstraints?: readonly (readonly string[])[];
+  }
 >;

@@ -7,10 +7,8 @@ import {
   createEntityStore,
   explainEntityKind,
   executionExecutorDeclarationCandidates,
-  canStartExecution,
-  heldLeaseForExecutionActor,
+  getExecutableEntityAction,
   isLedgerLayoutMigrationEvent,
-  isTerminalStatus,
   lifecycleDocumentPaths,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -20,9 +18,8 @@ import { distillPromotionAction, prepareDistillCandidate } from "./distill-actio
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
-import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
+import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
-import { actorHint } from "./repo-cell-proof.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
@@ -187,6 +184,27 @@ export async function executeAction(
       ),
     );
   }
+  const taskActionContract = getExecutableEntityAction(action.kind);
+  if (taskActionContract?.target.kind === "task" && taskActionContract.execution) {
+    const taskId = cell.requiredCellText(action.taskId, "taskId"),
+      lifecycle = taskActionContract.execution.lifecycle,
+      leasedStart =
+        lifecycle?.coordination === "reserve" &&
+        ["held", "reserving"].includes(cell.projection.currentLease(taskId, cell.now())?.phase ?? "");
+    if (lifecycle?.coordination === "reserve" && !leasedStart) cell.assertTaskWipCapacity(taskId, "active");
+    return cell.entityActionExecutor.run(
+      action,
+      binding,
+      cell.operationId(action, binding, cell.input.repoId, cell.projection.read(taskId).snapshot.revision),
+      async (contract, catalogAction, catalogBinding) => {
+        if (Array.isArray(catalogAction.docChanges))
+          return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
+        return contract.execution?.implementation === "task-completion"
+          ? cell.completeTask(catalogAction, catalogBinding)
+          : cell.lifecycleAction(catalogAction, catalogBinding);
+      },
+    );
+  }
   if (action.kind.startsWith("fact-"))
     return cell.entityActionExecutor.run(
       action,
@@ -327,20 +345,7 @@ export async function executeAction(
         : "Remove --dry-run to perform the local preset write; it will remain non-canonical.",
     };
   }
-  const resolvedLifecycle = cell.resolveLifecycleAction(action),
-    lifecycleTaskId =
-      resolvedLifecycle !== null && resolvedLifecycle.coordination !== "execute"
-        ? cell.requiredCellText(action.taskId, "taskId")
-        : null,
-    leasedStart =
-      action.kind === "task-start" &&
-      lifecycleTaskId !== null &&
-      ["held", "reserving"].includes(cell.projection.currentLease(lifecycleTaskId, cell.now())?.phase ?? ""),
-    lifecycleEntering =
-      resolvedLifecycle !== null && resolvedLifecycle.coordination !== "execute" && !leasedStart
-        ? { taskId: lifecycleTaskId!, nextStatus: "active" as const }
-        : null,
-    entering = lifecycleEntering ?? cell.taskWipEnteringAction(action);
+  const entering = cell.taskWipEnteringAction(action);
   if (entering) cell.assertTaskWipCapacity(entering.taskId, entering.nextStatus);
   if (action.kind === "task-create") return cell.createTask(cell.taskCreateAction(cell.rootDir, action), binding);
   if (isDocAction(action.kind))
@@ -365,7 +370,6 @@ export async function executeAction(
       now: cell.now,
       killpoint: cell.input.killpoint,
     });
-  if (resolvedLifecycle?.coordination === "preview") return cell.lifecycleAction(action, binding);
   if (
     Array.isArray(
       (
@@ -384,7 +388,6 @@ export async function executeAction(
     return cell.supersedeWithNewTask(action, binding);
   if (action.kind === "task-declare-executor") return cell.declareExecutionExecutor(action, binding);
   if (action.kind === "task-closeout") return cell.closeoutTask(action, binding);
-  if (action.kind === "task-complete") return cell.completeTask(action, binding);
   if (cell.taskSurfaceWriteKind(action.kind)) return cell.taskSurfaceWrite(action, binding);
   return cell.lifecycleAction(action, binding);
 }
@@ -417,135 +420,6 @@ export async function closeoutTask(
       return cell.lifecycleAction(leafAction, leafBinding);
     },
   });
-}
-
-export async function lifecycleAction(
-  cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-): Promise<WriteReceipt> {
-  const taskId = cell.requiredCellText(action.taskId, "taskId"),
-    current = await cell.service.read(taskId),
-    expectedRevision = current.snapshot.revision,
-    resolvedLifecycle = cell.resolveLifecycleAction(action),
-    preview = resolvedLifecycle?.coordination === "preview";
-  const activeLease = cell.projection.currentLease(taskId, cell.now());
-  if (
-    resolvedLifecycle?.coordination === "reserve" &&
-    !preview &&
-    activeLease &&
-    ["held", "reserving"].includes(activeLease.phase)
-  ) {
-    const lease = activeLease;
-    if (heldLeaseForExecutionActor(current.snapshot, lease.executionId, binding.actor)) {
-      const revision = current.snapshot.revision;
-      return {
-        outcome: "applied",
-        opId: `noop:${cell.operationId(action, binding, cell.input.repoId, revision)}`,
-        revision,
-        evidence: JSON.stringify({ noOp: true, taskId, executionId: lease.executionId }),
-        visibility: "center",
-        proof: {
-          committedRevision: revision,
-          appliedCut: revision,
-          durable: true,
-          canonicalVisible: true,
-          worktreeVisible: true,
-        },
-        taskId,
-        executionId: lease.executionId,
-        changedPaths: [],
-        worktreeVisible: true,
-        summary: `reused active execution ${lease.executionId}`,
-      } as WriteReceipt;
-    }
-    throw cell.cellCodedError(
-      "lease_conflict",
-      lease.phase === "reserving"
-        ? `Task ${taskId} is being reserved by ${actorHint(lease.actor)}; wait for that reservation to publish ` +
-            `or lapse at ${lease.expiresAt}, then retry ha task start ${taskId}.`
-        : `Task ${taskId} is held by ${actorHint(lease.actor)}; that holder must run ha task release ${taskId}. ` +
-            `This caller must wait for release, then retry ha task start ${taskId}.`,
-    );
-  }
-  if (preview && !current.snapshot.task)
-    throw cell.cellCodedError("task_not_found", "Run ha task list, choose an existing task id, then retry task start.");
-  if (preview && current.snapshot.lease)
-    throw cell.cellCodedError(
-      "lease_conflict",
-      `Run ha task release ${taskId} as the current holder before starting another execution.`,
-    );
-  if (preview && current.snapshot.task && isTerminalStatus(current.snapshot.task.status))
-    throw cell.cellCodedError(
-      "terminal_task",
-      `Run ha task supersede ${taskId} --title <follow-up-title> for new work.`,
-    );
-  if (resolvedLifecycle?.coordination === "reserve" && !preview)
-    cell.assertTaskTransitionDocumentReady({
-      rootDir: cell.rootDir,
-      projection: cell.projection,
-      taskId,
-      slot: "task.plan",
-      transition: "task.start",
-    });
-  const canonicalAction = preview ? cell.withoutDryRun(action) : action;
-  const normalized = cell.buildCommand(
-    canonicalAction,
-    taskId,
-    binding,
-    cell.input.repoId,
-    expectedRevision,
-    cell.rootDir,
-    current.snapshot,
-  );
-  if (preview && resolvedLifecycle) {
-    const commandFields = normalized as unknown as Readonly<Record<string, unknown>>,
-      executionId = commandFields[resolvedLifecycle.targetIdField];
-    if (typeof executionId !== "string")
-      throw cell.cellCodedError("invalid_command", `${resolvedLifecycle.commandType} requires a target entity id.`);
-    return cell.previewResult(
-      `preview:${normalized.opId}`,
-      {
-        taskId,
-        executionId,
-        ttlMs: typeof commandFields.ttlMs === "number" ? commandFields.ttlMs : leaseTtlMs,
-        admissible: canStartExecution(current.snapshot, executionId),
-      },
-      current.snapshot.revision,
-      "Remove --dry-run to acquire the lease and publish the execution-start event.",
-    );
-  }
-  const command = cell.withServerMeta(
-    normalized,
-    cell.store.readTaskEvent(normalized.opId),
-    cell.store.readHead()?.revision ?? 0,
-    cell.now(),
-  );
-  const authorityProof = await cell.proofFor(command, current.snapshot, binding, cell.projection),
-    result = await cell.service.execute(command, authorityProof);
-  if (result.outcome === "applied" && result.event && result.proof)
-    return cell.lifecycleReceipt(
-      result.event,
-      result.snapshot,
-      cell.publicPublication(cell.store.publication(result.event)),
-      result.proof,
-      authorityProof.authorizationDecision ?? null,
-    );
-  if (result.outcome === "pending")
-    return {
-      outcome: "pending",
-      opId: command.opId,
-      revision: result.revision,
-      evidence: result.evidence,
-      visibility: result.visibility,
-      proof: result.proof,
-      nextAction: result.nextAction ?? "Retry receipt show.",
-    };
-  return cell.rejected(
-    command.opId,
-    result.code ?? "publication_unknown",
-    result.nextAction ?? "Retry receipt show before resubmitting.",
-  );
 }
 
 export function declareExecutionExecutor(

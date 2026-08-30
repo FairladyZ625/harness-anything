@@ -31,7 +31,7 @@ import { reviewVerdicts } from "./review.ts";
 import { SCHEDULE_V1_SCHEMA, scheduleEventTypes, scheduleRunOutcomes, scheduleStates } from "./schedule.ts";
 import { SETTINGS_REPOSITORY_V1_SCHEMA } from "./settings.ts";
 import { PERSON_V1_SCHEMA } from "./people-roster.ts";
-import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
+import { createTaskActionCatalog } from "./task-action-contract.ts";
 import {
   dispositionMatrix,
   supported,
@@ -134,12 +134,65 @@ export interface EntitySdkExposure {
 export interface EntityActionContract {
   readonly id: string;
   readonly version: ContractVersion;
+  readonly actor: {
+    readonly source: "authenticated-binding";
+    readonly authorityRef: string;
+  };
   readonly target: {
     readonly kind: string;
     readonly refTemplate: string;
   };
+  readonly input: EntityActionInputContract;
+  readonly policy: {
+    readonly ref: string;
+    readonly action: string | null;
+  };
+  readonly criteria: readonly {
+    readonly ref: string;
+    readonly failureCode: string;
+    readonly explain: string;
+  }[];
+  readonly concurrency: {
+    readonly expectedVersion: Readonly<Record<string, unknown>>;
+    readonly leasePolicy: Readonly<Record<string, unknown>>;
+    readonly occurrenceClaim: Readonly<Record<string, unknown>>;
+    readonly idempotency: Readonly<Record<string, unknown>>;
+    readonly artifactOwnership: Readonly<Record<string, unknown>>;
+  };
+  readonly effects: readonly {
+    readonly ref: string;
+    readonly projection: string;
+  }[];
+  readonly returns: {
+    readonly schema: "action-result/v1";
+    readonly fields: readonly string[];
+  };
+  readonly explain: string;
   readonly sdkExposure: EntitySdkExposure;
   readonly execution: EntityActionExecutionContract | null;
+}
+
+export interface EntityActionInputField {
+  readonly field: string;
+  readonly type: "string" | "number" | "boolean" | "string-array" | "fact-hold-array";
+  readonly required: boolean;
+  readonly enum?: readonly string[];
+  readonly regex?: string;
+  readonly cli?: {
+    readonly name: string;
+    readonly kind: "single" | "repeated" | "boolean";
+    readonly error: { readonly code: string; readonly nextAction: string };
+    readonly jsonFields?: readonly string[];
+    readonly conflictsWith?: readonly string[];
+    readonly format?: string;
+    readonly projection?: "number" | "fact-hold-array";
+  };
+}
+
+export interface EntityActionInputContract {
+  readonly schema: "entity-action-input/v1";
+  readonly fields: readonly EntityActionInputField[];
+  readonly exactlyOneOf: readonly (readonly string[])[];
 }
 
 export type EntityActionExplanation = Omit<EntityActionContract, "execution">;
@@ -169,6 +222,14 @@ export interface EntityKindExplanation {
     readonly actions: readonly string[];
     readonly rules: readonly PolicyActionRule[];
   } | null;
+  readonly boundedContextExceptions: readonly BoundedContextActionException[];
+}
+
+export interface BoundedContextActionException {
+  readonly actions: readonly string[];
+  readonly boundedContext: "preset-library" | "daemon-user-root" | "terminal-host";
+  readonly residency: "runtime-local";
+  readonly reason: string;
 }
 
 const declarationDocument = (pathTemplate: string) =>
@@ -189,7 +250,15 @@ const entityAction = (
   Object.freeze({
     id,
     version: CONTRACT_VERSION_1_0,
+    actor: Object.freeze({ source: "authenticated-binding" as const, authorityRef: "actor-identity/v1" }),
     target: Object.freeze({ kind, refTemplate: identity.refTemplate }),
+    input: emptyActionInput,
+    policy: Object.freeze({ ref: "default@3", action: null }),
+    criteria: Object.freeze([]),
+    concurrency: defaultConcurrency(kind, identity.refTemplate),
+    effects: Object.freeze([]),
+    returns: actionResultContract,
+    explain: `${kind}.${id} is declared but has no executable implementation.`,
     sdkExposure,
     execution,
   });
@@ -205,7 +274,34 @@ const executionContract = (
   ingress: string,
   compile: EntityActionCompileHook | null,
   read: boolean,
-): EntityActionExecutionContract => Object.freeze({ ingress, compile, read });
+): EntityActionExecutionContract =>
+  Object.freeze({ ingress, compile, read, implementation: compile || read ? "compiled-event" : "declared-only" });
+const emptyActionInput: EntityActionInputContract = Object.freeze({
+  schema: "entity-action-input/v1",
+  fields: Object.freeze([]),
+  exactlyOneOf: Object.freeze([]),
+});
+const actionResultContract = Object.freeze({
+  schema: "action-result/v1" as const,
+  fields: Object.freeze([
+    "outcome",
+    "opId",
+    "unmetCriteria",
+    "effects",
+    "updatedProjection",
+    "rejectionExplanation",
+    "nextAction",
+    "nextActions",
+  ]),
+});
+const defaultConcurrency = (kind: string, refTemplate: string): EntityActionContract["concurrency"] =>
+  Object.freeze({
+    expectedVersion: Object.freeze({ authority: "canonical-ledger-cut", required: false }),
+    leasePolicy: Object.freeze({ authority: "none" }),
+    occurrenceClaim: Object.freeze({ authority: kind === "schedule" ? "schedule-occurrence-claim" : "not-applicable" }),
+    idempotency: Object.freeze({ authority: "operation-id" }),
+    artifactOwnership: Object.freeze({ owner: "entity", refTemplate }),
+  });
 const genericAuthoring = Object.freeze({ kind: "generic-entity-store" as const, contractRef: "entity-event/v1" });
 const authoredResidency = Object.freeze({ authored: "ledger" as const });
 const authoredLiveResidency = Object.freeze({ authored: "ledger" as const, live: "runtime-local" as const });
@@ -426,6 +522,11 @@ const executableAction = (
   read = false,
 ) => entityAction(kind, identity, id, sdkExposure, executionContract(ingress, compile, read));
 
+const taskActionCatalog = createTaskActionCatalog(
+  (id) => entityAction("task", taskIdentity, id, taskExposure),
+  actionResultContract,
+);
+
 const factActionCatalog = Object.freeze({
   ref: "kernel/fact-event/v1",
   actions: Object.freeze([
@@ -488,13 +589,7 @@ export const entityKindContracts = Object.freeze([
     relations: relationsFor("task"),
     canonicalProjection: null,
     statusVocabulary: [{ field: "lifecycle.status", words: domainStatuses }],
-    actionCatalog: actionCatalog(
-      "kernel/task-lifecycle/v1",
-      "task",
-      taskIdentity,
-      TASK_LIFECYCLE_TRANSITIONS.map(({ id }) => id),
-      taskExposure,
-    ),
+    actionCatalog: taskActionCatalog,
     entityStore: null,
     authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: taskExposure,
@@ -771,6 +866,40 @@ const entityKindContractByKind = new Map<string, EntityKindContract>(
   entityKindContracts.map((contract) => [contract.kind, contract]),
 );
 
+export const boundedContextExceptions: readonly BoundedContextActionException[] = Object.freeze([
+  Object.freeze({
+    actions: Object.freeze(["preset-install", "preset-seed", "preset-uninstall"]),
+    boundedContext: "preset-library" as const,
+    residency: "runtime-local" as const,
+    reason: "Preset library installation mutates the selected workspace library and has no canonical repository event.",
+  }),
+  Object.freeze({
+    actions: Object.freeze([
+      "daemon.runtimeInstance.create",
+      "daemon.runtimeInstance.list",
+      "daemon.runtimeInstance.show",
+      "daemon.runtimeInstance.update",
+      "daemon.runtimeInstance.delete",
+    ]),
+    boundedContext: "daemon-user-root" as const,
+    residency: "runtime-local" as const,
+    reason: "Runtime instance configuration belongs to the daemon user's host registry, outside a RepoCell ledger.",
+  }),
+  Object.freeze({
+    actions: Object.freeze([
+      "repo.terminal.spawn",
+      "repo.terminal.input",
+      "repo.terminal.resize",
+      "repo.terminal.detach",
+      "repo.terminal.terminate",
+      "repo.terminal.attach",
+    ]),
+    boundedContext: "terminal-host" as const,
+    residency: "runtime-local" as const,
+    reason: "Terminal process state is ephemeral host state and never claims canonical repository settlement.",
+  }),
+]);
+
 export function getEntityKindContract(kind: string): EntityKindContract | undefined {
   return entityKindContractByKind.get(kind);
 }
@@ -781,6 +910,12 @@ export function getExecutableEntityAction(ingress: string): EntityActionContract
     if (action) return action;
   }
   return undefined;
+}
+
+export function getTaskActionForTransition(transitionId: string): EntityActionContract | undefined {
+  return getEntityKindContract("task")?.actionCatalog?.actions.find(
+    (action) => action.execution?.lifecycle?.transitionId === transitionId,
+  );
 }
 
 export function requireEntityKindContract(kind: string): EntityKindContract {
@@ -819,13 +954,15 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
     statusVocabulary: contract.statusVocabulary ?? [],
     transitions: {
       catalogRef: contract.actionCatalog?.ref ?? null,
-      available: actions.map(({ id }) => id),
+      available:
+        contract.actionCatalog?.actions.filter(({ execution }) => execution !== null).map(({ id }) => id) ?? [],
       actions,
     },
     authoring: contract.authoring,
     sdkExposure: contract.sdkExposure,
     framework: contract.framework ?? null,
     policy: contract.policy ?? null,
+    boundedContextExceptions,
   };
 }
 

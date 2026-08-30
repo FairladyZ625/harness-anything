@@ -13,8 +13,8 @@ function baseline(limit) {
   return `${JSON.stringify({ schema: "ontology-daemon-specialization-lines/v1", files: { [sourcePath]: limit } })}\n`;
 }
 
-test("G0-5 reports the base advisory, detects growth, and refuses an upward baseline", () => {
-  assert.equal(captureGate(() => main(["--root", repoRoot, "--base", "origin/main"])).code, 0);
+test("G0-5 ratchet accepts the repository, detects growth, and refuses an upward baseline", () => {
+  assert.equal(captureGate(() => main(["--root", repoRoot, "--base", "origin/main", "--mode", "ratchet"])).code, 0);
   const { rootDir, base } = makeRepo({ [sourcePath]: "one\ntwo\n", [baselinePath]: baseline(2) });
   writeRepoFile(rootDir, sourcePath, "one\ntwo\nthree\nfour\nfive\nsix\nseven\n");
   const growth = evaluateSpecializationLines({ rootDir, base });

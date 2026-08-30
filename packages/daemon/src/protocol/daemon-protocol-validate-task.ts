@@ -1,3 +1,7 @@
+import {
+  generatedTaskActionProtocolDeclarations,
+  type GeneratedTaskActionProtocolDeclaration,
+} from "./daemon-protocol-commands-task.ts";
 import { DAEMON_TASK_SNAPSHOT_LIST_SCHEMA, DAEMON_WORKSPACE_SUMMARY_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import {
   codeDocRecord,
@@ -23,7 +27,7 @@ import {
   relationStateWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
-import { isJsonObject } from "./json-rpc-types.ts";
+import { isJsonObject, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
 
 export const availabilityFields = ["consents", "codeDocWitnesses", "gateWitnesses"] as const,
   snapshotBaseFields = [
@@ -35,6 +39,71 @@ export const availabilityFields = ["consents", "codeDocWitnesses", "gateWitnesse
     "lease",
     "decisionRelations",
   ] as const;
+
+const taskActionProtocolByIngress: ReadonlyMap<string, GeneratedTaskActionProtocolDeclaration> = new Map(
+  generatedTaskActionProtocolDeclarations.map((action) => [action.execution.ingress, action] as const),
+);
+
+export function validateCatalogActionPayload(value: JsonObject): readonly string[] {
+  const action = (value.payload as JsonObject).action;
+  if (!isJsonObject(action) || typeof action.kind !== "string") return [];
+  const declaration = taskActionProtocolByIngress.get(action.kind);
+  return declaration ? validateProjectedTaskActionInput(action.kind, declaration.input, action) : [];
+}
+
+function validateProjectedTaskActionInput(
+  ingress: string,
+  input: GeneratedTaskActionProtocolDeclaration["input"],
+  record: Readonly<Record<string, unknown>>,
+): readonly string[] {
+  const allowed = new Set(["kind", "executor", ...input.fields.map(({ field }) => field)]),
+    errors = Object.keys(record)
+      .filter((field) => !allowed.has(field))
+      .map((field) => `${ingress}.${field} is not declared by the Action input schema`);
+  for (const field of input.fields) {
+    const item = record[field.field];
+    if (field.required && (item === undefined || item === "")) {
+      errors.push(`${ingress}.${field.field} is required`);
+      continue;
+    }
+    if (item === undefined) continue;
+    const valid =
+      (field.type === "string" && typeof item === "string" && item.length > 0) ||
+      (field.type === "number" && Number.isSafeInteger(item) && Number(item) >= 0) ||
+      (field.type === "boolean" && typeof item === "boolean") ||
+      (field.type === "string-array" && Array.isArray(item) && item.every((entry) => typeof entry === "string")) ||
+      (field.type === "fact-hold-array" &&
+        Array.isArray(item) &&
+        item.every(
+          (entry) =>
+            typeof entry === "object" &&
+            entry !== null &&
+            typeof (entry as { readonly factRef?: unknown }).factRef === "string" &&
+            typeof (entry as { readonly rationale?: unknown }).rationale === "string",
+        ));
+    if (!valid) errors.push(`${ingress}.${field.field} must be ${field.type}`);
+    if (field.enum && !field.enum.includes(String(item)))
+      errors.push(`${ingress}.${field.field} must be one of ${field.enum.join(", ")}`);
+    if (field.regex && typeof item === "string" && !new RegExp(field.regex, "u").test(item))
+      errors.push(`${ingress}.${field.field} does not match its Action input pattern`);
+  }
+  for (const group of input.exactlyOneOf) {
+    const present = group.filter((field) => record[field] !== undefined);
+    if (present.length !== 1) errors.push(`${ingress} requires exactly one of ${group.join(", ")}`);
+  }
+  return errors;
+}
+
+export function validateSessionEnvironment(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!isJsonObject(value)) return ["session environment must be an object"];
+  const allowed = ["CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"],
+    unknown = unknownFieldViolation(value, allowed);
+  if (unknown) return [`session environment contains an ${unknown}`];
+  return Object.values(value).every((item) => typeof item === "string" && item.trim().length > 0)
+    ? []
+    : ["session environment values must be non-empty strings"];
+}
 
 export function snapshot(value: unknown, availability: unknown): boolean {
   return snapshotFailurePaths(value, availability).length === 0;

@@ -11,14 +11,11 @@ import {
   taskLifecycleWritePlan,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import { actor, initRepo } from "./task-surface.fixtures.ts";
-test("forced cancellation is audited and terminal tasks require supersede instead of reopen", async () => {
+test("cancellation and reinstatement are audited and terminal tasks require supersede instead of reopen", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-terminal-surface-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -52,6 +49,50 @@ test("forced cancellation is audited and terminal tasks require supersede instea
       ).outcome,
       "op_rejected",
     );
+    const cancelled = await cell.run(
+      {
+        kind: "task-transition",
+        taskId: "task_terminal",
+        status: "cancelled",
+        force: true,
+        reason: "Audited cancellation after invalid scope",
+      },
+      binding,
+    );
+    assert.equal(cancelled.outcome, "applied");
+    const bareReinstate = await cell.run(
+      { kind: "task-transition", taskId: "task_terminal", status: "planned" },
+      binding,
+    );
+    assert.equal(bareReinstate.outcome, "op_rejected");
+    assert.equal(bareReinstate.code, "invalid_transition");
+    assert.match(String(bareReinstate.nextAction), /auditable reason/u);
+    const expectedVersion = cancelled.revision,
+      [reinstated, staleReinstate] = await Promise.all([
+        cell.run(
+          {
+            kind: "task-transition",
+            taskId: "task_terminal",
+            status: "planned",
+            reason: "Owner adjudicated rollback",
+            expectedVersion,
+          },
+          binding,
+        ),
+        cell.run(
+          {
+            kind: "task-transition",
+            taskId: "task_terminal",
+            status: "planned",
+            reason: "Concurrent rollback",
+            expectedVersion,
+          },
+          binding,
+        ),
+      ]);
+    assert.equal(reinstated.outcome, "applied");
+    assert.equal(staleReinstate.outcome, "op_rejected");
+    assert.equal(staleReinstate.code, "invalid_transition");
     assert.equal(
       (
         await cell.run(
@@ -60,7 +101,7 @@ test("forced cancellation is audited and terminal tasks require supersede instea
             taskId: "task_terminal",
             status: "cancelled",
             force: true,
-            reason: "Audited cancellation after invalid scope",
+            reason: "Scope remains withdrawn",
           },
           binding,
         )
@@ -75,10 +116,7 @@ test("forced cancellation is audited and terminal tasks require supersede instea
       },
       binding,
     );
-    const reopen = await cell.run(
-      { kind: "task-reopen", taskId: "task_terminal", reason: "More work" },
-      binding,
-    );
+    const reopen = await cell.run({ kind: "task-reopen", taskId: "task_terminal", reason: "More work" }, binding);
     assert.equal(reopen.outcome, "op_rejected");
     assert.match(String(reopen.nextAction), /supersede/u);
   } finally {
@@ -168,9 +206,7 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
       ).outcome,
       "applied",
     );
-    const hot = (await cell.read("repo.tasks.list")).rows.find(
-      (row) => row.taskId === "task_status_replay",
-    )?.snapshot;
+    const hot = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === "task_status_replay")?.snapshot;
     assert.ok(hot);
     await cell.close();
     cell = undefined;
@@ -181,12 +217,7 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
         .read()
         .events.filter((event) => event.schema === "task-event/v1")
         .map((event) => event.type),
-      [
-        "task_transitioned",
-        "task_transitioned",
-        "task_transitioned",
-        "task_transitioned",
-      ],
+      ["task_transitioned", "task_transitioned", "task_transitioned", "task_transitioned"],
     );
     replay.close();
     rmSync(replay.path, { force: true });
@@ -202,9 +233,7 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
 });
 
 test("batch archive preflights every selected task before publishing any event", async () => {
-  const rootDir = mkdtempSync(
-    path.join(tmpdir(), "ha-task-archive-preflight-"),
-  );
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-archive-preflight-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -236,20 +265,9 @@ test("batch archive preflights every selected task before publishing any event",
       binding,
     );
     assert.equal(receipt.outcome, "op_rejected");
-    assert.equal(
-      makeTaskEventStore({ repoId: "task-archive-preflight", rootDir }).read()
-        .events.length,
-      before,
-    );
+    assert.equal(makeTaskEventStore({ repoId: "task-archive-preflight", rootDir }).read().events.length, before);
     assert.match(
-      String(
-        (
-          await cell.run(
-            { kind: "task-show", taskId: "task_archive_valid" },
-            binding,
-          )
-        ).evidence,
-      ),
+      String((await cell.run({ kind: "task-show", taskId: "task_archive_valid" }, binding)).evidence),
       /"packageDisposition":"active"/u,
     );
   } finally {
@@ -311,15 +329,8 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
     );
     assert.equal(receipt.outcome, "pending");
     assert.equal(receipt.proof?.canonicalVisible, false);
-    assert.equal(
-      makeTaskEventStore({ repoId: "task-contract-manual", rootDir }).read()
-        .revision,
-      revisionBeforeDryRun,
-    );
-    assert.match(
-      String(receipt.evidence),
-      /"status":"manual"[\s\S]*"reason":"contract_metadata_incomplete"/u,
-    );
+    assert.equal(makeTaskEventStore({ repoId: "task-contract-manual", rootDir }).read().revision, revisionBeforeDryRun);
+    assert.match(String(receipt.evidence), /"status":"manual"[\s\S]*"reason":"contract_metadata_incomplete"/u);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

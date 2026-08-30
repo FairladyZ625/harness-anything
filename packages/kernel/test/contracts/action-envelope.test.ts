@@ -24,23 +24,29 @@ test("Action envelope is one closed kernel contract with a stable replay identit
   assert.match(validateActionEnvelope({ ...action, idempotencyKey: "" }).join("\n"), /idempotencyKey is required/u);
 });
 
-test("the five promoted Entity explanations expose status-aligned transition Actions", () => {
+test("the five promoted Entity explanations declare metadata-only transitions without advertising availability", () => {
   const catalogs = Object.fromEntries(
     ["execution", "review", "agent", "runtime-session", "policy"].map((kind) => [kind, explainEntityKind(kind)]),
   );
+  const declared = (kind: string) => catalogs[kind]?.transitions.actions.map(({ id }) => id);
   assert.deepEqual(catalogs.execution?.statusVocabulary, [
     { field: "state", words: ["active", "submitted", "accepted", "changes_requested", "abandoned"] },
   ]);
-  assert.deepEqual(catalogs.execution?.transitions.available, ["start", "renew", "submit", "complete", "release"]);
+  assert.deepEqual(catalogs.execution?.transitions.available, []);
+  assert.deepEqual(declared("execution"), ["start", "renew", "submit", "complete", "release"]);
   assert.deepEqual(catalogs.review?.statusVocabulary, [
     { field: "verdict", words: ["approved", "changes_requested", "dismissed"] },
   ]);
-  assert.deepEqual(catalogs.review?.transitions.available, ["record"]);
+  assert.deepEqual(catalogs.review?.transitions.available, []);
+  assert.deepEqual(declared("review"), ["record"]);
   assert.deepEqual(catalogs.agent?.statusVocabulary, [{ field: "state", words: ["configured", "active", "retired"] }]);
-  assert.deepEqual(catalogs.agent?.transitions.available, ["configure", "activate", "retire"]);
+  assert.deepEqual(catalogs.agent?.transitions.available, []);
+  assert.deepEqual(declared("agent"), ["configure", "activate", "retire"]);
   assert.deepEqual(catalogs.policy?.statusVocabulary, [{ field: "state", words: ["draft", "active", "retired"] }]);
-  assert.deepEqual(catalogs.policy?.transitions.available, ["draft", "activate", "retire"]);
-  assert.deepEqual(catalogs["runtime-session"]?.transitions.available, [
+  assert.deepEqual(catalogs.policy?.transitions.available, []);
+  assert.deepEqual(declared("policy"), ["draft", "activate", "retire"]);
+  assert.deepEqual(catalogs["runtime-session"]?.transitions.available, []);
+  assert.deepEqual(declared("runtime-session"), [
     "runtime_session_started",
     "runtime_session_provider_bound",
     "runtime_session_task_bound",

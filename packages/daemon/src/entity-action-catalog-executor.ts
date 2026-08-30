@@ -33,6 +33,11 @@ type ExecutableAction = EntityActionContract & { readonly execution: EntityActio
 type FactBundle = ReturnType<typeof compileFactWrite>;
 type DecisionBundle = ReturnType<typeof compileDecisionWrite>;
 type CatalogBundle = FactBundle | DecisionBundle;
+export type TaskActionCatalogRunner = (
+  contract: ExecutableAction,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+) => Promise<WriteReceipt>;
 
 export function makeEntityActionCatalogExecutor(input: {
   readonly store: CanonicalEventStore;
@@ -44,7 +49,7 @@ export function makeEntityActionCatalogExecutor(input: {
   const decisions = makeDecisionService({ eventStore: input.store, projection: input.projection }),
     facts = makeFactService({ eventStore: input.store, projection: input.projection });
 
-  const run = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
+  const runCompiled = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
     const contract = executableAction(action.kind);
     if (contract.execution.read) {
       if (action.kind === "fact-search") return readReceipt("fact-search", facts.search(factFilters(action)));
@@ -71,10 +76,29 @@ export function makeEntityActionCatalogExecutor(input: {
     return runWrite(contract, action, binding, opId);
   };
 
+  const run = (
+    action: RepoTaskAction,
+    binding: RepoCellBinding,
+    opId: string,
+    taskRunner?: TaskActionCatalogRunner,
+  ): WriteReceipt | Promise<WriteReceipt> => {
+    const contract = executableAction(action.kind);
+    if (
+      contract.execution.implementation !== "task-lifecycle" &&
+      contract.execution.implementation !== "task-completion"
+    )
+      return runCompiled(action, binding, opId);
+    if (!taskRunner)
+      throw Object.assign(new Error(`Action ${action.kind} requires the Task Action runtime.`), {
+        code: "unsupported_command",
+      });
+    return taskRunner(contract, action, binding).then((receipt) => deriveActionResult(contract, action, receipt));
+  };
+
   const repinAll = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
     const ids = decisions.list({}).decisions.map(({ decisionId }) => decisionId),
       receipts = ids.map((decisionId) =>
-        run(
+        runCompiled(
           { ...action, all: false, decisionId },
           binding,
           `${opId}-${createHash("sha256").update(decisionId).digest("hex").slice(0, 12)}`,
@@ -176,6 +200,40 @@ export function makeEntityActionCatalogExecutor(input: {
   };
 
   return Object.freeze({ run });
+}
+
+export function deriveActionResult(
+  contract: EntityActionContract,
+  action: RepoTaskAction,
+  receipt: WriteReceipt,
+): WriteReceipt {
+  const rejected = receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate",
+    taskId = typeof action.taskId === "string" ? action.taskId : null,
+    unmetCriteria = rejected
+      ? contract.criteria
+          .filter((criterion) => criterion.failureCode === receipt.code)
+          .map((criterion) => criterion.ref)
+      : [],
+    explanation = rejected
+      ? (contract.criteria.find((criterion) => criterion.failureCode === receipt.code)?.explain ??
+        receipt.nextAction ??
+        `Action ${contract.target.kind}.${contract.id} was rejected.`)
+      : null;
+  return {
+    ...receipt,
+    unmetCriteria,
+    effects: rejected ? [] : contract.effects.map(({ ref }) => ref),
+    updatedProjection:
+      rejected || !taskId
+        ? null
+        : {
+            kind: contract.target.kind,
+            ref: contract.target.refTemplate.replace("{id}", taskId),
+            revision: receipt.revision ?? null,
+          },
+    rejectionExplanation: explanation,
+    nextActions: receipt.nextAction ? [receipt.nextAction] : [],
+  };
 }
 
 function executableAction(ingress: string): ExecutableAction {

@@ -212,6 +212,25 @@ test("capabilities is an exact-set projection of the command contract", () => {
   });
 });
 
+test("task transition conditional inputs preserve audited cancellation and reinstatement", () => {
+  for (const argv of [
+    ["task", "transition", "task-1", "planned"],
+    ["task", "transition", "task-1", "cancelled"],
+    ["task", "transition", "task-1", "cancelled", "--force"],
+    ["task", "transition", "task-1", "cancelled", "--reason", "Scope withdrawn"],
+    ["task", "transition", "task-1", "active", "--force"],
+  ])
+    assert.equal(parseThinCommand(argv).ok, false, argv.join(" "));
+  assert.equal(
+    parseThinCommand(["task", "transition", "task-1", "planned", "--reason", "Owner adjudicated rollback"]).ok,
+    true,
+  );
+  assert.equal(
+    parseThinCommand(["task", "transition", "task-1", "cancelled", "--force", "--reason", "Scope withdrawn"]).ok,
+    true,
+  );
+});
+
 test("CLI version is read from the CLI package metadata", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(resolveCliVersion(), packageJson.version);

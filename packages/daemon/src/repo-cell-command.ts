@@ -3,6 +3,7 @@ import {
   currentExecutionCuts,
   currentSubmittedExecutions,
   heldLeaseForExecutionActor,
+  getExecutableEntityAction,
   isDomainStatus,
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
@@ -20,7 +21,6 @@ import {
 } from "./repo-cell-execution-selection.ts";
 import { packetFile, reviewPacket, submissionPacket } from "./repo-cell-packets.ts";
 import { actorHint, operationId } from "./repo-cell-proof.ts";
-import { resolveLifecycleAction } from "./repo-cell-lifecycle-action.ts";
 import { digest, reviewVerdict } from "./repo-cell-review-lint.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
@@ -32,7 +32,6 @@ import type {
 } from "./repo-cell-types.ts";
 
 const CODE_DOC_REPOINT_FIELDS = ["kind", "taskId", "record", "paths", "reason"];
-
 export function dispatchRead<M extends RepoCellReadMethod>(
   handlers: DaemonGuiReadHandlers,
   method: M,
@@ -77,7 +76,7 @@ export function buildCommand(
       source: binding.source,
       expectedRevision,
     },
-    lifecycleAction = resolveLifecycleAction(action);
+    lifecycleAction = getExecutableEntityAction(action.kind)?.execution?.lifecycle;
   if (lifecycleAction?.coordination === "reserve") {
     const executionId =
       typeof action.executionId === "string" && action.executionId
@@ -99,7 +98,8 @@ export function buildCommand(
         "Use planned, active, blocked, in_review, done, or cancelled as the target status.",
       );
     const suppliedReason = typeof action.reason === "string" && action.reason.trim() ? action.reason.trim() : null,
-      reason = suppliedReason ?? (status === "cancelled" ? "" : `Explicit lifecycle transition to ${status}`);
+      requiresExplicitReason = status === "cancelled" || snapshot.task?.status === "cancelled",
+      reason = suppliedReason ?? (requiresExplicitReason ? "" : `Explicit lifecycle transition to ${status}`);
     return normalizeTaskLifecycleCommand(bound, {
       type: "TransitionTask",
       taskId,

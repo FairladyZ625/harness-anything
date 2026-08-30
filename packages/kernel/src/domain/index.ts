@@ -132,6 +132,7 @@ export {
   explainEntityKind,
   getExecutableEntityAction,
   getEntityKindContract,
+  getTaskActionForTransition,
   requireEntityKindContract,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";

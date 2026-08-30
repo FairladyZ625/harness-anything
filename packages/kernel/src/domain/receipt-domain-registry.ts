@@ -96,6 +96,15 @@ export interface WriteReceipt {
   readonly detail?: WriteReceiptDetail;
   readonly commitSha?: string | null;
   readonly authorizationDecision?: AuthorizationDecision | null;
+  readonly unmetCriteria?: readonly string[];
+  readonly effects?: readonly string[];
+  readonly updatedProjection?: {
+    readonly kind: string;
+    readonly ref: string;
+    readonly revision: number | null;
+  } | null;
+  readonly rejectionExplanation?: string | null;
+  readonly nextActions?: readonly string[];
   readonly cut?: {
     readonly repoId: string;
     readonly revision: number;
@@ -118,6 +127,11 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "detail",
     "commitSha",
     "authorizationDecision",
+    "unmetCriteria",
+    "effects",
+    "updatedProjection",
+    "rejectionExplanation",
+    "nextActions",
     "cut",
   ]),
 });
@@ -132,6 +146,34 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
   if ("revision" in value && !cut(value.revision)) errors.push("revision must be a non-negative integer");
   for (const field of ["code", "origin", "nextAction", "evidence"] as const)
     if (field in value && !isNonEmptyString(value[field])) errors.push(`${field} must be a non-empty string`);
+  if (
+    "unmetCriteria" in value &&
+    (!Array.isArray(value.unmetCriteria) || value.unmetCriteria.some((entry) => !isNonEmptyString(entry)))
+  )
+    errors.push("unmetCriteria must be an array of criterion references");
+  if (
+    "nextActions" in value &&
+    (!Array.isArray(value.nextActions) || value.nextActions.some((entry) => !isNonEmptyString(entry)))
+  )
+    errors.push("nextActions must be an array of commands or remediation steps");
+  if ("effects" in value && (!Array.isArray(value.effects) || value.effects.some((entry) => !isNonEmptyString(entry))))
+    errors.push("effects must be an array of effect references");
+  if (
+    "rejectionExplanation" in value &&
+    value.rejectionExplanation !== null &&
+    !isNonEmptyString(value.rejectionExplanation)
+  )
+    errors.push("rejectionExplanation must be non-empty or null");
+  if (
+    "updatedProjection" in value &&
+    value.updatedProjection !== null &&
+    (!isReceiptDomainRecord(value.updatedProjection) ||
+      !exact(value.updatedProjection, ["kind", "ref", "revision"]) ||
+      !isNonEmptyString(value.updatedProjection.kind) ||
+      !isNonEmptyString(value.updatedProjection.ref) ||
+      (value.updatedProjection.revision !== null && !cut(value.updatedProjection.revision)))
+  )
+    errors.push("updatedProjection must identify a kind, ref, and revision");
   const visibility = value.visibility,
     replica =
       isReceiptDomainRecord(visibility) &&
