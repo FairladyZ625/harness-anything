@@ -124,7 +124,10 @@ export function LedgerStatusBar({
         disabled={status.refreshing}
         title={t("components.appSidebar.ledgerRefreshTitle")}
         aria-label={t("components.appSidebar.ledgerRefreshTitle")}
-        className="shrink-0 rounded px-1 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text disabled:opacity-50"
+        className={[
+          "shrink-0 rounded px-1 text-[11px] text-text-faint",
+          "hover:bg-surface-raised hover:text-text disabled:opacity-50",
+        ].join(" ")}
       >
         <ArrowClockwise weight="bold" className="size-3" />
       </button>

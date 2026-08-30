@@ -155,7 +155,10 @@ export function ArtifactsWorkspace({
           onClick={() => setDrawer((state) => ({ ...state, collapsed: false }))}
           title={t("artifacts.drawer.expandTitle")}
           aria-label={t("artifacts.drawer.expandTitle")}
-          className="flex w-8 shrink-0 flex-col items-center gap-2 border-r border-border bg-surface py-3 text-text-faint hover:text-text"
+          className={[
+            "flex w-8 shrink-0 flex-col items-center gap-2 border-r border-border",
+            "bg-surface py-3 text-text-faint hover:text-text",
+          ].join(" ")}
         >
           <ArrowsInLineHorizontal weight="bold" className="size-4 shrink-0 rotate-90" />
           <span className="font-mono text-[10px] [writing-mode:vertical-rl]">{t("artifacts.drawer.collapsed")}</span>
@@ -350,7 +353,12 @@ function ArtifactPreviewPane({
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface"
     >
       {row === null ? (
-        <div className="flex min-h-56 flex-1 items-center justify-center px-6 text-center font-mono text-[11px] text-text-faint">
+        <div
+          className={[
+            "flex min-h-56 flex-1 items-center justify-center px-6 text-center",
+            "font-mono text-[11px] text-text-faint",
+          ].join(" ")}
+        >
           {t("artifacts.preview.none")}
         </div>
       ) : (
