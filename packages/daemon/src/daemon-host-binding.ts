@@ -12,7 +12,7 @@ export function localSystemBinding(
   executor: RepoCellBinding["actor"]["executor"] = null,
 ): RepoCellBinding {
   const ownerUid = process.getuid?.();
-  // Named pipes do not expose a POSIX UID on Windows; use a stable local fallback there only.
+  // Named pipes do not expose a POSIX UID on Windows; use a stable Windows owner value there only.
   if (typeof ownerUid !== "number" && process.platform !== "win32")
     throw hostCodedError("credential_unavailable", "Local system binding requires a Unix socket owner boundary.");
   const stableOwnerUid = ownerUid ?? 0;
