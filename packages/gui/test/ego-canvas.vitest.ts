@@ -12,6 +12,10 @@ import {
 } from "../src/renderer/graph/egoCanvas.ts";
 import { defaultAxisFilter, defaultKindFilter } from "../src/renderer/graph/relationVisual.ts";
 
+// 旧签名是对称 maxHop 数字;现在是一份 {up, down} 预算,等值时与旧行为同集。
+const HOPS_1 = { up: 1, down: 1 };
+const HOPS_2 = { up: 2, down: 2 };
+
 /**
  * 无限画布 ego(dec_01KXBGJQFQARSZHHQW1WADFDNC)的行为契约。
  * 重点覆盖两件在 rebuild 线上出问题的事:
@@ -108,7 +112,7 @@ describe("claim 锚定边的 join", () => {
   it("聚焦 decision 时三类邻居都进画布(不是空泳道)", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
-    const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
+    const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
     const layout = layoutEgoCanvas({
       focusId: "decision/dec_1",
       graph,
@@ -139,7 +143,7 @@ describe("分层分列", () => {
   it("上游归左、下游归右,焦点在原点", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
-    const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
+    const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
     const layout = layoutEgoCanvas({
       focusId: "decision/dec_1",
       graph,
@@ -172,7 +176,7 @@ describe("分层分列", () => {
       provenance: "local-document",
     }));
     const graph = buildEgoGraph(tasks, [], [], relations);
-    const shown = bfsShownFromFocus(graph, "root", 2, filters.axes);
+    const shown = bfsShownFromFocus(graph, "root", HOPS_2, filters.axes);
     const layout = layoutEgoCanvas({
       focusId: "root",
       graph,
@@ -199,7 +203,7 @@ describe("累积展开(决策 CH1:累计保留、永不重置)", () => {
     ];
     const graph = buildEgoGraph(tasks, [], [], relations);
     // 只铺 1 跳:c 还没进画布。
-    const shown = bfsShownFromFocus(graph, "a", 1, filters.axes);
+    const shown = bfsShownFromFocus(graph, "a", HOPS_1, filters.axes);
     expect(shown.has("c")).toBe(false);
     // 展开 b = 把 b 的一跳邻居并入 shown(useEgoCanvas.expandNode 的纯逻辑等价)。
     const grown = new Map(shown);
@@ -214,7 +218,7 @@ describe("累积展开(决策 CH1:累计保留、永不重置)", () => {
   it("收起卡片不撤回任何已铺开的节点", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
-    const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
+    const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
     const expandedLayout = layoutEgoCanvas({
       focusId: "decision/dec_1",
       graph,
@@ -246,7 +250,7 @@ describe("累积展开(决策 CH1:累计保留、永不重置)", () => {
       { from: "task/b", to: "task/c", kind: "depends-on", provenance: "local-document" },
     ];
     const graph = buildEgoGraph(tasks, [], [], relations);
-    const shown = bfsShownFromFocus(graph, "a", 1, filters.axes);
+    const shown = bfsShownFromFocus(graph, "a", HOPS_1, filters.axes);
     const layout = layoutEgoCanvas({
       focusId: "a",
       graph,
@@ -264,7 +268,7 @@ describe("筛选与高亮", () => {
   it("类型开关关掉 fact 后 fact 不进画布,但焦点恒可见", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
-    const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
+    const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
     const layout = layoutEgoCanvas({
       focusId: "decision/dec_1",
       graph,
@@ -281,7 +285,7 @@ describe("筛选与高亮", () => {
   it("单跳高亮把集合外的节点标灰(不删除)", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
-    const shown = bfsShownFromFocus(graph, "decision/dec_1", 2, filters.axes);
+    const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
     const highlight = egoOneHopHighlight(graph, "task_a", filters.axes)!;
     const layout = layoutEgoCanvas({
       focusId: "decision/dec_1",

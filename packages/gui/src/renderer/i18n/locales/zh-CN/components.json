@@ -189,5 +189,14 @@
   "components.decisionPreviewDrawer.decidedAt": "裁决于",
   "components.decisionPreviewDrawer.retires": "退役：",
   "components.decisionPreviewDrawer.supersededBy": "被替代：",
-  "components.decisionPreviewDrawer.amendedAt": "修订于"
+  "components.decisionPreviewDrawer.amendedAt": "修订于",
+  "components.appSidebar.ledgerEvents": "事件 {count}",
+  "components.appSidebar.ledgerRefreshedAgo": "{ago}刷新",
+  "components.appSidebar.ledgerNeverRefreshed": "尚未读到台账",
+  "components.appSidebar.ledgerJustNow": "刚刚",
+  "components.appSidebar.ledgerSecondsAgo": "{seconds} 秒前",
+  "components.appSidebar.ledgerMinutesAgo": "{minutes} 分钟前",
+  "components.appSidebar.ledgerHoursAgo": "{hours} 小时前",
+  "components.appSidebar.ledgerRefreshTitle": "手动刷新台账读面",
+  "components.appSidebar.ledgerDisconnected": "最近一次台账读取失败"
 }

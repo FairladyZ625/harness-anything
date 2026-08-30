@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { FolderSimple, CaretUpDown, CloudSlash, WarningCircle } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "./model/types.ts";
@@ -19,13 +19,19 @@ import { SystemView } from "./views/SystemView.tsx";
 import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
-import { ThemeToggle, NavButton, ProjectSummary, TaskCensusSummary } from "./components/shell-chrome.tsx";
+import {
+  LedgerStatusBar,
+  LedgerStatusBarInput,
+  NavButton,
+  ProjectSummary,
+  ThemeToggle,
+} from "./components/shell-chrome.tsx";
 import { CommandPalette, buildPaletteIndex } from "./components/CommandPalette.tsx";
 import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
-import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, useTasksQuery } from "./task-data.ts";
+import { invalidateLedgerDependents, useTasksQuery } from "./task-data.ts";
 import { useAgendaQuery } from "./agenda-data.ts";
 import {
   useActiveEdgesQuery,
@@ -90,6 +96,24 @@ function AppShell() {
   const projectId = activeRepoId ?? "unselected";
   const tasksQuery = useTasksQuery(activeRepoId);
   const workspaceSummaryQuery = useWorkspaceSummaryQuery(activeRepoId);
+
+  // 左上角状态栏的输入(task_b2fb4bc7):全部来自上面两条既有查询,不加第二条读路。
+  const ledgerReadError = [workspaceSummaryQuery.error, tasksQuery.error].find(
+    (error): error is Error => error instanceof Error,
+  );
+  const ledgerStatusBar: LedgerStatusBarInput = {
+    revision: tasksQuery.data?.sourceRevision ?? null,
+    refreshedAgoSec:
+      tasksQuery.dataUpdatedAt > 0 ? Math.max(0, Math.round((Date.now() - tasksQuery.dataUpdatedAt) / 1_000)) : null,
+    connected: !tasksQuery.isRefetchError && !tasksQuery.isError && !workspaceSummaryQuery.isError,
+    refreshing: tasksQuery.isFetching,
+    empty: workspaceSummaryQuery.isSuccess === true && workspaceSummaryQuery.data.tasks.total === 0,
+    error: workspaceSummaryQuery.isError || tasksQuery.isError ? (ledgerReadError?.message ?? "") : null,
+  };
+  const refreshLedger = useCallback(() => {
+    void tasksQuery.refetch();
+    void workspaceSummaryQuery.refetch();
+  }, [tasksQuery, workspaceSummaryQuery]);
   const lastLedgerCut = useRef<string | null>(null);
   const catalogQuery = useCatalogSnapshot(activeRepoId);
   const taskActions = useTaskActions(projectId);
@@ -348,43 +372,9 @@ function AppShell() {
         </div>
 
         <div className="px-3 pb-1">
-          {workspaceSummaryQuery.isSuccess ? (
-            workspaceSummaryQuery.data.tasks.total > 0 ? (
-              <TaskCensusSummary summary={workspaceSummaryQuery.data.tasks} />
-            ) : (
-              <span data-testid="task-empty-state" className="block font-mono text-[11px] text-text-faint">
-                {t("components.appSidebar.noTaskRowsFromLocalBridge")}
-              </span>
-            )
-          ) : workspaceSummaryQuery.isError ? (
-            <span data-testid="task-error-state" className="block font-mono text-[11px] text-status-blocked">
-              {t("components.appSidebar.failedReadLedgerBridge")}:{" "}
-              {workspaceSummaryQuery.error instanceof Error
-                ? workspaceSummaryQuery.error.message
-                : String(workspaceSummaryQuery.error)}
-            </span>
-          ) : (
-            <span className="block font-mono text-[11px] text-text-faint">
-              {t("components.appSidebar.readLocalLedger")}
-            </span>
-          )}
-          {tasksQuery.data && (
-            <span data-testid="ledger-refresh-status" className="mt-0.5 block font-mono text-[10px] text-text-faint">
-              {tasksQuery.isRefetchError
-                ? t("components.appSidebar.ledgerRefreshFailed", { watermark: String(tasksQuery.data.watermark) })
-                : tasksQuery.data.status === "pending"
-                  ? t("components.appSidebar.ledgerCatchingUp", {
-                      watermark: String(tasksQuery.data.watermark),
-                      sourceRevision: String(tasksQuery.data.sourceRevision),
-                    })
-                  : tasksQuery.isFetching
-                    ? t("components.appSidebar.ledgerChecking", { watermark: String(tasksQuery.data.watermark) })
-                    : t("components.appSidebar.ledgerRevision", {
-                        watermark: String(tasksQuery.data.watermark),
-                        seconds: String(LEDGER_REFRESH_INTERVAL_MS / 1_000),
-                      })}
-            </span>
-          )}
+          {/* 左上角一行实时状态栏(task_b2fb4bc7):取代原任务普查块,普查数字搬去
+              总览页底部 OverviewStatsBar。刷新走既有 react-query refetch,不加轮询。 */}
+          <LedgerStatusBar status={ledgerStatusBar} onRefresh={refreshLedger} />
         </div>
 
         <div className="px-3 pt-2 pb-2">
@@ -533,6 +523,11 @@ function AppShell() {
                   workspaceSummary={workspaceSummaryQuery.data}
                   relations={edgeRelations}
                   systemHealth={overviewSystemHealth}
+                  ledgerRevision={
+                    tasksQuery.data
+                      ? { watermark: tasksQuery.data.watermark, sourceRevision: tasksQuery.data.sourceRevision }
+                      : null
+                  }
                   onSelect={openTaskPreview}
                   onDrill={(status) => drillToBoard("__all__", status, "root")}
                   onOpenInbox={() => goto("decisions")}

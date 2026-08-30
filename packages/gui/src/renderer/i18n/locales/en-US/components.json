@@ -189,5 +189,14 @@
   "components.decisionPreviewDrawer.decidedAt": "decided at",
   "components.decisionPreviewDrawer.retires": "retires: ",
   "components.decisionPreviewDrawer.supersededBy": "superseded by: ",
-  "components.decisionPreviewDrawer.amendedAt": "amended at"
+  "components.decisionPreviewDrawer.amendedAt": "amended at",
+  "components.appSidebar.ledgerEvents": "{count} events",
+  "components.appSidebar.ledgerRefreshedAgo": "refreshed {ago}",
+  "components.appSidebar.ledgerNeverRefreshed": "ledger not read yet",
+  "components.appSidebar.ledgerJustNow": "just now",
+  "components.appSidebar.ledgerSecondsAgo": "{seconds}s ago",
+  "components.appSidebar.ledgerMinutesAgo": "{minutes}m ago",
+  "components.appSidebar.ledgerHoursAgo": "{hours}h ago",
+  "components.appSidebar.ledgerRefreshTitle": "Refresh the ledger reads now",
+  "components.appSidebar.ledgerDisconnected": "the last ledger read failed"
 }

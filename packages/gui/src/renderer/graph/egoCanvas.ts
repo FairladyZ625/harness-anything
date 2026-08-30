@@ -16,7 +16,7 @@ import { STATUS_META } from "../components/badges";
  *
  * 累积模型的状态(shown / expanded)由 useEgoCanvas 持有,本文件是纯函数:
  *   buildEgoGraph    — 统一图(byId + adj,含合成 task 父子边)。
- *   bfsShownFromFocus— 从焦点 BFS 到 maxHop 的可见集(openFocus 铺开默认 ±2 跳)。
+ *   bfsShownFromFocus— 从焦点按 {up, down} 预算 BFS 的可见集(openFocus 铺开)。
  *   egoNeighborsOf   — 某节点经轴过滤的一跳邻居(展开卡片时长出下一环)。
  *   layoutEgoCanvas  — 给定 (focusId, shown, expanded, filters) → 节点位置 + 边。
  *
@@ -181,7 +181,18 @@ export function buildEgoGraph(
   return { byId, adj, synthEdges };
 }
 
-/** 从焦点 BFS 到 maxHop 的可见集(id → 距焦点跳数),按轴过滤。
+/** 聚焦铺开的跳数预算:向上(父系)与向下(落地)各一,任务图谱页的步进器改它。 */
+export interface EgoHopBudget {
+  readonly up: number;
+  readonly down: number;
+}
+
+/** 从焦点按 `{up, down}` 预算 BFS 的可见集(id → 距焦点跳数),按轴过滤。
+ *
+ * 方向语义与 layoutEgoCanvas 的分侧同源:焦点的出边邻居归「下游/右」、入边邻居归
+ * 「上游/左」,更深处**继承**来侧(一条 up 侧路径上的折返边不把节点挪到 down 侧),
+ * 所以两侧预算各自约束的是「沿该侧走出的跳数」,不是「纯出边/纯入边可达」。
+ * `up === down` 时与旧的对称 maxHop 完全同集。
  *
  * `allowed`(重点模式)再收一层:只有重点集里的节点会被铺开,重点外的邻居留在
  * chip 的「+N 未铺开」徽章里,点开卡片时长出(expandNode 不受此限,那是显式展开)。
@@ -190,22 +201,23 @@ export function buildEgoGraph(
 export function bfsShownFromFocus(
   graph: EgoGraph,
   focusId: string,
-  maxHop: number,
+  hops: EgoHopBudget,
   axes: EgoAxisFilter,
   allowed: ReadonlySet<string> | null = null,
 ): Map<string, number> {
   const pass = (id: string) => allowed === null || id === focusId || allowed.has(id);
   const shown = new Map<string, number>([[focusId, 0]]);
-  const queue: Array<[string, number]> = [[focusId, 0]];
+  const queue: Array<[string, "up" | "down", number]> = [[focusId, "down", 0]];
   while (queue.length > 0) {
-    const [id, hop] = queue.shift()!;
-    if (hop >= maxHop) continue;
+    const [id, side, hop] = queue.shift()!;
     for (const entry of graph.adj.get(id) ?? []) {
       if (!axes[entry.axis]) continue;
       if (shown.has(entry.other)) continue;
       if (!pass(entry.other)) continue;
+      const nextSide = id === focusId ? (entry.dir === "out" ? "down" : "up") : side;
+      if (hop + 1 > hops[nextSide]) continue;
       shown.set(entry.other, hop + 1);
-      queue.push([entry.other, hop + 1]);
+      queue.push([entry.other, nextSide, hop + 1]);
     }
   }
   return shown;
