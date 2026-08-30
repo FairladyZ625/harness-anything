@@ -164,7 +164,7 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(container.textContent).toContain("Markdown report");
   });
 
-  it("jumps to the owning task from the row and the preview header", async () => {
+  it("jumps to the owning task from the task, path, and preview header links", async () => {
     stubDocumentBridge("<h1>Weathering</h1>");
     const onNavigateTask = vi.fn();
     const container = await renderSurface(
@@ -178,11 +178,18 @@ describe("artifacts timeline — list, preview, and task jump", () => {
       }),
     );
     await click(container, "artifact-task-task_weathering");
+    const pathLink = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "tasks/task_weathering-slug/artifacts/reports/weathering.html",
+    );
+    expect(pathLink).not.toBeUndefined();
+    await act(async () => {
+      pathLink!.click();
+    });
     await click(container, "artifact-focus-task_weathering-artifacts/reports/weathering.html");
     await settle();
     await click(container, "artifact-open-task");
     expect(onNavigateTask).toHaveBeenCalledWith("task_weathering");
-    expect(onNavigateTask).toHaveBeenCalledTimes(2);
+    expect(onNavigateTask).toHaveBeenCalledTimes(3);
   });
 
   it("switches the kind facet through the filter, and an unmapped row keeps no task link", async () => {

@@ -472,8 +472,10 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
   await act(async () => {
     await Promise.resolve();
   });
+  // react-query 通过 notifyManager 的宏任务批量发布已完成的查询；只排空 Promise
+  // 微任务会让快机器在 artifacts fixture 到达前扫描空态，掩盖真实 DOM。
   await act(async () => {
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
   return container;
 }
