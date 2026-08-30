@@ -126,8 +126,18 @@ export const taskCreateJsonFields = Object.freeze([
   "fromLegacyId",
   "createMode",
 ] as const);
-export const taskSubmissionJsonFields = TASK_SUBMISSION_JSON_FIELDS;
-export const reviewJsonFields = TASK_REVIEW_JSON_FIELDS;
+// task-action-json-fields:generated:start
+export const taskSubmissionJsonFields = Object.freeze([
+  "completionClaim",
+  "deliverables",
+  "outputs",
+  "verificationNotes",
+  "knownGaps",
+  "residualRisks",
+  "commitSha",
+] as const);
+export const reviewJsonFields = Object.freeze(["verdict", "reason", "evidenceChecked"] as const);
+// task-action-json-fields:generated:end
 export const consentJsonFields = Object.freeze(["reviewDigest", "contentDigest"] as const);
 export const decisionProposalJsonFields = Object.freeze([
   "title",
@@ -777,4 +787,3 @@ export const presetMethods = Object.freeze([
     params: shape({ repo, payload: shape({ runId: "string", executor: "json?" }) }),
   },
 ] as const);
-import { TASK_REVIEW_JSON_FIELDS, TASK_SUBMISSION_JSON_FIELDS } from "../../kernel/src/index.ts";

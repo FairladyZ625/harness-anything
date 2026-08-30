@@ -1,4 +1,7 @@
-import { getExecutableEntityAction, validateEntityActionInput } from "../../../kernel/src/index.ts";
+import {
+  generatedTaskActionProtocolDeclarations,
+  type GeneratedTaskActionProtocolDeclaration,
+} from "./daemon-protocol-commands-task.ts";
 import { DAEMON_TASK_SNAPSHOT_LIST_SCHEMA, DAEMON_WORKSPACE_SUMMARY_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import {
   codeDocRecord,
@@ -37,13 +40,58 @@ export const availabilityFields = ["consents", "codeDocWitnesses", "gateWitnesse
     "decisionRelations",
   ] as const;
 
+const taskActionProtocolByIngress: ReadonlyMap<string, GeneratedTaskActionProtocolDeclaration> = new Map(
+  generatedTaskActionProtocolDeclarations.map((action) => [action.execution.ingress, action] as const),
+);
+
 export function validateCatalogActionPayload(value: JsonObject): readonly string[] {
   const action = (value.payload as JsonObject).action;
-  return isJsonObject(action) &&
-    typeof action.kind === "string" &&
-    getExecutableEntityAction(action.kind)?.target.kind === "task"
-    ? validateEntityActionInput(action.kind, action)
-    : [];
+  if (!isJsonObject(action) || typeof action.kind !== "string") return [];
+  const declaration = taskActionProtocolByIngress.get(action.kind);
+  return declaration ? validateProjectedTaskActionInput(action.kind, declaration.input, action) : [];
+}
+
+function validateProjectedTaskActionInput(
+  ingress: string,
+  input: GeneratedTaskActionProtocolDeclaration["input"],
+  record: Readonly<Record<string, unknown>>,
+): readonly string[] {
+  const allowed = new Set(["kind", "executor", ...input.fields.map(({ field }) => field)]),
+    errors = Object.keys(record)
+      .filter((field) => !allowed.has(field))
+      .map((field) => `${ingress}.${field} is not declared by the Action input schema`);
+  for (const field of input.fields) {
+    const item = record[field.field];
+    if (field.required && (item === undefined || item === "")) {
+      errors.push(`${ingress}.${field.field} is required`);
+      continue;
+    }
+    if (item === undefined) continue;
+    const valid =
+      (field.type === "string" && typeof item === "string" && item.length > 0) ||
+      (field.type === "number" && Number.isSafeInteger(item) && Number(item) >= 0) ||
+      (field.type === "boolean" && typeof item === "boolean") ||
+      (field.type === "string-array" && Array.isArray(item) && item.every((entry) => typeof entry === "string")) ||
+      (field.type === "fact-hold-array" &&
+        Array.isArray(item) &&
+        item.every(
+          (entry) =>
+            typeof entry === "object" &&
+            entry !== null &&
+            typeof (entry as { readonly factRef?: unknown }).factRef === "string" &&
+            typeof (entry as { readonly rationale?: unknown }).rationale === "string",
+        ));
+    if (!valid) errors.push(`${ingress}.${field.field} must be ${field.type}`);
+    if (field.enum && !field.enum.includes(String(item)))
+      errors.push(`${ingress}.${field.field} must be one of ${field.enum.join(", ")}`);
+    if (field.regex && typeof item === "string" && !new RegExp(field.regex, "u").test(item))
+      errors.push(`${ingress}.${field.field} does not match its Action input pattern`);
+  }
+  for (const group of input.exactlyOneOf) {
+    const present = group.filter((field) => record[field] !== undefined);
+    if (present.length !== 1) errors.push(`${ingress} requires exactly one of ${group.join(", ")}`);
+  }
+  return errors;
 }
 
 export function validateSessionEnvironment(value: unknown): string[] {

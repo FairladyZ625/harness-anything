@@ -1,12 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  entityActionCliInputs,
-  explainEntityKind,
-  getEntityKindContract,
-  validateEntityActionInput,
-} from "../../src/domain/index.ts";
+import { explainEntityKind, getEntityKindContract } from "../../src/domain/index.ts";
 
 const concurrencyFields = [
   "expectedVersion",
@@ -44,33 +39,15 @@ test("Task start submit review complete are complete executable Action contracts
 
 test("Agent-readable input and CLI facets share the same field declarations", () => {
   const actions = getEntityKindContract("task")?.actionCatalog?.actions ?? [];
-  for (const action of actions)
-    assert.deepEqual(
-      entityActionCliInputs(action).map(({ field }) => field),
-      action.input.fields.filter(({ cli }) => cli).map(({ field }) => field),
+  for (const action of actions) {
+    const cliFields = action.input.fields.filter(({ cli }) => cli);
+    assert.equal(new Set(cliFields.map(({ field }) => field)).size, cliFields.length, action.id);
+    assert.ok(
+      cliFields.every(({ cli }) => cli?.name.startsWith("--")),
       action.id,
     );
-  assert.deepEqual(validateEntityActionInput("task-submit", { kind: "task-submit", taskId: "task_1" }), [
-    "task-submit requires exactly one of fromFile, jsonInput",
-  ]);
-  assert.deepEqual(
-    validateEntityActionInput("task-submit", {
-      kind: "task-submit",
-      taskId: "task_1",
-      fromFile: "submission.json",
-      jsonInput: "{}",
-    }),
-    ["task-submit requires exactly one of fromFile, jsonInput"],
-  );
-  assert.deepEqual(
-    validateEntityActionInput("task-submit", {
-      kind: "task-submit",
-      taskId: "task_1",
-      fromFile: "submission.json",
-      expectedVersion: 7,
-    }),
-    [],
-  );
+  }
+  assert.deepEqual(actions.find(({ id }) => id === "submit")?.input.exactlyOneOf, [["fromFile", "jsonInput"]]);
 });
 
 test("entity explain reports all runtime-local bounded-context Action exceptions", () => {

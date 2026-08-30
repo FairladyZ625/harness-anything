@@ -4,7 +4,7 @@ import type {
   EntityActionInputField,
 } from "./entity-kind-registry.ts";
 
-export const TASK_SUBMISSION_JSON_FIELDS = Object.freeze([
+const TASK_SUBMISSION_JSON_FIELDS = Object.freeze([
   "completionClaim",
   "deliverables",
   "outputs",
@@ -13,7 +13,7 @@ export const TASK_SUBMISSION_JSON_FIELDS = Object.freeze([
   "residualRisks",
   "commitSha",
 ] as const);
-export const TASK_REVIEW_JSON_FIELDS = Object.freeze(["verdict", "reason", "evidenceChecked"] as const);
+const TASK_REVIEW_JSON_FIELDS = Object.freeze(["verdict", "reason", "evidenceChecked"] as const);
 
 const actionInput = (
   fields: readonly EntityActionInputField[],

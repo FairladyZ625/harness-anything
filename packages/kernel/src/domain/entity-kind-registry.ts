@@ -47,7 +47,6 @@ export type EntityKindDeclaration = VerticalDefinition["entityKinds"][number];
 export type EntityPackageScaffold = VerticalDefinition["packageScaffolds"][number];
 export const ENTITY_DOCUMENT_POLICY_ID = "typed-entity/v1";
 export type EntityRepositoryRootScaffold = VerticalDefinition["repositoryScaffold"]["entityRoots"][number];
-export { TASK_REVIEW_JSON_FIELDS, TASK_SUBMISSION_JSON_FIELDS } from "./task-action-contract.ts";
 
 export interface EntityKindRegistration {
   readonly id: string;
@@ -917,67 +916,6 @@ export function getTaskActionForTransition(transitionId: string): EntityActionCo
   return getEntityKindContract("task")?.actionCatalog?.actions.find(
     (action) => action.execution?.lifecycle?.transitionId === transitionId,
   );
-}
-
-export function entityActionCliInputs(action: EntityActionContract) {
-  return Object.freeze(
-    action.input.fields.flatMap((field) =>
-      field.cli
-        ? [
-            Object.freeze({
-              ...field.cli,
-              field: field.field,
-              required: field.required,
-              ...(field.enum ? { enum: field.enum } : {}),
-              ...(field.regex ? { regex: field.regex } : {}),
-            }),
-          ]
-        : [],
-    ),
-  );
-}
-
-export function validateEntityActionInput(ingress: string, value: unknown): readonly string[] {
-  const action = getExecutableEntityAction(ingress);
-  if (!action || typeof value !== "object" || value === null || Array.isArray(value))
-    return [`${ingress} action input is not declared`];
-  const record = value as Readonly<Record<string, unknown>>,
-    allowed = new Set(["kind", "executor", ...action.input.fields.map(({ field }) => field)]),
-    errors = Object.keys(record)
-      .filter((field) => !allowed.has(field))
-      .map((field) => `${ingress}.${field} is not declared by the Action input schema`);
-  for (const field of action.input.fields) {
-    const item = record[field.field];
-    if (field.required && (item === undefined || item === "")) {
-      errors.push(`${ingress}.${field.field} is required`);
-      continue;
-    }
-    if (item === undefined) continue;
-    const valid =
-      (field.type === "string" && typeof item === "string" && item.length > 0) ||
-      (field.type === "number" && Number.isSafeInteger(item) && Number(item) >= 0) ||
-      (field.type === "boolean" && typeof item === "boolean") ||
-      (field.type === "string-array" && Array.isArray(item) && item.every((entry) => typeof entry === "string")) ||
-      (field.type === "fact-hold-array" &&
-        Array.isArray(item) &&
-        item.every(
-          (entry) =>
-            typeof entry === "object" &&
-            entry !== null &&
-            typeof (entry as { readonly factRef?: unknown }).factRef === "string" &&
-            typeof (entry as { readonly rationale?: unknown }).rationale === "string",
-        ));
-    if (!valid) errors.push(`${ingress}.${field.field} must be ${field.type}`);
-    if (field.enum && !field.enum.includes(String(item)))
-      errors.push(`${ingress}.${field.field} must be one of ${field.enum.join(", ")}`);
-    if (field.regex && typeof item === "string" && !new RegExp(field.regex, "u").test(item))
-      errors.push(`${ingress}.${field.field} does not match its Action input pattern`);
-  }
-  for (const group of action.input.exactlyOneOf) {
-    const present = group.filter((field) => record[field] !== undefined);
-    if (present.length !== 1) errors.push(`${ingress} requires exactly one of ${group.join(", ")}`);
-  }
-  return errors;
 }
 
 export function requireEntityKindContract(kind: string): EntityKindContract {

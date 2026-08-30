@@ -1,13 +1,22 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { entityActionCliInputs, getEntityKindContract } from "../../kernel/src/index.ts";
-import { derivedTaskActionProtocolCommands } from "../../daemon/src/protocol/daemon-protocol-commands-task.ts";
+import { getEntityKindContract } from "../../kernel/src/index.ts";
+import {
+  derivedTaskActionProtocolCommands,
+  generatedTaskActionProtocolDeclarations,
+} from "../../daemon/src/protocol/daemon-protocol-commands-task.ts";
 import { validateDaemonRpcCall } from "../../daemon/src/protocol/daemon-protocol-rpc-validation.ts";
+import { reviewJsonFields, taskSubmissionJsonFields } from "../../preset/src/preset-command-contract.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("daemon command inputs and thin CLI parameters are projections of Task Actions", () => {
   const actions = getEntityKindContract("task")?.actionCatalog?.actions ?? [];
+  assert.deepEqual(
+    generatedTaskActionProtocolDeclarations,
+    actions.map(({ id, input, explain, execution }) => ({ id, input, explain, execution })),
+    "run tools/generate-task-action-protocol.mjs after changing the Kernel Task Action contract",
+  );
   assert.deepEqual(
     derivedTaskActionProtocolCommands.map(({ id }) => id),
     actions.map(({ execution }) => execution?.ingress),
@@ -15,8 +24,30 @@ test("daemon command inputs and thin CLI parameters are projections of Task Acti
   for (const action of actions) {
     const command = derivedTaskActionProtocolCommands.find(({ id }) => id === action.execution?.ingress);
     assert.ok(command, action.id);
-    assert.deepEqual(command.inputs, entityActionCliInputs(action), action.id);
+    assert.deepEqual(
+      command.inputs,
+      action.input.fields.flatMap((field) =>
+        field.cli
+          ? [
+              {
+                ...field.cli,
+                field: field.field,
+                required: field.required,
+                ...(field.enum ? { enum: field.enum } : {}),
+                ...(field.regex ? { regex: field.regex } : {}),
+              },
+            ]
+          : [],
+      ),
+      action.id,
+    );
   }
+  const packetFields = (id: "submit" | "review") =>
+    generatedTaskActionProtocolDeclarations
+      .find((action) => action.id === id)
+      ?.input.fields.find((field) => field.field === "fromFile")?.cli?.jsonFields;
+  assert.deepEqual(taskSubmissionJsonFields, packetFields("submit"));
+  assert.deepEqual(reviewJsonFields, packetFields("review"));
   const complete = parseThinCommand([
     "task",
     "complete",
