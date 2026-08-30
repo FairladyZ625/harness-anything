@@ -1,9 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
-const expectedDocs = [
-  "docs-release/release-posture.md"
-];
+const expectedDocs = ["docs-release/release-posture.md"];
 
 const requiredProductLinePhrases = [
   "Status taxonomy",
@@ -11,7 +9,7 @@ const requiredProductLinePhrases = [
   "Foundation",
   "Planned",
   "M2.5 GUI/daemon foundation",
-  "M3-M7"
+  "M3-M7",
 ];
 
 const riskyClaims = [
@@ -21,17 +19,23 @@ const riskyClaims = [
   { name: "cloud relay", subject: /\bcloud relay\b/i },
   { name: "GitHub Issues adapter", subject: /\bgithub issues\b[^.!?\n;|]*\badapter\b/i },
   { name: "Linear adapter", subject: /\blinear\b[^.!?\n;|]*\badapter\b/i },
-  { name: "M4 external adapter", subject: /\b(m4\b[^.!?\n;|]*\bexternal adapters?|external adapters?\b[^.!?\n;|]*\bm4)\b/i },
+  {
+    name: "M4 external adapter",
+    subject: /\b(m4\b[^.!?\n;|]*\bexternal adapters?|external adapters?\b[^.!?\n;|]*\bm4)\b/i,
+  },
   { name: "M3 task hierarchy", subject: /\bm3\b[^.!?\n;|]*\b(task hierarchy|relation semantics)\b/i },
   { name: "M6 GUI product", subject: /\bm6\b[^.!?\n;|]*\b(gui product|full gui)\b/i },
-  { name: "M7 release hardening", subject: /\bm7\b[^.!?\n;|]*\brelease hardening\b/i }
+  { name: "M7 release hardening", subject: /\bm7\b[^.!?\n;|]*\brelease hardening\b/i },
 ];
 
 const errors = [];
 const read = (path) => readFileSync(path, "utf8");
 const readme = read("README.md");
-const shippedClaim = /\b(shipped|available|implemented|complete|completed|ready|production-ready|supported|released)\b/i;
-const negativeOrFuture = /\b(no|not|never|without|unshipped|planned|future|later|requires|remain|remains|before|deferred|placeholder)\b/i;
+const releaseDocs = listMarkdown("docs-release");
+const shippedClaim =
+  /\b(shipped|available|implemented|complete|completed|ready|production-ready|supported|released)\b/i;
+const negativeOrFuture =
+  /\b(no|not|never|without|unshipped|planned|future|later|requires|remain|remains|before|deferred|placeholder)\b/i;
 
 for (const docPath of expectedDocs) {
   if (!existsSync(docPath)) errors.push(`Missing expected docs-release page: ${docPath}`);
@@ -45,13 +49,14 @@ if (existsSync(productLinePath)) {
   }
 }
 
-for (const docPath of ["README.md", ...listMarkdown("docs-release")]) {
+for (const docPath of ["README.md", ...releaseDocs]) {
   const content = read(docPath);
   if (/\/Users\/[^\s)`]+/.test(content)) errors.push(`${docPath} exposes an absolute local path`);
   collectOverclaims(docPath, content, errors);
+  validateLocalLinks(docPath, content, errors);
 }
 
-for (const docPath of listMarkdown("docs-release")) {
+for (const docPath of releaseDocs) {
   const content = read(docPath);
   if (content.includes(".harness-private/")) errors.push(`${docPath} exposes private harness path`);
 }
@@ -66,10 +71,13 @@ if (errors.length > 0) {
 console.log("Docs release map check passed.");
 
 function listMarkdown(root) {
-  return readdirSync(root)
-    .filter((entry) => entry.endsWith(".md"))
-    .map((entry) => join(root, entry))
-    .sort();
+  const markdown = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const entryPath = join(root, entry.name);
+    if (entry.isDirectory()) markdown.push(...listMarkdown(entryPath));
+    else if (entry.isFile() && entry.name.endsWith(".md")) markdown.push(entryPath);
+  }
+  return markdown.sort();
 }
 
 function collectOverclaims(docPath, content, targetErrors) {
@@ -91,5 +99,25 @@ function validateReadmePrivateBoundary(content, targetErrors) {
   }
   if (/\.harness-private\/[\w.-]+/.test(content)) {
     targetErrors.push("README.md exposes a browsable private harness subpath");
+  }
+}
+
+function validateLocalLinks(docPath, content, targetErrors) {
+  const linkPattern = /(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^)]*["'])?\)/gu;
+  for (const match of content.matchAll(linkPattern)) {
+    const rawTarget = match[1].replace(/^<|>$/gu, "");
+    if (!rawTarget || rawTarget.startsWith("#") || /^[a-z][a-z\d+.-]*:/iu.test(rawTarget)) continue;
+
+    let targetPath;
+    try {
+      targetPath = decodeURIComponent(rawTarget.split(/[?#]/u, 1)[0]);
+    } catch {
+      targetErrors.push(`${docPath} has an invalid local link: ${rawTarget}`);
+      continue;
+    }
+    if (!targetPath) continue;
+
+    const resolvedTarget = resolve(dirname(docPath), targetPath.startsWith("/") ? `.${targetPath}` : targetPath);
+    if (!existsSync(resolvedTarget)) targetErrors.push(`${docPath} links to missing path: ${rawTarget}`);
   }
 }

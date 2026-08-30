@@ -44,6 +44,11 @@ Each gate entry must declare:
 - `authoritySource`: non-empty array of authority files or declarations.
   Boundary gates must not use only their checker file as authority.
 - `consumerScope`: non-empty array describing the real checked consumer surface.
+- `localPathGlobs`: optional repository-relative glob array used only by local
+  `run-manifest-gates --changed` selection. A changed-path set is narrowed only
+  when every path matches at least one selected gate's declaration; otherwise
+  the runner conservatively executes the complete selected job. CI invocations
+  omit `--changed` and therefore always retain the full manifest job.
 - `githubContext`: required-context and workflow-job mapping.
 - `allowlistPolicy`: whether allowlists/exceptions exist, where they live, and
   whether ADR/decision evidence is required.
