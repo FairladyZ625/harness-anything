@@ -58,8 +58,8 @@ export function mergeProjectedScheduleUpdate(input: {
   readonly requiredText: (value: unknown, name: string) => string;
 }): { readonly schedule: ScheduleV1 | null; readonly errors: readonly string[] } {
   const { value, action, occurredAt, requiredText } = input,
-    currentSpec = record(value.spec),
-    currentTarget = record(currentSpec?.target),
+    currentSpec = asRecord(value.spec),
+    currentTarget = asRecord(currentSpec?.target),
     trigger = scheduleTriggerFromUpdate(action, currentSpec?.trigger, occurredAt),
     optionalTarget = (field: "model" | "reasoningEffort" | "cwd"): string | undefined =>
       Object.hasOwn(action, field)
@@ -145,7 +145,7 @@ function scheduleTriggerFromUpdate(
       timezone: String(action.timezone),
     };
   if (Object.hasOwn(action, "timezone")) {
-    const currentTrigger = record(current);
+    const currentTrigger = asRecord(current);
     if (currentTrigger?.kind !== "cron")
       throw Object.assign(new Error("Schedule timezone can only update a cron trigger."), { code: "invalid_command" });
     return { ...currentTrigger, timezone: String(action.timezone) };
@@ -153,7 +153,7 @@ function scheduleTriggerFromUpdate(
   return current;
 }
 
-function record(value: unknown): Readonly<Record<string, unknown>> | null {
+function asRecord(value: unknown): Readonly<Record<string, unknown>> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Readonly<Record<string, unknown>>)
     : null;
