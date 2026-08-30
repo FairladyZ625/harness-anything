@@ -102,16 +102,26 @@ export function renderTaskIndexPayload(payload: unknown): string | null {
       record.mode === "tree"
         ? renderTreeRows(rows)
         : rows
-            .map(
-              (row) =>
-                `${row.pinned === true ? "📌 " : ""}${String(row.taskId)}\t${String(row.status)}\t${String(row.title)}\t${String(row.module ?? "")}\t${String(row.updatedAt ?? "")}\t${String(row.packagePath ?? "")}\t${String(row.packageDisposition ?? "")}\t${String(row.taskClass ?? "")}`,
+            .map((row) =>
+              [
+                `${row.pinned === true ? "📌 " : ""}${String(row.taskId)}`,
+                String(row.status),
+                String(row.title),
+                String(row.module ?? ""),
+                String(row.updatedAt ?? ""),
+                String(row.packagePath ?? ""),
+                String(row.packageDisposition ?? ""),
+                String(row.taskClass ?? ""),
+              ].join("\t"),
             )
             .join("\n"),
     page = record.page && typeof record.page === "object" ? `  page=${JSON.stringify(record.page)}` : "";
   return [
     `${record.mode === "tree" ? "tree" : "rows"}:`,
     body || "(none)",
-    `count=${String(record.count ?? rows.length)}  status=${String(record.status ?? "unknown")}  watermark=${String(record.watermark ?? "unknown")}  sourceRevision=${String(record.sourceRevision ?? "unknown")}${page}`,
+    `count=${String(record.count ?? rows.length)}  status=${String(record.status ?? "unknown")}  ` +
+      `watermark=${String(record.watermark ?? "unknown")}  ` +
+      `sourceRevision=${String(record.sourceRevision ?? "unknown")}${page}`,
   ].join("\n");
 }
 
@@ -234,7 +244,8 @@ function renderTreeRows(rows: readonly Record<string, unknown>[]): string {
   while (stack.length) {
     const { row, depth } = stack.pop()!;
     lines.push(
-      `${"  ".repeat(depth)}${row.pinned === true ? "📌 " : ""}${String(row.taskId)} [${String(row.status)}] ${String(row.title)}`,
+      `${"  ".repeat(depth)}${row.pinned === true ? "📌 " : ""}${String(row.taskId)} ` +
+        `[${String(row.status)}] ${String(row.title)}`,
     );
     const children = Array.isArray(row.children) ? (row.children as Record<string, unknown>[]) : [];
     for (let index = children.length - 1; index >= 0; index -= 1)
