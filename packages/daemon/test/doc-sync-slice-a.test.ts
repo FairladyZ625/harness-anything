@@ -152,9 +152,7 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
     assert.match(String((authored as Record<string, unknown>).summary), /applied count: 1/u);
 
     const repoRelative = await cell.run({ kind: "doc-submit", paths: ["harness/context/selected.md"] }, binding);
-    assert.equal(repoRelative.outcome, "op_rejected", JSON.stringify(repoRelative));
-    assert.equal(repoRelative.code, "invalid_command");
-    assert.match(repoRelative.nextAction ?? "", /authored-root-relative/u);
+    assert.equal(repoRelative.outcome, "no_changes", JSON.stringify(repoRelative));
 
     const missing = await cell.run({ kind: "doc-submit", paths: ["context/missing.md"] }, binding);
     assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));

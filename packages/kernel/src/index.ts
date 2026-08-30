@@ -254,6 +254,7 @@ export type {
   EventPublicationKillpoint,
   ProjectionPage,
   ReplicaProjectionBasis,
+  TaskIndexProjectionRow,
   TaskProjection,
   TaskProjectionListQuery,
   TaskRelationProjectionRead,

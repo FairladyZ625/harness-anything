@@ -5,6 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
 import type { ReplayTaskStatus, TaskV1 } from "../domain/task.ts";
+import type { TaskIndexProjectionRow } from "./projection-reads.ts";
 import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 
 /**
@@ -60,6 +61,51 @@ export interface NarrowTaskRow {
   readonly created_at: string | null;
   readonly updated_at: string;
   readonly pinned: number;
+}
+
+/** One projection scan for the CLI task index. The row is intentionally limited
+ * to list/tree fields, so callers do not hydrate executions, reviews, leases, or
+ * relation graphs only to discard them after a metadata filter. */
+export function readTaskIndexRows(db: DatabaseSync): readonly TaskIndexProjectionRow[] {
+  const rows = queryRows<{
+    readonly task_id: string;
+    readonly package_path: string | null;
+    readonly updated_at: string;
+    readonly snapshot_json: string;
+  }>(
+    db,
+    [
+      "SELECT task_snapshot.task_id, task_package.package_path, task_snapshot.updated_at,",
+      "task_snapshot.snapshot_json FROM task_snapshot",
+      "LEFT JOIN task_package USING(task_id) ORDER BY task_snapshot.task_id",
+    ].join(" "),
+  );
+  return rows.flatMap((row) => {
+    let task: TaskV1 | null;
+    try {
+      task = (JSON.parse(row.snapshot_json) as { readonly task?: TaskV1 | null }).task ?? null;
+    } catch {
+      throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
+    }
+    if (task === null) return [];
+    return [
+      {
+        taskId: row.task_id,
+        title: task.title,
+        status: task.status,
+        pinned: task.pinned ?? false,
+        parentTaskId: task.metadata?.parentTaskId ?? null,
+        moduleKey: task.metadata?.moduleKey ?? null,
+        workKind: task.metadata?.workKind ?? null,
+        riskTier: task.metadata?.riskTier ?? null,
+        urgency: task.metadata?.urgency ?? null,
+        taskClass: task.taskClass,
+        packageDisposition: task.packageDisposition ?? "active",
+        packagePath: row.package_path,
+        updatedAt: row.updated_at,
+      },
+    ];
+  });
 }
 
 /** Derive display-only creation time from the first canonical event for a task.

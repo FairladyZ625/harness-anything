@@ -49,7 +49,7 @@ test("transition document bindings enumerate canonical consumers and omit milest
   assert.throws(() => requireTransitionDocumentKind("milestone.closeout"), /no canonical document binding/u);
 });
 
-test("task plan rejects the preset scaffold, empty sections, and retained scaffold sentences", () => {
+test("task plan rejects pure scaffolds but accepts a retained scaffold sentence plus concrete content", () => {
   const template = readFileSync(
     new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
     "utf8",
@@ -64,9 +64,14 @@ test("task plan rejects the preset scaffold, empty sections, and retained scaffo
 
   const retainedScaffold = realizedPlan().replace(
     "## Brief\n\nImplemented Brief.",
-    "## Brief\n\nOne-line statement of the task objective and scope. Additional words do not realize it.",
+    "## Brief\n\nOne-line statement of the task objective and scope. Implement task-index/v1 for CLI consumers.",
   );
-  assert.deepEqual(assessTransitionDocument("task.plan", retainedScaffold).missingSections, ["Brief"]);
+  assert.equal(assessTransitionDocument("task.plan", retainedScaffold).ready, true);
+  const pureScaffoldSection = realizedPlan().replace(
+    "## Verification\n\nImplemented Verification.",
+    "## Verification\n\nStop point = targeted tests for the surface you touched, green, plus a local commit.",
+  );
+  assert.deepEqual(assessTransitionDocument("task.plan", pureScaffoldSection).missingSections, ["Verification"]);
   assert.equal(assessTransitionDocument("task.plan", realizedPlan()).ready, true);
 });
 

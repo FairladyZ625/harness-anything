@@ -18,6 +18,7 @@ import {
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryReadModel } from "./task-query-read.ts";
 import { resolveTaskRootThreshold, resolveTaskWipLimit } from "./task-wip-settings.ts";
+import { selectTaskIndex } from "./task-index-query.ts";
 
 export interface TaskQueryCell {
   readonly input: { readonly repoId: string };
@@ -34,7 +35,13 @@ export interface TaskQueryCell {
     workspaceId: string,
     expectedRevision: number,
   ) => string;
-  readonly readResult: (opId: string, value: object, revision: number, worktreeVisible: boolean | null) => WriteReceipt;
+  readonly readResult: (
+    opId: string,
+    value: object,
+    revision: number,
+    worktreeVisible: boolean | null,
+    cut?: { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number },
+  ) => WriteReceipt;
   readonly cellCodedError: (code: string, message: string) => Error;
   readonly requiredCellText: (value: unknown, name: string) => string;
   readonly wipSnapshotEntries: () => readonly TaskWipSnapshotEntryV1[];
@@ -45,78 +52,109 @@ export interface TaskQueryCell {
 
 export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
   const query = cell.taskListQueryFromAction(action),
-    hasPostFilter = ["module", "workKind", "riskTier", "urgency", "parentTaskId", "search"].some(
-      (field) => action[field] !== undefined,
-    );
-  if (hasPostFilter && (query.limit !== undefined || query.cursor !== undefined))
+    depth = taskListDepth(action.depth);
+  if (depth === null)
     throw cell.cellCodedError(
       "invalid_command",
-      [
-        "Task list pagination cannot be combined with module, kind, risk, ",
-        "urgency, parent, or search filters; narrow those filters first, then ",
-        "page the result.",
-      ].join(""),
+      "Task list depth must be a positive integer or all; use it with --parent <task-id>.",
     );
-  const read = cell.queryRead().guiTasks(query),
-    rootSetting = resolveTaskRootThreshold(cell.rootDir),
-    childCounts = cell.directChildCounts(),
-    search = typeof action.search === "string" ? action.search.toLocaleLowerCase() : null;
-  const rows = read.rows.filter((row) => {
-    const task = row.snapshot.task,
-      metadata = task?.metadata;
-    return (
-      (!action.status || task?.status === action.status) &&
-      (!action.module ||
-        metadata?.moduleKey === action.module ||
-        row.placement.moduleKeys.includes(String(action.module))) &&
-      (!action.workKind || metadata?.workKind === action.workKind) &&
-      (!action.riskTier || metadata?.riskTier === action.riskTier) &&
-      (!action.urgency || metadata?.urgency === action.urgency) &&
-      (!action.parentTaskId ||
-        metadata?.parentTaskId === action.parentTaskId ||
-        row.placement.parentTaskId === action.parentTaskId) &&
-      (!search || `${row.taskId}\n${task?.title ?? ""}`.toLocaleLowerCase().includes(search))
+  if (depth !== undefined && typeof action.parentTaskId !== "string")
+    throw cell.cellCodedError(
+      "invalid_command",
+      "Task list --depth requires --parent <task-id> so the recursive subtree has one root.",
     );
-  });
-  return cell.readResult(
-    cell.operationId(action, binding, cell.input.repoId, read.sourceRevision),
-    {
-      rows: rows.map((row) => {
-        const task = row.snapshot.task,
-          directChildCount = childCounts.get(row.taskId) ?? 0,
-          rootAssessment = task
-            ? deriveTaskRoot(
-                {
-                  taskId: row.taskId,
-                  title: task.title,
-                  status: task.status,
-                  taskClass: task.taskClass,
-                  packageDisposition: task.packageDisposition ?? "active",
-                  hasCloseoutEvidence: hasCloseoutEvidence(row.snapshot.executions),
-                  directChildCount,
-                },
-                rootSetting.threshold,
-              )
-            : null;
-        return {
-          taskId: row.taskId,
-          status: task?.status ?? "unknown",
-          title: task?.title ?? "",
-          module: task?.metadata?.moduleKey ?? "",
-          updatedAt: row.updatedAt,
-          packagePath: row.packagePath,
-          packageDisposition: row.placement.packageDisposition,
-          taskClass: task?.taskClass ?? "unknown",
-          rootAssessment,
-        };
-      }),
-      count: rows.length,
-      warnings: read.warnings,
-      ...(read.page ? { page: read.page } : {}),
+  const read = cell.projection.readTaskIndex();
+  let selected: ReturnType<typeof selectTaskIndex>;
+  try {
+    selected = selectTaskIndex(read.rows, {
+      ...(typeof action.parentTaskId === "string" ? { parentTaskId: action.parentTaskId } : {}),
+      ...(depth === undefined ? {} : { depth }),
+      filters: {
+        ...(query.status ? { status: query.status } : {}),
+        ...(typeof action.module === "string" ? { module: action.module } : {}),
+        ...(typeof action.workKind === "string" ? { workKind: action.workKind } : {}),
+        ...(typeof action.riskTier === "string" ? { riskTier: action.riskTier } : {}),
+        ...(typeof action.urgency === "string" ? { urgency: action.urgency } : {}),
+        ...(typeof action.search === "string" ? { search: action.search } : {}),
+        ...(query.updatedAfter ? { updatedAfter: query.updatedAfter } : {}),
+        ...(query.updatedBefore ? { updatedBefore: query.updatedBefore } : {}),
+      },
+      ...(query.limit === undefined ? {} : { limit: query.limit }),
+      ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "task list cursor is invalid")
+      throw cell.cellCodedError("invalid_command", "Task list cursor is invalid; restart the filtered query.");
+    throw error;
+  }
+  const rootSetting = resolveTaskRootThreshold(cell.rootDir),
+    value =
+      selected.mode === "tree"
+        ? {
+            schema: "task-list/v2" as const,
+            mode: "tree" as const,
+            parentTaskId: action.parentTaskId,
+            depth,
+            rows: selected.rows,
+            count: selected.count,
+            warnings: read.warnings,
+            ...(selected.page ? { page: selected.page } : {}),
+          }
+        : {
+            schema: "task-list/v2" as const,
+            mode: "flat" as const,
+            rows: selected.rows.map((row) => {
+              const directChildCount = selected.childCounts.get(row.taskId) ?? 0;
+              return {
+                taskId: row.taskId,
+                status: row.status,
+                title: row.title,
+                pinned: row.pinned,
+                module: row.moduleKey ?? "",
+                updatedAt: row.updatedAt,
+                packagePath: row.packagePath,
+                packageDisposition: row.packageDisposition,
+                taskClass: row.taskClass,
+                rootAssessment: deriveTaskRoot(
+                  {
+                    taskId: row.taskId,
+                    title: row.title,
+                    status: row.status,
+                    taskClass: row.taskClass,
+                    packageDisposition: row.packageDisposition,
+                    hasCloseoutEvidence: false,
+                    directChildCount,
+                  },
+                  rootSetting.threshold,
+                ),
+              };
+            }),
+            count: selected.rows.length,
+            warnings: read.warnings,
+            ...(selected.page ? { page: selected.page } : {}),
+          };
+  const payload = {
+      ...value,
+      status: read.status,
+      watermark: read.watermark,
+      sourceRevision: read.sourceRevision,
     },
-    read.sourceRevision,
-    null,
-  );
+    receipt = cell.readResult(
+      cell.operationId(action, binding, cell.input.repoId, read.sourceRevision),
+      payload,
+      read.sourceRevision,
+      null,
+      read,
+    );
+  return { ...receipt, ...payload } as WriteReceipt;
+}
+
+function taskListDepth(value: unknown): number | "all" | undefined | null {
+  if (value === undefined) return undefined;
+  if (value === "all") return value;
+  const depth = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  if (!Number.isSafeInteger(depth) || depth < 1) return null;
+  return depth;
 }
 
 export function taskWipEnteringAction(

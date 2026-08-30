@@ -165,12 +165,26 @@ export function assertTransitionDocumentReady(kind: TransitionDocumentKind, body
 }
 
 function missingMarkdownSections(body: string, contract: MarkdownDocumentContract): string[] {
-  const sections = markdownSections(body);
+  const sections = markdownSections(body),
+    untouchedScaffold = contract.requiredSections.every((heading) => {
+      const content = sections.get(normalizeHeading(heading));
+      return (
+        !!content?.trim() &&
+        (contract.scaffoldBySection[heading] ?? []).some((scaffold) =>
+          normalizeText(content).includes(normalizeText(scaffold)),
+        )
+      );
+    });
   return contract.requiredSections.filter((heading) => {
     const content = sections.get(normalizeHeading(heading));
     if (!content?.trim()) return true;
-    const normalized = normalizeText(content);
-    return (contract.scaffoldBySection[heading] ?? []).some((scaffold) => normalized.includes(normalizeText(scaffold)));
+    const scaffolds = contract.scaffoldBySection[heading] ?? [],
+      normalized = normalizeText(content),
+      retained = scaffolds.filter((scaffold) => normalized.includes(normalizeText(scaffold)));
+    if (retained.length === 0) return false;
+    if (untouchedScaffold) return true;
+    const remainder = retained.reduce((value, scaffold) => value.replaceAll(normalizeText(scaffold), " "), normalized);
+    return !/[\p{L}\p{N}]/u.test(remainder);
   });
 }
 

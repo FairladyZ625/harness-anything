@@ -1,4 +1,5 @@
 import { consumeKnownError } from "../../kernel/src/index.ts";
+import { renderTaskIndexPayload } from "./task-index-query.ts";
 
 export function decodeEvidencePayload(evidence: string): unknown {
   const tag = evidence.indexOf(":");
@@ -14,6 +15,8 @@ export function decodeEvidencePayload(evidence: string): unknown {
 }
 
 export function renderEvidencePayload(payload: unknown): string {
+  const taskIndex = renderTaskIndexPayload(payload);
+  if (taskIndex !== null) return taskIndex;
   if (Array.isArray(payload)) return renderEvidenceRows(payload);
   if (payload === null || typeof payload !== "object") return String(payload);
   const entries = Object.entries(payload),
