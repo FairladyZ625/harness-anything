@@ -1,12 +1,13 @@
 import type { MouseEvent } from "react";
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { X, Crosshair, ArrowsOutSimple } from "@phosphor-icons/react";
+import { PushPin, X, Crosshair, ArrowsOutSimple } from "@phosphor-icons/react";
 import { StatusBadge, CloseoutBadge, FreshnessTag } from "../../components/badges";
 import type { TaskRow, DecisionRow, FactRef } from "../../model/types";
 import { moduleDisplayLabel } from "../moduleAssignment";
 import { EntityRefLink } from "../../components/EntityRefLink.tsx";
 import type { EgoFlowNode } from "../egoCanvas.ts";
+import type { AgentNodeRow, ScheduleNodeRow } from "../runtimeEntities.ts";
 
 /**
  * 无限画布 ego 节点(dec_01KXBGJQFQARSZHHQW1WADFDNC)。一个组件两态:
@@ -15,16 +16,21 @@ import type { EgoFlowNode } from "../egoCanvas.ts";
  *
  * 交互回调由 GraphView 注入 data:onCollapse / onRefocus / onNavigate。
  * chip 的「单击展开」走 ReactFlow onNodeClick,不在此处理。
+ *
+ * 五类实体共用这一个组件(task/decision/fact/agent/schedule);运行时两类只有
+ * 标题 + 一行事实行,复用同一壳,不另立第二套节点组件。
  */
 
-type Entity = "task" | "decision" | "fact";
+type Entity = "task" | "decision" | "fact" | "agent" | "schedule";
 
 const AXIS_VAR: Record<Entity, string> = {
   task: "var(--color-axis-execution)",
   decision: "var(--color-axis-authority)",
   fact: "var(--color-axis-evidence)",
+  agent: "var(--color-axis-assoc)",
+  schedule: "var(--color-axis-assoc)",
 };
-const KIND_LETTER: Record<Entity, string> = { task: "T", decision: "D", fact: "F" };
+const KIND_LETTER: Record<Entity, string> = { task: "T", decision: "D", fact: "F", agent: "A", schedule: "S" };
 const HANDLE_CLS = "!h-2 !w-2 !min-w-2 !min-h-2 !border-0 !bg-[var(--color-border-strong)]";
 
 function EgoHandles() {
@@ -71,6 +77,7 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
             style={{ backgroundColor: data.color ?? "var(--color-status-unknown)" }}
           />
         )}
+        {entity === "task" && (data.raw as TaskRow).pinned === true && <EgoPinMark />}
         <span className="ui-meta min-w-0 flex-1 truncate text-text">{data.label}</span>
         {data.hiddenCount > 0 && (
           <span
@@ -143,6 +150,12 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
 
       <div className="shrink-0 px-2.5 pt-2">
         <p className="ui-body font-semibold leading-snug text-text">{data.label}</p>
+        {entity === "task" && (data.raw as TaskRow).pinned === true && (
+          <p className="ui-micro mt-0.5 flex items-center gap-1 font-mono text-text-faint">
+            <PushPin weight="fill" className="text-[10px] text-accent" />
+            台账 pinned · 恒在重点集
+          </p>
+        )}
       </div>
 
       <div className="nowheel mt-1.5 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-2.5 pb-2">
@@ -151,6 +164,8 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
         {entity === "fact" && (
           <EgoFactBody fact={data.raw as FactRef} onNavigate={data.onNavigate as ((ref: string) => void) | undefined} />
         )}
+        {entity === "agent" && <EgoAgentBody agent={data.raw as AgentNodeRow} />}
+        {entity === "schedule" && <EgoScheduleBody schedule={data.raw as ScheduleNodeRow} />}
       </div>
 
       <div className="ui-micro flex shrink-0 items-center justify-between gap-2 border-t border-border px-2.5 py-1 font-mono text-text-faint">
@@ -175,6 +190,47 @@ function EgoTaskBody({ task }: { task: TaskRow }) {
         <span>模块 {moduleDisplayLabel(task.module)}</span>
         {task.riskTier && <span>风险 {task.riskTier}</span>}
         {task.urgency && <span>紧迫 {task.urgency}</span>}
+      </div>
+    </>
+  );
+}
+
+/** 台账 pin 的只读标记:pin 写入口在任务列表(task_b87204e6),图上不做第二条写路。 */
+function EgoPinMark() {
+  return (
+    <span title="台账 pinned(在任务列表钉住)——恒在重点集,密度分层不折叠" className="flex shrink-0 items-center">
+      <PushPin weight="fill" className="text-[10px] text-accent" />
+    </span>
+  );
+}
+
+function EgoAgentBody({ agent }: { agent: AgentNodeRow }) {
+  return (
+    <>
+      <div className="ui-micro flex items-center gap-2 font-mono">
+        <span className="rounded bg-axis-assoc/15 px-1.5 py-0.5 text-text-muted">{agent.sub}</span>
+      </div>
+      <div className="rounded-md border border-border bg-surface-raised px-2 py-1.5">
+        <span className="ui-micro font-mono uppercase tracking-wide text-text-faint">被派的 task</span>
+        <p className="ui-meta mt-0.5 font-medium text-text">
+          {agent.taskCount > 0 ? `${agent.taskCount} 个(dispatches 边)` : "无派工记录"}
+        </p>
+      </div>
+    </>
+  );
+}
+
+function EgoScheduleBody({ schedule }: { schedule: ScheduleNodeRow }) {
+  return (
+    <>
+      <div className="ui-micro flex items-center gap-2 font-mono">
+        <span className="rounded bg-axis-assoc/15 px-1.5 py-0.5 text-text-muted">{schedule.sub}</span>
+      </div>
+      <div className="rounded-md border border-border bg-surface-raised px-2 py-1.5">
+        <span className="ui-micro font-mono uppercase tracking-wide text-text-faint">target agent</span>
+        <p className="ui-meta mt-0.5 break-all font-medium text-text">
+          {schedule.targetAgentId ?? "squad target(未投影为 agent 节点)"}
+        </p>
       </div>
     </>
   );

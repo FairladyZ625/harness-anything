@@ -10,6 +10,7 @@ import {
   type EgoAxisFilter,
   type EgoGraph,
 } from "./egoCanvas";
+import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
 
 /**
  * 无限画布 ego 的状态机(dec_01KXBGJQFQARSZHHQW1WADFDNC CH1)。
@@ -55,16 +56,26 @@ export function useEgoCanvas({
   facts,
   relations,
   factAnchors,
+  agents = [],
+  schedules = [],
   axes,
   focusRef,
+  allowedIds = null,
+  layered = false,
 }: {
   tasks: ReadonlyArray<TaskRow>;
   decisions: ReadonlyArray<DecisionRow>;
   facts: ReadonlyArray<FactRef>;
   relations: ReadonlyArray<RelationEdge>;
   factAnchors: ReadonlyArray<FactAnchorRow>;
+  agents?: ReadonlyArray<AgentNodeRow>;
+  schedules?: ReadonlyArray<ScheduleNodeRow>;
   axes: EgoAxisFilter;
   focusRef: string | null;
+  /** 重点模式的可见集;null = 不分层(全部可铺开)。焦点自身恒可见。 */
+  allowedIds?: ReadonlySet<string> | null;
+  /** 分层开关(重点模式)。翻转时从当前焦点重铺;数据刷新引起的集合内容变化不重排。 */
+  layered?: boolean;
 }): EgoCanvasState {
   const [focusId, setFocusId] = useState<string | null>(null);
   const [shown, setShown] = useState<Map<string, number>>(() => new Map());
@@ -72,25 +83,22 @@ export function useEgoCanvas({
   const [selectId, setSelectId] = useState<string | null>(null);
 
   const graph = useMemo(
-    () => buildEgoGraph(tasks, decisions, facts, relations, factAnchors),
-    [tasks, decisions, facts, relations, factAnchors],
+    () => buildEgoGraph(tasks, decisions, facts, relations, factAnchors, { agents, schedules }),
+    [tasks, decisions, facts, relations, factAnchors, agents, schedules],
   );
 
-  const highlight = useMemo(
-    () => egoOneHopHighlight(graph, selectId, axes),
-    [graph, selectId, axes],
-  );
+  const highlight = useMemo(() => egoOneHopHighlight(graph, selectId, axes), [graph, selectId, axes]);
 
   const openFocus = useCallback(
     (ref: string) => {
       const canonical = egoFocusIdOf(ref);
       setFocusId(canonical);
-      setShown(bfsShownFromFocus(graph, canonical, EGO_DEFAULT_HOPS, axes));
+      setShown(bfsShownFromFocus(graph, canonical, EGO_DEFAULT_HOPS, axes, allowedIds));
       // 焦点默认展开成卡片(它是阅读主体),邻居保持紧凑 chip。
       setExpanded(new Set([canonical]));
       setSelectId(null);
     },
-    [graph, axes],
+    [graph, axes, allowedIds],
   );
   // 稳定引用:外部 focusRef 变化时才重排,不因 openFocus 身份变动而重排。
   const openFocusRef = useRef(openFocus);
@@ -134,10 +142,12 @@ export function useEgoCanvas({
   }, []);
 
   // 外部焦点(领地 chip / 命令面板 / 焦点历史)到达 → 重排画布到该焦点。
+  // 密度分层开关翻转同样重铺(「只看重点 ↔ 全部」是显式的视图切换);重点集内容
+  // 随数据刷新变化不在此列 —— 那不是用户动作,不该清掉已铺开的画布。
   useEffect(() => {
     if (!focusRef) return;
     openFocusRef.current(focusRef);
-  }, [focusRef]);
+  }, [focusRef, layered]);
 
   return {
     graph,

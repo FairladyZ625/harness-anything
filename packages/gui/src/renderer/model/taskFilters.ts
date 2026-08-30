@@ -1,4 +1,5 @@
 import type { CloseoutReadiness, EngineId, Freshness, SnapshotStatus, TaskRow } from "./types";
+import { isTerminal } from "./types";
 
 export interface TaskFilters {
   query: string;
@@ -48,6 +49,35 @@ export const isTaskArchiveNoise = (task: Pick<TaskRow, "packageDisposition" | "c
   task.packageDisposition !== "active" ||
   /* @gate-identity check-gui-status-judgments/gui-status-034 */
   task.coordinationStatus === "cancelled";
+
+/**
+ * 关系图「重点模式」的种子判定(task_5ba031c2):一个 task 是否默认要看。
+ *
+ * 判定本体在这里,与看板共用同一组既有判定(isTerminal / isTaskArchiveNoise),
+ * 不另立第二份状态词表:
+ *   pinned         → 永远是种子(pin 是「我当下正在做的」,与状态正交,归档也不例外);
+ *   非终态且非归档  → 开放工作面(planned/active/blocked/in_review/unknown);
+ *   最近 N 天有变更 → 刚动过的(含刚收口的 done),否则冷任务折叠成计数徽章。
+ * 关系图领地与聚光灯两视图都经 selectGraphFocusSet(graph/focusSet.ts)调它;
+ * 看板将来要「只看重点」也调这里,不复制。
+ */
+export const GRAPH_FOCUS_RECENT_WINDOW_DAYS = 14;
+
+export function isTaskGraphFocusSeed(
+  task: Pick<TaskRow, "taskId" | "pinned" | "packageDisposition" | "coordinationStatus" | "lastKnownAt">,
+  now: string,
+): boolean {
+  if (task.pinned === true) return true;
+  if (isTaskArchiveNoise(task)) return false;
+  if (!isTerminal(task.coordinationStatus)) return true;
+  return recentWindowCutoff(now) <= Date.parse(task.lastKnownAt);
+}
+
+/** 窗口下界(毫秒);`now` 解析失败(NaN)返回 NaN,比较恒 false → 冷任务折叠,不误收。 */
+function recentWindowCutoff(now: string): number {
+  const at = Date.parse(now);
+  return Number.isNaN(at) ? at : at - GRAPH_FOCUS_RECENT_WINDOW_DAYS * 86_400_000;
+}
 
 export function matchesTask(task: TaskRow, filters: TaskFilters, favorites?: ReadonlySet<string>): boolean {
   if (!filters.includeArchived && isTaskArchiveNoise(task)) {

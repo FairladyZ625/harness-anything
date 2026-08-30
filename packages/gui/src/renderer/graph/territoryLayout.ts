@@ -74,7 +74,8 @@ export type TerritoryEntityChipNodeData = Record<string, unknown> & {
 
 export type TerritoryFoldNodeData = Record<string, unknown> & {
   readonly chip: null;
-  readonly fold: { readonly zoneId: string; readonly hidden: number };
+  /** `deferred: true` = 重点模式折叠的重点外 chip(区别于 chip 数封顶的 fold)。 */
+  readonly fold: { readonly zoneId: string; readonly hidden: number; readonly deferred?: boolean };
   readonly onFold: (zoneId: string) => void;
 };
 
@@ -168,20 +169,24 @@ export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
         });
         chipY += CHIP_H + CHIP_GAP;
       }
-      if (shown.length < zone.chips.length) {
-        const hidden = zone.chips.length - shown.length;
+      const foldRows: ReadonlyArray<TerritoryFoldNodeData["fold"]> = [
+        // chip 封顶的 fold 行(块内 chip 超过 cap)。
+        ...(shown.length < zone.chips.length
+          ? [{ zoneId: zone.zoneId, hidden: zone.chips.length - shown.length }]
+          : []),
+        // 重点模式折叠的重点外 chip:独立徽章行(点击 = 该块回到全量),与 chip 封顶
+        // 分开 —— 两层折叠语义不同,合并会让「全部展开」顺手清掉密度分层。
+        ...((zone.deferred ?? 0) > 0 ? [{ zoneId: zone.zoneId, hidden: zone.deferred!, deferred: true }] : []),
+      ];
+      for (const [index, fold] of foldRows.entries()) {
         nodes.push({
-          id: `territory-fold:${zone.zoneId}`,
+          id: `territory-fold:${fold.deferred ? "deferred" : "cap"}:${zone.zoneId}`,
           type: "territoryChip",
-          position: { x: cursorX + ZONE_BODY_PAD_X, y: chipY },
+          position: { x: cursorX + ZONE_BODY_PAD_X, y: chipY + index * (CHIP_H + CHIP_GAP) },
           width: ZONE_W - ZONE_BODY_PAD_X * 2,
           height: CHIP_H,
           style: { width: ZONE_W - ZONE_BODY_PAD_X * 2, height: CHIP_H },
-          data: {
-            chip: null,
-            fold: { zoneId: zone.zoneId, hidden },
-            onFold,
-          },
+          data: { chip: null, fold, onFold },
           zIndex: 2,
         });
       }
@@ -201,7 +206,8 @@ export function zoneHeaderH(zone: TerritoryZone): number {
 
 function zoneHeight(zone: TerritoryZone, folded: boolean): number {
   const shown = visibleChips(zone, folded);
-  const extra = shown.length < zone.chips.length ? 1 : 0; // fold 提示行
+  // fold 提示行:chip 封顶一行 + 重点模式折叠一行。
+  const extra = (shown.length < zone.chips.length ? 1 : 0) + ((zone.deferred ?? 0) > 0 ? 1 : 0);
   const count = shown.length + extra;
   const bodyH = Math.max(ZONE_MIN_BODY_H, count * CHIP_H + Math.max(0, count - 1) * CHIP_GAP);
   return zoneHeaderH(zone) + ZONE_BODY_PAD_Y * 2 + bodyH;

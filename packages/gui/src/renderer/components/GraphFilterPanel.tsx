@@ -9,6 +9,7 @@ import {
   WaveSine,
   GitBranch,
   CircleHalf,
+  Crosshair,
 } from "@phosphor-icons/react";
 import {
   AXIS_COLOR_VAR,
@@ -35,7 +36,13 @@ import type { DecisionState, RelationKind, SnapshotStatus } from "../model/types
 import { STATUS_META } from "./badges";
 import { t } from "../i18n/index.tsx";
 
-export type EntityType = "decision" | "task" | "fact";
+export type EntityType = "decision" | "task" | "fact" | "agent" | "schedule";
+
+/** 实体种类全集(筛选面板与「缩了几项」计数同源,不各写一份清单)。 */
+export const ENTITY_TYPE_OPTIONS: ReadonlyArray<EntityType> = ["decision", "task", "fact", "agent", "schedule"];
+
+/** 密度分层:重点模式(默认)只看 pinned/在飞/最近变更 + 一跳邻域,其余折叠。 */
+export type GraphDensityMode = "focus" | "all";
 
 export interface AxisFilterState {
   authority: boolean;
@@ -50,6 +57,7 @@ export interface GraphFilters {
   axes: AxisFilterState;
   kinds: Set<RelationKind>;
   entityStatus: EntityStatusFilterState;
+  density: GraphDensityMode;
 }
 
 interface Props {
@@ -62,6 +70,11 @@ interface Props {
    * 默认 true。
    */
   showEntityTypes?: boolean;
+  /**
+   * 密度分层段是否可见。单种类领地下重点集的邻域(decision/fact/agent/schedule)
+   * 多半不在场,分层意义小,隐藏;聚光灯 / 全域下保留。默认 true。
+   */
+  showDensity?: boolean;
   flowMode: FlowAnimMode;
   onFlowModeChange: (mode: FlowAnimMode) => void;
 }
@@ -93,6 +106,7 @@ export function GraphFilterPanel({
   setFilters,
   availableModules,
   showEntityTypes = true,
+  showDensity = true,
   flowMode,
   onFlowModeChange,
 }: Props) {
@@ -111,6 +125,8 @@ export function GraphFilterPanel({
       else next.add(entityType);
       return { ...prev, types: next };
     });
+
+  const setDensity = (density: GraphDensityMode) => setFilters((prev) => ({ ...prev, density }));
 
   const toggleAxis = (axis: SemanticAxis) =>
     setFilters((prev) => ({ ...prev, axes: { ...prev.axes, [axis]: !prev.axes[axis] } }));
@@ -178,7 +194,8 @@ export function GraphFilterPanel({
   const statusOff = Math.max(0, taskStatusOffCount(entityStatus)) + Math.max(0, decisionStateOffCount(entityStatus));
   const narrowed =
     AXIS_ORDER.filter((a) => !filters.axes[a]).length +
-    (showEntityTypes ? Math.max(0, 3 - filters.types.size) : 0) +
+    (showEntityTypes ? Math.max(0, ENTITY_TYPE_OPTIONS.length - filters.types.size) : 0) +
+    (showDensity && filters.density === "all" ? 1 : 0) +
     Math.max(0, availableModules.length - filters.modules.size) +
     Math.max(0, kindOff) +
     statusOff;
@@ -372,7 +389,7 @@ export function GraphFilterPanel({
               <span>{t("components.graphFilterPanel.entityTypes")}</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {(["decision", "task", "fact"] as const).map((entityType) => {
+              {ENTITY_TYPE_OPTIONS.map((entityType) => {
                 const active = filters.types.has(entityType);
                 return (
                   <button
@@ -388,6 +405,42 @@ export function GraphFilterPanel({
                   </button>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* 密度分层:重点模式 / 全部 */}
+        {showDensity && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wide text-text-muted">
+              <Crosshair weight="bold" />
+              <span>{t("components.graphFilterPanel.density")}</span>
+            </div>
+            <div className="flex gap-1.5">
+              {(["focus", "all"] as const).map((mode) => {
+                const active = filters.density === mode;
+                return (
+                  <button
+                    key={mode}
+                    onClick={() => setDensity(mode)}
+                    title={t("components.graphFilterPanel.densityHint")}
+                    className={`flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                      active
+                        ? "border border-accent/30 bg-accent/10 text-accent"
+                        : "border border-border bg-surface-raised text-text-muted hover:bg-border/50"
+                    }`}
+                  >
+                    {t(
+                      mode === "focus"
+                        ? "components.graphFilterPanel.densityFocus"
+                        : "components.graphFilterPanel.densityAll",
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="text-[9.5px] leading-snug text-text-faint">
+              {t("components.graphFilterPanel.densityHint")}
             </div>
           </div>
         )}

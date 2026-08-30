@@ -1,5 +1,5 @@
 import type { NodeProps } from "@xyflow/react";
-import { ArrowsOutSimple } from "@phosphor-icons/react";
+import { ArrowsOutSimple, PushPin } from "@phosphor-icons/react";
 import type { ZoneProgress } from "../territoryProgress";
 import {
   zoneHeaderH,
@@ -13,18 +13,21 @@ import {
  *   TerritoryZoneNode  — zone 壳(标题 + 进度信号 + 折叠钮),自身不参与点击选中,
  *                        chip 是独立 React Flow 节点叠在壳的 body 区上。
  *   TerritoryChipNode  — zone 内实体 chip,单击进聚光灯;fold 变体是折叠态底部
- *                        「▸ 还有 N 项」提示行,单击展开 zone。
+ *                        「▸ 还有 N 项」提示行,单击展开 zone(deferred 变体是重点
+ *                        模式折叠的重点外 chip,单击该块回到全量)。
  *
  * 节点尺寸由 territoryLayout.ts 算好,style.width/height 与顶层 width/height 同时给
  * (顶层必给,否则 MiniMap 不画)。头部高度必须与布局常量同源(zoneHeaderH)。
  */
 
-type Entity = "task" | "decision" | "fact";
+type Entity = "task" | "decision" | "fact" | "agent" | "schedule";
 
 const AXIS_VAR: Record<Entity, string> = {
   task: "var(--color-axis-execution)",
   decision: "var(--color-axis-authority)",
   fact: "var(--color-axis-evidence)",
+  agent: "var(--color-axis-assoc)",
+  schedule: "var(--color-axis-assoc)",
 };
 
 /** 状态段配色(等亮度状态色,与视觉系统同源)。 */
@@ -129,9 +132,21 @@ export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
         }}
         data-testid="territory-fold"
         data-zone-id={fold.zoneId}
-        className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-border text-[11.5px] text-text-muted transition-colors hover:border-border-strong hover:text-text"
+        data-deferred={fold.deferred ? "true" : undefined}
+        className="flex h-full w-full items-center justify-center gap-1.5 rounded-lg border border-dashed text-[11.5px] transition-colors hover:border-border-strong hover:text-text"
+        style={{
+          borderColor: fold.deferred ? "color-mix(in oklch, var(--color-accent) 45%, var(--color-border))" : undefined,
+          color: fold.deferred ? "var(--color-accent)" : undefined,
+        }}
+        title={fold.deferred ? "重点模式折叠的重点外实体;点击后该块回到全量" : undefined}
       >
-        ▸ 还有 {fold.hidden} 项{fold.hidden >= 50 ? "(展开也只显前 50)" : ""} —— 点击展开
+        {fold.deferred ? (
+          <>▸ 重点外 {fold.hidden} 项 —— 点击展开本块</>
+        ) : (
+          <>
+            ▸ 还有 {fold.hidden} 项{fold.hidden >= 50 ? "(展开也只显前 50)" : ""} —— 点击展开
+          </>
+        )}
       </button>
     );
   }
@@ -155,7 +170,15 @@ export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
           color: axis,
         }}
       >
-        {chip.entity === "task" ? "T" : chip.entity === "decision" ? "D" : "F"}
+        {chip.entity === "task"
+          ? "T"
+          : chip.entity === "decision"
+            ? "D"
+            : chip.entity === "fact"
+              ? "F"
+              : chip.entity === "agent"
+                ? "A"
+                : "S"}
       </span>
       <span
         className="size-[7px] shrink-0 rounded-full"
@@ -165,9 +188,16 @@ export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
               ? statusDot(chip.sub)
               : chip.entity === "decision"
                 ? "var(--color-axis-authority)"
-                : "var(--color-axis-evidence)",
+                : chip.entity === "fact"
+                  ? "var(--color-axis-evidence)"
+                  : "var(--color-axis-assoc)",
         }}
       />
+      {chip.pinned && (
+        <span title="台账 pinned(在任务列表钉住)——恒在重点集,密度分层不折叠" className="flex shrink-0 items-center">
+          <PushPin weight="fill" className="text-[10px] text-accent" />
+        </span>
+      )}
       <span className="ui-body min-w-0 flex-1 truncate text-[12.5px] text-text">{chip.label}</span>
       {chip.sub && (
         <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-faint">

@@ -4,6 +4,7 @@ import { MarkerType as RFMarkerType } from "@xyflow/react";
 import { parseEndpoint, endpointToNodeId } from "./endpoint";
 import { axisForKind, AXIS_COLOR_VAR, type SemanticAxis } from "./constants";
 import { visualForKind, type FlowAnimMode } from "./relationVisual";
+import { scheduleTargetEdges, type AgentNodeRow, type ScheduleNodeRow } from "./runtimeEntities";
 import { STATUS_META } from "../components/badges";
 
 /**
@@ -23,11 +24,11 @@ import { STATUS_META } from "../components/badges";
  * 收起只从 expanded 里减 —— 已铺开的邻居永不撤回,画布永不重排(决策 CH1)。
  */
 
-export type EgoEntity = "task" | "decision" | "fact";
+export type EgoEntity = "task" | "decision" | "fact" | "agent" | "schedule";
 
 export interface EgoNodeMeta {
   entity: EgoEntity;
-  row: TaskRow | DecisionRow | FactRef;
+  row: TaskRow | DecisionRow | FactRef | AgentNodeRow | ScheduleNodeRow;
 }
 
 export type EgoNodeData = Record<string, unknown> & {
@@ -94,11 +95,15 @@ export function egoFocusIdOf(ref: string): string {
 }
 
 /**
- * 统一图:byId(三类实体归一 id) + adj(relations 双向 + 合成 task 父子边)。
+ * 统一图:byId(五类实体归一 id) + adj(relations 双向 + 合成边)。
  *
  * factAnchors 里有、facts 投影里没有正文的 fact 仍然建节点(标 anchor,正文留空),
  * 否则指向它的 evidenced-by 边会静默消失 —— 那是把「未投影」伪装成「没有关系」。
- * 但绝不为它编造正文。
+ * 但绝不为它编造正文。agent/schedule 行缺席时同理:指向它的 dispatches 边被跳过,
+ * 不造节点(agent/schedule 行来自各自的既有读,读不到就是该平面缺席)。
+ *
+ * 合成边两条,同一条先例(执行轴,不在 relations 投影里):
+ *   task 父子(parentTaskId)与 schedule→agent(Schedule 定义声明的 target)。
  */
 export function buildEgoGraph(
   tasks: ReadonlyArray<TaskRow>,
@@ -106,11 +111,14 @@ export function buildEgoGraph(
   facts: ReadonlyArray<FactRef>,
   relations: ReadonlyArray<RelationEdge>,
   factAnchors: ReadonlyArray<{ factRef: string; taskId?: string; factId: string }> = [],
+  runtime: { readonly agents?: ReadonlyArray<AgentNodeRow>; readonly schedules?: ReadonlyArray<ScheduleNodeRow> } = {},
 ): EgoGraph {
   const byId = new Map<string, EgoNodeMeta>();
   for (const t of tasks) byId.set(t.taskId, { entity: "task", row: t });
   for (const d of decisions) byId.set(`decision/${d.decisionId}`, { entity: "decision", row: d });
   for (const f of facts) byId.set(egoFactRefOf(f), { entity: "fact", row: f });
+  for (const a of runtime.agents ?? []) byId.set(a.id, { entity: "agent", row: a });
+  for (const s of runtime.schedules ?? []) byId.set(s.id, { entity: "schedule", row: s });
   for (const anchor of factAnchors) {
     if (byId.has(anchor.factRef)) continue;
     byId.set(anchor.factRef, {
@@ -162,17 +170,30 @@ export function buildEgoGraph(
     link(edge, "execution", key);
     synthEdges.push({ edge, key });
   }
+  // 合成 schedule→agent 边:Schedule 定义声明的 target(执行轴,同一条先例)。
+  for (const edge of scheduleTargetEdges(runtime.schedules ?? [])) {
+    const key = `sched_${edge.from}`;
+    link(edge, "execution", key);
+    synthEdges.push({ edge, key });
+  }
 
   return { byId, adj, synthEdges };
 }
 
-/** 从焦点 BFS 到 maxHop 的可见集(id → 距焦点跳数),按轴过滤。 */
+/** 从焦点 BFS 到 maxHop 的可见集(id → 距焦点跳数),按轴过滤。
+ *
+ * `allowed`(重点模式)再收一层:只有重点集里的节点会被铺开,重点外的邻居留在
+ * chip 的「+N 未铺开」徽章里,点开卡片时长出(expandNode 不受此限,那是显式展开)。
+ * 焦点自身恒可见。
+ */
 export function bfsShownFromFocus(
   graph: EgoGraph,
   focusId: string,
   maxHop: number,
   axes: EgoAxisFilter,
+  allowed: ReadonlySet<string> | null = null,
 ): Map<string, number> {
+  const pass = (id: string) => allowed === null || id === focusId || allowed.has(id);
   const shown = new Map<string, number>([[focusId, 0]]);
   const queue: Array<[string, number]> = [[focusId, 0]];
   while (queue.length > 0) {
@@ -181,6 +202,7 @@ export function bfsShownFromFocus(
     for (const entry of graph.adj.get(id) ?? []) {
       if (!axes[entry.axis]) continue;
       if (shown.has(entry.other)) continue;
+      if (!pass(entry.other)) continue;
       shown.set(entry.other, hop + 1);
       queue.push([entry.other, hop + 1]);
     }
@@ -206,17 +228,23 @@ export function egoOneHopHighlight(graph: EgoGraph, selectId: string | null, axe
 // ── 几何常量(确定性布局) ──
 const CHIP_W = 216;
 const CHIP_H = 46;
-const CARD_W: Record<EgoEntity, number> = { fact: 300, task: 320, decision: 340 };
-const CARD_W_FOCUS: Record<EgoEntity, number> = { fact: 340, task: 360, decision: 380 };
+const CARD_W: Record<EgoEntity, number> = { fact: 300, task: 320, decision: 340, agent: 300, schedule: 320 };
+const CARD_W_FOCUS: Record<EgoEntity, number> = {
+  fact: 340,
+  task: 360,
+  decision: 380,
+  agent: 340,
+  schedule: 360,
+};
 const GAP_X = 72;
 const GAP_Y = 36;
-const H_MIN_FOCUS: Record<EgoEntity, number> = { fact: 320, task: 300, decision: 340 };
-const H_MIN_PERIPH: Record<EgoEntity, number> = { fact: 240, task: 220, decision: 260 };
+const H_MIN_FOCUS: Record<EgoEntity, number> = { fact: 320, task: 300, decision: 340, agent: 300, schedule: 300 };
+const H_MIN_PERIPH: Record<EgoEntity, number> = { fact: 240, task: 220, decision: 260, agent: 230, schedule: 230 };
 const H_CAP_FOCUS = 640;
 const H_CAP_PERIPH = 480;
 
 /** 卡片高度的内容感知估算(地板与 cap 由 egoNodeDims 叠加)。 */
-export function estimateEgoCardHeight(entity: EgoEntity, row: TaskRow | DecisionRow | FactRef, width: number): number {
+export function estimateEgoCardHeight(entity: EgoEntity, row: EgoNodeMeta["row"], width: number): number {
   const cpl = Math.max(20, Math.floor((width - 24) / 8.5));
   const LINE = 22;
   const CHROME = 120; // header + 标题区 + footer + padding/gap
@@ -229,6 +257,10 @@ export function estimateEgoCardHeight(entity: EgoEntity, row: TaskRow | Decision
     const fact = row as FactRef;
     const obsLines = Math.max(1, Math.ceil((fact.text?.length ?? 0) / Math.max(20, cpl - 4)));
     return CHROME + 20 + (32 + obsLines * 20) + 64;
+  }
+  if (entity === "agent" || entity === "schedule") {
+    // 运行时平面行只有标题 + 一行事实行,高度按 decision 的地板走,内容估高恒定。
+    return CHROME + 2 * LINE + 48;
   }
   const decision = row as DecisionRow;
   let height = CHROME + 20;
@@ -466,6 +498,8 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
 function egoLabelOf(meta: EgoNodeMeta): string {
   if (meta.entity === "task") return (meta.row as TaskRow).title;
   if (meta.entity === "decision") return (meta.row as DecisionRow).title;
+  if (meta.entity === "agent") return (meta.row as AgentNodeRow).name;
+  if (meta.entity === "schedule") return (meta.row as ScheduleNodeRow).name;
   const fact = meta.row as FactRef;
   // 无正文的 anchor:显示锚点本身,不拿别处的文字冒充观察。
   return fact.text ? fact.text.slice(0, 60) : fact.anchor;

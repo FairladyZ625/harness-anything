@@ -22,7 +22,7 @@ import type { PaletteEntry } from "../components/CommandPalette.tsx";
 import { TerritorySkelToggle, type TerritorySkel } from "../components/TerritoryModeBar";
 import { useColorMode, minimapMaskColor } from "../graph/colorMode";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
-import { partitionForSkel } from "../graph/territory";
+import { applyTerritoryDensity, partitionForSkel } from "../graph/territory";
 import { layoutTerritory } from "../graph/territoryLayout";
 import { defaultKindFilter, defaultAxisFilter, type FlowAnimMode } from "../graph/relationVisual";
 import {
@@ -30,6 +30,8 @@ import {
   taskPassesStatusFilter,
   decisionPassesStateFilter,
 } from "../graph/entityStatusFilter";
+import { selectGraphFocusSet } from "../graph/focusSet";
+import type { AgentNodeRow, ScheduleNodeRow } from "../graph/runtimeEntities";
 import { focusHistoryReducer, EMPTY_HISTORY, canBack, canForward } from "../navigation/focusHistory";
 import { activeProducesFactRefs } from "../model/triadic";
 import { isTaskArchiveNoise } from "../model/taskFilters";
@@ -38,6 +40,11 @@ import {
   readGraphTerritoryShowArchived,
   writeGraphTerritoryShowArchived,
 } from "../graph-territory-preferences";
+import {
+  graphDensityPreferenceStorage,
+  readGraphDensityFocusMode,
+  writeGraphDensityFocusMode,
+} from "../graph-density-preferences";
 
 export type ViewMode = "territory" | "spotlight";
 
@@ -48,6 +55,10 @@ export interface GraphViewProps {
   facts: FactRef[];
   coverageRows?: ReadonlyArray<RelationCoverageRow>;
   factAnchors?: ReadonlyArray<FactAnchorRow>;
+  /** 运行时平面(agent/schedule)节点行与 agent→task 派发边;缺省 = 该平面缺席。 */
+  agents?: ReadonlyArray<AgentNodeRow>;
+  schedules?: ReadonlyArray<ScheduleNodeRow>;
+  runtimeRelations?: ReadonlyArray<RelationEdge>;
   onNavigateEntity?: (ref: string) => void;
   onFocusEntityChange?: (ref: string | null) => void;
   /** 最近访问 navRef 列表(App 层 pushRecent 维护),左栏 Recent 段数据源。 */
@@ -75,6 +86,9 @@ const nodeTypes = {
 };
 
 const EMPTY_ANCHORS: ReadonlyArray<FactAnchorRow> = [];
+const EMPTY_AGENTS: ReadonlyArray<AgentNodeRow> = [];
+const EMPTY_SCHEDULES: ReadonlyArray<ScheduleNodeRow> = [];
+const EMPTY_RELATIONS: ReadonlyArray<RelationEdge> = [];
 
 function GraphViewInner({
   tasks,
@@ -83,6 +97,9 @@ function GraphViewInner({
   facts,
   coverageRows,
   factAnchors,
+  agents = EMPTY_AGENTS,
+  schedules = EMPTY_SCHEDULES,
+  runtimeRelations = EMPTY_RELATIONS,
   onNavigateEntity,
   onFocusEntityChange,
   focusRef,
@@ -133,10 +150,11 @@ function GraphViewInner({
 
   const [filters, setFilters] = useState<GraphFilters>(() => ({
     modules: new Set(availableModules.length ? availableModules : []),
-    types: new Set(["decision", "task", "fact"] as const),
+    types: new Set(["decision", "task", "fact", "agent", "schedule"] as const),
     axes: defaultAxisFilter(),
     kinds: defaultKindFilter(),
     entityStatus: defaultEntityStatusFilter(),
+    density: readGraphDensityFocusMode(graphDensityPreferenceStorage()) ? "focus" : "all",
   }));
 
   useEffect(() => {
@@ -146,6 +164,19 @@ function GraphViewInner({
       return { ...cur, modules: next };
     });
   }, [availableModules]);
+
+  // 密度分层(重点模式,task_5ba031c2):默认开,判定本体在 model/taskFilters.ts
+  // (isTaskGraphFocusSeed,与看板共用),localStorage 按视图记忆,坏值回落默认开。
+  // 开关本体在 filters.density(筛选面板改它),这里只负责持久化与联动。
+  const density = filters.density;
+  useEffect(() => {
+    writeGraphDensityFocusMode(graphDensityPreferenceStorage(), density === "focus");
+  }, [density]);
+  // 重点模式下被逐块展开(回到全量)的 zone 集;密度开关翻转时清空。
+  const [revealedZones, setRevealedZones] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setRevealedZones(new Set());
+  }, [density]);
 
   // ---- 焦点历史(stable reducer,无自触发循环) ----
   const [histState, histDispatch] = useReducer(focusHistoryReducer, EMPTY_HISTORY);
@@ -200,6 +231,23 @@ function GraphViewInner({
     () => (skel === "task" || skel === "decision" || skel === "fact" ? new Set<string>([skel]) : filters.types),
     [skel, filters.types],
   );
+  // 三元边 + 运行时平面边(agent→task 派发)合成一份;memo 保引用稳定,否则
+  // ego 图与重点集每个 render 都会重建。
+  const graphRelations = useMemo(() => [...relations, ...runtimeRelations], [relations, runtimeRelations]);
+  // 重点集:整份台账(未过 module/status 筛选)上算,领地与聚光灯共用同一份。
+  // 重点模式关闭时为 null(不分层)。
+  const focusSelection = useMemo(
+    () =>
+      density === "focus"
+        ? selectGraphFocusSet({
+            tasks,
+            relations: graphRelations,
+            now: new Date().toISOString(),
+            schedules,
+          })
+        : null,
+    [density, tasks, graphRelations, schedules],
+  );
   const territory = useMemo(() => {
     if (viewMode !== "territory") return null;
     const taskVisible = (task: TaskRow) =>
@@ -221,7 +269,7 @@ function GraphViewInner({
         ownerModule = ownerTaskId ? moduleByTaskId.get(ownerTaskId) : undefined;
       return territoryTypes.has("fact") && (ownerModule === undefined || filters.modules.has(ownerModule));
     };
-    return partitionForSkel(
+    const partition = partitionForSkel(
       skel,
       visibleTasks,
       territoryTypes.has("decision")
@@ -231,7 +279,10 @@ function GraphViewInner({
       factAnchors ?? [],
       relations,
       coverageRows ?? [],
+      territoryTypes.has("agent") ? agents : [],
+      territoryTypes.has("schedule") ? schedules : [],
     );
+    return applyTerritoryDensity(partition, focusSelection, revealedZones);
   }, [
     viewMode,
     skel,
@@ -245,6 +296,10 @@ function GraphViewInner({
     filters.entityStatus,
     territoryTypes,
     showArchived,
+    agents,
+    schedules,
+    focusSelection,
+    revealedZones,
   ]);
 
   const toggleZone = useCallback((zoneId: string) => {
@@ -310,6 +365,7 @@ function GraphViewInner({
       setFilters={setFilters}
       availableModules={availableModules}
       showEntityTypes={viewMode === "spotlight" || skel === "unified"}
+      showDensity={viewMode === "spotlight" || skel === "unified"}
       flowMode={flowMode}
       onFlowModeChange={setFlowMode}
     />
@@ -337,6 +393,16 @@ function GraphViewInner({
             >
               {showArchived ? "显示" : "隐藏"}
             </button>
+          </span>
+        )}
+        {viewMode === "territory" && territory && territory.deferredCount !== undefined && (
+          <span
+            data-testid="territory-deferred-count"
+            className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 font-mono text-accent"
+            title="重点模式:pinned ∪ 非终态 ∪ 最近 14 天变更 + 一跳邻域之外的实体折叠在各块的「重点外 N 项」徽章;筛选面板可切回全部"
+          >
+            重点外 {territory.deferredCount}
+            {focusSelection ? ` · 重点 ${focusSelection.seedCount} task` : ""}
           </span>
         )}
         {territory && territory.unprojectedCount > 0 && (
@@ -436,8 +502,12 @@ function GraphViewInner({
             tasks={tasks}
             decisions={decisions}
             facts={facts}
-            relations={relations}
+            relations={graphRelations}
             factAnchors={factAnchors ?? EMPTY_ANCHORS}
+            agents={agents}
+            schedules={schedules}
+            focusSet={focusSelection}
+            densityFocus={density === "focus"}
             filters={{
               axes: filters.axes,
               kinds: filters.kinds,

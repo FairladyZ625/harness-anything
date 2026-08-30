@@ -33,6 +33,7 @@ import {
   useDecisionDerivesQuery,
   useDecisionSummaryQuery,
   usePaletteFactsQuery,
+  useRuntimePlaneQuery,
   useTriadicProjectionQuery,
 } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
@@ -146,6 +147,10 @@ function AppShell() {
   const paletteFacts = usePaletteFactsQuery(activeRepoId, paletteOpen);
   const fullProjectionMounted = FULL_TRIADIC_PROJECTION_VIEWS.has(view);
   const triadicQuery = useTriadicProjectionQuery(activeRepoId, { enabled: fullProjectionMounted });
+  // 运行时平面(agent/schedule 行 + agent→task 派发边):只有关系图页读;三条既有
+  // 读(agent 目录/Schedule 列表/关系图切面)与各自入口共享缓存,不另立读方法。
+  const graphRuntimeMounted = view === "graph";
+  const runtimePlane = useRuntimePlaneQuery(activeRepoId, { enabled: graphRuntimeMounted });
   // 任务预览抽屉、任务详情与会话页渲染的是关系边本身;完整图已在缓存里(刚从图/
   // 决策视图过来)就直接用它,不把同一批边读两遍。
   const edgeSurfaceMounted = previewTask !== null || selected !== null || view === "sessions";
@@ -548,6 +553,9 @@ function AppShell() {
                 facts={facts}
                 coverageRows={coverageRows}
                 factAnchors={factAnchors}
+                agents={runtimePlane.agents}
+                schedules={runtimePlane.schedules}
+                runtimeRelations={runtimePlane.relations}
                 onNavigateEntity={navigateToEntity}
                 onOpenDecisionPool={openDecisionInPool}
                 onFocusEntityChange={focusEntityInWorkspace}

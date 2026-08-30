@@ -3,17 +3,20 @@ import path from "node:path";
 import {
   blockingOf,
   closeoutReadiness,
+  deriveRelationId,
   freshnessReasonOf,
   readRelationGraphProjection,
   workspaceTaskStatus,
   type FreshnessReason,
   type FreshnessReasonInput,
   type ProjectedExecution,
+  type RelationGraphEdgeRow,
   type TaskProjection,
   type TaskProjectionListQuery,
   type TaskRelationProjectionRead,
   type TaskRelationQuery,
 } from "../../kernel/src/index.ts";
+import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
 import type { CanonicalRoot } from "./protocol/daemon-protocol.contract.ts";
 import type {
   AgendaAwaitingRow,
@@ -123,6 +126,15 @@ export function makeTaskQueryReadModel(input: {
   }
   function relationGraphFacet(query: DaemonRelationGraphFacetPayload): DaemonRelationGraphFacetResult {
     const emptyRows = { edges: [], coverageRows: [], factAnchors: [], facts: [] } as const;
+    if (query.facet === "runtimeEdges") {
+      return {
+        ok: true,
+        facet: "runtimeEdges",
+        ...emptyRows,
+        edges: runtimeDispatchEdges(readDispatchStreamHeaders(rootDir)),
+        warnings: [],
+      };
+    }
     if (query.facet === "edges") {
       const read = projection.readRelationQuery({
           ...(query.relationType === undefined ? {} : { relationType: query.relationType }),
@@ -458,6 +470,47 @@ export function makeTaskQueryReadModel(input: {
   }
   return Object.freeze({ agenda, relationGraph, relationGraphFacet, relationGraphPage, guiTasks });
 }
+/**
+ * `repo.triadic.relationGraph {facet:"runtimeEdges"}` — the agent→task dispatch edges.
+ *
+ * The entity registry declares no relation projection between the runtime plane and
+ * tasks, so the ledger holds no authored relation event to read; the only record that
+ * carries agent and task on the same row is the dispatch stream header. This is the
+ * whole derivation: one (agent, task) pair per edge, `dispatches`, origin generated.
+ * Schedule→agent is *not* derived here — the Schedule definition already states its
+ * target, and the renderer reads it with the Schedule rows it already has.
+ */
+export function runtimeDispatchEdges(headers: ReadonlyArray<DispatchStreamHeader>): readonly RelationGraphEdgeRow[] {
+  const rows = new Map<string, RelationGraphEdgeRow>();
+  for (const header of headers) {
+    if (!header.agentId || !header.taskId) continue;
+    const sourceRef = `agent/${header.agentId}`,
+      targetRef = `task/${header.taskId}`,
+      relationId = deriveRelationId({
+        source: sourceRef,
+        target: targetRef,
+        type: "dispatches",
+        direction: "directed",
+      });
+    if (rows.has(relationId)) continue;
+    rows.set(relationId, {
+      relationId,
+      sourceRef,
+      targetRef,
+      relationType: "dispatches",
+      direction: "directed",
+      strength: "strong",
+      origin: "generated",
+      state: "active",
+      rationale: "Agent dispatch record",
+      ownerRef: sourceRef,
+      sourcePath: `.harness/runtime/dispatches/${header.dispatchId}.jsonl`,
+      recordIndex: 0,
+    });
+  }
+  return [...rows.values()].sort((left, right) => left.relationId.localeCompare(right.relationId));
+}
+
 function relationFacetWarnings(status: "ready" | "pending") {
   return status === "ready"
     ? []
