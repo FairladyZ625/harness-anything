@@ -1,29 +1,23 @@
 # Contributing
 
-Harness Anything is a repo-native harness. Public code and docs live in this repository; private planning, reviews, ledgers, and generated local state must not be committed to the public package surface.
+Public contributions may change this repository's source, tests, tools, CI,
+examples, and release documentation. Keep private planning, local agent state,
+generated caches, credentials, private URLs, absolute machine paths, and
+unrelated local changes out of public commits and pull requests.
 
-## Public / Private Boundary
+## Standard workflow
 
-- Do not commit `.harness-private/**`, local agent entry files, or generated runtime/cache state.
-- Public changes belong in source, tests, examples, `docs-release/**`, or tool scripts.
-- Keep authored task evidence separate from generated projections and local worktree state.
+Install or load [`harness-contributing`](skills/harness-contributing/SKILL.md)
+in the coding agent helping with the change, and follow it from issue scope
+through worktree, tests, manifest-selected gates, the complete bilingual PR
+template, review triage, and maintainer merge. That skill is the sole executable
+contribution workflow; this page does not maintain a second copy.
 
-## Change Flow
+For explanatory background and the public issue-filing guide, start at
+[`docs-release/contributing/en/00-overview.md`](docs-release/contributing/en/00-overview.md)
+or
+[`docs-release/contributing/zh/00-overview.md`](docs-release/contributing/zh/00-overview.md).
 
-1. Branch from latest `origin/main`.
-2. Keep implementation changes scoped to the task or issue.
-3. Add or update tests for behavior changes.
-4. Run `npm run check` before requesting review.
-5. In the PR, list the verification commands and any deferred work.
-6. If you changed CLI code and use the built bin (`npx ha`), rebuild the
-   workspace dist (`npm run build -w @harness-anything/cli`); running from
-   source (`node packages/cli/src/index.ts`) is always fresh. Refresh a global
-   install only when cutting a version. Local distribution and release steps
-   live in the private harness `ci-cd-standard.md`; there is no public npm
-   publish yet.
-
-## Review Expectations
-
-- Do not mark human Dashboard confirmation from an agent.
-- Do not claim formal package release or publish readiness unless the release milestone explicitly owns it.
-- For lifecycle, projection, schema, package surface, or cutover changes, include evidence from the relevant contract tests and checker gates.
+External contributors and their agents may prepare and update a contribution
+branch and PR. They may not push to `main`, waive required CI, or merge; final
+merge authority remains with maintainers.

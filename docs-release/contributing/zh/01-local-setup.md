@@ -1,90 +1,20 @@
 # 本地准备
 
-## 前置条件
+标准前置条件、clone 命令和 worktree 序列统一放在
+[Environment and worktree](../../../skills/harness-contributing/SKILL.md#environment-and-worktree)。
+每份贡献都直接按该序列执行，不要从本页另写一套 setup recipe。
 
-使用公开文档里的同一条基线：
+## 为什么必须使用独立 worktree
 
-- Node.js 24 或更新版本。CI 覆盖 Node 24 和 Node 26。
-- git。
-- 本仓库的干净源码 checkout。
+primary checkout 是协调点，不是实现 surface。每份贡献只占一个 worktree，可以明确
+branch ownership、隔离并发的人或 agent，并让最终公开 diff 对应单一 scope。即使代码
+本身正确，共用或已有脏改动的 worktree 也会破坏这条证据链。
 
-从仓库根目录运行：
+## 公开 checkout 边界
 
-```bash
-npm ci
-```
+贡献 checkout 可以包含公开源码、测试、工具、CI、fixture、example 和 release 文档。
+本地规划、agent runtime 状态、cache、凭证、私有 URL、本机绝对路径和无关改动都不是
+公开贡献材料。具体执行以 skill 的边界说明和 staged-diff 检查为准。
 
-目前还没有公开 npm package release。产品使用和本地源码运行见
-[start/install](../../start/zh/01-install.md)。贡献本仓代码时，从 checkout 工作并使用
-workspace scripts。
-
-## 使用 branch 或 worktree
-
-不要直接编辑共享 `main`。先基于最新 upstream：
-
-```bash
-git fetch origin
-git switch -c <branch-name> origin/main
-```
-
-Agent 写的实现分支应使用本仓约定：
-
-```bash
-git switch -c codex/<short-scope> origin/main
-```
-
-如果有多个 agent 并行，或需要把本地协调和公开实现隔离开，优先使用 git worktree：
-
-```bash
-git worktree add .worktrees/<short-scope> -b codex/<short-scope> origin/main
-```
-
-每个并发 agent 使用自己的 branch 或 worktree。两个 agent 编辑同一个 working tree 是协调
-失败，不是 merge 策略。
-
-## 分开公开文件和本地文件
-
-公开 PR 可以包含仓库代码、工具、CI 文件、公开文档和 fixture。不得包含：
-
-- 根目录本地 agent 入口文件，例如 `AGENTS.md` 或 `CLAUDE.md`；
-- 未刻意公开的本地 harness 或计划记录；
-- 生成缓存目录；
-- 编辑器、Finder、操作系统或机器本地文件；
-- secret、token、私有 URL 或本机绝对路径。
-
-stage 前先运行 `git status --short`。只 stage 属于本次贡献的路径。
-
-## 命令名
-
-使用当前 CLI 命令面：
-
-```bash
-ha <command>
-```
-
-等 0.1 package 发布到 npm 之后，公开 npm 命令面也会是：
-
-```bash
-npx harness-anything <command>
-```
-
-在发布真正存在之前，把 `npx harness-anything` 视为前瞻说明，并使用源码
-checkout / 本地 `ha` 路径。不要在这个 checkout 里使用 stale 的 `harness` /
-`npx harness` 命令面。
-
-如果改了 `packages/cli/src`，在依赖 workspace bin 前先重建 CLI：
-
-```bash
-npm run build -w @harness-anything/cli
-```
-
-迭代 CLI 行为时，也可以直接跑源码入口：
-
-```bash
-node packages/cli/src/index.ts --json doctor
-```
-
-## 开始编码前
-
-用一句话写清 scope。如果你说不清 PR 允许改哪些文件或行为，先收窄再动手。把实现、release
-姿态、无关清理和 docs 重写混在一起的贡献很难 review，也更容易被退回。
+使用产品和修改本仓库是两件事。源码使用路径见
+[Start / Install](../../start/zh/01-install.md)；修改本仓库时使用贡献 skill。

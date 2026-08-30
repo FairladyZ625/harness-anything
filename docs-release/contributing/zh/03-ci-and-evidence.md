@@ -1,90 +1,26 @@
 # CI 与证据
 
-每份贡献都需要证据。证据不是“我觉得可以”，而是 reviewer 能检查的命令、测试结果、CI run、diff、review
-note，或有理由的 “not run” 记录。
+定向测试、manifest-selected workflow job、本地 GitHub 凭证窄例外和 typecheck 的当前
+命令统一放在
+[Run local gates](../../../skills/harness-contributing/SKILL.md#run-local-gates)。
+该节是执行权威；本页只解释结果代表什么。
 
-## 本地检查
+## Gate 权威
 
-最小有用的 pre-PR loop 是：
+`tools/gate-manifest.json` 按 tier 分类 gate，并映射到 GitHub workflow job。贡献者选择
+拥有本次改动面的 job，并通过 manifest runner 执行。记忆中的 package script 列表不能
+替代 manifest，因为 manifest 和 workflow 都会演进。
 
-```bash
-git diff --check
-```
+GitHub required PR contexts 始终是权威。本地通过是 review evidence，不是跳过 CI 的
+许可。同样，给 `main`、schedule 或 manual dispatch 使用的 aggregate full-check lane
+不是标准 pre-PR loop。
 
-公开 docs 改动还要运行：
+## 证据标准
 
-```bash
-npm run harness:check-private-boundary
-npm run harness:check-docs-release-map
-```
+有效证据要写明精确命令、结果、scope，以及未运行时的原因。“有信心”和单独一句“不需要”
+都不是证据。PR 应让 reviewer 能区分：相关检查已通过、无关检查按 scope 未运行、或检查
+仍在 GitHub 等待。
 
-package、CLI、kernel、tool、GUI 或 contract 改动，运行 PR-sized gate：
-
-```bash
-npm run check:pr
-```
-
-对范围较大的公开改动声明 implementation readiness 前，运行：
-
-```bash
-npm run check
-```
-
-如果某条命令没跑，PR 必须写清哪条命令跳过、为什么跳过。“不需要”不够；要写明 scope 原因。
-
-## 测试分层
-
-仓库使用分层测试 lane：
-
-| 命令 | 用途 |
-| --- | --- |
-| `npm run test:fast` | 纯或近纯行为测试。 |
-| `npm run test:contract` | public API、schema、跨 package contract。 |
-| `npm run test:integration` | CLI、filesystem、store、migration 和较慢行为。 |
-| `npm test` | 全量 Node test suite。 |
-| `npm run test:gui` | GUI 测试 lane。 |
-
-新增 `packages/**` 或 `tools/**` Node 测试必须在首行放置恰好一个有效的
-`// harness-test-tier: fast|contract|integration` 声明。Runner 会拒绝缺失、重复或非法声明。
-
-## CI lanes
-
-Pull request 运行 `rewrite-ci` workflow。Required PR signals 包括仓库配置里的 typecheck、fast/contract、
-integration、boundary、package-policy、GUI build、Node 26 compatibility、supply-chain 和 PR body lint lanes。
-
-完整聚合 `npm run check` lane 保留给 `main`、scheduled run 和 manual dispatch。pull request 上 full-check
-job 按设计 skipped 时，不要把它当失败。
-
-## 合并纪律
-
-`main` 通过 GitHub 保护的合并路径前进。required checks 和 review 通过前不要把 pull request 合进 `main`。
-
-如果紧急情况被明确批准为直接合并，执行者负责立即 rebase 队列里已有的所有 pull request，并重新运行 required
-gates。队内工作重新基于最新 `main` 之前，这次紧急合并不算收尾完成。
-
-review 和 required checks 通过后启用 GitHub auto-merge。保护分支规则满足时，GitHub 会自动合并 pull request。
-
-## PR 里的证据
-
-PR 模板要求填写：
-
-- base `origin/main` SHA 和 merge-base；
-- 最近一次 fetch 时间和同步方式；
-- public diff command；
-- 本地验证命令；
-- GitHub Actions `rewrite-ci` run URL；
-- reviewer evidence 和 blocking findings；
-- residual risk。
-
-如实填写这些字段。空 verification section 会拖慢 review，因为 maintainer 必须从零重建证据。
-
-## 检查失败时
-
-检查失败时：
-
-1. 读失败内容，不只看 job 名字。
-2. 修 PR branch。
-3. 重跑能证明修复成立的最小本地命令。
-4. 正常 push，等待 CI 重跑。
-
-不要 force-push 或 direct-push 到 `main` 来逃避失败。失败的 gate 是贡献的一部分，解决它也是工作的一部分。
+检查失败时，阅读实际输出，修 contribution branch，重跑能证明修复的最小测试和受影响
+manifest job，再让 GitHub 检查新 commit。失败 gate 是 review record 的一部分，不能靠
+改写历史或绕过保护来消失。
