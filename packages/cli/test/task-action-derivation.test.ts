@@ -5,9 +5,10 @@ import { getEntityKindContract } from "../../kernel/src/index.ts";
 import {
   derivedTaskActionProtocolCommands,
   generatedTaskActionProtocolDeclarations,
+  reviewJsonFields,
+  taskSubmissionJsonFields,
 } from "../../daemon/src/protocol/daemon-protocol-commands-task.ts";
 import { validateDaemonRpcCall } from "../../daemon/src/protocol/daemon-protocol-rpc-validation.ts";
-import { reviewJsonFields, taskSubmissionJsonFields } from "../../preset/src/preset-command-contract.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("daemon command inputs and thin CLI parameters are projections of Task Actions", () => {

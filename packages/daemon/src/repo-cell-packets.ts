@@ -6,8 +6,8 @@ import {
   reviewDigest,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { reviewJsonFields, taskSubmissionJsonFields } from "../../preset/src/index.ts";
 import { validateGuiSubmission, type GuiSubmissionV1 } from "./protocol/daemon-protocol.contract.ts";
+import { reviewJsonFields, taskSubmissionJsonFields } from "./protocol/daemon-protocol-commands-task.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { gateChecks } from "./repo-cell-proof.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";

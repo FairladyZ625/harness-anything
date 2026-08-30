@@ -420,6 +420,17 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
 ] as const satisfies readonly GeneratedTaskActionProtocolDeclaration[]);
 // task-action-projection:generated:end
 
+function taskActionPacketFields(id: "submit" | "review") {
+  const fields = generatedTaskActionProtocolDeclarations
+    .find((action) => action.id === id)
+    ?.input.fields.find((field) => field.field === "fromFile")?.cli?.jsonFields;
+  if (!fields) throw new Error(`Task Action ${id} has no declared packet fields.`);
+  return Object.freeze([...fields]);
+}
+
+export const taskSubmissionJsonFields = taskActionPacketFields("submit"),
+  reviewJsonFields = taskActionPacketFields("review");
+
 function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
   return Object.freeze(
     action.input.fields.flatMap((field) =>

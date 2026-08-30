@@ -126,18 +126,6 @@ export const taskCreateJsonFields = Object.freeze([
   "fromLegacyId",
   "createMode",
 ] as const);
-// task-action-json-fields:generated:start
-export const taskSubmissionJsonFields = Object.freeze([
-  "completionClaim",
-  "deliverables",
-  "outputs",
-  "verificationNotes",
-  "knownGaps",
-  "residualRisks",
-  "commitSha",
-] as const);
-export const reviewJsonFields = Object.freeze(["verdict", "reason", "evidenceChecked"] as const);
-// task-action-json-fields:generated:end
 export const consentJsonFields = Object.freeze(["reviewDigest", "contentDigest"] as const);
 export const decisionProposalJsonFields = Object.freeze([
   "title",
