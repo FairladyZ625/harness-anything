@@ -235,17 +235,11 @@ export * from "./projection/sqlite-task-projection.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {
-  closeoutCiJudgments,
   createTaskCloseoutPacketTemplate,
-  taskCloseoutPacketHelp,
   taskCloseoutPacketSchema,
   validateTaskCloseoutPacket,
 } from "./schemas/task-closeout-packet.ts";
-export type {
-  CloseoutCiJudgment,
-  TaskCloseoutPacket,
-  TaskCloseoutPacketValidation,
-} from "./schemas/task-closeout-packet.ts";
+export type { CloseoutCiJudgment, TaskCloseoutPacket } from "./schemas/task-closeout-packet.ts";
 export {
   canonicalDocumentClaims,
   canonicalDocumentRetirements,

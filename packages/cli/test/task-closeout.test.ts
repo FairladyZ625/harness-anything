@@ -66,7 +66,5 @@ test("task closeout accepts one execution, template, or schema mode and disclose
       printSchema: true,
     });
   const help = renderThinHelp([], "task");
-  assert.match(help, /submission\.deliverables: string\[\]/u);
-  assert.match(help, /review\.verdict: approved\|changes_requested\|dismissed/u);
-  assert.match(help, /completion\.codeDocPaths: portable-path\[\]/u);
+  assert.match(help, /task-closeout-packet\/v1 JSON; run --print-schema for the field contract/u);
 });

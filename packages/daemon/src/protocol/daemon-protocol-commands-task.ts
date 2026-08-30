@@ -9,7 +9,6 @@ import {
   reviewJsonFields,
   taskSubmissionJsonFields,
 } from "../../../preset/src/preset-command-contract.ts";
-import { taskCloseoutPacketHelp } from "../../../kernel/src/index.ts";
 
 export const taskExecutionProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
@@ -140,7 +139,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
         {
           jsonFields: ["review", "consent", "completion"],
           jsonAllowedFields: ["submission", "review", "consent", "completion"],
-          format: taskCloseoutPacketHelp(),
+          format: "task-closeout-packet/v1 JSON; run --print-schema for the field contract",
           conflictsWith: ["--print-template", "--print-schema"],
         },
       ),

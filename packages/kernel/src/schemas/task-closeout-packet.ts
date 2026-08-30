@@ -1,8 +1,9 @@
 import type { SubmissionV1 } from "../domain/execution.ts";
 import { reviewVerdicts, type ReviewVerdict } from "../domain/review.ts";
+import { consumeKnownError } from "../error-consumption.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 
-export const closeoutCiJudgments = ["passed", "not_applicable"] as const;
+const closeoutCiJudgments = ["passed", "not_applicable"] as const;
 export type CloseoutCiJudgment = (typeof closeoutCiJudgments)[number];
 
 export interface TaskCloseoutPacket {
@@ -165,13 +166,13 @@ export const taskCloseoutPacketSchema = Object.freeze({
   },
 } as const satisfies SchemaNode & { readonly $schema: string; readonly $id: string; readonly title: string });
 
-export type TaskCloseoutPacketValidation =
+type TaskCloseoutPacketValidation =
   | { readonly ok: true; readonly packet: TaskCloseoutPacket }
   | { readonly ok: false; readonly issues: readonly string[] };
 
 export function validateTaskCloseoutPacket(value: unknown): TaskCloseoutPacketValidation {
   const issues: string[] = [];
-  validateNode(taskCloseoutPacketSchema, value, "packet", issues);
+  validatePacketNode(taskCloseoutPacketSchema, value, "packet", issues);
   return issues.length ? { ok: false, issues } : { ok: true, packet: value as TaskCloseoutPacket };
 }
 
@@ -185,12 +186,6 @@ export function createTaskCloseoutPacketTemplate(input: {
   return template;
 }
 
-export function taskCloseoutPacketHelp(): string {
-  const lines: string[] = [`schema ${taskCloseoutPacketSchema.$id}`];
-  collectHelp(taskCloseoutPacketSchema, "", true, false, lines);
-  return lines.join("\n      ");
-}
-
 type MutablePacket = {
   submission?: SubmissionV1;
   review: TaskCloseoutPacket["review"];
@@ -198,9 +193,9 @@ type MutablePacket = {
   completion: { ci: CloseoutCiJudgment; codeDocPaths: readonly string[] };
 };
 
-function validateNode(schema: SchemaNode, value: unknown, path: string, issues: string[]): void {
+function validatePacketNode(schema: SchemaNode, value: unknown, path: string, issues: string[]): void {
   if (schema.type === "object") {
-    if (!record(value)) {
+    if (!isPlainRecord(value)) {
       issues.push(`${path} must be an object.`);
       return;
     }
@@ -208,7 +203,7 @@ function validateNode(schema: SchemaNode, value: unknown, path: string, issues: 
     for (const field of Object.keys(value))
       if (!Object.hasOwn(schema.properties, field)) issues.push(`${path}.${field} is not allowed.`);
     for (const [field, child] of Object.entries(schema.properties))
-      if (Object.hasOwn(value, field)) validateNode(child, value[field], `${path}.${field}`, issues);
+      if (Object.hasOwn(value, field)) validatePacketNode(child, value[field], `${path}.${field}`, issues);
     return;
   }
   if (schema.type === "array") {
@@ -218,7 +213,7 @@ function validateNode(schema: SchemaNode, value: unknown, path: string, issues: 
     }
     if (schema.minItems !== undefined && value.length < schema.minItems)
       issues.push(`${path} must contain at least ${schema.minItems} item(s).`);
-    value.forEach((entry, index) => validateNode(schema.items, entry, `${path}[${index}]`, issues));
+    value.forEach((entry, index) => validatePacketNode(schema.items, entry, `${path}[${index}]`, issues));
     return;
   }
   if (schema.type === "boolean") {
@@ -242,6 +237,7 @@ function validatePortablePath(value: string, path: string, issues: string[]): vo
     const normalized = normalizeRelativeDocumentPath(value);
     if (normalized !== value) issues.push(`${path} must already be a normalized portable relative path.`);
   } catch (error) {
+    consumeKnownError(error);
     issues.push(`${path} must be a portable relative path: ${error instanceof Error ? error.message : String(error)}.`);
   }
 }
@@ -255,44 +251,6 @@ function exampleValue(schema: SchemaNode): unknown {
   return schema.enum?.[0] ?? "";
 }
 
-function collectHelp(
-  schema: SchemaNode,
-  path: string,
-  required: boolean,
-  optionalAncestor: boolean,
-  lines: string[],
-): void {
-  if (schema.type === "object") {
-    if (path)
-      lines.push(`${path}${required ? "" : "?"}: object${schema.description ? ` — ${schema.description}` : ""}`);
-    for (const [field, child] of Object.entries(schema.properties))
-      collectHelp(
-        child,
-        path ? `${path}.${field}` : field,
-        schema.required.includes(field),
-        optionalAncestor || !required,
-        lines,
-      );
-    return;
-  }
-  const optional = !required || optionalAncestor ? " (optional section)" : "",
-    kind =
-      schema.type === "array"
-        ? `${
-            schema.items.type === "string" && schema.items.format === "portable-relative-path"
-              ? "portable-path"
-              : schema.items.type
-          }[]`
-        : schema.type === "string" && schema.enum
-          ? schema.enum.join("|")
-          : schema.type === "string" && schema.format === "portable-relative-path"
-            ? "portable-path"
-            : schema.type === "boolean"
-              ? String(schema.const)
-              : "string";
-  lines.push(`${path}: ${kind}${optional}`);
-}
-
-function record(value: unknown): value is Record<string, unknown> {
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
