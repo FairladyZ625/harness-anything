@@ -372,6 +372,11 @@
         "value": "tools/relation-weathering-spike.test.mjs",
         "ref": "dec_57A9D27BA446C23759A08B1C13",
         "reason": "The unregistered relation weathering spike and its self-only integration test are retired in favor of the canonical rebuildable projection read surface."
+      },
+      {
+        "value": "packages/daemon/test/role-binding.integration.test.ts",
+        "ref": "dec_B284A85A",
+        "reason": "The integration exercised the retired transport command-class authorization; AuthorizationPort contract and daemon ingress tests now cover the single authorization path."
       }
     ]
   }

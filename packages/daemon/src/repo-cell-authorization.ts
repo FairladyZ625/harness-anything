@@ -283,7 +283,7 @@ export function bindVerifiedExecutorClaim(input: {
     return { action, binding: input.binding };
   }
   if (raw === undefined || raw === null) return { action, binding: input.binding };
-  if (!record(raw) || raw.kind !== "agent" || typeof raw.id !== "string")
+  if (!isExecutorDescriptorRecord(raw) || raw.kind !== "agent" || typeof raw.id !== "string")
     throw invalidExecutorBinding("Executor claims must identify one RuntimeSession actor.");
   const match = /^runtime-session:([A-Za-z0-9][A-Za-z0-9._-]*)$/u.exec(raw.id);
   if (!match || Object.keys(raw).some((field) => field !== "kind" && field !== "id"))
@@ -335,6 +335,6 @@ function invalidExecutorBinding(message: string): Error & { readonly code: "exec
   return Object.assign(new Error(message), { code: "executor_binding_invalid" as const });
 }
 
-function record(value: unknown): value is Readonly<Record<string, unknown>> {
+function isExecutorDescriptorRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

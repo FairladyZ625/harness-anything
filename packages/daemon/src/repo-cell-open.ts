@@ -384,7 +384,47 @@ async function openLockedRepoCell(
         },
       });
     },
-    runtimeSpawner: () => runtimeSpawner,
+    runtimeSpawner: () => ({
+      spawn: (payload, binding) => {
+        const action = { kind: "runtime-spawn", ...payload },
+          revision = store.readHead()?.revision ?? 0,
+          authorizationDecision = authorizeRepoCellAction({
+            action,
+            binding,
+            actionId: `squad-runtime-spawn:${String(payload.idempotencyKey ?? "current")}:${revision}`,
+            revision,
+            now: now(),
+          });
+        if (authorizationDecision.outcome === "denied")
+          return Promise.reject(
+            cellCodedError(
+              "authorization_denied",
+              authorizationDecision.nextActions.join(" ") || "Squad runtime dispatch requires repo-write authority.",
+            ),
+          );
+        return runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+      },
+      cancel: (payload, binding) => {
+        const action = { kind: "runtime-cancel", ...payload },
+          revision = store.readHead()?.revision ?? 0,
+          authorizationDecision = authorizeRepoCellAction({
+            action,
+            binding,
+            actionId: `squad-runtime-cancel:${String(payload.runtimeSessionId ?? "current")}:${revision}`,
+            revision,
+            now: now(),
+          });
+        if (authorizationDecision.outcome === "denied")
+          return Promise.reject(
+            cellCodedError(
+              "authorization_denied",
+              authorizationDecision.nextActions.join(" ") ||
+                "Squad runtime cancellation requires repo-write authority.",
+            ),
+          );
+        return runtimeSpawner.cancel(payload, { ...binding, authorizationDecision });
+      },
+    }),
   });
   const catalog = openGuiCatalog({ repoId: input.repoId, rootDir, readSettings: () => readSettings(), now }),
     terminalHost = openTerminalHost({

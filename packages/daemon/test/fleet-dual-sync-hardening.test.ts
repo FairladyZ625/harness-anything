@@ -21,6 +21,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { applyFleetMirrorCut, readFleetUnresolvedConflicts, withFleetMirrorLock } from "../src/fleet-edge-mirror.ts";
 import { fleetDocPathInTaskPackage } from "../src/fleet-edge-task.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 
 const actor = { principal: { personId: "hardening-owner" }, executor: { kind: "agent", id: "hardening" } } as const;
 const assignmentSource = {
@@ -78,15 +79,21 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
   initRepo(root);
   const cell = await openRepoCell({ repoId: workspaceId("w3c-h-f1"), rootDir: canonicalRoot(root), ownerId: "f1" });
   try {
-    const created = await cell.run(
-      { kind: "task-create", taskId: "task-direct", title: "Direct" },
-      { actor, source: assignmentSource },
-    );
+    const localOwner = withRoleBinding({ actor, source: "local" as const }, "owner"),
+      heldAssignment = {
+        actor,
+        source: assignmentSource,
+        assignmentScope: {
+          repoId: "w3c-h-f1",
+          scope: { kind: "task" as const, taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] },
+        },
+      };
+    const created = await cell.run({ kind: "task-create", taskId: "task-direct", title: "Direct" }, localOwner);
     const packagePath = String((created as Record<string, unknown>).packagePath),
       logical = `${packagePath}/task_plan.md`;
     const target = path.join(root, "harness", logical);
     writeFileSync(target, realizedTaskPlan("Direct"));
-    const planned = await cell.run({ kind: "doc-submit", paths: [logical] }, { actor, source: "local" });
+    const planned = await cell.run({ kind: "doc-submit", paths: [logical] }, localOwner);
     assert.equal(planned.outcome, "applied", JSON.stringify(planned));
     const original = readFileSync(target, "utf8"),
       body = `${original}\n## Unheld push\n`;
@@ -145,7 +152,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
     // as its authority: the same actor holding the lease may push explicitly.
     const started = await cell.run(
       { kind: "task-start", taskId: "task-direct", executionId: "exe-f1" },
-      { actor, source: assignmentSource },
+      heldAssignment,
     );
     assert.equal(started.outcome, "applied");
     const held = await cell.run(
@@ -157,14 +164,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
           { path: logical, baseBlobSha256: sha(original), policyId, candidate: docClaim(root, "f1-held", body) },
         ],
       },
-      {
-        actor,
-        source: assignmentSource,
-        assignmentScope: {
-          repoId: "w3c-h-f1",
-          scope: { kind: "task", taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] },
-        },
-      },
+      heldAssignment,
     );
     assert.equal(held.outcome, "applied", JSON.stringify(held).slice(0, 300));
     // A different principal naming the held execution is still refused.

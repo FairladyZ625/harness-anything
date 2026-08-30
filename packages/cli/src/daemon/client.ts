@@ -677,7 +677,10 @@ function declaredExecutor(env: NodeJS.ProcessEnv = process.env): JsonObject | nu
     throw new Error(
       "HARNESS_ACTOR must use agent:<id> with an alphanumeric id containing only letters, numbers, dot, underscore, colon, or dash.",
     );
-  return { kind: "agent", id: match[1]! };
+  // A generic agent label is process-local attribution, not a transport proof.
+  // Only a canonical RuntimeSession id can be re-bound and verified by the
+  // daemon before it reaches AuthorizationPort or action criteria.
+  return match[1]!.startsWith("runtime-session:") ? { kind: "agent", id: match[1]! } : null;
 }
 function interactiveSessionEnvironment(env: NodeJS.ProcessEnv): DaemonSessionEnvironment {
   const claudeSessionId = env.CLAUDE_CODE_SESSION_ID?.trim(),

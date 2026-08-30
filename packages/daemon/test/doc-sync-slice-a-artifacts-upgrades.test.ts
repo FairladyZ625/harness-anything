@@ -1,13 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import {
-  cpSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,26 +10,16 @@ import {
   makeTaskEventStore,
   serializeCanonicalEvent,
 } from "../../kernel/src/index.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-import {
-  actor,
-  git,
-  initRepo,
-  rows,
-  standardMigration,
-  write,
-} from "./doc-sync-slice-a.fixtures.ts";
+import { git, initRepo, ownerBinding, rows, standardMigration, write } from "./doc-sync-slice-a.fixtures.ts";
 test("artifact add is the untracked UTF-8 canonical subset of doc submit", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-artifact-equivalence-")),
     left = path.join(parent, "left"),
     right = path.join(parent, "right"),
     now = () => "2026-08-14T00:00:00.000Z",
-    binding = { actor, source: "local" as const },
+    binding = ownerBinding,
     repoId = workspaceId("artifact-equivalence");
   mkdirSync(left);
   initRepo(left);
@@ -48,12 +31,7 @@ test("artifact add is the untracked UTF-8 canonical subset of doc submit", async
   });
   try {
     assert.equal(
-      (
-        await seed.run(
-          { kind: "task-create", taskId: "task-artifact", title: "Artifacts" },
-          binding,
-        )
-      ).outcome,
+      (await seed.run({ kind: "task-create", taskId: "task-artifact", title: "Artifacts" }, binding)).outcome,
       "applied",
     );
     await seed.close();
@@ -85,10 +63,7 @@ test("artifact add is the untracked UTF-8 canonical subset of doc submit", async
           },
           binding,
         )) as Record<string, unknown>,
-        doc = (await docCell.run(
-          { kind: "doc-submit", paths: [destination] },
-          binding,
-        )) as Record<string, unknown>;
+        doc = (await docCell.run({ kind: "doc-submit", paths: [destination] }, binding)) as Record<string, unknown>;
       assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
       assert.equal(doc.outcome, "applied", JSON.stringify(doc));
       assert.deepEqual(
@@ -112,10 +87,7 @@ test("artifact add is the untracked UTF-8 canonical subset of doc submit", async
         artifactEvent = artifactStore.readEvent(String(artifact.opId)),
         docEvent = docStore.readEvent(String(doc.opId));
       assert.ok(artifactEvent && docEvent);
-      assert.equal(
-        serializeCanonicalEvent(artifactEvent),
-        serializeCanonicalEvent(docEvent),
-      );
+      assert.equal(serializeCanonicalEvent(artifactEvent), serializeCanonicalEvent(docEvent));
       assert.equal(
         readFileSync(path.join(left, "harness/events/head.json"), "utf8"),
         readFileSync(path.join(right, "harness/events/head.json"), "utf8"),
@@ -126,6 +98,34 @@ test("artifact add is the untracked UTF-8 canonical subset of doc submit", async
       )) as Record<string, unknown>;
       assert.equal(shown.receiptId, artifact.receiptId);
       assert.equal(shown.commitSha, artifact.commitSha);
+      const replay = (await artifactCell.run(
+        {
+          kind: "task-artifact-add",
+          taskId: "task-artifact",
+          source: "incoming.md",
+          destination: "report.md",
+        },
+        binding,
+      )) as Record<string, unknown>;
+      assert.deepEqual(
+        {
+          outcome: replay.outcome,
+          opId: replay.opId,
+          revision: replay.revision,
+          receiptId: replay.receiptId,
+          source: replay.source,
+          destination: replay.destination,
+        },
+        {
+          outcome: "applied",
+          opId: artifact.opId,
+          revision: artifact.revision,
+          receiptId: artifact.receiptId,
+          source: "incoming.md",
+          destination,
+        },
+        JSON.stringify(replay),
+      );
       writeFileSync(source, "next\n");
       const collision = await artifactCell.run(
         {
@@ -148,10 +148,7 @@ test("artifact add is the untracked UTF-8 canonical subset of doc submit", async
         binding,
       );
       assert.equal(trackedEdit.code, "artifact_tracked_edit");
-      assert.match(
-        trackedEdit.nextAction ?? "",
-        /ha doc sync --submit --path/u,
-      );
+      assert.match(trackedEdit.nextAction ?? "", /ha doc sync --submit --path/u);
       const trackedSource = await artifactCell.run(
         {
           kind: "task-artifact-add",
@@ -211,19 +208,13 @@ test("artifact unknown settlement returns the canonical DocEvent receipt id with
       ownerId: "artifact-unknown-one",
       now: () => "2026-08-14T00:00:00.000Z",
       killpoint: (point) => {
-        if (armed && point === "before_response_write")
-          throw new Error("response lost");
+        if (armed && point === "before_response_write") throw new Error("response lost");
       },
     });
-  const binding = { actor, source: "local" as const };
+  const binding = ownerBinding;
   try {
     assert.equal(
-      (
-        await cell.run(
-          { kind: "task-create", taskId: "task-unknown", title: "Unknown" },
-          binding,
-        )
-      ).outcome,
+      (await cell.run({ kind: "task-create", taskId: "task-unknown", title: "Unknown" }, binding)).outcome,
       "applied",
     );
     writeFileSync(path.join(rootDir, "unknown.md"), "# Unknown\n");
@@ -241,13 +232,9 @@ test("artifact unknown settlement returns the canonical DocEvent receipt id with
     assert.equal(unknown.outcome, "indeterminate");
     assert.equal(unknown.code, "publication_indeterminate");
     assert.match(unknown.opId, /^op_/u);
-    assert.match(
-      unknown.nextAction ?? "",
-      new RegExp(`receipt show ${unknown.opId}`, "u"),
-    );
+    assert.match(unknown.nextAction ?? "", new RegExp(`receipt show ${unknown.opId}`, "u"));
     assert.equal(
-      makeTaskEventStore({ repoId: "artifact-unknown", rootDir }).read()
-        .revision,
+      makeTaskEventStore({ repoId: "artifact-unknown", rootDir }).read().revision,
       revisionBeforeArtifact + 1,
     );
     await cell.close();
@@ -257,10 +244,7 @@ test("artifact unknown settlement returns the canonical DocEvent receipt id with
       ownerId: "artifact-unknown-two",
       now: () => "2026-08-14T00:00:00.000Z",
     });
-    const settled = (await cell.run(
-      { kind: "receipt-show", opId: unknown.opId },
-      binding,
-    )) as Record<string, unknown>;
+    const settled = (await cell.run({ kind: "receipt-show", opId: unknown.opId }, binding)) as Record<string, unknown>;
     assert.equal(settled.outcome, "applied");
     assert.equal(settled.receiptId, unknown.opId);
   } finally {
@@ -275,10 +259,8 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
   const standard = "governance/standards/doc-library-standard.md",
     legacy = "# Docs Library\n\nfact 用 invalidate。\n",
     repoId = workspaceId("upgrade"),
-    binding = { actor, source: "local" as const };
-  makeTaskEventStore({ repoId, rootDir }).append(
-    standardMigration(1, standard, legacy),
-  );
+    binding = ownerBinding;
+  makeTaskEventStore({ repoId, rootDir }).append(standardMigration(1, standard, legacy));
   const cell = await openRepoCell({
     repoId,
     rootDir: canonicalRoot(rootDir),
@@ -286,22 +268,14 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
   });
   try {
     write(rootDir, standard, `${legacy}fact 退场用 supersedes-fact。\n`);
-    const dry = await cell.run(
-      { kind: "doc-dry-run", paths: [standard] },
-      binding,
-    );
+    const dry = await cell.run({ kind: "doc-dry-run", paths: [standard] }, binding);
     assert.deepEqual(
       rows(dry.evidence).map((row) => [row.path, row.state]),
       [[standard, "eligible"]],
     );
-    const applied = await cell.run(
-      { kind: "doc-submit", paths: [standard] },
-      binding,
-    );
+    const applied = await cell.run({ kind: "doc-submit", paths: [standard] }, binding);
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
-    const upgraded = makeTaskEventStore({ repoId, rootDir }).readEvent(
-      applied.opId,
-    );
+    const upgraded = makeTaskEventStore({ repoId, rootDir }).readEvent(applied.opId);
     assert.equal(upgraded?.schema, "doc-event/v1");
     if (upgraded?.schema === "doc-event/v1")
       assert.deepEqual(upgraded.payload.changes[0]?.policyUpgrade, {
@@ -311,24 +285,15 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
 
     const secondBody = `${legacy}fact 退场用 supersedes-fact。\n删前先查 relation 入边。\n`;
     write(rootDir, standard, secondBody);
-    const second = await cell.run(
-      { kind: "doc-submit", paths: [standard] },
-      binding,
-    );
+    const second = await cell.run({ kind: "doc-submit", paths: [standard] }, binding);
     assert.equal(second.outcome, "applied", JSON.stringify(second));
-    const native = makeTaskEventStore({ repoId, rootDir }).readEvent(
-      second.opId,
-    );
-    if (native?.schema === "doc-event/v1")
-      assert.equal("policyUpgrade" in native.payload.changes[0]!, false);
+    const native = makeTaskEventStore({ repoId, rootDir }).readEvent(second.opId);
+    if (native?.schema === "doc-event/v1") assert.equal("policyUpgrade" in native.payload.changes[0]!, false);
 
     write(rootDir, standard, `${secondBody}hand edit outside doc sync\n`);
     git(rootDir, "add", "harness");
     git(rootDir, "commit", "-qm", "manual ledger advance");
-    const accepted = await cell.run(
-      { kind: "doc-submit", paths: [standard] },
-      binding,
-    );
+    const accepted = await cell.run({ kind: "doc-submit", paths: [standard] }, binding);
     assert.equal(accepted.outcome, "applied");
     assert.equal(accepted.commitSha, null);
   } finally {

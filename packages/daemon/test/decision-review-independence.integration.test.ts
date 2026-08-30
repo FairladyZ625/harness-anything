@@ -10,13 +10,16 @@ import { openRepoCell } from "../src/repo-cell.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 
-const proposer = {
-  actor: {
-    principal: { personId: "person-proposer" },
-    executor: { kind: "agent" as const, id: "proposer-agent" },
+const proposer = withRoleBinding(
+  {
+    actor: {
+      principal: { personId: "person-proposer" },
+      executor: { kind: "agent" as const, id: "proposer-agent" },
+    },
+    source: "local" as const,
   },
-  source: "local" as const,
-};
+  "repo-write",
+);
 
 test("Decision outcomes reject self-judgment and accept an independent reviewer", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-independence-"));
