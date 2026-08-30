@@ -171,6 +171,12 @@ function AppShell() {
   useEffect(() => {
     if (!activeRepoId || !tasksQuery.data) return;
     const cut = `${activeRepoId}:${tasksQuery.data.watermark}:${tasksQuery.data.sourceRevision}`;
+    // 首次水合只是建立比较基准,不是「台账变化」。把它当变化会让刚完成的
+    // workspace summary / 三元切面立刻再读一遍;后续 cut 才失效挂载中的读面。
+    if (lastLedgerCut.current === null) {
+      lastLedgerCut.current = cut;
+      return;
+    }
     if (lastLedgerCut.current === cut) return;
     lastLedgerCut.current = cut;
     void invalidateLedgerDependents(queryClient, activeRepoId);

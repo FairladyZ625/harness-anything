@@ -291,10 +291,9 @@ const decisionCalls = (calls: readonly RecordedCall[]) => calls.filter(({ method
 describe("三元读取按挂载域分层", () => {
   it("任务看板会话只读 derives 边切面与决策摘要,没有完整投影", async () => {
     const { calls } = await mountApp({ view: "board" });
-    // 挂载水合时首批 tasks 数据到达会触发一次初始 cut 失效,常驻窄面因此各被读两遍
-    // (读形不变,这是与 main 相同的既有行为);断言的是读面集合,不是次数。
-    expect([...new Set(relationGraphCalls(calls()).map(({ payload }) => payload?.facet))]).toEqual(["edges"]);
-    expect([...new Set(decisionCalls(calls()).map(({ payload }) => payload?.projection))]).toEqual(["summary"]);
+    // 首批 tasks 水合只建立 cut 基准,不能把刚完成的常驻读面再次失效。
+    expect(relationGraphCalls(calls()).map(({ payload }) => payload?.facet)).toEqual(["edges"]);
+    expect(decisionCalls(calls()).map(({ payload }) => payload?.projection)).toEqual(["summary"]);
   });
 
   it("台账 cut 前进时,看板上只重取挂载中的窄面,完整投影不被重取", async () => {
