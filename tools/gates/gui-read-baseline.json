@@ -1,0 +1,49 @@
+{
+  "schema": "gui-read-ratchet/v1",
+  "basisRevision": "7dacdf10737fd9408f65b932de606f06ddee5cd3",
+  "measuredAt": "2026-08-30T09:48:59.194Z",
+  "views": {
+    "overview": {
+      "requestCount": 7,
+      "payloadBytes": 13034611,
+      "maxE2eDurationMs": 3219.973,
+      "maxHandlerDurationMs": 1307
+    },
+    "board": {
+      "requestCount": 5,
+      "payloadBytes": 2656879,
+      "maxE2eDurationMs": 880.904,
+      "maxHandlerDurationMs": 673
+    },
+    "graph": {
+      "requestCount": 10,
+      "payloadBytes": 13066918,
+      "maxE2eDurationMs": 3215.647,
+      "maxHandlerDurationMs": 1260
+    },
+    "sessions": {
+      "requestCount": 10,
+      "payloadBytes": 5833831,
+      "maxE2eDurationMs": 1154.308,
+      "maxHandlerDurationMs": 662
+    },
+    "schedules": {
+      "requestCount": 6,
+      "payloadBytes": 2679143,
+      "maxE2eDurationMs": 901.726,
+      "maxHandlerDurationMs": 673
+    },
+    "agentSquad": {
+      "requestCount": 10,
+      "payloadBytes": 3845816,
+      "maxE2eDurationMs": 1275.082,
+      "maxHandlerDurationMs": 729
+    },
+    "artifacts": {
+      "requestCount": 6,
+      "payloadBytes": 2683679,
+      "maxE2eDurationMs": 1078.688,
+      "maxHandlerDurationMs": 699
+    }
+  }
+}

@@ -4649,6 +4649,55 @@
       }
     },
     {
+      "id": "gui-read-baseline",
+      "command": "node tools/gates/gui-read-baseline.mjs --base origin/main --mode ratchet",
+      "category": "local-consistency",
+      "tier": "pr-advisory",
+      "tierReason": "Real-ledger GUI latency is host-sensitive, so the PR job enforces only the committed shrink-only request/payload/latency ratchet; G-slice reports supply fresh measurements.",
+      "authoritySource": [
+        "task_c03713017573032b7b7149b9b5",
+        "tools/measure-gui-read-baseline.mjs"
+      ],
+      "consumerScope": [
+        "cold-load daemon reads for overview, board, graph, sessions, schedules, Agent/Squad, and Artifacts views",
+        "per-view request count, response payload, IPC elapsed time, and daemon handler elapsed time"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "There is no upward-budget receipt or exception path; a new real-ledger measurement may only lower committed limits."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/gui-read-baseline.mjs",
+          "tools/gates/gui-read-baseline.json",
+          "tools/gates/test/gui-read-baseline.test.mjs",
+          "tools/measure-gui-read-baseline.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/gui-read-baseline.test.mjs"]
+      }
+    },
+    {
       "id": "ontology-kind-authority",
       "command": "node tools/gates/ontology-kind-authority.mjs",
       "category": "boundary",
