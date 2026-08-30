@@ -36,3 +36,14 @@ test("GUI E2E runner reports a missing display server dependency", () => {
     }
   );
 });
+
+test("GUI E2E runner uses the Windows npm.cmd shim without probing xvfb", () => {
+  assert.deepEqual(
+    selectGuiE2eCommand({ platform: "win32", display: undefined, hasXvfbRun: false }),
+    {
+      command: "npm.cmd",
+      args: ["run", "test:e2e", "-w", "@harness-anything/gui"],
+      requiresXvfb: false
+    }
+  );
+});

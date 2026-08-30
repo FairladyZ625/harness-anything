@@ -173,7 +173,8 @@ export function seedTriadicEvents(rootDir, repoId) {
       });
     }
   } finally {
+    // Event appends persist their WAL synchronously; the resident fixture restarts only after
+    // this callback resolves, so an empty drain() cannot provide additional visibility.
     projection.close();
-    void store.drain();
   }
 }

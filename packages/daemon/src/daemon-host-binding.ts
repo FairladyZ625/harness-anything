@@ -12,20 +12,22 @@ export function localSystemBinding(
   executor: RepoCellBinding["actor"]["executor"] = null,
 ): RepoCellBinding {
   const ownerUid = process.getuid?.();
-  if (typeof ownerUid !== "number")
+  // Named pipes do not expose a POSIX UID on Windows; use a stable local fallback there only.
+  if (typeof ownerUid !== "number" && process.platform !== "win32")
     throw hostCodedError("credential_unavailable", "Local system binding requires a Unix socket owner boundary.");
+  const stableOwnerUid = ownerUid ?? 0;
   const roster = loadPeopleRosterIfPresent({ rootDir });
-  if (roster === null) return defaultLocalBinding(ownerUid, executor);
+  if (roster === null) return defaultLocalBinding(stableOwnerUid, executor);
   const resolved = roster.resolveCredential(
     {
       kind: "unix-socket-owner-boundary",
       issuer: `host:${os.hostname()}`,
-      subject: String(ownerUid),
+      subject: String(stableOwnerUid),
     },
     "local-system/v1",
   );
   if (!resolved.ok) {
-    if (resolved.code === "credential_unknown") return defaultLocalBinding(ownerUid, executor);
+    if (resolved.code === "credential_unknown") return defaultLocalBinding(stableOwnerUid, executor);
     throw hostCodedError(resolved.code, resolved.message);
   }
   const actor = { principal: { personId: resolved.actor.personId }, executor };

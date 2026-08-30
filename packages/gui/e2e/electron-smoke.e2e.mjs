@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { delimiter, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 import test from "node:test";
 import { tmpdir } from "node:os";
 import electronPath from "electron";
@@ -145,6 +145,7 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   // W4 可寻址路由:decision 引用直达决策详情页(详情栏 + 邻域画布),
   // 不再落决策池列表页。
   await page.getByTestId("decision-detail-view").waitFor({ timeout: 10_000 });
+  await page.getByRole("tab", { name: "概况" }).click();
   await page.getByText("Should the GUI consume the public relation graph?", { exact: false }).first().waitFor();
 
   // The decision inbox card exposes the same paste-ready context shape.
@@ -166,11 +167,18 @@ test(
       skillProofValue = `manifest-observed-${Date.now()}`;
     const fakeProviderRoot = mkdtempSync(resolve(tmpdir(), "ha-gui-codex-provider-")),
       fakeProviderBin = resolve(fakeProviderRoot, "bin"),
-      fakeProviderPath = resolve(fakeProviderBin, "codex"),
+      fakeProviderPath = resolve(fakeProviderBin, process.platform === "win32" ? "codex.cmd" : "codex"),
       originalPath = process.env.PATH ?? "";
     mkdirSync(fakeProviderBin);
     writeFakeCodex(fakeProviderPath);
-    assert.equal(execFileSync(fakeProviderPath, ["--version"], { encoding: "utf8" }).trim(), "codex-cli e2e-fake");
+    const versionOutput =
+      process.platform === "win32"
+        ? execFileSync("cmd.exe", ["/d", "/s", "/c", `""${fakeProviderPath}" --version"`], {
+            encoding: "utf8",
+            windowsVerbatimArguments: true,
+          })
+        : execFileSync(fakeProviderPath, ["--version"], { encoding: "utf8" });
+    assert.equal(versionOutput.trim(), "codex-cli e2e-fake");
     process.env.PATH = `${fakeProviderBin}${delimiter}${originalPath}`;
     let daemonFixture;
     try {
@@ -451,6 +459,12 @@ function writeFakeCodex(target) {
     "console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: result } }));",
     "console.log(JSON.stringify({ type: 'turn.completed' }));",
   ].join("\n");
+  if (process.platform === "win32") {
+    const scriptPath = resolve(dirname(target), "codex.mjs");
+    writeFileSync(scriptPath, `${source}\n`, { mode: 0o755 });
+    writeFileSync(target, `@echo off\r\n"${process.execPath}" "%~dp0codex.mjs" %*\r\n`);
+    return;
+  }
   writeFileSync(target, `${source}\n`, { mode: 0o755 });
   chmodSync(target, 0o755);
 }

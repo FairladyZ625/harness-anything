@@ -7,8 +7,11 @@ import { pathToFileURL } from "node:url";
 const repoRoot = resolve(import.meta.dirname, "..");
 
 export function selectGuiE2eCommand({ platform, display, hasXvfbRun }) {
+  // Windows exposes npm through a .cmd shim, which spawnSync cannot resolve
+  // without the extension when shell execution is disabled.
+  const npmCommand = platform === "win32" ? "npm.cmd" : "npm";
   const baseCommand = {
-    command: "npm",
+    command: npmCommand,
     args: ["run", "test:e2e", "-w", "@harness-anything/gui"],
     requiresXvfb: false
   };
@@ -32,7 +35,8 @@ export function selectGuiE2eCommand({ platform, display, hasXvfbRun }) {
   };
 }
 
-function binaryExists(name) {
+function binaryExists(name, platform = process.platform) {
+  if (platform !== "linux") return false;
   const result = spawnSync(`command -v ${name}`, { shell: "/bin/sh", stdio: "ignore" });
   return result.status === 0;
 }
@@ -41,7 +45,7 @@ function main() {
   const selected = selectGuiE2eCommand({
     platform: process.platform,
     display: process.env.DISPLAY,
-    hasXvfbRun: binaryExists("xvfb-run")
+    hasXvfbRun: binaryExists("xvfb-run", process.platform)
   });
 
   if (selected.missingXvfb) {
@@ -52,7 +56,8 @@ function main() {
   const result = spawnSync(selected.command, selected.args, {
     cwd: repoRoot,
     env: process.env,
-    stdio: "inherit"
+    stdio: "inherit",
+    shell: process.platform === "win32"
   });
 
   if (result.error) {
