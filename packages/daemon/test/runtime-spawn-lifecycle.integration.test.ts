@@ -47,7 +47,10 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
     git(root, "config", "user.email", "spawn@example.invalid");
     git(root, "commit", "--allow-empty", "-qm", "base");
     let launched: unknown,
-      intentWasDurable = false;
+      intentWasDurable = false,
+      observerSawUnknown = false,
+      firstExit: ((code: number | null) => void) | null = null,
+      launchCount = 0;
     const cell = await openRepoCell({
       repoId: workspaceId("runtime-spawn"),
       rootDir: canonicalRoot(root),
@@ -102,7 +105,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: (input) => {
+      runtimeLaunch: (input, persistence) => {
         intentWasDurable = makeTaskEventStore({
           repoId: "runtime-spawn",
           rootDir: root,
@@ -110,11 +113,24 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           .read()
           .events.some((candidate) => candidate.type === "runtime_dispatch_requested");
         launched = input;
+        const observer = makeTaskProjection({
+            rootDir: root,
+            eventStore: makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root }),
+          }),
+          thisLaunch = launchCount++;
+        observerSawUnknown ||= observer.readRuntimeSessions().some((candidate) => candidate.liveness === "unknown");
+        appendRuntimeWorkerRecord(root, persistence.dispatchId, {
+          kind: "process_started",
+          occurredAt: "2026-08-30T05:42:44.000Z",
+          pid: 123,
+        });
         return {
           pid: 123,
           onOutput: () => undefined,
           onErrorOutput: () => undefined,
-          onExit: () => undefined,
+          onExit: (listener) => {
+            if (thisLaunch === 0) firstExit = listener;
+          },
           terminate: () => undefined,
         };
       },
@@ -170,6 +186,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       );
       assert.equal(receipt.outcome, "applied");
       assert.equal(intentWasDurable, true);
+      assert.equal(observerSawUnknown, true);
       assert.deepEqual(launched, {
         definition,
         installation,
@@ -182,13 +199,25 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         cwd: canonicalRoot(root),
         prompt: "Inspect the repository",
       });
-      const events = makeTaskEventStore({
-          repoId: "runtime-spawn",
-          rootDir: root,
-        }).read().events,
+      await eventually(() =>
+        makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root })
+          .read()
+          .events.some(
+            (candidate) =>
+              candidate.type === "runtime_session_liveness_changed" &&
+              candidate.payload.runtimeSessionId === receipt.runtimeSessionId &&
+              candidate.payload.liveness === "live",
+          ),
+      );
+      const events = makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root }).read().events,
         observed = events.find((candidate) => candidate.type === "runtime_installation_observed"),
         dispatch = events.find((candidate) => candidate.type === "runtime_dispatch_requested"),
-        started = events.find((candidate) => candidate.type === "runtime_session_started");
+        started = events.find((candidate) => candidate.type === "runtime_session_started"),
+        live = events.find(
+          (candidate) =>
+            candidate.type === "runtime_session_liveness_changed" &&
+            candidate.payload.runtimeSessionId === receipt.runtimeSessionId,
+        );
       assert.equal(
         observed?.type === "runtime_installation_observed" && observed.payload.installationId,
         definition.installationId,
@@ -199,6 +228,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       );
       assert.ok(events.indexOf(observed!) < events.indexOf(dispatch!));
       assert.ok(events.indexOf(dispatch!) < events.indexOf(started!));
+      assert.ok(events.indexOf(started!) < events.indexOf(live!));
       assert.equal(
         dispatch?.type === "runtime_dispatch_requested" && dispatch.payload.instanceId,
         definition.instanceId,
@@ -224,6 +254,47 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       const session = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
       assert.equal(session?.instanceId, definition.instanceId);
       assert.deepEqual(session?.definitionSnapshot, definition);
+      assert.equal(session?.liveness, "live");
+      assert.equal(session?.semanticState, "running");
+
+      // Sanitized copies of the Codex JSONL frame shapes captured from a real
+      // provider stream on 2026-08-30, followed by its native process exit.
+      for (const event of [
+        { type: "thread.started", thread_id: "provider-live-after-launch" },
+        { type: "turn.started" },
+        {
+          type: "item.completed",
+          item: { id: "message", type: "agent_message", text: "runtime stayed live" },
+        },
+        { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } },
+      ])
+        appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
+          kind: "provider_event",
+          occurredAt: "2026-08-30T05:42:45.000Z",
+          event,
+        });
+      appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
+        kind: "process_exit",
+        occurredAt: "2026-08-30T05:42:46.000Z",
+        exitCode: 0,
+        signal: null,
+      });
+      assert.ok(firstExit, "runtime exit listener must be attached before the provider exits");
+      firstExit(0);
+      await eventually(() =>
+        makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root })
+          .read()
+          .events.some(
+            (candidate) =>
+              candidate.type === "runtime_session_exited" &&
+              candidate.payload.runtimeSessionId === receipt.runtimeSessionId,
+          ),
+      );
+      const settled = (await cell.read("repo.agentRuntime.overview", {})).sessions.find(
+        (candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId,
+      );
+      assert.equal(settled?.liveness, "exited");
+      assert.notEqual(settled?.semanticState, "running");
       const alternate = await cell.spawnRuntime(
         {
           runtimeInstanceId: "codex-review",

@@ -655,6 +655,17 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       dispatchId: newDispatchId,
       pid: runtimeProcess.pid,
     });
+    // `runtime_session_started` is published before launch so immediate provider
+    // callbacks can resolve the session. Confirm liveness after the process is
+    // actually registered, ahead of any output or exit work those callbacks queue.
+    input.schedule(async () => {
+      await publishRuntimeEvent(
+        "runtime_session_liveness_changed",
+        { runtimeSessionId, liveness: "live" },
+        `${dispatchOpId}-live`,
+        binding,
+      );
+    });
     attachActiveRuntime(extracted, active, resumeObservation);
     return requested.receipt
       ? {
