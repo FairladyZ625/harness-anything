@@ -29,3 +29,18 @@ export function commitAll(rootDir, message = "fixture head") {
   runGit(rootDir, ["commit", "--quiet", "-m", message]);
   return runGit(rootDir, ["rev-parse", "HEAD"]);
 }
+
+export function captureGate(run) {
+  const stdout = [],
+    stderr = [],
+    originalLog = console.log,
+    originalError = console.error;
+  console.log = (...args) => stdout.push(args.join(" "));
+  console.error = (...args) => stderr.push(args.join(" "));
+  try {
+    return { code: run(), stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+}
