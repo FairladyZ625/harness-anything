@@ -88,7 +88,12 @@ function adaptProjectionRow(
     currentNode: task.currentNode,
     iteration: task.iteration,
     ...(row.snapshot.lease
-      ? { activeExecutionId: row.snapshot.lease.executionId, leaseExpiresAt: row.snapshot.lease.expiresAt }
+      ? {
+          activeExecutionId: row.snapshot.lease.executionId,
+          leaseExpiresAt: row.snapshot.lease.expiresAt,
+          leaseHolder: leaseHolderLabel(row.snapshot.lease.actor),
+          leasePhase: row.snapshot.lease.phase,
+        }
       : {}),
     createdAt: row.createdAt,
     lastKnownAt: row.updatedAt,
@@ -108,6 +113,15 @@ function adaptProjectionRow(
     docs: [],
     events: lifecycleEvents(row, projectId),
   };
+}
+
+/** 列表行内的 lease 持有者标签:principal personId,agent executor 附 session 标识。 */
+function leaseHolderLabel(
+  actor: { readonly principal: { readonly personId: string } } & {
+    readonly executor: { readonly kind: "agent"; readonly id: string } | null;
+  },
+): string {
+  return actor.executor === null ? actor.principal.personId : `${actor.principal.personId} · ${actor.executor.id}`;
 }
 
 function lifecycleEvents(row: TaskSnapshotProjectionRow, projectId: string): TaskRow["events"] {

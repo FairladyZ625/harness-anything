@@ -267,6 +267,8 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.task.start", { taskId: "task-a", executionId: "execution-a" }],
     ["repo.task.progress.append", { taskId: "task-a", executionId: "execution-a", text: "Progress", evidence: [{ type: "test", path: "report.txt", summary: "Passed" }] }],
     ["repo.task.submit", { taskId: "task-a", executionId: "execution-a", submission }],
+    ["repo.task.pin", { taskId: "task-a" }],
+    ["repo.task.unpin", { taskId: "task-a" }],
     ["repo.decision.list", { state: "proposed", legacyRange: { start: 1, end: 4 } }],
     ["repo.decision.show", { decisionId: "dec_A", includeBody: true }],
     ["repo.decision.propose", proposal],

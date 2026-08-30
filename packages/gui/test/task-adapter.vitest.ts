@@ -121,6 +121,35 @@ describe("adaptProjectionRows", () => {
     });
   });
 
+  it("surfaces the lease holder and the ledger pin on the row itself", () => {
+    const leased = row({
+      snapshot: {
+        ...row().snapshot,
+        lease: {
+          schema: "lease/v1",
+          taskId: "task-x",
+          executionId: "execution-holder",
+          actor: { principal: { personId: "person-zeyu" }, executor: { kind: "agent", id: "codex-sol" } },
+          source: { channel: "gui" },
+          phase: "held",
+          expiresAt: "2026-08-30T01:00:00.000Z",
+          ttlMs: 900_000,
+          version: 1,
+        },
+        task: { ...row().snapshot.task!, pinned: true },
+      },
+    });
+    const [task] = adaptProjectionRows([leased], "repo-test");
+    expect(task).toMatchObject({
+      activeExecutionId: "execution-holder",
+      leaseHolder: "person-zeyu · codex-sol",
+      leasePhase: "held",
+      leaseExpiresAt: "2026-08-30T01:00:00.000Z",
+      pinned: true,
+    });
+    expect(adaptProjectionRows([row()], "repo-test")[0]?.pinned).toBeUndefined();
+  });
+
   it("marks a pending projection stale but usable", () => {
     expect(adaptProjectionRows([row()], "repo-test", "pending")[0]?.freshness).toBe("stale-but-usable");
   });

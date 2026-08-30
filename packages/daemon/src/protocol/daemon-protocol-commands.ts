@@ -142,8 +142,16 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
   const descriptor = [...presetMethods, ...daemonGuiActionMethods].find((entry) => entry.method === method);
   if (!descriptor)
     throw new DaemonProtocolContractError("unsupported_command", `No action descriptor exists for ${method}.`);
+  // A GUI action may pin the closed parts of its action the renderer cannot say
+  // (repo.task.pin's pinned-only amend patch); the declared payload is spread last,
+  // so the ingress stays the only writer of those fields.
   const command = presetCommands.find((entry) => entry.method === method),
-    defaults = command && "actionDefaults" in command ? command.actionDefaults : {};
+    defaults =
+      "actionDefaults" in descriptor
+        ? descriptor.actionDefaults
+        : command && "actionDefaults" in command
+          ? command.actionDefaults
+          : {};
   return { ...defaults, kind: descriptor.actionKind, ...payload };
 }
 

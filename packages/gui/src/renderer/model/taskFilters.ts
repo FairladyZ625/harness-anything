@@ -135,3 +135,25 @@ export function sortByFavoritesFirst<T>(
   }
   return [...favorited, ...rest];
 }
+
+/**
+ * 台账 pin 排序助手:pin 是 canonical 台账字段(`task/v1.pinned`,经 `ha task pin`
+ * 或 GUI 同一动作写入),所以它排在本地收藏之前——「今天当前在做」先于个人偏好。
+ * 稳定排序:每个等级内不改变原有顺序。
+ */
+export function sortByPinAndFavoritesFirst<T>(
+  items: readonly T[],
+  isPinned: (item: T) => boolean,
+  getTaskId: (item: T) => string,
+  favorites: ReadonlySet<string>,
+): T[] {
+  const pinned: T[] = [];
+  const favorited: T[] = [];
+  const rest: T[] = [];
+  for (const item of items) {
+    if (isPinned(item)) pinned.push(item);
+    else if (favorites.has(getTaskId(item))) favorited.push(item);
+    else rest.push(item);
+  }
+  return [...pinned, ...favorited, ...rest];
+}

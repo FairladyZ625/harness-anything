@@ -85,8 +85,12 @@ export function makeDaemonCommandReceipt(command: string, receipt: object): Json
       ok: _ok,
       command: _command,
       error: _error,
-      ...fields
+      // A write path that leaves a field unset owns it as `undefined`; the wire drops
+      // exactly those keys, so the envelope handed to the result validators must too —
+      // otherwise a receipt that serializes fine is rejected before it ever reaches JSON.
+      ...declared
     } = receipt as Readonly<Record<string, unknown>>,
+    fields = Object.fromEntries(Object.entries(declared).filter(([, value]) => value !== undefined)),
     ok = fields.outcome === "applied" || fields.outcome === "pending" || fields.outcome === "no_changes";
   return {
     schema: "command-receipt/v2",
@@ -333,6 +337,11 @@ export const writeReceiptFields = [
     "scheduleId",
     "schedule",
     "claimFence",
+    // Task surface writes (release/amend/archive/supersede/delete/reopen/relate) already
+    // return these on the CLI channel; repo.task.pin/unpin are named ingress onto the same
+    // write, so the GUI envelope accepts exactly what that write path produces.
+    "mode",
+    "report",
   ];
 
 export function writeReceipt(value: JsonObject): string[] {

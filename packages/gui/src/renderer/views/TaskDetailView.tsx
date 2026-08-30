@@ -6,6 +6,7 @@ import {
   FileText,
   Flag,
   LinkSimple,
+  PushPin,
   SealCheck,
   ShareNetwork,
 } from "@phosphor-icons/react";
@@ -54,6 +55,7 @@ export function TaskDetailView({
   mutationFeedback,
   onProgress,
   onSubmit,
+  onSetPin,
 }: {
   task: TaskRow;
   onBack: () => void;
@@ -73,11 +75,14 @@ export function TaskDetailView({
     evidence: ReadonlyArray<{ type: string; path: string; summary: string }>;
   }) => Promise<unknown>;
   onSubmit?: (submission: GuiSubmissionV1) => Promise<unknown>;
+  /** 台账 pin 写通道(`ha task pin` 同一动作);缺省时只显示 📌 状态。 */
+  onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const [activeTab, setActiveTab] = useState<TaskDetailTab>("overview");
   const [activeDoc, setActiveDoc] = useState("task_plan.md");
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
   const external = isExternal(task);
+  const pinned = task.pinned === true;
 
   useEffect(() => {
     setActiveTab("overview");
@@ -138,6 +143,37 @@ export function TaskDetailView({
             <span className="whitespace-nowrap">
               <EngineBadge engine={task.engine} locked={external} />
             </span>
+            {onSetPin ? (
+              <button
+                type="button"
+                data-testid="task-detail-pin-toggle"
+                onClick={() => onSetPin(task, !pinned)}
+                aria-pressed={pinned}
+                title={pinned ? t("views.taskDetailView.unpinTitle") : t("views.taskDetailView.pinTitle")}
+                className={[
+                  "flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-1 font-mono text-[10px]",
+                  pinned
+                    ? "border-accent/50 bg-accent/10 text-accent"
+                    : "border-border text-text-faint hover:border-border-strong hover:text-text-muted",
+                ].join(" ")}
+              >
+                <PushPin weight={pinned ? "fill" : "bold"} />
+                {pinned ? t("views.taskDetailView.pinnedToday") : t("views.taskDetailView.pinAction")}
+              </button>
+            ) : (
+              pinned && (
+                <span
+                  data-testid="task-detail-pinned-marker"
+                  className={[
+                    "flex shrink-0 items-center gap-1 rounded-md border",
+                    "border-accent/50 bg-accent/10 px-1.5 py-1 font-mono text-[10px] text-accent",
+                  ].join(" ")}
+                >
+                  <PushPin weight="fill" />
+                  {t("views.taskDetailView.pinnedToday")}
+                </span>
+              )
+            )}
             <details className="group relative shrink-0">
               <summary
                 className={[
@@ -174,6 +210,17 @@ export function TaskDetailView({
                   label={t("views.taskDetailView.stage")}
                   value={`${task.currentNode ?? "—"} · iteration ${task.iteration ?? "—"}`}
                   detail={<PhaseSteps status={task.canonicalStatus ?? task.coordinationStatus} />}
+                />
+                <IdentityItem
+                  label="LEASE"
+                  value={
+                    task.activeExecutionId
+                      ? `${task.activeExecutionId} · ${task.leaseHolder ?? "—"} · ${
+                          task.leasePhase ?? "—"
+                        } · ${task.leaseExpiresAt ?? "—"}`
+                      : "—"
+                  }
+                  wide
                 />
                 <IdentityItem label="PRESET / VERTICAL" value={`${task.preset ?? "—"} · ${task.vertical ?? "—"}`} />
                 <IdentityItem label="RISK / URGENCY" value={`${task.riskTier ?? "—"} · ${task.urgency ?? "—"}`} />

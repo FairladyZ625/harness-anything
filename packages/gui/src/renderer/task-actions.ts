@@ -89,7 +89,7 @@ export function createGuiExecutionId(randomUUID: () => string = () => crypto.ran
 
 export interface TaskMutationFeedback {
   readonly state: "pending" | "success" | "error";
-  readonly kind: "start" | "progress" | "submit";
+  readonly kind: "start" | "progress" | "submit" | "pin";
   readonly opId: string;
   readonly code?: string;
   readonly hint: string;
@@ -256,5 +256,24 @@ export function useTaskActions(repoId: string) {
         ),
       );
     });
-  return { feedback, startTask, appendProgress, submitTask };
+  // 台账 pin 的 GUI 写通道:与 `ha task pin/unpin` 完全同一条 daemon 动作
+  // (pinned-only `task-amend`),不另造写路。pinned 与 coordinationStatus 正交,
+  // 所以可见性判据只看 `snapshot.task.pinned` 这一件事。
+  const setTaskPin = (task: TaskRow, pinned: boolean): Promise<TaskMutationFeedback> =>
+    once(`pin:${task.taskId}`, task.taskId, async () => {
+      publish(task.taskId, {
+        state: "pending",
+        kind: "pin",
+        opId: "awaiting-receipt",
+        hint: pinned ? "正在 pin(今天当前在做)…" : "正在解除 pin…",
+      });
+      const settlement = await settleTaskReceipt(
+        await (pinned ? harnessClient.pinTask : harnessClient.unpinTask)({ repoId, taskId: task.taskId }),
+        ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
+      );
+      return reread(task.taskId, "pin", settlement, (data) =>
+        data.rows.some((row) => row.taskId === task.taskId && (row.snapshot.task?.pinned === true) === pinned),
+      );
+    });
+  return { feedback, startTask, appendProgress, submitTask, setTaskPin };
 }

@@ -18,6 +18,7 @@ import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
 export type ViewId =
   | "home"
   | "overview"
+  | "agenda"
   | "board"
   | "decisions"
   | "decisionPool"

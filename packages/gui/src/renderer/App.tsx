@@ -5,6 +5,7 @@ import type { SnapshotStatus } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
+import { AgendaView } from "./views/AgendaView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
@@ -26,6 +27,7 @@ import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, useTasksQuery } from "./task-data.ts";
+import { useAgendaQuery } from "./agenda-data.ts";
 import {
   useActiveEdgesQuery,
   useDecisionDerivesQuery,
@@ -102,6 +104,8 @@ function AppShell() {
   // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
   useLocationRestore(location, document.body);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
+  // 议程投影只在议程视图挂载时读(同一读面纪律:没人看不请求)。
+  const agendaQuery = useAgendaQuery(activeRepoId !== null && view === "agenda" ? activeRepoId : null);
   const setTaskFilters = (next: TaskFilters) => updateLocation({ taskFilters: next });
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -477,6 +481,9 @@ function AppShell() {
                 mutationFeedback={taskActions.feedback.get(selected.taskId)}
                 onProgress={(input) => taskActions.appendProgress(selected, input)}
                 onSubmit={(submission) => taskActions.submitTask(selected, submission)}
+                onSetPin={(task, pinned) => {
+                  void taskActions.setTaskPin(task, pinned);
+                }}
               />
             ) : view === "home" ? (
               <HomeView
@@ -518,6 +525,19 @@ function AppShell() {
                 onToggleFavorite={toggleFavorite}
                 onStartTask={taskActions.startTask}
                 mutationFeedback={(taskId) => taskActions.feedback.get(taskId)}
+                onSetPin={(task, pinned) => {
+                  void taskActions.setTaskPin(task, pinned);
+                }}
+              />
+            ) : view === "agenda" ? (
+              <AgendaView
+                agenda={agendaQuery.data}
+                tasks={projectTasks}
+                onSelect={openTaskDetail}
+                onNavigateDecision={navigateToDecision}
+                onSetPin={(task, pinned) => {
+                  void taskActions.setTaskPin(task, pinned);
+                }}
               />
             ) : view === "graph" ? (
               <EntityWorkspace

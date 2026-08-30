@@ -88,6 +88,13 @@ interface TaskRowFields {
   iteration?: 0 | 1;
   activeExecutionId?: string;
   leaseExpiresAt?: string;
+  /**
+   * 当前 lease 的持有者(kernel `lease/v1.actor`):principal personId,executor
+   * 存在时附 runtime session 标识。列表行内直接可见,不必点进详情。
+   */
+  leaseHolder?: string;
+  /** lease/v1.phase;有 lease 字段才有它。 */
+  leasePhase?: string;
   events?: readonly EventEntry[];
   /** task_bootstrapped occurredAt; null when the ledger has no reliable creation event. */
   createdAt?: string | null;
