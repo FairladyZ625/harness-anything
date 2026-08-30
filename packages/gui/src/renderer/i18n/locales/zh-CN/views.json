@@ -682,4 +682,16 @@
   "artifacts.preview.noTask": "该产物没有投影归属 task,无法经文档读取面预览。",
   "artifacts.preview.pending": "正在读取产物内容…",
   "artifacts.preview.failed": "产物读取失败:{error}",
-  "artifacts.preview.absent": "该文件尚未物化。"}
+  "artifacts.preview.absent": "该文件尚未物化。",
+  "artifacts.drawer.collapsed": "产物列表",
+  "artifacts.drawer.expandTitle": "展开产物抽屉",
+  "artifacts.drawer.collapseTitle": "折叠产物抽屉",
+  "artifacts.drawer.resizeTitle": "拖动调整抽屉宽度(200px – 视口一半)",
+  "artifacts.preview.openExternal": "在默认浏览器打开",
+  "artifacts.preview.openExternalTitle": "用系统默认应用打开这个产物文件",
+  "artifacts.preview.openExternalNoPackage": "投影无归属 task 的产物无法定位到磁盘路径",
+  "artifacts.list.justNow": "刚刚",
+  "artifacts.list.minutesAgo": "{minutes} 分钟前",
+  "artifacts.list.hoursAgo": "{hours} 小时前",
+  "artifacts.list.daysAgo": "{days} 天前"
+}

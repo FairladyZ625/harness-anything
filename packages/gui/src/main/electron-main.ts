@@ -1,8 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
+import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
 import { bootstrapLocalRepository, createLocalGuiServiceBridge } from "./local-composition-root.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
 import { resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
@@ -136,6 +137,19 @@ export async function startGuiApp(): Promise<void> {
       },
     };
   registerHarnessIpcHandlers(ipcMain, controlled, trustPolicy);
+  // 「在默认浏览器打开」(task_7e713fee):唯一新增通道,主进程收窄见 artifact-open-ipc.ts。
+  registerArtifactOpenIpc(
+    ipcMain,
+    {
+      canonicalRootOf: (repoId) => {
+        const target = resolveLocalDaemonTarget({ rootDir, repoIdOverride: repoId });
+        if (target.repoId !== repoId) throw new Error(`Repository ${repoId} is not registered and enabled.`);
+        return target.canonicalRoot;
+      },
+      openPath: (absolutePath) => shell.openPath(absolutePath),
+    },
+    trustPolicy,
+  );
   registerFirstRunIpcHandlers(
     ipcMain,
     {

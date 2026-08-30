@@ -682,4 +682,16 @@
   "artifacts.preview.noTask": "This artifact has no projected task, so the document read cannot serve it.",
   "artifacts.preview.pending": "Reading the artifact body…",
   "artifacts.preview.failed": "Failed to read the artifact: {error}",
-  "artifacts.preview.absent": "The file has not been materialized."}
+  "artifacts.preview.absent": "The file has not been materialized.",
+  "artifacts.drawer.collapsed": "Artifacts",
+  "artifacts.drawer.expandTitle": "Expand the artifacts drawer",
+  "artifacts.drawer.collapseTitle": "Collapse the artifacts drawer",
+  "artifacts.drawer.resizeTitle": "Drag to resize the drawer (200px to half the viewport)",
+  "artifacts.preview.openExternal": "Open in default browser",
+  "artifacts.preview.openExternalTitle": "Open this artifact file with the system default viewer",
+  "artifacts.preview.openExternalNoPackage": "Artifacts without a projected task cannot be located on disk",
+  "artifacts.list.justNow": "just now",
+  "artifacts.list.minutesAgo": "{minutes} min ago",
+  "artifacts.list.hoursAgo": "{hours} h ago",
+  "artifacts.list.daysAgo": "{days} d ago"
+}
