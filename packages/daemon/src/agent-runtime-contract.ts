@@ -35,7 +35,11 @@ export type AgentRuntimeInstanceDto = AgentRuntimeInstanceCommonDto &
   (
     | {
         readonly kindId: "claude";
-        readonly claude: { readonly baseUrl: string | null; readonly baseUrlConfigured: boolean };
+        readonly claude: {
+          readonly effort?: string | null;
+          readonly baseUrl: string | null;
+          readonly baseUrlConfigured: boolean;
+        };
       }
     | {
         readonly kindId: "codex";
@@ -335,7 +339,8 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
 function validClaudeInstanceConfig(value: unknown): boolean {
   return (
     isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, ["baseUrl", "baseUrlConfigured"]) &&
+    hasAgentRuntimeContractFields(value, ["baseUrl", "baseUrlConfigured"], ["effort"]) &&
+    (value.effort === undefined || value.effort === null || typeof value.effort === "string") &&
     (value.baseUrl === null || typeof value.baseUrl === "string") &&
     typeof value.baseUrlConfigured === "boolean"
   );

@@ -25,6 +25,7 @@ export interface RuntimeInstanceCommon {
 }
 
 export interface ClaudeRuntimeInstanceConfig {
+  readonly effort?: string;
   readonly baseUrl?: string;
 }
 

@@ -160,7 +160,9 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     return {
       ...common,
       kindId: "claude",
-      claude: claudeRuntimeConfig(flat ? { baseUrl: value.baseUrl } : value.claude),
+      claude: claudeRuntimeConfig(
+        flat ? { effort: value.reasoningEffort, baseUrl: value.baseUrl } : value.claude,
+      ),
     };
   if (value.kindId === "agy")
     return {
@@ -187,9 +189,14 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
 
 export function claudeRuntimeConfig(value: unknown): ClaudeRuntimeInstanceConfig {
   if (value === undefined) return {};
-  if (!isRuntimeInstanceRecord(value) || Object.keys(value).some((key) => key !== "baseUrl"))
-    throw runtimeInstanceError("invalid_runtime_kind_config", "claude configuration accepts only baseUrl.");
-  return value.baseUrl === undefined ? {} : { baseUrl: secureRuntimeBaseUrl(value.baseUrl) };
+  if (!isRuntimeInstanceRecord(value) || Object.keys(value).some((key) => !["effort", "baseUrl"].includes(key)))
+    throw runtimeInstanceError("invalid_runtime_kind_config", "claude configuration accepts only effort and baseUrl.");
+  const effort = value.effort === undefined ? undefined : runtimeEffort(value.effort),
+    baseUrl = value.baseUrl === undefined ? undefined : secureRuntimeBaseUrl(value.baseUrl);
+  return {
+    ...(effort ? { effort } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
+  };
 }
 
 export function codexRuntimeConfig(value: unknown): CodexRuntimeInstanceConfig {
@@ -306,14 +313,9 @@ export function selectRuntimeEffort(config: RuntimeInstanceConfig, requested?: s
       ? config.codex.reasoningEffort
       : config.kindId === "agy"
         ? config.agy.effort
-        : undefined);
+        : config.claude.effort);
   if (effort === undefined) return null;
   if (config.kindId === "agy") return agyEffort(effort);
-  if (config.kindId !== "codex")
-    throw runtimeInstanceError(
-      "invalid_runtime_effort",
-      "Reasoning effort overrides are supported only by Codex or agy instances.",
-    );
   return runtimeEffort(effort);
 }
 

@@ -156,7 +156,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       cliInput("--effort", "single", false, {
         code: "invalid_field",
         nextAction:
-          "Use a kind-supported reasoning effort: agy low, medium, high; Codex minimal, low, medium, high, xhigh.",
+          "Use a kind-supported reasoning effort: agy low, medium, high; Claude or Codex minimal, low, medium, high, xhigh.",
       }),
       cliInput("--base-url", "single", false, {
         code: "invalid_field",

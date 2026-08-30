@@ -146,8 +146,7 @@ export function rejected(code: string, nextAction: string, json: boolean): ThinP
     code,
     nextAction:
       nextAction === "This runtime kind does not accept options for another adapter."
-        ? "Claude runtime instances cannot accept Codex options: --effort, --wire-api, " +
-          "--requires-openai-auth, or --http-header."
+        ? "Claude runtime instances cannot accept Codex options: --wire-api, --requires-openai-auth, or --http-header."
         : nextAction,
     json,
   };

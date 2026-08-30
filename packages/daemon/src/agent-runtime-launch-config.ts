@@ -76,6 +76,8 @@ export function launchArgs(
       ...(permissionMode ? permissionLaunchArgs("claude", permissionMode) : []),
       "--model",
       model,
+      // Claude Code's lowest accepted value is `low`; it silently ignores `minimal`.
+      ...(effort ? ["--effort", effort === "minimal" ? "low" : effort] : []),
       ...(config.auth.mode === "api-key" ? ["--bare"] : []),
       ...(providerSessionId ? ["--resume", providerSessionId] : []),
     ];
