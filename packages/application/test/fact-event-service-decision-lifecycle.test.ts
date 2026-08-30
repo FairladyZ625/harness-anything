@@ -60,7 +60,7 @@ test("Decision transition matrix, transport arbiter, claims, relation retirement
         kind: "decision-accept",
         target: "decision/dec_FIXTURE",
         actor,
-        authorizationRef: "default@4",
+        authorizationRef: "default@5",
         idempotencyKey: "decision-self-judgment",
       },
       {

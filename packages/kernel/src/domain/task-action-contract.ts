@@ -337,7 +337,7 @@ export function createTaskActionCatalog(
               ],
               declaration.input.exactlyOneOf,
             ),
-            policy: Object.freeze({ ref: "default@4", action: declaration.policyAction }),
+            policy: Object.freeze({ ref: "default@5", action: declaration.policyAction }),
             criteria: Object.freeze([
               {
                 ref: "task-lifecycle-contract-support/revisionIssues",

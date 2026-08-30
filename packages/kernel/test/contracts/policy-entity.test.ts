@@ -5,9 +5,9 @@ import { DEFAULT_POLICY, durablePolicyActions } from "../../src/domain/default-p
 import { parsePolicyDeclarationV1, validatePolicyDeclarationV1 } from "../../src/domain/policy.ts";
 import { explainEntityKind } from "../../src/index.ts";
 
-test("the built-in v4 Policy registers only qualification predicates and all durable Actions", () => {
+test("the built-in v5 Policy registers only qualification predicates and all durable Actions", () => {
   assert.deepEqual(validatePolicyDeclarationV1(DEFAULT_POLICY), []);
-  assert.equal(DEFAULT_POLICY.version, 4);
+  assert.equal(DEFAULT_POLICY.version, 5);
   assert.deepEqual(DEFAULT_POLICY.actions, durablePolicyActions);
   assert.deepEqual(
     [
@@ -17,7 +17,7 @@ test("the built-in v4 Policy registers only qualification predicates and all dur
         ),
       ),
     ],
-    ["hasRoleBinding", "hasAssignmentBinding"],
+    ["hasRoleBinding", "hasDefaultBinding", "hasAssignmentBinding"],
   );
   assert.equal(DEFAULT_POLICY.rules?.length, 102);
 });
@@ -25,7 +25,7 @@ test("the built-in v4 Policy registers only qualification predicates and all dur
 test("ha entity explain policy exposes the same predicate, Action, and rule authority", () => {
   const explanation = explainEntityKind("policy");
   assert.deepEqual(explanation.policy, {
-    predicates: ["hasRoleBinding", "hasAssignmentBinding"],
+    predicates: ["hasRoleBinding", "hasDefaultBinding", "hasAssignmentBinding"],
     actions: DEFAULT_POLICY.actions,
     rules: DEFAULT_POLICY.rules,
   });

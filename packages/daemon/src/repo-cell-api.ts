@@ -292,10 +292,10 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         )
         .then(
           (execution) =>
-            enqueuePublication(() =>
+            enqueuePublication((authorizationDecision) =>
               publishExecutedVerticalScript(
                 {
-                  binding,
+                  binding: authorizationDecision ? { ...binding, authorizationDecision } : binding,
                   workspaceId: context.input.repoId,
                   rootDir: context.rootDir,
                   store: context.store,

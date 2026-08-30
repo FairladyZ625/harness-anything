@@ -40,9 +40,15 @@ export interface AuthorizationAssignmentBinding {
   readonly writerEpoch?: number;
 }
 
+export interface AuthorizationDefaultBinding {
+  readonly principalPersonId: string;
+  readonly source: "local";
+}
+
 /** Volatile bindings are inputs to evaluation, not fields added to ActionEnvelope. */
 export interface AuthorizationContext {
   readonly delegatedExecutionToken?: DelegatedExecutionToken;
+  readonly defaultBinding?: AuthorizationDefaultBinding;
   readonly ruleScope?: string;
   readonly roleBindings?: readonly RoleBinding[];
   readonly roleBindingTargets?: readonly EntityRef[];
@@ -175,6 +181,19 @@ function evaluatePredicate(
         satisfied: holds,
         role: expression.role,
         matched: matched ? receiptRoleBinding(matched) : null,
+      }),
+    };
+  }
+  if (expression.predicate === "hasDefaultBinding") {
+    const binding = context.defaultBinding,
+      holds = binding?.source === "local" && binding.principalPersonId === actor.principal.personId;
+    return {
+      holds,
+      binding: Object.freeze({
+        predicate: expression.predicate,
+        satisfied: holds,
+        principal: holds ? { personId: actor.principal.personId } : null,
+        source: holds ? binding.source : null,
       }),
     };
   }

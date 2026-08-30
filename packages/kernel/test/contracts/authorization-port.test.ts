@@ -49,7 +49,7 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
 test("RoleBinding qualification is actor, target, and role scoped", () => {
   const allowed = port.authorize(action("fact-record"), roleContext("repo-write"));
   assert.equal(allowed.outcome, "allowed");
-  assert.equal(allowed.policyRef, "default@4");
+  assert.equal(allowed.policyRef, "default@5");
   assert.equal(allowed.evaluatedAtCut, "canonical:17");
   assert.equal(
     allowed.bindingsUsed.some((binding) => binding.predicate === "hasRoleBinding"),
@@ -82,6 +82,36 @@ test("Assignment is one auditable qualification binding for repository writes on
     writerEpoch: 7,
   });
   assert.equal(port.authorize(action("task-review-execution"), context).outcome, "denied");
+});
+
+test("the local default binding preserves unconfigured actors without bypassing explicit RBAC", () => {
+  const defaultContext: AuthorizationContext = {
+    defaultBinding: { principalPersonId: actor.principal.personId, source: "local" },
+    writeSource: "local",
+    target: {},
+    evaluatedAtCut: "canonical:23",
+  };
+  const allowed = port.authorize(action("task-create"), defaultContext);
+  assert.equal(allowed.outcome, "allowed");
+  assert.deepEqual(allowed.bindingsUsed, [
+    {
+      predicate: "hasDefaultBinding",
+      satisfied: true,
+      principal: { personId: actor.principal.personId },
+      source: "local",
+    },
+  ]);
+  assert.equal(port.authorize(action("runtime-instance-list"), defaultContext).outcome, "allowed");
+  assert.equal(port.authorize(action("task-review-execution"), defaultContext).outcome, "allowed");
+  const { defaultBinding: _defaultBinding, ...declaredContext } = defaultContext;
+  assert.equal(port.authorize(action("task-create"), { ...declaredContext, roleBindings: [] }).outcome, "denied");
+  assert.equal(
+    port.authorize(action("task-create"), {
+      ...defaultContext,
+      defaultBinding: { principalPersonId: outsider.principal.personId, source: "local" },
+    }).outcome,
+    "denied",
+  );
 });
 
 test("lease and review facts do not change Policy qualification", () => {

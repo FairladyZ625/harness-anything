@@ -18,7 +18,7 @@ function actor(id: string): ActorIdentity {
   return { principal: { personId: "owner" }, executor: { kind: "agent", id } };
 }
 const authorizationDecision: AuthorizationDecision = {
-  policyRef: "default@4",
+  policyRef: "default@5",
   actor: caller,
   subject: `task/${taskId}`,
   bindingsUsed: [{ predicate: "hasRoleBinding", satisfied: true, role: "repo-write", matched: null }],
@@ -170,7 +170,7 @@ test("closeout runs four canonical leaf commands without impersonating the creat
   try {
     const receipt = await value.run();
     assert.equal(receipt.outcome, "applied");
-    assert.equal(receipt.authorizationDecision?.policyRef, "default@4");
+    assert.equal(receipt.authorizationDecision?.policyRef, "default@5");
     assert.equal(receipt.authorizationDecision?.outcome, "allowed");
     assert.equal(
       receipt.authorizationDecision?.bindingsUsed.some(

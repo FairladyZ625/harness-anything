@@ -42,7 +42,7 @@ const authorized = (actionActor: ActorIdentity) => ({
   actor: actionActor,
   source: "local" as const,
   authorizationDecision: {
-    policyRef: "default@4",
+    policyRef: "default@5",
     actor: actionActor,
     subject: `task/${task.taskId}` as const,
     bindingsUsed: [{ predicate: "hasRoleBinding", satisfied: true, role: "repo-write", matched: null }],

@@ -12,6 +12,7 @@ import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
+import { localDefaultBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 
 export function createDaemonHostRuntimeApi(
@@ -216,14 +217,12 @@ export function createDaemonHostRuntimeApi(
       const authorityRepo = [...readDaemonRegistry({ userRoot: context.input.userRoot }).repos]
         .filter((repo) => repo.state === "enabled")
         .sort((left, right) => left.repoId.localeCompare(right.repoId))[0];
-      if (!authorityRepo)
-        throw context.hostCodedError(
-          "repo_namespace_unknown",
-          "Runtime instance changes require an enabled authority repository.",
-        );
+      const serverBinding = authorityRepo
+        ? await context.binding(authorityRepo.canonicalRoot, auth)
+        : localDefaultBinding(auth);
       const authorizationDecision = requireAuthorizedHostAction({
         kind: actionKind,
-        binding: await context.binding(authorityRepo.canonicalRoot, auth),
+        binding: serverBinding,
         actionId: `${actionKind}:${String(payload.instanceId ?? "catalog")}`,
         evaluatedAtCut: "runtime-instances:current",
         now: context.now(),

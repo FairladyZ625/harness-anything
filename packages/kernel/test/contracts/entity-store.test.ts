@@ -13,7 +13,7 @@ import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 
 const actor = { principal: { personId: "person-entity-store" }, executor: null } as const;
 const authorizationDecision = {
-  policyRef: "default@4",
+  policyRef: "default@5",
   actor,
   subject: "settings/repository" as const,
   bindingsUsed: [],

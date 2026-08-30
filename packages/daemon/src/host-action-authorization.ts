@@ -20,7 +20,15 @@ export function authorizeHostAction(input: {
         ? input.binding.source
         : null,
     context: AuthorizationContext = {
-      roleBindings: input.binding.roleBindings ?? [],
+      ...(input.binding.source === "local" && input.binding.authorizationBindingMode !== "declared"
+        ? {
+            defaultBinding: {
+              principalPersonId: input.binding.actor.principal.personId,
+              source: "local" as const,
+            },
+          }
+        : {}),
+      ...(input.binding.roleBindings === undefined ? {} : { roleBindings: input.binding.roleBindings }),
       roleBindingTargets: ["settings/repository"],
       ...(assignment
         ? {

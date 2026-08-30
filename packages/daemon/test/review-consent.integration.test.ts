@@ -101,7 +101,7 @@ test("review-consent derives the recorded Review digests without a packet and st
       )) as unknown as Record<string, unknown>;
     assert.deepEqual(
       { outcome: outsiderConsent.outcome, code: outsiderConsent.code },
-      { outcome: "op_rejected", code: "authorization_denied" },
+      { outcome: "op_rejected", code: "actor_unauthorized" },
     );
     assert.equal(store().readHead()?.revision, beforeOutsiderConsent);
 

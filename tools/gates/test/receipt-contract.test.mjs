@@ -10,7 +10,7 @@ import {
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 const authorizationDecision = Object.freeze({
-  policyRef: "default@4",
+  policyRef: "default@5",
   actor: { principal: { personId: "gate-fixture" }, executor: null },
   subject: "settings/repository",
   bindingsUsed: [],

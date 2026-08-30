@@ -8,11 +8,16 @@ import {
 } from "./entity-json-schema.ts";
 import { isRecord } from "./write-chain.contract.ts";
 
-export const policyPredicateNames = Object.freeze(["hasRoleBinding", "hasAssignmentBinding"] as const);
+export const policyPredicateNames = Object.freeze([
+  "hasRoleBinding",
+  "hasDefaultBinding",
+  "hasAssignmentBinding",
+] as const);
 export type PolicyPredicateName = (typeof policyPredicateNames)[number];
 
 type PolicyPredicate =
   | { readonly predicate: "hasRoleBinding"; readonly role: string }
+  | { readonly predicate: "hasDefaultBinding" }
   | { readonly predicate: "hasAssignmentBinding" };
 
 export type PolicyPredicateExpression = PolicyPredicate;
@@ -181,8 +186,11 @@ function validatePredicateExpression(value: unknown): readonly string[] {
     return [`unknown policy predicate: ${value.predicate}`];
   if (value.predicate === "hasRoleBinding" && (typeof value.role !== "string" || !value.role.trim()))
     return ["hasRoleBinding requires a non-empty role"];
-  if (value.predicate === "hasAssignmentBinding" && Object.keys(value).some((key) => key !== "predicate"))
-    return ["hasAssignmentBinding does not accept arguments"];
+  if (
+    (value.predicate === "hasDefaultBinding" || value.predicate === "hasAssignmentBinding") &&
+    Object.keys(value).some((key) => key !== "predicate")
+  )
+    return [`${value.predicate} does not accept arguments`];
   return [];
 }
 

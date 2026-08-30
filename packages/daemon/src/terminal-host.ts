@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import * as pty from "node-pty";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -15,6 +16,7 @@ import {
 } from "./gui-s3-control.ts";
 import { ensurePtySpawnHelperExecutable } from "./terminal-spawn-helper.ts";
 import { loadTmuxSessionRegistry, saveTmuxSessionRegistry, type StoredTmuxSession } from "./terminal-session-store.ts";
+import { posixShellFallback } from "./process-port.ts";
 import {
   selectLocalTerminalBackend,
   systemTmuxController,
@@ -669,14 +671,12 @@ function resolveTerminalCwd(rootDir: string, value: unknown): string {
     throw terminalHostError("invalid_cwd", "cwd scope is invalid.");
   const requestedPath = cwd.scope === "repo-root" ? "." : requiredTerminalText(cwd.path, "cwd.path"),
     resolved = resolveContainedPath(rootDir, requestedPath);
-  if (resolved === null)
-    throw terminalHostError("invalid_cwd", "cwd must stay inside the repository.");
+  if (resolved === null) throw terminalHostError("invalid_cwd", "cwd must stay inside the repository.");
   return resolved;
 }
 function restoreTerminalCwd(rootDir: string, stored: string): string {
   const resolved = resolveContainedPath(rootDir, stored);
-  if (resolved === null)
-    throw new Error("invalid terminal session registry cwd");
+  if (resolved === null) throw new Error("invalid terminal session registry cwd");
   return resolved;
 }
 function shell(profile: string, platform: NodeJS.Platform): string {
@@ -688,7 +688,8 @@ function shell(profile: string, platform: NodeJS.Platform): string {
   const selected = profile === "default" ? path.basename(process.env.SHELL ?? "zsh") : profile;
   if (!["zsh", "bash", "sh", "fish"].includes(selected))
     throw terminalHostError("shell_profile_unknown", "Shell profile is not allowlisted.");
-  return `/bin/${selected}`;
+  const executable = `/bin/${selected}`;
+  return profile === "default" && !existsSync(executable) ? posixShellFallback : executable;
 }
 function terminalCommand(
   executablePath: string,

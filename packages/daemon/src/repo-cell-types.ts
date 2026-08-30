@@ -32,6 +32,8 @@ export type RepoTaskAction = Readonly<Record<string, unknown>> & {
 export interface RepoCellBinding {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
+  /** Authored roster projection closes default-open local policy; omitted local bindings use the default. */
+  readonly authorizationBindingMode?: "default" | "declared";
   readonly sessionEnvironment?: Readonly<Record<string, string | undefined>>;
   readonly roleBindings?: readonly RoleBinding[];
   /** Center-issued decision for the one Action currently executing; transport never supplies this. */

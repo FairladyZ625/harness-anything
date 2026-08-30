@@ -1,5 +1,7 @@
 import { composeDurableActionEnvelope } from "../../application/src/durable-action-envelope.ts";
 import {
+  durablePolicyActions,
+  isSameExecution,
   isSamePerson,
   parseEntityRef,
   type AuthorizationContext,
@@ -27,7 +29,15 @@ export function authorizeRepoCellAction(input: {
         ? input.binding.source
         : null,
     context: AuthorizationContext = {
-      roleBindings: input.binding.roleBindings ?? [],
+      ...(input.binding.source === "local" && input.binding.authorizationBindingMode !== "declared"
+        ? {
+            defaultBinding: {
+              principalPersonId: input.binding.actor.principal.personId,
+              source: "local" as const,
+            },
+          }
+        : {}),
+      ...(input.binding.roleBindings === undefined ? {} : { roleBindings: input.binding.roleBindings }),
       roleBindingTargets: [repositoryTarget],
       ...(assignment
         ? {
@@ -284,7 +294,39 @@ export function bindVerifiedExecutorClaim(input: {
   }
   if (raw === undefined || raw === null) return { action, binding: input.binding };
   if (!isExecutorDescriptorRecord(raw) || raw.kind !== "agent" || typeof raw.id !== "string")
-    throw invalidExecutorBinding("Executor claims must identify one RuntimeSession actor.");
+    throw invalidExecutorBinding("Executor claims must identify one agent actor.");
+  if (!raw.id.startsWith("runtime-session:")) {
+    if (
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(raw.id) ||
+      Object.keys(raw).some((field) => field !== "kind" && field !== "id")
+    )
+      throw invalidExecutorBinding("Executor claims must use a valid agent id.");
+    // Host-derived bindings always declare how authorization was projected. A binding without
+    // that marker is the legacy direct RepoCell API, where action.executor was never authoritative.
+    if (input.binding.authorizationBindingMode === undefined) return { action, binding: input.binding };
+    const claimedActor = {
+        principal: input.binding.actor.principal,
+        executor: { kind: "agent" as const, id: raw.id },
+      },
+      taskId = typeof action.taskId === "string" ? action.taskId : null,
+      lease = taskId === null ? null : input.projection.currentLease(taskId, input.now),
+      attributedByCliSession = input.binding.sessionEnvironment?.HARNESS_ACTOR?.trim() === `agent:${raw.id}`;
+    if (!attributedByCliSession && (lease === null || !isSameExecution(lease.actor, claimedActor)))
+      throw invalidExecutorBinding(
+        "Executor claims must use runtime-session:<runtime-id> or match the held execution.",
+      );
+    return {
+      action,
+      binding: {
+        ...input.binding,
+        actor: claimedActor,
+      },
+    };
+  }
+  // Runtime identities are durable authority only when the action itself is durable. Reads may
+  // reuse an already-running daemon but must not fail merely because no task binding is projected.
+  if (!(durablePolicyActions as readonly string[]).includes(input.action.kind))
+    return { action, binding: input.binding };
   const match = /^runtime-session:([A-Za-z0-9][A-Za-z0-9._-]*)$/u.exec(raw.id);
   if (!match || Object.keys(raw).some((field) => field !== "kind" && field !== "id"))
     throw invalidExecutorBinding("Executor claims must use runtime-session:<runtime-id>.");

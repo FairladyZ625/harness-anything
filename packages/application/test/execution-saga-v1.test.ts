@@ -20,7 +20,7 @@ test("event saga rejects a second executor and self-review, then completes on Re
         kind: "task-review-execution",
         target: "execution/execution-1",
         actor: owner,
-        authorizationRef: "default@4",
+        authorizationRef: "default@5",
         idempotencyKey: "review-self",
       },
       {

@@ -19,7 +19,9 @@ import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { openRepoCell, type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
+import { localDefaultBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
+import { settingsCommandTopology } from "./repo-mode.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -196,10 +198,10 @@ export function createDaemonHostRepositoryApi(
           registry.repos.some((repo) => repo.repoId === request.repoId) ||
           registry.invalidRepos.some((repo) => repo.repoId === request.repoId);
       if (!known) throw context.hostCodedError("repo_namespace_unknown", `Unknown repo namespace: ${request.repoId}.`);
-      const registeredRepo = registry.repos.find((repo) => repo.repoId === request.repoId);
-      if (!registeredRepo)
-        throw context.hostCodedError("repo_namespace_unknown", `Repository ${request.repoId} has no canonical root.`);
-      const adminBinding = await context.binding(registeredRepo.canonicalRoot, auth),
+      const registeredRepo = registry.repos.find((repo) => repo.repoId === request.repoId),
+        adminBinding = registeredRepo
+          ? await context.binding(registeredRepo.canonicalRoot, auth)
+          : localDefaultBinding(auth),
         authorizationDecision = requireAuthorizedHostAction({
           kind: "daemon-repo-unregister",
           binding: adminBinding,
@@ -235,6 +237,9 @@ export function createDaemonHostRepositoryApi(
       };
     },
     run: async (repoId, action, auth) => {
+      const command = settingsCommandTopology(commandDescriptorForAction(action.kind), action),
+        modeAdmission = context.admitHostMode(repoId, command, auth);
+      if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
       if (!cell)
@@ -267,11 +272,7 @@ export function createDaemonHostRepositoryApi(
           `Payload cannot report ${spoof}; daemon binds principal authority, root, revision, and time.`,
         );
       try {
-        const baseBinding = await context.binding(cell.status().rootDir, auth),
-          serverBinding =
-            auth.sessionEnvironment === undefined
-              ? baseBinding
-              : { ...baseBinding, sessionEnvironment: auth.sessionEnvironment };
+        const serverBinding = await context.binding(cell.status().rootDir, auth);
         const receipt = await cell.run(action as RepoTaskAction, serverBinding, auth.connectionSignal);
         if (action.kind.startsWith("schedule-")) await context.scheduleScheduler.refresh();
         return receipt;
@@ -313,13 +314,7 @@ export function createDaemonHostRepositoryApi(
             warmingUp ? context.warmingMessage(repoId) : (missing?.lastError ?? `Unknown repo namespace: ${repoId}.`),
           );
         }
-        const baseBinding = await context.binding(cell.status().rootDir, auth);
-        return await cell.presetRun(
-          routed,
-          auth.sessionEnvironment === undefined
-            ? baseBinding
-            : { ...baseBinding, sessionEnvironment: auth.sessionEnvironment },
-        );
+        return await cell.presetRun(routed, await context.binding(cell.status().rootDir, auth));
       } catch (error) {
         return context.rejectPresetRun(
           typeof action.runId === "string" ? action.runId : "run_invalid",

@@ -531,6 +531,7 @@ export function validateTerminalControlReceipt(value: unknown): readonly string[
       daemonGeneration: "number",
       state: "string",
       error: "nullable-object",
+      authorizationDecision: "optional-object",
     },
     "terminal control receipt",
   );
@@ -547,7 +548,13 @@ export function validateTerminalControlReceipt(value: unknown): readonly string[
 export function validateTerminalInputAck(value: unknown): readonly string[] {
   const errors = closed(
     value,
-    { schema: "string", ok: "boolean", sessionId: "string", acceptedThrough: "number" },
+    {
+      schema: "string",
+      ok: "boolean",
+      sessionId: "string",
+      acceptedThrough: "number",
+      authorizationDecision: "optional-object",
+    },
     "terminal input ack",
   );
   if (record(value) && (value.schema !== "terminal-input-ack/v1" || !integer(value.acceptedThrough)))

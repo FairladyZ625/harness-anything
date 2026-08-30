@@ -89,10 +89,10 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     // Missing the arbiter RoleBinding is a role problem, not an independence problem.
     const withoutRole = await cell.run(
       { kind: "task-review-execution", taskId, executionId, reviewId: "r1", fromFile: "review.json" },
-      { ...human, roleBindings: [] },
+      { ...human, roleBindings: [], authorizationBindingMode: "declared" },
     );
-    assert.equal(withoutRole.code, "actor_unauthorized");
-    assert.match(String(withoutRole.nextAction), /arbiter RoleBinding/u);
+    assert.equal(withoutRole.code, "authorization_denied");
+    assert.match(String(withoutRole.nextAction), /authorized bindings/u);
 
     // The submitting executor reviewing itself is the one genuinely dependent case.
     const selfReview = await cell.run(

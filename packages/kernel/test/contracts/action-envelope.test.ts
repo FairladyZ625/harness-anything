@@ -59,7 +59,7 @@ test("the five promoted Entity explanations declare metadata-only transitions wi
 
 test("public receipts require the structured AuthorizationDecision", () => {
   const authorizationDecision = {
-    policyRef: "default@4",
+    policyRef: "default@5",
     actor,
     subject: "task/task-action" as const,
     bindingsUsed: [],

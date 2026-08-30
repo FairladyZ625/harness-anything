@@ -97,12 +97,17 @@ function validateProjectedTaskActionInput(
 export function validateSessionEnvironment(value: unknown): string[] {
   if (value === undefined) return [];
   if (!isJsonObject(value)) return ["session environment must be an object"];
-  const allowed = ["CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"],
+  const allowed = ["CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "HARNESS_ACTOR"],
     unknown = unknownFieldViolation(value, allowed);
   if (unknown) return [`session environment contains an ${unknown}`];
-  return Object.values(value).every((item) => typeof item === "string" && item.trim().length > 0)
-    ? []
-    : ["session environment values must be non-empty strings"];
+  if (!Object.values(value).every((item) => typeof item === "string" && item.trim().length > 0))
+    return ["session environment values must be non-empty strings"];
+  if (
+    typeof value.HARNESS_ACTOR === "string" &&
+    !/^agent:[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(value.HARNESS_ACTOR.trim())
+  )
+    return ["session environment HARNESS_ACTOR must use agent:<id>"];
+  return [];
 }
 
 export function snapshot(value: unknown, availability: unknown): boolean {

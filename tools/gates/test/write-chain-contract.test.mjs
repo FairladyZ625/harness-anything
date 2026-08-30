@@ -24,7 +24,7 @@ import { REPLAY_TASK_GRAPH } from "../../../packages/kernel/src/domain/task-grap
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "worker" } };
 const authorizationDecision = {
-  policyRef: "default@4",
+  policyRef: "default@5",
   actor,
   subject: "settings/repository",
   bindingsUsed: [],

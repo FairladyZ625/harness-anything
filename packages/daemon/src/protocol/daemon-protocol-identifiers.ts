@@ -21,6 +21,7 @@ export interface DaemonSessionEnvironment extends Readonly<Record<string, string
   readonly CLAUDE_CODE_SESSION_ID?: string;
   readonly CODEX_THREAD_ID?: string;
   readonly CODEX_SESSION_ID?: string;
+  readonly HARNESS_ACTOR?: string;
 }
 
 export function safePath(value: string): SafePath {

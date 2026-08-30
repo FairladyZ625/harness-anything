@@ -5,6 +5,10 @@ import {
   spawn,
 } from "node:child_process";
 import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
+
+/** POSIX terminal fallback declared at the process-capability boundary. */
+export const posixShellFallback = "/bin/sh";
+
 export const detachedProcessOptions = Object.freeze({ detached: true, stdio: "ignore" as const, windowsHide: true });
 export function startDetachedProcess(
   command: string,

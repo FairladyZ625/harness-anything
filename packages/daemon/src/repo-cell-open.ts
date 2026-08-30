@@ -493,10 +493,13 @@ async function openLockedRepoCell(
   const operationalContext = Object.assign(runtimeContext, { scheduleActions, settingsActions, peopleActions });
   operationalContext satisfies RepoCellOperationalContext;
   if (input.bootstrap && !input.bootstrap.configureOnly) {
-    const baseBinding = {
+    const roleBindings = declaredRoleBindingsForActor(rootDir, input.bootstrap.actor),
+      baseBinding = {
         actor: input.bootstrap.actor,
         source: "local" as const,
-        roleBindings: declaredRoleBindingsForActor(rootDir, input.bootstrap.actor),
+        ...(roleBindings === undefined
+          ? { authorizationBindingMode: "default" as const }
+          : { authorizationBindingMode: "declared" as const, roleBindings }),
       },
       revision = store.readHead()?.revision ?? 0,
       authorizationDecision = authorizeRepoCellAction({

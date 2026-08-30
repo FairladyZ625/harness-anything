@@ -75,10 +75,13 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
     }
     const action = { kind: "doc-submit", paths: [] } as const,
       revision = store.readHead()?.revision ?? 0,
+      roleBindings = declaredRoleBindingsForActor(context.rootDir, actor),
       baseBinding: RepoCellBinding = {
         actor,
         source: "local",
-        roleBindings: declaredRoleBindingsForActor(context.rootDir, actor),
+        ...(roleBindings === undefined
+          ? { authorizationBindingMode: "default" }
+          : { authorizationBindingMode: "declared", roleBindings }),
       },
       authorizationDecision = authorizeRepoCellAction({
         action,

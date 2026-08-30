@@ -117,11 +117,17 @@ export const durablePolicyActions = Object.freeze([
   ...administrationActions,
 ] as const);
 
-const roleRule = (action: string, role: string, assignmentAllowed: boolean): PolicyActionRule => ({
+const roleRule = (
+  action: string,
+  role: string,
+  defaultBindingAllowed: boolean,
+  assignmentAllowed: boolean,
+): PolicyActionRule => ({
   action,
   anyOf: [
     { allOf: [{ predicate: "hasRoleBinding", role }] },
     { allOf: [{ predicate: "hasRoleBinding", role: "owner" }] },
+    ...(defaultBindingAllowed ? [{ allOf: [{ predicate: "hasDefaultBinding" as const }] }] : []),
     ...(assignmentAllowed ? [{ allOf: [{ predicate: "hasAssignmentBinding" as const }] }] : []),
   ],
 });
@@ -130,19 +136,20 @@ const roleRule = (action: string, role: string, assignmentAllowed: boolean): Pol
 const defaultPolicyDeclaration = {
   schema: "policy/v1",
   id: "default",
-  version: 4,
+  version: 5,
   predicates: Object.freeze([
     { predicate: "hasRoleBinding", role: "repo-write" },
     { predicate: "hasRoleBinding", role: "arbiter" },
     { predicate: "hasRoleBinding", role: "admin" },
     { predicate: "hasRoleBinding", role: "owner" },
+    { predicate: "hasDefaultBinding" },
     { predicate: "hasAssignmentBinding" },
   ]),
   actions: durablePolicyActions,
   rules: Object.freeze([
-    ...repositoryWriteActions.map((action) => roleRule(action, "repo-write", true)),
-    ...arbiterActions.map((action) => roleRule(action, "arbiter", false)),
-    ...administrationActions.map((action) => roleRule(action, "admin", false)),
+    ...repositoryWriteActions.map((action) => roleRule(action, "repo-write", true, true)),
+    ...arbiterActions.map((action) => roleRule(action, "arbiter", true, false)),
+    ...administrationActions.map((action) => roleRule(action, "admin", true, false)),
   ]),
 } satisfies PolicyDeclarationV1;
 
