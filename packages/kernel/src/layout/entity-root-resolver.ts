@@ -45,8 +45,6 @@ export function resolveEntityRootForLayout(
     case "fact": {
       throw new Error(`event-backed fact refs have no authored document root: ${entityRef.raw}`);
     }
-    case "relation":
-      throw new Error(`hosted relation refs cannot be resolved without their source host: ${entityRef.raw}`);
     case "execution":
     case "review":
     case "agent":

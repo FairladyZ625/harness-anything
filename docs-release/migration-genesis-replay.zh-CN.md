@@ -71,6 +71,15 @@ dry-run 不写任何东西。它输出五类实体——task / decision / fact /
 coverage——的对账表，每类给出 old / skipped / expected / new 四个数，另有
 `Format validation: N skipped`、`Attribution` 行和 authored coverage 表。
 
+当前代际的生产读写只接受 `Task/v2`，其中 `pinned` 必填。创世重放会在同一
+次导入中读取老台账里的 `Task/v1` 事件，并把每个迁入 task 重述为 canonical
+`Task/v2` migration 事件：源事件有 `pinned` 时保留原布尔值，没有时显式写
+`false`；迁移实体同时写入 `provenance: imported_snapshot`。dry-run 的
+`Task/v1 -> Task/v2` 行分别列出源 v1 数、目标 v2 数、保留 pinned 数、显式
+false 数和 imported_snapshot 数。这些计数也进入结构化回执；缺失其他必填
+字段、重复创建同一 task identity 或 task 事件 revision 逆序都会拒绝导入，
+不得静默补齐或跳过。
+
 ### 4. 处置 required 与 skip
 
 目标冲突在用户逐路径明确选择前一直是 `required`。冲突行会同时给出源与

@@ -10,6 +10,7 @@ import type {
   Skip,
   SourceGitIdentity,
 } from "./migration-import-types.ts";
+import type { TaskContractRestatementCounts } from "./migration-import-task-restatement.ts";
 
 export function isMigrationImportRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -61,6 +62,7 @@ export function reportTable(
   sourceGit: SourceGitIdentity,
   remappings: readonly IdRemapping[],
   alreadyImported: ImportCounts,
+  taskRestatement: TaskContractRestatementCounts,
 ): string {
   const rows = (Object.keys(old) as EntityKind[]).map((kind) =>
       [
@@ -112,6 +114,22 @@ export function reportTable(
     "| Entity | Old | Skipped | Expected | New | Result |",
     "| --- | ---: | ---: | ---: | ---: | --- |",
     ...rows,
+    "",
+    "| Contract restatement | Source | Target | Pinned preserved | Pinned explicit false | Provenance |",
+    "| --- | ---: | ---: | ---: | ---: | ---: |",
+    [
+      "| Task/v1 -> Task/v2 | ",
+      `${taskRestatement.sourceV1}`,
+      " | ",
+      `${taskRestatement.targetV2}`,
+      " | ",
+      `${taskRestatement.pinnedPreserved}`,
+      " | ",
+      `${taskRestatement.pinnedExplicitFalse}`,
+      " | ",
+      `${taskRestatement.importedSnapshot}`,
+      " imported_snapshot |",
+    ].join(""),
     "",
     `Already imported from this Git lineage: ${already || "none"}`,
     `ID remappings: ${remappings.length ? remappings.length : "none"}`,

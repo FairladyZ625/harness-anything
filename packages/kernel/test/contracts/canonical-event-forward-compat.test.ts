@@ -24,7 +24,7 @@ const taskCreated = {
   occurredAt: "2026-08-21T00:00:00.000Z",
   payload: {
     task: {
-      schema: "task/v1" as const,
+      schema: "task/v2" as const,
       taskId: "task-forward-compat",
       title: "Forward compatible task",
       taskClass: "standard" as const,
@@ -32,6 +32,7 @@ const taskCreated = {
       graph: REPLAY_TASK_GRAPH,
       currentNode: "implementation" as const,
       iteration: 0 as const,
+      pinned: false,
       createdBy: actor,
       completionGateIds: ["ci"],
       presetSnapshotDigest: null,
@@ -39,7 +40,7 @@ const taskCreated = {
   },
 };
 
-test("Task/v1 readers ignore a field that current writers do not know", () => {
+test("Task/v2 readers ignore a field that current writers do not know", () => {
   const future = {
     ...taskCreated,
     payload: { task: { ...taskCreated.payload.task, futureOptionalField: true } },

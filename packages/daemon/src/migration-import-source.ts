@@ -148,6 +148,24 @@ export function combineMigrationReceipts(
       expected: sum((receipt) => receipt.counts.expected),
       new: sum((receipt) => receipt.counts.new),
     },
+    contractRestatements = {
+      task: {
+        sourceV1: receipts.reduce((total, receipt) => total + receipt.contractRestatements.task.sourceV1, 0),
+        targetV2: receipts.reduce((total, receipt) => total + receipt.contractRestatements.task.targetV2, 0),
+        pinnedPreserved: receipts.reduce(
+          (total, receipt) => total + receipt.contractRestatements.task.pinnedPreserved,
+          0,
+        ),
+        pinnedExplicitFalse: receipts.reduce(
+          (total, receipt) => total + receipt.contractRestatements.task.pinnedExplicitFalse,
+          0,
+        ),
+        importedSnapshot: receipts.reduce(
+          (total, receipt) => total + receipt.contractRestatements.task.importedSnapshot,
+          0,
+        ),
+      },
+    },
     authoredCoverage = combineAuthoredCoverage(receipts.map(({ authoredCoverage: coverage }) => coverage)),
     exitCode: 0 | 1 | 3 = receipts.some((receipt) => receipt.exitCode === 1)
       ? 1
@@ -163,6 +181,7 @@ export function combineMigrationReceipts(
       sources: receipts.map((receipt) => JSON.parse(String(receipt.evidence))),
       requestedSources,
       processed,
+      contractRestatements,
     }),
     visibility: "center",
     proof: last.proof,
@@ -177,6 +196,7 @@ export function combineMigrationReceipts(
     mode: last.mode,
     exitCode,
     counts,
+    contractRestatements,
     authoredCoverage,
     skippedEntities: receipts.flatMap(({ skippedEntities }) => skippedEntities),
     idMapPath: last.idMapPath,

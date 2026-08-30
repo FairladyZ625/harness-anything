@@ -293,7 +293,7 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
       occurredAt: "2026-08-15T02:45:00.000Z",
       payload: {
         task: {
-          schema: "task/v1",
+          schema: "task/v2",
           taskId: "task_legacy_l1",
           title: "Legacy L1",
           taskClass: "standard",
@@ -304,6 +304,7 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
           createdBy: actor,
           completionGateIds: [],
           presetSnapshotDigest: null,
+          pinned: false,
         },
       },
     };

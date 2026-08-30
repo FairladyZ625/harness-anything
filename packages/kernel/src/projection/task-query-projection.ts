@@ -4,7 +4,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
-import type { ReplayTaskStatus, TaskV1 } from "../domain/task.ts";
+import type { ReplayTaskStatus, TaskV2 } from "../domain/task.ts";
 import type { TaskIndexProjectionRow } from "./projection-reads.ts";
 import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 
@@ -81,9 +81,9 @@ export function readTaskIndexRows(db: DatabaseSync): readonly TaskIndexProjectio
     ].join(" "),
   );
   return rows.flatMap((row) => {
-    let task: TaskV1 | null;
+    let task: TaskV2 | null;
     try {
-      task = (JSON.parse(row.snapshot_json) as { readonly task?: TaskV1 | null }).task ?? null;
+      task = (JSON.parse(row.snapshot_json) as { readonly task?: TaskV2 | null }).task ?? null;
     } catch {
       throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
     }
@@ -93,7 +93,7 @@ export function readTaskIndexRows(db: DatabaseSync): readonly TaskIndexProjectio
         taskId: row.task_id,
         title: task.title,
         status: task.status,
-        pinned: task.pinned ?? false,
+        pinned: task.pinned,
         parentTaskId: task.metadata?.parentTaskId ?? null,
         moduleKey: task.metadata?.moduleKey ?? null,
         workKind: task.metadata?.workKind ?? null,
@@ -217,7 +217,7 @@ export function createTaskRelationProjectionTable(db: DatabaseSync): void {
 export function refreshTaskRelationProjection(
   db: DatabaseSync,
   taskId: string,
-  task: TaskV1 | null,
+  task: TaskV2 | null,
   revision: number,
   updatedAt: string,
   packagePath?: string | null,

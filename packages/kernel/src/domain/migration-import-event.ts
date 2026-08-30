@@ -18,7 +18,7 @@ import {
   type FactMemoryTag,
   type FactProvenanceRuntime,
 } from "./fact-event.ts";
-import { validateTaskV1, type TaskV1 } from "./task.ts";
+import { validateTaskV2, type TaskV2 } from "./task.ts";
 import {
   freezeDeclaredWritePlan,
   hasOnlyFields,
@@ -75,7 +75,8 @@ export interface MigrationFact {
 export type MigrationEntity =
   | {
       readonly kind: "task";
-      readonly task: TaskV1;
+      readonly provenance: "imported_snapshot";
+      readonly task: TaskV2;
       readonly originalStatus: string;
       readonly packagePath: string;
       readonly documentClaim: MigrationDocumentClaim;
@@ -212,13 +213,14 @@ function validTaskEntity(value: Readonly<Record<string, unknown>>, allowUnknownF
   return (
     matchesMigrationFields(
       value,
-      ["kind", "task", "originalStatus", "packagePath", "documentClaim"],
+      ["kind", "provenance", "task", "originalStatus", "packagePath", "documentClaim"],
       allowUnknownFields,
     ) &&
-    validateTaskV1(value.task, allowUnknownFields).length === 0 &&
+    value.provenance === "imported_snapshot" &&
+    validateTaskV2(value.task, allowUnknownFields).length === 0 &&
     isNonEmptyString(value.originalStatus) &&
     typeof value.packagePath === "string" &&
-    value.packagePath.startsWith(`tasks/${(value.task as TaskV1).taskId}-`) &&
+    value.packagePath.startsWith(`tasks/${(value.task as TaskV2).taskId}-`) &&
     validMigrationClaim(value.documentClaim, "text/markdown", allowUnknownFields) &&
     (value.documentClaim as MigrationDocumentClaim).path === `${value.packagePath}/INDEX.md`
   );

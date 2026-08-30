@@ -69,8 +69,9 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
     ),
     status = context.taskStatus(row.rawStatus),
     packagePath = `tasks/${targetTaskId}-${slugifyTaskTitle(row.title)}`,
+    sourceTask = context.legacyTaskRestatements.get(taskId),
     task: ImportedTask = {
-      schema: "task/v1",
+      schema: "task/v2",
       taskId: targetTaskId,
       title: context.clean(row.title),
       taskClass: "standard",
@@ -78,6 +79,7 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
       graph: REPLAY_TASK_GRAPH,
       currentNode: status === "in_review" ? "review" : "implementation",
       iteration: 0,
+      pinned: sourceTask === undefined ? false : sourceTask.pinned,
       createdBy: context.actor,
       completionGateIds: [],
       presetSnapshotDigest: null,
@@ -105,6 +107,7 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
         workspaceRevision,
         {
           kind: "task",
+          provenance: "imported_snapshot",
           task: migrated,
           originalStatus: row.rawStatus,
           packagePath,

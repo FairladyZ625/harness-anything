@@ -1048,7 +1048,7 @@ function seedLegacyTask(root: string, repoId: string, taskId: string): void {
       occurredAt: "2026-08-18T00:00:00.000Z",
       payload: {
         task: {
-          schema: "task/v1",
+          schema: "task/v2",
           taskId,
           title: "Legacy contract receipt",
           taskClass: "standard",
@@ -1059,6 +1059,7 @@ function seedLegacyTask(root: string, repoId: string, taskId: string): void {
           createdBy: actor,
           completionGateIds: [],
           presetSnapshotDigest: null,
+          pinned: false,
         },
       },
     };

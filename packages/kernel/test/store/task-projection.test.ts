@@ -639,9 +639,9 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     assert.equal(projection.readOperation(startOpId)?.event.type, "execution_started");
 
     const db = new DatabaseSync(projection.path);
-    db.prepare("UPDATE task_snapshot SET snapshot_json = 'not-json'").run();
+    assert.throws(() => db.prepare("UPDATE task_snapshot SET snapshot_json = 'not-json'").run(), /malformed JSON/u);
     db.close();
-    assert.throws(() => projection.read("task-1"), /projection.*mismatch/u);
+    assert.equal(projection.read("task-1").snapshot.task?.title, "Fixture");
     projection.rebuild();
     assert.equal(projection.read("task-1").snapshot.executions[0]?.state, "accepted");
   });

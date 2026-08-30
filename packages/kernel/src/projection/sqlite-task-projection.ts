@@ -2,14 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { createHarnessRuntimeContext } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { sessionEntityDeclaration } from "../entity/session.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
 import { isContractVersionCompatible } from "../domain/contract-version.ts";
-import {
-  discoverDeclaredEntityRows,
-  projectDeclaredEntities,
-  readDeclaredProjectionRows,
-} from "./entity-declaration-projection.ts";
 import { buildCheckReport, hardFail, runPostMergeChecks, warning } from "./post-merge-checks.ts";
 import { buildColdCoverage, readColdRebuildSource } from "./cold-rebuild-source.ts";
 import type {
@@ -63,7 +56,7 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
     .map((entry) => taskEntryToRow(runtimeContext, entry, options.taskFieldExtensions))
     .sort(compareRows);
   const rowsHash = hashExactRows(rows);
-  const sourceHash = projectionSourceHash(source.hash, runtimeContext);
+  const sourceHash = source.hash;
   const cold = readColdRebuildSource(runtimeContext),
     graphBase = buildRelationGraphProjection(runtimeContext, cold.truth),
     graph = { ...graphBase, coverageRows: buildColdCoverage(cold, graphBase.edges) };
@@ -77,7 +70,6 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
     options.taskFieldExtensions ?? [],
     { ...graph, facts: cold.facts, decisions: cold.decisions, truthComplete: cold.complete },
   );
-  projectDeclaredEntities(runtimeContext, sessionEntityDeclaration, projectionPath);
   return {
     rows,
     warnings: source.warnings,
@@ -148,31 +140,13 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
 
-  if (existing.meta.sourceHash !== projectionSourceHash(source.hash, runtimeContext)) {
+  if (existing.meta.sourceHash !== source.hash) {
     warnings.push(
       warning(
         "generated-cache",
         "projection_stale",
         "Projection cache was stale and has been rebuilt from markdown.",
         "Run harness-anything governance rebuild after authored task changes or merges.",
-      ),
-    );
-    const rebuilt = rebuildTaskProjection({
-      rootDir,
-      layoutOverrides: options.layoutOverrides,
-      projectionPath,
-      taskFieldExtensions: options.taskFieldExtensions,
-    });
-    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
-  }
-
-  if (!declaredProjectionMatches(runtimeContext, projectionPath)) {
-    warnings.push(
-      hardFail(
-        "generated-cache",
-        "projection_tampered",
-        "Declared entity projection rows no longer match authored entity state.",
-        "Discard the generated cache and rebuild it from authored entities; do not merge generated projection edits.",
       ),
     );
     const rebuilt = rebuildTaskProjection({
@@ -207,32 +181,6 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
     rows: [...existing.rows].sort(compareRows),
     warnings,
   };
-}
-
-function projectionSourceHash(
-  taskSourceHash: string,
-  rootInput: ReturnType<typeof createHarnessRuntimeContext>,
-): string {
-  const entityRows = [sessionEntityDeclaration].map((declaration) => ({
-    table: declaration.projection.table,
-    rows: discoverDeclaredEntityRows(rootInput, declaration),
-  }));
-  return sha256Text(JSON.stringify({ taskSourceHash, entityRows }));
-}
-
-function declaredProjectionMatches(
-  rootInput: ReturnType<typeof createHarnessRuntimeContext>,
-  projectionPath: string,
-): boolean {
-  try {
-    return [sessionEntityDeclaration].every(
-      (declaration) =>
-        JSON.stringify(readDeclaredProjectionRows(projectionPath, declaration)) ===
-        JSON.stringify(discoverDeclaredEntityRows(rootInput, declaration)),
-    );
-  } catch {
-    return false;
-  }
 }
 
 export function queryTaskChildren(

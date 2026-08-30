@@ -69,7 +69,7 @@ function snapshot(state: "active" | "in_review" = "active", executions = [execut
   return {
     revision: 2,
     task: {
-      schema: "task/v1",
+      schema: "task/v2",
       taskId,
       title: "Closeout",
       taskClass: "standard",
@@ -80,6 +80,7 @@ function snapshot(state: "active" | "in_review" = "active", executions = [execut
       createdBy: owner,
       completionGateIds: [],
       presetSnapshotDigest: null,
+      pinned: false,
     },
     executions,
     reviews: [],

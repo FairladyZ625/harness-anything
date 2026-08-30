@@ -2,7 +2,7 @@ import { isOpaqueTextualMediaType, type OpaqueTextualMediaType } from "./artifac
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
-import { validateTaskV1, type TaskV1 } from "./task.ts";
+import { validateTaskV2, type TaskV2 } from "./task.ts";
 import {
   freezeDeclaredWritePlan,
   hasOnlyFields,
@@ -43,7 +43,7 @@ export type TaskBootstrapEventV1 = EventEnvelope<
   "task_bootstrapped",
   ActorIdentity,
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly presetSnapshotClaim: PresetSnapshotClaim;
     readonly initialDocumentClaims: readonly InitialDocumentClaim[];
   }
@@ -81,14 +81,14 @@ function validateTaskBootstrapEventFields(value: unknown, allowUnknownFields: bo
     !hasFields(value.payload, ["task", "presetSnapshotClaim", "initialDocumentClaims"])
   )
     return ["task bootstrap event envelope or payload is invalid"];
-  const taskIssues = validateTaskV1(value.payload.task, allowUnknownFields),
+  const taskIssues = validateTaskV2(value.payload.task, allowUnknownFields),
     snapshot = value.payload.presetSnapshotClaim,
     documents = value.payload.initialDocumentClaims;
   if (taskIssues.length) return taskIssues.map((issue) => issue.message);
   if (
-    (value.payload.task as TaskV1).taskId !== value.taskId ||
+    (value.payload.task as TaskV2).taskId !== value.taskId ||
     !validSnapshotClaim(snapshot, allowUnknownFields) ||
-    (value.payload.task as TaskV1).presetSnapshotDigest !== (snapshot as PresetSnapshotClaim).digest ||
+    (value.payload.task as TaskV2).presetSnapshotDigest !== (snapshot as PresetSnapshotClaim).digest ||
     !Array.isArray(documents) ||
     documents.length === 0 ||
     !documents.every((claim) => validDocumentClaim(claim, allowUnknownFields)) ||

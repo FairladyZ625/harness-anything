@@ -34,6 +34,7 @@ export {
   normalizeTaskLifecycleCommand,
   requiredGateWitnessCount,
   reviewDigest,
+  validateTaskEvent,
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
 export { isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
@@ -59,8 +60,8 @@ export type {
   TaskLifecycleCommand,
   TaskLifecycleSnapshot,
 } from "./domain/task-lifecycle.contract.ts";
-export { canonicalizeContractValue, currentTaskForWrite, taskClasses } from "./domain/task.ts";
-export type { TaskClass, TaskMetadataV1, TaskV1 } from "./domain/task.ts";
+export { canonicalizeContractValue, currentTaskForWrite, taskClasses, validateTaskV2 } from "./domain/task.ts";
+export type { TaskClass, TaskMetadataV1, TaskV2 } from "./domain/task.ts";
 export {
   assertTaskBootstrapWritePlan,
   isTaskBootstrapEvent,
@@ -142,6 +143,7 @@ export {
   serializePersistedCanonicalEvent,
   validateCurrentCanonicalEvent,
   isMigrationImportEvent,
+  normalizePersistedCanonicalEvent,
 } from "./domain/doc-sync.contract.ts";
 export type {
   CanonicalEventV1,
@@ -171,7 +173,21 @@ export type {
 } from "./domain/execution.ts";
 export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
-export * from "./entity/registry.ts";
+export type {
+  CompositeManifestBlobDeclaration,
+  DispositionAction,
+  DispositionLevel,
+  DispositionMatrixEntry,
+  EntityAnchorDeclaration,
+  EntityDispositionMatrix,
+  EntityDocumentCodec,
+  EntityProjectionColumnDeclaration,
+  EntityProjectionDeclaration,
+  EntityRegistration,
+  EntityRootResolverDeclaration,
+  EntityStorageForm,
+  HostedEntityDeclaration,
+} from "./entity/registry-contract.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export {
   contentObjectRelativePath,

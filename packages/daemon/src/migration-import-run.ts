@@ -84,6 +84,11 @@ import {
   addTaskPackage as addTaskPackageImpl,
   importedTaskMetadata as importedTaskMetadataImpl,
 } from "./migration-import-tasks.ts";
+import {
+  readLegacyTaskRestatements,
+  taskContractRestatementCounts,
+  type LegacyTaskRestatement,
+} from "./migration-import-task-restatement.ts";
 import type {
   Draft,
   EntityKind,
@@ -178,6 +183,7 @@ export interface MigrationImportContext extends MigrationRelationsContext {
   readonly PEOPLE_ROSTER_PATH: typeof PEOPLE_ROSTER_PATH;
   readonly alreadyImported: Record<EntityKind, number>;
   readonly taskRead: ReturnType<typeof readMarkdownSource>;
+  readonly legacyTaskRestatements: ReadonlyMap<string, LegacyTaskRestatement>;
 }
 
 export async function runSingleMigrationImport(
@@ -218,7 +224,12 @@ export async function runSingleMigrationImport(
       ),
       allAuthoredEntries.length - authoredEntries.length,
     ),
-    cold = readLegacyMigrationSource(sourceRoot),
+    legacyTaskRead = readLegacyTaskRestatements(sourceRoot, sourceLayout.authoredRoot),
+    coldRead = readLegacyMigrationSource(sourceRoot),
+    cold = {
+      ...coldRead,
+      issues: coldRead.issues.filter(({ sourcePath }) => !legacyTaskRead.sourcePaths.has(sourcePath)),
+    },
     skips: Skip[] = cold.issues.map(fromColdIssue),
     validEntries = new Set(taskRead.entries.map((entry) => path.resolve(entry.indexPath)));
   for (const indexPath of taskIndexPaths(sourceLayout.tasksRoot))
@@ -333,6 +344,7 @@ export async function runSingleMigrationImport(
     readFileSync,
     migrationImportError,
     taskRead,
+    legacyTaskRestatements: legacyTaskRead.tasks,
     get prepared() {
       return prepared;
     },
@@ -426,6 +438,9 @@ export async function runSingleMigrationImport(
     old = sourceCounts(),
     skipped = skippedCounts(skips),
     expected = subtract(old, skipped),
+    contractRestatements = {
+      task: taskContractRestatementCounts(legacyTaskRead.tasks, [...taskMap.keys()]),
+    },
     idMap = {
       schema: "migration-id-map/v1",
       importId,
@@ -502,6 +517,7 @@ export async function runSingleMigrationImport(
       sourceGit,
       remappings,
       alreadyImported,
+      contractRestatements.task,
     ),
     publishedMap = dryRun ? null : input.store.readEvent(mapPrepared.event.opId),
     publication = publishedMap ? input.store.publication(publishedMap) : null,
@@ -519,6 +535,7 @@ export async function runSingleMigrationImport(
       sourceGit,
       remappings,
       counts: { old, skipped, expected, new: actual },
+      contractRestatements,
       authoredCoverage,
     }),
     visibility: "center",
@@ -533,6 +550,7 @@ export async function runSingleMigrationImport(
     mode: dryRun ? "dry-run" : "apply",
     exitCode,
     counts: { old, skipped, expected, new: actual },
+    contractRestatements,
     authoredCoverage,
     skippedEntities: [...skips].sort(bySkip),
     idMapPath: writesAllowed ? idMapPath : null,

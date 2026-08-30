@@ -25,7 +25,7 @@ test("EntityRef parser accepts local and prefixed task references", () => {
     externalHarness: true,
   });
   assert.equal(parseEntityRef("issue/123"), null);
-  assert.equal(parseEntityRef("task/v1"), null);
+  assert.equal(parseEntityRef("task/v2"), null);
   assert.equal(parseEntityRef("task/doc"), null);
 });
 
@@ -49,13 +49,8 @@ test("EntityRef parser accepts M3 decision and fact endpoints", () => {
   assert.equal(parseEntityRef("fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/not-a-fact"), null);
 });
 
-test("EntityRef parser accepts hosted relation entity refs", () => {
-  assert.deepEqual(parseEntityRef("relation/rel_b75516c583945a52"), {
-    raw: "relation/rel_b75516c583945a52",
-    kind: "relation",
-    id: "rel_b75516c583945a52",
-    externalHarness: false,
-  });
+test("EntityRef parser rejects unregistered Relation refs until G3c registers the aggregate", () => {
+  assert.equal(parseEntityRef("relation/rel_b75516c583945a52"), null);
   assert.equal(parseEntityRef("relation/not-a-relation"), null);
 });
 
@@ -92,7 +87,7 @@ test("EntityRef scanner preserves external harness prefixes without resolving th
 test("EntityRef scanner ignores task-like prose, package markers, and paths", () => {
   const refs = findEntityRefs(
     [
-      "Task Contract: harness-task/v1",
+      "Task Contract: harness-task/v2",
       "workspace has task/doc/terminal panes",
       "path scripts/domain/task/task-subjects.mts",
       "real refs task/local-task, decision/decision-local/C1, and fact/F-a3f2 remain",

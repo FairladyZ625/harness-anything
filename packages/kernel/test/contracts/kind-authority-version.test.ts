@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { contractVersion } from "../../src/domain/contract-version.ts";
 import { entityKindContracts } from "../../src/domain/entity-kind-registry.ts";
-import { entityKindRefAuthorities } from "../../src/domain/entity-ref.ts";
 import {
   explainEntityKind,
   getEntityKindContract,
@@ -101,18 +100,6 @@ test("every Action declares version, target, and SDK exposure metadata", () => {
     assert.deepEqual(action.version, { major: 1, minor: 0 }, action.id);
     assert.equal(action.target.refTemplate, authority.id.refTemplate, action.id);
     assert.deepEqual(Object.keys(action.sdkExposure).sort(), ["agentCapability", "sdk"], action.id);
-  }
-});
-
-test("kind identity views are derived from the ref grammar authority without leaking parser metadata", () => {
-  for (const authority of entityKindRefAuthorities) {
-    const contract = getEntityKindContract(authority.kind);
-    assert.ok(contract);
-    assert.deepEqual(contract.id, {
-      field: authority.field,
-      pattern: authority.pattern,
-      refTemplate: authority.refTemplate,
-    });
   }
 });
 

@@ -349,7 +349,7 @@ test("every latched RepoCell exit declares the latch and the cause identically w
       occurredAt: "2026-08-18T00:00:00.000Z",
       payload: {
         task: {
-          schema: "task/v1",
+          schema: "task/v2",
           taskId: "task-lagging",
           title: "Lagging",
           taskClass: "standard",
@@ -360,6 +360,7 @@ test("every latched RepoCell exit declares the latch and the cause identically w
           createdBy: actor,
           completionGateIds: [],
           presetSnapshotDigest: null,
+          pinned: false,
         },
       },
     };
@@ -531,7 +532,7 @@ async function appendRawEvent(rootDir: string, repoId: string, taskId: string): 
     occurredAt: "2026-08-18T00:00:00.000Z",
     payload: {
       task: {
-        schema: "task/v1",
+        schema: "task/v2",
         taskId,
         title: "Lagging append",
         taskClass: "standard",
@@ -542,6 +543,7 @@ async function appendRawEvent(rootDir: string, repoId: string, taskId: string): 
         createdBy: actor,
         completionGateIds: [],
         presetSnapshotDigest: null,
+        pinned: false,
       },
     },
   };

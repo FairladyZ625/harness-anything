@@ -3,7 +3,7 @@ import { canonicalCodeDocPaths, codeDocRecordId, currentCodeDocRecord, sameCodeD
 import type { CodeDocRepointV1 } from "./code-doc-witness.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
-import type { TaskV1 } from "./task.ts";
+import type { TaskV2 } from "./task.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import type { CodeDocRepointedEvent } from "./task-lifecycle-event.ts";
 import type {
@@ -89,7 +89,7 @@ export const repoint: Transition = {
         codeDocWitnesses: [...snapshot.codeDocWitnesses, record],
       },
       event: envelope<CodeDocRepointedEvent>(command, "code_doc_repointed", {
-        task: snapshot.task as TaskV1,
+        task: snapshot.task as TaskV2,
         execution: current,
         record,
       }),

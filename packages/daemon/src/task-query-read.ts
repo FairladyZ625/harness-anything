@@ -354,7 +354,7 @@ export function makeTaskQueryReadModel(input: {
             kind: "execution" as const,
             taskId: row.taskId,
             title: row.snapshot.task?.title ?? row.taskId,
-            pinned: row.snapshot.task?.pinned ?? false,
+            pinned: row.snapshot.task!.pinned,
             executionId: execution.executionId,
             submittedAt: execution.submittedAt ?? row.updatedAt,
             blockingAssessment: row.blockingAssessment,
@@ -603,7 +603,7 @@ function agendaTaskRow(row: AgendaSourceRead): AgendaTaskRow {
     taskId: row.taskId,
     title: task.title,
     status: task.status,
-    pinned: task.pinned ?? false,
+    pinned: task.pinned,
     updatedAt: row.updatedAt,
     leaseExecutionId: row.snapshot.lease?.executionId ?? null,
     activeExecutionIds: row.snapshot.executions

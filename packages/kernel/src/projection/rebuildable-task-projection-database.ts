@@ -268,10 +268,7 @@ function createTables(db: DatabaseSync): void {
       snapshot_json TEXT NOT NULL,
       status TEXT,
       pinned INTEGER NOT NULL GENERATED ALWAYS AS (
-        CASE WHEN json_valid(snapshot_json)
-          THEN CASE WHEN json_extract(snapshot_json, '$.task.pinned') = 1 THEN 1 ELSE 0 END
-          ELSE 0
-        END
+        json_extract(snapshot_json, '$.task.pinned')
       ) STORED,
       updated_at TEXT NOT NULL DEFAULT ''
     );

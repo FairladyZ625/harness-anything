@@ -1,10 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
+import {
+  REPLAY_TASK_GRAPH,
+  canonicalizeContractValue,
+  makeTaskEventStore,
+  sha256Text,
+} from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -78,6 +83,7 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     coverageCompleteFixture(source);
+    writeLegacyTaskEvent(source, true);
     initRepo(destination);
     cell = await openRepoCell({
       repoId: workspaceId("migration-covered-target"),
@@ -91,6 +97,16 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.equal(result.outcome, "applied");
+    assert.deepEqual(result.contractRestatements, {
+      task: {
+        sourceV1: 1,
+        targetV2: 1,
+        pinnedPreserved: 1,
+        pinnedExplicitFalse: 0,
+        importedSnapshot: 1,
+      },
+    });
+    assert.match(String(result.summary), /\| Task\/v1 -> Task\/v2 \| 1 \| 1 \| 1 \| 0 \| 1 imported_snapshot \|/u);
     assert.match(String(result.summary), /Authored reconciliation: PASS/u);
     assert.match(String(result.summary), /\| task:executions\/\*\* \| migrated \| 1 \| PASS \|/u);
     assert.match(String(result.summary), /\| task:task_plan\.md \| migrated \| 1 \| PASS \|/u);
@@ -99,6 +115,8 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
       row = tasks.rows.find(({ taskId }) => taskId === "task_coverage")!,
       archived = row.snapshot.executions[0] as unknown as Record<string, unknown>;
     assert.equal(row.generation, "v0");
+    assert.equal(row.snapshot.task?.schema, "task/v2");
+    assert.equal(row.snapshot.task?.pinned, true);
     assert.equal(row.createdAt, "2026-01-01T00:00:00.000Z");
     assert.deepEqual(
       {
@@ -176,6 +194,18 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
           event.schema === "migration-import-event/v1" &&
           ["execution", "task-document"].includes(event.payload.entity.kind),
       );
+    const taskMigration = makeTaskEventStore({
+      repoId: "migration-covered-target",
+      rootDir: destination,
+    })
+      .read()
+      .events.find((event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "task");
+    assert.equal(taskMigration?.payload.entity.kind, "task");
+    if (taskMigration?.payload.entity.kind === "task") {
+      assert.equal(taskMigration.payload.entity.provenance, "imported_snapshot");
+      assert.equal(taskMigration.payload.entity.task.schema, "task/v2");
+      assert.equal(taskMigration.payload.entity.task.pinned, true);
+    }
     assert.equal(migrationEvents.length, 5);
     assert.equal(
       migrationEvents.every((event) => event.source === "migration-import/v1" && event.payload.generation === "v0"),
@@ -219,6 +249,39 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
     rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+function writeLegacyTaskEvent(root: string, pinned: boolean): void {
+  const eventsRoot = path.join(root, "harness/events/legacy");
+  mkdirSync(eventsRoot, { recursive: true });
+  const event = {
+    schema: "task-event/v1",
+    eventId: "event-legacy-task-coverage",
+    workspaceRevision: 1,
+    opId: "op-legacy-task-coverage",
+    taskId: "task_coverage",
+    type: "task_created",
+    actor,
+    source: "local",
+    occurredAt: "2026-01-01T00:00:00.000Z",
+    payload: {
+      task: {
+        schema: "task/v1",
+        taskId: "task_coverage",
+        title: "Coverage fixture",
+        taskClass: "standard",
+        status: "planned",
+        graph: REPLAY_TASK_GRAPH,
+        currentNode: "implementation",
+        iteration: 0,
+        createdBy: actor,
+        completionGateIds: [],
+        presetSnapshotDigest: null,
+        pinned,
+      },
+    },
+  };
+  writeFileSync(path.join(eventsRoot, "task-created.json"), `${JSON.stringify(canonicalizeContractValue(event))}\n`);
+}
 
 test("re-importing a source is an incremental no-op instead of a hard rejection", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-twice-")),

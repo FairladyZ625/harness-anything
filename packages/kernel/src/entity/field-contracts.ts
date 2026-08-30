@@ -2,9 +2,8 @@ import type { TaskFrontmatter } from "../schemas/registry.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
 import type { DecisionProposalPayload } from "../domain/decision-event.ts";
 import type { FactEventPayload } from "../domain/fact-event.ts";
-import { sessionFieldContracts } from "./session-declaration.ts";
 
-export type EntityKindWithFieldCoverage = "decision" | "task" | "fact" | "relation" | "session";
+export type EntityKindWithFieldCoverage = "decision" | "task" | "fact" | "relation";
 export type EntityFieldMutability = "immutable" | "lifecycle" | "amendable" | "derived";
 export type EntityFieldReadSurface =
   | { readonly kind: "projection"; readonly path: string; readonly queryable: boolean }
@@ -214,7 +213,6 @@ export const entityFieldContracts = {
   task: taskFieldContracts,
   fact: factFieldContracts,
   relation: relationFieldContracts,
-  session: sessionFieldContracts,
 } as const;
 
 export const decisionAmendableFields = [

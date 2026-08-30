@@ -4,6 +4,7 @@ import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskGraphV1, TaskNodeId } from "./task-graph.ts";
 import { isNonEmptyString, isRecord, validateActorIdentity } from "./write-chain.contract.ts";
 import { validateSessionProvenance, type SessionProvenanceV1 } from "./agent-runtime.ts";
+import type { BaseEntityPinState } from "./base-entity.ts";
 export {
   canonicalizeWriteValue as canonicalizeContractValue,
   hasOnlyFields,
@@ -56,8 +57,8 @@ export interface TaskMetadataV1 {
   readonly surfaces: readonly string[];
   readonly fromLegacyId: string | null;
 }
-export interface TaskV1 {
-  readonly schema: "task/v1";
+export interface TaskV2 extends BaseEntityPinState {
+  readonly schema: "task/v2";
   readonly taskId: string;
   readonly title: string;
   readonly taskClass: TaskClass;
@@ -69,7 +70,6 @@ export interface TaskV1 {
   readonly completionGateIds: readonly string[];
   readonly presetSnapshotDigest: `sha256:${string}` | null;
   readonly provenance?: readonly SessionProvenanceV1[];
-  readonly pinned?: boolean;
   readonly metadata?: TaskMetadataV1;
   readonly relations?: readonly EntityRelationRecord[];
   readonly packageDisposition?: TaskPackageDisposition;
@@ -80,8 +80,8 @@ export interface ContractValidationIssue {
   readonly code: string;
   readonly message: string;
 }
-export const TASK_V1_SCHEMA = Object.freeze({
-  id: "Task/v1",
+export const TASK_V2_SCHEMA = Object.freeze({
+  id: "Task/v2",
   required: Object.freeze([
     "schema",
     "taskId",
@@ -94,6 +94,7 @@ export const TASK_V1_SCHEMA = Object.freeze({
     "createdBy",
     "completionGateIds",
     "presetSnapshotDigest",
+    "pinned",
   ]),
   statuses: replayTaskStatuses,
   taskClasses,
@@ -101,12 +102,11 @@ export const TASK_V1_SCHEMA = Object.freeze({
 export function validateActorAxes(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   return validateActorIdentity(value, allowUnknownFields).map((message) => ({ code: "invalid_actor", message }));
 }
-export function validateTaskV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
-  const fields = TASK_V1_SCHEMA.required,
+export function validateTaskV2(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
+  const fields = TASK_V2_SCHEMA.required,
     allowed = [
       ...fields,
       "provenance",
-      "pinned",
       "metadata",
       "relations",
       "packageDisposition",
@@ -118,9 +118,9 @@ export function validateTaskV1(value: unknown, allowUnknownFields = false): read
     fields.some((field) => !(field in value)) ||
     (!allowUnknownFields && Object.keys(value).some((field) => !allowed.includes(field)))
   )
-    return [{ code: "invalid_task", message: "Task/v1 fields are incomplete or unknown" }];
+    return [{ code: "invalid_task", message: "Task/v2 fields are incomplete or unknown" }];
   const issues: ContractValidationIssue[] = [];
-  if (value.schema !== "task/v1") issues.push({ code: "invalid_schema", message: "Task must use task/v1" });
+  if (value.schema !== "task/v2") issues.push({ code: "invalid_schema", message: "Task must use task/v2" });
   if (!isNonEmptyString(value.taskId) || !isNonEmptyString(value.title))
     issues.push({ code: "invalid_task", message: "taskId and title are required" });
   if (!(taskClasses as readonly unknown[]).includes(value.taskClass))
@@ -145,8 +145,7 @@ export function validateTaskV1(value: unknown, allowUnknownFields = false): read
       value.provenance.some((entry) => !validateSessionProvenance(entry)))
   )
     issues.push({ code: "invalid_task", message: "task provenance must contain session identities" });
-  if (value.pinned !== undefined && typeof value.pinned !== "boolean")
-    issues.push({ code: "invalid_task", message: "pinned must be a boolean" });
+  if (typeof value.pinned !== "boolean") issues.push({ code: "invalid_task", message: "pinned must be a boolean" });
   if (value.metadata !== undefined) {
     const issue = metadataIssue(value.metadata, allowUnknownFields);
     if (issue) issues.push(issue);
@@ -243,7 +242,7 @@ function metadataIssue(value: unknown, allowUnknownFields: boolean): ContractVal
     : null;
 }
 
-export function currentTaskForWrite(task: TaskV1): TaskV1 {
+export function currentTaskForWrite(task: TaskV2): TaskV2 {
   if (task.metadata === undefined || !Object.hasOwn(task.metadata, "longRunning")) return task;
   const { longRunning, ...metadata } = task.metadata as TaskMetadataV1 & { readonly longRunning: unknown };
   void longRunning;

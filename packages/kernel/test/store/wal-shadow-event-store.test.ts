@@ -266,7 +266,7 @@ function taskCreated(revision: number): TaskCreatedEvent {
     occurredAt: "2026-08-20T00:00:00.000Z",
     payload: {
       task: {
-        schema: "task/v1",
+        schema: "task/v2",
         taskId: `task-${revision}`,
         title: `Task ${revision}`,
         taskClass: "standard",
@@ -280,6 +280,7 @@ function taskCreated(revision: number): TaskCreatedEvent {
         },
         completionGateIds: [],
         presetSnapshotDigest: null,
+        pinned: false,
       },
     },
   };

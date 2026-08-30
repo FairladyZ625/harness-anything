@@ -48,7 +48,7 @@ function fixture(completionGateIds: readonly string[], status = "active") {
   return {
     revision: 2,
     task: {
-      schema: "task/v1",
+      schema: "task/v2",
       taskId,
       title: "CI judgment",
       taskClass: "standard",
@@ -59,6 +59,7 @@ function fixture(completionGateIds: readonly string[], status = "active") {
       createdBy: person,
       completionGateIds,
       presetSnapshotDigest: null,
+      pinned: false,
     },
     executions: [
       {

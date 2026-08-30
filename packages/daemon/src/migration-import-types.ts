@@ -4,6 +4,7 @@ import {
   type MigrationImportEventV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
+import type { TaskContractRestatementCounts } from "./migration-import-task-restatement.ts";
 
 export type EntityKind = "task" | "decision" | "fact" | "relation" | "coverage";
 
@@ -96,6 +97,7 @@ export type MigrationImportReceipt = WriteReceipt & {
     readonly expected: ImportCounts;
     readonly new: ImportCounts;
   };
+  readonly contractRestatements: { readonly task: TaskContractRestatementCounts };
   readonly authoredCoverage: AuthoredCoverage;
   readonly skippedEntities: readonly Skip[];
   readonly idMapPath: string | null;
