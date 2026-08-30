@@ -3,7 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import type { DecisionProjectionRow, RelationCoverageRow, RelationGraphEdgeRow } from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
 import type { DecisionListSuccess, RelationFactSummaryRow, RelationGraphSuccess } from "./api-client.ts";
+import { agentEntityClient } from "./agent-entity-client.ts";
+import { schedulesClient } from "./schedules-client.ts";
 import { KIND_LABEL } from "./graph/constants.ts";
+import { agentNodeRowOf, scheduleNodeRowOf, withAgentTaskCounts } from "./graph/runtimeEntities.ts";
 import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge } from "./model/types.ts";
 import { activeProducesFactRefs } from "./model/triadic.ts";
 
@@ -24,6 +27,7 @@ export const triadicQueryKeys = {
   derives: (repoId: string) => ["triadic", repoId, "relation-graph", "edges", "derives-active-directed"] as const,
   activeEdges: (repoId: string) => ["triadic", repoId, "relation-graph", "edgeset"] as const,
   facts: (repoId: string) => ["triadic", repoId, "relation-graph", "facts"] as const,
+  runtimeEdges: (repoId: string) => ["triadic", repoId, "relation-graph", "runtime-edges"] as const,
   decisions: (repoId: string) => ["triadic", repoId, "decisions"] as const,
   decisionSummary: (repoId: string) => ["triadic", repoId, "decisions", "summary"] as const,
 };
@@ -116,6 +120,61 @@ export function usePaletteFactsQuery(repoId: string | null, enabled: boolean) {
   });
   const facts = useMemo<ReadonlyArray<RelationFactSummaryRow>>(() => query.data?.facts ?? [], [query.data]);
   return { facts, isPending: repoId !== null && enabled && query.isPending, isError: query.isError };
+}
+
+/**
+ * 运行时平面(agent/schedule)的图读面:三条**既有**读拼成一个视图输入,不新造读方法。
+ *   - agent 行:`repo.agent.entities.list`(与 Agent 入口同一 queryKey,共享缓存);
+ *   - schedule 行:`repo.schedules.list`(与 Schedule 入口同一 queryKey,共享缓存);
+ *   - agent→task 边:关系图切面 `{facet:"runtimeEdges"}`(daemon 从 dispatch 流头推导)。
+ * 与完整三元投影同一个 `enabled` 口径:没人看图就不请求。运行时读失败(如 remote-center
+ * 缺 roster)只意味着图里没有 agent/schedule 节点,不挡三元视图。
+ */
+export function useRuntimePlaneQuery(repoId: string | null, options: { readonly enabled?: boolean } = {}) {
+  const enabled = options.enabled !== false && repoId !== null;
+  const agents = useQuery({
+    queryKey: ["agents", repoId ?? "unselected"],
+    queryFn: () => agentEntityClient.listAgents(repoId!),
+    enabled,
+    staleTime: 4_000,
+  });
+  const schedules = useQuery({
+    queryKey: ["schedules", repoId ?? "unselected"],
+    queryFn: () => schedulesClient.list(repoId!),
+    enabled,
+    staleTime: 2_000,
+  });
+  const runtimeEdges = useQuery({
+    queryKey: triadicQueryKeys.runtimeEdges(repoId ?? "unselected"),
+    queryFn: () => harnessClient.getRelationGraph({ repoId: repoId!, facet: "runtimeEdges" }),
+    enabled,
+    staleTime: 10_000,
+  });
+  const relations = useMemo(() => adaptRelationRows(runtimeEdges.data?.edges ?? []), [runtimeEdges.data]);
+  const scheduleRows = useMemo(() => (schedules.data?.schedules ?? []).map(scheduleNodeRowOf), [schedules.data]);
+  return useMemo(() => {
+    const agentRows = withAgentTaskCounts((agents.data ?? []).map(agentNodeRowOf), relations);
+    return {
+      agents: agentRows,
+      schedules: scheduleRows,
+      relations,
+      isPending: enabled && (agents.isPending || schedules.isPending || runtimeEdges.isPending),
+      /** 读失败 = 该平面缺席,不冒充空台账,也不挡视图。 */
+      isError: agents.isError || schedules.isError || runtimeEdges.isError,
+    };
+  }, [
+    agents.data,
+    agents.isPending,
+    agents.isError,
+    schedules.data,
+    schedules.isPending,
+    schedules.isError,
+    scheduleRows,
+    relations,
+    runtimeEdges.isPending,
+    runtimeEdges.isError,
+    enabled,
+  ]);
 }
 
 /**

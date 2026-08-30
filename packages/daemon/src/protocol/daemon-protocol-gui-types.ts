@@ -6,6 +6,7 @@ import type {
   ProjectionPage,
   ProjectionWarning,
   RelationCoverageRow,
+  RelationGraphEdgeRow,
   TaskProjection,
   SettingsV1,
 } from "../../../kernel/src/index.ts";
@@ -414,7 +415,7 @@ export interface DaemonRelationQueryPayload {
   readonly cursor?: string;
 }
 
-export type DaemonRelationGraphFacet = "edges" | "facts" | "coverageRows" | "factAnchors";
+export type DaemonRelationGraphFacet = "edges" | "facts" | "coverageRows" | "factAnchors" | "runtimeEdges";
 
 export interface DaemonRelationEdgeFacetPayload {
   readonly facet: "edges";
@@ -469,6 +470,9 @@ export type DaemonRelationGraphFacetResult =
       })
   | ({ readonly ok: true; readonly facet: "facts" } & Omit<EmptyRelationFacetRows, "facts"> & {
         readonly facts: readonly DaemonFactSummaryRow[];
+      })
+  | ({ readonly ok: true; readonly facet: "runtimeEdges" } & Omit<EmptyRelationFacetRows, "edges"> & {
+        readonly edges: readonly RelationGraphEdgeRow[];
       });
 
 export type DaemonRelationGraphResult = DaemonRelationGraphFullResult | DaemonRelationGraphFacetResult;

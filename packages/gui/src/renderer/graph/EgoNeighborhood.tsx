@@ -19,10 +19,12 @@ import { EgoNode } from "./nodes/EgoNode";
 import { InteractiveEdge } from "./edges/InteractiveEdge";
 import { useColorMode, minimapMaskColor } from "./colorMode";
 import { useEgoCanvas } from "./useEgoCanvas";
+import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
 import { layoutEgoCanvas, type EgoAxisFilter, type EgoFlowEdge, type EgoFlowNode } from "./egoCanvas";
 import { defaultKindFilter, edgePassesKindFilter, type FlowAnimMode } from "./relationVisual";
 import {
   defaultEntityStatusFilter,
+  isEntityStatusFilterNarrowed,
   nodePassesEntityStatusFilter,
   type EntityStatusFilterState,
 } from "./entityStatusFilter";
@@ -55,7 +57,7 @@ export function defaultNeighborhoodFilters(): EgoNeighborhoodFilters {
   return {
     axes: { authority: true, evidence: true, execution: true, assoc: false },
     kinds: defaultKindFilter(),
-    types: new Set(["decision", "task", "fact"]),
+    types: new Set(["decision", "task", "fact", "agent", "schedule"]),
     flowMode: "focus",
   };
 }
@@ -67,7 +69,14 @@ export type EgoNeighborhoodProps = {
   facts: FactRef[];
   relations: RelationEdge[];
   factAnchors: ReadonlyArray<FactAnchorRow>;
+  /** 运行时平面节点行(agent/schedule);缺省 = 该平面缺席,图照常。 */
+  agents?: ReadonlyArray<AgentNodeRow>;
+  schedules?: ReadonlyArray<ScheduleNodeRow>;
   filters?: EgoNeighborhoodFilters;
+  /** 重点模式可见集(null = 不分层)。 */
+  focusSet?: { readonly taskIds: ReadonlySet<string>; readonly neighborIds: ReadonlySet<string> } | null;
+  /** 重点模式开关(翻转时从当前焦点重铺)。 */
+  densityFocus?: boolean;
   onNavigateEntity?: (ref: string) => void;
   onRefocus?: (ref: string) => void;
   /** 布局统计回调(宿主页头用:聚光灯 header 的「N 节点 · M 边」与焦点面包屑标题)。 */
@@ -91,7 +100,11 @@ function EgoNeighborhoodInner({
   facts,
   relations,
   factAnchors,
+  agents,
+  schedules,
   filters,
+  focusSet = null,
+  densityFocus = false,
   onNavigateEntity,
   onRefocus,
   onLayoutStats,
@@ -105,14 +118,24 @@ function EgoNeighborhoodInner({
   const statusFilter = filters.statusFilter ?? DEFAULT_STATUS_FILTER;
   const [focusEdgeId, setFocusEdgeId] = useState<string | null>(null);
 
+  // 重点模式可见集:task 裸 id + 非 task `<kind>/<id>`,与 ego 键空间一致。
+  const allowedIds = useMemo(() => {
+    if (!densityFocus || !focusSet) return null;
+    return new Set<string>([...focusSet.taskIds, ...focusSet.neighborIds]);
+  }, [densityFocus, focusSet]);
+
   const canvas = useEgoCanvas({
     tasks,
     decisions,
     facts,
     relations,
     factAnchors,
+    agents,
+    schedules,
     axes: filters.axes,
     focusRef,
+    allowedIds,
+    layered: densityFocus,
   });
 
   // focusRef → null(清除焦点)= 清空累积态。GraphView 原先在 clearFocus 里显式
@@ -167,7 +190,7 @@ function EgoNeighborhoodInner({
 
   const statusVisibleIds = useMemo(() => {
     if (!spotlight) return null;
-    if (!isStatusNarrowed(statusFilter)) return null;
+    if (!isEntityStatusFilterNarrowed(statusFilter)) return null;
     const ids = new Set<string>();
     for (const n of spotlight.nodes) {
       const data = n.data;
@@ -346,6 +369,7 @@ function EgoNeighborhoodInner({
             const entity = n.data.entity;
             if (entity === "decision") return "var(--color-axis-authority)";
             if (entity === "fact") return "var(--color-axis-evidence)";
+            if (entity === "agent" || entity === "schedule") return "var(--color-axis-assoc)";
             return "var(--color-axis-execution)";
           }}
           nodeStrokeColor="var(--color-border-strong)"
@@ -379,12 +403,6 @@ function EgoNeighborhoodInner({
       )}
     </div>
   );
-}
-
-function isStatusNarrowed(state: EntityStatusFilterState): boolean {
-  const taskFull = 7; // BOARD_COLUMNS length(6) + 1 other
-  const decFull = 6; // DECISION_STATE length(5) + 1 other
-  return state.taskStatuses.size < taskFull || state.decisionStates.size < decFull;
 }
 
 export function EgoNeighborhood(props: EgoNeighborhoodProps) {

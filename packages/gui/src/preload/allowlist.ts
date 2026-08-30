@@ -371,7 +371,7 @@ function validQueryPayload(method: string, value: Record<string, unknown>): bool
       (value.cursor === undefined || (typeof value.cursor === "string" && value.cursor.length > 0));
   if (method === "getRelationGraph" && facet !== undefined)
     return (
-      ["edges", "facts", "coverageRows", "factAnchors"].includes(String(facet)) &&
+      ["edges", "facts", "coverageRows", "factAnchors", "runtimeEdges"].includes(String(facet)) &&
       (facet !== "edges" || validRelationEdgeFacetSelectors(value)) &&
       (facet === "edges" ||
         (value.relationType === undefined && value.state === undefined && value.direction === undefined))

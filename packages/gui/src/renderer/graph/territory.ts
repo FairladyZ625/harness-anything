@@ -4,38 +4,51 @@ import { activeIncomingRelations, incomingRelations } from "../model/relation-di
 import { resolveTaskModule, resolveFactModule, UNPROJECTED_MODULE } from "./moduleAssignment";
 import { buildGenealogyEdges } from "./genealogy";
 import { clusterTasksByPrd, type ZoneProgress } from "./territoryProgress";
+import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
+import type { GraphFocusSelection } from "./focusSet";
+import { isInGraphFocusSet } from "./focusSet";
+import { endpointToNodeId } from "./endpoint";
 
 /**
  * 领地总览分区(REQ-GUI-03 territory zone)。
  *
- * 纯前端派生:把 task/decision/fact 按各自定位维度分进 zone。
+ * 纯前端派生:把五类实体按各自定位维度分进 zone。
  *   task      → PRD(根 task)聚簇 + 进度信号;root 与 module 都缺 → 未投影块(沉底)
  *   decision  → family(谱系连通分量;孤立 decision → 各自独立 zone 或 landing)
  *   fact      → 异常(module 来自宿主 task;宿主不在 → 未投影)
+ *   agent     → 运行时身份层,一个 zone(chip 副标带被派 task 数)
+ *   schedule  → 运行时定时层,一个 zone(chip 副标带 state + trigger)
  *
- * zone 是折叠卡片(无关系线),chip 单击进聚光灯。全域(unified)= 三实体合图,
- * 各实体种类独立 skeleton(task/decision/fact)则只画该种类。
+ * zone 是折叠卡片(无关系线),chip 单击进聚光灯。全域(unified)= 五实体合图,
+ * 各实体种类独立 skeleton(task/decision/fact)则只画该种类;agent/schedule 只在
+ * unified 出现(它们没有独立的 skeleton 段,量级是个位数)。
  */
 
 export type TerritorySkel = "task" | "decision" | "fact" | "unified";
+
+export type TerritoryEntity = "task" | "decision" | "fact" | "agent" | "schedule";
 
 export interface TerritoryChip {
   navRef: string;
   label: string;
   sub?: string;
-  entity: "task" | "decision" | "fact";
+  entity: TerritoryEntity;
   /** 用于 chip 着色与 minimap。 */
   moduleId: string;
+  /** 台账 pin 的只读标记(task chip;pin 写入口在任务列表,图上不做第二条写路)。 */
+  pinned?: boolean;
 }
 
 export interface TerritoryZone {
   zoneId: string;
   title: string;
-  entity: "task" | "decision" | "fact";
+  entity: TerritoryEntity;
   moduleId: string;
   chips: TerritoryChip[];
   /** PRD/里程碑块的进度信号(task zone 必有;decision/fact zone 无)。 */
   progress?: ZoneProgress;
+  /** 重点模式下被折叠出本块的 chip 数(0 = 无折叠或未开重点模式)。 */
+  deferred?: number;
 }
 
 export interface TerritoryPartition {
@@ -44,6 +57,8 @@ export interface TerritoryPartition {
   landing: TerritoryChip[];
   /** 未投影计数(用于头部摘要)。 */
   unprojectedCount: number;
+  /** 重点模式折叠掉的 chip 总数(zone + landing;未分层时缺省)。 */
+  deferredCount?: number;
 }
 
 /**
@@ -62,6 +77,7 @@ export function partitionTasks(tasks: ReadonlyArray<TaskRow>): TerritoryZone[] {
       sub: task.coordinationStatus,
       entity: "task" as const,
       moduleId: resolveTaskModule(task.module),
+      ...(task.pinned === true ? { pinned: true } : {}),
     })),
     progress: cluster.progress,
   }));
@@ -336,19 +352,107 @@ function countUnprojectedChips(zones: ReadonlyArray<TerritoryZone>): number {
   return count;
 }
 
-/** 全域 partition:task + decision + fact 三实体合图。 */
+/** 全域 partition:五实体合图(task + decision + fact + agent + schedule)。 */
 export function partitionAll(
   tasks: ReadonlyArray<TaskRow>,
   decisions: ReadonlyArray<DecisionRow>,
   facts: ReadonlyArray<FactRef>,
   factAnchors: ReadonlyArray<FactAnchorRow>,
   relations: ReadonlyArray<RelationEdge>,
+  agents: ReadonlyArray<AgentNodeRow> = [],
+  schedules: ReadonlyArray<ScheduleNodeRow> = [],
 ): TerritoryPartition {
   const taskZones = partitionTasks(tasks);
   const { zones: decisionZones, landing } = partitionDecisions(decisions, relations);
   const factZones = partitionFacts(facts, factAnchors, tasks, relations);
-  const zones = [...taskZones, ...decisionZones, ...factZones];
+  const zones = [
+    ...taskZones,
+    ...decisionZones,
+    ...factZones,
+    ...partitionAgents(agents),
+    ...partitionSchedules(schedules),
+  ];
   return { zones, landing, unprojectedCount: countUnprojectedChips(zones) };
+}
+
+/** 运行时身份层:一个 zone(量级个位数;chip 副标带被派 task 数)。 */
+export function partitionAgents(agents: ReadonlyArray<AgentNodeRow>): TerritoryZone[] {
+  if (agents.length === 0) return [];
+  return [
+    {
+      zoneId: "agent:runtime",
+      title: "运行时 · Agent",
+      entity: "agent",
+      moduleId: "runtime",
+      chips: [...agents]
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((agent) => ({
+          navRef: agent.id,
+          label: agent.name,
+          sub: agent.taskCount > 0 ? `${agent.sub} · ${agent.taskCount} task` : agent.sub,
+          entity: "agent" as const,
+          moduleId: "runtime",
+        })),
+    },
+  ];
+}
+
+/** 运行时定时层:一个 zone(chip 副标带 state + trigger,daemon 已算好的事实)。 */
+export function partitionSchedules(schedules: ReadonlyArray<ScheduleNodeRow>): TerritoryZone[] {
+  if (schedules.length === 0) return [];
+  return [
+    {
+      zoneId: "schedule:runtime",
+      title: "运行时 · Schedule",
+      entity: "schedule",
+      moduleId: "runtime",
+      chips: [...schedules]
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((schedule) => ({
+          navRef: schedule.id,
+          label: schedule.name,
+          sub: schedule.sub,
+          entity: "schedule" as const,
+          moduleId: "runtime",
+        })),
+    },
+  ];
+}
+
+/**
+ * 密度分层(重点模式)在领地的落点:每块只留重点 chip,其余折叠成本块的计数徽章。
+ *
+ * · pinned task 恒在重点集(种子判定已含),因此**永不被折叠** —— 这是 pin 与
+ *   显示/隐藏的绑定:pin 了就一定看得见。
+ * · `revealedZones` 是用户逐块展开的记录;展开后该块回到全量(fold 逻辑照旧)。
+ * · 未开重点模式(focus=null)原样返回,不做任何隐藏。
+ * · landing(孤立 decision)与 zone 同规则。
+ */
+export function applyTerritoryDensity(
+  partition: TerritoryPartition,
+  focus: GraphFocusSelection | null,
+  revealedZones: ReadonlySet<string>,
+): TerritoryPartition {
+  if (!focus) return partition;
+  const splitZone = (zone: TerritoryZone, chips: TerritoryChip[]): { chips: TerritoryChip[]; deferred: number } => {
+    if (revealedZones.has(zone.zoneId)) return { chips, deferred: 0 };
+    const kept = chips.filter((chip) => isInGraphFocusSet(focus, endpointToNodeId(chip.navRef)));
+    return { chips: kept, deferred: chips.length - kept.length };
+  };
+  const zones = partition.zones.map((zone) => {
+    const split = splitZone(zone, zone.chips);
+    return { ...zone, chips: split.chips, deferred: split.deferred };
+  });
+  const landingSplit = splitZone(
+    { zoneId: "__landing__", title: "", entity: "decision", moduleId: "", chips: partition.landing },
+    partition.landing,
+  );
+  return {
+    zones,
+    landing: landingSplit.chips,
+    unprojectedCount: countUnprojectedChips(zones),
+    deferredCount: zones.reduce((total, zone) => total + (zone.deferred ?? 0), 0) + landingSplit.deferred,
+  };
 }
 
 /** 按 skeleton 种类过滤 partition。 */
@@ -360,6 +464,8 @@ export function partitionForSkel(
   factAnchors: ReadonlyArray<FactAnchorRow>,
   relations: ReadonlyArray<RelationEdge>,
   coverageRows: ReadonlyArray<RelationCoverageRow> = [],
+  agents: ReadonlyArray<AgentNodeRow> = [],
+  schedules: ReadonlyArray<ScheduleNodeRow> = [],
 ): TerritoryPartition {
   if (skel === "task") {
     const zones = partitionTasks(tasks);
@@ -373,5 +479,5 @@ export function partitionForSkel(
     const zones = partitionFactsByAnomaly(facts, factAnchors, tasks, relations, coverageRows);
     return { zones, landing: [], unprojectedCount: countUnprojectedChips(zones) };
   }
-  return partitionAll(tasks, decisions, facts, factAnchors, relations);
+  return partitionAll(tasks, decisions, facts, factAnchors, relations, agents, schedules);
 }

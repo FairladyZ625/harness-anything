@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { TaskRow, RelationEdge, DecisionRow, FactRef } from "../model/types";
 import type { RelationCoverageRow, FactAnchorRow } from "../../api/renderer-dto";
+import type { AgentNodeRow, ScheduleNodeRow } from "../graph/runtimeEntities.ts";
 import { GraphView, type ViewMode } from "../views/GraphView.tsx";
 import type { PaletteEntry } from "./CommandPalette.tsx";
 import { GenealogyTimelineView } from "../views/GenealogyTimelineView.tsx";
@@ -26,6 +27,10 @@ export interface EntityWorkspaceProps {
   facts: FactRef[];
   coverageRows?: ReadonlyArray<RelationCoverageRow>;
   factAnchors?: ReadonlyArray<FactAnchorRow>;
+  /** 运行时平面(agent/schedule 节点行 + agent→task 派发边),透传给 GraphView。 */
+  agents?: ReadonlyArray<AgentNodeRow>;
+  schedules?: ReadonlyArray<ScheduleNodeRow>;
+  runtimeRelations?: ReadonlyArray<RelationEdge>;
   onNavigateEntity: (ref: string) => void;
   onFocusEntityChange: (ref: string | null) => void;
   /** 跳去决策池并聚焦该 decision(演化史 DecisionDetailPanel 的「在决策池查看」)。 */
@@ -48,6 +53,9 @@ export function EntityWorkspace({
   facts,
   coverageRows,
   factAnchors,
+  agents,
+  schedules,
+  runtimeRelations,
   onNavigateEntity,
   onFocusEntityChange,
   onOpenDecisionPool,
@@ -110,6 +118,9 @@ export function EntityWorkspace({
             facts={facts}
             coverageRows={coverageRows}
             factAnchors={factAnchors}
+            agents={agents}
+            schedules={schedules}
+            runtimeRelations={runtimeRelations}
             onNavigateEntity={onNavigateEntity}
             onFocusEntityChange={onFocusEntityChange}
             focusRef={focusedEntityRef}

@@ -1,6 +1,8 @@
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types";
+import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
 
-export type EntityKind = "task" | "decision" | "fact";
+/** 图实体种类:三元语三种 + 运行时两种(agent/schedule)。 */
+export type EntityKind = "task" | "decision" | "fact" | "agent" | "schedule";
 
 export interface NodePos {
   id: string;
@@ -10,17 +12,19 @@ export interface NodePos {
   color?: string;
   /** 仅 task 有（抽屉复用其详情） */
   task?: import("../model/types").TaskRow;
-  raw?: TaskRow | DecisionRow | FactRef;
+  raw?: TaskRow | DecisionRow | FactRef | AgentNodeRow | ScheduleNodeRow;
   x: number;
   y: number;
 }
 
 /**
  * 解析 endpoint 字符串 → 归一 id + entity。
- * 支持三种形式：
+ * 支持五种形式：
  *   decision/<id>        → { id: "decision/<id>", entity: "decision" }
  *   fact/<anchor> → { id: "fact/<anchor>", entity: "fact" }
  *   task/<id>            → { id: "<id>", entity: "task" }
+ *   agent/<id>           → { id: "agent/<id>", entity: "agent" }
+ *   schedule/<id>        → { id: "schedule/<id>", entity: "schedule" }
  */
 export function parseEndpoint(raw: string): { id: string; entity: EntityKind } | null {
   if (raw.startsWith("decision/")) {
@@ -33,6 +37,14 @@ export function parseEndpoint(raw: string): { id: string; entity: EntityKind } |
     const id = raw.slice(5).split("/")[0];
     return { id, entity: "task" };
   }
+  if (raw.startsWith("agent/")) {
+    const parts = raw.split("/");
+    return { id: `agent/${parts[1] ?? ""}`, entity: "agent" };
+  }
+  if (raw.startsWith("schedule/")) {
+    const parts = raw.split("/");
+    return { id: `schedule/${parts[1] ?? ""}`, entity: "schedule" };
+  }
   return null;
 }
 
@@ -44,6 +56,8 @@ export function endpointToNodeId(raw: string): string {
   }
   if (raw.startsWith("fact/")) return raw;
   if (raw.startsWith("task/")) return raw.slice(5).split("/")[0];
+  if (raw.startsWith("agent/")) return `agent/${raw.split("/")[1] ?? ""}`;
+  if (raw.startsWith("schedule/")) return `schedule/${raw.split("/")[1] ?? ""}`;
   return raw;
 }
 

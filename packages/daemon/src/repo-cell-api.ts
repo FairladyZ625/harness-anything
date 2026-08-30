@@ -498,7 +498,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     ) {
       const facet = payload.facet;
       if (
-        !["edges", "facts", "coverageRows", "factAnchors"].includes(String(facet)) ||
+        !["edges", "facts", "coverageRows", "factAnchors", "runtimeEdges"].includes(String(facet)) ||
         Object.keys(payload).some((field) =>
           facet === "edges" ? !["facet", "relationType", "state", "direction"].includes(field) : field !== "facet",
         ) ||

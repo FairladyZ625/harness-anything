@@ -103,7 +103,15 @@ export interface RelationEdgeFacetQuery {
 export interface RelationFactFacetQuery {
   readonly facet: "facts";
 }
-export type RelationQueryFacets = RelationPageQuery | RelationEdgeFacetQuery | RelationFactFacetQuery;
+/** `repo.triadic.relationGraph {facet:"runtimeEdges"}`:运行时平面(agent→task)派发边。 */
+export interface RelationRuntimeEdgeFacetQuery {
+  readonly facet: "runtimeEdges";
+}
+export type RelationQueryFacets =
+  | RelationPageQuery
+  | RelationEdgeFacetQuery
+  | RelationFactFacetQuery
+  | RelationRuntimeEdgeFacetQuery;
 
 export interface DecisionListSuccess {
   readonly ok: true;

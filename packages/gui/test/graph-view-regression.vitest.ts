@@ -178,6 +178,13 @@ describe("territory archive-noise filter (board parity)", () => {
     );
   }
 
+  /** 重点模式折叠徽章:每块一条,值为其折叠的重点外 chip 数。 */
+  function deferredBadges(div: HTMLElement): number[] {
+    return [...div.querySelectorAll("[data-testid='territory-fold'][data-deferred]")].map((node) =>
+      Number(/重点外 (\d+) 项/u.exec(node.textContent ?? "")?.[1] ?? -1),
+    );
+  }
+
   async function mountTerritory(tasks: TaskRow[]) {
     const div = document.createElement("div");
     document.body.appendChild(div);
@@ -214,15 +221,19 @@ describe("territory archive-noise filter (board parity)", () => {
       toggle.click();
     });
 
-    expect(chipRefs(div).sort()).toEqual(["task/t_archived", "task/t_cancelled", "task/t_live"]);
-    // 开关状态落 localStorage;同一视图重新挂载读回(记忆)。
+    // 重点模式(默认开,task_5ba031c2)与「显示已归档」是两个独立收窄维度,AND 组合:
+    // 归档 chip 被 archive 开关重新放行后,仍不是重点集成员,折叠进本块「重点外 N 项」
+    // 徽章(不会「开关点了、屏幕纹丝不动」——徽章计数与块头计数都动了)。
+    expect(chipRefs(div)).toEqual(["task/t_live"]);
+    expect(deferredBadges(div)).toEqual([1, 1]);
     expect(window.localStorage.getItem("harness:gui:graph-territory-show-archived")).toBe("true");
     await act(async () => {
       root.unmount();
     });
 
     const second = await mountTerritory(noiseTasks());
-    expect(chipRefs(second.div).sort()).toEqual(["task/t_archived", "task/t_cancelled", "task/t_live"]);
+    expect(chipRefs(second.div)).toEqual(["task/t_live"]);
+    expect(deferredBadges(second.div)).toEqual([1, 1]);
     await act(async () => {
       second.root.unmount();
     });

@@ -315,9 +315,12 @@ describe("三元读取按挂载域分层", () => {
     const atBoard = mark();
     await navigate("关系图");
     const atGraph = mark();
-    // 进入图视图的那一次转换只读一份完整投影(图 + 决策全量行各一次)。
+    // 进入图视图的那一次转换只读一份完整投影(图 + 决策全量行各一次),外加图页
+    // 自己的运行时平面切面(agent→task 派发边,task_5ba031c2):它是图的输入之一,
+    // 不是第二份完整投影。
     expect(relationGraphCalls(calls().slice(atBoard, atGraph)).map(({ payload }) => payload?.facet)).toEqual([
       undefined,
+      "runtimeEdges",
     ]);
     expect(decisionCalls(calls().slice(atBoard, atGraph)).map(({ payload }) => payload?.projection)).toEqual([
       undefined,

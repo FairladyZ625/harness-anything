@@ -194,7 +194,7 @@ export const daemonTaskQueryPayloadShape = shape({
 });
 
 export const daemonRelationQueryPayloadShape = shape({
-  facet: optionalEnum(["edges", "facts", "coverageRows", "factAnchors"]),
+  facet: optionalEnum(["edges", "facts", "coverageRows", "factAnchors", "runtimeEdges"]),
   relationType: "string?",
   state: "string?",
   direction: optionalEnum(["directed", "undirected"]),

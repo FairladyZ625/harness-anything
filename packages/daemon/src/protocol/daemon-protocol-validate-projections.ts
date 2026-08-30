@@ -108,17 +108,19 @@ export function validateDaemonRelationGraph(value: unknown): readonly string[] {
       return ["daemon relation graph is invalid"];
     return [];
   }
-  if (!["edges", "facts", "coverageRows", "factAnchors"].includes(String(value.facet)))
+  if (!["edges", "facts", "coverageRows", "factAnchors", "runtimeEdges"].includes(String(value.facet)))
     return ["daemon relation graph is invalid"];
+  // `runtimeEdges` 与 `edges` 同为边切面:选中的数组是 edges,其余必须为空。
+  const edgesFacet = value.facet === "edges" || value.facet === "runtimeEdges";
   const unselected = [
-    ...(value.facet === "edges" ? [] : [value.edges]),
+    ...(edgesFacet ? [] : [value.edges]),
     ...(value.facet === "coverageRows" ? [] : [value.coverageRows]),
     ...(value.facet === "factAnchors" ? [] : [value.factAnchors]),
     ...(value.facet === "facts" ? [] : [value.facts]),
   ];
   if (
     unselected.some((rows) => rows.length !== 0) ||
-    (value.facet === "edges" && value.edges.some(relationEdgeInvalid)) ||
+    (edgesFacet && value.edges.some(relationEdgeInvalid)) ||
     (value.facet === "coverageRows" && value.coverageRows.some(coverageRowInvalid)) ||
     (value.facet === "factAnchors" && value.factAnchors.some(factAnchorInvalid)) ||
     (value.facet === "facts" && value.facts.some(factSummaryInvalid))
