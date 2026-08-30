@@ -40,34 +40,52 @@ Node.js 24 or newer and git are required. For a new checkout, run:
 git clone https://github.com/FairladyZ625/harness-anything.git
 cd harness-anything
 git fetch origin
-node --version
 git status --short --branch
 ```
 
-Stop if Node is older than 24 or the checkout already has changes you do not
-own. Do not implement on the primary checkout or shared `main`. From the primary
+Run this version gate as one standalone command before `npm ci`; it exits
+nonzero and prints three common activation choices when the active Node is too
+old:
+
+```bash
+node -e 'const major=Number(process.versions.node.split(".")[0]); if (major < 24) { console.error([`Node.js 24+ required; found ${process.version}.`, "nvm: nvm install 24 && nvm use 24", `Homebrew node@24: brew install node@24 && export PATH="$(brew --prefix node@24)/bin:$PATH"`, "Volta: volta install node@24"].join("\n")); process.exit(1); } console.log(`Node.js ${process.version} satisfies >=24`);'
+```
+
+If it fails, use one printed line to activate Node 24, then rerun the same gate
+until it exits zero. Stop if the checkout already has changes you do not own.
+Do not implement on the primary checkout or shared `main`. From the primary
 checkout, create exactly one task worktree from current `origin/main`:
 
 ```bash
 git worktree add .worktrees/<slug> -b <branch> origin/main
 cd .worktrees/<slug>
-npm ci
 git merge-base --is-ancestor origin/main HEAD
+git rev-list --count origin/main..HEAD
+git log --oneline origin/main..HEAD
 git status --short --branch
+npm ci
 ```
 
 Replace `<slug>` with a short filesystem-safe scope and `<branch>` with the
 public contribution branch, such as `fix/<slug>` or `docs/<slug>`. If either
 name already belongs to another worktree, choose a new name; never share that
-worktree. `git merge-base --is-ancestor` must exit zero before editing.
+worktree. `git merge-base --is-ancestor` must exit zero before editing. A newly
+created branch should print `0` from `git rev-list` and no commit lines from
+`git log`. Any listed commit is already part of the prospective
+`origin/main...HEAD` PR delta: continue only when it belongs to the approved
+public contribution, and later describe the whole branch delta while clearly
+distinguishing those pre-existing commits from the edits made in this run.
+Otherwise stop and create a clean worktree or ask the maintainer which branch
+scope is intended.
 
 Read the issue and relevant source in this worktree. State, in one sentence,
 the problem, allowed change surface, excluded surface, and proof required. Ask
 for a maintainer decision rather than guessing when the public issue does not
 settle a load-bearing choice.
 
-> 中文：从最新 `origin/main` 创建独立 worktree；每个贡献者或 agent 使用自己的
-> branch/worktree。先确认 Node 24+、安装依赖、写清范围，再开始编辑。
+> 中文：先用单独的一条可执行命令确认 Node 24+，再从最新 `origin/main` 创建独立
+> worktree；每个贡献者或 agent 使用自己的 branch/worktree。编辑前列出 ahead
+> commit；它们会进入整个 PR diff，不能当作不存在。安装依赖并写清范围后再编辑。
 
 ## Make the change and test its surface
 
@@ -127,6 +145,13 @@ First list the current pull-request job names and tiers:
 node -e 'const m=require("./tools/gate-manifest.json"); console.log([...new Set(m.gates.filter(g=>!g.aggregate).flatMap(g=>(g.executionSurfaces?.rewriteCi?.pullRequestJobs??[]).map(job=>`${g.tier}\t${job}`)))].sort().join("\n"))'
 ```
 
+Then print the gate IDs, commands, and declared consumer scope behind those
+jobs; use this output rather than inferring a job from its name:
+
+```bash
+node -e 'const m=require("./tools/gate-manifest.json"); for (const g of m.gates.filter(g=>!g.aggregate)) for (const job of g.executionSurfaces?.rewriteCi?.pullRequestJobs??[]) console.log(`${job}\t${g.id}\t${g.command}\t${(g.consumerScope??[]).join("; ")}`)'
+```
+
 Then run every job that matches the changed surface:
 
 ```bash
@@ -141,21 +166,27 @@ the GUI. Record every command and result in the PR body, including a scoped
 reason for anything not run.
 
 One gate has a local credential exception. If `boundaries` reaches
-`check-github-required-contexts` and fails only because no GitHub repository or
-token is available, preserve that output and rerun the same job with only that
-gate excluded:
+`check-github-required-contexts`, the only failure that may be excluded locally
+is the exact error `repository must be provided as owner/name` when no GitHub
+repository/token context is available. Preserve that output and rerun the same
+job with only that gate excluded:
 
 ```bash
 node tools/run-manifest-gates.mjs --workflow-job boundaries --exclude check-github-required-contexts
 ```
 
-Do not use that exclusion for any other failure, and never treat it as a CI
-waiver. The required GitHub context must still pass on the PR.
+If that exact message is not the sole failure, do not exclude the gate. Never
+treat the exclusion as a CI waiver; the required GitHub context must still pass
+on the PR. A `boundaries` run currently takes about 45 seconds locally. The
+runner stops at the first failure and cannot resume, so the permitted exclusion
+rerun starts the selected job again from its first command.
 
 > 中文：从 `tools/gate-manifest.json` 读取当前 job/tier，用
 > `run-manifest-gates` 跑改动面对应的 job，并始终运行 `npm run typecheck`。
-> 本地只有 `check-github-required-contexts` 可在确认确实缺 GitHub 凭证后单独排除；
-> 该排除不适用于 CI，也不能掩盖其他失败。
+> 本地只有 `check-github-required-contexts` 的精确报错
+> `repository must be provided as owner/name` 可在确认缺 GitHub 上下文后单独排除；
+> 该排除不适用于 CI，也不能掩盖其他失败。`boundaries` 当前约需 45 秒，失败后不能
+> 从断点续跑。
 
 ## Commit with the contributor identity
 
@@ -195,11 +226,17 @@ then rerun affected tests and gates if the rebase changes the branch:
 
 ```bash
 git fetch origin
+date -u '+%Y-%m-%d %H:%M:%S UTC'
 git rebase origin/main
 git rev-parse origin/main
 git merge-base origin/main HEAD
 git status --short --branch
 ```
+
+Put the `date -u` output in `Last git fetch origin time`. If the initial
+worktree check found approved pre-existing commits, describe the complete
+`origin/main...HEAD` delta in the PR body and explicitly separate those commits
+from the changes authored in the current run.
 
 Copy the current template; never reconstruct its sections from memory:
 
@@ -214,6 +251,34 @@ complete `# 中文` block. Preserve their order and the shared checklist. Use
 Keep machine-readable declarations exactly once and only in the English block,
 flush left as the template instructs. Do not claim CI, human review, or a test
 that has not happened.
+
+For an external contributor, fill `Harness task` in both language blocks with
+the public issue number, for example `#1234`; if there is no public issue, write
+`not applicable`. Never put a private task ID, local planning ID, or private
+evidence path in the public PR body. If neither `package.json` nor
+`package-lock.json` changed, delete the entire `Dependency-Change:` line; do not
+leave `Dependency-Change: none`. Keep and fully describe that line only when one
+of those dependency files changed.
+
+In the Verification checklist, check an item only when its exact command exited
+zero, either because you ran it directly or because the manifest runner printed
+that command and reported it passed. A passing current `boundaries` job
+indirectly runs these checklist items:
+
+- `npm run harness:check-import-boundaries`
+- `npm run harness:scan-forbidden-symbols`
+- `npm run harness:check-private-boundary`
+- `npm run harness:check-implementation-contracts`
+- `npm run harness:check-schema-contracts`
+- `npm run harness:check-legacy-intake-readiness`
+
+Check those items only when all appear as passed in the runner output. Do not
+infer that `npm run check`, `npm test`,
+`npm run harness:check-package-policy`, or
+`npm run harness:smoke-cli-package` ran as part of `boundaries`; leave each
+unchecked unless that exact command actually passed. Record the top-level
+manifest command and any allowed exclusion in the surrounding Verification
+text.
 
 To obtain `Production-Delta`, replace the template's `N` and `M` with zero as a
 provisional declaration, run the authoritative calculator, replace it with the
@@ -246,8 +311,10 @@ docs-only example that exercises every section. It is a fixture, not a template:
 always copy the live repository template for a real PR.
 
 > 中文：所有 commit 完成后再计算 `Production-Delta`。PR body 必须保留模板的完整
-> 英文块、完整中文块和共享 checklist；机读声明只在英文块顶格出现一次。不得把未发生
-> 的 CI、人工 review 或测试写成已完成。
+> 英文块、完整中文块和共享 checklist；机读声明只在英文块顶格出现一次。外部贡献者的
+> `Harness task` 只填公开 issue 号，没有就填 `not applicable`，不要放私有 ID；无依赖
+> 文件变化时删除整条 `Dependency-Change:`。checklist 只勾选直接通过、或由 runner
+> 明确打印并通过的命令。不得把未发生的 CI、人工 review 或测试写成已完成。
 
 ## Push and open the PR
 

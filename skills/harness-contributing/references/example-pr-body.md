@@ -30,7 +30,7 @@ Production-Delta: +0/-0
 
 ## Task And Scope
 
-- Harness task: not applicable to this external public example
+- Harness task: not applicable; this external example has no public issue
 - Branch: `docs/contributing-smoke`
 - Public scope: contribution skill and public contributing pages
 - Private planning/evidence updated: not applicable
@@ -67,18 +67,19 @@ Production-Delta: +0/-0
 - [ ] `npm run check`
 - [x] `npm run typecheck`
 - [ ] `npm test`
-- [ ] `npm run harness:check-import-boundaries`
-- [ ] `npm run harness:scan-forbidden-symbols`
-- [ ] `npm run harness:check-private-boundary`
+- [x] `npm run harness:check-import-boundaries`
+- [x] `npm run harness:scan-forbidden-symbols`
+- [x] `npm run harness:check-private-boundary`
 - [ ] `npm run harness:check-package-policy`
-- [ ] `npm run harness:check-implementation-contracts`
-- [ ] `npm run harness:check-schema-contracts`
-- [ ] `npm run harness:check-legacy-intake-readiness`
+- [x] `npm run harness:check-implementation-contracts`
+- [x] `npm run harness:check-schema-contracts`
+- [x] `npm run harness:check-legacy-intake-readiness`
 - [ ] `npm run harness:smoke-cli-package`
 - [ ] GitHub Actions `rewrite-ci` passed
-- Not run: the full aggregate and unrelated package/source commands; the
-  manifest-selected `boundaries` job and typecheck cover this docs example,
-  while GitHub CI remains authoritative.
+- Not run: the full aggregate, `npm test`, package-policy, smoke CLI, and other
+  unrelated jobs. The manifest-selected `boundaries` job ran and passed the six
+  checked `harness:*` commands indirectly; typecheck passed directly, while
+  GitHub CI remains authoritative.
 
 ## Review Evidence
 
@@ -128,7 +129,7 @@ Production-Delta: +0/-0
 
 ## 任务与范围
 
-- Harness 任务：外部公开示例不适用
+- Harness 任务：不适用；此外部示例没有公开 issue
 - 分支：`docs/contributing-smoke`
 - 公开范围：贡献 skill 与公开贡献入口页
 - 私有计划 / 证据是否已更新：不适用
@@ -165,17 +166,18 @@ Production-Delta: +0/-0
 - [ ] `npm run check`
 - [x] `npm run typecheck`
 - [ ] `npm test`
-- [ ] `npm run harness:check-import-boundaries`
-- [ ] `npm run harness:scan-forbidden-symbols`
-- [ ] `npm run harness:check-private-boundary`
+- [x] `npm run harness:check-import-boundaries`
+- [x] `npm run harness:scan-forbidden-symbols`
+- [x] `npm run harness:check-private-boundary`
 - [ ] `npm run harness:check-package-policy`
-- [ ] `npm run harness:check-implementation-contracts`
-- [ ] `npm run harness:check-schema-contracts`
-- [ ] `npm run harness:check-legacy-intake-readiness`
+- [x] `npm run harness:check-implementation-contracts`
+- [x] `npm run harness:check-schema-contracts`
+- [x] `npm run harness:check-legacy-intake-readiness`
 - [ ] `npm run harness:smoke-cli-package`
 - [ ] GitHub Actions `rewrite-ci` passed
-- 未运行：未跑完整聚合及无关 package/source 命令；本 docs 示例运行 manifest
-  选择的 `boundaries` job 与 typecheck，最终以 GitHub CI 为准。
+- 未运行：未跑完整聚合、`npm test`、package-policy、smoke CLI 及其他无关 job。
+  manifest 选择的 `boundaries` job 间接运行并通过了上面勾选的六条 `harness:*`
+  命令；typecheck 是直接运行并通过，最终以 GitHub CI 为准。
 
 ## 审查证据
 
