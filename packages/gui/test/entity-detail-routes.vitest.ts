@@ -85,6 +85,14 @@ describe("entity detail target routing (W4)", () => {
     expect(entityDetailTargetOf("preset/")).toBeNull();
   });
 
+  it("routes entitydoc refs to the entity explainer in-page detail (dec_2935057783CD5D56E9F287AE4D CH4)", () => {
+    expect(entityDetailTargetOf("entitydoc/fact")).toEqual({
+      view: "entities",
+      focusedEntityRef: "entitydoc/fact",
+    });
+    expect(entityDetailTargetOf("entitydoc/")).toBeNull();
+  });
+
   it("routes schedule refs to the schedules detail hub, keeping the embedded run segment (M2/M4)", () => {
     // 列表行点击 → schedule/<id> hub;Runs 时间线行点击 → schedule/<id>/runs/<occurrence>
     // 内嵌单次运行详情。整段 ref 原样下发,SchedulesView 按 ref 结构分流,运行会话

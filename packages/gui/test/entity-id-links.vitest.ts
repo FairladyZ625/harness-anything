@@ -24,6 +24,7 @@ import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
 import { SchedulesView } from "../src/renderer/views/SchedulesView.tsx";
 import { schedulesClient } from "../src/renderer/schedules-client.ts";
 import { ArtifactsView } from "../src/renderer/views/ArtifactsView.tsx";
+import { EntitiesView } from "../src/renderer/views/EntitiesView.tsx";
 import { artifactsClient } from "../src/renderer/artifacts-client.ts";
 import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { DaemonObserveView } from "../src/renderer/views/DaemonObserveView.tsx";
@@ -685,6 +686,15 @@ const VIEW_RENDERERS = {
       onOpenTask: noop,
     }),
   artifacts: () => createElement(ArtifactsView, { repoId: REPO_ID, onNavigateTask: noop }),
+  entities: () =>
+    createElement(EntitiesView, {
+      repoId: REPO_ID,
+      focusedEntityDocKind: "decision",
+      onOpenEntityDoc: noop,
+      onExitDetail: noop,
+      onOpenView: noop,
+      projectName: FIXTURE_PROJECT.name,
+    }),
   schedules: () =>
     createElement(SchedulesView, {
       repoId: REPO_ID,

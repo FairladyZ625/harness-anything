@@ -7,6 +7,7 @@
   "shell.nav.freshness": "风化",
   "shell.nav.graph": "关系图",
   "shell.nav.presets": "预设 / 垂直领域",
+"shell.nav.entities": "实体说明",
   "shell.nav.adapters": "引擎适配器",
   "shell.nav.system": "系统",
   "shell.nav.daemonObserve": "守护进程观察",

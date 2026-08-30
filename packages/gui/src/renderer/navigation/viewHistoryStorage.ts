@@ -27,6 +27,7 @@ const VIEW_IDS: ReadonlySet<string> = new Set<ViewId>([
   "factDetail",
   "graph",
   "presets",
+  "entities",
   "adapters",
   "sessions",
   "schedules",
