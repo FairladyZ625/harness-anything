@@ -160,6 +160,7 @@ export function openFleetEdgeRuntime(input: {
     repoId: request.repoId,
     rootDir: request.workspaceRoot,
     daemonGeneration: input.daemonGeneration,
+    runtimeNodeId: request.nodeId,
     runtimeDaemonRoute: input.daemonRoute,
     remote: {
       existing: async (opId) => {
@@ -352,9 +353,9 @@ export function openFleetEdgeRuntime(input: {
       await ready;
       if (method === "repo.schedule.run") return runSchedule(action);
       return method === "repo.agentRuntime.spawn"
-        ? spawner.spawn(action, edgeBinding())
+        ? spawner.spawn(action, edgeBinding(request))
         : method === "repo.agentRuntime.cancel"
-          ? spawner.cancel(action, edgeBinding())
+          ? spawner.cancel(action, edgeBinding(request))
           : ((await runFleetRuntimeReadClient({
               ...runtimeReadPeer,
               repoId: request.repoId,
@@ -448,7 +449,7 @@ export function openFleetEdgeRuntime(input: {
       idempotencyKey: operationKey,
       now,
       spawn: async (scheduled) => {
-        const spawned = await spawner.spawnScheduled(scheduled, edgeBinding());
+        const spawned = await spawner.spawnScheduled(scheduled, edgeBinding(request));
         return {
           outcome: String(spawned.outcome),
           ...(typeof spawned.dispatchId === "string" ? { dispatchId: spawned.dispatchId } : {}),
@@ -525,8 +526,11 @@ function scheduleResult(
   };
 }
 
-function edgeBinding() {
-  return { actor: { principal: { personId: "fleet-edge" }, executor: null }, source: "local" as const };
+function edgeBinding(request: Pick<FleetEdgeRuntimeRequest["payload"], "nodeId" | "assignmentId">) {
+  return {
+    actor: { principal: { personId: "fleet-edge" }, executor: null },
+    source: { kind: "assignment" as const, nodeId: request.nodeId, assignmentId: request.assignmentId },
+  };
 }
 function edgeRuntimeError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });

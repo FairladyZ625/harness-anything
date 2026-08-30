@@ -25,7 +25,14 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
     if (fallbackSummary) context.reconcileFallback(fallbackSummary);
     const session = byId.get(header.runtimeSessionId);
     const metadata = adoptableMetadata(header);
-    if (!session || session.liveness === "exited" || session.outcome !== null || !metadata) continue;
+    if (
+      !session ||
+      session.liveness === "exited" ||
+      session.outcome !== null ||
+      !metadata ||
+      !ownedByRuntimeNode(metadata.binding, context.input.runtimeNodeId)
+    )
+      continue;
     const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
       stream = fullStream ?? readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
     if (!stream?.process) continue;
@@ -113,6 +120,14 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
       timer.unref();
     }
   }
+}
+
+function ownedByRuntimeNode(binding: RuntimeBinding, runtimeNodeId: string | undefined): boolean {
+  if (runtimeNodeId === undefined) return true;
+  const source: unknown = binding.source;
+  if (source === null || typeof source !== "object" || Array.isArray(source)) return false;
+  const assignment = source as Record<string, unknown>;
+  return assignment.kind === "assignment" && assignment.nodeId === runtimeNodeId;
 }
 
 function adoptableMetadata(header: DispatchStreamHeader): {

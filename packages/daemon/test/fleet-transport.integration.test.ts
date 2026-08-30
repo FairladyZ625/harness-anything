@@ -15,6 +15,7 @@ import {
 } from "../../kernel/src/index.ts";
 import type { AgentRuntimeSessionDto } from "../src/agent-runtime-contract.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
@@ -748,6 +749,11 @@ test(
     assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, edgeUserRoot);
     assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "fleet-runtime-edge");
     assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, fixture.assignment.repoId);
+    assert.deepEqual(readDispatchStream(edgeRoot, String(receipt.dispatchId))?.header.binding?.source, {
+      kind: "assignment",
+      nodeId: fixture.assignment.nodeId,
+      assignmentId: fixture.assignment.assignmentId,
+    });
     await taskReleaseBarrier.started;
     await delay(5_100);
     const settlingEvents = makeTaskEventStore({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })

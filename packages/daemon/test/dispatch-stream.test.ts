@@ -187,6 +187,54 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
   }
 });
 
+test("fleet adoption does not probe a dispatch owned by another node", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-node-owner-"));
+  try {
+    const dispatchId = "dispatch_999999999999999999999999",
+      runtimeSessionId = "runtime_999999999999999999999999";
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-node-owner",
+      executionId: "execution-node-owner",
+      runtimeSessionId,
+      instanceId: "instance-1",
+      startedAt: "2026-08-30T00:00:00.000Z",
+      dispatchOpId: "dispatch-op-node-owner",
+      kindId: "codex",
+      permissionMode: null,
+      binding: {
+        actor: { principal: { personId: "edge-worker" }, executor: null },
+        source: { kind: "assignment", nodeId: "node-a", assignmentId: "assignment-a" },
+      },
+      cwd: rootDir,
+      prompt: "node-owned adoption",
+      model: "gpt-5.6-sol",
+      reasoningEffort: null,
+      fast: false,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+    const adopted = new Map(),
+      context = {
+        input: {
+          rootDir,
+          repoId: "node-owner",
+          runtimeNodeId: "node-b",
+          remote: {
+            readRuntimeSessions: async () => [
+              { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
+            ],
+          },
+        },
+        processes: adopted,
+        reconcileFallback: () => undefined,
+      };
+    await adoptRuntimes(context);
+    assert.equal(adopted.size, 0, "only the dispatching node may probe or settle its recorded pid");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("the dispatch fuse drops unbounded output but preserves terminal records", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-write-fuse-"));
   const warning = console.warn,
