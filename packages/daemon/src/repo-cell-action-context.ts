@@ -7,13 +7,13 @@ import type {
   RepositorySettingsV1,
   SettingsV1,
   TaskProjection,
-  WriteReceipt,
+  WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import {
-  closeoutTask as closeoutTaskImpl,
   declareExecutionExecutor as declareExecutionExecutorImpl,
   executeAction as executeActionImpl,
 } from "./repo-cell-action-dispatch.ts";
+import { closeoutTask as closeoutTaskImpl } from "./repo-cell-closeout.ts";
 import { runTaskActionCatalogRuntime as lifecycleActionImpl } from "./task-action-catalog-runtime.ts";
 import { decisionProposalAction, taskCreateAction } from "./repo-cell-action-parse.ts";
 import { buildCommand, withServerMeta } from "./repo-cell-command.ts";

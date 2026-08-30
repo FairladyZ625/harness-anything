@@ -9,29 +9,16 @@ import {
 import { isRecord } from "./write-chain.contract.ts";
 
 export const policyPredicateNames = Object.freeze([
-  "holdsExecutionLease",
-  "reclaimsOrphanedLease",
-  "dispatchesExecution",
-  "delegatedByRuntimeSession",
-  "hasCommandClass",
-  "reviewIndependence",
-  "isNotProposalAgent",
-  "sameWriteSource",
+  "hasRoleBinding",
+  "hasDefaultBinding",
+  "hasAssignmentBinding",
 ] as const);
 export type PolicyPredicateName = (typeof policyPredicateNames)[number];
 
-export const reviewIndependenceLevels = Object.freeze(["L1", "L2"] as const);
-export type ReviewIndependenceLevel = (typeof reviewIndependenceLevels)[number];
-
 type PolicyPredicate =
-  | { readonly predicate: "holdsExecutionLease" }
-  | { readonly predicate: "reclaimsOrphanedLease" }
-  | { readonly predicate: "dispatchesExecution" }
-  | { readonly predicate: "delegatedByRuntimeSession" }
-  | { readonly predicate: "hasCommandClass"; readonly commandClass: string }
-  | { readonly predicate: "reviewIndependence"; readonly level: ReviewIndependenceLevel }
-  | { readonly predicate: "isNotProposalAgent" }
-  | { readonly predicate: "sameWriteSource" };
+  | { readonly predicate: "hasRoleBinding"; readonly role: string }
+  | { readonly predicate: "hasDefaultBinding" }
+  | { readonly predicate: "hasAssignmentBinding" };
 
 export type PolicyPredicateExpression = PolicyPredicate;
 
@@ -71,12 +58,7 @@ const predicateSchema = {
       enum: policyPredicateNames,
       description: "One of the kernel authorization predicates.",
     },
-    commandClass: nonEmpty("Command class required by hasCommandClass."),
-    level: {
-      type: "string" as const,
-      enum: reviewIndependenceLevels,
-      description: "Review independence level (L1 executor axis, L2 principal axis).",
-    },
+    role: nonEmpty("Role required by hasRoleBinding."),
   },
 };
 const predicateClauseSchema = {
@@ -202,16 +184,13 @@ function validatePredicateExpression(value: unknown): readonly string[] {
   if (!isRecord(value) || typeof value.predicate !== "string") return ["policy predicate expression is invalid"];
   if (!policyPredicateNames.includes(value.predicate as PolicyPredicateName))
     return [`unknown policy predicate: ${value.predicate}`];
-  if (value.predicate === "hasCommandClass" && (typeof value.commandClass !== "string" || !value.commandClass.trim()))
-    return ["hasCommandClass requires a non-empty commandClass"];
+  if (value.predicate === "hasRoleBinding" && (typeof value.role !== "string" || !value.role.trim()))
+    return ["hasRoleBinding requires a non-empty role"];
   if (
-    value.predicate === "reviewIndependence" &&
-    !reviewIndependenceLevels.includes(value.level as ReviewIndependenceLevel)
+    (value.predicate === "hasDefaultBinding" || value.predicate === "hasAssignmentBinding") &&
+    Object.keys(value).some((key) => key !== "predicate")
   )
-    return ["reviewIndependence requires level L1 or L2"];
-  if (value.predicate !== "hasCommandClass" && value.predicate !== "reviewIndependence") {
-    if (Object.keys(value).some((key) => key !== "predicate")) return [`${value.predicate} does not accept arguments`];
-  }
+    return [`${value.predicate} does not accept arguments`];
   return [];
 }
 

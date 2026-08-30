@@ -9,7 +9,7 @@ import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { actor, git, initRepo, write } from "./doc-sync-slice-a.fixtures.ts";
+import { git, initRepo, ownerBinding, write } from "./doc-sync-slice-a.fixtures.ts";
 
 test("WAL flush settles an eligible authored edit and status highlights blocked candidates", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-authored-wal-doc-sync-"));
@@ -19,7 +19,7 @@ test("WAL flush settles an eligible authored edit and status highlights blocked 
     rootDir: canonicalRoot(rootDir),
     ownerId: "authored-wal-doc-sync-daemon",
   });
-  const binding = { actor, source: "local" as const };
+  const binding = ownerBinding;
   try {
     assert.equal(
       (await cell.run({ kind: "task-create", taskId: "task-authored-wal", title: "Authored WAL" }, binding)).outcome,
@@ -55,7 +55,7 @@ test("WAL flush keeps forbidden and unresolved candidates out of an eligible bat
       rootDir: canonicalRoot(rootDir),
       ownerId: "authored-wal-mixed-daemon",
     }),
-    binding = { actor, source: "local" as const };
+    binding = ownerBinding;
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-mixed", title: "Mixed WAL" }, binding);
     assert.equal(created.outcome, "applied");
@@ -108,7 +108,7 @@ test("a repeated authored write target settles to the latest WAL claim", async (
       rootDir: canonicalRoot(rootDir),
       ownerId: "authored-wal-repeat-daemon",
     }),
-    binding = { actor, source: "local" as const },
+    binding = ownerBinding,
     logical = "context/repeated.md",
     firstBody = "# Repeated\n\nfirst claim\n",
     latestBody = "# Repeated\n\nlatest claim\n";
@@ -143,7 +143,7 @@ test("closing after a state transition drains a settlement event created by the 
       rootDir: canonicalRoot(rootDir),
       ownerId: "authored-wal-close-daemon",
     }),
-    binding = { actor, source: "local" as const },
+    binding = ownerBinding,
     logical = "context/close-settlement.md",
     body = "# Close settlement\n\nflush before close\n";
   try {

@@ -210,6 +210,7 @@ export interface PresetRunReceiptV1 {
   readonly resultDigest?: `sha256:${string}`;
   readonly code?: string;
   readonly nextAction?: string;
+  readonly authorizationDecision?: import("../../kernel/src/index.ts").AuthorizationDecision;
 }
 export const PRESET_DOCUMENT_V1_SCHEMA = Object.freeze({
     id: "preset-document/v1",
@@ -388,7 +389,14 @@ export function validatePresetRunReceiptV1(value: unknown): readonly string[] {
       "failed",
       "outcome_unknown",
     ],
-    fields = [...PRESET_RUN_RECEIPT_V1_SCHEMA.required, "snapshotDigest", "resultDigest", "code", "nextAction"];
+    fields = [
+      ...PRESET_RUN_RECEIPT_V1_SCHEMA.required,
+      "snapshotDigest",
+      "resultDigest",
+      "code",
+      "nextAction",
+      "authorizationDecision",
+    ];
   return isPresetContractRecord(value) &&
     allowed(value, fields, PRESET_RUN_RECEIPT_V1_SCHEMA.required) &&
     value.schema === "preset-run-receipt/v1" &&
@@ -402,7 +410,8 @@ export function validatePresetRunReceiptV1(value: unknown): readonly string[] {
     (value.snapshotDigest === undefined || sha(value.snapshotDigest)) &&
     (value.resultDigest === undefined || sha(value.resultDigest)) &&
     (value.code === undefined || nonEmpty(value.code)) &&
-    (value.nextAction === undefined || nonEmpty(value.nextAction))
+    (value.nextAction === undefined || nonEmpty(value.nextAction)) &&
+    (value.authorizationDecision === undefined || isPresetContractRecord(value.authorizationDecision))
     ? []
     : ["preset run receipt is invalid"];
 }

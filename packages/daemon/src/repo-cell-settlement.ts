@@ -2,7 +2,7 @@ import {
   VcsCommandError,
   completionBlockers,
   type TaskProgressEvidence,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { cellCodedError, cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { gateChecks, selectedReviewId } from "./repo-cell-proof.ts";

@@ -14,6 +14,7 @@ export interface DaemonControlReceipt extends JsonObject {
   readonly after: JsonObject | null;
   readonly error: JsonObject | null;
   readonly nextAction: string | null;
+  readonly authorizationDecision: JsonObject | null;
 }
 export interface CatalogRereadReceipt extends JsonObject {
   readonly schema: "catalog-reread-receipt/v1";
@@ -76,6 +77,7 @@ type Rule =
   | "null-number"
   | "array"
   | "object"
+  | "optional-object"
   | "nullable-object";
 const record = (value: unknown): value is JsonObject => isJsonObject(value);
 function closed(value: unknown, fields: Readonly<Record<string, Rule>>, label: string): string[] {
@@ -86,6 +88,7 @@ function closed(value: unknown, fields: Readonly<Record<string, Rule>>, label: s
   for (const [key, rule] of Object.entries(fields)) {
     const item = value[key];
     if (
+      (rule === "optional-object" && (item === undefined || record(item))) ||
       (rule === "null-string" && (item === null || typeof item === "string")) ||
       (rule === "null-number" && (item === null || typeof item === "number")) ||
       (rule === "nullable-object" && (item === null || record(item)))
@@ -216,6 +219,7 @@ export function validateDaemonControlReceipt(value: unknown): readonly string[] 
       after: "nullable-object",
       error: "nullable-object",
       nextAction: "null-string",
+      authorizationDecision: "nullable-object",
     },
     "daemon control receipt",
   );
@@ -527,6 +531,7 @@ export function validateTerminalControlReceipt(value: unknown): readonly string[
       daemonGeneration: "number",
       state: "string",
       error: "nullable-object",
+      authorizationDecision: "optional-object",
     },
     "terminal control receipt",
   );
@@ -543,7 +548,13 @@ export function validateTerminalControlReceipt(value: unknown): readonly string[
 export function validateTerminalInputAck(value: unknown): readonly string[] {
   const errors = closed(
     value,
-    { schema: "string", ok: "boolean", sessionId: "string", acceptedThrough: "number" },
+    {
+      schema: "string",
+      ok: "boolean",
+      sessionId: "string",
+      acceptedThrough: "number",
+      authorizationDecision: "optional-object",
+    },
     "terminal input ack",
   );
   if (record(value) && (value.schema !== "terminal-input-ack/v1" || !integer(value.acceptedThrough)))

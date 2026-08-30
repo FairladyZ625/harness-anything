@@ -4,6 +4,7 @@ import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index
 import {
   classifyTextualArtifactPath,
   documentPath,
+  isDocEvent,
   ledgerGitPath,
   parseDocWriteIntent,
   resolveDocRoute,
@@ -13,13 +14,14 @@ import {
   sha256Bytes,
   stableStringify,
   type ActorIdentity,
+  type AuthorizationDecision,
   type EventPublicationKillpoint,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
   type WriteSource,
 } from "../../kernel/src/index.ts";
 import { assignmentIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
 import { intentFromScan } from "./doc-sync-candidate-scanner.ts";
-import { claimBytes, directPaths, touch } from "./doc-sync-details.ts";
+import { claimBytes, directPaths } from "./doc-sync-details.ts";
 import {
   artifactSource,
   docSyncError,
@@ -32,7 +34,7 @@ import {
   requiredDocSyncText,
 } from "./doc-sync-files.ts";
 import { publishDocIntent } from "./doc-sync-publication.ts";
-import { readAction } from "./doc-sync-reads.ts";
+import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
 import { noOp, scanDetail, scannerSettlement } from "./doc-sync-settlement.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
 
@@ -43,7 +45,7 @@ export type Action = Readonly<Record<string, unknown>> & { readonly kind: string
 export interface Binding {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
-  readonly docWriteAllowed?: boolean;
+  readonly authorizationDecision?: AuthorizationDecision;
   readonly assignmentScope?: FleetAssignmentScope;
 }
 
@@ -101,19 +103,6 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
   if (input.action.kind === "doc-retire") return runDocRetire(input);
   if (input.action.kind !== "doc-submit") return readAction(input);
   const scan = localProseSource(input.binding.source) ? scannerSubmit(input) : null;
-  if (scan && input.binding.docWriteAllowed === false) {
-    const rejected = scanDetail(input, scan, "rbac_forbidden");
-    return rejectDocSyncAction(
-      `scan:${scan.baseLedgerSha.headDigest}`,
-      "rbac_forbidden",
-      {
-        ...rejected,
-        unresolvedTouches: scan.rows.map((row) => touch(row.path, "repo-write", "principal lacks repo-write")),
-        nextAction: "use a repo-write principal holding the active execution lease",
-      },
-      "use a repo-write principal holding the active execution lease",
-    );
-  }
   if (scan && !scan.rows.some((row) => row.state === "eligible")) {
     const code = scan.rows
         .map((row) => row.rejectionCode)
@@ -234,8 +223,26 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
       "artifact_tracked_edit",
       `destination is a tracked edit; use ha doc sync --submit --path ${destination}`,
     );
-  if (tracked || existsSync(authoredTarget) || projected.document !== null)
+  if (tracked || existsSync(authoredTarget) || projected.document !== null) {
+    const bytes = readFileSync(source.absolute),
+      sha = sha256Bytes(bytes),
+      replay =
+        existsSync(authoredTarget) &&
+        projected.document?.blobSha256 === sha &&
+        sha256Bytes(readFileSync(authoredTarget)) === sha
+          ? input.store
+              .read()
+              .events.findLast(
+                (event) =>
+                  isDocEvent(event) &&
+                  event.payload.changes.some(
+                    (change) => change.path === destination && change.candidate?.sha256 === sha,
+                  ),
+              )
+          : undefined;
+    if (replay && isDocEvent(replay)) return { ...readDocReceipt(input, replay), source: source.relative, destination };
     throw docSyncError("artifact_collision", `artifact destination already exists: ${destination}`);
+  }
   if (projected.watermark !== projected.sourceRevision)
     return {
       outcome: "indeterminate",

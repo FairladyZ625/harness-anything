@@ -12,6 +12,16 @@ import {
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 
 const actor = { principal: { personId: "person-entity-store" }, executor: null } as const;
+const authorizationDecision = {
+  policyRef: "default@5",
+  actor,
+  subject: "settings/repository" as const,
+  bindingsUsed: [],
+  outcome: "allowed" as const,
+  reasonCodes: ["authorization_allowed"],
+  nextActions: [],
+  evaluatedAtCut: "canonical:1",
+};
 const agent = {
   schema: "agent-declaration/v1",
   id: "terra",
@@ -263,6 +273,7 @@ test("entity_upsert receipt detail is closed and registered", () => {
       schemaId: "agent-declaration/v1",
       path: "agents/terra.json",
     },
+    authorizationDecision,
   } as const;
   assert.deepEqual(validateWriteReceipt(receipt), []);
   assert.match(

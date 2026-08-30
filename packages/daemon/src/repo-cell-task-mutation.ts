@@ -1,6 +1,7 @@
 import {
   deriveRelationId,
   isSameExecution,
+  isSamePerson,
   isTerminalStatus,
   resolveTaskBoundRuntimeBinding,
   runtimeSessionSemanticState,
@@ -14,7 +15,6 @@ import {
   type TaskEventV1,
   type TaskV1,
 } from "../../kernel/src/index.ts";
-import { authorizeAction } from "./authorization.ts";
 import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
@@ -77,23 +77,20 @@ export function taskMutation(
         terminalRuntimeSessionId !== null || !isSameExecution(activeLease.actor, binding.actor)
           ? terminalExecutionRuntimeBinding(cell, activeLease, terminalRuntimeSessionId)
           : null,
-      actionId = `task-release:${task.taskId}:${activeLease.executionId}:${snapshot.revision}`,
-      authorizationDecision = authorizeAction(
-        "execution.release",
-        `execution/${activeLease.executionId}`,
-        binding.actor,
-        actionId,
-        {
-          target: {
-            owner: task.createdBy,
-            lease: activeLease,
-            canonicalExecutionExists: execution !== undefined,
-            terminalRuntimeBinding,
-          },
-          evaluatedAtCut: `canonical:${snapshot.revision}`,
-        },
+      authorizationDecision = binding.authorizationDecision,
+      sameHolder = isSameExecution(activeLease.actor, binding.actor),
+      samePrincipalRecovery =
+        isSamePerson(activeLease.actor, binding.actor) &&
+        (activeLease.phase === "orphaned" || execution === undefined || terminalRuntimeBinding !== null),
+      ownerRecovery =
+        isSamePerson(task.createdBy, binding.actor) &&
+        (activeLease.phase === "orphaned" || terminalRuntimeBinding !== null);
+    if (!authorizationDecision || authorizationDecision.outcome !== "allowed")
+      throw cell.cellCodedError(
+        "authorization_missing",
+        "Release criteria require the center AuthorizationPort decision.",
       );
-    if (authorizationDecision.outcome === "denied")
+    if (!sameHolder && !samePrincipalRecovery && !ownerRecovery)
       throw cell.cellCodedError(
         "lease_conflict",
         [

@@ -17,7 +17,7 @@ import {
   type RepositorySettingsV1,
   type SettingsLocale,
   type SettingsV1,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { writeFileDurably } from "./durable-file.ts";
 import { runPresetAction } from "../../preset/src/index.ts";

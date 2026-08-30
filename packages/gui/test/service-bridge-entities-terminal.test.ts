@@ -166,6 +166,7 @@ test("GUI renderer bridge drives a resident PTY through spawn attach IO resize d
     assert.deepEqual(
       { schema: input.schema, acceptedThrough: input.acceptedThrough },
       { schema: "terminal-input-ack/v1", acceptedThrough: 1 },
+      JSON.stringify(input),
     );
     await Promise.race([
       echoSeen,

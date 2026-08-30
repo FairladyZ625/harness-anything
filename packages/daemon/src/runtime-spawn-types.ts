@@ -1,6 +1,8 @@
 import type {
   ActorIdentity,
   AgentRuntimeEventV1,
+  AuthorizationDecision,
+  RoleBinding,
   RuntimeSession,
   SessionIdentity,
   WriteSource,
@@ -38,6 +40,10 @@ export interface RuntimeDaemonRoute {
 export type RuntimeBinding = {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
+  /** Preserve whether local authorization came from the default or authored binding projection. */
+  readonly authorizationBindingMode?: "default" | "declared";
+  readonly roleBindings?: readonly RoleBinding[];
+  readonly authorizationDecision?: AuthorizationDecision;
 };
 
 export interface TrustedScheduleRuntime {

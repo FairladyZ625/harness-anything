@@ -3,7 +3,7 @@ import {
   getExecutableEntityAction,
   heldLeaseForExecutionActor,
   isTerminalStatus,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { actorHint } from "./repo-cell-proof.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts";
@@ -121,7 +121,7 @@ export async function runTaskActionCatalogRuntime(
       result.snapshot,
       cell.publicPublication(cell.store.publication(result.event)),
       result.proof,
-      authorityProof.authorizationDecision ?? null,
+      authorityProof.authorizationDecision,
     );
   if (result.outcome === "pending")
     return {

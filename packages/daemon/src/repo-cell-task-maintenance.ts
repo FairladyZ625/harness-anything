@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { createEntityStore, requireEntityStoreKindContract, type WriteReceipt } from "../../kernel/src/index.ts";
+import {
+  createEntityStore,
+  requireEntityStoreKindContract,
+  type WriteReceiptDraft as WriteReceipt,
+} from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 

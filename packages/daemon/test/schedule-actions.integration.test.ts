@@ -18,8 +18,12 @@ import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 
-const actor = { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const };
+const actor = withRoleBinding(
+  { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const },
+  "repo-write",
+);
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
   configVersion: 1,
@@ -415,7 +419,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           },
           actor,
         );
-      assert.equal(claimedBeforeDispatch.outcome, "applied");
+      assert.equal(claimedBeforeDispatch.outcome, "applied", JSON.stringify(claimedBeforeDispatch));
       assert.equal(launchCount, 2);
       const resumedClaim = await cell.run(
         {

@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
-import { runTaskCloseoutAction } from "../../application/src/task-closeout-action.ts";
 import {
-  closeoutReadiness,
   compileExecutionExecutorDeclaration,
   compileTaskLifecycleWrite,
   createEntityStore,
@@ -10,7 +8,7 @@ import {
   getExecutableEntityAction,
   isLedgerLayoutMigrationEvent,
   lifecycleDocumentPaths,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
 import { prepareAgentEntityInstall, runAgentEntityAction } from "./agent-entities.ts";
@@ -18,7 +16,7 @@ import { distillPromotionAction, prepareDistillCandidate } from "./distill-actio
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
-import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
+import { type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -390,36 +388,6 @@ export async function executeAction(
   if (action.kind === "task-closeout") return cell.closeoutTask(action, binding);
   if (cell.taskSurfaceWriteKind(action.kind)) return cell.taskSurfaceWrite(action, binding);
   return cell.lifecycleAction(action, binding);
-}
-
-export async function closeoutTask(
-  cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-): Promise<WriteReceipt> {
-  const taskId = cell.requiredCellText(action.taskId, "taskId"),
-    initial = await cell.service.read(taskId),
-    opId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
-  return runTaskCloseoutAction({
-    rootDir: cell.rootDir,
-    action,
-    caller: binding.actor,
-    opId,
-    readWorkspaceText: cell.workspaceText,
-    read: async () =>
-      (await cell.service.read(taskId)).snapshot as Parameters<typeof closeoutReadiness>[0] & {
-        readonly revision: number;
-        readonly task: NonNullable<Snapshot["task"]>;
-        readonly lease: Snapshot["lease"];
-      },
-    invoke: async (stage, leaf, actor) => {
-      const leafBinding = { ...binding, actor },
-        leafAction = leaf as RepoTaskAction;
-      if (stage === "task-show") return cell.showTask(taskId);
-      if (stage === "complete") return cell.completeTask(leafAction, leafBinding);
-      return cell.lifecycleAction(leafAction, leafBinding);
-    },
-  });
 }
 
 export function declareExecutionExecutor(

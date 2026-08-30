@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deriveRoleBindings, mergePeopleRosterDocuments } from "../../kernel/src/index.ts";
+import { projectDeclaredRoleBindings, mergePeopleRosterDocuments } from "../../kernel/src/index.ts";
 import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
 
 const legacyRoster = `schema: harness-people/v1
@@ -95,13 +95,12 @@ roles:
   );
   const reviewer = roster.people.find(({ personId }) => personId === "person_dingwen")!;
   assert.deepEqual(
-    deriveRoleBindings({
+    projectDeclaredRoleBindings({
       actor: { principal: { personId: reviewer.personId }, executor: null },
       roleIds: reviewer.roles,
-      roleDeclarations: roster.roles,
       target: "settings/repository",
     }).map(({ role }) => role),
-    ["repo-read"],
+    ["reviewer"],
   );
 });
 

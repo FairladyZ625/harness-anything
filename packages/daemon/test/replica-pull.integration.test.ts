@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createWriteReceipt, sha256Bytes } from "../../kernel/src/index.ts";
+import { sha256Bytes } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
 import { FleetRemoteError, runFleetReplicaPullClient, runFleetWriteClient } from "../src/fleet/edge.ts";
@@ -70,8 +70,8 @@ test(
       );
       assert.equal(applied.outcome, "applied");
       assert.equal(applied.proof?.ackCut, write.center.revision);
-      assert.doesNotThrow(() => createWriteReceipt(pending));
-      assert.doesNotThrow(() => createWriteReceipt(applied));
+      assert.equal(pending.authorizationDecision, undefined, "replica delivery state is not a center write receipt");
+      assert.equal(applied.authorizationDecision, undefined, "replica delivery state is not a center write receipt");
       const viewPath = path.join(edgeRoot, "repos", fixture.assignment.repoId, "views", fixture.assignment.viewId),
         currentPath = path.join(viewPath, "current.json"),
         current = JSON.parse(readFileSync(currentPath, "utf8")) as Record<string, unknown>;
@@ -342,9 +342,7 @@ function writePeopleFixture(rootDir: string): void {
             ],
           },
         ],
-        roles: [
-          { roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] },
-        ],
+        roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }],
       },
       null,
       2,

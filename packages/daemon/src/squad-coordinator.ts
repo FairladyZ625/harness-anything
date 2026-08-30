@@ -111,7 +111,11 @@ export function makeSquadCoordinator(input: {
         roster: squad.roster,
         workers: squad.workers,
         leaderTurnBudget: squad.leaderTurnBudget,
-        binding: { actor: binding.actor, source: binding.source },
+        binding: {
+          actor: binding.actor,
+          source: binding.source,
+          ...(binding.roleBindings ? { roleBindings: binding.roleBindings } : {}),
+        },
         leaderTurns: [],
         leaderProviderSessionId: null,
         currentLeaderRuntimeSessionId: null,

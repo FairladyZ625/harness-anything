@@ -1,4 +1,4 @@
-import { type WriteReceipt } from "../../../kernel/src/index.ts";
+import { type WriteReceiptDraft as WriteReceipt } from "../../../kernel/src/index.ts";
 import type { FleetReplicaStatus } from "./center-types.ts";
 import { FLEET_KEY_SEND_WINDOW_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES } from "./contract.ts";
 import { type ReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-store.ts";

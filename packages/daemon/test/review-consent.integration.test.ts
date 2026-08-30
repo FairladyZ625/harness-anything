@@ -40,7 +40,7 @@ test("review-consent derives the recorded Review digests without a packet and st
   const repoId = workspaceId("consent-derived"),
     taskId = "task-derived",
     executionId = "execution-derived",
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
   const reviewBinding = withRoleBinding(
     {
       actor: {
@@ -107,7 +107,7 @@ test("review-consent derives the recorded Review digests without a packet and st
 
     const consented = (await cell.run(
       { kind: "task-review-consent", taskId, consentId: "consent-derived" },
-      { actor: ownerFromAnotherAgent, source: "local" },
+      withRoleBinding({ actor: ownerFromAnotherAgent, source: "local" }, "repo-write"),
     )) as unknown as Record<string, unknown>;
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
     const consentEvent = store().readEvent(String(consented.opId));
@@ -129,14 +129,14 @@ test("review-consent derives the recorded Review digests without a packet and st
       ).bindingsUsed,
       [
         {
-          predicate: "hasCommandClass",
+          predicate: "hasRoleBinding",
           satisfied: true,
-          role: "owner",
+          role: "repo-write",
           matched: {
             actor: { kind: "person", id: actor.principal.personId },
-            role: "owner",
-            target: `execution/${executionId}`,
-            source: "derived",
+            role: "repo-write",
+            target: "settings/repository",
+            source: "declared",
             expiresAt: null,
           },
         },

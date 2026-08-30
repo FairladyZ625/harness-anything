@@ -12,7 +12,7 @@ import { MIGRATION_DOCUMENT_POLICY_ID } from "../../src/domain/migration-import-
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
-import { claim, decide, state } from "./doc-sync.fixtures.ts";
+import { authorizeDocWrite, claim, decide, state } from "./doc-sync.fixtures.ts";
 test("the first authored write on a migrated document upgrades its policy one-way with from/to recorded", () => {
   const base = "# Notes\nA\n",
     next = `${base}B\n`,
@@ -140,6 +140,7 @@ test("receipt detail registry rejects unregistered or open-ended detail shapes",
     evidence: `contract-rejection:${rejected.code}`,
     nextAction: rejected.detail.nextAction,
     detail: rejected.detail,
+    authorizationDecision: authorizeDocWrite(),
   };
   assert.deepEqual(validateWriteReceipt(receipt), []);
   assert.match(

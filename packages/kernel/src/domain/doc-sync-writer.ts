@@ -18,7 +18,8 @@ import type {
 import { policyMatchesClaim, taskArtifactPath, taskFromPath, validDocEventChange } from "./doc-sync-validation.ts";
 import { MIGRATION_DOCUMENT_POLICY_ID } from "./migration-import-event.ts";
 import type { DocSyncDifference, DocSyncUnresolvedTouch } from "./receipt-domain-registry.ts";
-import { runtimeSessionIdFromActor } from "./task-bound-runtime-authority.ts";
+import { isSameExecution } from "./actor-domain-services.ts";
+import { isTaskBoundRuntimeWriter, runtimeSessionIdFromActor } from "./task-bound-runtime-authority.ts";
 import {
   freezeDeclaredWritePlan,
   isFrozenWritePlan,
@@ -26,9 +27,19 @@ import {
   normalizeContentAddressedInputs,
   type FrozenWritePlan,
   type WriteTarget,
+  sameWriteSource,
 } from "./write-chain.contract.ts";
 
 export function decideDocWrite(input: DocWriteDecisionInput): DocWriteDecision {
+  return decideDocWriteInternal(input, true);
+}
+
+/** Lease/source/path criteria projection used by previews after qualification is evaluated elsewhere. */
+export function decideDocWriteCriteria(input: DocWriteDecisionInput): DocWriteDecision {
+  return decideDocWriteInternal(input, false);
+}
+
+function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorization: boolean): DocWriteDecision {
   const paths = input.intent.changes.map((change, index) => ({
     path: change.path,
     baseBlobSha256: change.baseBlobSha256,
@@ -92,19 +103,18 @@ export function decideDocWrite(input: DocWriteDecisionInput): DocWriteDecision {
       "lease_conflict",
       "refresh status and submit through the matching execution or repository prose channel",
     );
-  if (input.intent.executionId !== null && authorizationDecision?.outcome !== "allowed")
-    return reject(
-      "lease_conflict",
-      "refresh status and submit through the matching execution or repository prose channel",
-    );
+  if (requireAuthorization && input.intent.executionId !== null && authorizationDecision?.outcome !== "allowed")
+    return reject("authorization_denied", "retry through the center AuthorizationPort with an allowed decision");
   const directHolder =
-      authorizationDecision?.bindingsUsed.some(
-        (binding) => binding.predicate === "holdsExecutionLease" && binding.satisfied === true,
-      ) ?? false,
+      input.lease !== null &&
+      isSameExecution(input.lease.actor, input.actor) &&
+      sameWriteSource(input.lease.source, input.source),
     runtimeWorker =
-      authorizationDecision?.bindingsUsed.some(
-        (binding) => binding.predicate === "delegatedByRuntimeSession" && binding.satisfied === true,
-      ) ?? false;
+      input.lease !== null &&
+      input.runtimeBinding !== undefined &&
+      isTaskBoundRuntimeWriter(input.lease, input.actor, input.source, input.runtimeBinding);
+  if (input.intent.executionId !== null && !directHolder && !runtimeWorker)
+    return reject("lease_conflict", "submit as the canonical execution holder or a verified task-bound RuntimeSession");
   if (stableStringify(input.intent.baseLedgerSha) !== stableStringify(input.currentLedgerSha))
     return reject(
       "base_ledger_changed",

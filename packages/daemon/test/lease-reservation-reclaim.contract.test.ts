@@ -38,6 +38,20 @@ const lease: LeaseV1 = {
   ttlMs: 86_400_000,
   version: 7,
 };
+const authorized = (actionActor: ActorIdentity) => ({
+  actor: actionActor,
+  source: "local" as const,
+  authorizationDecision: {
+    policyRef: "default@5",
+    actor: actionActor,
+    subject: `task/${task.taskId}` as const,
+    bindingsUsed: [{ predicate: "hasRoleBinding", satisfied: true, role: "repo-write", matched: null }],
+    outcome: "allowed" as const,
+    reasonCodes: ["authorization_allowed"],
+    nextActions: [],
+    evaluatedAtCut: "canonical:8",
+  },
+});
 const cell = {
   now: () => now,
   cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
@@ -60,7 +74,7 @@ test("same principal can reclaim a live reservation with no published execution"
     { kind: "task-release", taskId: task.taskId, reason: "Recover my interrupted reservation." },
     task,
     snapshot(),
-    { actor: owner("replacement-worker"), source: "local" },
+    authorized(owner("replacement-worker")),
   );
 
   assert.equal(mutation.type, "lease_released");
@@ -97,7 +111,7 @@ test("same principal release settles a canonical-free reservation in the local C
     receipt = taskSurfaceWrite(
       surfaceCell,
       { kind: "task-release", taskId: task.taskId },
-      { actor: owner("replacement-worker"), source: "local" },
+      authorized(owner("replacement-worker")),
     );
 
   assert.equal(receipt.outcome, "no_changes");
@@ -108,13 +122,16 @@ test("same principal release settles a canonical-free reservation in the local C
 test("a different principal cannot reclaim the reservation before TTL", () => {
   assert.throws(
     () =>
-      taskMutation(cell, { kind: "task-release", taskId: task.taskId }, task, snapshot(), {
-        actor: {
+      taskMutation(
+        cell,
+        { kind: "task-release", taskId: task.taskId },
+        task,
+        snapshot(),
+        authorized({
           principal: { personId: "person-outsider" },
           executor: { kind: "agent", id: "outsider-worker" },
-        },
-        source: "local",
-      }),
+        }),
+      ),
     (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
   );
 });
@@ -136,7 +153,7 @@ test("the task owner can reclaim an orphaned lease held by another principal", (
     { kind: "task-release", taskId: task.taskId, reason: "The worker is gone." },
     ownedTask,
     ownedSnapshot,
-    { actor: { principal: taskOwner.principal, executor: null }, source: "local" },
+    authorized({ principal: taskOwner.principal, executor: null }),
   );
 
   assert.equal(mutation.type, "lease_released");
@@ -156,7 +173,7 @@ test("a stale RuntimeSession terminal cannot release a newer execution lease", (
         },
         task,
         snapshot(),
-        { actor: owner("replacement-worker"), source: "local" },
+        authorized(owner("replacement-worker")),
       ),
     (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_terminal_superseded",
   );
@@ -216,7 +233,7 @@ test("the task owner reclaims a held lease after its bound dispatch reaches a te
       projection: { readRuntimeSessionsForTask: () => [runtimeSession] },
     },
     terminalSnapshot = { ...snapshot(), task: ownedTask, executions: [execution], lease: heldLease },
-    taskOwnerBinding = { actor: { principal: taskOwner.principal, executor: null }, source: "local" as const };
+    taskOwnerBinding = authorized({ principal: taskOwner.principal, executor: null });
   try {
     assert.throws(
       () =>

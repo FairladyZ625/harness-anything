@@ -11,7 +11,7 @@ import {
   type DocClaimRef,
   type DocEventChange,
   type TaskEventV1,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { adjudicateDocIntent, claimBytes, recycleClaims, rejectDocSyncAction } from "./doc-sync-actions.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -205,7 +205,7 @@ export async function runTaskCommandWithDocs(
         transition.snapshot,
         publication,
         transition.proof,
-        proof.authorizationDecision ?? null,
+        proof.authorizationDecision,
       );
     return {
       ...receipt,
@@ -392,7 +392,7 @@ export function taskSurfaceWrite(
     cell.projection.read(taskId).snapshot,
     publication,
     cell.receiptProof(compiled.event, publication),
-    mutation.authorizationDecision ?? null,
+    mutation.authorizationDecision,
   );
   cell.input.killpoint?.("before_response_write");
   cell.input.killpoint?.("after_response_write");

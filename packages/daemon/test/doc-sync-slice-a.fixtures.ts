@@ -15,13 +15,22 @@ export const actor = {
   principal: { personId: "person-owner" },
   executor: { kind: "agent", id: "codex" },
 } as const;
+export const ownerBinding = {
+  actor,
+  source: "local" as const,
+  roleBindings: [
+    {
+      actor: { kind: "person" as const, id: actor.principal.personId },
+      role: "owner",
+      target: "settings/repository" as const,
+      source: "declared" as const,
+      expiresAt: null,
+    },
+  ],
+};
 export const opaqueTextualMediaType = "application/json";
 
-export function standardMigration(
-  revision: number,
-  target: string,
-  body: string,
-): CanonicalWriteBundle {
+export function standardMigration(revision: number, target: string, body: string): CanonicalWriteBundle {
   const opId = `op-migration-${revision}`;
   const migration: MigrationImportEventV1 = {
     schema: "migration-import-event/v1",
@@ -62,9 +71,7 @@ export function standardMigration(
     ],
   };
 }
-export function rows(
-  evidence: string | undefined,
-): readonly { readonly path: string; readonly state: string }[] {
+export function rows(evidence: string | undefined): readonly { readonly path: string; readonly state: string }[] {
   assert.match(evidence ?? "", /^doc-scan:/u);
   return (
     JSON.parse((evidence ?? "").slice("doc-scan:".length)) as {
@@ -101,7 +108,29 @@ export function initRepo(rootDir: string): void {
   git(rootDir, "init", "-q");
   git(rootDir, "config", "user.name", "Doc A Test");
   git(rootDir, "config", "user.email", "doc-a@example.invalid");
-  git(rootDir, "commit", "--allow-empty", "-qm", "base");
+  write(
+    rootDir,
+    "harness.yaml",
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  write(
+    rootDir,
+    "people.yaml",
+    `${JSON.stringify({
+      schema: "harness-people/v1",
+      people: [
+        {
+          personId: actor.principal.personId,
+          displayName: "Doc A Owner",
+          roles: ["owner"],
+          credentials: [],
+        },
+      ],
+      roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }],
+    })}\n`,
+  );
+  git(rootDir, "add", "harness");
+  git(rootDir, "commit", "-qm", "base");
 }
 export function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], {

@@ -599,6 +599,20 @@ test("attached task runtime settlement releases its execution lease before publi
         },
         { liveness: "exited", outcome: "succeeded", exitCode: 0 },
       );
+      assert.deepEqual(
+        events
+          .filter(
+            (event) =>
+              (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+              event.payload.runtimeSessionId === receipt.runtimeSessionId,
+          )
+          .map((event) => event.actor.executor),
+        [
+          { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` },
+          { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` },
+        ],
+        "terminal Runtime events must use the daemon-derived RuntimeSession claim",
+      );
       assert.ok(releaseIndex < outcomeIndex, "terminal outcome must not become visible before lease release");
       assert.equal(taskSnapshot.lease, null, "terminal RuntimeSession settlement must release the execution lease");
 

@@ -5,7 +5,7 @@ import {
   hasCloseoutEvidence,
   isTaskEvent,
   type EventPublicationKillpoint,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
 import { resolveTaskRootThreshold } from "./task-wip-settings.ts";

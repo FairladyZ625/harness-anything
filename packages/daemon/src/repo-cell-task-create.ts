@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { sessionProvenance, taskBootstrapWritePlan, type WriteReceipt } from "../../kernel/src/index.ts";
+import {
+  sessionProvenance,
+  taskBootstrapWritePlan,
+  type WriteReceiptDraft as WriteReceipt,
+} from "../../kernel/src/index.ts";
 import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap } from "../../preset/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";

@@ -11,9 +11,19 @@ import {
 } from "./types.ts";
 
 export function loadPeopleRoster(rootInput: HarnessLayoutInput): PeopleRoster {
+  const roster = loadPeopleRosterIfPresent(rootInput);
+  if (roster === null) {
+    const layout = resolveHarnessLayout(rootInput),
+      filePath = path.join(layout.authoredRoot, "people.yaml");
+    throw new Error(`people.yaml not found: ${path.relative(layout.rootDir, filePath)}`);
+  }
+  return roster;
+}
+
+export function loadPeopleRosterIfPresent(rootInput: HarnessLayoutInput): PeopleRoster | null {
   const layout = resolveHarnessLayout(rootInput),
     filePath = path.join(layout.authoredRoot, "people.yaml");
-  if (!existsSync(filePath)) throw new Error(`people.yaml not found: ${path.relative(layout.rootDir, filePath)}`);
+  if (!existsSync(filePath)) return null;
   return peopleRosterFromDocument(readFileSync(filePath, "utf8"));
 }
 

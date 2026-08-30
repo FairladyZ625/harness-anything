@@ -7,10 +7,12 @@ import test from "node:test";
 import { makeTaskEventStore, type TaskProjection } from "../../kernel/src/index.ts";
 import { runDocAction } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { authorizeRepoCellAction } from "../src/repo-cell-authorization.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 
-import { actor, git, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+import { git, initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 test("implicit submit accepts two authored paths with identical content", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-identical-content-"));
   initRepo(rootDir);
@@ -20,7 +22,7 @@ test("implicit submit accepts two authored paths with identical content", async 
       rootDir: canonicalRoot(rootDir),
       ownerId: "identical-content-daemon",
     }),
-    binding = { actor, source: "local" as const },
+    binding = ownerBinding,
     body = "# Same\n\nshared body\n";
   try {
     write(rootDir, "context/one.md", body);
@@ -52,7 +54,7 @@ test("implicit submit applies eligible prose and reports an unrelated blocked ro
       rootDir: canonicalRoot(rootDir),
       ownerId: "partial-blocked-daemon",
     }),
-    binding = { actor, source: "local" as const };
+    binding = ownerBinding;
   try {
     write(rootDir, "context/blocked.md", "# Stable\n\nbase\n");
     assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/blocked.md"] }, binding)).outcome, "applied");
@@ -102,7 +104,7 @@ test("implicit submit applies eligible prose and reports an unrelated deletion a
       rootDir: canonicalRoot(rootDir),
       ownerId: "partial-deletion-daemon",
     }),
-    binding = { actor, source: "local" as const };
+    binding = ownerBinding;
   try {
     write(rootDir, "context/deleted.md", "# Retained\n");
     assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/deleted.md"] }, binding)).outcome, "applied");
@@ -229,20 +231,26 @@ test("path and implicit submits ride the repository prose channel when the task 
       rootDir: canonicalRoot(rootDir),
       ownerId: "path-prose-daemon",
     });
-  const person = {
-      actor: {
-        principal: { personId: "person-owner" },
-        executor: { kind: "agent", id: "codex" },
+  const person = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-owner" },
+          executor: { kind: "agent", id: "codex" },
+        },
+        source: "local" as const,
       },
-      source: "local" as const,
-    },
-    holder = {
-      actor: {
-        principal: { personId: "person-owner" },
-        executor: { kind: "agent", id: "runtime-session:lease-holder" },
+      "owner",
+    ),
+    holder = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-owner" },
+          executor: { kind: "agent", id: "runtime-session:lease-holder" },
+        },
+        source: "local" as const,
       },
-      source: "local" as const,
-    },
+      "owner",
+    ),
     taskId = "task_PATHPR0SE000000000000AAAAA";
   try {
     const created = (await cell.run({ kind: "task-create", taskId, title: "path submit prose channel" }, person)) as {
@@ -348,20 +356,26 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
       rootDir: canonicalRoot(rootDir),
       ownerId: "lapsed-recovery-daemon",
     });
-  const person = {
-      actor: {
-        principal: { personId: "person-owner" },
-        executor: { kind: "agent", id: "codex" },
+  const person = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-owner" },
+          executor: { kind: "agent", id: "codex" },
+        },
+        source: "local" as const,
       },
-      source: "local" as const,
-    },
-    worker = {
-      actor: {
-        principal: { personId: "person-owner" },
-        executor: { kind: "agent", id: "runtime-session:lapsed-worker" },
+      "owner",
+    ),
+    worker = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-owner" },
+          executor: { kind: "agent", id: "runtime-session:lapsed-worker" },
+        },
+        source: "local" as const,
       },
-      source: "local" as const,
-    },
+      "owner",
+    ),
     taskId = "task_REENTER00000000000000AAAAA";
   try {
     const created = (await cell.run(
@@ -517,10 +531,25 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
           sourceRevision: 0,
         }),
       } as unknown as TaskProjection,
-      store = makeTaskEventStore({ repoId: "recovery-terminates", rootDir });
+      store = makeTaskEventStore({ repoId: "recovery-terminates", rootDir }),
+      action = { kind: "doc-submit", paths: [logical] } as const,
+      baseBinding = withRoleBinding({ actor: runtimeActor, source }, "owner"),
+      authorizedBinding = () => {
+        const revision = store.readHead()?.revision ?? 0;
+        return {
+          ...baseBinding,
+          authorizationDecision: authorizeRepoCellAction({
+            action,
+            binding: baseBinding,
+            actionId: `recovery-terminates:${revision}`,
+            revision,
+            now,
+          }),
+        };
+      };
     const rejected = (await runDocAction({
-      action: { kind: "doc-submit", paths: [logical] },
-      binding: { actor: runtimeActor, source },
+      action,
+      binding: authorizedBinding(),
       workspaceId: workspaceId("recovery-terminates"),
       rootDir,
       store,
@@ -538,8 +567,8 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
     );
     phase = "held";
     const recovered = (await runDocAction({
-      action: { kind: "doc-submit", paths: [logical] },
-      binding: { actor: runtimeActor, source },
+      action,
+      binding: authorizedBinding(),
       workspaceId: workspaceId("recovery-terminates"),
       rootDir,
       store,

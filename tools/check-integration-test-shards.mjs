@@ -7,13 +7,9 @@ import {
   integrationShardCount,
   integrationShardSummaries,
   integrationTestFileWeightsMs,
-  validateIntegrationTestShards
+  validateIntegrationTestShards,
 } from "./integration-test-shards.mjs";
-import {
-  discoverTestFiles,
-  discoverTestTierManifest,
-  parseTestTierMarker
-} from "./test-tier-manifest.mjs";
+import { discoverTestFiles, discoverTestTierManifest, parseTestTierMarker } from "./test-tier-manifest.mjs";
 import { validateManifest } from "./node-test-runner-lib.mjs";
 
 const defaultRepoRoot = path.resolve(import.meta.dirname, "..");
@@ -28,7 +24,7 @@ export function checkIntegrationTestShards({
   baselineRef,
   workflowText = readFileSync(workflowPath, "utf8"),
   gateManifestText = readFileSync(gateManifestPath, "utf8"),
-  deletionAllowlistText
+  deletionAllowlistText,
 } = {}) {
   const testFiles = discoverTestFiles(repoRoot);
   const testTierManifest = discoverTestTierManifest(repoRoot);
@@ -37,9 +33,10 @@ export function checkIntegrationTestShards({
   const shardValidation = validateIntegrationTestShards(integrationFiles, weightOverrides);
   const workflowValidation = validateIntegrationShardWorkflowMatrix(workflowText, integrationShardCount);
   const gateValidation = validateIntegrationShardRequiredContexts(gateManifestText, integrationShardCount);
-  const baseline = previousTestCount === undefined
-    ? previousIntegrationTestState(repoRoot, baselineRef)
-    : { count: previousTestCount, files: null, ref: null };
+  const baseline =
+    previousTestCount === undefined
+      ? previousIntegrationTestState(repoRoot, baselineRef)
+      : { count: previousTestCount, files: null, ref: null };
   const resolvedPreviousCount = baseline.count;
   const delta = resolvedPreviousCount === null ? null : integrationFiles.length - resolvedPreviousCount;
   const deletionValidation = validateIntentionalTestDeletions({
@@ -48,17 +45,18 @@ export function checkIntegrationTestShards({
     integrationFiles,
     baseline,
     delta,
-    currentText: deletionAllowlistText
+    currentText: deletionAllowlistText,
   });
-  const ratchetErrors = resolvedPreviousCount === null
-    ? ["unable to resolve previous integration test count from Git baseline"]
-    : deletionValidation.errors;
+  const ratchetErrors =
+    resolvedPreviousCount === null
+      ? ["unable to resolve previous integration test count from Git baseline"]
+      : deletionValidation.errors;
   const errors = [
     ...manifestValidation.errors,
     ...shardValidation.errors,
     ...workflowValidation.errors,
     ...gateValidation.errors,
-    ...ratchetErrors
+    ...ratchetErrors,
   ];
 
   return {
@@ -73,7 +71,7 @@ export function checkIntegrationTestShards({
     deletedFiles: deletionValidation.deletedFiles,
     confirmedDeletions: deletionValidation.confirmedDeletions,
     workflowShards: workflowValidation.shards,
-    requiredContexts: gateValidation.contexts
+    requiredContexts: gateValidation.contexts,
   };
 }
 
@@ -84,7 +82,9 @@ export function validateIntegrationShardWorkflowMatrix(workflowText, shardCount 
   if (shards.length === 0) {
     errors.push("integration-shard workflow matrix shard list is missing");
   } else if (!sameOrderedList(shards, expected)) {
-    errors.push(`integration-shard workflow matrix mismatch: expected [${expected.join(", ")}], got [${shards.join(", ")}]`);
+    errors.push(
+      `integration-shard workflow matrix mismatch: expected [${expected.join(", ")}], got [${shards.join(", ")}]`,
+    );
   }
   return { shards, errors };
 }
@@ -99,18 +99,24 @@ export function validateIntegrationShardRequiredContexts(gateManifestText, shard
     return { contexts: [], errors: [`gate-manifest.json parse failed: ${error.message}`] };
   }
 
-  const gate = Array.isArray(manifest.gates) ? manifest.gates.find((entry) => entry.id === "test-integration") : undefined;
+  const gate = Array.isArray(manifest.gates)
+    ? manifest.gates.find((entry) => entry.id === "test-integration")
+    : undefined;
   const githubContexts = gate?.githubContext?.requiredContexts;
   const branchProtectionContexts = gate?.executionSurfaces?.branchProtection?.contexts;
   if (!Array.isArray(githubContexts)) {
     errors.push("test-integration githubContext.requiredContexts is missing");
   } else if (!sameOrderedList(githubContexts, expected)) {
-    errors.push(`test-integration githubContext.requiredContexts mismatch: expected [${expected.join(", ")}], got [${githubContexts.join(", ")}]`);
+    errors.push(
+      `test-integration githubContext.requiredContexts mismatch: expected [${expected.join(", ")}], got [${githubContexts.join(", ")}]`,
+    );
   }
   if (!Array.isArray(branchProtectionContexts)) {
     errors.push("test-integration executionSurfaces.branchProtection.contexts is missing");
   } else if (!sameOrderedList(branchProtectionContexts, expected)) {
-    errors.push(`test-integration executionSurfaces.branchProtection.contexts mismatch: expected [${expected.join(", ")}], got [${branchProtectionContexts.join(", ")}]`);
+    errors.push(
+      `test-integration executionSurfaces.branchProtection.contexts mismatch: expected [${expected.join(", ")}], got [${branchProtectionContexts.join(", ")}]`,
+    );
   }
   return { contexts: Array.isArray(githubContexts) ? githubContexts : [], errors };
 }
@@ -122,14 +128,14 @@ function previousIntegrationTestState(repoRoot, requestedRef) {
     const output = execFileSync("git", ["ls-tree", "-r", "--name-only", ref, "--", "packages", "tools"], {
       cwd: repoRoot,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
+      stdio: ["ignore", "pipe", "ignore"],
     });
     const files = output.split(/\r?\n/u).filter((file) => /\.(?:test|spec)\.(?:mjs|js|ts)$/u.test(file));
     const tiers = files.map((file) => {
       const source = execFileSync("git", ["show", `${ref}:${file}`], {
         cwd: repoRoot,
         encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"]
+        stdio: ["ignore", "pipe", "ignore"],
       });
       try {
         return parseTestTierMarker(source, file);
@@ -142,9 +148,10 @@ function previousIntegrationTestState(repoRoot, requestedRef) {
     if (missingMarkers > 0 && missingMarkers < files.length) {
       return { count: null, files: null, ref };
     }
-    const integration = missingMarkers === 0
-      ? files.filter((_, index) => tiers[index] === "integration")
-      : legacyIntegrationFiles(repoRoot, ref, files);
+    const integration =
+      missingMarkers === 0
+        ? files.filter((_, index) => tiers[index] === "integration")
+        : legacyIntegrationFiles(repoRoot, ref, files);
     return { count: integration.length, files: integration, ref };
   } catch {
     return { count: null, files: null, ref: null };
@@ -156,7 +163,7 @@ function legacyIntegrationFiles(repoRoot, ref, files) {
     const source = execFileSync("git", ["show", `${ref}:tools/test-tier-manifest.mjs`], {
       cwd: repoRoot,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
+      stdio: ["ignore", "pipe", "ignore"],
     });
     const fast = parseLegacyTierArray(source, "fast", "contract");
     const contract = parseLegacyTierArray(source, "contract", null);
@@ -181,21 +188,21 @@ function parseLegacyTierArray(source, tier, nextTier) {
 }
 
 function validateIntentionalTestDeletions({ repoRoot, testFiles, integrationFiles, baseline, delta, currentText }) {
-  const current = parseDeletionAllowlist(
-    currentText ?? readDeletionAllowlist(repoRoot),
-    deletionAllowlistRelativePath
-  );
-  const previous = baseline.ref === null
-    ? { paths: [], errors: [] }
-    : parseDeletionAllowlist(readBaselineDeletionAllowlist(repoRoot, baseline.ref), `${baseline.ref}:${deletionAllowlistRelativePath}`);
+  const current = parseDeletionAllowlist(currentText ?? readDeletionAllowlist(repoRoot), deletionAllowlistRelativePath);
+  const previous =
+    baseline.ref === null
+      ? { paths: [], errors: [] }
+      : parseDeletionAllowlist(
+          readBaselineDeletionAllowlist(repoRoot, baseline.ref),
+          `${baseline.ref}:${deletionAllowlistRelativePath}`,
+        );
   const errors = [...current.errors, ...previous.errors];
   const previousPaths = new Set(previous.paths);
   const newlyConfirmed = current.paths.filter((file) => !previousPaths.has(file));
   const previousIntegration = new Set(baseline.files ?? []);
   const currentIntegration = new Set(integrationFiles);
-  const deletedFiles = baseline.files === null
-    ? []
-    : [...previousIntegration].filter((file) => !currentIntegration.has(file)).sort();
+  const deletedFiles =
+    baseline.files === null ? [] : [...previousIntegration].filter((file) => !currentIntegration.has(file)).sort();
   const deletedSet = new Set(deletedFiles);
   const confirmedDeletions = deletedFiles.filter((file) => newlyConfirmed.includes(file));
 
@@ -203,16 +210,21 @@ function validateIntentionalTestDeletions({ repoRoot, testFiles, integrationFile
     if (testFiles.includes(file)) errors.push(`intentional test deletion path exists on disk: ${file}`);
   }
   for (const file of newlyConfirmed) {
-    if (!deletedSet.has(file)) errors.push(`new intentional test deletion confirmation does not match a baseline deletion: ${file}`);
+    if (!deletedSet.has(file))
+      errors.push(`new intentional test deletion confirmation does not match a baseline deletion: ${file}`);
   }
 
   if (delta < 0) {
     if (baseline.files === null) {
-      errors.push(`integration test count decreased: current=${integrationFiles.length} previous=${baseline.count} delta=${delta}`);
+      errors.push(
+        `integration test count decreased: current=${integrationFiles.length} previous=${baseline.count} delta=${delta}`,
+      );
     } else {
       const unconfirmed = deletedFiles.filter((file) => !newlyConfirmed.includes(file));
       if (unconfirmed.length > 0) {
-        errors.push(`integration test count decreased without path confirmation: current=${integrationFiles.length} previous=${baseline.count} delta=${delta} unconfirmed=[${unconfirmed.join(", ")}]`);
+        errors.push(
+          `integration test count decreased without path confirmation: current=${integrationFiles.length} previous=${baseline.count} delta=${delta} unconfirmed=[${unconfirmed.join(", ")}]`,
+        );
       }
     }
   }
@@ -233,7 +245,7 @@ function readBaselineDeletionAllowlist(repoRoot, ref) {
     return execFileSync("git", ["show", `${ref}:${deletionAllowlistRelativePath}`], {
       cwd: repoRoot,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
+      stdio: ["ignore", "pipe", "ignore"],
     });
   } catch {
     return emptyDeletionAllowlistText();
@@ -252,19 +264,24 @@ function parseDeletionAllowlist(text, displayPath) {
     return { paths: [], errors: [`${displayPath} must be a check-integration-test-shards gate allowlist`] };
   }
   const entries = parsed.entries?.intentionalTestDeletions;
-  if (!Array.isArray(entries)) return { paths: [], errors: [`${displayPath} missing entries.intentionalTestDeletions`] };
+  if (!Array.isArray(entries))
+    return { paths: [], errors: [`${displayPath} missing entries.intentionalTestDeletions`] };
   const paths = [];
   const errors = [];
   for (const [index, entry] of entries.entries()) {
     const label = `${displayPath} entries.intentionalTestDeletions[${index}]`;
-    if (typeof entry?.value !== "string" || !/^(?:packages|tools)\/.+\.(?:test|spec)\.(?:mjs|js|ts)$/u.test(entry.value)) {
+    if (
+      typeof entry?.value !== "string" ||
+      !/^(?:packages|tools)\/.+\.(?:test|spec)\.(?:mjs|js|ts)$/u.test(entry.value)
+    ) {
       errors.push(`${label}.value must be an exact repository test file path`);
       continue;
     }
     if (typeof entry.ref !== "string" || !/^(?:ADR-\d{4}|dec_[A-Za-z0-9_]+|task_[A-Z0-9]+)/u.test(entry.ref)) {
       errors.push(`${label}.ref must cite an ADR, decision, or task id`);
     }
-    if (typeof entry.reason !== "string" || entry.reason.trim() === "") errors.push(`${label}.reason must be non-empty`);
+    if (typeof entry.reason !== "string" || entry.reason.trim() === "")
+      errors.push(`${label}.reason must be non-empty`);
     if (paths.includes(entry.value)) errors.push(`${label}.value is duplicated: ${entry.value}`);
     paths.push(entry.value);
   }
@@ -275,12 +292,13 @@ function emptyDeletionAllowlistText() {
   return JSON.stringify({
     schema: "harness-anything/gate-allowlist/v1",
     gateId: "check-integration-test-shards",
-    entries: { intentionalTestDeletions: [] }
+    entries: { intentionalTestDeletions: [] },
   });
 }
 
 function resolveBaselineRef(repoRoot) {
-  if (!process.env.CI && process.env.HARNESS_TEST_COUNT_BASE_REF) return process.env.HARNESS_TEST_COUNT_BASE_REF;
+  if (!process.env.CI && process.env.HARNESS_TEST_COUNT_BASE_REF && path.resolve(repoRoot) === defaultRepoRoot)
+    return process.env.HARNESS_TEST_COUNT_BASE_REF;
   const head = git(repoRoot, ["rev-parse", "HEAD"]);
   if (head === null) return null;
   const worktreeChanges = git(repoRoot, ["status", "--porcelain", "--", "packages", "tools"]);
@@ -318,7 +336,10 @@ function parseIntegrationShardMatrix(workflowText) {
     if (nextJobMatch && nextJobMatch[1].length <= jobIndent) return [];
     const shardMatch = /^\s*shard:\s*\[(.+?)\]\s*$/u.exec(line);
     if (shardMatch) {
-      return shardMatch[1].split(",").map((entry) => Number(entry.trim())).filter(Number.isInteger);
+      return shardMatch[1]
+        .split(",")
+        .map((entry) => Number(entry.trim()))
+        .filter(Number.isInteger);
     }
   }
   return [];
@@ -333,7 +354,9 @@ function main() {
   }
   const previous = result.previousCount === null ? "unavailable" : result.previousCount;
   const delta = result.delta === null ? "unavailable" : result.delta;
-  console.log(`integration shard check passed: current=${result.currentCount} previous=${previous} delta=${delta} shards=${result.summaries.length} workflowShards=[${result.workflowShards.join(", ")}] requiredContexts=[${result.requiredContexts.join(", ")}]`);
+  console.log(
+    `integration shard check passed: current=${result.currentCount} previous=${previous} delta=${delta} shards=${result.summaries.length} workflowShards=[${result.workflowShards.join(", ")}] requiredContexts=[${result.requiredContexts.join(", ")}]`,
+  );
   for (const summary of result.summaries) {
     console.log(`shard ${summary.id}: files=${summary.files} estimatedMs=${summary.estimatedMs.toFixed(1)}`);
   }

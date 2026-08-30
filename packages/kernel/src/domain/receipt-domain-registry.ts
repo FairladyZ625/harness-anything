@@ -83,7 +83,8 @@ export const receiptDetailRegistry = Object.freeze([
   { kind: "entity_upsert", validate: validateEntityUpsertDetail },
 ] as const);
 export type WriteReceiptDetail = DocSyncReceiptDetail | EntityUpsertReceiptDetail;
-export interface WriteReceipt {
+/** Internal mutation result before the center attaches its authorization decision. */
+export interface WriteReceiptDraft {
   readonly outcome: "applied" | "pending" | "no_changes" | "indeterminate" | "op_rejected";
   readonly opId: string;
   readonly revision?: number;
@@ -95,7 +96,7 @@ export interface WriteReceipt {
   readonly proof?: ReceiptProof;
   readonly detail?: WriteReceiptDetail;
   readonly commitSha?: string | null;
-  readonly authorizationDecision?: AuthorizationDecision | null;
+  readonly authorizationDecision?: AuthorizationDecision;
   readonly unmetCriteria?: readonly string[];
   readonly effects?: readonly string[];
   readonly updatedProjection?: {
@@ -112,10 +113,14 @@ export interface WriteReceipt {
     readonly headDigest: string;
   };
 }
+/** Public durable-write receipt framed at the center's canonical cut. */
+export interface WriteReceipt extends WriteReceiptDraft {
+  readonly authorizationDecision: AuthorizationDecision;
+}
 export const WRITE_RECEIPT_SCHEMA = Object.freeze({
   id: "write-receipt/v1",
   outcomes: Object.freeze(["applied", "pending", "no_changes", "indeterminate", "op_rejected"] as const),
-  required: Object.freeze(["outcome", "opId"]),
+  required: Object.freeze(["outcome", "opId", "authorizationDecision"]),
   optional: Object.freeze([
     "revision",
     "code",
@@ -126,7 +131,6 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "proof",
     "detail",
     "commitSha",
-    "authorizationDecision",
     "unmetCriteria",
     "effects",
     "updatedProjection",
@@ -217,12 +221,8 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
       /^sha256:[0-9a-f]{64}$/u.test(publicationCut.headDigest);
   if ("commitSha" in value && value.commitSha !== null && !sha(value.commitSha))
     errors.push("commitSha must be a Git SHA or null while materialization is pending");
-  if (
-    "authorizationDecision" in value &&
-    value.authorizationDecision !== null &&
-    !validAuthorizationDecision(value.authorizationDecision)
-  )
-    errors.push("authorizationDecision must match AuthorizationDecision or be null before authorization wiring");
+  if (!validAuthorizationDecision(value.authorizationDecision))
+    errors.push("authorizationDecision must match AuthorizationDecision");
   if ("cut" in value && !validPublicationCut) errors.push("cut must identify repoId, revision, opId, and headDigest");
   if (
     ("cut" in value && !("commitSha" in value)) ||

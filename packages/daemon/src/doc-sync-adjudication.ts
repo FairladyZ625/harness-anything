@@ -17,7 +17,6 @@ import type { Input } from "./doc-sync-command-actions.ts";
 import { detail, directPaths } from "./doc-sync-details.ts";
 import { docSyncError, hasExactDocSyncActionFields } from "./doc-sync-files.ts";
 import { admissionRejection } from "./doc-sync-settlement.ts";
-import { authorizeAction } from "./authorization.ts";
 
 // Pure adjudication of one doc write intent against the current canonical
 // state: projection readiness, assignment-scope admission, and the domain
@@ -37,7 +36,7 @@ export type DocIntentAdjudication =
       readonly accepted: false;
       readonly code: string;
       readonly detail: DocSyncReceiptDetail;
-      readonly authorizationDecision: AuthorizationDecision | null;
+      readonly authorizationDecision: AuthorizationDecision;
     }
   | {
       readonly accepted: true;
@@ -50,7 +49,7 @@ export type DocIntentAdjudication =
           readonly mediaType: string;
           readonly body: string;
         }[];
-        readonly authorizationDecision: AuthorizationDecision | null;
+        readonly authorizationDecision: AuthorizationDecision;
       };
     };
 
@@ -64,13 +63,14 @@ export function adjudicateDocIntent(
   opId: string,
   retirementReason?: string,
 ): DocIntentAdjudication {
+  const authorizationDecision = requiredDocAuthorization(input.binding.authorizationDecision);
   const documents = intent.changes.map((change) => input.projection.readDocument(change.path));
   if (documents.some((read) => read.watermark !== read.sourceRevision)) {
     const pending = detail(intent, input.store.currentCut(), "projection_pending", lease);
     return {
       accepted: false,
       code: "projection_pending",
-      authorizationDecision: null,
+      authorizationDecision,
       detail: {
         ...pending,
         nextAction: `run ha receipt show ${opId} after the canonical projection catches up`,
@@ -78,8 +78,7 @@ export function adjudicateDocIntent(
     };
   }
   const admission = admissionRejection(input, intent, lease);
-  if (admission)
-    return { accepted: false, code: admission.code, detail: admission.detail, authorizationDecision: null };
+  if (admission) return { accepted: false, code: admission.code, detail: admission.detail, authorizationDecision };
   const cut = input.store.currentCut(),
     events = retirementReason === undefined ? [] : input.store.read().events,
     currentDocuments = documents.map((read, index) =>
@@ -92,14 +91,7 @@ export function adjudicateDocIntent(
     runtimeSession = runtimeSessionId === null ? null : input.projection.readRuntimeSession(runtimeSessionId),
     runtimeBinding =
       lease === null ? null : resolveTaskBoundRuntimeBinding(runtimeSession, lease.taskId, lease.executionId),
-    authorizationDecision =
-      intent.executionId === null
-        ? null
-        : authorizeAction("doc.submit", `execution/${intent.executionId}`, input.binding.actor, opId, {
-            writeSource: input.binding.source,
-            target: { lease, runtimeBinding },
-            evaluatedAtCut: `canonical:${cut.revision}:${cut.headDigest}`,
-          });
+    authorization = authorizationDecision;
   const decision = decideDocWrite({
     intent,
     opId,
@@ -110,7 +102,7 @@ export function adjudicateDocIntent(
     occurredAt: input.now(),
     currentLedgerSha: cut,
     lease,
-    authorizationDecision,
+    authorizationDecision: authorization,
     documents: currentDocuments,
     claims,
     retirementReason,
@@ -118,13 +110,22 @@ export function adjudicateDocIntent(
     ...(runtimeBinding ? { runtimeBinding } : {}),
   });
   return decision.accepted
-    ? { accepted: true, decision }
+    ? { accepted: true, decision: { ...decision, authorizationDecision } }
     : {
         accepted: false,
         code: decision.code,
         detail: decision.detail,
-        authorizationDecision: decision.authorizationDecision,
+        authorizationDecision,
       };
+}
+
+function requiredDocAuthorization(decision: AuthorizationDecision | undefined): AuthorizationDecision {
+  if (!decision || decision.outcome !== "allowed")
+    throw docSyncError(
+      "authorization_missing",
+      "Document criteria require the center AuthorizationPort decision before adjudication.",
+    );
+  return decision;
 }
 
 export function assignmentIntent(input: Input): DocWriteIntent {

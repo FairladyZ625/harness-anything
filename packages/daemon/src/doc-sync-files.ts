@@ -1,6 +1,7 @@
 import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-003 */
-  execFileSync } from "node:child_process";
+  execFileSync,
+} from "node:child_process";
 import { lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
@@ -9,7 +10,7 @@ import {
   resolveHarnessLayout,
   type DocSyncReceiptDetail,
   type EventPublicationKillpoint,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
   type WriteSource,
 } from "../../kernel/src/index.ts";
 import type { Action, Input } from "./doc-sync-command-actions.ts";

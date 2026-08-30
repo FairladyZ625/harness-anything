@@ -17,7 +17,7 @@ import {
   type FactRetirementAssessment,
   type FactStillHoldsAttestation,
   type TaskProgressEventV1,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { compileRepoTaskPackage } from "../../preset/src/index.ts";
 import { runDocAction } from "./doc-sync-actions.ts";

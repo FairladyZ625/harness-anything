@@ -3,8 +3,8 @@ import { readDaemonRegistry } from "../../kernel/src/index.ts";
 import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
-import { bindingHasRole } from "./repo-cell-role-bindings.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
+import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 
 export function createDaemonHostControlApi(
   context: DaemonHostApiContext,
@@ -20,7 +20,13 @@ export function createDaemonHostControlApi(
           (entry) => entry.repoId === authorityRepoId,
         );
       if (!repo) throw context.hostCodedError("repo_namespace_unknown", `Unknown authority repo: ${authorityRepoId}.`);
-      await context.binding(repo.canonicalRoot, auth, "admin");
+      const controlBinding = await context.binding(repo.canonicalRoot, auth),
+        authorizationDecision = requireAuthorizedHostAction({
+          kind: "daemon-control-request",
+          binding: controlBinding,
+          actionId: `daemon-control-request:${String(payload.kind)}`,
+          evaluatedAtCut: "daemon-control:current",
+        });
       const kind = payload.kind;
       if (kind !== "refresh" && kind !== "restart")
         throw context.hostCodedError("invalid_control", "kind must be refresh or restart.");
@@ -44,6 +50,7 @@ export function createDaemonHostControlApi(
             hint: "Electron main must own restart and its receipt.",
           },
           nextAction: "Request restart through the local Electron supervisor.",
+          authorizationDecision: authorizationDecision as unknown as import("./protocol/json-rpc-types.ts").JsonObject,
         };
         context.controls.set(operationId, rejectedReceipt);
         context.latestControl = rejectedReceipt;
@@ -70,6 +77,7 @@ export function createDaemonHostControlApi(
             hint: `Wait for ${context.latestControl.operationId}.`,
           },
           nextAction: `Poll ${context.latestControl.operationId}.`,
+          authorizationDecision: authorizationDecision as unknown as import("./protocol/json-rpc-types.ts").JsonObject,
         };
         context.controls.set(operationId, busy);
         return busy;
@@ -87,6 +95,7 @@ export function createDaemonHostControlApi(
         after: null,
         error: null,
         nextAction: `Poll ${operationId}.`,
+        authorizationDecision: authorizationDecision as unknown as import("./protocol/json-rpc-types.ts").JsonObject,
       };
       context.controls.set(operationId, pending);
       context.latestControl = pending;
@@ -117,15 +126,14 @@ export function createDaemonHostControlApi(
           hint: "No daemon control receipt exists for this operationId.",
         },
         nextAction: null,
+        authorizationDecision: null,
       };
     },
     issueRuntimeWitness: async (repoId, runtimeSessionId, auth) => {
       context.requireHostMode(repoId, ledgerWriteCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
-        serverBinding = await context.binding(cell.status().rootDir, auth, "repo-write");
-      if (bindingHasRole(serverBinding, "admin") || bindingHasRole(serverBinding, "arbiter"))
-        throw context.hostCodedError("rbac_forbidden", "Admin and arbiter identities cannot become runtime witnesses.");
+        serverBinding = await context.binding(cell.status().rootDir, auth);
       return cell.runtime.issueWitnessToken(runtimeSessionId, {
         principalId: serverBinding.actor.principal.personId,
         source: serverBinding.source,

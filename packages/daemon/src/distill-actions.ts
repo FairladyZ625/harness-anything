@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout, type WriteReceipt } from "../../kernel/src/index.ts";
+import { resolveHarnessLayout, type WriteReceiptDraft as WriteReceipt } from "../../kernel/src/index.ts";
 
 export interface DistillCandidateArtifactV1 {
   readonly schema: "distill-candidate/v1";

@@ -1,6 +1,5 @@
 import { validateActionEnvelope, type ActionEnvelope } from "../domain/action-envelope.ts";
 import type { ActorIdentity } from "../domain/actor-identity.ts";
-import { isIndependentFrom, isSameExecution, isSamePerson } from "../domain/actor-domain-services.ts";
 import { DEFAULT_POLICY } from "../domain/default-policy.ts";
 import type { EntityRef } from "../domain/entity-ref.ts";
 import type { LeaseV1 } from "../domain/execution.ts";
@@ -19,11 +18,12 @@ import {
 } from "../domain/policy.ts";
 import type { AuthorizationDecision, ReceiptJsonValue } from "../domain/receipt-frame.ts";
 import { roleBindingApplies, type RoleBinding } from "../domain/role-binding.ts";
-import { runtimeSessionIdFromActor, type TaskBoundRuntimeBinding } from "../domain/task-bound-runtime-authority.ts";
-import { sameWriteSource, type WriteSource } from "../domain/write-chain.contract.ts";
+import type { TaskBoundRuntimeBinding } from "../domain/task-bound-runtime-authority.ts";
+import type { WriteSource } from "../domain/write-chain.contract.ts";
 
 export interface AuthorizationTargetSnapshot {
   readonly owner?: ActorIdentity | null;
+  /** Criteria may still carry the lease beside Policy; the default Policy never evaluates it. */
   readonly lease?: LeaseV1 | null;
   readonly canonicalExecutionExists?: boolean;
   readonly terminalRuntimeBinding?: TaskBoundRuntimeBinding | null;
@@ -32,14 +32,29 @@ export interface AuthorizationTargetSnapshot {
   readonly runtimeBinding?: TaskBoundRuntimeBinding | null;
 }
 
+export interface AuthorizationAssignmentBinding {
+  readonly repoId: string;
+  readonly nodeId: string;
+  readonly assignmentId: string;
+  readonly scope: Readonly<Record<string, ReceiptJsonValue>>;
+  readonly writerEpoch?: number;
+}
+
+export interface AuthorizationDefaultBinding {
+  readonly principalPersonId: string;
+  readonly source: "local";
+}
+
 /** Volatile bindings are inputs to evaluation, not fields added to ActionEnvelope. */
 export interface AuthorizationContext {
   readonly delegatedExecutionToken?: DelegatedExecutionToken;
+  readonly defaultBinding?: AuthorizationDefaultBinding;
   readonly ruleScope?: string;
   readonly roleBindings?: readonly RoleBinding[];
   readonly roleBindingTargets?: readonly EntityRef[];
   readonly evaluatedAt?: string;
   readonly writeSource?: WriteSource;
+  readonly assignmentBinding?: AuthorizationAssignmentBinding;
   readonly target: AuthorizationTargetSnapshot;
   readonly evaluatedAtCut: string;
 }
@@ -152,80 +167,52 @@ function evaluatePredicate(
   action: ActionEnvelope,
   context: AuthorizationContext,
 ): PredicateResult {
-  const { target } = context,
-    actor = action.actor,
-    lease = target.lease ?? null,
-    leaseTargetsSubject =
-      lease !== null &&
-      (action.target === `task/${lease.taskId}` || action.target === `execution/${lease.executionId}`),
-    runtimeSessionId = runtimeSessionIdFromActor(actor),
-    runtimeBinding = target.runtimeBinding ?? null,
-    terminalRuntimeBinding = target.terminalRuntimeBinding ?? null,
-    runtimeDelegation =
-      leaseTargetsSubject &&
-      lease?.phase === "held" &&
-      runtimeSessionId !== null &&
-      runtimeBinding?.runtimeSessionId === runtimeSessionId &&
-      runtimeBinding.taskId === lease.taskId &&
-      runtimeBinding.executionId === lease.executionId &&
-      isSamePerson(lease.actor, actor);
-  const terminalRuntimeOwnsLease =
-    leaseTargetsSubject &&
-    lease !== null &&
-    terminalRuntimeBinding?.taskId === lease.taskId &&
-    terminalRuntimeBinding.executionId === lease.executionId;
-  let holds = false;
-  if (expression.predicate === "holdsExecutionLease")
-    holds = leaseTargetsSubject && lease !== null && isSameExecution(lease.actor, actor);
-  else if (expression.predicate === "reclaimsOrphanedLease")
-    holds =
-      leaseTargetsSubject &&
-      lease !== null &&
-      ((isSamePerson(lease.actor, actor) &&
-        (lease.phase === "orphaned" || target.canonicalExecutionExists === false || terminalRuntimeOwnsLease)) ||
-        ((lease.phase === "orphaned" || terminalRuntimeOwnsLease) &&
-          target.owner !== null &&
-          target.owner !== undefined &&
-          isSamePerson(target.owner, actor)));
-  else if (expression.predicate === "dispatchesExecution")
-    holds =
-      leaseTargetsSubject &&
-      lease?.phase === "held" &&
-      isSamePerson(lease.actor, actor) &&
-      (actor.executor === null || isSameExecution(lease.actor, actor));
-  else if (expression.predicate === "delegatedByRuntimeSession") holds = runtimeDelegation;
-  else if (expression.predicate === "hasCommandClass") {
+  const actor = action.actor;
+  if (expression.predicate === "hasRoleBinding") {
     const targets = [action.target, ...(context.roleBindingTargets ?? [])],
       matched = (context.roleBindings ?? []).find((binding) =>
-        roleBindingApplies(binding, actor, expression.commandClass, targets, context.evaluatedAt),
+        roleBindingApplies(binding, actor, expression.role, targets, context.evaluatedAt),
       );
-    holds = matched !== undefined;
+    const holds = matched !== undefined;
     return {
       holds,
       binding: Object.freeze({
         predicate: expression.predicate,
         satisfied: holds,
-        role: expression.commandClass,
+        role: expression.role,
         matched: matched ? receiptRoleBinding(matched) : null,
       }),
     };
-  } else if (expression.predicate === "reviewIndependence") {
-    const author = target.executionActor ?? target.proposalActor ?? null,
-      executorIndependent = author !== null && isIndependentFrom(author, actor);
-    holds =
-      executorIndependent &&
-      runtimeBinding === null &&
-      (expression.level === "L1" || (author !== null && !isSamePerson(author, actor)));
-  } else if (expression.predicate === "isNotProposalAgent")
-    holds =
-      target.proposalActor !== null &&
-      target.proposalActor !== undefined &&
-      (actor.executor === null || !isSameExecution(target.proposalActor, actor));
-  else if (expression.predicate === "sameWriteSource")
-    holds = context.writeSource !== undefined && lease !== null && sameWriteSource(lease.source, context.writeSource);
+  }
+  if (expression.predicate === "hasDefaultBinding") {
+    const binding = context.defaultBinding,
+      holds = binding?.source === "local" && binding.principalPersonId === actor.principal.personId;
+    return {
+      holds,
+      binding: Object.freeze({
+        predicate: expression.predicate,
+        satisfied: holds,
+        principal: holds ? { personId: actor.principal.personId } : null,
+        source: holds ? binding.source : null,
+      }),
+    };
+  }
+  const assignment = context.assignmentBinding;
   return {
-    holds,
-    binding: Object.freeze({ predicate: expression.predicate, satisfied: holds }),
+    holds: assignment !== undefined,
+    binding: Object.freeze({
+      predicate: expression.predicate,
+      satisfied: assignment !== undefined,
+      assignment: assignment
+        ? {
+            repoId: assignment.repoId,
+            nodeId: assignment.nodeId,
+            assignmentId: assignment.assignmentId,
+            scope: assignment.scope,
+            writerEpoch: assignment.writerEpoch ?? null,
+          }
+        : null,
+    }),
   };
 }
 

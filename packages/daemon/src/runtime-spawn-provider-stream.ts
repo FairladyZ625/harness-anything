@@ -42,7 +42,8 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
       throw context.runtimeSpawnError("invalid_runtime_event", "Remote runtime publication changed the event type.");
     return { ...published, event: published.event };
   }
-  const store = context.requiredRuntimeStore(context.input),
+  const authorizedBinding = context.input.authorizeRuntimeEvent?.({ type, payload, opId, binding }) ?? binding,
+    store = context.requiredRuntimeStore(context.input),
     projection = context.requiredRuntimeProjection(context.input),
     value = {
       schema: "agent-runtime-event/v1",
@@ -50,8 +51,8 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
       workspaceRevision: (store.readHead()?.revision ?? 0) + 1,
       opId,
       type,
-      actor: binding.actor,
-      source: binding.source,
+      actor: authorizedBinding.actor,
+      source: authorizedBinding.source,
       occurredAt: context.input.now(),
       payload,
     } as AgentRuntimeEventV1;

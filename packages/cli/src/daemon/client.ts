@@ -682,11 +682,13 @@ function declaredExecutor(env: NodeJS.ProcessEnv = process.env): JsonObject | nu
 function interactiveSessionEnvironment(env: NodeJS.ProcessEnv): DaemonSessionEnvironment {
   const claudeSessionId = env.CLAUDE_CODE_SESSION_ID?.trim(),
     codexThreadId = env.CODEX_THREAD_ID?.trim(),
-    codexSessionId = env.CODEX_SESSION_ID?.trim();
+    codexSessionId = env.CODEX_SESSION_ID?.trim(),
+    harnessActor = env.HARNESS_ACTOR?.trim();
   return {
     ...(claudeSessionId ? { CLAUDE_CODE_SESSION_ID: claudeSessionId } : {}),
     ...(codexThreadId ? { CODEX_THREAD_ID: codexThreadId } : {}),
     ...(codexSessionId ? { CODEX_SESSION_ID: codexSessionId } : {}),
+    ...(harnessActor ? { HARNESS_ACTOR: harnessActor } : {}),
   };
 }
 export function consumeKnownError(error: unknown): void {

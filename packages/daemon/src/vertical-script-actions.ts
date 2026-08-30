@@ -6,7 +6,7 @@ import {
   type EventPublicationKillpoint,
   type TaskProjection,
   type VerticalScriptResultV1,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
   type WriteSource,
 } from "../../kernel/src/index.ts";
 import {
@@ -24,7 +24,7 @@ type ExecutionInput = {
   readonly signal?: AbortSignal;
 };
 type PublicationInput = {
-  readonly binding: { readonly actor: ActorIdentity; readonly source: WriteSource; readonly docWriteAllowed?: boolean };
+  readonly binding: { readonly actor: ActorIdentity; readonly source: WriteSource };
   readonly workspaceId: string;
   readonly rootDir: string;
   readonly store: CanonicalEventStore;

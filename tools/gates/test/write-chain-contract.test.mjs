@@ -23,6 +23,16 @@ import { decideTaskLifecycleWrite } from "../../../packages/kernel/src/domain/ta
 import { REPLAY_TASK_GRAPH } from "../../../packages/kernel/src/domain/task-graph.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "worker" } };
+const authorizationDecision = {
+  policyRef: "default@5",
+  actor,
+  subject: "settings/repository",
+  bindingsUsed: [],
+  outcome: "allowed",
+  reasonCodes: ["authorization_allowed"],
+  nextActions: [],
+  evaluatedAtCut: "canonical:test",
+};
 
 test("G02 derives a stable opId and digest from one normalized command envelope", () => {
   const input = {
@@ -321,9 +331,10 @@ test("G02/G07 expose one four-state receipt and bounded recovery contract", asyn
       evidence: "event:op_1",
       visibility: "center",
       proof: { committedRevision: 1, appliedCut: 1, durable: true, canonicalVisible: true, worktreeVisible: null },
+      authorizationDecision,
     }),
     {
-      authorizationDecision: null,
+      authorizationDecision,
       outcome: "applied",
       opId: "op_1",
       revision: 1,
@@ -341,6 +352,7 @@ test("G02/G07 expose one four-state receipt and bounded recovery contract", asyn
         evidence: "event:op_1",
         visibility: "center",
         proof: { committedRevision: 1, appliedCut: 1, durable: true, canonicalVisible: true, worktreeVisible: null },
+        authorizationDecision,
         leaseCredential: "removed",
       }),
     WriteChainContractError,

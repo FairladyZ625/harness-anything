@@ -34,6 +34,7 @@ test("stale ledger and stale blob reject the entire batch with current holder an
       evidence: `contract-rejection:${staleLedger.code}`,
       nextAction: staleLedger.detail.nextAction,
       detail: staleLedger.detail,
+      authorizationDecision: staleLedger.authorizationDecision!,
     }),
     [],
   );

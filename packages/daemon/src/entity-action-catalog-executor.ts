@@ -6,6 +6,7 @@ import {
   decisionWritePlan,
   factWritePlan,
   getExecutableEntityAction,
+  isSameExecution,
   timestamp,
   type AuthorizationDecision,
   type CanonicalEventCut,
@@ -21,12 +22,10 @@ import {
   type FactSearchFilters,
   type SessionIdentity,
   type TaskProjection,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { authorizeAction } from "./authorization.ts";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
-import { roleBindingAuthorizationContext } from "./repo-cell-role-bindings.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
@@ -348,33 +347,20 @@ function decisionAuthorization(
   binding: RepoCellBinding,
   opId: string,
   input: { readonly store: CanonicalEventStore; readonly projection: TaskProjection },
-): AuthorizationDecision | null {
+): AuthorizationDecision {
+  const authorizationDecision = binding.authorizationDecision;
+  if (!authorizationDecision || authorizationDecision.outcome !== "allowed")
+    reject("actor_unauthorized", "Catalog execution requires the center AuthorizationPort decision.");
   const judgment =
     ["decision-accept", "decision-reject", "decision-defer"].includes(action.kind) ||
     (action.kind === "decision-transition" &&
       ["in_effect", "rejected", "deferred"].includes(String(action.targetState)));
-  if (!judgment) return null;
+  if (!judgment) return authorizationDecision;
   const decisionId = requiredCommandText(action.decisionId, "decisionId"),
-    decision = authorizeAction("decision.accept", `decision/${decisionId}`, binding.actor, opId, {
-      ...roleBindingAuthorizationContext(binding),
-      target: { proposalActor: input.projection.readDecision(decisionId).decision?.proposer ?? null },
-      evaluatedAtCut: `canonical:${input.store.readHead()?.revision ?? 0}`,
-    });
-  if (decision.outcome !== "denied") return decision;
-  const proposalAgentFailed = decision.bindingsUsed.some(
-      (candidate) => candidate.predicate === "isNotProposalAgent" && candidate.satisfied === false,
-    ),
-    reviewIndependenceFailed = decision.bindingsUsed.some(
-      (candidate) => candidate.predicate === "reviewIndependence" && candidate.satisfied === false,
-    );
-  reject(
-    "actor_unauthorized",
-    proposalAgentFailed
-      ? "An agent cannot judge its own Decision proposal; use an independent reviewer."
-      : reviewIndependenceFailed
-        ? "Decision outcome requires a reviewer independent from the proposal actor."
-        : "Decision outcome requires an active arbiter RoleBinding.",
-  );
+    proposalActor = input.projection.readDecision(decisionId).decision?.proposer ?? null;
+  if (proposalActor !== null && proposalActor.executor !== null && isSameExecution(proposalActor, binding.actor))
+    reject("actor_unauthorized", "An agent cannot judge its own Decision proposal; use an independent reviewer.");
+  return authorizationDecision;
 }
 
 function factReceipt(
@@ -441,7 +427,7 @@ function decisionReceipt(
     readonly decision: unknown;
   },
   event: DecisionEventV1,
-  authorizationDecision: AuthorizationDecision | null,
+  authorizationDecision: AuthorizationDecision,
 ): WriteReceipt {
   const consentId = "judgmentConsent" in event.payload ? event.payload.judgmentConsent.consentId : null,
     relationReplacement =

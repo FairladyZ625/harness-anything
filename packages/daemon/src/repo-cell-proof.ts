@@ -5,9 +5,10 @@ import {
   completionGateRequiresWitness,
   consentedApprovedReview,
   currentCodeDocWitness,
-  deriveOwnerRoleBinding,
   heldLeaseForExecutionActor,
   getTaskActionForTransition,
+  isIndependentFrom,
+  isSamePerson,
   makeTaskProjection,
   normalizeCommandEnvelope,
   requiredGateWitnessCount,
@@ -23,8 +24,6 @@ import {
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { submitLeaseRequiredMessage } from "./repo-cell-execution-selection.ts";
-import { authorizeAction } from "./authorization.ts";
-import { roleBindingAuthorizationContext } from "./repo-cell-role-bindings.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
 
@@ -45,23 +44,7 @@ export async function proofFor(
       ttlMs = typeof commandFields.ttlMs === "number" ? commandFields.ttlMs : leaseTtlMs;
     if (typeof executionId !== "string")
       throw cellCodedError("invalid_command", `${lifecycleExecution.commandType} requires a target entity id.`);
-    const authorizationDecision = authorizeAction(
-      lifecycleAction?.policy.action ?? "execution.start",
-      `execution/${executionId}`,
-      command.actor,
-      `authorization:${command.eventId}`,
-      {
-        ...roleBindingAuthorizationContext(binding),
-        target: {},
-        evaluatedAtCut: `canonical:${snapshot.revision}`,
-      },
-      command.opId,
-    );
-    if (authorizationDecision.outcome === "denied")
-      throw cellCodedError(
-        "actor_unauthorized",
-        `${lifecycleExecution.commandType} requires an admitted repo-write command.`,
-      );
+    const authorizationDecision = requiredAuthorizationDecision(binding);
     return {
       actorBinding: command.actor,
       reservation: {
@@ -101,18 +84,8 @@ export async function proofFor(
       execution = snapshot.executions.find(
         (candidate) => candidate.executionId === command.executionId && candidate.submission !== null,
       ),
-      authorizationDecision = authorizeAction(
-        "execution.review",
-        `execution/${command.executionId}`,
-        command.actor,
-        command.opId,
-        {
-          ...roleBindingAuthorizationContext(binding),
-          target: { executionActor: execution?.actor ?? null, runtimeBinding },
-          evaluatedAtCut: `canonical:${snapshot.revision}`,
-        },
-      );
-    if (authorizationDecision.outcome === "denied" && runtimeBinding !== null)
+      authorizationDecision = requiredAuthorizationDecision(binding);
+    if (runtimeBinding !== null)
       throw cellCodedError(
         "runtime_task_self_review_forbidden",
         [
@@ -130,18 +103,7 @@ export async function proofFor(
           " --from-file <review.json>.",
         ].join(""),
       );
-    if (authorizationDecision.outcome === "denied") {
-      const commandClassFailed = authorizationDecision.bindingsUsed.some(
-        (used) => used.predicate === "hasCommandClass" && used.satisfied === false,
-      );
-      if (commandClassFailed)
-        throw cellCodedError(
-          "actor_unauthorized",
-          [
-            "Execution Review requires an active arbiter RoleBinding; run ha people bind ",
-            "for the reviewing actor and repository target.",
-          ].join(""),
-        );
+    if (execution === undefined || !isIndependentFrom(execution.actor, command.actor)) {
       const undeclared = execution?.actor.executor === null && command.actor.executor === null;
       throw cellCodedError(
         "actor_unauthorized",
@@ -162,19 +124,13 @@ export async function proofFor(
     return {
       actorBinding: command.actor,
       capability: "execution-review@v1",
-      capabilityRef: `transport-reviewer:${command.actor.principal.personId}`,
+      capabilityRef: authorizationDecision.policyRef,
       authorizationDecision,
     };
   }
   if (command.type === "RecordReviewConsent") {
-    const executionTarget = `execution/${command.executionId}` as const,
-      ownerRoleBindings = snapshot.task ? [deriveOwnerRoleBinding(snapshot.task.createdBy, executionTarget)] : [];
-    const authorizationDecision = authorizeAction("task.consent", executionTarget, command.actor, command.opId, {
-      roleBindings: ownerRoleBindings,
-      target: {},
-      evaluatedAtCut: `canonical:${snapshot.revision}`,
-    });
-    if (authorizationDecision.outcome === "denied")
+    const authorizationDecision = requiredAuthorizationDecision(binding);
+    if (!snapshot.task || !isSamePerson(snapshot.task.createdBy, command.actor))
       throw cellCodedError(
         "actor_unauthorized",
         snapshot.task
@@ -188,7 +144,7 @@ export async function proofFor(
     return {
       actorBinding: command.actor,
       capability: "execution-consent@v1",
-      capabilityRef: `execution-owner:${command.executionId}:${command.actor.principal.personId}`,
+      capabilityRef: authorizationDecision.policyRef,
       authorizationDecision,
     };
   }
@@ -210,7 +166,7 @@ export async function proofFor(
     return {
       actorBinding: command.actor,
       capability: "code-doc-reconcile@v1",
-      capabilityRef: `transport-writer:${command.actor.principal.personId}`,
+      capabilityRef: requiredAuthorizationDecision(binding).policyRef,
       commitPaths: { commitSha: verified.commitSha, paths: verified.paths },
     };
   }
@@ -219,7 +175,7 @@ export async function proofFor(
       return {
         actorBinding: command.actor,
         capability: "code-doc-repoint@v1",
-        capabilityRef: `transport-writer:${command.actor.principal.personId}`,
+        capabilityRef: requiredAuthorizationDecision(binding).policyRef,
         commitPaths: { commitSha: command.commitSha, paths: command.paths },
       };
     const verified = verifyCodeDocCommitPaths({ rootDir, commitSha: command.commitSha, paths: command.paths });
@@ -239,35 +195,24 @@ export async function proofFor(
     return {
       actorBinding: command.actor,
       capability: "code-doc-repoint@v1",
-      capabilityRef: `transport-writer:${command.actor.principal.personId}`,
+      capabilityRef: requiredAuthorizationDecision(binding).policyRef,
       commitPaths: { commitSha: verified.commitSha, paths: verified.paths },
     };
   }
   if (command.type !== "CompleteTask")
     throw cellCodedError("invalid_command", `No authority proof plan exists for ${command.type}.`);
-  return completeProof(command, snapshot) as TaskLifecycleServiceProof<typeof command>;
+  return completeProof(command, snapshot, binding) as TaskLifecycleServiceProof<typeof command>;
 }
 
 export function completeProof(
   command: CompleteTaskCommand,
   snapshot: Snapshot,
+  binding: RepoCellBinding,
 ): ProofFor<CompleteTaskCommand> & { readonly authorizationDecision: AuthorizationDecision } {
   if (snapshot.lease !== null)
     throw cellCodedError("active_lease", "Complete requires the execution lease to be released.");
-  const authorizationDecision = authorizeAction(
-    "task.complete",
-    `execution/${command.executionId}`,
-    command.actor,
-    command.opId,
-    {
-      roleBindings: snapshot.task
-        ? [deriveOwnerRoleBinding(snapshot.task.createdBy, `execution/${command.executionId}`)]
-        : [],
-      target: {},
-      evaluatedAtCut: `canonical:${snapshot.revision}`,
-    },
-  );
-  if (authorizationDecision.outcome === "denied")
+  const authorizationDecision = requiredAuthorizationDecision(binding);
+  if (!snapshot.task || !isSamePerson(snapshot.task.createdBy, command.actor))
     throw cellCodedError("actor_unauthorized", "Complete requires the Execution owner principal.");
   const execution = snapshot.executions.find(
     (candidate) => candidate.executionId === command.executionId && candidate.submission !== null,
@@ -281,12 +226,21 @@ export function completeProof(
     );
   return {
     capability: "task-complete@v1",
-    capabilityRef: `execution-owner:${command.executionId}:${command.actor.principal.personId}`,
+    capabilityRef: authorizationDecision.policyRef,
     actorRole: "owner",
     noActiveLease: true,
     gateReceipts: supplied,
     authorizationDecision,
   };
+}
+
+function requiredAuthorizationDecision(binding: RepoCellBinding): AuthorizationDecision {
+  if (!binding.authorizationDecision || binding.authorizationDecision.outcome !== "allowed")
+    throw cellCodedError(
+      "authorization_missing",
+      "Durable Task criteria require the center AuthorizationPort decision.",
+    );
+  return binding.authorizationDecision;
 }
 
 export function createTaskId(action: RepoTaskAction, binding: RepoCellBinding, workspaceId: string): string {

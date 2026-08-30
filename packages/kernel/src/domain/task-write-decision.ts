@@ -13,14 +13,13 @@ import type { ContractValidationIssue } from "./task.ts";
 import {
   appendWriteTarget,
   assertCurrentWriter,
-  createWriteReceipt,
   freezeDeclaredWritePlan,
   freezeWriteValue,
   isFrozenWritePlan,
   validateDeclaredWritePlan,
   type FrozenWritePlan,
   type WritePlan,
-  type WriteReceipt,
+  type WriteReceiptDraft,
   type WriteTarget,
   type WriterGeneration,
   type WriterGenerationToken,
@@ -49,16 +48,16 @@ export interface ExistingTaskOperation {
   readonly opId: string;
   readonly commandDigest: string;
   readonly event: TaskEventV1;
-  readonly receipt: WriteReceipt;
+  readonly receipt: WriteReceiptDraft;
 }
 export type TaskLifecycleWriteDecision =
   | {
       readonly accepted: true;
       readonly event: TaskEventV1;
       readonly frozenPlan: FrozenWritePlan<TaskLifecycleCommandType>;
-      readonly receipt: WriteReceipt;
+      readonly receipt: WriteReceiptDraft;
     }
-  | { readonly accepted: false; readonly event: null; readonly frozenPlan: null; readonly receipt: WriteReceipt };
+  | { readonly accepted: false; readonly event: null; readonly frozenPlan: null; readonly receipt: WriteReceiptDraft };
 export function decideTaskLifecycleWrite<C extends TaskLifecycleCommand>(input: {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly command: C;
@@ -89,7 +88,7 @@ export function decideTaskLifecycleWrite<C extends TaskLifecycleCommand>(input: 
       });
     const event = freezeWriteValue(applyTransition(input.snapshot, input.command, input.proof).event);
     const frozenPlan = taskLifecycleWritePlan(event) as FrozenWritePlan<TaskLifecycleCommandType>;
-    const receipt = createWriteReceipt({
+    const receipt = Object.freeze({
       outcome: "indeterminate",
       opId: input.command.opId,
       visibility: "center",
@@ -112,7 +111,7 @@ function rejectedDecision(opId: string, code: string, detail: string): TaskLifec
     accepted: false,
     event: null,
     frozenPlan: null,
-    receipt: createWriteReceipt({
+    receipt: Object.freeze({
       outcome: "op_rejected",
       opId,
       visibility: "center",

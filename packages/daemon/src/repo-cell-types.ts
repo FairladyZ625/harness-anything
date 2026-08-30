@@ -2,10 +2,12 @@ import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-s
 import {
   type ActorIdentity,
   type AgentRuntimeEventV1,
+  type AuthorizationDecision,
   type CanonicalEventCut,
   type DaemonRepoMode,
   type RoleBinding,
   type WriteReceipt,
+  type WriteReceiptDraft,
   type WriteSource,
 } from "../../kernel/src/index.ts";
 import { type PresetRunReceiptV1 } from "../../preset/src/index.ts";
@@ -30,9 +32,12 @@ export type RepoTaskAction = Readonly<Record<string, unknown>> & {
 export interface RepoCellBinding {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
+  /** Authored roster projection closes default-open local policy; omitted local bindings use the default. */
+  readonly authorizationBindingMode?: "default" | "declared";
   readonly sessionEnvironment?: Readonly<Record<string, string | undefined>>;
   readonly roleBindings?: readonly RoleBinding[];
-  readonly docWriteAllowed?: boolean;
+  /** Center-issued decision for the one Action currently executing; transport never supplies this. */
+  readonly authorizationDecision?: AuthorizationDecision;
   readonly assignmentScope?: FleetAssignmentScope;
   readonly writerEpoch?: number;
   readonly assertWriterEpoch?: () => void;
@@ -49,7 +54,7 @@ export type RuntimeIngressAction =
     }
   | { readonly kind: "archive"; readonly archive: RuntimeDispatchArchive };
 
-export type TaskCreateReceipt = WriteReceipt & {
+export type TaskCreateReceipt = WriteReceiptDraft & {
   readonly summary: string;
   readonly taskId: string;
   readonly status: "planned";
@@ -65,7 +70,7 @@ export type TaskCreateReceipt = WriteReceipt & {
   readonly dryRun: boolean;
 };
 
-export type TaskProgressReceipt = WriteReceipt & {
+export type TaskProgressReceipt = WriteReceiptDraft & {
   readonly summary: string;
   readonly taskId: string;
   readonly executionId: string;

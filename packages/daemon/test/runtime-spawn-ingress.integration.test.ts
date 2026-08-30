@@ -121,15 +121,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       },
       auth,
     );
-    await t.test("matching agent executor writes the task and execution join", async () => {
+    await t.test("server-bound dispatcher writes the task and execution join", async () => {
       const taskId = "task-runtime-agent",
-        executionId = "exec-runtime-agent",
-        executor = { kind: "agent", id: "codex-worker" } as const;
+        executionId = "exec-runtime-agent";
       await createReadyTask(taskId, "Agent runtime");
-      assert.equal(
-        (await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome,
-        "applied",
-      );
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
       const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId },
         payload: {
@@ -138,11 +134,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           prompt: "Inspect the task.\n\n```sh\nnode packages/cli/src/index.ts --version\n```",
           taskId,
           idempotencyKey: "agent-task-bound",
-          executor,
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@3");
+      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@5");
       assert.equal((receipt.authorizationDecision as { outcome?: string } | null)?.outcome, "allowed");
       assert.equal(launchedEnv?.HARNESS_ACTOR, `agent:runtime-session:${receipt.runtimeSessionId}`);
       assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, userRoot);
@@ -173,7 +168,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             ) ?? null,
       );
       assert.equal(bound?.type, "runtime_session_task_bound");
-      assert.deepEqual(bound?.actor.executor, executor);
+      assert.equal(bound?.actor.executor, null);
       assert.deepEqual(
         bound?.type === "runtime_session_task_bound" && {
           taskId: bound.payload.taskId,
@@ -190,15 +185,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         true,
       );
     });
-    await t.test("dispatcher can hand off a task held by another executor", async () => {
+    await t.test("dispatcher can hand off a task held by the authenticated principal", async () => {
       const taskId = "task-runtime-dispatcher-handoff",
-        executionId = "exec-runtime-dispatcher-handoff",
-        leaseExecutor = { kind: "agent", id: "codex-sol" } as const;
+        executionId = "exec-runtime-dispatcher-handoff";
       await createReadyTask(taskId, "Dispatcher handoff");
-      assert.equal(
-        (await host.run(repoId, { kind: "task-start", taskId, executionId, executor: leaseExecutor }, auth)).outcome,
-        "applied",
-      );
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
       const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId },
         payload: {
@@ -210,7 +201,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@3");
+      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@5");
       assert.equal((receipt.authorizationDecision as { outcome?: string } | null)?.outcome, "allowed");
       const bound = await eventuallyValue(
         async () =>
@@ -270,17 +261,13 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
     });
     await t.test("task mission rejects an unmatched shell glob before provider launch", async () => {
       const taskId = "task-runtime-invalid-glob",
-        executionId = "exec-runtime-invalid-glob",
-        executor = { kind: "agent", id: "codex-worker" } as const;
+        executionId = "exec-runtime-invalid-glob";
       await createReadyTask(
         taskId,
         "Invalid glob",
         "```sh\nprintf 'inspect manifest' && rg runtime tools/test-tier-manifest.*.mjs\n```",
       );
-      assert.equal(
-        (await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome,
-        "applied",
-      );
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
       const before = launchCount,
         receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
           repo: { repoId },
@@ -289,7 +276,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             cwd: { scope: "repo-relative", path: ".worktrees/worker" },
             taskId,
             idempotencyKey: "invalid-glob",
-            executor,
           },
         });
       assert.equal(receipt.outcome, "op_rejected");
@@ -299,13 +285,9 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
     });
     await t.test("task mission rejects a missing Node entry before provider launch", async () => {
       const taskId = "task-runtime-missing-entry",
-        executionId = "exec-runtime-missing-entry",
-        executor = { kind: "agent", id: "codex-worker" } as const;
+        executionId = "exec-runtime-missing-entry";
       await createReadyTask(taskId, "Missing entry", "```bash\nnode tools/missing-entry.mjs\n```");
-      assert.equal(
-        (await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome,
-        "applied",
-      );
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
       const before = launchCount,
         receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
           repo: { repoId },
@@ -314,7 +296,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             cwd: { scope: "repo-relative", path: ".worktrees/worker" },
             taskId,
             idempotencyKey: "missing-entry",
-            executor,
           },
         });
       assert.equal(receipt.outcome, "op_rejected");
@@ -322,16 +303,12 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.match(String(receipt.nextAction), /tools\/missing-entry\.mjs/u);
       assert.equal(launchCount, before);
     });
-    await t.test("mismatched agent executor remains rejected", async () => {
+    await t.test("payload-reported executor remains rejected", async () => {
       const taskId = "task-runtime-mismatch",
         executionId = "exec-runtime-mismatch",
-        holder = { kind: "agent", id: "codex-holder" } as const,
         caller = { kind: "agent", id: "codex-other" } as const;
       await createReadyTask(taskId, "Mismatched runtime");
-      assert.equal(
-        (await host.run(repoId, { kind: "task-start", taskId, executionId, executor: holder }, auth)).outcome,
-        "applied",
-      );
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
       const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId },
         payload: {
@@ -344,39 +321,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
       });
       assert.equal(receipt.outcome, "op_rejected");
-      assert.equal(receipt.code, "runtime_task_lease_required");
-      assert.match(
-        String(receipt.nextAction),
-        new RegExp(
-          `holder \\(personId=owner, executor=agent:codex-holder\\) must run ha task release ${taskId}, then this caller can run ha task start ${taskId}`,
-          "u",
-        ),
-      );
-      assert.equal(
-        (await host.run(repoId, { kind: "task-release", taskId, executor: holder }, auth)).outcome,
-        "applied",
-      );
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executor: caller }, auth)).outcome, "applied");
-      assert.equal(
-        (
-          await rpc(host, auth, "repo.agentRuntime.spawn", {
-            repo: { repoId },
-            payload: {
-              runtimeInstanceId: ingressDefinition.instanceId,
-              cwd: { scope: "repo-root" },
-              prompt: "Recovered executor",
-              taskId,
-              idempotencyKey: "agent-task-recovered",
-              executor: caller,
-            },
-          })
-        ).outcome,
-        "applied",
-      );
+      assert.equal(receipt.code, "executor_binding_invalid");
+      assert.match(String(receipt.nextAction), /runtime-session:<runtime-id>/u);
     });
     await t.test("task-bound runtime without a lease starts and dispatches in one command", async () => {
-      const taskId = "task-runtime-no-lease",
-        executor = { kind: "agent", id: "codex-no-lease" } as const;
+      const taskId = "task-runtime-no-lease";
       await createReadyTask(taskId, "Runtime no lease");
       const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId },
@@ -386,7 +335,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           prompt: "Acquire the lease and dispatch",
           taskId,
           idempotencyKey: "runtime-no-lease",
-          executor,
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -399,7 +347,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.ok(started >= 0 && started < dispatched, events.map((event) => event.type).join(" -> "));
       const start = events[started];
       assert.equal(start?.type, "execution_started");
-      if (start?.type === "execution_started") assert.deepEqual(start.payload.lease.actor.executor, executor);
+      if (start?.type === "execution_started") assert.equal(start.payload.lease.actor.executor, null);
     });
     await t.test("human lease remains task-bindable without an executor", async () => {
       const taskId = "task-runtime-human",
@@ -442,13 +390,9 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       "the bound runtime appends attributed progress while an unrelated executor stays rejected",
       async () => {
         const taskId = "task-runtime-progress",
-          executionId = "exec-runtime-progress",
-          holder = { kind: "agent", id: "dispatch-holder" } as const;
+          executionId = "exec-runtime-progress";
         await createReadyTask(taskId, "Runtime progress");
-        assert.equal(
-          (await host.run(repoId, { kind: "task-start", taskId, executionId, executor: holder }, auth)).outcome,
-          "applied",
-        );
+        assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
         const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
           repo: { repoId },
           payload: {
@@ -457,7 +401,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             prompt: "Record progress",
             taskId,
             idempotencyKey: "runtime-progress",
-            executor: holder,
           },
         });
         await eventuallyValue(
@@ -525,7 +468,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           auth,
         );
         assert.equal(rejected.outcome, "op_rejected");
-        assert.equal(rejected.code, "progress_lease_mismatch");
+        assert.equal(rejected.code, "executor_binding_invalid");
         const progress = makeTaskEventStore({ repoId, rootDir: root })
           .read()
           .events.filter((event) => event.schema === "task-progress-event/v1" && event.payload.taskId === taskId);
@@ -675,8 +618,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           },
           {
             outcome: "op_rejected",
-            code: "lease_conflict",
-            origin: "doc-sync-contract",
+            code: "executor_binding_invalid",
+            origin: "daemon",
           },
         );
         const otherPath =

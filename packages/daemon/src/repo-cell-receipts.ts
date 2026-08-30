@@ -5,7 +5,7 @@ import {
   requireEntityKindContract,
   type CanonicalEventV1,
   type TaskProgressEventV1,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { readDocReceipt } from "./doc-sync-actions.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";

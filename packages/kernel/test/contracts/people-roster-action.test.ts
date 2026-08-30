@@ -191,11 +191,11 @@ test("people bind persists only declared RoleBindings and removes a deleted pers
           actor: { kind: "person", id: "person_alice" },
           role: "arbiter",
           target: "settings/repository",
-          source: "derived",
+          source: "derived" as never,
           expiresAt: null,
         },
       }),
-    /only persist declared RoleBindings/u,
+    /RoleBinding source must be declared/u,
   );
 });
 

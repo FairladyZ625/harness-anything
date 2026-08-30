@@ -16,7 +16,8 @@ import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
-import { withDerivedCommandClass } from "./repo-cell-role-bindings.ts";
+import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { declaredRoleBindingsForActor } from "./identity/declared-role-binding-projection.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { TaskQueryJudgments } from "./task-query-read.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
@@ -72,9 +73,30 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
       pendingSettlementActor = actor;
       return;
     }
-    const binding = withDerivedCommandClass({ actor, source: "local" }, "repo-write");
+    const action = { kind: "doc-submit", paths: [] } as const,
+      revision = store.readHead()?.revision ?? 0,
+      roleBindings = declaredRoleBindingsForActor(context.rootDir, actor),
+      baseBinding: RepoCellBinding = {
+        actor,
+        source: "local",
+        ...(roleBindings === undefined
+          ? { authorizationBindingMode: "default" }
+          : { authorizationBindingMode: "declared", roleBindings }),
+      },
+      authorizationDecision = authorizeRepoCellAction({
+        action,
+        binding: baseBinding,
+        actionId: `doc-materializer:${revision}`,
+        revision,
+        now: context.now(),
+      });
+    if (authorizationDecision.outcome === "denied") {
+      console.warn(`[wal-materializer] document effect denied: ${authorizationDecision.reasonCodes.join(", ")}`);
+      return;
+    }
+    const binding = { ...baseBinding, authorizationDecision };
     void runDocAction({
-      action: { kind: "doc-submit", paths: [] },
+      action,
       binding,
       workspaceId: context.input.repoId,
       rootDir: context.rootDir,

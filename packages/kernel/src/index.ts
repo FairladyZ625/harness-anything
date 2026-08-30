@@ -36,8 +36,12 @@ export {
   reviewDigest,
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
-export { isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
-export { resolveTaskBoundRuntimeBinding, runtimeSessionIdFromActor } from "./domain/task-bound-runtime-authority.ts";
+export { isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
+export {
+  isTaskBoundRuntimeWriter,
+  resolveTaskBoundRuntimeBinding,
+  runtimeSessionIdFromActor,
+} from "./domain/task-bound-runtime-authority.ts";
 export type { TaskBoundRuntimeBinding } from "./domain/task-bound-runtime-authority.ts";
 export {
   compileTaskLifecycleWrite,
@@ -88,6 +92,7 @@ export {
   normalizeCommandEnvelope,
   serializeEventHead,
   WRITE_RECEIPT_SCHEMA,
+  sameWriteSource,
 } from "./domain/write-chain.contract.ts";
 export type {
   ActorIdentity,
@@ -96,6 +101,7 @@ export type {
   LedgerCutIdentity,
   WriteOperationReceipt,
   WriteReceipt,
+  WriteReceiptDraft,
   WriteSource,
   WriteTarget,
   WriterGeneration,
@@ -115,6 +121,7 @@ export type {
 export {
   DOC_POLICY_ID,
   decideDocWrite,
+  decideDocWriteCriteria,
   docByteLength,
   docSyncWritePlan,
   documentPath,
