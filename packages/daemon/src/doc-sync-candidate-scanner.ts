@@ -78,7 +78,7 @@ export function scanDocCandidates(input: {
           : (() => {
               throw docSyncError("task_not_found", `Task ${input.taskId} has no projected package path.`);
             })(),
-    selected = input.selection?.map((value) => documentPath(value)),
+    selected = input.selection?.map((value) => documentPath(normalizeSelectedPath(ledger.authoredPrefix, value))),
     events = input.store.read().events,
     pendingPaths = events
       .filter((event) => input.store.publication(event).commitSha === null)
@@ -319,22 +319,8 @@ export function scanDocCandidates(input: {
   }
 }
 
-export function validateSelectedDocPaths(rootDir: string, selected: readonly string[], scan: DocCandidateScan): void {
+export function validateSelectedDocPaths(selected: readonly string[], scan: DocCandidateScan): void {
   if (selected.length === 0) return;
-  const authoredPrefix = resolveLedgerGitLayout(rootDir).authoredPrefix,
-    prefixed = authoredPrefix
-      ? selected.filter((value) => value === authoredPrefix || value.startsWith(`${authoredPrefix}/`))
-      : [];
-  if (prefixed.length > 0) {
-    const rewritten = prefixed.map((value) => value.slice(`${authoredPrefix}/`.length));
-    throw docSyncError(
-      "invalid_command",
-      [
-        `doc --path requires authored-root-relative paths; drop the '${authoredPrefix}/' prefix and retry with `,
-        `${rewritten.map((value) => `'${value}'`).join(", ")}`,
-      ].join(""),
-    );
-  }
   const missing = scan.rows
     .filter((row) => row.state === "clean" && row.baseBlobSha256 === null && row.candidateBlobSha256 === null)
     .map((row) => ({
@@ -342,6 +328,10 @@ export function validateSelectedDocPaths(rootDir: string, selected: readonly str
       reason: "selected doc-sync path does not match an authored candidate",
     }));
   if (missing[0]) throw docSyncError("document_not_found", blockedCandidateNextAction(missing[0]));
+}
+
+function normalizeSelectedPath(authoredPrefix: string, value: string): string {
+  return authoredPrefix && value.startsWith(`${authoredPrefix}/`) ? value.slice(authoredPrefix.length + 1) : value;
 }
 
 export function intentFromScan(

@@ -285,6 +285,8 @@ test("human preset and task receipts print resolved completion contracts byte-fo
           ok: true,
           command: "task-create",
           summary: "created task task-one at tasks/task-one",
+          taskId: "task-one",
+          packagePath: "tasks/task-one",
           presetId: "standard-task",
           profileId: "baseline",
           outputShape: "repository-diff",
@@ -306,6 +308,8 @@ test("human preset and task receipts print resolved completion contracts byte-fo
       'completionGates: ["ci","code-doc-reconciliation"]',
       expectedContract,
       "next: edit tasks/task-one/task_plan.md, then run ha task start task-one --execution-id <id>",
+      "plan: write the concrete plan at harness/tasks/task-one/task_plan.md",
+      "agenda: use ha task pin task-one to pin it to the CEO agenda",
     ].join("\n");
   assert.deepEqual(Buffer.from(taskOutput), Buffer.from(expectedTask));
 
@@ -336,6 +340,7 @@ test("thin parser derives closed preset and task-create payloads from descriptor
       "milestone",
       "--dry-run",
     ]),
+    tree = parseThinCommand(["task", "list", "--parent", "task-root", "--depth", "all", "--search", "needle"]),
     inspect = parseThinCommand(["preset", "inspect", "standard-task", "--locale", "en-US"]),
     check = parseThinCommand(["preset", "check", "standard-task", "--snapshot-digest", `sha256:${"a".repeat(64)}`]),
     validate = parseThinCommand(["preset", "validate", "--source", "package"]),
@@ -345,7 +350,7 @@ test("thin parser derives closed preset and task-create payloads from descriptor
     uninstall = parseThinCommand(["preset", "uninstall", "standard-task", "--dry-run"]),
     upgrade = parseThinCommand(["preset", "upgrade", "task-1"]);
   assert.equal(
-    [create, inspect, check, validate, install, seed, audit, uninstall, upgrade].every((result) => result.ok),
+    [create, tree, inspect, check, validate, install, seed, audit, uninstall, upgrade].every((result) => result.ok),
     true,
   );
   if (create.ok) {
@@ -358,6 +363,13 @@ test("thin parser derives closed preset and task-create payloads from descriptor
       dryRun: true,
     });
   }
+  if (tree.ok)
+    assert.deepEqual(tree.command.action, {
+      kind: "task-list",
+      parentTaskId: "task-root",
+      depth: "all",
+      search: "needle",
+    });
   if (inspect.ok) {
     assert.equal(inspect.command.method, "repo.preset.inspect");
     assert.deepEqual(inspect.command.action, {

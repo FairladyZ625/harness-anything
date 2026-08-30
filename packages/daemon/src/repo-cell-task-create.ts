@@ -11,8 +11,9 @@ export function readResult(
   value: object,
   revision: number,
   worktreeVisible: boolean | null,
+  projectedCut?: { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number },
 ): WriteReceipt {
-  const cut = cell.projection.list(),
+  const cut = projectedCut ?? cell.projection.list(),
     ready = cut.status === "ready",
     base = {
       opId,

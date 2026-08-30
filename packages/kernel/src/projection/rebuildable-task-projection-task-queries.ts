@@ -3,10 +3,12 @@ import type { DatabaseSync } from "node:sqlite";
 import { isTaskEvent } from "../domain/doc-sync.contract.ts";
 import { isAgentRuntimeEvent, type AgentRuntimeEventV1 } from "../domain/agent-runtime.ts";
 import { type TaskProgressEventV1 } from "../domain/task-progress-event.ts";
+import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { readDecisionGraphRows } from "./decision-event-projection.ts";
 import { readFactGraphRows } from "./fact-event-projection.ts";
 import {
   readTaskDependencyClosureRows,
+  readTaskIndexRows,
   readTaskRelationPage,
   readTaskRelationRows,
   readTaskRelationsByTargets,
@@ -82,6 +84,7 @@ export function taskQueryApi(
 ): Pick<
   TaskProjection,
   | "readTaskRelations"
+  | "readTaskIndex"
   | "readWorkspaceSummary"
   | "readTaskDependencyClosure"
   | "readTaskRelationsByTargets"
@@ -105,6 +108,21 @@ export function taskQueryApi(
 > {
   const { eventStore, limit, projectionPath, readHead } = context;
   return {
+    readTaskIndex: () => {
+      const existed = localRuntimeStateFileSystem.exists(projectionPath);
+      return withDatabase(projectionPath, readHead, (db) => {
+        const round = catchUpRound(db, eventStore, limit),
+          current = watermark(db);
+        return {
+          schema: "task-index-projection/v1" as const,
+          status: current === round.sourceRevision ? ("ready" as const) : ("pending" as const),
+          rows: readTaskIndexRows(db),
+          watermark: current,
+          sourceRevision: round.sourceRevision,
+          warnings: !existed && round.sourceRevision > 0 ? (["projection_missing"] as const) : [],
+        };
+      });
+    },
     readWorkspaceSummary: () =>
       withDatabase(projectionPath, readHead, (db) => {
         const round = catchUpRound(db, eventStore, limit),

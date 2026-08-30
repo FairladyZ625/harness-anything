@@ -258,7 +258,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     id: "task-list",
     phase: "W3",
     path: ["task", "list"],
-    summary: "List Task projection rows with canonical lifecycle and metadata filters.",
+    summary: "List Task projection rows or a recursive parent subtree with canonical filters.",
     method: "repo.task.run",
     inputs: [
       cliInput(
@@ -309,6 +309,16 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         code: "invalid_field",
         nextAction: "Use one parent task id.",
       }),
+      cliInput(
+        "--depth",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use --depth <positive-integer|all> together with --parent <task-id>.",
+        },
+        { regex: "^(?:[1-9][0-9]*|all)$" },
+      ),
       cliInput(
         "--updated-after",
         "single",

@@ -10,10 +10,7 @@ import {
   readTaskProjection,
   rebuildTaskProjection,
 } from "../../kernel/src/index.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -63,11 +60,32 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
     await realizeTaskPlanFixture(rootDir, String(created.packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
-    mkdirSync(path.join(rootDir, "harness/legacy/source"), { recursive: true });
-    writeFileSync(
-      path.join(rootDir, "harness/legacy/source/old.md"),
-      "# Legacy\n",
+    for (const action of [
+      { kind: "task-create", taskId: "task_child_alpha", title: "Child Alpha", parentTaskId: "task_source" },
+      { kind: "task-create", taskId: "task_child_beta", title: "Child Beta", parentTaskId: "task_source" },
+      {
+        kind: "task-create",
+        taskId: "task_grandchild",
+        title: "Grandchild Needle",
+        parentTaskId: "task_child_alpha",
+      },
+    ] as const)
+      assert.equal((await cell.run(action, binding)).outcome, "applied");
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-amend",
+            taskId: "task_child_beta",
+            patches: [{ field: "pinned", value: "true" }],
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
     );
+    mkdirSync(path.join(rootDir, "harness/legacy/source"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/legacy/source/old.md"), "# Legacy\n");
     writeFileSync(
       path.join(rootDir, "harness/legacy/index.json"),
       JSON.stringify({
@@ -80,10 +98,10 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
         ],
       }),
     );
-    const legacy = (await cell.run(
-      { kind: "task-create", fromLegacyId: "legacy-1" },
-      binding,
-    )) as Record<string, unknown>;
+    const legacy = (await cell.run({ kind: "task-create", fromLegacyId: "legacy-1" }, binding)) as Record<
+      string,
+      unknown
+    >;
     assert.equal(legacy.outcome, "applied", JSON.stringify(legacy));
     const eventCount = makeTaskEventStore({
       repoId: "task-read-surface",
@@ -123,11 +141,7 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
     assert.equal(startPreview.proof?.canonicalVisible, false);
     assert.equal(relationPreview.outcome, "pending");
     assert.equal(relationPreview.proof?.canonicalVisible, false);
-    assert.equal(
-      makeTaskEventStore({ repoId: "task-read-surface", rootDir }).read().events
-        .length,
-      eventCount,
-    );
+    assert.equal(makeTaskEventStore({ repoId: "task-read-surface", rootDir }).read().events.length, eventCount);
     await cell.run(
       {
         kind: "task-relate",
@@ -160,6 +174,27 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
             status: "planned",
             module: "daemon",
             search: "searchable",
+          },
+          binding,
+        ),
+      ),
+      treeReceipt = await cell.run(
+        {
+          kind: "task-list",
+          parentTaskId: "task_source",
+          depth: "all",
+          search: "needle",
+        },
+        binding,
+      ),
+      tree = evidence(treeReceipt),
+      filteredPage = evidence(
+        await cell.run(
+          {
+            kind: "task-list",
+            parentTaskId: "task_source",
+            search: "child",
+            limit: 1,
           },
           binding,
         ),
@@ -199,6 +234,31 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
       (listed.rows as { taskId: string }[]).map((row) => row.taskId),
       ["task_source"],
     );
+    assert.equal(tree.schema, "task-list/v2");
+    assert.equal((treeReceipt as Record<string, unknown>).schema, "task-list/v2");
+    assert.deepEqual((treeReceipt as Record<string, unknown>).rows, tree.rows);
+    assert.deepEqual(tree.rows, [
+      {
+        taskId: "task_child_alpha",
+        title: "Child Alpha",
+        status: "planned",
+        pinned: false,
+        children: [
+          {
+            taskId: "task_grandchild",
+            title: "Grandchild Needle",
+            status: "planned",
+            pinned: false,
+            children: [],
+          },
+        ],
+      },
+    ]);
+    assert.deepEqual(
+      (filteredPage.rows as { taskId: string }[]).map(({ taskId }) => taskId),
+      ["task_child_alpha"],
+    );
+    assert.equal(typeof (filteredPage.page as { nextCursor: unknown }).nextCursor, "string");
     assert.equal((relations.rows as unknown[]).length, 1);
     // #1542: event-backed truth already answers this read; an unmaterialized generated-cache
     // must not stand as a permanent hard-fail warning on an otherwise healthy workspace.
@@ -219,9 +279,7 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
     assert.equal(typeof superseded.replacementTaskId, "string");
     rebuildTaskProjection({ rootDir });
     assert.equal(
-      readTaskProjection({ rootDir }).rows.find(
-        (row) => row.taskId === "task_source",
-      )?.packageDisposition,
+      readTaskProjection({ rootDir }).rows.find((row) => row.taskId === "task_source")?.packageDisposition,
       "archived",
     );
   } finally {
@@ -276,19 +334,10 @@ test("a lapsed lease stays readable through task show and releasable through tas
       "applied",
     );
     const held = String(
-      (
-        (await cell.run(
-          { kind: "task-show", taskId: "task_lease" },
-          reclaimer,
-        )) as Record<string, unknown>
-      ).summary,
+      ((await cell.run({ kind: "task-show", taskId: "task_lease" }, reclaimer)) as Record<string, unknown>).summary,
     );
     assert.match(held, /\nlease: [^\n]*phase=held/u, held);
-    assert.match(
-      held,
-      /\nlease: [^\n]*expiresAt=2026-08-15T02:01:00\.000Z/u,
-      held,
-    );
+    assert.match(held, /\nlease: [^\n]*expiresAt=2026-08-15T02:01:00\.000Z/u, held);
     const earlyReclaim = await cell.run(
       {
         kind: "task-release",
@@ -297,35 +346,14 @@ test("a lapsed lease stays readable through task show and releasable through tas
       },
       reclaimer,
     );
-    assert.equal(
-      earlyReclaim.outcome,
-      "op_rejected",
-      JSON.stringify(earlyReclaim),
-    );
-    assert.equal(
-      (earlyReclaim as Record<string, unknown>).code,
-      "lease_conflict",
-      JSON.stringify(earlyReclaim),
-    );
+    assert.equal(earlyReclaim.outcome, "op_rejected", JSON.stringify(earlyReclaim));
+    assert.equal((earlyReclaim as Record<string, unknown>).code, "lease_conflict", JSON.stringify(earlyReclaim));
     clock = "2026-08-15T03:00:00.000Z";
     const summary = String(
-      (
-        (await cell.run(
-          { kind: "task-show", taskId: "task_lease" },
-          reclaimer,
-        )) as Record<string, unknown>
-      ).summary,
+      ((await cell.run({ kind: "task-show", taskId: "task_lease" }, reclaimer)) as Record<string, unknown>).summary,
     );
-    assert.match(
-      summary,
-      /\nlease: [^\n]*executionId=exe_lapse[^\n]*phase=orphaned/u,
-      summary,
-    );
-    assert.match(
-      summary,
-      /\nlease: [^\n]*expiresAt=2026-08-15T02:01:00\.000Z/u,
-      summary,
-    );
+    assert.match(summary, /\nlease: [^\n]*executionId=exe_lapse[^\n]*phase=orphaned/u, summary);
+    assert.match(summary, /\nlease: [^\n]*expiresAt=2026-08-15T02:01:00\.000Z/u, summary);
     assert.match(summary, /\ntask: [^\n]*status=active[^\n]*/u, summary);
     assert.match(summary, /executions:\n[^\n]*\texe_lapse\t/u, summary);
     // The reporter's bite: the failed append must say when the lease lapsed and name the round to re-enter.
@@ -340,11 +368,7 @@ test("a lapsed lease stays readable through task show and releasable through tas
     )) as Record<string, unknown>;
     assert.equal(bite.outcome, "op_rejected", JSON.stringify(bite));
     assert.equal(bite.code, "progress_lease_required", JSON.stringify(bite));
-    assert.match(
-      String(bite.nextAction),
-      /lapsed at 2026-08-15T02:01:00\.000Z/u,
-      JSON.stringify(bite),
-    );
+    assert.match(String(bite.nextAction), /lapsed at 2026-08-15T02:01:00\.000Z/u, JSON.stringify(bite));
     assert.match(
       String(bite.nextAction),
       /ha task release task_lease, then re-enter the round with ha task start task_lease --execution-id exe_lapse/u,
@@ -365,16 +389,8 @@ test("a lapsed lease stays readable through task show and releasable through tas
       },
       outsider,
     );
-    assert.equal(
-      crossPrincipal.outcome,
-      "op_rejected",
-      JSON.stringify(crossPrincipal),
-    );
-    assert.equal(
-      (crossPrincipal as Record<string, unknown>).code,
-      "lease_conflict",
-      JSON.stringify(crossPrincipal),
-    );
+    assert.equal(crossPrincipal.outcome, "op_rejected", JSON.stringify(crossPrincipal));
+    assert.equal((crossPrincipal as Record<string, unknown>).code, "lease_conflict", JSON.stringify(crossPrincipal));
     const released = await cell.run(
       {
         kind: "task-release",
@@ -384,12 +400,7 @@ test("a lapsed lease stays readable through task show and releasable through tas
       reclaimer,
     );
     assert.equal(released.outcome, "applied", JSON.stringify(released));
-    assert.equal(
-      evidence(
-        await cell.run({ kind: "task-show", taskId: "task_lease" }, reclaimer),
-      ).lease,
-      null,
-    );
+    assert.equal(evidence(await cell.run({ kind: "task-show", taskId: "task_lease" }, reclaimer)).lease, null);
     // The recovery the error prescribes must actually work: same execution re-leases the round, then the append lands.
     assert.equal(
       (
@@ -476,21 +487,13 @@ test("a released round is re-enterable by its own execution and still refuses a 
       "applied",
     );
     // Release ends the lease but not the round: the execution is still active, so a *second* execution stays refused.
-    const second = await cell.run(
-      { kind: "task-start", taskId: "task_round", executionId: "exe_second" },
-      binding,
-    );
+    const second = await cell.run({ kind: "task-start", taskId: "task_round", executionId: "exe_second" }, binding);
     assert.equal(second.outcome, "op_rejected", JSON.stringify(second));
     assert.equal(second.code, "invalid_transition");
     // The adjudicated exit: the same execution re-leases the round it never finished.
-    const rejoined = await cell.run(
-      { kind: "task-start", taskId: "task_round", executionId: "exe_round" },
-      binding,
-    );
+    const rejoined = await cell.run({ kind: "task-start", taskId: "task_round", executionId: "exe_round" }, binding);
     assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
-    const shown = evidence(
-      await cell.run({ kind: "task-show", taskId: "task_round" }, binding),
-    );
+    const shown = evidence(await cell.run({ kind: "task-show", taskId: "task_round" }, binding));
     assert.deepEqual(
       (
         shown.executions as readonly {
@@ -500,10 +503,7 @@ test("a released round is re-enterable by its own execution and still refuses a 
       ).map((row) => `${row.executionId}/${row.state}`),
       ["exe_round/active"],
     );
-    assert.equal(
-      (shown.lease as { readonly executionId: string } | null)?.executionId,
-      "exe_round",
-    );
+    assert.equal((shown.lease as { readonly executionId: string } | null)?.executionId, "exe_round");
     // Re-entry must not require the caller to remember the id. Omitting it used to derive a fresh one,
     // which the round then refused — the reported dead end, reachable with no execution id at all.
     assert.equal(
@@ -519,16 +519,13 @@ test("a released round is re-enterable by its own execution and still refuses a 
       ).outcome,
       "applied",
     );
-    const blind = await cell.run(
-      { kind: "task-start", taskId: "task_round" },
-      binding,
-    );
+    const blind = await cell.run({ kind: "task-start", taskId: "task_round" }, binding);
     assert.equal(blind.outcome, "applied", JSON.stringify(blind));
     assert.equal(
       (
-        evidence(
-          await cell.run({ kind: "task-show", taskId: "task_round" }, binding),
-        ).lease as { readonly executionId: string } | null
+        evidence(await cell.run({ kind: "task-show", taskId: "task_round" }, binding)).lease as {
+          readonly executionId: string;
+        } | null
       )?.executionId,
       "exe_round",
     );
@@ -541,9 +538,7 @@ test("a released round is re-enterable by its own execution and still refuses a 
     rmSync(replay.path, { force: true });
     replay.rebuild();
     assert.deepEqual(
-      replay
-        .read("task_round")
-        .snapshot.executions.map((row) => `${row.executionId}/${row.state}`),
+      replay.read("task_round").snapshot.executions.map((row) => `${row.executionId}/${row.state}`),
       ["exe_round/active"],
     );
     replay.close();
@@ -566,12 +561,7 @@ test("read commands report projection readiness instead of asserting canonical v
     });
     const binding = { actor, source: "local" as const };
     assert.equal(
-      (
-        await cell.run(
-          { kind: "task-create", taskId: "task_ready", title: "Readiness" },
-          binding,
-        )
-      ).outcome,
+      (await cell.run({ kind: "task-create", taskId: "task_ready", title: "Readiness" }, binding)).outcome,
       "applied",
     );
     const listed = await cell.run({ kind: "task-list" }, binding),
@@ -582,10 +572,7 @@ test("read commands report projection readiness instead of asserting canonical v
     assert.equal(payload.watermark, payload.sourceRevision);
     assert.equal(listed.proof?.canonicalVisible, true);
     assert.equal(listed.proof?.appliedCut, payload.watermark);
-    assert.match(
-      String((listed as Record<string, unknown>).summary),
-      /status=ready/u,
-    );
+    assert.match(String((listed as Record<string, unknown>).summary), /status=ready/u);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

@@ -67,6 +67,7 @@ export interface TaskProjection {
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
   readonly read: (taskId: string) => TaskProjectionRead;
   readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead;
+  readonly readTaskIndex: () => import("./projection-reads.ts").TaskIndexProjectionRead;
   readonly readWorkspaceSummary: () => WorkspaceSummaryProjectionRead;
   readonly readTaskRelations: () => TaskRelationProjectionRead;
   readonly readTaskDependencyClosure: (sourceRefs: readonly string[], maxDepth?: number) => TaskRelationProjectionRead;

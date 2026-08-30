@@ -151,7 +151,14 @@ export function emit(receipt: Record<string, unknown>, json: boolean): void {
 }
 
 function renderTaskCreateReceipt(receipt: Record<string, unknown>): string {
-  const contract = receipt.outputShape === "repository-diff" ? [repositoryDiffContract] : [];
+  const contract = receipt.outputShape === "repository-diff" ? [repositoryDiffContract] : [],
+    guidance =
+      receipt.dryRun !== true && typeof receipt.packagePath === "string" && typeof receipt.taskId === "string"
+        ? [
+            `plan: write the concrete plan at harness/${receipt.packagePath}/task_plan.md`,
+            `agenda: use ha task pin ${receipt.taskId} to pin it to the CEO agenda`,
+          ]
+        : [];
   return [
     String(receipt.summary),
     `preset: ${String(receipt.presetId)}/${String(receipt.profileId)}`,
@@ -159,6 +166,7 @@ function renderTaskCreateReceipt(receipt: Record<string, unknown>): string {
     `completionGates: ${JSON.stringify(receipt.completionGates)}`,
     ...contract,
     `next: ${String(receipt.nextAction)}`,
+    ...guidance,
   ].join("\n");
 }
 

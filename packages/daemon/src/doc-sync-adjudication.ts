@@ -174,7 +174,7 @@ export function scannerRead(input: Input): DocCandidateScan {
     ...(!taskScoped ? { selection: input.action.paths as string[] } : {}),
     ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),
   });
-  if (!taskScoped) validateSelectedDocPaths(input.rootDir, input.action.paths as string[], scan);
+  if (!taskScoped) validateSelectedDocPaths(input.action.paths as string[], scan);
   return scan;
 }
 
@@ -205,6 +205,6 @@ export function scannerSubmit(input: Input): DocCandidateScan {
     ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),
     ...(typeof input.action.executionId === "string" ? { executionId: input.action.executionId } : {}),
   });
-  if (!taskScoped) validateSelectedDocPaths(input.rootDir, input.action.paths as string[], scan);
+  if (!taskScoped) validateSelectedDocPaths(input.action.paths as string[], scan);
   return scan;
 }

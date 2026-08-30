@@ -238,10 +238,18 @@ test("path and implicit submits ride the repository prose channel when the task 
       [[`${packagePath}/artifacts/reports/leased.md`, "eligible"]],
       JSON.stringify(status.evidence),
     );
+    const prefixedStatus = await cell.run(
+      {
+        kind: "doc-status",
+        paths: [`harness/${packagePath}/artifacts/reports/leased.md`],
+      },
+      person,
+    );
+    assert.deepEqual(rows(prefixedStatus.evidence), rows(status.evidence));
     const scoped = await cell.run(
       {
         kind: "doc-submit",
-        paths: [`${packagePath}/artifacts/reports/leased.md`],
+        paths: [`harness/${packagePath}/artifacts/reports/leased.md`],
       },
       person,
     );

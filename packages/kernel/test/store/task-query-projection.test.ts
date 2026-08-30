@@ -160,6 +160,24 @@ test("narrow task list pages concatenate to the unparameterized result and keep 
     const full = projection.list();
     assert.equal(full.rows.length, 6);
     assert.equal(full.page, undefined);
+    const index = projection.readTaskIndex();
+    assert.equal(index.schema, "task-index-projection/v1");
+    assert.deepEqual(
+      index.rows.map(({ taskId, title, status, parentTaskId, pinned }) => ({
+        taskId,
+        title,
+        status,
+        parentTaskId,
+        pinned,
+      })),
+      full.rows.map(({ taskId, snapshot }) => ({
+        taskId,
+        title: snapshot.task!.title,
+        status: snapshot.task!.status,
+        parentTaskId: snapshot.task!.metadata?.parentTaskId ?? null,
+        pinned: snapshot.task!.pinned ?? false,
+      })),
+    );
     // First page of 2, then follow cursors to exhaustion.
     let page = projection.list({ limit: 2 }),
       rows = [...page.rows];
