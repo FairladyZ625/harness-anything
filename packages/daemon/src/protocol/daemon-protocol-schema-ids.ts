@@ -156,6 +156,10 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
       "watermark",
       "sourceRevision",
     ]),
+  }),
+  DAEMON_ARTIFACTS_LIST_SCHEMA = Object.freeze({
+    id: "daemon.artifacts-list/v1",
+    required: Object.freeze(["ok", "status", "repoId", "kind", "artifacts", "counts", "watermark", "sourceRevision"]),
   });
 
 export const GUI_SYSTEM_STATUS_SCHEMA = Object.freeze({
@@ -207,6 +211,11 @@ export const daemonRelationQueryPayloadShape = shape({
 
 export const daemonDecisionListPayloadShape = shape({
   projection: optionalEnum(["summary", "full"]),
+});
+
+/** 时间线默认面是 html;md 是显式 opt-in(体量 ~77×),absent 字段即 html。 */
+export const daemonArtifactsListPayloadShape = shape({
+  kind: optionalEnum(["html", "md"]),
 });
 
 export const daemonAgendaPayloadShape = shape({

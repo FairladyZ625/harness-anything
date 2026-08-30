@@ -1,6 +1,7 @@
 import {
   CATALOG_REREAD_RECEIPT_SCHEMA,
   DAEMON_AGENDA_SCHEMA,
+  DAEMON_ARTIFACTS_LIST_SCHEMA,
   DAEMON_AGENT_ENTITY_CATALOG_SCHEMA,
   DAEMON_AGENT_ENTITY_DETAIL_SCHEMA,
   DAEMON_AGENT_RUNTIME_ATTACH_EVENT_SCHEMA,
@@ -294,6 +295,14 @@ export const daemonGuiReadSchemas = Object.freeze([
     writer: "packages/daemon/src/schedule-runs-read.ts#serializeScheduleRuns",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-schedule-runs-invalid.json"]),
+  },
+  {
+    id: DAEMON_ARTIFACTS_LIST_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_ARTIFACTS_LIST_SCHEMA",
+    parser: "packages/daemon/src/protocol/artifacts-gui-contract.ts#validateArtifactsList",
+    writer: "packages/daemon/src/protocol/artifacts-gui-contract.ts#serializeArtifactsList",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-artifacts-list-invalid.json"]),
   },
 ]);
 

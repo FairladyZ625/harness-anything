@@ -30,6 +30,7 @@ export type ViewId =
   | "adapters"
   | "sessions"
   | "schedules"
+  | "artifacts"
   | "agentSquad"
   | "providers"
   | "system"

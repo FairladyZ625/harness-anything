@@ -19,6 +19,7 @@ import type {
 } from "../agent-runtime-contract.ts";
 import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import type { SquadRunReadResult, SquadRunsListResult } from "../squad-run-contract.ts";
+import type { ArtifactsListResult } from "./artifacts-gui-contract.ts";
 import type { SchedulesListResult } from "./schedules-gui-contract.ts";
 import type { ScheduleRunsResult } from "../schedule-runs-read.ts";
 import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
@@ -299,6 +300,7 @@ export type DaemonGuiReadResultMap = {
     readonly sourceRevision: number;
   };
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
+  readonly "repo.artifacts.list": ArtifactsListResult;
   readonly "repo.agentRuntime.overview": AgentRuntimeOverviewResult;
   readonly "repo.agentRuntime.sessionGroups": AgentRuntimeSessionGroupsResult;
   readonly "repo.agentRuntime.sessions.read": AgentRuntimeSessionResult;
@@ -341,6 +343,8 @@ export type DaemonGuiReadPayloadMap = {
     readonly path: string;
   };
   readonly "repo.tasks.documents.list": { readonly taskId: string };
+  /** absent kind = html(时间线默认面);md 是显式 opt-in。 */
+  readonly "repo.artifacts.list": { readonly kind?: "html" | "md" };
   readonly "repo.agentRuntime.overview": {
     readonly taskId?: string;
     readonly limit?: number;
