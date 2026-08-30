@@ -775,7 +775,12 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
     createConvenienceLinks: false,
   });
   const installations = (["claude", "codex"] as const).map((kindId) => {
-    const executablePath = writeProviderStub(path.join(parent, `${kindId}-stub.mjs`), kindId);
+    const executablePath = writeProviderStub(
+      path.join(parent, `${kindId}-stub.mjs`),
+      kindId,
+      undefined,
+      kindId === "claude" ? 1_000 : 40,
+    );
     return {
       installationId: `installation-${kindId}`,
       kindId,
@@ -839,6 +844,9 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           },
         });
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        // Keep Claude active while its first message is already buffered so it covers the attach
+        // response's replay path; Codex continues to cover live notifications after attachment.
+        if (kindId === "claude") await new Promise((resolve) => setTimeout(resolve, 2_000));
         const frames: Record<string, unknown>[] = [],
           attached = await rpcAttach(host, auth, repoId, String(receipt.runtimeSessionId), frames);
         try {
