@@ -7,7 +7,7 @@ import {
   consumeKnownError,
   validateCurrentCiRunObservationEvent,
   type CiRunObservationEventV1,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";

@@ -123,7 +123,6 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly rejectHostAction: typeof import("./daemon-host-errors.ts").rejectHostAction;
   readonly attemptHostRecovery: (repoId: string) => Promise<void>;
   readonly warmingMessage: (repoId: string) => string;
-  readonly declaredExecutor: typeof import("./daemon-host-binding.ts").declaredExecutor;
   readonly requiredCell: typeof import("./daemon-host-status.ts").requiredCell;
   readonly rejectPresetRun: typeof import("./daemon-host-errors.ts").rejectPresetRun;
   readonly recoverableRunId: typeof import("./daemon-host-errors.ts").recoverableRunId;

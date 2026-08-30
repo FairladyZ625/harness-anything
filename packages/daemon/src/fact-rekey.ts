@@ -47,7 +47,7 @@ import {
   type RelationType,
   type TaskEventV1,
   type TaskProjection,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { DocEventChange } from "../../kernel/src/index.ts";
 import { isJsonObject, type JsonValue } from "./protocol/json-rpc-types.ts";

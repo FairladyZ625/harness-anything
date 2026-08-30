@@ -10,7 +10,7 @@ import {
   stableStringify,
   type DocEventV1,
   type DocSyncReceiptDetail,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { scannerRead } from "./doc-sync-adjudication.ts";
 import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";

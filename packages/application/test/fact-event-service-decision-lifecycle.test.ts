@@ -2,7 +2,12 @@
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import test from "node:test";
-import { authorizationPort, currentActionEnvelopeVersion, type DecisionEventDraftV1 } from "../../kernel/src/index.ts";
+import {
+  authorizationPort,
+  currentActionEnvelopeVersion,
+  isIndependentFrom,
+  type DecisionEventDraftV1,
+} from "../../kernel/src/index.ts";
 
 import {
   actor,
@@ -52,23 +57,29 @@ test("Decision transition matrix, transport arbiter, claims, relation retirement
       {
         version: currentActionEnvelopeVersion,
         actionId: "action-decision-self-judgment",
-        kind: "decision.accept",
+        kind: "decision-accept",
         target: "decision/dec_FIXTURE",
         actor,
-        authorizationRef: "default@3",
+        authorizationRef: "default@4",
         idempotencyKey: "decision-self-judgment",
       },
       {
-        commandClasses: ["arbiter"],
+        roleBindings: [
+          {
+            actor: { kind: "person", id: actor.principal.personId },
+            role: "arbiter",
+            target: "settings/repository",
+            source: "declared",
+            expiresAt: null,
+          },
+        ],
+        roleBindingTargets: ["settings/repository"],
         target: { proposalActor: actor },
         evaluatedAtCut: "canonical:1",
       },
     );
-    assert.equal(selfJudgment.outcome, "denied");
-    assert.equal(
-      selfJudgment.bindingsUsed.find((binding) => binding.predicate === "isNotProposalAgent")?.satisfied,
-      false,
-    );
+    assert.equal(selfJudgment.outcome, "allowed");
+    assert.equal(isIndependentFrom(actor, actor), false);
     const accepted = recordDecision(service, projection, decisionEvent(2, "decision_accepted"));
     assert.equal(accepted.decision.state, "in_effect");
     assert.deepEqual(

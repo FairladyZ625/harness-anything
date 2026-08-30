@@ -48,13 +48,23 @@ export function authorizeDocWrite(
     {
       version: currentActionEnvelopeVersion,
       actionId: "doc-op",
-      kind: "doc.submit",
+      kind: "doc-submit",
       target: `execution/${lease.executionId}`,
       actor: actionActor,
       authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}`,
       idempotencyKey: "doc-op",
     },
     {
+      roleBindings: [
+        {
+          actor: { kind: "person", id: actionActor.principal.personId },
+          role: "repo-write",
+          target: "settings/repository",
+          source: "declared",
+          expiresAt: null,
+        },
+      ],
+      roleBindingTargets: ["settings/repository"],
       writeSource,
       target: { lease, runtimeBinding },
       evaluatedAtCut: "canonical:test",

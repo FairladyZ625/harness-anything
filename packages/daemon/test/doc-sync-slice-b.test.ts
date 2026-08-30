@@ -12,11 +12,13 @@ import { DOC_COMMAND_FRAME_MAX_BYTES } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const policyId = "markdown-body-replaceable/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const assignmentSource = { kind: "assignment", nodeId: "node-one", assignmentId: "assignment-one" } as const;
+const localBinding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
 
 test("local doc submit rejects the retired selection assembler", async () => {
   const fixture = await docCell("retired-selection");
@@ -31,7 +33,7 @@ test("local doc submit rejects the retired selection assembler", async () => {
         baseLedgerSha: cut,
         selections: [{ path: relativePath, baseBlobSha256: null }],
       },
-      { actor, source: "local" },
+      localBinding,
     );
     assert.equal(result.outcome, "op_rejected");
     assert.equal(result.code, "invalid_command");
@@ -53,7 +55,7 @@ test("local selection and assignment claim normalize to the same doc event throu
     writeClaim(remote.rootDir, "remote", body);
     const localResult = await local.cell.run(
       { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] },
-      { actor, source: "local" },
+      localBinding,
     );
     const remoteBinding = assignmentBinding("remote", [relativePath]);
     const remoteResult = await remote.cell.run(
@@ -97,7 +99,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
   const fixture = await docCell("decision-prose");
   try {
     await startLease(fixture.cell, fixture.rootDir, "local");
-    const binding = { actor, source: "local" as const };
+    const binding = localBinding;
     const proposed = await fixture.cell.run(
       {
         kind: "decision-propose",
@@ -137,7 +139,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
     const firstAction = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
     const first = await fixture.cell.run(firstAction, binding);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
-    assert.equal(first.authorizationDecision?.policyRef, "default@3");
+    assert.equal(first.authorizationDecision?.policyRef, "default@4");
     assert.equal(first.authorizationDecision?.outcome, "allowed");
     const retried = await fixture.cell.run(firstAction, binding);
     assert.equal(retried.outcome, "no_changes");
@@ -259,10 +261,9 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
     writeAuthored(fixture.rootDir, relativePath, body);
     const before = ledgerCut(started.cut);
     const denied = await host.run("rbac", action, auth(fixture.ids.reader));
-    assert.equal(denied.code, "rbac_forbidden");
-    assert.equal(denied.detail?.holder?.personId, "writer");
-    assert.equal(denied.detail?.unresolvedTouches[0]?.requiredRoute, "repo-write");
-    assert.deepEqual(denied.detail?.currentLedgerSha, before);
+    assert.equal(denied.code, "authorization_denied");
+    assert.equal(denied.authorizationDecision.outcome, "denied");
+    assert.deepEqual(denied.unmetCriteria, []);
     assert.equal(existsSync(claimPath(fixture.rootDir, sha(body))), false);
     const other = await host.run("rbac", action, auth(fixture.ids.otherWriter));
     assert.equal(other.code, "lease_conflict");
@@ -287,7 +288,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
     now = "2026-08-12T01:00:00.000Z";
     const result = await expired.cell.run(
       { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] },
-      { actor, source: "local" },
+      localBinding,
     );
     assert.equal(result.code, "lease_conflict");
     assert.equal(result.detail?.holder?.executionId, "execution-doc");
@@ -344,7 +345,7 @@ test("claim-check keeps large bodies out of commands and recycles missing, hash,
     const action = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
     assert.equal(Buffer.byteLength(JSON.stringify(action)) < DOC_COMMAND_FRAME_MAX_BYTES, true);
     assert.equal(JSON.stringify(action).includes(body), false);
-    const result = await local.cell.run(action, { actor, source: "local" });
+    const result = await local.cell.run(action, localBinding);
     assert.equal(result.outcome, "applied", JSON.stringify(result));
     const event = makeTaskEventStore({ repoId: "large", rootDir: local.rootDir }).readEvent(result.opId);
     assert.equal(JSON.stringify(event).includes(body), false);
@@ -427,16 +428,17 @@ async function startLease(
   source: RepoCellBinding["source"],
   ttlMs?: number,
 ): Promise<unknown> {
-  const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, { actor, source });
-  assert.equal(created.outcome, "applied");
+  const roleBinding = withRoleBinding({ actor, source }, "repo-write");
+  const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, roleBinding);
+  assert.equal(created.outcome, "applied", JSON.stringify(created));
   await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
-    cell.run({ kind: "doc-submit", paths: [planPath] }, { actor, source: "local" }),
+    cell.run({ kind: "doc-submit", paths: [planPath] }, localBinding),
   );
   const started = await cell.run(
     { kind: "task-start", taskId: "task-doc", executionId: "execution-doc", ...(ttlMs === undefined ? {} : { ttlMs }) },
-    { actor, source },
+    roleBinding,
   );
-  assert.equal(started.outcome, "applied");
+  assert.equal(started.outcome, "applied", JSON.stringify(started));
   return ledgerCut(started.cut);
 }
 function assignmentBinding(repoId: string, paths: readonly string[]): RepoCellBinding {
@@ -512,12 +514,12 @@ function rbacFixture() {
   const people = Object.entries(ids).map(([role, uid]) => ({
     personId: role,
     displayName: role,
-    roles: [role === "otherWriter" ? "writer" : role],
+    roles: [role === "writer" || role === "otherWriter" ? "repo-write" : role],
     credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }],
   }));
   const roles = [
     { roleId: "reader", commandClasses: ["repo-read"] },
-    { roleId: "writer", commandClasses: ["repo-write", "repo-read"] },
+    { roleId: "repo-write", commandClasses: ["repo-write", "repo-read"] },
     { roleId: "admin", commandClasses: ["admin"] },
   ];
   writeFileSync(

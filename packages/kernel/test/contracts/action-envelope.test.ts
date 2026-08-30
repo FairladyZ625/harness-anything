@@ -57,7 +57,17 @@ test("the five promoted Entity explanations declare metadata-only transitions wi
   ]);
 });
 
-test("new receipts default to an unwired AuthorizationDecision", () => {
+test("public receipts require the structured AuthorizationDecision", () => {
+  const authorizationDecision = {
+    policyRef: "default@4",
+    actor,
+    subject: "task/task-action" as const,
+    bindingsUsed: [],
+    outcome: "allowed" as const,
+    reasonCodes: ["authorization_allowed"],
+    nextActions: [],
+    evaluatedAtCut: "canonical:1",
+  };
   const receipt = createWriteReceipt({
     outcome: "applied",
     opId: "op-action",
@@ -71,28 +81,16 @@ test("new receipts default to an unwired AuthorizationDecision", () => {
       canonicalVisible: true,
       worktreeVisible: null,
     },
+    authorizationDecision,
   });
-  assert.equal(receipt.authorizationDecision, null);
+  assert.equal(receipt.authorizationDecision, authorizationDecision);
   assert.deepEqual(validateWriteReceipt(receipt), []);
-
-  const authorized = {
-    ...receipt,
-    authorizationDecision: {
-      policyRef: "task.start@1",
-      actor,
-      subject: "task/task-action",
-      bindingsUsed: [],
-      outcome: "allowed" as const,
-      reasonCodes: [],
-      nextActions: [],
-      evaluatedAtCut: "canonical:1",
-    },
-  };
-  assert.deepEqual(validateWriteReceipt(authorized), []);
+  const { authorizationDecision: _missing, ...missing } = receipt;
+  assert.match(validateWriteReceipt(missing).join("\n"), /AuthorizationDecision/u);
   assert.match(
     validateWriteReceipt({
-      ...authorized,
-      authorizationDecision: { ...authorized.authorizationDecision, evaluatedAtCut: "" },
+      ...receipt,
+      authorizationDecision: { ...receipt.authorizationDecision, evaluatedAtCut: "" },
     }).join("\n"),
     /AuthorizationDecision/u,
   );

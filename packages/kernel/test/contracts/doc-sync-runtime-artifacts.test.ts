@@ -191,6 +191,7 @@ test("mixed body-replaceable rejection produces a valid typed receipt", () => {
     evidence: `contract-rejection:${result.code}`,
     nextAction: result.detail.nextAction,
     detail: result.detail,
+    authorizationDecision: result.authorizationDecision!,
   };
   assert.deepEqual(validateWriteReceipt(receipt), []);
 });

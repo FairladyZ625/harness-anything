@@ -23,6 +23,7 @@ export {
 export {
   assertDocSyncWritePlan,
   decideDocWrite,
+  decideDocWriteCriteria,
   docSyncWritePlan,
   isValidDocEventChange,
   resolveDocRoute,

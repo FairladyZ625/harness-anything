@@ -114,7 +114,7 @@ const taskActionDeclarations = Object.freeze([
       }),
       cliField("dryRun", "boolean", false, "--dry-run", "boolean", "Use --dry-run once to preview lease admission."),
     ]),
-    policyAction: "execution.start",
+    policyAction: "task-start",
     criteria: Object.freeze([
       {
         ref: "task-lifecycle-command-transitions/canStartExecution",
@@ -174,7 +174,7 @@ const taskActionDeclarations = Object.freeze([
       ],
       [["fromFile", "jsonInput"]],
     ),
-    policyAction: null,
+    policyAction: "task-submit",
     criteria: Object.freeze([
       {
         ref: "task-lifecycle-command-transitions/submit.validate",
@@ -217,7 +217,7 @@ const taskActionDeclarations = Object.freeze([
         jsonFields: TASK_REVIEW_JSON_FIELDS,
       }),
     ]),
-    policyAction: "execution.review",
+    policyAction: "task-review-execution",
     criteria: Object.freeze([
       {
         ref: "task-lifecycle-review-transitions/review.validate",
@@ -227,7 +227,7 @@ const taskActionDeclarations = Object.freeze([
       {
         ref: "repo-cell-proof/proofFor.RecordReview",
         failureCode: "actor_unauthorized",
-        explain: "The reviewer has the arbiter capability and is independent of the submitting executor.",
+        explain: "The reviewer is independent of the submitting executor after Policy qualification.",
       },
     ]),
     concurrency: taskConcurrency(
@@ -288,7 +288,7 @@ const taskActionDeclarations = Object.freeze([
         },
       ),
     ]),
-    policyAction: "task.complete",
+    policyAction: "task-complete",
     criteria: Object.freeze([
       {
         ref: "closeout-readiness/closeoutReadiness",
@@ -337,7 +337,7 @@ export function createTaskActionCatalog(
               ],
               declaration.input.exactlyOneOf,
             ),
-            policy: Object.freeze({ ref: "default@3", action: declaration.policyAction }),
+            policy: Object.freeze({ ref: "default@4", action: declaration.policyAction }),
             criteria: Object.freeze([
               {
                 ref: "task-lifecycle-contract-support/revisionIssues",

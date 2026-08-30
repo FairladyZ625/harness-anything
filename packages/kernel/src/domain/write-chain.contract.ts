@@ -1,7 +1,7 @@
 import { stablePayloadHash, stableStringify } from "../integrity/stable-hash.ts";
 import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
-import { validateWriteReceipt, type WriteReceipt } from "./receipt-domain-registry.ts";
+import { validateWriteReceipt, type WriteReceipt, type WriteReceiptDraft } from "./receipt-domain-registry.ts";
 import { timestamp } from "./timestamp.ts";
 export { validateActorIdentity } from "./actor-identity.ts";
 export type { ActorIdentity } from "./actor-identity.ts";
@@ -15,6 +15,7 @@ export type {
   ReceiptJsonValue,
   ReceiptVisibility,
   WriteReceipt,
+  WriteReceiptDraft,
   WriteReceiptDetail,
 } from "./receipt-domain-registry.ts";
 
@@ -168,7 +169,7 @@ export type FrozenWritePlan<C extends string = string> = Readonly<WritePlan<C>> 
   readonly [frozenWritePlanBrand]: true;
 };
 
-export type WriteOperationReceipt<E, S, C extends string = string> = WriteReceipt & {
+export type WriteOperationReceipt<E, S, C extends string = string> = WriteReceiptDraft & {
   readonly event?: E;
   readonly snapshot: S;
   readonly frozenPlan: FrozenWritePlan<C>;
@@ -253,13 +254,10 @@ export function sameWriteSource(left: unknown, right: unknown): boolean {
   return shape !== null && stableStringify(shape) === stableStringify(writeSourceShape(right));
 }
 
-export function createWriteReceipt<R extends WriteReceipt>(
-  receipt: R,
-): Readonly<R & Pick<WriteReceipt, "authorizationDecision">> {
-  const framed = { authorizationDecision: null, ...receipt },
-    errors = validateWriteReceipt(framed);
+export function createWriteReceipt<R extends WriteReceipt>(receipt: R): Readonly<R> {
+  const errors = validateWriteReceipt(receipt);
   if (errors.length > 0) throw new WriteChainContractError("invalid_contract", `invalid receipt: ${errors.join("; ")}`);
-  return Object.freeze(framed);
+  return Object.freeze(receipt);
 }
 
 export function serializeWriteReceipt(receipt: WriteReceipt): string {

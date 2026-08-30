@@ -4,7 +4,7 @@ import {
   consentedApprovedReview,
   makeTaskEventStore,
   reviewDigest,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { validateGuiSubmission, type GuiSubmissionV1 } from "./protocol/daemon-protocol.contract.ts";
 import { reviewJsonFields, taskSubmissionJsonFields } from "./protocol/daemon-protocol-commands-task.ts";
@@ -102,7 +102,7 @@ export function lifecycleReceipt(
   snapshot: Snapshot,
   publication: PublicPublication,
   proof: NonNullable<WriteReceipt["proof"]>,
-  authorizationDecision: WriteReceipt["authorizationDecision"] = null,
+  authorizationDecision: WriteReceipt["authorizationDecision"] = undefined,
 ): WriteReceipt {
   const executionId = "execution" in event.payload ? event.payload.execution.executionId : null,
     execution = snapshot.executions.find((value) => value.executionId === executionId),

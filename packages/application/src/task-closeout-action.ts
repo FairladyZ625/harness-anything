@@ -1,12 +1,10 @@
 import { createHash } from "node:crypto";
 import {
-  authorizationPort,
   createTaskCloseoutPacketTemplate,
   closeoutReadiness,
-  currentActionEnvelopeVersion,
   currentExecutionCuts,
-  DEFAULT_POLICY,
-  deriveOwnerRoleBinding,
+  isSamePerson,
+  isSameExecution,
   stableStringify,
   taskCloseoutPacketSchema,
   validateTaskCloseoutPacket,
@@ -17,7 +15,7 @@ import {
   type LeaseV1,
   type SubmissionV1,
   type TaskCloseoutPacket,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 
 /** The `ci` completion gate id every CI judgment is reconciled against; the task contract owns whether it applies. */
@@ -38,6 +36,7 @@ export interface TaskCloseoutActionDependencies {
   readonly rootDir: string;
   readonly action: Readonly<Record<string, unknown>>;
   readonly caller: ActorIdentity;
+  readonly authorizationDecision: AuthorizationDecision;
   readonly opId: string;
   readonly readWorkspaceText: (rootDir: string, requested: string, field: string) => string;
   readonly read: () => Promise<Snapshot>;
@@ -232,23 +231,21 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   const selector = executionId ? { executionId } : {},
     humanReviewer: ActorIdentity = { principal: caller.principal, executor: null },
     steps: Array<WriteReceipt & { readonly stage: string }> = [];
-  const ownerAuthorization = authorizeCloseout("owner", caller, snapshot, opId);
-  if (ownerAuthorization.outcome === "denied")
+  const closeoutAuthorization = dependencies.authorizationDecision;
+  if (!task.createdBy || !isSamePerson(task.createdBy, caller))
     return {
       ...reject(
         opId,
         "actor_unauthorized",
         `The Task owner (${task.createdBy.principal.personId}) must run ${invocation}.`,
       ),
-      authorizationDecision: ownerAuthorization,
+      authorizationDecision: closeoutAuthorization,
     };
-  const activeAuthorization = stage <= 0 ? authorizeCloseout("active", caller, snapshot, opId) : null;
-  if (activeAuthorization?.outcome === "denied")
+  if (stage <= 0 && (!snapshot.lease || !isSameExecution(snapshot.lease.actor, caller)))
     return {
       ...reject(opId, "actor_unauthorized", `The active lease holder must run ${invocation}.`),
-      authorizationDecision: activeAuthorization,
+      authorizationDecision: closeoutAuthorization,
     };
-  const closeoutAuthorization = activeAuthorization ?? ownerAuthorization;
   if (stage <= 0) {
     const stopped = await invoke(
       "submit",
@@ -332,32 +329,6 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
       steps,
     } as WriteReceipt;
   }
-}
-
-function authorizeCloseout(
-  scope: "owner" | "active",
-  actor: ActorIdentity,
-  snapshot: Snapshot,
-  opId: string,
-): AuthorizationDecision {
-  const target = `task/${snapshot.task?.taskId ?? "missing"}` as const;
-  return authorizationPort.authorize(
-    {
-      version: currentActionEnvelopeVersion,
-      actionId: `${opId}:${scope}`,
-      kind: "task.closeout",
-      target,
-      actor,
-      authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}`,
-      idempotencyKey: `${opId}:${scope}`,
-    },
-    {
-      ruleScope: scope,
-      roleBindings: snapshot.task ? [deriveOwnerRoleBinding(snapshot.task.createdBy, target)] : [],
-      target: { lease: snapshot.lease },
-      evaluatedAtCut: `canonical:${snapshot.revision}`,
-    },
-  );
 }
 
 function readJudgment(readText: () => string): TaskCloseoutPacket {

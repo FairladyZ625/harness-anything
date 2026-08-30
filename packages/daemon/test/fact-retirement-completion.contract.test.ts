@@ -12,7 +12,7 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } } as const,
-  binding = { actor, source: "local" as const },
+  binding = withRoleBinding({ actor, source: "local" as const }, "repo-write"),
   reviewerBinding = withRoleBinding(
     {
       actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } },

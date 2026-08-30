@@ -9,6 +9,8 @@ import type {
 } from "../../kernel/src/index.ts";
 import {
   consumeKnownError,
+  isSameExecution,
+  isSamePerson,
   resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
   type AuthorizationDecision,
@@ -88,7 +90,6 @@ import type {
   TrustedScheduleSpawn,
 } from "./runtime-spawn-types.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
-import { authorizeAction } from "./authorization.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
@@ -269,7 +270,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       newDispatchId = `dispatch_${hash.slice(0, 24)}`,
       runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
       dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`;
-    let authorizationDecision: AuthorizationDecision | null = null;
+    const authorizationDecision: AuthorizationDecision | null = binding.authorizationDecision ?? null;
     if (taskId && !input.remote) {
       const callerRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
         runtimeBinding =
@@ -280,13 +281,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 taskId,
                 lease.executionId,
               );
-      authorizationDecision = authorizeAction("runtime.dispatch", `task/${taskId}`, binding.actor, dispatchOpId, {
-        target: { lease, runtimeBinding },
-        evaluatedAtCut: `canonical:${store!.readHead()?.revision ?? 0}`,
-      });
+      const leaseQualifies =
+        lease?.phase === "held" &&
+        isSamePerson(lease.actor, binding.actor) &&
+        (binding.actor.executor === null || isSameExecution(lease.actor, binding.actor) || runtimeBinding !== null);
+      if (!authorizationDecision || authorizationDecision.outcome !== "allowed")
+        throw runtimeSpawnError(
+          "authorization_missing",
+          "Runtime dispatch requires the center AuthorizationPort decision.",
+        );
+      if (!leaseQualifies)
+        throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId, lease));
     }
-    if (authorizationDecision?.outcome === "denied")
-      throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId!, lease));
     const daemonRoute = taskId || trustedSchedule ? input.runtimeDaemonRoute : undefined;
     if ((taskId || trustedSchedule) && !daemonRoute)
       throw runtimeSpawnError(

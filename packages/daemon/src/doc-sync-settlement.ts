@@ -7,7 +7,7 @@ import {
   stableStringify,
   type DocSyncReceiptDetail,
   type DocWriteIntent,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { DocIntentChannel } from "./doc-sync-adjudication.ts";
 import { publicScan, type DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
@@ -298,22 +298,6 @@ export function admissionRejection(
   intent: DocWriteIntent,
   lease: ReturnType<TaskProjection["currentLeaseForExecution"]>,
 ): { readonly code: string; readonly detail: DocSyncReceiptDetail } | null {
-  if (input.binding.docWriteAllowed === false) {
-    const rejected = detail(
-      intent,
-      input.store.currentCut(),
-      "rbac_forbidden",
-      lease,
-      intent.changes.map((change) => touch(change.path, "repo-write", "principal lacks repo-write")),
-    );
-    return {
-      code: "rbac_forbidden",
-      detail: {
-        ...rejected,
-        nextAction: "use a repo-write principal holding the active execution lease",
-      },
-    };
-  }
   // Task-context authority is the dynamically acquired execution lease
   // (decideDocWrite re-checks the holder); the assignment scope gates only
   // which paths a node may touch, so a W3-B lease on any task rides the same

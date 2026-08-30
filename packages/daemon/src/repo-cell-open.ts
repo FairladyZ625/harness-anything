@@ -16,7 +16,7 @@ import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runt
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
-import { commandClassForAction, type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
+import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import {
@@ -40,7 +40,8 @@ import { operationId } from "./repo-cell-proof.ts";
 import { makeRepoCellScheduleActions } from "./repo-cell-schedule-actions.ts";
 import { makeRepoCellSettingsActions } from "./repo-cell-settings-actions.ts";
 import { makeRepoCellPeopleActions } from "./repo-cell-people-actions.ts";
-import { withDerivedCommandClass } from "./repo-cell-role-bindings.ts";
+import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { declaredRoleBindingsForActor } from "./identity/declared-role-binding-projection.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   PublicPublication,
@@ -364,11 +365,23 @@ async function openLockedRepoCell(
         taskId,
         binding,
         snapshot: projection.read(taskId).snapshot as Snapshot,
-        start: (executionId) =>
-          extracted.lifecycleAction(
-            { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
-            withDerivedCommandClass(binding, commandClassForAction("task-start")),
-          ),
+        start: (executionId) => {
+          const action = { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
+            revision = store.readHead()?.revision ?? 0,
+            authorizationDecision = authorizeRepoCellAction({
+              action,
+              binding,
+              actionId: `squad-task-start:${taskId}:${revision}`,
+              revision,
+              now: now(),
+            });
+          if (authorizationDecision.outcome === "denied")
+            throw cellCodedError(
+              "authorization_denied",
+              authorizationDecision.nextActions.join(" ") || "Squad lease reacquisition requires repo-write authority.",
+            );
+          return extracted.lifecycleAction(action, { ...binding, authorizationDecision });
+        },
       });
     },
     runtimeSpawner: () => runtimeSpawner,
@@ -440,10 +453,28 @@ async function openLockedRepoCell(
   const operationalContext = Object.assign(runtimeContext, { scheduleActions, settingsActions, peopleActions });
   operationalContext satisfies RepoCellOperationalContext;
   if (input.bootstrap && !input.bootstrap.configureOnly) {
-    const appended = settingsActions.initialize(
-      ...input.bootstrap.settingsBootstrap,
-      withDerivedCommandClass({ actor: input.bootstrap.actor, source: "local" }, "repo-write"),
-    );
+    const baseBinding = {
+        actor: input.bootstrap.actor,
+        source: "local" as const,
+        roleBindings: declaredRoleBindingsForActor(rootDir, input.bootstrap.actor),
+      },
+      revision = store.readHead()?.revision ?? 0,
+      authorizationDecision = authorizeRepoCellAction({
+        action: { kind: "repo-bootstrap" },
+        binding: baseBinding,
+        actionId: `repo-bootstrap:${input.repoId}:${revision}`,
+        revision,
+        now: now(),
+      });
+    if (authorizationDecision.outcome === "denied")
+      throw cellCodedError(
+        "authorization_denied",
+        authorizationDecision.nextActions.join(" ") || "Repository bootstrap requires owner authority.",
+      );
+    const appended = settingsActions.initialize(...input.bootstrap.settingsBootstrap, {
+      ...baseBinding,
+      authorizationDecision,
+    });
     if (appended && bootstrapReceipt) {
       bootstrapReceipt = { ...bootstrapReceipt, outcome: "applied" };
       input.onBootstrap?.(bootstrapReceipt);

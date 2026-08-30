@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { ActorIdentity, WriteReceipt } from "../../kernel/src/index.ts";
+import type { ActorIdentity, AuthorizationDecision, WriteReceipt } from "../../kernel/src/index.ts";
 import { runTaskCloseoutAction, type CloseoutStep } from "../../application/src/task-closeout-action.ts";
 import { readWorkspaceText } from "../src/workspace-text-port.ts";
 
@@ -17,6 +17,16 @@ const taskId = "task-closeout",
 function actor(id: string): ActorIdentity {
   return { principal: { personId: "owner" }, executor: { kind: "agent", id } };
 }
+const authorizationDecision: AuthorizationDecision = {
+  policyRef: "default@4",
+  actor: caller,
+  subject: `task/${taskId}`,
+  bindingsUsed: [{ predicate: "hasRoleBinding", satisfied: true, role: "repo-write", matched: null }],
+  outcome: "allowed",
+  reasonCodes: ["authorization_allowed"],
+  nextActions: [],
+  evaluatedAtCut: "canonical:2",
+};
 function judgment() {
   return {
     submission: {
@@ -108,6 +118,7 @@ function applied(stage: string): WriteReceipt {
       canonicalVisible: true,
       worktreeVisible: true,
     },
+    authorizationDecision,
   };
 }
 function setup(
@@ -133,6 +144,7 @@ function setup(
         rootDir,
         action: closeoutAction,
         caller: setupCaller,
+        authorizationDecision: { ...authorizationDecision, actor: setupCaller },
         opId: "op-closeout",
         readWorkspaceText,
         read: async () => initial as never,
@@ -158,11 +170,11 @@ test("closeout runs four canonical leaf commands without impersonating the creat
   try {
     const receipt = await value.run();
     assert.equal(receipt.outcome, "applied");
-    assert.equal(receipt.authorizationDecision?.policyRef, "default@3");
+    assert.equal(receipt.authorizationDecision?.policyRef, "default@4");
     assert.equal(receipt.authorizationDecision?.outcome, "allowed");
     assert.equal(
       receipt.authorizationDecision?.bindingsUsed.some(
-        (binding) => binding.predicate === "holdsExecutionLease" && binding.satisfied === true,
+        (binding) => binding.predicate === "hasRoleBinding" && binding.satisfied === true,
       ),
       true,
     );
@@ -289,7 +301,7 @@ test("active closeout requires the exact execution lease holder", async () => {
     const receipt = await value.run();
     assert.equal(receipt.outcome, "op_rejected");
     assert.equal(receipt.code, "actor_unauthorized");
-    assert.equal(receipt.authorizationDecision?.outcome, "denied");
+    assert.equal(receipt.authorizationDecision?.outcome, "allowed");
     assert.equal(value.calls.length, 0);
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });

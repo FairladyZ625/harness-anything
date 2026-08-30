@@ -1,4 +1,4 @@
-import { type DaemonRepoMode, type WriteReceipt } from "../../kernel/src/index.ts";
+import { type DaemonRepoMode, type WriteReceiptDraft as WriteReceipt } from "../../kernel/src/index.ts";
 import type {
   AgentRuntimeAttachEvent,
   AgentRuntimeAttachSubscription,

@@ -13,7 +13,7 @@ import {
   type TaskProjectionListQuery,
   type TaskRelationQuery,
   type TaskWipSnapshotEntryV1,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryReadModel } from "./task-query-read.ts";

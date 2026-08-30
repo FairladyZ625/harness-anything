@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import {
   assertCurrentWriter,
+  durablePolicyActions,
   getExecutableEntityAction,
   projectDecisionReadiness,
   timestamp,
+  type AuthorizationDecision,
   type CanonicalEventStore,
   type DaemonRepoMode,
   type DecisionProjectionRow,
@@ -11,6 +13,7 @@ import {
   type TaskProjection,
   type TaskProjectionListQuery,
   type WriteReceipt,
+  type WriteReceiptDraft,
 } from "../../kernel/src/index.ts";
 import { type PresetRunReceiptV1, type createPresetProcessService } from "../../preset/src/index.ts";
 import { readAgentEntityGuiProjection } from "./agent-entities.ts";
@@ -23,7 +26,6 @@ import { readObserveTail } from "./observe-tail.ts";
 import { readSchedulesGui } from "./schedules-gui-read.ts";
 import { readScheduleRuns } from "./schedule-runs-read.ts";
 import {
-  commandClassForAction,
   commandDescriptorForAction,
   type DaemonDecisionListResult,
   type DaemonGuiReadResultMap,
@@ -34,7 +36,11 @@ import {
 import { isJsonObject, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { recoveryCommandPolicy } from "./recovery-state.ts";
 import type { DaemonGuiReadHandlers, RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { withDerivedCommandClass } from "./repo-cell-role-bindings.ts";
+import {
+  authorizeDurableRepoCellAction,
+  authorizeRepoCellAction,
+  bindVerifiedExecutorClaim,
+} from "./repo-cell-authorization.ts";
 import { admitRepoMode, settingsCommandTopology } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { chainRepoCellWrite, repoCellTaskQueryJudgments } from "./repo-cell.ts";
@@ -92,8 +98,8 @@ export interface RepoCellApiContext {
   readonly writerToken: Parameters<typeof assertCurrentWriter>[1];
   activeWriterEpochGuard: (() => void) | null;
   activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
-  readonly withLayoutAdvisory: (receipt: WriteReceipt) => WriteReceipt;
-  readonly withHumanSummary: (receipt: WriteReceipt) => WriteReceipt;
+  readonly withLayoutAdvisory: (receipt: WriteReceiptDraft) => WriteReceiptDraft;
+  readonly withHumanSummary: (receipt: WriteReceiptDraft) => WriteReceiptDraft;
   lastError: string | null;
   recoveryUncertain: boolean;
   readonly recoveryProbe: ReturnType<typeof makeRecoveryProbe>;
@@ -122,17 +128,41 @@ export interface RepoCellApiContext {
 
 export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
   const run = (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
-    const command = settingsCommandTopology(commandDescriptorForAction(action.kind), action),
-      commandClass = command.commandClass,
-      modeAdmission = admitRepoMode(context.mode, command, binding.source);
-    if (!modeAdmission.ok)
+    try {
+      ({ action, binding } = bindVerifiedExecutorClaim({
+        action,
+        binding,
+        projection: context.projection,
+        now: context.now(),
+      }));
+    } catch (error) {
+      const revision = context.store.readHead()?.revision ?? 0,
+        actionId = context.operationId(action, binding, context.input.repoId, revision),
+        decision = authorizeRepoCellAction({ action, binding, actionId, revision, now: context.now() });
       return Promise.resolve(
-        context.rejected(
-          context.operationId(action, binding, context.input.repoId, 0),
-          modeAdmission.code,
-          modeAdmission.nextAction,
+        withAuthorizationDecision(
+          context.failed(actionId, error),
+          decision,
+          ["runtime-session/executor-binding"],
+          error instanceof Error ? error.message : String(error),
         ),
       );
+    }
+    const command = settingsCommandTopology(commandDescriptorForAction(action.kind), action),
+      authorizeAtCurrentCut = (): AuthorizationDecision | null => {
+        const revision = context.store.readHead()?.revision ?? 0,
+          actionId = context.operationId(action, binding, context.input.repoId, revision);
+        return authorizeDurableRepoCellAction({ action, binding, actionId, revision, now: context.now() });
+      },
+      durable = (durablePolicyActions as readonly string[]).includes(action.kind),
+      frameCurrent = (
+        receipt: WriteReceiptDraft,
+        criteria: readonly string[] = [],
+        explanation?: string,
+      ): WriteReceipt =>
+        durable
+          ? withAuthorizationDecision(receipt, authorizeAtCurrentCut()!, criteria, explanation)
+          : (receipt as WriteReceipt);
     if (context.state !== "attached") context.attemptRecovery();
     const recoveryCommand =
         context.state === "attached" ? null : recoveryCommandPolicy(action.kind, context.causeClass),
@@ -140,25 +170,54 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         recoveryCommand !== null && (recoveryCommand.settlesLatch || action.kind === "receipt-show");
     if (context.state !== "attached" && !recoveryCommandAllowed)
       return Promise.resolve(
-        context.rejected(
-          context.operationId(action, binding, context.input.repoId, 0),
-          "repo_unavailable",
+        frameCurrent(
+          context.rejected(
+            context.operationId(action, binding, context.input.repoId, 0),
+            "repo_unavailable",
+            context.latched(),
+          ),
+          ["repo-cell/availability"],
           context.latched(),
         ),
       );
-    const failAction = (error: unknown): WriteReceipt => {
+    const failAction = (error: unknown, authorizationDecision?: AuthorizationDecision): WriteReceipt => {
       if (context.fatalCellError(error)) context.latchWith(error);
       const receipt = context.failed(
         context.errorOperationId(error) ?? context.operationId(action, binding, context.input.repoId, 0),
         error,
       );
       const contract = getExecutableEntityAction(action.kind);
-      return contract?.target.kind === "task" ? deriveActionResult(contract, action, receipt) : receipt;
+      const result = contract?.target.kind === "task" ? deriveActionResult(contract, action, receipt) : receipt;
+      return authorizationDecision
+        ? withAuthorizationDecision(
+            result,
+            authorizationDecision,
+            [criterionForError(error)],
+            error instanceof Error ? error.message : String(error),
+          )
+        : (result as WriteReceipt);
     };
-    const enqueuePublication = (execute: () => WriteReceipt | Promise<WriteReceipt>): Promise<WriteReceipt> => {
+    const enqueuePublication = (
+      execute: (authorizationDecision?: AuthorizationDecision) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
+    ): Promise<WriteReceipt> => {
       context.queueDepth += 1;
+      let queuedDecision: AuthorizationDecision | undefined;
       const pending = chainRepoCellWrite(context.tail, async () => {
         context.queueDepth -= 1;
+        if (durable) {
+          queuedDecision = authorizeAtCurrentCut()!;
+          if (queuedDecision.outcome === "denied")
+            return withAuthorizationDecision(
+              context.rejected(
+                context.operationId(action, binding, context.input.repoId, context.store.readHead()?.revision ?? 0),
+                "authorization_denied",
+                queuedDecision.nextActions.join(" ") || `Retry ${action.kind} with an authorized RoleBinding.`,
+              ),
+              queuedDecision,
+              [],
+              `Policy ${queuedDecision.policyRef} denied ${action.kind}: ${queuedDecision.reasonCodes.join(", ")}.`,
+            );
+        }
         const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
         if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
         if (context.state === "closed" || (context.state !== "attached" && !recoveryCommandAllowed))
@@ -170,7 +229,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         try {
-          const receipt = context.withLayoutAdvisory(context.withHumanSummary(await execute()));
+          const executed = context.withLayoutAdvisory(context.withHumanSummary(await execute(queuedDecision))),
+            receipt = queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt);
           if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
             context.state = "attached";
             context.lastError = null;
@@ -189,14 +249,18 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         () => undefined,
         () => undefined,
       );
-      return pending.catch(failAction);
+      return pending.catch((error) => failAction(error, queuedDecision));
     };
     if (action.kind === "squad-run") {
       if (!isJsonObject(action))
         return Promise.resolve(
-          context.rejected(
-            context.operationId(action, binding, context.input.repoId, 0),
-            "invalid_command",
+          frameCurrent(
+            context.rejected(
+              context.operationId(action, binding, context.input.repoId, 0),
+              "invalid_command",
+              "Squad input must contain only JSON values.",
+            ),
+            ["action-envelope/json-input"],
             "Squad input must contain only JSON values.",
           ),
         );
@@ -242,12 +306,35 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
                 execution,
               ),
             ),
-          failAction,
+          (error) => failAction(error, durable ? authorizeAtCurrentCut()! : undefined),
         );
-    return enqueuePublication(() => context.executeAction(action, withDerivedCommandClass(binding, commandClass)));
+    return enqueuePublication((authorizationDecision) =>
+      context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
+    );
   };
   const presetRun: RepoCell["presetRun"] = async (action, binding) => {
+    ({ action, binding } = bindVerifiedExecutorClaim({
+      action,
+      binding,
+      projection: context.projection,
+      now: context.now(),
+    }));
     const command = commandDescriptorForAction(action.kind),
+      authorizationDecision =
+        action.kind === "preset-run-start"
+          ? authorizeRepoCellAction({
+              action,
+              binding,
+              actionId: context.operationId(
+                action,
+                binding,
+                context.input.repoId,
+                context.store.readHead()?.revision ?? 0,
+              ),
+              revision: context.store.readHead()?.revision ?? 0,
+              now: context.now(),
+            })
+          : undefined,
       reject = (code: string, nextAction: string): PresetRunReceiptV1 => ({
         schema: "preset-run-receipt/v1",
         runId: typeof action.runId === "string" ? action.runId : "run_invalid",
@@ -256,8 +343,14 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         phases: ["op_rejected"],
         code,
         nextAction,
+        ...(authorizationDecision ? { authorizationDecision } : {}),
       }),
       admission = admitRepoMode(context.mode, command, binding.source);
+    if (authorizationDecision?.outcome === "denied")
+      return reject(
+        "authorization_denied",
+        authorizationDecision.nextActions.join(" ") || "Retry with an authorized RoleBinding.",
+      );
     if (!admission.ok) return reject(admission.code, admission.nextAction);
     if (context.state !== "attached") context.attemptRecovery();
     if (context.state !== "attached") return reject("repo_unavailable", context.latched());
@@ -266,39 +359,41 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     return action.kind === "preset-run-status"
       ? context.presetProcess.status(context.requiredCellText(action.runId, "runId"))
       : action.kind === "preset-run-start"
-        ? context.presetProcess.start(
-            {
-              presetId: context.requiredCellText(action.presetId, "presetId"),
-              entrypoint: context.requiredCellText(action.entrypoint, "entrypoint"),
-              ...(typeof action.taskId === "string" ? { taskId: action.taskId } : {}),
-              ...(action.inputs && typeof action.inputs === "object" && !Array.isArray(action.inputs)
-                ? { inputs: action.inputs as Readonly<Record<string, unknown>> }
-                : {}),
-              idempotencyKey: context.requiredCellText(action.idempotencyKey, "idempotencyKey"),
-            },
-            {
-              admitProduce: (kind: string) => {
-                try {
-                  return commandClassForAction(kind) === "repo-write";
-                } catch {
-                  return false;
-                }
+        ? context.presetProcess
+            .start(
+              {
+                presetId: context.requiredCellText(action.presetId, "presetId"),
+                entrypoint: context.requiredCellText(action.entrypoint, "entrypoint"),
+                ...(typeof action.taskId === "string" ? { taskId: action.taskId } : {}),
+                ...(action.inputs && typeof action.inputs === "object" && !Array.isArray(action.inputs)
+                  ? { inputs: action.inputs as Readonly<Record<string, unknown>> }
+                  : {}),
+                idempotencyKey: context.requiredCellText(action.idempotencyKey, "idempotencyKey"),
               },
-              publish: async (produced: RepoTaskAction) => {
-                const receipt = await run(produced, binding);
-                if (receipt.outcome === "no_changes")
-                  throw context.cellCodedError(
-                    "invalid_preset_receipt",
-                    "Preset-produced writes cannot settle as no_changes.",
-                  );
-                return {
-                  outcome: receipt.outcome,
-                  ...(receipt.code ? { code: receipt.code } : {}),
-                  ...(receipt.nextAction ? { nextAction: receipt.nextAction } : {}),
-                };
+              {
+                admitProduce: (kind: string) => {
+                  try {
+                    return (durablePolicyActions as readonly string[]).includes(kind);
+                  } catch {
+                    return false;
+                  }
+                },
+                publish: async (produced: RepoTaskAction) => {
+                  const receipt = await run(produced, binding);
+                  if (receipt.outcome === "no_changes")
+                    throw context.cellCodedError(
+                      "invalid_preset_receipt",
+                      "Preset-produced writes cannot settle as no_changes.",
+                    );
+                  return {
+                    outcome: receipt.outcome,
+                    ...(receipt.code ? { code: receipt.code } : {}),
+                    ...(receipt.nextAction ? { nextAction: receipt.nextAction } : {}),
+                  };
+                },
               },
-            },
-          )
+            )
+            .then((receipt) => ({ ...receipt, authorizationDecision: authorizationDecision! }))
         : reject("unsupported_command", "Use repo.preset.run.start or repo.preset.run.status.");
   };
   const readHandlers = {
@@ -588,6 +683,14 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
   const spawnRuntime: RepoCell["spawnRuntime"] = (payload, binding) => {
+    const verified = bindVerifiedExecutorClaim({
+      action: { kind: "runtime-spawn", ...payload },
+      binding,
+      projection: context.projection,
+      now: context.now(),
+    });
+    binding = verified.binding;
+    payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
     const command = commandDescriptorForAction("runtime-run"),
       admission = admitRepoMode(context.mode, command, binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
@@ -599,6 +702,21 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
+      const revision = context.store.readHead()?.revision ?? 0,
+        action = { kind: "runtime-spawn", ...payload },
+        authorizationDecision = authorizeRepoCellAction({
+          action,
+          binding,
+          actionId: context.operationId(action, binding, context.input.repoId, revision),
+          revision,
+          now: context.now(),
+        });
+      if (authorizationDecision.outcome === "denied")
+        throw Object.assign(new Error(authorizationDecision.nextActions.join(" ")), {
+          code: "authorization_denied",
+          authorizationDecision,
+        });
+      const authorizedBinding = { ...binding, authorizationDecision };
       const taskId = typeof payload.taskId === "string" && payload.taskId ? payload.taskId : null,
         idempotencyKey =
           typeof payload.idempotencyKey === "string" && payload.idempotencyKey ? payload.idempotencyKey : null,
@@ -614,14 +732,23 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         (taskLease === null || taskLease.phase === "released") &&
         (!dispatchOpId || context.store.readEvent(dispatchOpId) === null)
       ) {
-        const started = await context.executeAction({ kind: "task-start", taskId }, binding);
+        const startAction = { kind: "task-start", taskId },
+          startDecision = authorizeRepoCellAction({
+            action: startAction,
+            binding,
+            actionId: context.operationId(startAction, binding, context.input.repoId, revision),
+            revision,
+            now: context.now(),
+          }),
+          started = await context.executeAction(startAction, { ...binding, authorizationDecision: startDecision });
         if (started.outcome !== "applied")
           throw context.cellCodedError(
             started.code ?? "runtime_task_lease_required",
             started.nextAction ?? `Task ${taskId} could not acquire an execution lease for runtime dispatch.`,
           );
       }
-      return context.runtimeSpawner.spawn(payload, binding) as Promise<JsonObject>;
+      const result = await context.runtimeSpawner.spawn(payload, authorizedBinding);
+      return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject } as JsonObject;
     });
     context.tail = pending.then(
       () => undefined,
@@ -634,18 +761,41 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     return pending;
   };
   const cancelRuntime: RepoCell["cancelRuntime"] = (payload, binding) => {
+    const verified = bindVerifiedExecutorClaim({
+      action: { kind: "runtime-cancel", ...payload },
+      binding,
+      projection: context.projection,
+      now: context.now(),
+    });
+    binding = verified.binding;
+    payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
     const command = commandDescriptorForAction("runtime-cancel"),
       admission = admitRepoMode(context.mode, command, binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
     context.queueDepth += 1;
-    const pending = chainRepoCellWrite(context.tail, () => {
+    const pending = chainRepoCellWrite(context.tail, async () => {
       context.queueDepth -= 1;
       if (context.state !== "attached") context.attemptRecovery();
       const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
       if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-      return context.runtimeSpawner.cancel(payload, binding) as Promise<JsonObject>;
+      const revision = context.store.readHead()?.revision ?? 0,
+        action = { kind: "runtime-cancel", ...payload },
+        authorizationDecision = authorizeRepoCellAction({
+          action,
+          binding,
+          actionId: context.operationId(action, binding, context.input.repoId, revision),
+          revision,
+          now: context.now(),
+        });
+      if (authorizationDecision.outcome === "denied")
+        throw Object.assign(new Error(authorizationDecision.nextActions.join(" ")), {
+          code: "authorization_denied",
+          authorizationDecision,
+        });
+      const result = await context.runtimeSpawner.cancel(payload, { ...binding, authorizationDecision });
+      return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject } as JsonObject;
     });
     context.tail = pending.then(
       () => undefined,
@@ -667,8 +817,27 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       if (context.state !== "attached") context.attemptRecovery();
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
+      const revision = context.store.readHead()?.revision ?? 0,
+        policyAction = { ...action, kind: "runtime-run" },
+        authorizationDecision = authorizeRepoCellAction({
+          action: policyAction,
+          binding,
+          actionId: context.operationId(policyAction, binding, context.input.repoId, revision),
+          revision,
+          now: context.now(),
+        });
+      if (authorizationDecision.outcome === "denied")
+        throw Object.assign(new Error(authorizationDecision.nextActions.join(" ")), {
+          code: "authorization_denied",
+          authorizationDecision,
+        });
       binding.assertWriterEpoch?.();
-      return context.appendRuntimeIngress(action, binding);
+      return Promise.resolve(context.appendRuntimeIngress(action, { ...binding, authorizationDecision })).then(
+        (result) => ({
+          ...result,
+          authorizationDecision: authorizationDecision as unknown as JsonObject,
+        }),
+      );
     });
     context.tail = pending.then(
       () => undefined,
@@ -680,26 +849,45 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     );
     return pending;
   };
-  const scheduleOperation = <T>(
+  const scheduleOperation = (
     commandKind: "schedule-run-now" | "schedule-settle",
+    input: Readonly<Record<string, unknown>>,
     binding: RepoCellBinding,
-    execute: () => T | Promise<T>,
-  ): Promise<T> => {
+    execute: (authorizedBinding: RepoCellBinding) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
+  ): Promise<WriteReceipt> => {
     const command = commandDescriptorForAction(commandKind),
       admission = admitRepoMode(context.mode, command, binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
     context.queueDepth += 1;
-    const pending = chainRepoCellWrite(context.tail, () => {
+    const pending = chainRepoCellWrite(context.tail, async () => {
       context.queueDepth -= 1;
       if (context.state !== "attached") context.attemptRecovery();
       const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
       if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
+      const revision = context.store.readHead()?.revision ?? 0,
+        action = { ...input, kind: commandKind },
+        authorizationDecision = authorizeRepoCellAction({
+          action,
+          binding,
+          actionId: context.operationId(action, binding, context.input.repoId, revision),
+          revision,
+          now: context.now(),
+        });
+      if (authorizationDecision.outcome === "denied")
+        return withAuthorizationDecision(
+          context.rejected(
+            context.operationId(action, binding, context.input.repoId, revision),
+            "authorization_denied",
+            authorizationDecision.nextActions.join(" ") || "Retry with an authorized RoleBinding.",
+          ),
+          authorizationDecision,
+        );
       context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
       context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
       try {
-        return execute();
+        return withAuthorizationDecision(await execute({ ...binding, authorizationDecision }), authorizationDecision);
       } finally {
         context.activeWriterEpochGuard = null;
         context.activeWriterEpochFence = null;
@@ -717,24 +905,26 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
   };
   const schedulePort: RepoCell["schedule"] = {
     claimOccurrence: (input, binding) =>
-      scheduleOperation("schedule-run-now", binding, () => context.scheduleActions.claimOccurrence(input, binding)),
+      scheduleOperation("schedule-run-now", input, binding, (authorized) =>
+        context.scheduleActions.claimOccurrence(input, authorized),
+      ),
     recordMissed: (input, binding) =>
-      scheduleOperation("schedule-settle", binding, () => {
+      scheduleOperation("schedule-settle", input, binding, (authorized) => {
         if (!isScheduleMissedInput(input))
           throw context.cellCodedError("invalid_command", "Schedule missed input is invalid.");
-        return context.scheduleActions.recordMissed(input, binding);
+        return context.scheduleActions.recordMissed(input, authorized);
       }),
     linkDispatch: (input, binding) =>
-      scheduleOperation("schedule-settle", binding, () => {
+      scheduleOperation("schedule-settle", input, binding, (authorized) => {
         if (!isScheduleDispatchLinkInput(input))
           throw context.cellCodedError("invalid_command", "Schedule dispatch link input is invalid.");
-        return context.scheduleActions.linkDispatch(input, binding);
+        return context.scheduleActions.linkDispatch(input, authorized);
       }),
     settle: (input, binding) =>
-      scheduleOperation("schedule-settle", binding, () => {
+      scheduleOperation("schedule-settle", input, binding, (authorized) => {
         if (!isScheduleSettleInput(input))
           throw context.cellCodedError("invalid_command", "Schedule settlement input is invalid.");
-        return context.scheduleActions.settle(input, binding);
+        return context.scheduleActions.settle(input, authorized);
       }),
   };
   return {
@@ -806,6 +996,34 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       }
     },
   };
+}
+
+function withAuthorizationDecision(
+  receipt: WriteReceiptDraft,
+  authorizationDecision: AuthorizationDecision,
+  unmetCriteria: readonly string[] = receipt.unmetCriteria ?? [],
+  rejectionExplanation: string | undefined = receipt.rejectionExplanation ?? undefined,
+): WriteReceipt {
+  return {
+    ...receipt,
+    authorizationDecision,
+    unmetCriteria,
+    rejectionExplanation:
+      receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
+        ? (rejectionExplanation ?? `Action rejected after ${authorizationDecision.policyRef} qualification.`)
+        : null,
+    nextActions: Object.freeze([
+      ...(receipt.nextActions ?? []),
+      ...(receipt.nextAction ? [receipt.nextAction] : []),
+      ...authorizationDecision.nextActions,
+    ]),
+  };
+}
+
+function criterionForError(error: unknown): string {
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? `criteria/${error.code}`
+    : "criteria/action-execution";
 }
 
 function isScheduleMissedInput(

@@ -14,7 +14,7 @@ export function withRoleBinding<
         actor: { kind: "person", id: binding.actor.principal.personId },
         role,
         target: "settings/repository",
-        source: "derived",
+        source: "declared",
         expiresAt: null,
       },
     ],

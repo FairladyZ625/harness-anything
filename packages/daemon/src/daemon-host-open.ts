@@ -19,7 +19,7 @@ import {
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import { binding, declaredExecutor, localSystemBinding } from "./daemon-host-binding.ts";
+import { binding, localSystemBinding } from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -140,7 +140,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     scheduleScheduler = makeScheduleScheduler({
       cells,
       now,
-      localBinding: (rootDir, required) => localSystemBinding(rootDir, required),
+      localBinding: (rootDir) => localSystemBinding(rootDir),
       remoteEdgeAction: async (repoId, rootDir, action) => {
         const config = readFleetEdgeConfig(rootDir);
         if (!config || config.repoId !== repoId)
@@ -396,7 +396,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     attemptHostRecovery,
     warming,
     warmingMessage,
-    declaredExecutor,
     code,
     daemonErrorMessage,
     requiredCell,

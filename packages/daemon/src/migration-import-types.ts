@@ -2,7 +2,7 @@ import {
   type CanonicalWriteBundle,
   type MigrationDestinationPreimage,
   type MigrationImportEventV1,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 
 export type EntityKind = "task" | "decision" | "fact" | "relation" | "coverage";

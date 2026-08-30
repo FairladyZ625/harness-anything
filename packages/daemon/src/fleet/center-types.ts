@@ -1,4 +1,4 @@
-import { type WriteReceipt } from "../../../kernel/src/index.ts";
+import { type WriteReceiptDraft as WriteReceipt } from "../../../kernel/src/index.ts";
 import type { DaemonHost } from "../daemon-host.ts";
 import { type FleetLeaseBroker } from "../lease-broker.ts";
 import { type FleetAssignmentBinding, type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./contract.ts";

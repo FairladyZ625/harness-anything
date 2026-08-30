@@ -8,7 +8,7 @@ export function deriveOwnerRoleBinding(createdBy: ActorIdentity, target: EntityR
     actor: { kind: "person", id: createdBy.principal.personId },
     role: "owner",
     target,
-    source: "derived",
+    source: "declared",
     expiresAt: null,
   };
   return Object.freeze(binding);

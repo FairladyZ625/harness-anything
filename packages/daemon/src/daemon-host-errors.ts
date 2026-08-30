@@ -1,4 +1,4 @@
-import { normalizeDomainError, type WriteReceipt } from "../../kernel/src/index.ts";
+import { normalizeDomainError, type WriteReceiptDraft as WriteReceipt } from "../../kernel/src/index.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type RepoTaskAction } from "./repo-cell.ts";
 

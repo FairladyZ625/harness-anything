@@ -1,7 +1,7 @@
 import type { ActorIdentity } from "./actor-identity.ts";
 import { parseEntityRef, type EntityRef } from "./entity-ref.ts";
 
-export const roleBindingSources = Object.freeze(["derived", "declared"] as const);
+export const roleBindingSources = Object.freeze(["declared"] as const);
 export type RoleBindingSource = (typeof roleBindingSources)[number];
 
 export const roleBindingActorKinds = Object.freeze(["person", "executor"] as const);
@@ -19,11 +19,6 @@ export interface RoleBinding {
   readonly target: EntityRef;
   readonly source: RoleBindingSource;
   readonly expiresAt: string | null;
-}
-
-export interface RoleCommandClassDeclaration {
-  readonly roleId: string;
-  readonly commandClasses: readonly string[];
 }
 
 export class RoleBindingContractError extends Error {
@@ -68,32 +63,28 @@ export function validateRoleBinding(value: unknown): readonly string[] {
   if (typeof value.target !== "string" || parseEntityRef(value.target) === null)
     errors.push("RoleBinding target must be an EntityRef");
   if (!roleBindingSources.includes(value.source as RoleBindingSource))
-    errors.push("RoleBinding source must be derived or declared");
+    errors.push("RoleBinding source must be declared");
   if (value.expiresAt !== null && !isUtcTimestamp(value.expiresAt))
     errors.push("RoleBinding expiresAt must be null or an ISO-8601 UTC timestamp ending in Z");
   return errors;
 }
 
-/** Derive repository-scoped RoleBindings without materializing a second role-to-command-class map. */
-export function deriveRoleBindings(input: {
+/** Project only roles the authored roster explicitly assigns to the Actor. */
+export function projectDeclaredRoleBindings(input: {
   readonly actor: ActorIdentity;
   readonly roleIds: readonly string[];
-  readonly roleDeclarations: readonly RoleCommandClassDeclaration[];
   readonly target: EntityRef;
 }): readonly RoleBinding[] {
   const bindings: RoleBinding[] = [];
   for (const roleId of input.roleIds) {
-    const declaration = input.roleDeclarations.find((candidate) => candidate.roleId === roleId);
-    for (const commandClass of declaration?.commandClasses ?? []) {
-      if (bindings.some((binding) => binding.role === commandClass)) continue;
-      bindings.push({
-        actor: { kind: "person", id: input.actor.principal.personId },
-        role: commandClass,
-        target: input.target,
-        source: "derived",
-        expiresAt: null,
-      });
-    }
+    if (bindings.some((binding) => binding.role === roleId)) continue;
+    bindings.push({
+      actor: { kind: "person", id: input.actor.principal.personId },
+      role: roleId,
+      target: input.target,
+      source: "declared",
+      expiresAt: null,
+    });
   }
   return Object.freeze(bindings);
 }

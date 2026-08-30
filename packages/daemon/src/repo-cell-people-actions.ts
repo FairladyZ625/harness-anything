@@ -9,7 +9,7 @@ import {
   type CredentialKind,
   type PeopleCommandClass,
   type PeopleRosterAction,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import {
   peopleAddJsonAllowedFields,

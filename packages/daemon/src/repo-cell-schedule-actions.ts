@@ -12,7 +12,7 @@ import {
   type ScheduleMissedReason,
   type ScheduleRunOutcome,
   type ScheduleV1,
-  type WriteReceipt,
+  type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import {
   scheduleDeleteJsonAllowedFields,

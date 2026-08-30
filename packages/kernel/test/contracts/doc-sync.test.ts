@@ -26,6 +26,7 @@ import { validateCanonicalWriteBundle } from "../../src/store/task-event-store.t
 
 import {
   baseLedgerSha,
+  authorizeDocWrite,
   claim,
   currentLedgerSha,
   decide,
@@ -104,6 +105,7 @@ test("canonical reader accepts the historical doc-event ledger identity bytes", 
         deletions: [],
         nextAction: "no action required",
       },
+      authorizationDecision: authorizeDocWrite(),
     }),
     [],
   );

@@ -1,6 +1,7 @@
 import type {
   ActorIdentity,
   AgentRuntimeEventV1,
+  AuthorizationDecision,
   RuntimeSession,
   SessionIdentity,
   WriteSource,
@@ -38,6 +39,7 @@ export interface RuntimeDaemonRoute {
 export type RuntimeBinding = {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
+  readonly authorizationDecision?: AuthorizationDecision;
 };
 
 export interface TrustedScheduleRuntime {

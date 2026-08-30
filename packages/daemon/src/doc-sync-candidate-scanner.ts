@@ -7,7 +7,7 @@ import path from "node:path";
 import {
   canonicalDocumentClaims,
   classifyTextualArtifactPath,
-  decideDocWrite,
+  decideDocWriteCriteria,
   DOC_POLICY_ID,
   documentPath,
   parseDocWriteIntent,
@@ -17,6 +17,9 @@ import {
   resolveTaskBoundRuntimeBinding,
   resolveRetirableDocument,
   runtimeSessionIdFromActor,
+  isSameExecution,
+  isTaskBoundRuntimeWriter,
+  sameWriteSource,
   sha256Bytes,
   type ActorIdentity,
   type CanonicalEventStore,
@@ -25,7 +28,6 @@ import {
   type TaskProjection,
   type WriteSource,
 } from "../../kernel/src/index.ts";
-import { authorizeAction } from "./authorization.ts";
 import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
 
@@ -97,29 +99,13 @@ export function scanDocCandidates(input: {
       )
       .sort(),
     baseLedgerSha = input.store.currentCut(),
-    execution = executionBinding(
-      paths,
-      input.executionId,
-      input.projection,
-      input.actor,
-      input.source,
-      input.now,
-      `canonical:${baseLedgerSha.revision}:${baseLedgerSha.headDigest}`,
-    ),
+    execution = executionBinding(paths, input.executionId, input.projection, input.actor, input.source, input.now),
     runtimeSessionId = runtimeSessionIdFromActor(input.actor),
     runtimeSession = runtimeSessionId === null ? null : input.projection.readRuntimeSession(runtimeSessionId),
     runtimeBinding =
       execution.lease === null
         ? null
         : resolveTaskBoundRuntimeBinding(runtimeSession, execution.lease.taskId, execution.lease.executionId),
-    authorizationDecision =
-      execution.id === null
-        ? null
-        : authorizeAction("doc.submit", `execution/${execution.id}`, input.actor, "doc-scan", {
-            writeSource: input.source,
-            target: { lease: execution.lease, runtimeBinding },
-            evaluatedAtCut: `canonical:${baseLedgerSha.revision}:${baseLedgerSha.headDigest}`,
-          }),
     rows = paths.map((logical) => scanOne(logical));
   return {
     baseLedgerSha,
@@ -230,7 +216,7 @@ export function scanDocCandidates(input: {
         },
         input.workspaceId,
       ),
-      decision = decideDocWrite({
+      decision = decideDocWriteCriteria({
         intent,
         opId: "scan",
         eventId: "scan",
@@ -240,7 +226,7 @@ export function scanDocCandidates(input: {
         occurredAt: input.now,
         currentLedgerSha: baseLedgerSha,
         lease: execution.lease,
-        authorizationDecision,
+        authorizationDecision: null,
         documents: [projected.document],
         claims: [bytes],
         resolvedTaskIds: [input.projection.taskIdForDocumentPath(logical)],
@@ -387,7 +373,6 @@ function executionBinding(
   actor: ActorIdentity,
   source: WriteSource,
   now: string,
-  evaluatedAtCut: string,
 ) {
   if (explicit) return { id: explicit, candidates: [], lease: projection.currentLeaseForExecution(explicit, now) };
   const tasks = new Set(paths.flatMap((value) => projection.taskIdForDocumentPath(value) ?? [])),
@@ -400,12 +385,9 @@ function executionBinding(
           const lease = projection.currentLeaseForExecution(binding.executionId, now),
             runtimeBinding = resolveTaskBoundRuntimeBinding(session, binding.taskId, binding.executionId);
           if (lease === null || runtimeBinding === null) return [];
-          const decision = authorizeAction("doc.submit", `execution/${binding.executionId}`, actor, "doc-scan", {
-            writeSource: source,
-            target: { lease, runtimeBinding },
-            evaluatedAtCut,
-          });
-          return decision.outcome === "allowed" ? [{ id: binding.executionId, lease }] : [];
+          return isTaskBoundRuntimeWriter(lease, actor, source, runtimeBinding)
+            ? [{ id: binding.executionId, lease }]
+            : [];
         }) ?? [],
       unique = [...new Map(matches.map((match) => [match.id, match])).values()];
     return unique.length === 1
@@ -422,15 +404,10 @@ function executionBinding(
   // being rejected.
   const taskIds = [...tasks],
     current = taskIds.length === 1 ? projection.currentLease(taskIds[0]!, now) : null,
-    decision =
-      current?.phase !== "held"
-        ? null
-        : authorizeAction("doc.submit", `execution/${current.executionId}`, actor, "doc-scan", {
-            writeSource: source,
-            target: { lease: current },
-            evaluatedAtCut,
-          }),
-    lease = decision?.outcome === "allowed" ? current : null;
+    lease =
+      current?.phase === "held" && isSameExecution(current.actor, actor) && sameWriteSource(current.source, source)
+        ? current
+        : null;
   return { id: lease?.executionId ?? null, candidates: [], lease };
 }
 function dirtyPaths(repoRoot: string, authoredPrefix: string): string[] {
