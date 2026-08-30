@@ -696,7 +696,6 @@ export {
   DaemonProtocolContractError,
   isDaemonGuiActionMethod,
   isDaemonGuiReadMethod,
-  isDaemonRpcMethod,
   isDaemonStreamMethod,
   parseDaemonRpcParams,
   serializeDaemonRpcCall,

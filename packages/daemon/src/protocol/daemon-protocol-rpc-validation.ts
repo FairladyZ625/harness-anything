@@ -1,12 +1,11 @@
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import {
+  validateShape,
   validateObserveTailPayload,
   type DaemonGuiActionMethod,
   type DaemonGuiRpcReadMethod,
   type DaemonStreamMethod,
-  type RpcEnumRule,
-  type RpcShape,
 } from "./daemon-protocol-gui-types.ts";
 import {
   digest,
@@ -48,11 +47,6 @@ export function isDaemonGuiActionMethod(method: string): method is DaemonGuiActi
 export function isDaemonStreamMethod(method: string): method is DaemonStreamMethod {
   return daemonStreamFacets.some((entry) => entry.method === method);
 }
-
-export function isDaemonRpcMethod(method: string): method is DaemonRpcMethod {
-  return allDaemonProtocolMethods.some((entry) => entry.method === method);
-}
-
 // The executor declaration surface, derived from the same shapes validateDaemonRpcCall enforces — never
 // a hand-copied method list. repo.task.run accepts the executor inside its open action envelope; every
 // other method accepts payload.executor exactly when its payload shape declares the field (the preset
@@ -247,79 +241,27 @@ export type ParsedDaemonRpcParams<Method extends DaemonRpcMethod> =
     }
   | { readonly ok: false; readonly errors: readonly string[] };
 
-export function parseDaemonRpcParams<Method extends DaemonRpcMethod>(
-  method: Method,
-  params: unknown,
-): ParsedDaemonRpcParams<Method>;
-export function parseDaemonRpcParams(
-  method: string,
-  params: unknown,
-):
-  | { readonly ok: true; readonly params: JsonObject; readonly call: DaemonRpcCall }
-  | { readonly ok: false; readonly errors: readonly string[] };
-export function parseDaemonRpcParams(
-  method: string,
-  params: unknown,
-):
-  | { readonly ok: true; readonly params: JsonObject; readonly call: DaemonRpcCall }
-  | { readonly ok: false; readonly errors: readonly string[] } {
+export interface ParseDaemonRpcParams {
+  <Method extends DaemonRpcMethod>(method: Method, params: unknown): ParsedDaemonRpcParams<Method>;
+  (
+    method: string,
+    params: unknown,
+  ):
+    | { readonly ok: true; readonly params: JsonObject; readonly call: DaemonRpcCall }
+    | { readonly ok: false; readonly errors: readonly string[] };
+}
+
+export const parseDaemonRpcParams = ((method: string, params: unknown) => {
   const candidateParams = params === undefined ? {} : params,
     errors = validateDaemonRpcCall({ method, params: candidateParams });
   if (errors.length) return { ok: false, errors };
-  if (!isDaemonRpcMethod(method)) return { ok: false, errors: ["RPC method is not contracted"] };
   const typedParams = candidateParams as DaemonRpcWireParams<DaemonRpcMethod>;
   return {
     ok: true,
     params: typedParams,
     call: { method, params: typedParams } as DaemonRpcCall,
   };
-}
-
-export function validateShape(value: unknown, expected: RpcShape, prefix: string): string[] {
-  if (!isJsonObject(value)) return [`${prefix} must be an object`];
-  const errors: string[] = [],
-    allowed = Object.keys(expected.fields);
-  if (!expected.open)
-    for (const field of Object.keys(value)) {
-      const unknownField = unknownFieldViolation({ [field]: value[field] }, allowed);
-      if (unknownField) errors.push(`${prefix} contains an ${unknownField}`);
-    }
-  for (const [field, rule] of Object.entries(expected.fields)) {
-    const item = value[field],
-      enumRule = "values" in Object(rule) ? (rule as RpcEnumRule) : null;
-    if (
-      ((rule === "string?" ||
-        rule === "string-null?" ||
-        rule === "json?" ||
-        rule === "array?" ||
-        rule === "boolean?" ||
-        rule === "number?" ||
-        enumRule?.optional) &&
-        item === undefined) ||
-      (rule === "string-null?" && item === null)
-    )
-      continue;
-    if (enumRule) {
-      if (!enumRule.values.includes(String(item)))
-        errors.push(`${prefix}.${field} must be one of ${enumRule.values.join(", ")}`);
-    } else if (rule === "json" || rule === "json?") {
-      if (!isJsonObject(item)) errors.push(`${prefix}.${field} must be object`);
-    } else if (rule === "array" || rule === "array?") {
-      if (!Array.isArray(item)) errors.push(`${prefix}.${field} must be array`);
-    } else if (
-      rule === "string" ||
-      rule === "string?" ||
-      rule === "string-null?" ||
-      rule === "number" ||
-      rule === "number?" ||
-      rule === "boolean?"
-    ) {
-      const type = rule.startsWith("string") ? "string" : rule === "boolean?" ? "boolean" : "number";
-      if (typeof item !== type || (type === "string" && !item)) errors.push(`${prefix}.${field} must be ${type}`);
-    } else errors.push(...validateShape(item, rule as RpcShape, `${prefix}.${field}`));
-  }
-  return errors;
-}
+}) as ParseDaemonRpcParams;
 
 export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: unknown): string[] {
   if (!isJsonObject(value)) return ["GUI action payload must be an object"];

@@ -8,7 +8,6 @@ import type {
   RelationFactRow,
   GuiActionResult,
   GuiSubmissionV1,
-  GuiBridgeMethod,
   ObserveTailPayload,
   ObserveTailRead,
   ProjectionWarning,
@@ -22,48 +21,8 @@ import type {
   WorkspaceSummaryRead,
   SettingsRead,
 } from "../api/renderer-dto.ts";
-import type { FirstRunApi } from "../api/first-run-contract.ts";
 import { isRendererRecord } from "./result-validation.ts";
-import type { DaemonRpcMethodMap, DaemonRpcResult } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-
-type GuiInvokeFacet =
-  (typeof import("../../../daemon/src/protocol/daemon-protocol.contract.ts").daemonGuiInvokeFacets)[number];
-type GuiRpcMethod = GuiInvokeFacet["method"] & keyof DaemonRpcMethodMap;
-type GuiBridgeMethodFor<Method extends GuiRpcMethod> = Extract<
-  GuiInvokeFacet,
-  { readonly method: Method }
->["guiBridgeMethod"];
-type GuiInput<Value> =
-  Value extends ReadonlyArray<infer Item>
-    ? ReadonlyArray<GuiInput<Item>>
-    : Value extends object
-      ? string extends keyof Value
-        ? object
-        : { readonly [Key in keyof Value]: GuiInput<Value[Key]> }
-      : Value;
-type GuiBridgeParams<Method extends GuiRpcMethod> = DaemonRpcMethodMap[Method]["params"] extends {
-  readonly repo: { readonly repoId: infer RepoId };
-  readonly payload: infer Payload extends object;
-}
-  ? { readonly repoId: RepoId } & GuiInput<Payload>
-  : DaemonRpcMethodMap[Method]["params"] extends {
-        readonly repo: { readonly repoId: infer RepoId };
-      }
-    ? { readonly repoId: RepoId }
-    : DaemonRpcMethodMap[Method]["params"] extends { readonly payload: infer Payload extends object }
-      ? GuiInput<Payload>
-      : GuiInput<DaemonRpcMethodMap[Method]["params"]>;
-
-type HarnessBridge = Record<GuiBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
-  readonly capabilities?: unknown;
-  readonly firstRun?: FirstRunApi;
-};
-
-declare global {
-  interface Window {
-    readonly harness?: HarnessBridge;
-  }
-}
+import { invoke } from "./api-client-invoke.ts";
 
 export interface TaskListSuccess {
   readonly ok: true;
@@ -410,7 +369,7 @@ export const harnessClient = {
     return readTaskListResult(await invoke("repo.tasks.list", payload, "getTasks"));
   },
   async getAgenda(payload: RepoScope & { readonly limit?: number; readonly cursor?: string }): Promise<AgendaSuccess> {
-    return readAgendaResult(await invokeBridge("getAgenda", payload));
+    return readAgendaResult(await invoke("repo.agenda.read", payload, "getAgenda"));
   },
   async getSettings(payload: RepoScope): Promise<SettingsSuccess> {
     return readSettingsResult(await invoke("repo.settings.read", payload, "getSettings"));
@@ -516,10 +475,10 @@ export const harnessClient = {
   },
   /** 台账 pin 的唯一 GUI 写通道:daemon 侧就是 `ha task pin` 的 pinned-only amend。 */
   async pinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
-    return readGuiActionResult(await invokeBridge("pinTask", payload));
+    return readGuiActionResult(await invoke("repo.task.pin", payload, "pinTask"));
   },
   async unpinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
-    return readGuiActionResult(await invokeBridge("unpinTask", payload));
+    return readGuiActionResult(await invoke("repo.task.unpin", payload, "unpinTask"));
   },
   async showReceipt(payload: RepoScope & { readonly opId: string }): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.receipt.show", payload, "showReceipt"));
@@ -536,17 +495,6 @@ export const harnessClient = {
     return readCatalogRereadReceipt(await invoke("repo.gui.catalog.reread", payload, "rereadCatalog"));
   },
 };
-
-async function invoke<Method extends keyof DaemonRpcMethodMap>(
-  method: Method & GuiRpcMethod,
-  params: GuiBridgeParams<Method & GuiRpcMethod>,
-  bridgeMethod: GuiBridgeMethodFor<Method & GuiRpcMethod>,
-): Promise<DaemonRpcResult<Method>> {
-  const bridge = window.harness;
-  if (!bridge || typeof bridge[bridgeMethod] !== "function")
-    throw new Error(`Harness preload bridge is unavailable for ${method} (${bridgeMethod}).`);
-  return bridge[bridgeMethod](params) as Promise<DaemonRpcResult<Method>>;
-}
 
 function readTaskDocumentListResult(value: unknown): TaskDocumentListProjectionRead {
   const result = value as Partial<TaskDocumentListProjectionRead>;

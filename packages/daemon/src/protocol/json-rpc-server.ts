@@ -8,32 +8,34 @@ import {
   daemonStreamFacets,
   daemonProtocolError,
   isDaemonGuiActionMethod,
-  isDaemonGuiReadMethod,
-  isDaemonRpcMethod,
-  isDaemonStreamMethod,
   jsonRpcMethodContracts,
   makeDaemonCommandReceipt,
   parseDaemonRpcParams,
   type DaemonFleetTaskAction,
-  type DaemonGuiActionMethod,
-  type DaemonGuiRpcReadMethod,
-  type DaemonRpcCall,
   type DaemonRpcMethod,
   type DaemonRpcResult,
-  type DaemonStreamMethod,
 } from "./daemon-protocol.contract.ts";
+import {
+  declaredExecutorOrNull,
+  isDaemonStreamCall,
+  isRepoGuiReadCall,
+  isRuntimeInstanceAuthCall,
+  isRuntimeInstanceCall,
+  isTerminalActionCall,
+  protocolErrorMessage,
+  repoIdFromParams,
+  resultErrorCode,
+  resultOk,
+  rpcError,
+  rpcServerErrorCode,
+  type DaemonRepoPayloadCall,
+} from "./json-rpc-dispatch-support.ts";
 import {
   parseDaemonGuiActionResult,
   parseDaemonGuiReadResult,
   parseDaemonStreamResult,
 } from "./gui-result-validation.ts";
-import {
-  isJsonObject,
-  type JsonObject,
-  type JsonRpcId,
-  type JsonRpcRequest,
-  type JsonRpcResponse,
-} from "./json-rpc-types.ts";
+import { isJsonObject, type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
 import { isContractVersionCompatible } from "../../../kernel/src/domain/contract-version.ts";
 import type { CoreDomainError } from "../../../kernel/src/index.ts";
@@ -82,7 +84,7 @@ export function createJsonRpcProtocolServer(options: {
       traffic(typeof request.method === "string" ? request.method : null, startedAt, 0, false, "-32600");
       return rpcError(id, -32600, "Invalid Request");
     }
-    if (!isDaemonRpcMethod(request.method)) {
+    if (!isContractedDaemonRpcMethod(request.method)) {
       traffic(request.method, startedAt, 0, false, "-32601");
       return rpcError(id, -32601, "Method not found");
     }
@@ -101,7 +103,7 @@ export function createJsonRpcProtocolServer(options: {
     const call = parsed.call,
       { method, params } = call;
     observed = { ...observed, repoId: repoIdFromParams(params) };
-    if (method === "protocol.hello") {
+    if (request.method === "protocol.hello" && method === request.method) {
       if (!isContractVersionCompatible(params.protocolVersion, currentDaemonProtocolVersion)) {
         const mismatch = {
           _tag: "ProtocolVersionMismatchError",
@@ -141,8 +143,8 @@ export function createJsonRpcProtocolServer(options: {
       });
     }
     if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
-    if (method === "daemon.status") return reply(method, { ok: true, ...options.host.status() });
-    if (method === "daemon.stop") {
+    if (request.method === "daemon.status") return reply("daemon.status", { ok: true, ...options.host.status() });
+    if (request.method === "daemon.stop" && method === request.method) {
       if (options.authContext.transportKind !== "unix-socket" || options.authContext.assignmentBinding)
         return reply(
           method,
@@ -161,17 +163,17 @@ export function createJsonRpcProtocolServer(options: {
       options.requestShutdown();
       return response;
     }
-    if (method === "daemon.repo.bootstrap") {
+    if (request.method === "daemon.repo.bootstrap" && method === request.method) {
       try {
         return reply(method, await options.host.bootstrap(params, options.authContext));
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError("init", rpcServerErrorCode(error), protocolErrorMessage(error)),
-        );
+        return reply(method, daemonProtocolError("init", rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
-    if (method === "daemon.repo.register" || method === "daemon.repo.unregister") {
+    if (
+      (request.method === "daemon.repo.register" || request.method === "daemon.repo.unregister") &&
+      method === request.method
+    ) {
       try {
         return reply(
           method,
@@ -190,14 +192,7 @@ export function createJsonRpcProtocolServer(options: {
           ),
         );
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (isRuntimeInstanceCall(call)) {
@@ -205,14 +200,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(method, await options.host.runtimeInstance(method, params.payload, options.authContext));
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (isRuntimeInstanceAuthCall(call)) {
@@ -221,14 +209,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(method, await options.host.runtimeInstanceAuth(repo, method, params.payload, options.authContext));
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (method === "daemon.fleet.center.start" || method === "daemon.fleet.edge.sync") {
@@ -241,14 +222,7 @@ export function createJsonRpcProtocolServer(options: {
           ),
         );
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (method === "daemon.fleet.task.run") {
@@ -306,14 +280,7 @@ export function createJsonRpcProtocolServer(options: {
           }),
         );
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (method === "daemon.fleet.doc.sync" || method === "daemon.fleet.conflict.exit") {
@@ -332,28 +299,14 @@ export function createJsonRpcProtocolServer(options: {
               })),
         );
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (method === "daemon.gui.system.read") {
       try {
         return reply(method, parseDaemonGuiReadResult(method, options.host.system(options.authContext)));
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (method === "daemon.gui.control.receipt") {
@@ -366,14 +319,7 @@ export function createJsonRpcProtocolServer(options: {
           ),
         );
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (method === "daemon.gui.control.request") {
@@ -383,14 +329,7 @@ export function createJsonRpcProtocolServer(options: {
           parseDaemonGuiActionResult(method, await options.host.requestControl(params.payload, options.authContext)),
         );
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (isDaemonStreamCall(call)) {
@@ -419,14 +358,7 @@ export function createJsonRpcProtocolServer(options: {
         }
         return reply(method, initial);
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (isRepoGuiReadCall(call)) {
@@ -446,14 +378,7 @@ export function createJsonRpcProtocolServer(options: {
           ),
         );
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (method === "repo.agentRuntime.spawn") {
@@ -467,14 +392,7 @@ export function createJsonRpcProtocolServer(options: {
           ),
         );
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (method === "repo.agentRuntime.cancel") {
@@ -488,14 +406,7 @@ export function createJsonRpcProtocolServer(options: {
           ),
         );
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     if (isTerminalActionCall(call)) {
@@ -510,14 +421,7 @@ export function createJsonRpcProtocolServer(options: {
           ),
         );
       } catch (error) {
-        return reply(
-          method,
-          daemonProtocolError(
-            method,
-            rpcServerErrorCode(error),
-            protocolErrorMessage(error),
-          ),
-        );
+        return reply(method, daemonProtocolError(method, rpcServerErrorCode(error), protocolErrorMessage(error)));
       }
     }
     // All non-repository branches above return. The remaining discriminants are the
@@ -531,11 +435,7 @@ export function createJsonRpcProtocolServer(options: {
     } catch (error) {
       return reply(
         commandMethod,
-        daemonProtocolError(
-          commandMethod,
-          rpcServerErrorCode(error),
-         protocolErrorMessage(error),
-        ),
+        daemonProtocolError(commandMethod, rpcServerErrorCode(error), protocolErrorMessage(error)),
       );
     }
     observed = { ...observed, command: action.kind, executor: declaredExecutorOrNull(action) };
@@ -610,83 +510,6 @@ export function createJsonRpcProtocolServer(options: {
   }
 }
 
-type DaemonRpcCallFor<Method extends DaemonRpcMethod> = Extract<DaemonRpcCall, { readonly method: Method }>;
-type RuntimeInstanceMethod = Extract<DaemonRpcMethod, `daemon.runtimeInstance.${string}`>;
-type RuntimeInstanceAuthMethod = Extract<DaemonRpcMethod, `repo.runtimeInstance.auth.${string}`>;
-type RepoGuiReadMethod = Exclude<DaemonGuiRpcReadMethod, "daemon.gui.system.read" | "daemon.gui.control.receipt">;
-type TerminalActionMethod = "repo.gui.catalog.reread" | Extract<DaemonGuiActionMethod, `repo.terminal.${string}`>;
-type WithRepoPayload<Call> = Call extends {
-  readonly params: {
-    readonly repo: { readonly repoId: string };
-    readonly payload: JsonObject;
-  };
-}
-  ? Call
-  : never;
-type DaemonRepoPayloadCall = WithRepoPayload<DaemonRpcCall>;
-
-function isRuntimeInstanceCall(call: DaemonRpcCall): call is DaemonRpcCallFor<RuntimeInstanceMethod> {
-  return call.method.startsWith("daemon.runtimeInstance.");
-}
-function isRuntimeInstanceAuthCall(call: DaemonRpcCall): call is DaemonRpcCallFor<RuntimeInstanceAuthMethod> {
-  return call.method.startsWith("repo.runtimeInstance.auth.");
-}
-function isDaemonStreamCall(call: DaemonRpcCall): call is DaemonRpcCallFor<DaemonStreamMethod> {
-  return isDaemonStreamMethod(call.method);
-}
-function isRepoGuiReadCall(call: DaemonRpcCall): call is DaemonRpcCallFor<RepoGuiReadMethod> {
-  return (
-    isDaemonGuiReadMethod(call.method) &&
-    call.method !== "daemon.gui.system.read" &&
-    call.method !== "daemon.gui.control.receipt"
-  );
-}
-function isTerminalActionCall(call: DaemonRpcCall): call is DaemonRpcCallFor<TerminalActionMethod> {
-  return (
-    call.method === "repo.gui.catalog.reread" ||
-    (isDaemonGuiActionMethod(call.method) && call.method.startsWith("repo.terminal."))
-  );
-}
-function repoIdFromParams(params: JsonObject): string {
-  const repo = params.repo;
-  return isJsonObject(repo) && typeof repo.repoId === "string" ? repo.repoId : "";
-}
-// The executor rides on the resolved action, which is where the daemon reads it for attribution:
-// repo.task.run carries it inside payload.action, every other method merges payload into the action.
-function declaredExecutorOrNull(action: JsonObject): DaemonRequestLogEntry["executor"] {
-  const executor = action.executor;
-  return isJsonObject(executor) && executor.kind === "agent" && typeof executor.id === "string"
-    ? { kind: "agent", id: executor.id }
-    : null;
-}
-function resultOk(result: object): boolean {
-  return "ok" in result && result.ok === true;
-}
-function resultErrorCode(result: object): string | null {
-  if ("code" in result && typeof result.code === "string") return result.code;
-  const error = "error" in result ? result.error : undefined;
-  return isJsonObject(error) && typeof error.code === "string" ? error.code : null;
-}
-function rpcError(id: JsonRpcId, errorCode: number, message: string): JsonRpcResponse {
-  return { jsonrpc: "2.0", id, error: { code: errorCode, message } };
-}
-function rpcServerErrorCode(error: unknown): string {
-  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-    ? error.code
-    : "bootstrap_failed";
-}
-
-type ProtocolDispatchError =
-  | { readonly _tag: "NativeError"; readonly message: string }
-  | { readonly _tag: "UnknownThrownValue"; readonly message: string };
-
-function protocolErrorMessage(error: unknown): string {
-  let normalized: ProtocolDispatchError;
-  if (error instanceof Error) normalized = { _tag: "NativeError", message: error.message };
-  else normalized = { _tag: "UnknownThrownValue", message: String(error) };
-  switch (normalized._tag) {
-    case "NativeError":
-    case "UnknownThrownValue":
-      return normalized.message;
-  }
+function isContractedDaemonRpcMethod(method: string): method is DaemonRpcMethod {
+  return jsonRpcMethodContracts.some((entry) => entry.method === method);
 }
