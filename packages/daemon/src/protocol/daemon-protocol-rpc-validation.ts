@@ -376,6 +376,8 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       (value.permissionMode !== undefined && !nonEmpty(value.permissionMode)) ||
       (value.prompt !== undefined && !nonEmpty(value.prompt)) ||
       (value.prompt === undefined && !nonEmpty(value.taskId)) ||
+      (value.waitProjectionMs !== undefined &&
+        (!Number.isSafeInteger(value.waitProjectionMs) || Number(value.waitProjectionMs) < 0)) ||
       (value.onExitCommand !== undefined && !nonEmpty(value.onExitCommand)) ||
       !exactCwd(value.cwd) ||
       (value.taskId !== null && !nonEmpty(value.taskId)) ||

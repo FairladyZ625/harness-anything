@@ -249,16 +249,7 @@ function isFactBundle(bundle: CatalogBundle): bundle is FactBundle {
 }
 
 function compileDraft(projection: TaskProjection, draft: EntityActionDraft): CatalogBundle {
-  if (draft.kind === "fact") {
-    if (draft.event.taskId) {
-      const task = projection.read(draft.event.taskId);
-      if (task.watermark !== task.sourceRevision || !task.packagePath || !task.snapshot.task)
-        reject("content_not_ready", `Task ${draft.event.taskId} is not ready for fact record.`);
-    }
-    const current = projection.searchFacts(draft.event.taskId ? { taskId: draft.event.taskId } : {});
-    if (current.watermark !== current.sourceRevision) reject("content_not_ready", "Fact projection is pending.");
-    return compileFactWrite({ event: draft.event });
-  }
+  if (draft.kind === "fact") return compileFactWrite({ event: draft.event });
   const read = projection.readDecision(draft.event.decisionId);
   if (read.watermark !== read.sourceRevision)
     reject("content_not_ready", `Decision ${draft.event.decisionId} is pending.`);

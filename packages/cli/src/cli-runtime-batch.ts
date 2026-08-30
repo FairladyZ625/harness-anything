@@ -105,6 +105,7 @@ export function runtimeBatchSpawnAction(entry: RuntimeBatchEntry): ThinCommand["
     ...(entry.fast === undefined ? {} : { fast: entry.fast }),
     ...(entry.permissionMode ? { permissionMode: entry.permissionMode } : {}),
     ...(entry.prompt ? { prompt: entry.prompt } : entry.mission ? { missionName: entry.mission } : {}),
+    ...(entry.waitProjectionMs === undefined ? {} : { waitProjectionMs: entry.waitProjectionMs }),
     cwd:
       typeof entry.cwd === "object"
         ? entry.cwd

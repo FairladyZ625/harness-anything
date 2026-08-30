@@ -82,6 +82,8 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
     "semantic",
     "--memory-tag",
     "pattern",
+    "--wait-projection",
+    "2500",
   ]);
   const search = parseThinCommand(["fact", "search", "Observed", "--task", "task-1"]),
     show = parseThinCommand(["fact", "show", "--id", "F-ABCDEFGH"]);
@@ -97,6 +99,7 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
       confidence: "high",
       memoryClass: "semantic",
       memoryTags: ["pattern"],
+      waitProjectionMs: 2500,
     });
   const migrated = parseThinCommand([
     "fact",
@@ -160,6 +163,10 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
     false,
   );
   assert.equal(parseThinCommand(["fact", "record", "--statement", "x", "--text", "y", "--source", "s"]).ok, false);
+  assert.equal(
+    parseThinCommand(["fact", "record", "--statement", "x", "--source", "s", "--wait-projection", "-1"]).ok,
+    false,
+  );
 });
 
 test("Fact search CLI forwards observed-time windows and keyset pagination", () => {

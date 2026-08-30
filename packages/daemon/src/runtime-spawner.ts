@@ -93,6 +93,12 @@ import type {
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
+import {
+  defaultProjectionWaitMs,
+  isProjectionWaitMs,
+  projectionWaitBudget,
+  waitForTaskProjection,
+} from "./projection-readiness-wait.ts";
 
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
@@ -209,6 +215,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "prompt",
         "promptSource",
         "missionName",
+        "waitProjectionMs",
         "onExitCommand",
         "taskId",
         "idempotencyKey",
@@ -260,7 +267,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       providerSessionId =
         typeof payload.providerSessionId === "string"
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
-          : resumed?.providerSessionId;
+          : resumed?.providerSessionId,
+      waitProjectionMs = payload.waitProjectionMs ?? defaultProjectionWaitMs;
+    if (!isProjectionWaitMs(waitProjectionMs))
+      throw runtimeSpawnError(
+        "invalid_runtime_spawn",
+        "waitProjectionMs must be a non-negative safe integer number of milliseconds.",
+      );
     if (missionName && !taskId)
       throw runtimeSpawnError("invalid_runtime_mission", "Use --mission <name> only with --task <task-id>.");
     if (missionName && explicitMission)
@@ -272,8 +285,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const cwd = resolveRuntimeCwd(input.rootDir, payload.cwd),
       store = input.remote ? null : requiredRuntimeStore(input),
       projection = input.remote ? null : requiredRuntimeProjection(input),
-      remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null,
-      lease = taskId && !input.remote ? projection!.currentLease(taskId) : null,
+      remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null;
+    if (taskId && !input.remote)
+      await waitForTaskProjection({
+        budget: projectionWaitBudget(waitProjectionMs),
+        projection: projection!,
+        store: store!,
+        taskId,
+        purpose: "runtime.run",
+      });
+    const lease = taskId && !input.remote ? projection!.currentLease(taskId) : null,
       taskSnapshot = taskId && !input.remote ? projection!.read(taskId).snapshot : null,
       reviewExecutions =
         taskSnapshot?.task?.status === "in_review" &&
