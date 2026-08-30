@@ -444,7 +444,10 @@ test("task writes keep aggregate CAS after runtime events advance the shared wor
     );
     await cell.close();
     cell = undefined;
-    const runtime = fixtureAtRevision(rootDir, makeTaskEventStore({ repoId: "runtime-cas", rootDir }).read().revision + 1);
+    const runtime = fixtureAtRevision(
+      rootDir,
+      makeTaskEventStore({ repoId: "runtime-cas", rootDir }).read().revision + 1,
+    );
     for (const event of runtime)
       makeTaskEventStore({ repoId: "runtime-cas", rootDir }).append({
         event,
@@ -457,12 +460,8 @@ test("task writes keep aggregate CAS after runtime events advance the shared wor
       ownerId: "runtime-cas-2",
     });
     assert.equal(
-      (
-        await cell.run(
-          { kind: "task-start", taskId: "task-runtime", executionId: "execution-runtime" },
-          binding,
-        )
-      ).outcome,
+      (await cell.run({ kind: "task-start", taskId: "task-runtime", executionId: "execution-runtime" }, binding))
+        .outcome,
       "applied",
     );
   } finally {
@@ -667,6 +666,7 @@ const instanceSummary = {
   permissionMode: "bypass",
   codex: {
     reasoningEffort: definition.reasoningEffort,
+    fast: false,
     baseUrl: definition.baseUrl,
     baseUrlConfigured: true,
     wire_api: null,
