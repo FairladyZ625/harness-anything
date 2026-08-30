@@ -1,5 +1,5 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { accepted, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
+import { accepted, projectionWaitMs, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
@@ -47,6 +47,7 @@ export function parseFactRecord(
     observedAt = f.one.get("--observed-at"),
     confidence = f.one.get("--confidence") ?? "medium",
     memoryClass = f.one.get("--memory-class") ?? "episodic",
+    waitProjectionMs = projectionWaitMs(f.one.get("--wait-projection")),
     supersedes = f.one.get("--supersedes"),
     rationale = f.one.get("--rationale");
   if (positionalTaskId && flaggedTaskId)
@@ -58,6 +59,8 @@ export function parseFactRecord(
       "Use --statement <observation> or --text <observation>; --source <source> is also required.",
       json,
     );
+  if (waitProjectionMs === null)
+    return rejected("invalid_field", "Use a non-negative safe integer projection wait limit in milliseconds.", json);
   if (Boolean(supersedes) !== Boolean(rationale)) return rejectInput(inputs, "fact-record", "--rationale", json);
   return accepted(rootDir, repoId, json, {
     kind: "fact-record",
@@ -68,6 +71,7 @@ export function parseFactRecord(
     confidence,
     memoryClass,
     memoryTags: f.many.get("--memory-tag") ?? [],
+    ...(waitProjectionMs === undefined ? {} : { waitProjectionMs }),
     ...(supersedes && rationale ? { supersedes: { factRef: supersedes, rationale } } : {}),
   });
 }

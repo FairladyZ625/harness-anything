@@ -184,6 +184,8 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       "packages/cli",
       "--task",
       "task-1",
+      "--wait-projection",
+      "1250",
       "--resume",
       "provider-1",
       "--idempotency-key",
@@ -230,6 +232,7 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       prompt: "Inspect",
       cwd: { scope: "repo-relative", path: "packages/cli" },
       taskId: "task-1",
+      waitProjectionMs: 1250,
       providerSessionId: "provider-1",
       idempotencyKey: "once",
       noStream: true,
@@ -310,6 +313,10 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       runtimeSessionId: "runtime-1",
     });
   assert.equal(parseThinCommand(["runtime", "run", "worker"]).ok, false);
+  assert.equal(
+    parseThinCommand(["runtime", "run", "worker", "--prompt", "Inspect", "--wait-projection", "-1"]).ok,
+    false,
+  );
   assert.equal(parseThinCommand(["runtime", "batch"]).ok, false);
   assert.equal(parseThinCommand(["runtime", "batch", "dispatches.json", "--detach"]).ok, false);
   assert.equal(
@@ -354,6 +361,9 @@ test("runtime batch uses the same prompt, mission, and task input union as runti
   const fast = parseRuntimeBatchEntry({ instance: "codex-fast", prompt: "inspect", fast: true }, 0);
   assert.equal(fast.fast, true);
   assert.equal(runtimeBatchSpawnAction(fast).fast, true);
+  const projectionWait = parseRuntimeBatchEntry({ instance: "worker", task: "task-1", "wait-projection": 2500 }, 0);
+  assert.equal(projectionWait.waitProjectionMs, 2500);
+  assert.equal(runtimeBatchSpawnAction(projectionWait).waitProjectionMs, 2500);
   assert.throws(
     () => parseRuntimeBatchEntry({ instance: "worker", prompt: "inspect", fast: "yes" }, 0),
     /field fast must be a boolean/u,
@@ -361,6 +371,10 @@ test("runtime batch uses the same prompt, mission, and task input union as runti
   assert.throws(
     () => parseRuntimeBatchEntry({ instance: "worker", prompt: "one", mission: "two", task: "task-1" }, 0),
     /cannot combine prompt and mission/u,
+  );
+  assert.throws(
+    () => parseRuntimeBatchEntry({ instance: "worker", task: "task-1", "wait-projection": -1 }, 0),
+    /wait-projection must be a non-negative safe integer/u,
   );
   assert.throws(() => parseRuntimeBatchEntry({ instance: "worker" }, 0), /requires prompt, mission, or task/u);
 });

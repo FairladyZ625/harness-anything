@@ -230,6 +230,7 @@ export const daemonGuiActionMethods = Object.freeze([
       prompt: "string?",
       promptSource: "string?",
       missionName: "string?",
+      waitProjectionMs: "number?",
       onExitCommand: "string?",
       taskId: "string-null?",
       idempotencyKey: "string",
@@ -413,7 +414,6 @@ export const daemonGuiActionMethods = Object.freeze([
     TERMINAL_CONTROL_RECEIPT_SCHEMA.id,
   ),
 ] as const);
-
 export const daemonStreamFacets = Object.freeze([
   {
     id: "agentRuntime.attach",

@@ -71,6 +71,16 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         code: "invalid_field",
         nextAction: "Use --mission <name> with --task to append artifacts/missions/<name>.md.",
       }),
+      cliInput(
+        "--wait-projection",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use a non-negative integer projection wait limit in milliseconds.",
+        },
+        { regex: "^(?:0|[1-9][0-9]*)$" },
+      ),
       cliInput("--cwd", "single", false, {
         code: "invalid_field",
         nextAction: "Use a repository-relative directory; omit --cwd for the repository root.",

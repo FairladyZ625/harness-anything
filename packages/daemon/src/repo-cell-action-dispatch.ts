@@ -20,6 +20,7 @@ import { type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts"
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 
 export async function executeAction(
@@ -203,19 +204,7 @@ export async function executeAction(
       },
     );
   }
-  if (action.kind.startsWith("fact-"))
-    return cell.entityActionExecutor.run(
-      action,
-      binding,
-      cell.operationId(
-        action,
-        binding,
-        cell.input.repoId,
-        action.kind === "fact-record" && typeof action.taskId === "string" && action.taskId.trim().length > 0
-          ? cell.projection.read(action.taskId).snapshot.revision
-          : (cell.store.readHead()?.revision ?? 0),
-      ),
-    );
+  if (action.kind.startsWith("fact-")) return runFactAction(cell, action, binding);
   if (action.kind.startsWith("decision-")) {
     const resolved = cell.decisionProposalAction(cell.rootDir, action);
     return cell.entityActionExecutor.run(

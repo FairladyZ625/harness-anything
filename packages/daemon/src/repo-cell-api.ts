@@ -62,6 +62,7 @@ import type { makeSquadCoordinator } from "./squad-coordinator.ts";
 import type { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
+import { waitForOptionalTaskProjection } from "./projection-readiness-wait.ts";
 import type {
   ScheduleDispatchLinkInput,
   ScheduleMissedInput,
@@ -719,7 +720,15 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         });
       const authorizedBinding = { ...binding, authorizationDecision };
       const taskId = typeof payload.taskId === "string" && payload.taskId ? payload.taskId : null,
-        idempotencyKey =
+        readyTask = await waitForOptionalTaskProjection({
+          invalidWait: (message) => context.cellCodedError("invalid_command", message),
+          projection: context.projection,
+          purpose: "runtime.run admission",
+          store: context.store,
+          taskId,
+          waitProjectionMs: payload.waitProjectionMs,
+        });
+      const idempotencyKey =
           typeof payload.idempotencyKey === "string" && payload.idempotencyKey ? payload.idempotencyKey : null,
         dispatchOpId = idempotencyKey
           ? `runtime-spawn-${createHash("sha256")
@@ -728,7 +737,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
               .slice(0, 32)}`
           : null,
         taskLease = taskId ? context.projection.currentLease(taskId) : null,
-        taskSnapshot = taskId ? context.projection.read(taskId).snapshot : null,
+        taskSnapshot = readyTask?.snapshot ?? null,
         reviewContinuation =
           taskSnapshot?.task?.status === "in_review" &&
           taskSnapshot.task.currentNode === "review" &&

@@ -174,3 +174,9 @@ export function promptInput(one: ReadonlyMap<string, string>): { readonly prompt
 export function nonEmpty(value: string | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
+
+export function projectionWaitMs(value: string | undefined): number | undefined | null {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
