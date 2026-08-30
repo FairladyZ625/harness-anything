@@ -2882,6 +2882,10 @@
       "consumerScope": [
         "public docs-release map"
       ],
+      "localPathGlobs": [
+        "README.md",
+        "docs-release/**"
+      ],
       "githubContext": {
         "requiredContexts": [
           "boundaries"
@@ -3350,6 +3354,10 @@
       ],
       "consumerScope": [
         "runtime release readiness declarations"
+      ],
+      "localPathGlobs": [
+        "README.md",
+        "docs-release/**"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -3885,6 +3893,10 @@
       ],
       "consumerScope": [
         "Legacy Intake readiness and retired full-cutover surface"
+      ],
+      "localPathGlobs": [
+        "README.md",
+        "docs-release/**"
       ],
       "githubContext": {
         "requiredContexts": [

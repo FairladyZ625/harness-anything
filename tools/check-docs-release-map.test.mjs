@@ -23,7 +23,7 @@ test("docs release map check accepts the expected public documentation map", asy
 test("docs release map check rejects README private planning subpaths", async () => {
   await withFixtureRepo((root) => {
     writeValidDocsMap(root, {
-      readmeSuffix: "Read `.harness-private/coding-agent-harness/task`.\n"
+      readmeSuffix: "Read `.harness-private/coding-agent-harness/task`.\n",
     });
 
     const result = runDocsMapCheck(root);
@@ -38,7 +38,7 @@ test("docs release map check rejects shipped capability overclaim variants", asy
     "Signed desktop installers are shipped.",
     "The auto-update capability is available.",
     "M4 external adapters are implemented.",
-    "M3 task hierarchy is complete."
+    "M3 task hierarchy is complete.",
   ];
 
   for (const claim of claims) {
@@ -53,10 +53,25 @@ test("docs release map check rejects shipped capability overclaim variants", asy
   }
 });
 
+test("docs release map check rejects broken links in nested release docs", async () => {
+  await withFixtureRepo((root) => {
+    writeValidDocsMap(root);
+    writeFile(root, "docs-release/contributing/en/guide.md", "Read the [missing page](missing.md).");
+
+    const result = runDocsMapCheck(root);
+
+    assert.notEqual(result.status, 0);
+    assert.match(
+      result.stderr,
+      /docs-release[/\\]contributing[/\\]en[/\\]guide\.md links to missing path: missing\.md/u,
+    );
+  });
+});
+
 function runDocsMapCheck(root) {
   return spawnSync(process.execPath, [scriptPath], {
     cwd: root,
-    encoding: "utf8"
+    encoding: "utf8",
   });
 }
 
@@ -71,25 +86,33 @@ async function withFixtureRepo(fn) {
 }
 
 function writeValidDocsMap(root, options = {}) {
-  writeFile(root, "README.md", [
-    "# Harness Anything",
-    "The accountability layer for AI agents.",
-    "Private planning lives in `.harness-private/`.",
-    "Do not add `.harness-private/` to public commits.",
-    options.readmeSuffix ?? ""
-  ].join("\n"));
+  writeFile(
+    root,
+    "README.md",
+    [
+      "# Harness Anything",
+      "The accountability layer for AI agents.",
+      "Private planning lives in `.harness-private/`.",
+      "Do not add `.harness-private/` to public commits.",
+      options.readmeSuffix ?? "",
+    ].join("\n"),
+  );
 
-  writeFile(root, "docs-release/release-posture.md", [
-    "# Release Posture",
-    "## Status taxonomy",
-    "- Shipped: usable from this repository.",
-    "- Foundation: contract exists, but end-user product capability is not shipped yet.",
-    "- Planned: owned by a later milestone.",
-    "## Product line status",
-    "M2.5 GUI/daemon foundation",
-    "M3-M7",
-    options.docsSuffix ?? ""
-  ].join("\n"));
+  writeFile(
+    root,
+    "docs-release/release-posture.md",
+    [
+      "# Release Posture",
+      "## Status taxonomy",
+      "- Shipped: usable from this repository.",
+      "- Foundation: contract exists, but end-user product capability is not shipped yet.",
+      "- Planned: owned by a later milestone.",
+      "## Product line status",
+      "M2.5 GUI/daemon foundation",
+      "M3-M7",
+      options.docsSuffix ?? "",
+    ].join("\n"),
+  );
 }
 
 function writeFile(root, relativePath, body) {

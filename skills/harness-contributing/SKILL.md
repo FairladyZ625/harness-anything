@@ -152,18 +152,24 @@ jobs; use this output rather than inferring a job from its name:
 node -e 'const m=require("./tools/gate-manifest.json"); for (const g of m.gates.filter(g=>!g.aggregate)) for (const job of g.executionSurfaces?.rewriteCi?.pullRequestJobs??[]) console.log(`${job}\t${g.id}\t${g.command}\t${(g.consumerScope??[]).join("; ")}`)'
 ```
 
-Then run every job that matches the changed surface:
+Then run every job that matches the changed surface. Pass the merge base to the
+runner so its optional manifest path declarations can narrow local commands; a
+working-tree comparison includes committed, uncommitted, and untracked edits:
 
 ```bash
-node tools/run-manifest-gates.mjs --workflow-job <job>
+node tools/run-manifest-gates.mjs --workflow-job <job> --changed origin/main
 npm run typecheck
 ```
 
 `boundaries` is the usual job for public source, tool, and documentation
 boundaries. Use the manifest's other current PR jobs when the patch touches
 their surface—for example tests, package policy, dependencies/supply chain, or
-the GUI. Record every command and result in the PR body, including a scoped
-reason for anything not run.
+the GUI. Path selection is conservative: it narrows a job only when every
+changed path matches explicit `localPathGlobs`; an unclassified or mixed surface
+runs the complete job. A docs-only change under `docs-release/**` selects the
+three docs/release checks declared by the manifest. CI omits `--changed` and
+still runs every command in every job. Record every command and result in the PR
+body, including a scoped reason for anything not run.
 
 One gate has a local credential exception. If `boundaries` reaches
 `check-github-required-contexts`, the only failure that may be excluded locally
@@ -172,21 +178,25 @@ repository/token context is available. Preserve that output and rerun the same
 job with only that gate excluded:
 
 ```bash
-node tools/run-manifest-gates.mjs --workflow-job boundaries --exclude check-github-required-contexts
+node tools/run-manifest-gates.mjs --workflow-job boundaries --changed origin/main --exclude check-github-required-contexts --resume
 ```
 
 If that exact message is not the sole failure, do not exclude the gate. Never
 treat the exclusion as a CI waiver; the required GitHub context must still pass
-on the PR. A `boundaries` run currently takes about 45 seconds locally. The
-runner stops at the first failure and cannot resume, so the permitted exclusion
-rerun starts the selected job again from its first command.
+on the PR. `--resume` uses only the checkpoint from the latest failed run in the
+same worktree, skips commands that already passed, and removes the checkpoint
+after success. If the selected gates or their commands changed, the runner
+rejects the checkpoint; rerun without `--resume` so affected checks are not
+skipped. Results are never cached across successful runs.
 
 > 中文：从 `tools/gate-manifest.json` 读取当前 job/tier，用
-> `run-manifest-gates` 跑改动面对应的 job，并始终运行 `npm run typecheck`。
+> `run-manifest-gates --changed origin/main` 跑改动面对应的 job，并始终运行
+> `npm run typecheck`。只有所有改动路径都被 manifest 的 `localPathGlobs` 覆盖时才
+> 缩小本地命令；遇到未分类或混合改动就保守地跑完整 job，CI 始终全跑。
 > 本地只有 `check-github-required-contexts` 的精确报错
 > `repository must be provided as owner/name` 可在确认缺 GitHub 上下文后单独排除；
-> 该排除不适用于 CI，也不能掩盖其他失败。`boundaries` 当前约需 45 秒，失败后不能
-> 从断点续跑。
+> 该排除不适用于 CI，也不能掩盖其他失败。`--resume` 只复用同一 worktree 最近一次
+> 失败运行的已绿命令；成功后删除断点，所选 gate 或命令变化后必须重新完整执行。
 
 ## Commit with the contributor identity
 

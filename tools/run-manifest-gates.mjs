@@ -8,7 +8,8 @@
  * first failure to preserve the old `&&` chain behavior.
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { readTestQuarantine } from "./test-quarantine.mjs";
@@ -22,6 +23,9 @@ export function parseManifestGateArgs(args) {
     workflowJob: null,
     shard: null,
     exclude: new Set(),
+    changed: null,
+    changedPaths: null,
+    resume: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -51,6 +55,15 @@ export function parseManifestGateArgs(args) {
       index += 1;
       continue;
     }
+    if (arg === "--changed") {
+      options.changed = requireValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--resume") {
+      options.resume = true;
+      continue;
+    }
     throw new Error(`unknown run-manifest-gates option: ${arg}`);
   }
 
@@ -67,24 +80,78 @@ export function parseManifestGateArgs(args) {
 }
 
 export function selectManifestGateIds(manifest, options) {
+  let gates;
   if (options.packageSurface) {
     const ids = manifest.surfaces?.packageJson?.[options.packageSurface];
     if (!Array.isArray(ids)) {
       throw new Error(`manifest has no packageJson surface ${options.packageSurface}`);
     }
-    return ids.filter((id) => !options.exclude.has(id));
+    const gatesById = new Map(manifest.gates.map((gate) => [gate.id, gate]));
+    gates = ids.map((id) => gatesById.get(id) ?? { id });
+  } else {
+    gates = manifest.gates
+      .filter((gate) => !gate.aggregate)
+      .filter((gate) =>
+        [
+          ...(gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? []),
+          ...(gate.executionSurfaces?.rewriteCi?.nonPullRequestJobs ?? []),
+        ].includes(options.workflowJob),
+      );
   }
 
-  return manifest.gates
-    .filter((gate) => !gate.aggregate)
-    .filter((gate) =>
-      [
-        ...(gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? []),
-        ...(gate.executionSurfaces?.rewriteCi?.nonPullRequestJobs ?? []),
-      ].includes(options.workflowJob),
-    )
+  const exclude = options.exclude ?? new Set();
+  return selectGatesForChangedPaths(gates, options.changedPaths)
     .map((gate) => gate.id)
-    .filter((id) => !options.exclude.has(id));
+    .filter((id) => !exclude.has(id));
+}
+
+export function selectGatesForChangedPaths(gates, changedPaths) {
+  if (!Array.isArray(changedPaths)) return gates;
+  if (changedPaths.length === 0) return [];
+
+  const scopedGates = gates.filter((gate) => gate.localPathGlobs !== undefined);
+  for (const gate of scopedGates) validateLocalPathGlobs(gate);
+  if (scopedGates.length === 0) return gates;
+
+  const selectedIds = new Set();
+  for (const changedPath of changedPaths) {
+    const normalizedPath = changedPath.replaceAll("\\", "/");
+    const matches = scopedGates.filter((gate) =>
+      gate.localPathGlobs.some((glob) => pathMatchesGlob(normalizedPath, glob)),
+    );
+    if (matches.length === 0) return gates;
+    for (const gate of matches) selectedIds.add(gate.id);
+  }
+  return gates.filter((gate) => selectedIds.has(gate.id));
+}
+
+function validateLocalPathGlobs(gate) {
+  if (
+    !Array.isArray(gate.localPathGlobs) ||
+    gate.localPathGlobs.length === 0 ||
+    gate.localPathGlobs.some((glob) => typeof glob !== "string" || glob.length === 0 || glob.startsWith("/"))
+  ) {
+    throw new Error(`manifest gate ${gate.id} localPathGlobs must be a non-empty array of relative globs`);
+  }
+}
+
+function pathMatchesGlob(filePath, glob) {
+  let expression = "^";
+  for (let index = 0; index < glob.length; index += 1) {
+    const char = glob[index];
+    if (char === "*" && glob[index + 1] === "*") {
+      if (glob[index + 2] === "/") {
+        expression += "(?:.*/)?";
+        index += 2;
+      } else {
+        expression += ".*";
+        index += 1;
+      }
+    } else if (char === "*") expression += "[^/]*";
+    else if (char === "?") expression += "[^/]";
+    else expression += char.replace(/[|\\{}()[\]^$+?.]/gu, "\\$&");
+  }
+  return new RegExp(`${expression}$`, "u").test(filePath);
 }
 
 export function buildManifestGatePlan(manifest, options) {
@@ -174,6 +241,16 @@ function readManifest() {
   return JSON.parse(readFileSync(manifestPath, "utf8"));
 }
 
+function readChangedPaths(revision) {
+  const changed = [
+    readGitOutput(["diff", "--name-only", "-z", revision, "--"]),
+    readGitOutput(["diff", "--name-only", "-z", "--"]),
+    readGitOutput(["diff", "--cached", "--name-only", "-z", "--"]),
+  ].join("");
+  const untracked = readGitOutput(["ls-files", "--others", "--exclude-standard", "-z"]);
+  return [...new Set(`${changed}${untracked}`.split("\0").filter(Boolean))].sort();
+}
+
 function runCommand(label, command) {
   console.log(`\n▶ ${label}  (${command})`);
   const started = Date.now();
@@ -200,6 +277,7 @@ function runCommand(label, command) {
 
 function main(argv) {
   const options = parseManifestGateArgs(argv);
+  if (options.changed !== null) options.changedPaths = readChangedPaths(options.changed);
   readTestQuarantine(repoRoot);
   if (shouldSkipTestQuarantine(options.workflowJob, process.env)) process.env.HARNESS_TEST_QUARANTINE = "skip";
   if (options.workflowJob)
@@ -223,20 +301,86 @@ function main(argv) {
   const manifest = readManifest();
   const plan = buildManifestGatePlan(manifest, options);
   const selector = options.packageSurface ? `package:${options.packageSurface}` : `workflow:${options.workflowJob}`;
+  const resume = prepareResume(manifest, options);
 
+  if (options.changed !== null) {
+    console.log(`Changed path selection (${options.changed}): ${options.changedPaths.length} path(s).`);
+  }
   console.log(`Manifest gate runner (${selector}): ${plan.length} command(s).`);
   const gateResults = [];
   for (const entry of plan) {
+    if (resume.passedCommands.has(entry.command)) {
+      console.log(`↷ ${entry.id} (already passed; resumed)`);
+      continue;
+    }
     const result = runCommand(entry.id, entry.command);
     gateResults.push({ gate: canonicalGateId(entry.id), pass: result.ok, metrics: { durationMs: result.durationMs } });
     if (!result.ok) {
+      writeResumeCheckpoint(resume);
       writeObservation(gateResults);
       process.exitCode = 1;
       return;
     }
+    resume.passedCommands.add(entry.command);
   }
+  rmSync(resume.path, { force: true });
   writeObservation(gateResults);
   console.log(`\nManifest gate runner passed (${selector}).`);
+}
+
+function prepareResume(manifest, options) {
+  const checkpointPath = resolveResumeCheckpointPath();
+  const signature = createResumeSignature(manifest, options);
+  if (!options.resume) {
+    rmSync(checkpointPath, { force: true });
+    return { path: checkpointPath, signature, passedCommands: new Set() };
+  }
+  if (!existsSync(checkpointPath)) {
+    throw new Error("--resume requires a failed manifest gate run in this worktree");
+  }
+
+  let checkpoint;
+  try {
+    checkpoint = JSON.parse(readFileSync(checkpointPath, "utf8"));
+  } catch (error) {
+    throw new Error(`cannot read resume checkpoint: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (checkpoint.schema !== "manifest-gate-resume/v1" || checkpoint.signature !== signature) {
+    throw new Error("resume checkpoint does not match the selected gates or commands; rerun without --resume");
+  }
+  return { path: checkpointPath, signature, passedCommands: new Set(checkpoint.passedCommands ?? []) };
+}
+
+function createResumeSignature(manifest, options) {
+  const baseOptions = { ...options, exclude: new Set(), resume: false };
+  const basePlan = buildManifestGatePlan(manifest, baseOptions);
+  return createHash("sha256").update(JSON.stringify(basePlan)).digest("hex");
+}
+
+function readGitOutput(args) {
+  const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${(result.stderr || result.stdout).trim()}`);
+  return result.stdout;
+}
+
+function resolveResumeCheckpointPath() {
+  return path.resolve(repoRoot, readGitOutput(["rev-parse", "--git-path", "manifest-gate-resume.json"]).trim());
+}
+
+function writeResumeCheckpoint(resume) {
+  writeFileSync(
+    resume.path,
+    `${JSON.stringify(
+      {
+        schema: "manifest-gate-resume/v1",
+        signature: resume.signature,
+        passedCommands: [...resume.passedCommands],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
 }
 
 function canonicalGateId(id) {
