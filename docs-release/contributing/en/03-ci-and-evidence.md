@@ -1,102 +1,30 @@
 # CI and evidence
 
-Every contribution needs evidence. Evidence is not confidence language; it is a
-command, test result, CI run, diff, review note, or reasoned "not run" entry that
-a reviewer can inspect.
+The current commands for targeted tests, manifest-selected workflow jobs, the
+narrow local GitHub-credential exception, and typecheck live in
+[Run local gates](../../../skills/harness-contributing/SKILL.md#run-local-gates).
+That section is the executable authority; this page explains what the results
+mean.
 
-## Local checks
+## Gate authority
 
-The smallest useful pre-PR loop is:
+`tools/gate-manifest.json` classifies gates by tier and maps them to GitHub
+workflow jobs. Contributors select the job that owns their changed surface and
+run it through the manifest runner. A remembered list of package scripts is not
+equivalent, because the manifest and workflow can evolve.
 
-```bash
-git diff --check
-```
+GitHub's required PR contexts remain authoritative. A local pass is evidence
+for review, not permission to waive CI. Likewise, the aggregate full-check lane
+used on `main`, schedules, or manual dispatch is not the standard pre-PR loop.
 
-For public docs changes, also run:
+## Evidence standard
 
-```bash
-npm run harness:check-private-boundary
-npm run harness:check-docs-release-map
-```
+Useful evidence names the exact command, result, scope, and any reason it was
+not run. Confidence language and a bare “not needed” are not evidence. The PR
+should make it possible for a reviewer to distinguish a passing relevant check,
+an unrelated check intentionally omitted, and a check still pending in GitHub.
 
-For package, CLI, kernel, tool, GUI, or contract changes, run the PR-sized gate:
-
-```bash
-npm run check:pr
-```
-
-Before claiming implementation readiness for broad public changes, run:
-
-```bash
-npm run check
-```
-
-If a command is not run, the PR must say exactly which command was skipped and
-why. "Not needed" is not enough; name the scope reason.
-
-## Test tiers
-
-The repository uses tiered test lanes:
-
-| Command | Use |
-| --- | --- |
-| `npm run test:fast` | Pure or near-pure behavior tests. |
-| `npm run test:contract` | Public API, schema, and cross-package contracts. |
-| `npm run test:integration` | CLI, filesystem, store, migration, and slower behavior. |
-| `npm test` | Full Node test suite. |
-| `npm run test:gui` | GUI test lane. |
-
-New Node tests under `packages/**` or `tools/**` must put exactly one valid
-`// harness-test-tier: fast|contract|integration` declaration on their first
-line. The runner rejects missing, repeated, or invalid declarations.
-
-## CI lanes
-
-Pull requests run the `rewrite-ci` workflow. Required PR signals include the
-typecheck, fast/contract, integration, boundary, package-policy, GUI build,
-Node 26 compatibility, supply-chain, and PR body lint lanes as configured by the
-repository.
-
-The full aggregate `npm run check` lane is reserved for `main`, scheduled runs,
-and manual dispatch. Do not treat a pull-request skip of the full-check job as a
-failure when the PR lanes passed by design.
-
-## Merge discipline
-
-`main` advances through GitHub's protected merge path. Do not merge a pull request into
-`main` before the required checks and reviews pass.
-
-If an emergency direct merge is explicitly approved, the person performing it is
-responsible for immediately rebasing every pull request already in the queue and
-rerunning the required gates. The emergency merge is not complete until queued
-work has a fresh base.
-
-After approval and passing required checks, enable GitHub auto-merge. GitHub
-will merge the pull request when the protected branch rules are satisfied.
-
-## Evidence in the PR
-
-The PR template asks for:
-
-- base `origin/main` SHA and merge-base;
-- last fetch time and sync method;
-- public diff command;
-- local verification commands;
-- GitHub Actions `rewrite-ci` run URL;
-- reviewer evidence and blocking findings;
-- residual risk.
-
-Fill these fields honestly. Empty verification sections slow review down because
-maintainers must reconstruct the evidence from scratch.
-
-## Failing checks
-
-When a check fails:
-
-1. Read the failure, not just the job name.
-2. Fix the PR branch.
-3. Re-run the smallest local command that proves the fix.
-4. Push normally and wait for CI again.
-
-Do not force-push or direct-push to `main` to escape a failure. A failing gate is
-part of the contribution, and resolving it is part of the work.
+When a check fails, read its output, repair the contribution branch, rerun the
+smallest proving test and affected manifest job, and let GitHub evaluate the new
+commit. A failed gate remains part of the review record; it is not a reason to
+rewrite history or bypass protection.

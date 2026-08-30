@@ -1,63 +1,43 @@
 # Contributing overview
 
-Harness Anything is built for agent-shaped work, but contributions still move
-through ordinary git review, CI, and maintainer authority. A good contribution is
-not just a patch that works locally. It is a patch with a clear scope, recorded
-evidence, a reviewable PR, and no private context leaking into the public repo.
+Harness Anything accepts public contributions through ordinary git review,
+required GitHub CI, and maintainer-controlled merge. A useful contribution has
+a narrow public scope, reproducible evidence, a complete bilingual PR, and no
+private or machine-local context in its diff.
 
-This path is the contribution contract for this repository. Read it before
-opening a PR, and give it to any coding agent that helps you.
+## The workflow authority
 
-## The contribution path
+Install or load
+[`harness-contributing`](../../../skills/harness-contributing/SKILL.md) in the
+coding agent helping with the change. That skill is the repository's sole
+executable path from issue scope through worktree, tests, manifest-selected
+gates, PR-body validation, review triage, and merge handoff.
 
-1. Prepare a source checkout and use a branch or worktree.
-2. Keep the change inside one reviewable scope.
-3. Run the checks that match the scope.
-4. Open a PR with the full bilingual template.
-5. Triage review comments and CI failures.
-6. Wait for maintainer-controlled merge.
+These pages explain the reasons and boundaries around that workflow. They do
+not repeat its commands or maintain a second checklist. When wording here and a
+current machine-readable repository surface differ, follow the skill's routing
+to the live PR template, gate manifest, and package scripts.
 
-The last step matters: external contributors and their agents may propose
-changes, but they do not merge them into `main`. Merge authority stays with the
-maintainers, the repository owner, or a maintainer-authorized admin agent after
-the required gates pass.
+## Where to start
 
-## What this path covers
+- To implement an accepted issue or maintainer-approved change, start with the
+  [contribution skill](../../../skills/harness-contributing/SKILL.md).
+- To report a new public bug or documentation gap, use
+  [Filing GitHub issues](06-github-issues.md) first.
+- Before changing release or packaging claims, read
+  [Release Posture](../../release-posture.md).
 
-- [Local setup](01-local-setup.md): runtime, install posture, branch discipline,
-  and public/private file boundaries.
-- [Change flow](02-change-flow.md): how to shape a contribution so it can be
-  reviewed and tested.
-- [CI and evidence](03-ci-and-evidence.md): local commands, CI lanes, test
-  tiers, and what must be recorded in the PR.
-- [PR, review, and merge](04-pr-review-and-merge.md): the PR template, review
-  evidence, bot comment triage, and merge authority.
-- [Agent contributors](05-agent-contributors.md): rules for coding agents that
-  work on this repository.
-- [Filing GitHub issues](06-github-issues.md): how to write public issues that
-  maintainers and agents can reproduce and repair.
+## Background pages
 
-## Public scope only
+- [Local setup](01-local-setup.md) explains why the worktree and public/private
+  boundaries exist.
+- [Change flow](02-change-flow.md) records scope and architecture expectations.
+- [CI and evidence](03-ci-and-evidence.md) explains the gate authority model.
+- [PR, review, and merge](04-pr-review-and-merge.md) explains reviewer and
+  maintainer responsibilities.
+- [Agent contributors](05-agent-contributors.md) defines the agent evidence and
+  authority boundary.
 
-Public contributions belong in the public monorepo: `packages/`, `tools/`,
-`.github/`, root configuration, root README files, package README files, and
-`docs-release/`.
-
-Do not include local planning records, private evidence folders, generated
-caches, local agent entry files, credentials, absolute filesystem paths, or
-machine-specific state. If a private note helped you make a change, summarize
-the public reasoning in the PR instead of copying the private note.
-
-## Release posture
-
-The current public release posture is source checkout and package smoke, not a
-published npm package or signed desktop artifact. Before changing install,
-packaging, or release wording, read [Release Posture](../../release-posture.md)
-and keep the docs honest about what is shipped, foundation-only, and planned.
-
-## The short version
-
-Make the smallest coherent change, prove it with the right checks, fill the PR
-template honestly, and leave merge control to maintainers. If your agent cannot
-explain the scope, the verification, and the merge boundary, it is not ready to
-open the PR.
+External contributors and their agents have proposal authority. They may
+prepare and update a branch and PR, but final merge authority stays with
+maintainers.

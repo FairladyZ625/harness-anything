@@ -104,7 +104,7 @@ template.
 
 ## After a fix
 
-The PR should reference the issue, explain the scope, include verification
-evidence, and leave merge authority with maintainers. If the fix changes the
-issue's assumptions, say that in the PR body rather than silently broadening the
-scope.
+Once an issue is accepted for implementation, continue with the repository's
+[`harness-contributing`](../../../skills/harness-contributing/SKILL.md) skill.
+If the fix changes the issue's assumptions, call that out during scope review
+instead of silently broadening the contribution.

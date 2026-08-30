@@ -84,5 +84,6 @@ ha preset action github-issue-repair plan \
 
 ## 修复之后
 
-PR 应引用对应 issue，说明范围，包含验证证据，并把合入权限留给 maintainer。如果修复改变了 issue
-原来的假设，请在 PR body 里说明，不要静默扩大范围。
+issue 被接受实现后，继续执行本仓
+[`harness-contributing`](../../../skills/harness-contributing/SKILL.md) skill。如果修复改变了
+issue 原来的假设，应在 scope review 时明确说明，不要静默扩大贡献范围。

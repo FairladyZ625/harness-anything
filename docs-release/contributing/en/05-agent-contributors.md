@@ -1,81 +1,24 @@
 # Agent contributors
 
-Coding agents are welcome as implementation assistants, but they must follow the
-same public contribution contract as humans. An agent that can edit files but
-cannot respect scope, evidence, and merge authority is not ready to work on this
-repository.
+Coding agents follow the same public contribution contract as humans. Load
+[`harness-contributing`](../../../skills/harness-contributing/SKILL.md) and use
+its complete sequence; do not derive an agent-specific shortcut from this page.
 
-## Give the agent this read set
+## Agent evidence boundary
 
-At minimum, point the agent to:
+An agent should inspect current public source before editing, keep the declared
+scope visible, preserve unrelated work, and report exact commands and results.
+Its handoff must distinguish what changed, what did not, which checks passed,
+which checks were not run and why, open findings, and residual risk.
 
-- this contributing path;
-- the root README and `docs-release/`;
-- `.github/pull_request_template.md`;
-- the specific files named by the task or issue;
-- package scripts in `package.json`;
-- relevant tests next to the changed code.
+An agent may use only authority actually granted for the contribution. It must
+not expose local context, bypass generated gates, remove a failing test to make
+CI green, or claim a human review, Dashboard confirmation, release decision, or
+merge approval on someone else's behalf.
 
-For code involving a library, framework, SDK, CLI, or cloud service, the agent
-should consult current official docs rather than relying on memory.
+## Proposal authority
 
-## Agent ground rules
-
-The agent must:
-
-- state the task scope before editing;
-- work on a branch or worktree, not shared `main`;
-- inspect current code before proposing abstractions;
-- keep edits inside the stated scope;
-- use existing package boundaries and helpers;
-- run relevant checks and report exact results;
-- preserve unrelated local changes;
-- stage only files it changed for the task;
-- keep private notes, local paths, and credentials out of public diffs.
-
-The agent must not:
-
-- add compatibility shims for hypothetical users before the release boundary
-  asks for them;
-- rewrite unrelated files for style;
-- bypass generated gates or remove failing tests to make CI green;
-- open a PR with an empty verification section;
-- merge, force-push, or direct-push to `main` unless a maintainer explicitly
-  grants that authority for that exact operation.
-
-## Agent-created tasks and evidence
-
-If a maintainer asks the agent to use Harness Anything task records, the agent
-should use the current CLI:
-
-```bash
-ha task create --title "<title>" --vertical software/coding --preset standard-task
-ha task progress append <task-id> --text "<progress>"
-ha fact record --statement "<observed fact>" --source "<source>" --confidence high [--task <task-id>]
-```
-
-Do not hand-scaffold task directories. If the CLI cannot create or update the
-task package, stop and report the blocker.
-
-## Agent PR handoff
-
-Before asking for review, the agent should leave a compact handoff:
-
-- what changed;
-- what did not change;
-- commands run;
-- commands not run and why;
-- known residual risk;
-- files that need human attention.
-
-This handoff belongs in the PR body or review comment, not in private local
-notes that reviewers cannot see.
-
-## Merge boundary for agents
-
-An external contributor's agent has proposal authority only. It can create a
-branch, make commits, run checks, and open or update a PR. It cannot decide that
-the PR is allowed into `main`.
-
-Only maintainers, the owner, or a maintainer-authorized admin agent may merge,
-and only after the CI and review gates described in this path are satisfied.
+An authorized agent may prepare commits, push the contribution branch, and open
+or update its PR. It may not push to `main`, force-push to evade a failed check,
+or decide that the PR may merge. The final handoff must say plainly that merge
+remains maintainer-owned.
