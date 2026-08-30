@@ -130,6 +130,7 @@ function setup(
     taskId,
     fromFile: "judgment.json",
   },
+  presetSnapshotCurrent = true,
 ) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-closeout-action-")),
     fromFile = "judgment.json";
@@ -148,6 +149,7 @@ function setup(
         opId: "op-closeout",
         readWorkspaceText,
         read: async () => initial as never,
+        presetSnapshotCurrent: () => presetSnapshotCurrent,
         invoke: async (stage, action, stepActor) => {
           calls.push({ stage, action, actor: stepActor });
           return stage === rejectStage
@@ -188,6 +190,20 @@ test("closeout runs four canonical leaf commands without impersonating the creat
       ["worker-agent", null, "worker-agent", "worker-agent"],
     );
     assert.deepEqual(value.calls.at(-1)?.action.paths, ["packages/application/src/task-closeout-action.ts"]);
+  } finally {
+    rmSync(value.rootDir, { recursive: true, force: true });
+  }
+});
+test("closeout upgrades a stale preset snapshot before the first lifecycle mutation", async () => {
+  const value = setup(snapshot(), undefined, caller, undefined, false);
+  try {
+    const receipt = await value.run();
+    assert.equal(receipt.outcome, "applied");
+    assert.deepEqual(
+      value.calls.map(({ stage }) => stage),
+      ["preset-upgrade", "submit", "review-execution", "review-consent", "complete"],
+    );
+    assert.deepEqual(value.calls[0]?.action, { kind: "preset-upgrade", taskId });
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }

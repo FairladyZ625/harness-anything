@@ -349,6 +349,67 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(start?.type, "execution_started");
       if (start?.type === "execution_started") assert.equal(start.payload.lease.actor.executor, null);
     });
+    await t.test("an in-review task dispatches a closeout continuation without reopening execution", async () => {
+      const taskId = "task-runtime-review-continuation",
+        executionId = "exec-runtime-review-continuation";
+      await createReadyTask(taskId, "Runtime review continuation");
+      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
+      assert.equal(
+        (
+          await host.run(
+            repoId,
+            {
+              kind: "task-submit",
+              taskId,
+              executionId,
+              submission: {
+                completionClaim: "Continue the closeout round.",
+                deliverables: ["review continuation"],
+                outputs: ["runtime dispatch"],
+                verificationNotes: ["integration"],
+                knownGaps: [],
+                residualRisks: [],
+                commitSha: "a".repeat(40),
+              },
+            },
+            auth,
+          )
+        ).outcome,
+        "applied",
+      );
+      const before = makeTaskEventStore({ repoId, rootDir: root })
+        .read()
+        .events.filter((event) => event.type === "execution_started" && event.taskId === taskId).length;
+      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: ingressDefinition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Continue review and closeout.",
+          taskId,
+          idempotencyKey: "runtime-review-continuation",
+        },
+      });
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      const events = makeTaskEventStore({ repoId, rootDir: root }).read().events;
+      assert.equal(
+        events.filter((event) => event.type === "execution_started" && event.taskId === taskId).length,
+        before,
+        "review continuation must not reopen or replace the submitted execution",
+      );
+      const bound = await eventuallyValue(
+        async () =>
+          makeTaskEventStore({ repoId, rootDir: root })
+            .read()
+            .events.find(
+              (event) =>
+                event.type === "runtime_session_task_bound" &&
+                event.payload.runtimeSessionId === receipt.runtimeSessionId,
+            ) ?? null,
+      );
+      assert.equal(bound?.type, "runtime_session_task_bound");
+      if (bound?.type === "runtime_session_task_bound") assert.equal(bound.payload.executionId, executionId);
+    });
     await t.test("human lease remains task-bindable without an executor", async () => {
       const taskId = "task-runtime-human",
         executionId = "exec-runtime-human";

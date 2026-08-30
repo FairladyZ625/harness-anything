@@ -9,6 +9,7 @@ import type {
 } from "../../kernel/src/index.ts";
 import {
   consumeKnownError,
+  currentSubmittedExecutions,
   isSameExecution,
   isSamePerson,
   resolveTaskBoundRuntimeBinding,
@@ -273,6 +274,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       projection = input.remote ? null : requiredRuntimeProjection(input),
       remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null,
       lease = taskId && !input.remote ? projection!.currentLease(taskId) : null,
+      taskSnapshot = taskId && !input.remote ? projection!.read(taskId).snapshot : null,
+      reviewExecutions =
+        taskSnapshot?.task?.status === "in_review" &&
+        taskSnapshot.task.currentNode === "review" &&
+        taskSnapshot.lease === null
+          ? currentSubmittedExecutions(taskSnapshot)
+          : [],
+      reviewExecution = reviewExecutions.length === 1 ? reviewExecutions[0]! : null,
       hash = createHash("sha256").update(`${input.repoId}\0${idempotencyKey}`).digest("hex"),
       newDispatchId = `dispatch_${hash.slice(0, 24)}`,
       runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
@@ -297,7 +306,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           "authorization_missing",
           "Runtime dispatch requires the center AuthorizationPort decision.",
         );
-      if (!leaseQualifies)
+      if (!leaseQualifies && reviewExecution === null)
         throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId, lease));
     }
     const daemonRoute = taskId || trustedSchedule ? input.runtimeDaemonRoute : undefined;
@@ -506,7 +515,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const taskBinding = taskId
         ? {
             taskId,
-            executionId: remoteTask?.executionId ?? lease!.executionId,
+            executionId: remoteTask?.executionId ?? lease?.executionId ?? reviewExecution!.executionId,
             leaseVersion: lease?.version ?? null,
           }
         : null,

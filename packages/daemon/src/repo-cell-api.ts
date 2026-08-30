@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   assertCurrentWriter,
+  currentSubmittedExecutions,
   durablePolicyActions,
   getExecutableEntityAction,
   projectDecisionReadiness,
@@ -726,9 +727,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
               .digest("hex")
               .slice(0, 32)}`
           : null,
-        taskLease = taskId ? context.projection.currentLease(taskId) : null;
+        taskLease = taskId ? context.projection.currentLease(taskId) : null,
+        taskSnapshot = taskId ? context.projection.read(taskId).snapshot : null,
+        reviewContinuation =
+          taskSnapshot?.task?.status === "in_review" &&
+          taskSnapshot.task.currentNode === "review" &&
+          taskSnapshot.lease === null &&
+          currentSubmittedExecutions(taskSnapshot).length === 1;
       if (
         taskId &&
+        !reviewContinuation &&
         (taskLease === null || taskLease.phase === "released") &&
         (!dispatchOpId || context.store.readEvent(dispatchOpId) === null)
       ) {

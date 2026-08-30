@@ -31,7 +31,13 @@ type Snapshot = CloseoutSnapshot & {
     | null;
   readonly lease: LeaseV1 | null;
 };
-export type CloseoutStep = "submit" | "review-execution" | "review-consent" | "complete" | "task-show";
+export type CloseoutStep =
+  | "preset-upgrade"
+  | "submit"
+  | "review-execution"
+  | "review-consent"
+  | "complete"
+  | "task-show";
 export interface TaskCloseoutActionDependencies {
   readonly rootDir: string;
   readonly action: Readonly<Record<string, unknown>>;
@@ -40,6 +46,7 @@ export interface TaskCloseoutActionDependencies {
   readonly opId: string;
   readonly readWorkspaceText: (rootDir: string, requested: string, field: string) => string;
   readonly read: () => Promise<Snapshot>;
+  readonly presetSnapshotCurrent: () => boolean;
   readonly invoke: (
     stage: CloseoutStep,
     action: Readonly<Record<string, unknown>>,
@@ -246,6 +253,10 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
       ...reject(opId, "actor_unauthorized", `The active lease holder must run ${invocation}.`),
       authorizationDecision: closeoutAuthorization,
     };
+  if (!dependencies.presetSnapshotCurrent()) {
+    const stopped = await invoke("preset-upgrade", { kind: "preset-upgrade", taskId }, caller);
+    if (stopped) return stopped;
+  }
   if (stage <= 0) {
     const stopped = await invoke(
       "submit",
@@ -312,13 +323,15 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     const row = receipt as WriteReceipt & { readonly next?: readonly { readonly command?: string }[] },
       candidate = receipt.nextAction ?? row.next?.[0]?.command ?? "",
       fallback =
-        name === "submit"
-          ? `The active lease holder must run ${invocation}.`
-          : name === "review-execution"
-            ? `Have an independent arbiter run ${invocation}.`
-            : name === "review-consent"
-              ? `The Task owner must run ${invocation}.`
-              : `Run ha task complete ${taskId} to inspect the blocking gate, then retry ${invocation}.`,
+        name === "preset-upgrade"
+          ? `Retry ${invocation} after the preset upgrade reaches the canonical projection.`
+          : name === "submit"
+            ? `The active lease holder must run ${invocation}.`
+            : name === "review-execution"
+              ? `Have an independent arbiter run ${invocation}.`
+              : name === "review-consent"
+                ? `The Task owner must run ${invocation}.`
+                : `Run ha task complete ${taskId} to inspect the blocking gate, then retry ${invocation}.`,
       nextAction = /\bha\s/u.test(candidate) ? candidate : fallback;
     return {
       ...receipt,
