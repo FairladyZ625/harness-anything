@@ -18,6 +18,14 @@ export interface EntityActionExecutionContract {
   readonly ingress: string;
   readonly compile: EntityActionCompileHook | null;
   readonly read: boolean;
+  readonly implementation: "compiled-event" | "declared-only" | "task-lifecycle" | "task-completion";
+  readonly topology?: "center-forward-write" | "ledger-write" | "local-arbiter";
+  readonly lifecycle?: {
+    readonly transitionId: string;
+    readonly commandType: string;
+    readonly targetIdField: string;
+    readonly coordination: "reserve" | "execute";
+  };
 }
 
 export interface EntityActionCompileInput {

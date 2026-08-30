@@ -300,6 +300,11 @@ export const writeReceiptFields = [
     "detail",
     "commitSha",
     "authorizationDecision",
+    "unmetCriteria",
+    "effects",
+    "updatedProjection",
+    "rejectionExplanation",
+    "nextActions",
     "cut",
   ],
   guiReceiptExtensions = [

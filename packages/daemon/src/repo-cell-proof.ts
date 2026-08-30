@@ -7,6 +7,7 @@ import {
   currentCodeDocWitness,
   deriveOwnerRoleBinding,
   heldLeaseForExecutionActor,
+  getTaskActionForTransition,
   makeTaskProjection,
   normalizeCommandEnvelope,
   requiredGateWitnessCount,
@@ -23,7 +24,6 @@ import { cellCodedError } from "./repo-cell-errors.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { submitLeaseRequiredMessage } from "./repo-cell-execution-selection.ts";
 import { authorizeAction } from "./authorization.ts";
-import { resolveLifecycleTransition } from "./repo-cell-lifecycle-action.ts";
 import { roleBindingAuthorizationContext } from "./repo-cell-role-bindings.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
@@ -37,16 +37,17 @@ export async function proofFor(
 ): Promise<TaskLifecycleServiceProof<typeof command> & { readonly authorizationDecision?: AuthorizationDecision }> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
   const transition = TASK_LIFECYCLE_TRANSITIONS.find((candidate) => candidate.matches(command, snapshot)),
-    lifecycleAction = transition ? resolveLifecycleTransition(transition.id) : null;
-  if (lifecycleAction?.coordination === "reserve") {
+    lifecycleAction = transition ? getTaskActionForTransition(transition.id) : undefined,
+    lifecycleExecution = lifecycleAction?.execution?.lifecycle;
+  if (lifecycleExecution?.coordination === "reserve") {
     const commandFields = command as unknown as Readonly<Record<string, unknown>>,
-      executionId = commandFields[lifecycleAction.targetIdField],
+      executionId = commandFields[lifecycleExecution.targetIdField],
       ttlMs = typeof commandFields.ttlMs === "number" ? commandFields.ttlMs : leaseTtlMs;
     if (typeof executionId !== "string")
-      throw cellCodedError("invalid_command", `${lifecycleAction.commandType} requires a target entity id.`);
+      throw cellCodedError("invalid_command", `${lifecycleExecution.commandType} requires a target entity id.`);
     const authorizationDecision = authorizeAction(
-      lifecycleAction.actionKind,
-      lifecycleAction.targetRef(executionId),
+      lifecycleAction?.policy.action ?? "execution.start",
+      `execution/${executionId}`,
       command.actor,
       `authorization:${command.eventId}`,
       {
@@ -59,7 +60,7 @@ export async function proofFor(
     if (authorizationDecision.outcome === "denied")
       throw cellCodedError(
         "actor_unauthorized",
-        `${lifecycleAction.commandType} requires an admitted repo-write command.`,
+        `${lifecycleExecution.commandType} requires an admitted repo-write command.`,
       );
     return {
       actorBinding: command.actor,

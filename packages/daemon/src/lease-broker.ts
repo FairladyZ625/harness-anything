@@ -14,19 +14,22 @@
 // concurrent first-grab queues instead of racing the winner.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, sha256Text, stableStringify } from "../../kernel/src/index.ts";
+import { consumeKnownError, getExecutableEntityAction, sha256Text, stableStringify } from "../../kernel/src/index.ts";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { FLEET_TASK_COMMAND_KINDS, type FleetFrameV1, type FleetTaskAction } from "./fleet/contract.ts";
 import type { FleetAssignmentRecord } from "./fleet/center.ts";
 import { writeFileDurably } from "./durable-file.ts";
-import { resolveLifecycleAction } from "./repo-cell-lifecycle-action.ts";
 
 export interface FleetLeaseTimers {
   readonly orphanTimeoutMs: number;
   readonly reapIntervalMs: number;
   readonly maxWaitMs: number;
   readonly maxQueuePerTask: number;
+}
+function lifecycleCoordination(action: FleetTaskAction): "reserve" | "execute" | "preview" | null {
+  const coordination = getExecutableEntityAction(action.kind)?.execution?.lifecycle?.coordination ?? null;
+  return coordination === "reserve" && action.dryRun === true ? "preview" : coordination;
 }
 export function fleetLeaseTimers(env: NodeJS.ProcessEnv = process.env): FleetLeaseTimers {
   const positive = (name: string, fallback: number): number => {
@@ -338,7 +341,7 @@ export function openFleetLeaseBroker(options: {
             return "stop";
           }
           state.queue[key] = items.slice(1);
-          const coordination = resolveLifecycleAction(head.action)?.coordination ?? null;
+          const coordination = lifecycleCoordination(head.action);
           if (coordination === "reserve")
             reserveProvisional(key, head.assignment, Number(head.action.ttlMs ?? timers.orphanTimeoutMs));
           persist();
@@ -417,7 +420,7 @@ export function openFleetLeaseBroker(options: {
     docs: FleetTaskDocs | null = null,
   ): Promise<FleetTaskResultFields> {
     const digest = digestFor(assignment, action, docs),
-      coordination = resolveLifecycleAction(action)?.coordination ?? null;
+      coordination = lifecycleCoordination(action);
     const effective: FleetTaskAction =
       coordination === "reserve" && !Number.isSafeInteger(action.ttlMs)
         ? { ...action, ttlMs: timers.orphanTimeoutMs }
@@ -531,7 +534,7 @@ export function openFleetLeaseBroker(options: {
       };
     const action = frame.action,
       kind = action.kind,
-      coordination = resolveLifecycleAction(action)?.coordination ?? null;
+      coordination = lifecycleCoordination(action);
     if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(kind))
       return {
         ...failure(

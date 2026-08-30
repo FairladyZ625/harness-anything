@@ -3,6 +3,7 @@ import {
   currentExecutionCuts,
   currentSubmittedExecutions,
   heldLeaseForExecutionActor,
+  getExecutableEntityAction,
   isDomainStatus,
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
@@ -20,7 +21,6 @@ import {
 } from "./repo-cell-execution-selection.ts";
 import { packetFile, reviewPacket, submissionPacket } from "./repo-cell-packets.ts";
 import { actorHint, operationId } from "./repo-cell-proof.ts";
-import { resolveLifecycleAction } from "./repo-cell-lifecycle-action.ts";
 import { digest, reviewVerdict } from "./repo-cell-review-lint.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
@@ -77,7 +77,7 @@ export function buildCommand(
       source: binding.source,
       expectedRevision,
     },
-    lifecycleAction = resolveLifecycleAction(action);
+    lifecycleAction = getExecutableEntityAction(action.kind)?.execution?.lifecycle;
   if (lifecycleAction?.coordination === "reserve") {
     const executionId =
       typeof action.executionId === "string" && action.executionId

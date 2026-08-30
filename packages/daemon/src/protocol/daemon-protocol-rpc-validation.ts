@@ -1,4 +1,5 @@
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
+import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-action-validation.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import {
   validateObserveTailPayload,
@@ -29,6 +30,7 @@ import {
 } from "./json-rpc-types.ts";
 
 export { DaemonProtocolContractError };
+export { validateSessionEnvironment } from "./daemon-protocol-action-validation.ts";
 
 export function isDaemonGuiReadMethod(method: string): method is DaemonGuiRpcReadMethod {
   return daemonGuiReadMethods.some((entry) => entry.method === method);
@@ -84,6 +86,8 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateSquadRunReadPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "observe.tail")
     errors.push(...validateObserveTailPayload((value.params as JsonObject).payload));
+  if (!errors.length && value.method === "repo.task.run")
+    errors.push(...validateCatalogActionPayload(value.params as JsonObject));
   if (!errors.length && isDaemonGuiActionMethod(value.method))
     errors.push(...validateGuiActionPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.terminal.attach") {
@@ -91,17 +95,6 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     if (!integer(afterSeq) || Number(afterSeq) < 0) errors.push("terminal attach sequence is invalid");
   }
   return errors;
-}
-
-export function validateSessionEnvironment(value: unknown): string[] {
-  if (value === undefined) return [];
-  if (!isJsonObject(value)) return ["session environment must be an object"];
-  const allowed = ["CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"],
-    unknown = unknownFieldViolation(value, allowed);
-  if (unknown) return [`session environment contains an ${unknown}`];
-  return Object.values(value).every((item) => typeof item === "string" && item.trim().length > 0)
-    ? []
-    : ["session environment values must be non-empty strings"];
 }
 
 function validateRuntimeSessionReadPayload(value: unknown): string[] {

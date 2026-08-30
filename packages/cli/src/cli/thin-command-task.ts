@@ -2,14 +2,8 @@ import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.cont
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
 import { parseContractMigrate, parseTaskArchive, parseTaskDelete } from "./thin-command-task-admin.ts";
-import {
-  parseCodeDoc,
-  parseCodeDocRepoint,
-  parseComplete,
-  parseProgress,
-  parseSubmit,
-} from "./thin-command-task-evidence.ts";
-import { parseAmend, parseRelate, parseSupersede, parseTransition } from "./thin-command-task-lifecycle.ts";
+import { parseCodeDoc, parseCodeDocRepoint, parseProgress } from "./thin-command-task-evidence.ts";
+import { parseAmend, parseRelate, parseSupersede } from "./thin-command-task-relations.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseTask(
@@ -42,11 +36,24 @@ export function parseTask(
   }
   const taskId = args[id === "task-code-doc-reconcile" || id === "task-code-doc-repoint" ? 3 : 2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
-  if (id === "task-start" || id === "task-release" || id === "task-reopen" || id === "task-review")
+  if (
+    id === "task-start" ||
+    id === "task-submit" ||
+    id === "task-review-execution" ||
+    id === "task-complete" ||
+    id === "task-release" ||
+    id === "task-reopen" ||
+    id === "task-review"
+  )
     return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
       taskId,
     });
-  if (id === "task-transition") return parseTransition(args, taskId, rootDir, repoId, json, inputs);
+  if (id === "task-transition") {
+    const status = args[3];
+    return nonEmpty(status)
+      ? parseProjected(id, args.slice(4), rootDir, repoId, json, inputs, { taskId, status })
+      : rejected("missing_field", `Run ha task transition ${taskId} <status>.`, json);
+  }
   if (id === "task-amend") return parseAmend(args, taskId, rootDir, repoId, json, inputs);
   if (id === "task-pin" || id === "task-unpin")
     return accepted(rootDir, repoId, json, {
@@ -56,8 +63,6 @@ export function parseTask(
     });
   if (id === "task-supersede") return parseSupersede(args, taskId, rootDir, repoId, json, inputs);
   if (id === "task-relate") return parseRelate(args, taskId, rootDir, repoId, json, inputs);
-  if (id === "task-complete") return parseComplete(rootDir, repoId, json, args, taskId, inputs);
-  if (id === "task-submit") return parseSubmit(rootDir, repoId, json, args, taskId, inputs);
   if (id === "task-closeout") {
     const f = readFlags(id, args.slice(3), inputs);
     if (!f.ok) return rejected(f.code, f.nextAction, json);
@@ -96,10 +101,10 @@ export function parseTask(
         })
       : rejected(f.code, f.nextAction, json);
   }
-  if (id === "task-review-execution" || id === "task-review-consent")
+  if (id === "task-review-consent")
     return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
       taskId,
-      commandType: id === "task-review-execution" ? "RecordReview" : "RecordReviewConsent",
+      commandType: "RecordReviewConsent",
     });
   if (id === "task-code-doc-reconcile") return parseCodeDoc(rootDir, repoId, json, args, taskId, inputs);
   if (id === "task-code-doc-repoint") return parseCodeDocRepoint(rootDir, repoId, json, args, taskId, inputs);

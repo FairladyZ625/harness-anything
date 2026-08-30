@@ -61,35 +61,6 @@ export function parseCodeDoc(
       );
 }
 
-export function parseSubmit(
-  rootDir: SafePath,
-  repoId: string | undefined,
-  json: boolean,
-  args: readonly string[],
-  taskId: string,
-  inputs: ThinCliInputDirectory,
-): ThinParseResult {
-  const f = readFlags("task-submit", args.slice(3), inputs);
-  if (!f.ok) return rejected(f.code, f.nextAction, json);
-  const fromFile = f.one.get("--from-file"),
-    jsonInput = f.one.get("--json-input");
-  if (Boolean(fromFile) === Boolean(jsonInput))
-    return rejected(
-      "invalid_field",
-      "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
-      json,
-    );
-  const executionId = f.one.get("--execution-id");
-  return accepted(rootDir, repoId, json, {
-    kind: "task-submit",
-    verb: args[1],
-    commandType: "SubmitExecution",
-    taskId,
-    ...(executionId ? { executionId } : {}),
-    ...(fromFile ? { fromFile } : { jsonInput }),
-  });
-}
-
 export function parseCodeDocRepoint(
   rootDir: SafePath,
   repoId: string | undefined,
@@ -115,36 +86,4 @@ export function parseCodeDocRepoint(
         reason: f.one.get("--reason"),
       })
     : rejected(f.code, f.nextAction, json);
-}
-
-export function parseComplete(
-  rootDir: SafePath,
-  repoId: string | undefined,
-  json: boolean,
-  args: readonly string[],
-  taskId: string,
-  inputs: ThinCliInputDirectory,
-): ThinParseResult {
-  const f = readFlags("task-complete", args.slice(3), inputs);
-  if (!f.ok) return rejected(f.code, f.nextAction, json);
-  const executionId = f.one.get("--execution-id"),
-    paths = f.many.get("--path") ?? [],
-    factHolds = (f.many.get("--fact-holds") ?? []).map((value) => {
-      const separator = value.indexOf(":"),
-        suppliedRef = value.slice(0, separator);
-      return {
-        factRef: suppliedRef.startsWith("fact/") ? suppliedRef : `fact/${suppliedRef}`,
-        rationale: value.slice(separator + 1),
-      };
-    });
-  return accepted(rootDir, repoId, json, {
-    kind: "task-complete",
-    verb: args[1],
-    commandType: "CompleteTask",
-    taskId,
-    ...(executionId ? { executionId } : {}),
-    ...(f.one.get("--ci") ? { ci: f.one.get("--ci") } : {}),
-    ...(paths.length ? { paths } : {}),
-    ...(factHolds.length ? { factHolds } : {}),
-  });
 }

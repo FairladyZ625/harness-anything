@@ -130,13 +130,21 @@ export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 export {
   createEntityKindRegistry,
   explainEntityKind,
+  entityActionCliInputs,
   getExecutableEntityAction,
   getEntityKindContract,
+  getTaskActionForTransition,
   requireEntityKindContract,
   requireEntityStoreKindContract,
+  validateEntityActionInput,
+  TASK_REVIEW_JSON_FIELDS,
+  TASK_SUBMISSION_JSON_FIELDS,
 } from "./entity-kind-registry.ts";
 export type {
+  BoundedContextActionException,
   EntityActionContract,
+  EntityActionInputContract,
+  EntityActionInputField,
   EntityKindDeclaration,
   EntityKindRegistration,
   EntityKindRegistry,

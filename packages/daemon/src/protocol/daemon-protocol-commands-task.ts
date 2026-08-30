@@ -6,38 +6,38 @@ import {
   defineLedgerWriteCommand,
   defineLocalArbiterCommand,
   defineRepoReadCommand,
-  reviewJsonFields,
-  taskSubmissionJsonFields,
 } from "../../../preset/src/preset-command-contract.ts";
+import { entityActionCliInputs, getEntityKindContract, type EntityActionContract } from "../../../kernel/src/index.ts";
+
+function taskActionProtocolCommand(action: EntityActionContract) {
+  const execution = action.execution;
+  if (!execution?.topology) throw new Error(`Task Action ${action.id} has no command topology.`);
+  const declaration = {
+    id: execution.ingress,
+    phase: "W3",
+    path: ["task", execution.ingress.slice("task-".length), "<task-id>"],
+    summary: action.explain,
+    method: "repo.task.run",
+    inputs: entityActionCliInputs(action),
+    actionDefaults: {
+      ...(action.input.fields.some(({ field }) => field === "verb")
+        ? { verb: execution.ingress.slice("task-".length) }
+        : {}),
+      commandType: execution.lifecycle?.commandType,
+    },
+    actionConstraints: action.input.exactlyOneOf,
+  } as const;
+  if (execution.topology === "center-forward-write") return defineCenterForwardWriteCommand(declaration);
+  if (execution.topology === "local-arbiter") return defineLocalArbiterCommand(declaration);
+  return defineLedgerWriteCommand(declaration);
+}
+
+export const derivedTaskActionProtocolCommands = Object.freeze(
+  (getEntityKindContract("task")?.actionCatalog?.actions ?? []).map(taskActionProtocolCommand),
+);
 
 export const taskExecutionProtocolCommands = Object.freeze([
-  defineCenterForwardWriteCommand({
-    id: "task-start",
-    phase: "W3",
-    path: ["task", "start", "<task-id>"],
-    summary: "Acquire the task execution lease.",
-    method: "repo.task.run",
-    inputs: [
-      cliInput("--execution-id", "single", false, {
-        code: "invalid_field",
-        nextAction: "Use one execution id, or omit it for deterministic allocation.",
-      }),
-      cliInput(
-        "--ttl-ms",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-          nextAction: "Use a positive lease duration in milliseconds.",
-        },
-        { regex: "^[1-9][0-9]*$" },
-      ),
-      cliInput("--dry-run", "boolean", false, {
-        code: "invalid_field",
-        nextAction: "Use --dry-run once to preview lease admission.",
-      }),
-    ],
-  }),
+  ...derivedTaskActionProtocolCommands,
   defineCenterForwardWriteCommand({
     id: "task-progress-append",
     phase: "W3",
@@ -79,39 +79,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
         code: "missing_field",
         nextAction: "Add --destination <artifact-path>.",
       }),
-    ],
-  }),
-  defineCenterForwardWriteCommand({
-    id: "task-submit",
-    phase: "W3",
-    path: ["task", "submit", "<task-id>"],
-    summary: "Atomically finalize an Execution and enter review.",
-    method: "repo.task.run",
-    inputs: [
-      cliInput("--execution-id", "single", false, {
-        code: "invalid_field",
-        nextAction: "Use one execution id only to assert the authenticated active lease explicitly.",
-      }),
-      cliInput(
-        "--from-file",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-          nextAction: "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
-        },
-        { jsonFields: taskSubmissionJsonFields, conflictsWith: ["--json-input"] },
-      ),
-      cliInput(
-        "--json-input",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-          nextAction: "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
-        },
-        { jsonFields: taskSubmissionJsonFields, conflictsWith: ["--from-file"] },
-      ),
     ],
   }),
   defineLedgerWriteCommand({
@@ -162,33 +129,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
           nextAction: "Use --print-schema without --from-file or --print-template.",
         },
         { conflictsWith: ["--from-file", "--print-template", "--execution-id"] },
-      ),
-    ],
-  }),
-  defineLocalArbiterCommand({
-    id: "task-review-execution",
-    phase: "W3",
-    path: ["task", "review-execution", "<task-id>"],
-    summary: "Append a canonical Execution Review.",
-    method: "repo.task.run",
-    inputs: [
-      cliInput("--execution-id", "single", false, {
-        code: "invalid_field",
-        nextAction: "Use one named current submitted execution only when the daemon reports ambiguity.",
-      }),
-      cliInput("--review-id", "single", true, {
-        code: "invalid_field",
-        nextAction: "Review requires a review id.",
-      }),
-      cliInput(
-        "--from-file",
-        "single",
-        true,
-        {
-          code: "invalid_field",
-          nextAction: "Review requires a complete review JSON packet.",
-        },
-        { jsonFields: reviewJsonFields },
       ),
     ],
   }),
@@ -253,47 +193,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
         code: "missing_field",
         nextAction: "Repoint requires an audit reason.",
       }),
-    ],
-  }),
-  defineLedgerWriteCommand({
-    id: "task-complete",
-    phase: "W3",
-    path: ["task", "complete", "<task-id>"],
-    summary: "Complete a reviewed and consented task after canonical gate checks.",
-    method: "repo.task.run",
-    inputs: [
-      cliInput("--execution-id", "single", false, {
-        code: "invalid_field",
-        nextAction: "Use one closeout execution id only when the daemon reports ambiguity.",
-      }),
-      cliInput(
-        "--ci",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-          nextAction: "Use --ci passed only for a successful canonical checker result.",
-        },
-        { enum: ["passed"] },
-      ),
-      cliInput("--path", "repeated", false, {
-        code: "invalid_field",
-        nextAction:
-          "Provide each canonical code path with --path; the submitted commit and iteration are derived automatically.",
-      }),
-      cliInput(
-        "--fact-holds",
-        "repeated",
-        false,
-        {
-          code: "invalid_field",
-          nextAction: "Use --fact-holds F-XXXXXXXX:<non-empty-rationale> once per standing upstream Fact.",
-        },
-        {
-          format: "<fact-id>:<rationale>",
-          regex: "^(?:fact/)?F-[0-9A-HJKMNP-TV-Z]{8}:.+$",
-        },
-      ),
     ],
   }),
   defineCenterForwardReadCommand({

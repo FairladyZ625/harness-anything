@@ -1,26 +1,19 @@
 import path from "node:path";
 import { daemonUserRoot, readRegisteredRepos } from "../../../daemon/src/client/local-daemon-target.ts";
-import { canonicalRoot } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, daemonProtocolCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 
-const fleetScheduleKinds = [
-  "schedule-create",
-  "schedule-list",
-  "schedule-runs",
-  "schedule-show",
-  "schedule-update",
-  "schedule-delete",
-  "schedule-enable",
-  "schedule-disable",
-  "schedule-run-now",
-] as const;
+const fleetScheduleActionKinds = new Set(
+  daemonProtocolCommands
+    .filter((candidate) => candidate.method === "repo.task.run" && candidate.id.startsWith("schedule-"))
+    .map(({ id }) => id),
+);
 
 export async function fleetScheduleRoute(
   command: ThinCommand,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, unknown> | null> {
-  if (command.method !== "repo.task.run" || !(fleetScheduleKinds as readonly string[]).includes(command.action.kind))
-    return null;
+  if (command.method !== "repo.task.run" || !fleetScheduleActionKinds.has(command.action.kind)) return null;
   const config = await fleetEdgeRegistration(command, env);
   if (!config) return null;
   const { executor: _executor, ...action } = command.action;

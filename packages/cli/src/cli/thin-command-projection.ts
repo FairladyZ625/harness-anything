@@ -36,14 +36,33 @@ export function projectedField(commandId: string, name: string): string {
 export function projectFlags(
   commandId: string,
   flags: Extract<ReturnType<typeof readFlags>, { readonly ok: true }>,
+  inputs?: ThinCliInputDirectory,
 ): Readonly<Record<string, unknown>> {
   const projected: Record<string, unknown> = {};
   for (const [name, value] of flags.one) {
-    const field = projectedField(commandId, name);
-    projected[field] = field === "limit" || field === "ttlMs" ? Number(value) : value;
+    const input = inputs?.get(commandId)?.inputs.find((candidate) => candidate.name === name),
+      field = input?.field ?? projectedField(commandId, name);
+    projected[field] = input?.projection === "number" || field === "limit" || field === "ttlMs" ? Number(value) : value;
   }
-  for (const [name, values] of flags.many) projected[projectedField(commandId, name)] = values;
-  for (const name of flags.booleans) projected[projectedField(commandId, name)] = true;
+  for (const [name, values] of flags.many) {
+    const input = inputs?.get(commandId)?.inputs.find((candidate) => candidate.name === name),
+      field = input?.field ?? projectedField(commandId, name);
+    projected[field] =
+      input?.projection === "fact-hold-array"
+        ? values.map((value) => {
+            const separator = value.indexOf(":"),
+              suppliedRef = value.slice(0, separator);
+            return {
+              factRef: suppliedRef.startsWith("fact/") ? suppliedRef : `fact/${suppliedRef}`,
+              rationale: value.slice(separator + 1),
+            };
+          })
+        : values;
+  }
+  for (const name of flags.booleans) {
+    const input = inputs?.get(commandId)?.inputs.find((candidate) => candidate.name === name);
+    projected[input?.field ?? projectedField(commandId, name)] = true;
+  }
   return projected;
 }
 
@@ -59,18 +78,21 @@ export function parseProjected(
   method = "repo.task.run",
 ): ThinParseResult {
   const f = readFlags(commandId, tokens, inputs);
-  return f.ok
-    ? accepted(
-        rootDir,
-        repoId,
-        json,
-        {
-          kind: commandId,
-          ...defaults,
-          ...base,
-          ...projectFlags(commandId, f),
-        },
-        method,
-      )
-    : rejected(f.code, f.nextAction, json);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  const declaration = inputs.get(commandId),
+    action: Record<string, unknown> = {
+      kind: commandId,
+      ...(declaration?.actionDefaults ?? {}),
+      ...defaults,
+      ...base,
+      ...projectFlags(commandId, f, inputs),
+    },
+    invalidGroup = declaration?.actionConstraints?.find(
+      (group) => group.filter((field) => action[field] !== undefined).length !== 1,
+    );
+  if (invalidGroup) {
+    const input = declaration?.inputs.find((candidate) => invalidGroup.includes(candidate.field ?? ""));
+    return rejected(input?.error.code ?? "invalid_field", input?.error.nextAction ?? "Action inputs conflict.", json);
+  }
+  return accepted(rootDir, repoId, json, action as { readonly kind: string }, method);
 }

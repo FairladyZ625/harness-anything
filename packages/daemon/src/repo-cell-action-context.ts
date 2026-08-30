@@ -13,8 +13,8 @@ import {
   closeoutTask as closeoutTaskImpl,
   declareExecutionExecutor as declareExecutionExecutorImpl,
   executeAction as executeActionImpl,
-  lifecycleAction as lifecycleActionImpl,
 } from "./repo-cell-action-dispatch.ts";
+import { runTaskActionCatalogRuntime as lifecycleActionImpl } from "./task-action-catalog-runtime.ts";
 import { decisionProposalAction, taskCreateAction } from "./repo-cell-action-parse.ts";
 import { buildCommand, withServerMeta } from "./repo-cell-command.ts";
 import {
@@ -31,7 +31,6 @@ import {
   uniqueDerivedExecutionId,
 } from "./repo-cell-execution-selection.ts";
 import { lifecycleReceipt, workspaceText } from "./repo-cell-packets.ts";
-import { resolveLifecycleAction } from "./repo-cell-lifecycle-action.ts";
 import { createTaskId, operationId, proofFor, receiptProof, withoutDryRun } from "./repo-cell-proof.ts";
 import {
   canonicalSettlement as canonicalSettlementImpl,
@@ -178,7 +177,6 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly completeTask: Bound<typeof completeTaskImpl>;
   readonly taskSurfaceWriteKind: typeof taskSurfaceWriteKind;
   readonly taskSurfaceWrite: Bound<typeof taskSurfaceWriteImpl>;
-  readonly resolveLifecycleAction: typeof resolveLifecycleAction;
   readonly rejected: typeof rejected;
   readonly lifecycleAction: Bound<typeof lifecycleActionImpl>;
   readonly service: ReturnType<typeof makeTaskLifecycleService>;
@@ -324,7 +322,6 @@ export function createRepoCellActionContext(bindings: {
     completeTask: bind(completeTaskImpl),
     taskSurfaceWriteKind,
     taskSurfaceWrite: bind(taskSurfaceWriteImpl),
-    resolveLifecycleAction,
     rejected,
     lifecycleAction: bind(lifecycleActionImpl),
     get service() {

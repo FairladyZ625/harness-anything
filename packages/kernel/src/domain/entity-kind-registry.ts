@@ -31,7 +31,6 @@ import { reviewVerdicts } from "./review.ts";
 import { SCHEDULE_V1_SCHEMA, scheduleEventTypes, scheduleRunOutcomes, scheduleStates } from "./schedule.ts";
 import { SETTINGS_REPOSITORY_V1_SCHEMA } from "./settings.ts";
 import { PERSON_V1_SCHEMA } from "./people-roster.ts";
-import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
 import {
   dispositionMatrix,
   supported,
@@ -134,12 +133,65 @@ export interface EntitySdkExposure {
 export interface EntityActionContract {
   readonly id: string;
   readonly version: ContractVersion;
+  readonly actor: {
+    readonly source: "authenticated-binding";
+    readonly authorityRef: string;
+  };
   readonly target: {
     readonly kind: string;
     readonly refTemplate: string;
   };
+  readonly input: EntityActionInputContract;
+  readonly policy: {
+    readonly ref: string;
+    readonly action: string | null;
+  };
+  readonly criteria: readonly {
+    readonly ref: string;
+    readonly failureCode: string;
+    readonly explain: string;
+  }[];
+  readonly concurrency: {
+    readonly expectedVersion: Readonly<Record<string, unknown>>;
+    readonly leasePolicy: Readonly<Record<string, unknown>>;
+    readonly occurrenceClaim: Readonly<Record<string, unknown>>;
+    readonly idempotency: Readonly<Record<string, unknown>>;
+    readonly artifactOwnership: Readonly<Record<string, unknown>>;
+  };
+  readonly effects: readonly {
+    readonly ref: string;
+    readonly projection: string;
+  }[];
+  readonly returns: {
+    readonly schema: "action-result/v1";
+    readonly fields: readonly string[];
+  };
+  readonly explain: string;
   readonly sdkExposure: EntitySdkExposure;
   readonly execution: EntityActionExecutionContract | null;
+}
+
+export interface EntityActionInputField {
+  readonly field: string;
+  readonly type: "string" | "number" | "boolean" | "string-array" | "fact-hold-array";
+  readonly required: boolean;
+  readonly enum?: readonly string[];
+  readonly regex?: string;
+  readonly cli?: {
+    readonly name: string;
+    readonly kind: "single" | "repeated" | "boolean";
+    readonly error: { readonly code: string; readonly nextAction: string };
+    readonly jsonFields?: readonly string[];
+    readonly conflictsWith?: readonly string[];
+    readonly format?: string;
+    readonly projection?: "number" | "fact-hold-array";
+  };
+}
+
+export interface EntityActionInputContract {
+  readonly schema: "entity-action-input/v1";
+  readonly fields: readonly EntityActionInputField[];
+  readonly exactlyOneOf: readonly (readonly string[])[];
 }
 
 export type EntityActionExplanation = Omit<EntityActionContract, "execution">;
@@ -169,6 +221,14 @@ export interface EntityKindExplanation {
     readonly actions: readonly string[];
     readonly rules: readonly PolicyActionRule[];
   } | null;
+  readonly boundedContextExceptions: readonly BoundedContextActionException[];
+}
+
+export interface BoundedContextActionException {
+  readonly actions: readonly string[];
+  readonly boundedContext: "preset-library" | "daemon-user-root" | "terminal-host";
+  readonly residency: "runtime-local";
+  readonly reason: string;
 }
 
 const declarationDocument = (pathTemplate: string) =>
@@ -189,7 +249,15 @@ const entityAction = (
   Object.freeze({
     id,
     version: CONTRACT_VERSION_1_0,
+    actor: Object.freeze({ source: "authenticated-binding" as const, authorityRef: "actor-identity/v1" }),
     target: Object.freeze({ kind, refTemplate: identity.refTemplate }),
+    input: emptyActionInput,
+    policy: Object.freeze({ ref: "default@3", action: null }),
+    criteria: Object.freeze([]),
+    concurrency: defaultConcurrency(kind, identity.refTemplate),
+    effects: Object.freeze([]),
+    returns: actionResultContract,
+    explain: `${kind}.${id} is declared but has no executable implementation.`,
     sdkExposure,
     execution,
   });
@@ -205,7 +273,34 @@ const executionContract = (
   ingress: string,
   compile: EntityActionCompileHook | null,
   read: boolean,
-): EntityActionExecutionContract => Object.freeze({ ingress, compile, read });
+): EntityActionExecutionContract =>
+  Object.freeze({ ingress, compile, read, implementation: compile || read ? "compiled-event" : "declared-only" });
+const emptyActionInput: EntityActionInputContract = Object.freeze({
+  schema: "entity-action-input/v1",
+  fields: Object.freeze([]),
+  exactlyOneOf: Object.freeze([]),
+});
+const actionResultContract = Object.freeze({
+  schema: "action-result/v1" as const,
+  fields: Object.freeze([
+    "outcome",
+    "opId",
+    "unmetCriteria",
+    "effects",
+    "updatedProjection",
+    "rejectionExplanation",
+    "nextAction",
+    "nextActions",
+  ]),
+});
+const defaultConcurrency = (kind: string, refTemplate: string): EntityActionContract["concurrency"] =>
+  Object.freeze({
+    expectedVersion: Object.freeze({ authority: "canonical-ledger-cut", required: false }),
+    leasePolicy: Object.freeze({ authority: "none" }),
+    occurrenceClaim: Object.freeze({ authority: kind === "schedule" ? "schedule-occurrence-claim" : "not-applicable" }),
+    idempotency: Object.freeze({ authority: "operation-id" }),
+    artifactOwnership: Object.freeze({ owner: "entity", refTemplate }),
+  });
 const genericAuthoring = Object.freeze({ kind: "generic-entity-store" as const, contractRef: "entity-event/v1" });
 const authoredResidency = Object.freeze({ authored: "ledger" as const });
 const authoredLiveResidency = Object.freeze({ authored: "ledger" as const, live: "runtime-local" as const });
@@ -249,6 +344,58 @@ const nullableOpaqueObject = (): EntityJsonSchemaNode => ({
   additionalProperties: true,
   "x-nullable": true,
 });
+
+export const TASK_SUBMISSION_JSON_FIELDS = Object.freeze([
+  "completionClaim",
+  "deliverables",
+  "outputs",
+  "verificationNotes",
+  "knownGaps",
+  "residualRisks",
+  "commitSha",
+] as const);
+export const TASK_REVIEW_JSON_FIELDS = Object.freeze(["verdict", "reason", "evidenceChecked"] as const);
+
+const actionInput = (
+  fields: readonly EntityActionInputField[],
+  exactlyOneOf: readonly (readonly string[])[] = [],
+): EntityActionInputContract =>
+  Object.freeze({
+    schema: "entity-action-input/v1",
+    fields: Object.freeze(fields.map((field) => Object.freeze(field))),
+    exactlyOneOf: Object.freeze(exactlyOneOf.map((group) => Object.freeze(group))),
+  });
+const taskIdInput: EntityActionInputField = Object.freeze({ field: "taskId", type: "string", required: true });
+const expectedVersionInput: EntityActionInputField = Object.freeze({
+  field: "expectedVersion",
+  type: "number",
+  required: false,
+});
+const cliField = (
+  field: string,
+  type: EntityActionInputField["type"],
+  required: boolean,
+  name: string,
+  kind: NonNullable<EntityActionInputField["cli"]>["kind"],
+  nextAction: string,
+  extra: Omit<NonNullable<EntityActionInputField["cli"]>, "name" | "kind" | "error"> &
+    Pick<EntityActionInputField, "enum" | "regex"> = {},
+): EntityActionInputField => {
+  const { enum: values, regex, ...cli } = extra;
+  return Object.freeze({
+    field,
+    type,
+    required,
+    ...(values ? { enum: values } : {}),
+    ...(regex ? { regex } : {}),
+    cli: Object.freeze({
+      ...cli,
+      name,
+      kind,
+      error: Object.freeze({ code: required ? "missing_field" : "invalid_field", nextAction }),
+    }),
+  });
+};
 
 function explainableSchema(
   id: string,
@@ -426,6 +573,317 @@ const executableAction = (
   read = false,
 ) => entityAction(kind, identity, id, sdkExposure, executionContract(ingress, compile, read));
 
+type TaskActionDeclaration = {
+  readonly id: "start" | "submit" | "review" | "complete";
+  readonly ingress: "task-start" | "task-submit" | "task-review-execution" | "task-complete";
+  readonly commandType: "StartExecution" | "SubmitExecution" | "RecordReview" | "CompleteTask";
+  readonly transitionId: "start_execution" | "submit_execution" | "record_execution_review" | "complete_task";
+  readonly implementation: "task-lifecycle" | "task-completion";
+  readonly topology: "center-forward-write" | "ledger-write" | "local-arbiter";
+  readonly coordination: "reserve" | "execute";
+  readonly input: EntityActionInputContract;
+  readonly policyAction: string | null;
+  readonly criteria: EntityActionContract["criteria"];
+  readonly concurrency: EntityActionContract["concurrency"];
+  readonly explain: string;
+};
+
+const taskConcurrency = (
+  leasePolicy: Readonly<Record<string, unknown>>,
+  idempotency: Readonly<Record<string, unknown>>,
+): EntityActionContract["concurrency"] =>
+  Object.freeze({
+    expectedVersion: Object.freeze({
+      authority: "task-lifecycle/revisionIssues",
+      input: "expectedVersion",
+      default: "daemon-bound-projection-revision",
+      conflict: "invalid_transition",
+    }),
+    leasePolicy: Object.freeze(leasePolicy),
+    occurrenceClaim: Object.freeze({ authority: "not-applicable" }),
+    idempotency: Object.freeze(idempotency),
+    artifactOwnership: Object.freeze({ owner: "execution", refTemplate: "execution/{executionId}" }),
+  });
+
+const taskActionDeclarations = Object.freeze([
+  {
+    id: "start",
+    ingress: "task-start",
+    commandType: "StartExecution",
+    transitionId: "start_execution",
+    implementation: "task-lifecycle",
+    topology: "center-forward-write",
+    coordination: "reserve",
+    input: actionInput([
+      taskIdInput,
+      expectedVersionInput,
+      cliField(
+        "executionId",
+        "string",
+        false,
+        "--execution-id",
+        "single",
+        "Use one execution id, or omit it for deterministic allocation.",
+      ),
+      cliField("ttlMs", "number", false, "--ttl-ms", "single", "Use a positive lease duration in milliseconds.", {
+        regex: "^[1-9][0-9]*$",
+        projection: "number",
+      }),
+      cliField("dryRun", "boolean", false, "--dry-run", "boolean", "Use --dry-run once to preview lease admission."),
+    ]),
+    policyAction: "execution.start",
+    criteria: Object.freeze([
+      {
+        ref: "task-lifecycle-command-transitions/canStartExecution",
+        failureCode: "invalid_transition",
+        explain: "The task is in the implementation node with no active lease and the execution is the current round.",
+      },
+      {
+        ref: "task-lifecycle-command-transitions/start.validate",
+        failureCode: "invalid_proof",
+        explain: "The authenticated actor binding and reservation proof match the command.",
+      },
+    ]),
+    concurrency: taskConcurrency(
+      { authority: "task-lease/v1", mode: "reserve", sameActorActiveLease: "idempotent-reuse" },
+      { authority: "operation-id", sameActorActiveLease: "applied-no-op" },
+    ),
+    explain: "Acquire or idempotently reuse the authenticated actor's execution lease.",
+  },
+  {
+    id: "submit",
+    ingress: "task-submit",
+    commandType: "SubmitExecution",
+    transitionId: "submit_execution",
+    implementation: "task-lifecycle",
+    topology: "ledger-write",
+    coordination: "execute",
+    input: actionInput(
+      [
+        taskIdInput,
+        expectedVersionInput,
+        cliField(
+          "executionId",
+          "string",
+          false,
+          "--execution-id",
+          "single",
+          "Use one execution id only to assert the authenticated active lease explicitly.",
+        ),
+        cliField(
+          "fromFile",
+          "string",
+          false,
+          "--from-file",
+          "single",
+          "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
+          { jsonFields: TASK_SUBMISSION_JSON_FIELDS, conflictsWith: ["--json-input"] },
+        ),
+        cliField(
+          "jsonInput",
+          "string",
+          false,
+          "--json-input",
+          "single",
+          "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
+          { jsonFields: TASK_SUBMISSION_JSON_FIELDS, conflictsWith: ["--from-file"] },
+        ),
+      ],
+      [["fromFile", "jsonInput"]],
+    ),
+    policyAction: null,
+    criteria: Object.freeze([
+      {
+        ref: "task-lifecycle-command-transitions/submit.validate",
+        failureCode: "invalid_transition",
+        explain: "The active current execution is submitted with a valid submission packet.",
+      },
+      {
+        ref: "actor-domain-services/heldLeaseForExecutionActor",
+        failureCode: "lease_required",
+        explain: "The authenticated actor owns the active execution lease at its current version.",
+      },
+    ]),
+    concurrency: taskConcurrency(
+      { authority: "task-lease/v1", mode: "fence-and-release", versionProof: "leaseVersion" },
+      { authority: "operation-id", retry: "canonical-event-replay" },
+    ),
+    explain: "Atomically fence and release the execution lease while publishing its submission.",
+  },
+  {
+    id: "review",
+    ingress: "task-review-execution",
+    commandType: "RecordReview",
+    transitionId: "record_execution_review",
+    implementation: "task-lifecycle",
+    topology: "local-arbiter",
+    coordination: "execute",
+    input: actionInput([
+      taskIdInput,
+      expectedVersionInput,
+      cliField(
+        "executionId",
+        "string",
+        false,
+        "--execution-id",
+        "single",
+        "Use one named current submitted execution only when the daemon reports ambiguity.",
+      ),
+      cliField("reviewId", "string", true, "--review-id", "single", "Review requires a review id."),
+      cliField("fromFile", "string", true, "--from-file", "single", "Review requires a complete review JSON packet.", {
+        jsonFields: TASK_REVIEW_JSON_FIELDS,
+      }),
+    ]),
+    policyAction: "execution.review",
+    criteria: Object.freeze([
+      {
+        ref: "task-lifecycle-review-transitions/review.validate",
+        failureCode: "invalid_transition",
+        explain: "The review targets the current submitted execution and its pinned content cut.",
+      },
+      {
+        ref: "repo-cell-proof/proofFor.RecordReview",
+        failureCode: "actor_unauthorized",
+        explain: "The reviewer has the arbiter capability and is independent of the submitting executor.",
+      },
+    ]),
+    concurrency: taskConcurrency(
+      { authority: "task-lease/v1", mode: "must-be-released" },
+      { authority: "operation-id", semanticKey: "reviewId" },
+    ),
+    explain: "Record an independent, content-pinned review for the submitted execution.",
+  },
+  {
+    id: "complete",
+    ingress: "task-complete",
+    commandType: "CompleteTask",
+    transitionId: "complete_task",
+    implementation: "task-completion",
+    topology: "ledger-write",
+    coordination: "execute",
+    input: actionInput([
+      taskIdInput,
+      expectedVersionInput,
+      cliField(
+        "executionId",
+        "string",
+        false,
+        "--execution-id",
+        "single",
+        "Use one closeout execution id only when the daemon reports ambiguity.",
+      ),
+      cliField(
+        "ci",
+        "string",
+        false,
+        "--ci",
+        "single",
+        "Use --ci passed only for a successful canonical checker result.",
+        {
+          enum: ["passed"],
+        },
+      ),
+      cliField(
+        "paths",
+        "string-array",
+        false,
+        "--path",
+        "repeated",
+        "Provide each canonical code path; the submitted commit and iteration are derived automatically.",
+      ),
+      cliField(
+        "factHolds",
+        "fact-hold-array",
+        false,
+        "--fact-holds",
+        "repeated",
+        "Use --fact-holds F-XXXXXXXX:<non-empty-rationale> once per standing upstream Fact.",
+        {
+          format: "<fact-id>:<rationale>",
+          regex: "^(?:fact/)?F-[0-9A-HJKMNP-TV-Z]{8}:.+$",
+          projection: "fact-hold-array",
+        },
+      ),
+    ]),
+    policyAction: "task.complete",
+    criteria: Object.freeze([
+      {
+        ref: "closeout-readiness/closeoutReadiness",
+        failureCode: "completion_blocked",
+        explain: "The submitted execution has approved consent and every canonical completion gate is ready.",
+      },
+      {
+        ref: "task-lifecycle-review-transitions/complete.validate",
+        failureCode: "invalid_proof",
+        explain: "Completion authority, released lease, and the typed gate receipt cut are valid.",
+      },
+    ]),
+    concurrency: taskConcurrency(
+      { authority: "task-lease/v1", mode: "must-be-released" },
+      { authority: "operation-id", retry: "closeout-stage-resume" },
+    ),
+    explain: "Complete the reviewed execution after canonical closeout readiness and gate checks.",
+  },
+] as const satisfies readonly TaskActionDeclaration[]);
+
+const taskActionCatalog = Object.freeze({
+  ref: "kernel/task-action/v1",
+  actions: Object.freeze(
+    taskActionDeclarations.map(
+      (declaration): EntityActionContract =>
+        Object.freeze({
+          ...entityAction("task", taskIdentity, declaration.id, taskExposure),
+          input: actionInput(
+            [
+              ...declaration.input.fields,
+              ...(declaration.id === "submit" || declaration.id === "complete"
+                ? [
+                    {
+                      field: "verb" as const,
+                      type: "string" as const,
+                      required: false,
+                      enum: [declaration.ingress.slice("task-".length)],
+                    },
+                  ]
+                : []),
+              { field: "commandType", type: "string", required: false, enum: [declaration.commandType] },
+            ],
+            declaration.input.exactlyOneOf,
+          ),
+          policy: Object.freeze({ ref: "default@3", action: declaration.policyAction }),
+          criteria: Object.freeze([
+            {
+              ref: "task-lifecycle-contract-support/revisionIssues",
+              failureCode: "invalid_transition",
+              explain: "The command expectedVersion equals the canonical Task projection revision at commit time.",
+            },
+            ...declaration.criteria,
+          ]),
+          concurrency: declaration.concurrency,
+          effects: Object.freeze([
+            { ref: "task-lifecycle-publication/compileTaskLifecycleWrite", projection: "TaskProjection" },
+            { ref: `task-lifecycle-transitions/${declaration.transitionId}`, projection: "TaskProjection" },
+          ]),
+          returns: actionResultContract,
+          explain: declaration.explain,
+          execution: Object.freeze({
+            ingress: declaration.ingress,
+            compile: null,
+            read: false,
+            implementation: declaration.implementation,
+            topology: declaration.topology,
+            lifecycle: Object.freeze({
+              transitionId: declaration.transitionId,
+              commandType: declaration.commandType,
+              targetIdField: "executionId",
+              coordination: declaration.coordination,
+            }),
+          }),
+        }),
+    ),
+  ),
+});
+
 const factActionCatalog = Object.freeze({
   ref: "kernel/fact-event/v1",
   actions: Object.freeze([
@@ -488,13 +946,7 @@ export const entityKindContracts = Object.freeze([
     relations: relationsFor("task"),
     canonicalProjection: null,
     statusVocabulary: [{ field: "lifecycle.status", words: domainStatuses }],
-    actionCatalog: actionCatalog(
-      "kernel/task-lifecycle/v1",
-      "task",
-      taskIdentity,
-      TASK_LIFECYCLE_TRANSITIONS.map(({ id }) => id),
-      taskExposure,
-    ),
+    actionCatalog: taskActionCatalog,
     entityStore: null,
     authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: taskExposure,
@@ -771,6 +1223,40 @@ const entityKindContractByKind = new Map<string, EntityKindContract>(
   entityKindContracts.map((contract) => [contract.kind, contract]),
 );
 
+export const boundedContextExceptions: readonly BoundedContextActionException[] = Object.freeze([
+  Object.freeze({
+    actions: Object.freeze(["preset-install", "preset-seed", "preset-uninstall"]),
+    boundedContext: "preset-library" as const,
+    residency: "runtime-local" as const,
+    reason: "Preset library installation mutates the selected workspace library and has no canonical repository event.",
+  }),
+  Object.freeze({
+    actions: Object.freeze([
+      "daemon.runtimeInstance.create",
+      "daemon.runtimeInstance.list",
+      "daemon.runtimeInstance.show",
+      "daemon.runtimeInstance.update",
+      "daemon.runtimeInstance.delete",
+    ]),
+    boundedContext: "daemon-user-root" as const,
+    residency: "runtime-local" as const,
+    reason: "Runtime instance configuration belongs to the daemon user's host registry, outside a RepoCell ledger.",
+  }),
+  Object.freeze({
+    actions: Object.freeze([
+      "repo.terminal.spawn",
+      "repo.terminal.input",
+      "repo.terminal.resize",
+      "repo.terminal.detach",
+      "repo.terminal.terminate",
+      "repo.terminal.attach",
+    ]),
+    boundedContext: "terminal-host" as const,
+    residency: "runtime-local" as const,
+    reason: "Terminal process state is ephemeral host state and never claims canonical repository settlement.",
+  }),
+]);
+
 export function getEntityKindContract(kind: string): EntityKindContract | undefined {
   return entityKindContractByKind.get(kind);
 }
@@ -781,6 +1267,73 @@ export function getExecutableEntityAction(ingress: string): EntityActionContract
     if (action) return action;
   }
   return undefined;
+}
+
+export function getTaskActionForTransition(transitionId: string): EntityActionContract | undefined {
+  return getEntityKindContract("task")?.actionCatalog?.actions.find(
+    (action) => action.execution?.lifecycle?.transitionId === transitionId,
+  );
+}
+
+export function entityActionCliInputs(action: EntityActionContract) {
+  return Object.freeze(
+    action.input.fields.flatMap((field) =>
+      field.cli
+        ? [
+            Object.freeze({
+              ...field.cli,
+              field: field.field,
+              required: field.required,
+              ...(field.enum ? { enum: field.enum } : {}),
+              ...(field.regex ? { regex: field.regex } : {}),
+            }),
+          ]
+        : [],
+    ),
+  );
+}
+
+export function validateEntityActionInput(ingress: string, value: unknown): readonly string[] {
+  const action = getExecutableEntityAction(ingress);
+  if (!action || typeof value !== "object" || value === null || Array.isArray(value))
+    return [`${ingress} action input is not declared`];
+  const record = value as Readonly<Record<string, unknown>>,
+    allowed = new Set(["kind", "executor", ...action.input.fields.map(({ field }) => field)]),
+    errors = Object.keys(record)
+      .filter((field) => !allowed.has(field))
+      .map((field) => `${ingress}.${field} is not declared by the Action input schema`);
+  for (const field of action.input.fields) {
+    const item = record[field.field];
+    if (field.required && (item === undefined || item === "")) {
+      errors.push(`${ingress}.${field.field} is required`);
+      continue;
+    }
+    if (item === undefined) continue;
+    const valid =
+      (field.type === "string" && typeof item === "string" && item.length > 0) ||
+      (field.type === "number" && Number.isSafeInteger(item) && Number(item) >= 0) ||
+      (field.type === "boolean" && typeof item === "boolean") ||
+      (field.type === "string-array" && Array.isArray(item) && item.every((entry) => typeof entry === "string")) ||
+      (field.type === "fact-hold-array" &&
+        Array.isArray(item) &&
+        item.every(
+          (entry) =>
+            typeof entry === "object" &&
+            entry !== null &&
+            typeof (entry as { readonly factRef?: unknown }).factRef === "string" &&
+            typeof (entry as { readonly rationale?: unknown }).rationale === "string",
+        ));
+    if (!valid) errors.push(`${ingress}.${field.field} must be ${field.type}`);
+    if (field.enum && !field.enum.includes(String(item)))
+      errors.push(`${ingress}.${field.field} must be one of ${field.enum.join(", ")}`);
+    if (field.regex && typeof item === "string" && !new RegExp(field.regex, "u").test(item))
+      errors.push(`${ingress}.${field.field} does not match its Action input pattern`);
+  }
+  for (const group of action.input.exactlyOneOf) {
+    const present = group.filter((field) => record[field] !== undefined);
+    if (present.length !== 1) errors.push(`${ingress} requires exactly one of ${group.join(", ")}`);
+  }
+  return errors;
 }
 
 export function requireEntityKindContract(kind: string): EntityKindContract {
@@ -819,13 +1372,15 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
     statusVocabulary: contract.statusVocabulary ?? [],
     transitions: {
       catalogRef: contract.actionCatalog?.ref ?? null,
-      available: actions.map(({ id }) => id),
+      available:
+        contract.actionCatalog?.actions.filter(({ execution }) => execution !== null).map(({ id }) => id) ?? [],
       actions,
     },
     authoring: contract.authoring,
     sdkExposure: contract.sdkExposure,
     framework: contract.framework ?? null,
     policy: contract.policy ?? null,
+    boundedContextExceptions,
   };
 }
 

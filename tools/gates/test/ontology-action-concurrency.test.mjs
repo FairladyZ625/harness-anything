@@ -9,8 +9,8 @@ import { captureGate } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
-test("G0-6 reports the base advisory and names every concurrency field missing from an action", () => {
-  assert.equal(captureGate(() => main(["--root", repoRoot])).code, 0);
+test("G0-6 ratchet accepts the repository and names every concurrency field missing from an action", () => {
+  assert.equal(captureGate(() => main(["--root", repoRoot, "--mode", "ratchet"])).code, 0);
   const fixture = path.join(mkdtempSync(path.join(tmpdir(), "ontology-concurrency-")), "catalog.json");
   const catalog = [{ kind: "task", available: ["start"], actions: [{ id: "start", execution: null }] }];
   writeFileSync(fixture, `${JSON.stringify(catalog)}\n`);

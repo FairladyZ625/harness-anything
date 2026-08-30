@@ -31,7 +31,9 @@ export function deriveCliCapabilities(
 }
 
 export function runtimeBatchDeclarationFields(): readonly string[] {
-  const inputs = daemonProtocolCommands.find((command) => command.id === "runtime-run")?.inputs ?? [];
+  const inputs = (daemonProtocolCommands.find((command) => command.id === "runtime-run")?.inputs ?? []) as readonly {
+    readonly name: string;
+  }[];
   return [
     "instance",
     ...inputs
@@ -46,11 +48,11 @@ export function runtimeBatchDeclarationFields(): readonly string[] {
 }
 
 export function runtimeRunEfforts(): readonly string[] {
-  return (
-    daemonProtocolCommands
-      .find((command) => command.id === "runtime-run")
-      ?.inputs.find((input) => input.name === "--effort")?.enum ?? []
-  );
+  const inputs = (daemonProtocolCommands.find((command) => command.id === "runtime-run")?.inputs ?? []) as readonly {
+    readonly name: string;
+    readonly enum?: readonly string[];
+  }[];
+  return inputs.find((input) => input.name === "--effort")?.enum ?? [];
 }
 
 export function renderThinCapabilities(): string {

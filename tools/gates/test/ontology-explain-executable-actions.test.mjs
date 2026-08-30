@@ -9,8 +9,8 @@ import { captureGate } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
-test("G0-4 reports the base advisory and rejects explain output that advertises execution:null", () => {
-  assert.equal(captureGate(() => main(["--root", repoRoot])).code, 0);
+test("G0-4 ratchet accepts the repository and rejects explain output that advertises execution:null", () => {
+  assert.equal(captureGate(() => main(["--root", repoRoot, "--mode", "ratchet"])).code, 0);
   const fixture = path.join(mkdtempSync(path.join(tmpdir(), "ontology-explain-")), "catalog.json");
   const catalog = [{ kind: "task", available: ["pretend"], actions: [{ id: "pretend", execution: null }] }];
   writeFileSync(fixture, `${JSON.stringify(catalog)}\n`);
