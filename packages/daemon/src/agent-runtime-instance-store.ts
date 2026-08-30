@@ -245,7 +245,7 @@ export function openRuntimeInstanceStore(input: {
         model,
         request.prompt,
         request.providerSessionId,
-        request.effort === undefined ? null : effort,
+        config.kindId === "claude" ? effort : request.effort === undefined ? null : effort,
         permissionMode,
       ),
       definition = definitionSnapshot(config, model, effort);
@@ -689,8 +689,9 @@ function runtimeInstanceBaseUrlConfig(
     return { codex: { ...rest, ...(next ? { baseUrl: next } : {}) } };
   }
   if (current.kindId === "claude") {
-    const next = baseUrl === undefined ? current.claude.baseUrl : baseUrl || undefined;
-    return { claude: next ? { baseUrl: next } : {} };
+    const { baseUrl: _dropped, ...rest } = current.claude,
+      next = baseUrl === undefined ? current.claude.baseUrl : baseUrl || undefined;
+    return { claude: { ...rest, ...(next ? { baseUrl: next } : {}) } };
   }
   return {};
 }

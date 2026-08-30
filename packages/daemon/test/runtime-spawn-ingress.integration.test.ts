@@ -1391,6 +1391,129 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
   }
 });
 
+test("daemon ingress passes Claude effort through to the witnessed Claude Code CLI", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-effort-ingress-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    repoId = "runtime-claude-effort-ingress",
+    uid = process.getuid?.() ?? 0,
+    argsPath = path.join(parent, "claude-args.json"),
+    executablePath = writeProviderStub(path.join(parent, "claude-stub"), "claude", argsPath),
+    installation = {
+      installationId: "installation-claude-effort",
+      kindId: "claude" as const,
+      executablePath,
+      version: "2.1.251",
+      observedAt: "2026-08-30T00:00:00.000Z",
+    },
+    auth = {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: {
+        ownerUid: uid,
+        source: "unix-socket-filesystem-owner-boundary",
+      },
+    } as const;
+  initIngressRepo(root, uid);
+  registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({
+    daemonId: "runtime-claude-effort-ingress",
+    userRoot,
+    runtimeDiscover: () => [installation],
+  }),
+    endpoint = localUserDaemonEndpoint(userRoot, "runtime-claude-effort-ingress"),
+    transport = createUnixSocketTransportServer({
+      daemonId: "runtime-claude-effort-ingress",
+      socketPath: endpoint,
+      createProtocolServer: (authContext, emit) =>
+        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+    });
+  await transport.start();
+  try {
+    await host.attachmentsSettled();
+    host.runtimeInstance(
+      "daemon.runtimeInstance.create",
+      {
+        instanceId: "claude-effort-provider",
+        name: "Claude effort provider",
+        kindId: "claude",
+        installationId: installation.installationId,
+        providerId: "anthropic",
+        models: ["claude-fable-5"],
+        claude: {},
+        authMode: "subscription",
+      },
+      auth,
+    );
+    const childEnv = {
+        ...process.env,
+        HARNESS_DAEMON_USER_ROOT: userRoot,
+        HARNESS_DAEMON_ID: "runtime-claude-effort-ingress",
+        HARNESS_DAEMON_REPO_ID: repoId,
+        HARNESS_DAEMON_ENDPOINT: endpoint,
+      },
+      expectedArgs = [
+        "-p",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        "--permission-mode",
+        "bypassPermissions",
+        "--model",
+        "claude-fable-5",
+        "--effort",
+        "high",
+      ],
+      spawned = await spawnCli([
+        "--root",
+        root,
+        "--json",
+        "runtime",
+        "run",
+        "claude-effort-provider",
+        "--effort",
+        "high",
+        "--prompt",
+        "probe",
+        "--no-stream",
+      ], childEnv);
+    assert.equal(spawned.status, 0, `${spawned.stderr}\n${spawned.stdout}`);
+    assert.deepEqual(JSON.parse(readFileSync(argsPath, "utf8")), expectedArgs);
+    const rejected = await spawnCli([
+      "--root",
+      root,
+      "--json",
+      "runtime",
+      "run",
+      "claude-effort-provider",
+      "--effort",
+      "turbo",
+      "--prompt",
+      "reject",
+      "--no-stream",
+    ], childEnv);
+    assert.equal(rejected.status, 2, `${rejected.stderr}\n${rejected.stdout}`);
+    assert.equal((JSON.parse(rejected.stdout) as Record<string, unknown>).code, "invalid_runtime_effort");
+    const rejectedIngress = await rpc(host, auth, "repo.agentRuntime.spawn", {
+      repo: { repoId },
+      payload: {
+        runtimeInstanceId: "claude-effort-provider",
+        cwd: { scope: "repo-root" },
+        prompt: "reject",
+        effort: "turbo",
+        taskId: null,
+        idempotencyKey: "claude-effort-turbo",
+      },
+    });
+    assert.equal(rejectedIngress.outcome, "op_rejected", JSON.stringify(rejectedIngress));
+    assert.equal(rejectedIngress.code, "invalid_runtime_effort");
+    assert.deepEqual(JSON.parse(readFileSync(argsPath, "utf8")), expectedArgs);
+  } finally {
+    await transport.stop();
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("agy consumes only its closed stream-json event protocol", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-events-")),
     root = path.join(parent, "repo"),
@@ -1630,7 +1753,7 @@ async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Pro
   }
   throw new Error("runtime provider event did not arrive");
 }
-function writeProviderStub(target: string, kindId: "claude" | "codex"): string {
+function writeProviderStub(target: string, kindId: "claude" | "codex", argsTarget?: string): string {
   const lines =
     kindId === "claude"
       ? [
@@ -1716,9 +1839,12 @@ function writeProviderStub(target: string, kindId: "claude" | "codex"): string {
     kindId === "claude"
       ? `process.argv.includes("--output-format") && process.argv.includes("stream-json") && process.argv.includes("--verbose")`
       : `process.argv[2] === "exec" && process.argv.includes("--json")`;
+  const recordArgs = argsTarget
+    ? `fs.writeFileSync(${JSON.stringify(argsTarget)}, JSON.stringify(process.argv.slice(2)));\n`
+    : "";
   return writeProviderExecutable(
     target,
-    `import fs from "node:fs";\nconst auth = process.argv[2] === "auth" || process.argv[2] === "login";\nif (auth) process.exit(0);\nif (!(${structuredFlag})) process.exit(9);\nconst prompt = fs.readFileSync(0, "utf8"), secret = "sk-runtime-secret-1234567890";\nif (prompt === "failure:empty") process.exit(1);\nelse if (prompt === "failure:secret") process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (prompt === "failure:structured") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "codex-provider-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse if (prompt === "permission-denied") process.stdout.write([JSON.stringify({ type: "system", subtype: "init", session_id: "claude-provider-session" }), JSON.stringify({ type: "assistant", session_id: "claude-provider-session", message: { content: [{ type: "tool_use", id: "denied-write", name: "Write", input: { file_path: "/tmp/outside", content: "denied" } }] } }), JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "claude-provider-session", result: "write denied", permission_denials: [{ tool_name: "Write", tool_use_id: "denied-write" }] })].join("\\n") + "\\n");\nelse { let emitted = ${JSON.stringify(lines)}; if (prompt === "read-only") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "read-only final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-action") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "no-action final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-write") emitted.splice(1, 0, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.updated", item: { id: "plan", type: "todo_list", items: [{ text: "locate cause", status: "completed" }, { text: "write fix", status: "in_progress" }] } }); emitted.forEach((line, index) => setTimeout(() => console.log(JSON.stringify(line)), index * 40)); }\n`,
+    `import fs from "node:fs";\nconst auth = process.argv[2] === "auth" || process.argv[2] === "login";\nif (auth) process.exit(0);\n${recordArgs}if (!(${structuredFlag})) process.exit(9);\nconst prompt = fs.readFileSync(0, "utf8"), secret = "sk-runtime-secret-1234567890";\nif (prompt === "failure:empty") process.exit(1);\nelse if (prompt === "failure:secret") process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (prompt === "failure:structured") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "codex-provider-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse if (prompt === "permission-denied") process.stdout.write([JSON.stringify({ type: "system", subtype: "init", session_id: "claude-provider-session" }), JSON.stringify({ type: "assistant", session_id: "claude-provider-session", message: { content: [{ type: "tool_use", id: "denied-write", name: "Write", input: { file_path: "/tmp/outside", content: "denied" } }] } }), JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "claude-provider-session", result: "write denied", permission_denials: [{ tool_name: "Write", tool_use_id: "denied-write" }] })].join("\\n") + "\\n");\nelse { let emitted = ${JSON.stringify(lines)}; if (prompt === "read-only") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "read-only final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-action") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "no-action final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-write") emitted.splice(1, 0, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.updated", item: { id: "plan", type: "todo_list", items: [{ text: "locate cause", status: "completed" }, { text: "write fix", status: "in_progress" }] } }); emitted.forEach((line, index) => setTimeout(() => console.log(JSON.stringify(line)), index * 40)); }\n`,
   );
 }
 function installationFixture(kindId: "claude" | "codex", executablePath: string): RuntimeInstallationWitness {

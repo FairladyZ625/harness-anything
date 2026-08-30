@@ -124,7 +124,8 @@ export const agentProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_effort",
-          nextAction: "Use minimal, low, medium, high, or xhigh with a Codex instance.",
+          nextAction:
+            "Use minimal, low, medium, high, or xhigh with Claude or Codex; agy supports low, medium, or high.",
         },
         {
           enum: ["minimal", "low", "medium", "high", "xhigh"],
@@ -312,7 +313,8 @@ export const agentProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_effort",
-          nextAction: "Use minimal, low, medium, high, or xhigh with a Codex instance.",
+          nextAction:
+            "Use minimal, low, medium, high, or xhigh with Claude or Codex; agy supports low, medium, or high.",
         },
         { enum: ["minimal", "low", "medium", "high", "xhigh"] },
       ),

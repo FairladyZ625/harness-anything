@@ -148,6 +148,7 @@ export function publicConfig(
       ...common,
       kindId: "claude",
       claude: {
+        effort: config.claude.effort ?? null,
         baseUrl: config.claude.baseUrl ?? null,
         baseUrlConfigured: config.claude.baseUrl !== undefined,
       },

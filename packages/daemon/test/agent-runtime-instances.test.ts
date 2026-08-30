@@ -229,15 +229,16 @@ test("runtime instance CRUD is a closed defineCliCommand surface", async () => {
   assert.equal(daemonProtocolCommands.find((entry) => entry.id === "runtime-instance-update")?.inputs.some(({ name }) => name === "--installation"), true);
   const created = parseThinCommand(["runtime", "instance", "create", "--id", "codex-review", "--name", "Codex Review", "--kind", "codex", "--installation", observed.installationId, "--provider", "codex_local_access", "--model", "gpt-5.6-sol", "--model", "gpt-5.6-terra", "--default-model", "gpt-5.6-terra", "--permission-mode", "workspace-write", "--effort", "xhigh", "--base-url", "http://127.0.0.1:1/v1", "--wire-api", "responses", "--requires-openai-auth", "--http-header", "X-Harness-Probe=present", "--auth", "api-key", "--credential-ref", "keychain:harness/codex-review"]);
   assert.equal(created.ok, true); if (created.ok) assert.deepEqual({ method: created.command.method, action: created.command.action }, { method: "daemon.runtimeInstance.create", action: { kind: "runtime-instance-create", instanceId: "codex-review", name: "Codex Review", kindId: "codex", installationId: observed.installationId, providerId: "codex_local_access", models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", permissionMode: "workspace-write", codex: { reasoningEffort: "xhigh", baseUrl: "http://127.0.0.1:1/v1", wireApi: "responses", requiresOpenAiAuth: true, httpHeaders: { "X-Harness-Probe": "present" } }, authMode: "api-key", credentialRef: "keychain:harness/codex-review" } });
+  const claudeCreated = parseThinCommand(["runtime", "instance", "create", "--id", "claude-review", "--name", "Claude Review", "--kind", "claude", "--installation", "claude-installation", "--provider", "anthropic", "--model", "claude-fable-5", "--effort", "high", "--auth", "subscription"]); assert.equal(claudeCreated.ok, true); if (claudeCreated.ok) assert.deepEqual(claudeCreated.command.action.claude, { effort: "high" });
   for (const [argv, method, instanceId] of [["list", "daemon.runtimeInstance.list", undefined], ["show", "daemon.runtimeInstance.show", "codex-review"], ["update", "daemon.runtimeInstance.update", "codex-review"], ["delete", "daemon.runtimeInstance.delete", "codex-review"]] as const) { const parsed = parseThinCommand(["runtime", "instance", argv, ...(instanceId ? [instanceId] : [])]); assert.equal(parsed.ok, argv === "update" ? false : true, JSON.stringify(parsed)); if (parsed.ok) assert.deepEqual({ method: parsed.command.method, action: parsed.command.action }, { method, action: { kind: `runtime-instance-${argv}`, ...(instanceId ? { instanceId } : {}) } }); }
   const update = parseThinCommand(["runtime", "instance", "update", "codex-review", "--name", "Updated", "--installation", "codex-new", "--model", "gpt-5.6-sol", "--model", "gpt-5.6-terra", "--default-model", "gpt-5.6-terra", "--permission-mode", "read-only", "--disable"]); assert.equal(update.ok, true); if (update.ok) assert.deepEqual(update.command.action, { kind: "runtime-instance-update", instanceId: "codex-review", name: "Updated", installationId: "codex-new", models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-terra", permissionMode: "read-only", enabled: false });
   assert.deepEqual(validateDaemonRpcCall({ method: "daemon.runtimeInstance.update", params: { payload: { instanceId: "codex-review", installationId: "codex-new" } } }), []);
   const run = parseThinCommand(["runtime", "run", "codex-review", "--model", "gpt-5.6-terra", "--effort", "xhigh", "--permission-mode", "workspace-write", "--prompt", "Inspect"]); assert.equal(run.ok, true); if (run.ok) { assert.equal(run.command.action.model, "gpt-5.6-terra"); assert.equal(run.command.action.effort, "xhigh"); assert.equal(run.command.action.permissionMode, "workspace-write"); }
-  assert.deepEqual(parseThinCommand(["runtime", "run", "codex-review", "--effort", "turbo", "--prompt", "Inspect"]), { ok: false, code: "invalid_runtime_effort", nextAction: "Use minimal, low, medium, high, or xhigh with a Codex instance.", json: false });
+  assert.deepEqual(parseThinCommand(["runtime", "run", "codex-review", "--effort", "turbo", "--prompt", "Inspect"]), { ok: false, code: "invalid_runtime_effort", nextAction: "Use minimal, low, medium, high, or xhigh with Claude or Codex; agy supports low, medium, or high.", json: false });
   const probed = parseThinCommand(["runtime", "instance", "show", "codex-review", "--probe"]); assert.equal(probed.ok, true); if (probed.ok) assert.deepEqual({ method: probed.command.method, action: probed.command.action }, { method: "daemon.runtimeInstance.show", action: { kind: "runtime-instance-show", instanceId: "codex-review", probe: true } });
   assert.deepEqual(parseThinCommand(["runtime", "instance", "create", "--id", "bad", "--name", "Bad", "--kind", "codex", "--installation", observed.installationId, "--provider", "openai", "--model", "gpt", "--auth", "api-key"]), { ok: false, code: "missing_field", nextAction: "API-key instances require --credential-ref <opaque-ref>.", json: false });
   assert.deepEqual(parseThinCommand(["runtime", "instance", "create", "--id", "bad", "--name", "Bad", "--kind", "codex", "--installation", observed.installationId, "--provider", "openai", "--model", "gpt", "--auth", "subscription", "--credential-ref", "keychain:harness/bad"]), { ok: false, code: "invalid_field", nextAction: "Subscription instances cannot accept a credential reference.", json: false });
-  assert.deepEqual(parseThinCommand(["runtime", "instance", "create", "--id", "bad", "--name", "Bad", "--kind", "claude", "--installation", observed.installationId, "--provider", "anthropic", "--model", "claude", "--wire-api", "responses", "--auth", "subscription"]), { ok: false, code: "invalid_field", nextAction: "Claude runtime instances cannot accept Codex options: --effort, --wire-api, --requires-openai-auth, or --http-header.", json: false });
+  assert.deepEqual(parseThinCommand(["runtime", "instance", "create", "--id", "bad", "--name", "Bad", "--kind", "claude", "--installation", observed.installationId, "--provider", "anthropic", "--model", "claude", "--wire-api", "responses", "--auth", "subscription"]), { ok: false, code: "invalid_field", nextAction: "Claude runtime instances cannot accept Codex options: --wire-api, --requires-openai-auth, or --http-header.", json: false });
   for (const flag of ["--env", "--argv", "--isolation-profile"]) { const parsed = parseThinCommand(["runtime", "instance", "create", "--id", "bad", "--name", "Bad", "--kind", "codex", "--installation", observed.installationId, "--provider", "openai", "--model", "gpt", "--auth", "subscription", flag, "open"]); assert.equal(parsed.ok ? "ok" : parsed.code, "unknown_field", flag); }
 });
 
@@ -314,9 +315,9 @@ test("public instance projections keep provider options in the matching kind sec
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-public-projection-")), claude = { ...observed, installationId: "claude-projection", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" }, store = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude] });
   try {
     store.create({ schemaVersion: 2, instanceId: "codex-projection", name: "Codex Projection", kindId: "codex", installationId: observed.installationId, providerId: "sidecar", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", enabled: true, codex: { reasoningEffort: "high", baseUrl: "http://127.0.0.1:1/v1", wireApi: "responses", requiresOpenAiAuth: true, httpHeaders: { "X-Probe": "present" } }, auth: { mode: "subscription" } });
-    store.create({ schemaVersion: 2, instanceId: "claude-projection", name: "Claude Projection", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude"], defaultModel: "claude", enabled: true, claude: { baseUrl: "https://gateway.example.test/v1" }, auth: { mode: "subscription" } });
+    store.create({ schemaVersion: 2, instanceId: "claude-projection", name: "Claude Projection", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude"], defaultModel: "claude", enabled: true, claude: { effort: "medium", baseUrl: "https://gateway.example.test/v1" }, auth: { mode: "subscription" } });
     const codex = store.command({ kind: "runtime-instance-show", instanceId: "codex-projection" }).instance as Record<string, unknown>, claudeDto = store.command({ kind: "runtime-instance-show", instanceId: "claude-projection" }).instance as Record<string, unknown>, listed = store.command({ kind: "runtime-instance-list" }).instances as Array<Record<string, unknown>>;
-    assert.deepEqual(codex.codex, { reasoningEffort: "high", baseUrl: "http://127.0.0.1:1/v1", baseUrlConfigured: true, wire_api: "responses", requires_openai_auth: true, http_headers: { "X-Probe": "present" } }); assert.equal("reasoningEffort" in codex, false); assert.equal("baseUrl" in codex, false); assert.equal("codex" in claudeDto, false); assert.deepEqual(claudeDto.claude, { baseUrl: "https://gateway.example.test/v1", baseUrlConfigured: true }); assert.equal(listed.every((item) => item.kindId === "codex" ? "codex" in item : "claude" in item), true);
+    assert.deepEqual(codex.codex, { reasoningEffort: "high", baseUrl: "http://127.0.0.1:1/v1", baseUrlConfigured: true, wire_api: "responses", requires_openai_auth: true, http_headers: { "X-Probe": "present" } }); assert.equal("reasoningEffort" in codex, false); assert.equal("baseUrl" in codex, false); assert.equal("codex" in claudeDto, false); assert.deepEqual(claudeDto.claude, { effort: "medium", baseUrl: "https://gateway.example.test/v1", baseUrlConfigured: true }); assert.equal(listed.every((item) => item.kindId === "codex" ? "codex" in item : "claude" in item), true);
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
@@ -397,11 +398,11 @@ test("flat schema v2 runtime config normalizes into its kind section on read", a
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
-test("flat Claude effort from schema v2 migrates away without granting Claude Codex configuration", async () => {
+test("flat Claude effort from schema v2 migrates into Claude configuration", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-v2-migration-")), claude = { ...observed, installationId: "claude-installation-test", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" };
   try {
     writeFileSync(path.join(userRoot, "runtime-instances.json"), `${JSON.stringify({ schema: "runtime-instances/v1", instances: [{ schemaVersion: 2, instanceId: "claude-flat", name: "Claude Flat", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, reasoningEffort: "high", baseUrl: "https://gateway.example.test/v1", auth: { mode: "subscription" } }] })}\n`);
-    const store = openRuntimeInstanceStore({ userRoot, discover: () => [claude] }); assert.deepEqual(store.read("claude-flat")?.claude, { baseUrl: "https://gateway.example.test/v1" }); const persisted = JSON.parse(readFileSync(path.join(userRoot, "runtime-instances.json"), "utf8")).instances[0]; assert.deepEqual(persisted.claude, { baseUrl: "https://gateway.example.test/v1" }); assert.equal("reasoningEffort" in persisted, false); assert.equal("codex" in persisted, false);
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [claude] }); assert.deepEqual(store.read("claude-flat")?.claude, { effort: "high", baseUrl: "https://gateway.example.test/v1" }); const persisted = JSON.parse(readFileSync(path.join(userRoot, "runtime-instances.json"), "utf8")).instances[0]; assert.deepEqual(persisted.claude, { effort: "high", baseUrl: "https://gateway.example.test/v1" }); assert.equal("reasoningEffort" in persisted, false); assert.equal("codex" in persisted, false);
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
@@ -424,6 +425,25 @@ test("Codex effort is a per-launch override and never mutates the instance", asy
     assert.notEqual(low.args.join("\0"), xhigh.args.join("\0")); assert.match(low.args.join(" "), /model_reasoning_effort="low"/u); assert.match(xhigh.args.join(" "), /model_reasoning_effort="xhigh"/u); assert.equal(store.read("codex-effort")?.kindId, "codex"); assert.equal(store.read("codex-effort")?.codex.reasoningEffort, "medium");
     await assert.rejects(store.prepareLaunch("codex-effort", { cwd: "/workspace/repo", prompt: "Bad", effort: "turbo" }), (error: unknown) => codedAs(error, "invalid_runtime_effort") && error instanceof Error && error.message.includes("turbo"));
     await assert.rejects(store.prepareLaunch("codex-effort", { cwd: "/workspace/repo", prompt: "Bad", effort: "" }), (error: unknown) => codedAs(error, "invalid_runtime_effort"));
+  } finally { rmSync(userRoot, { recursive: true, force: true }); }
+});
+
+test("Claude effort defaults and per-launch overrides reach the Claude Code CLI", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-effort-")),
+    claude = { ...observed, installationId: "claude-effort-installation", kindId: "claude" as const, executablePath: "/opt/runtime-test/claude" };
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [claude], resolveCredential: () => "instance-secret" });
+    store.create({ schemaVersion: 2, instanceId: "claude-effort", name: "Claude Effort", kindId: "claude", installationId: claude.installationId, providerId: "anthropic", models: ["claude-fable-5"], defaultModel: "claude-fable-5", enabled: true, isolationState: "enforced", claude: { effort: "medium" }, auth: { mode: "api-key", credentialRef: "credential:v1:claude-effort" } });
+    const configured = await store.prepareLaunch("claude-effort", { cwd: "/workspace/repo", prompt: "Configured" }),
+      overridden = await store.prepareLaunch("claude-effort", { cwd: "/workspace/repo", prompt: "Override", effort: "xhigh", providerSessionId: "session-1" }),
+      minimal = await store.prepareLaunch("claude-effort", { cwd: "/workspace/repo", prompt: "Minimal", effort: "minimal" });
+    assert.deepEqual(configured.args, ["-p", "--verbose", "--output-format", "stream-json", "--permission-mode", "bypassPermissions", "--model", "claude-fable-5", "--effort", "medium", "--bare"]);
+    assert.deepEqual(overridden.args.slice(-5), ["--effort", "xhigh", "--bare", "--resume", "session-1"]);
+    assert.equal(minimal.args[minimal.args.indexOf("--effort") + 1], "low");
+    assert.equal(configured.definition.reasoningEffort, "medium");
+    assert.equal(overridden.definition.reasoningEffort, "xhigh");
+    assert.equal(store.read("claude-effort")?.claude.effort, "medium");
+    await assert.rejects(store.prepareLaunch("claude-effort", { cwd: "/workspace/repo", prompt: "Bad", effort: "turbo" }), (error: unknown) => codedAs(error, "invalid_runtime_effort") && error instanceof Error && error.message.includes("turbo"));
   } finally { rmSync(userRoot, { recursive: true, force: true }); }
 });
 
@@ -880,7 +900,7 @@ test("runtime instance update edits the base URL of an existing instance", async
       installationId: claudeInstallation.installationId,
       providerId: "anthropic",
       models: ["claude-fable-5"],
-      claude: { baseUrl: "https://old-gateway.example/v1" },
+      claude: { effort: "high", baseUrl: "https://old-gateway.example/v1" },
       authMode: "api-key",
       credentialRef: "keychain:harness/claude-edit",
     });
@@ -892,6 +912,10 @@ test("runtime instance update edits the base URL of an existing instance", async
     assert.equal(
       (claudeReplaced.instance as { readonly claude: { readonly baseUrl: string | null } }).claude.baseUrl,
       "https://new-gateway.example/v1",
+    );
+    assert.equal(
+      (claudeReplaced.instance as { readonly claude: { readonly effort: string | null } }).claude.effort,
+      "high",
     );
     // Insecure endpoints are rejected by the same validation create uses.
     assert.throws(

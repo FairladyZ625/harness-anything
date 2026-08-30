@@ -55,8 +55,7 @@ function hasForeignAdapterOptions(
 ): boolean {
   return (
     (kindId === "claude" &&
-      (flags.one.has("--effort") ||
-        flags.one.has("--wire-api") ||
+      (flags.one.has("--wire-api") ||
         flags.booleans.has("--requires-openai-auth") ||
         headers !== undefined)) ||
     (kindId === "agy" &&
@@ -91,7 +90,12 @@ function runtimeInstanceKindConfig(
             ...(one.get("--effort") ? { effort: one.get("--effort") } : {}),
           },
         }
-      : { claude: { ...(baseUrl ? { baseUrl } : {}) } };
+      : {
+          claude: {
+            ...(one.get("--effort") ? { effort: one.get("--effort") } : {}),
+            ...(baseUrl ? { baseUrl } : {}),
+          },
+        };
 }
 
 function runtimeHttpHeaderFlags(
