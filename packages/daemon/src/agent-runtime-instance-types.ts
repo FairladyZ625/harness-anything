@@ -31,6 +31,7 @@ export interface ClaudeRuntimeInstanceConfig {
 
 export interface CodexRuntimeInstanceConfig {
   readonly reasoningEffort?: string;
+  readonly fast?: boolean;
   readonly baseUrl?: string;
   readonly wireApi?: string;
   readonly requiresOpenAiAuth?: boolean;

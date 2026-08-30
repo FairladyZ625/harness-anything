@@ -306,6 +306,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
                 runtimeInstanceId: schedule.spec.target.runtimeInstanceId,
                 model: schedule.spec.target.model ?? null,
                 reasoningEffort: schedule.spec.target.reasoningEffort ?? null,
+                fast: schedule.spec.target.fast ?? false,
                 cwd: schedule.spec.target.cwd ?? null,
               }
             : { kind: "squad", squadId: schedule.spec.target.squadId },

@@ -48,6 +48,10 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         },
         { enum: ["minimal", "low", "medium", "high", "xhigh"] },
       ),
+      cliInput("--fast", "boolean", false, {
+        code: "invalid_runtime_fast",
+        nextAction: "Use --fast only with a Codex runtime instance.",
+      }),
       cliInput(
         "--permission-mode",
         "single",
@@ -336,6 +340,7 @@ export const scheduleShowJsonFields = Object.freeze(["scheduleId"] as const),
     "mission",
     "model",
     "reasoningEffort",
+    "fast",
     "cwd",
     "idempotencyKey",
   ] as const),
@@ -421,6 +426,10 @@ export const scheduleProtocolCommands = Object.freeze([
         },
         { enum: scheduleReasoningEfforts },
       ),
+      cliInput("--fast", "boolean", false, {
+        code: "invalid_runtime_fast",
+        nextAction: "Use --fast only with a Codex runtime instance.",
+      }),
       cliInput("--cwd", "single", false, {
         code: "invalid_field",
         nextAction: "Use a repository-relative directory; omit --cwd for the repository root.",
@@ -532,6 +541,10 @@ export const scheduleProtocolCommands = Object.freeze([
         },
         { enum: scheduleReasoningEfforts },
       ),
+      cliInput("--fast", "boolean", false, {
+        code: "invalid_runtime_fast",
+        nextAction: "Use --fast only with a Codex runtime instance.",
+      }),
       cliInput("--cwd", "single", false, {
         code: "invalid_field",
         nextAction: "Use a repository-relative directory.",

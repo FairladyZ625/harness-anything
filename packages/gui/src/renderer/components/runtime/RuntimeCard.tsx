@@ -156,11 +156,14 @@ export function RuntimeCard({
               <Field label="models" value={instance.models.join(", ")} />
               <Field label="installation" value={instance.installationId} />
               {instance.kindId === "codex" && (
-                <Field
-                  label="codex.reasoningEffort"
-                  value={instance.codex.reasoningEffort ?? t("agentRuntime.providerDefault")}
-                  faint={instance.codex.reasoningEffort === null}
-                />
+                <>
+                  <Field
+                    label="codex.reasoningEffort"
+                    value={instance.codex.reasoningEffort ?? t("agentRuntime.providerDefault")}
+                    faint={instance.codex.reasoningEffort === null}
+                  />
+                  <Field label="codex.fast" value={String(instance.codex.fast)} />
+                </>
               )}
               {instance.kindId === "agy" && (
                 <Field
@@ -432,6 +435,17 @@ function ProviderEditor({
             onChange={(name) => patch({ name })}
           />
         </label>
+        {instance.kindId === "codex" && (
+          <label className="grid gap-0.5">
+            <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">
+              {t("agentRuntime.fast")}
+            </span>
+            <span className="inline-flex min-h-8 items-center gap-2 text-[11px] text-text-muted">
+              <Toggle checked={draft.fast} onChange={(fast) => patch({ fast })} label={t("agentRuntime.fast")} />
+              {t("agentRuntime.fastDescription")}
+            </span>
+          </label>
+        )}
         <label className="grid gap-0.5">
           <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">
             {t("agentRuntime.installation")}

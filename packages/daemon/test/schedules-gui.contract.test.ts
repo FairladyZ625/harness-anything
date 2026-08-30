@@ -53,7 +53,7 @@ const armedSchedule = createScheduleV1({
   mode: "detect",
   spec: {
     trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-27T07:00:00.000Z" },
-    target: { kind: "agent", agentId: "probe-agent", runtimeInstanceId: "codex-schedule" },
+    target: { kind: "agent", agentId: "probe-agent", runtimeInstanceId: "codex-schedule", fast: true },
     mission: "Scan the previous day of pull requests.",
   },
   actor,
@@ -144,6 +144,7 @@ test("the six schedule GUI actions reuse the canonical action kinds", () => {
     agentId: "probe-agent",
     runtimeInstanceId: "codex-schedule",
     mission: "Run the probe.",
+    fast: true,
     idempotencyKey: "retry-1",
   };
   assert.deepEqual(validate("repo.schedule.create", definition), []);
@@ -179,6 +180,7 @@ test("the schedules list validator locks the joined wire shape", () => {
     summary: "every 30m",
   });
   assert.equal(row.executionAvailability, "local");
+  assert.equal(row.target.kind === "agent" && row.target.fast, true);
   assert.deepEqual(row.claim, { nodeId: null, assignmentId: null });
   assert.equal(row.nextRunAt, "2026-08-27T08:30:00.000Z");
   assert.equal(row.actions.runNow.available, true);

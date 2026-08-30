@@ -15,6 +15,7 @@ import {
   runtimeInstanceError,
   runtimeInstanceId,
   selectRuntimeEffort,
+  selectRuntimeFast,
   selectRuntimeModel,
   unavailable,
 } from "./agent-runtime-instance-config.ts";
@@ -212,6 +213,7 @@ export function openRuntimeInstanceStore(input: {
       readonly prompt: string;
       readonly model?: string;
       readonly effort?: string;
+      readonly fast?: boolean;
       readonly providerSessionId?: string;
       readonly permissionMode?: string;
     },
@@ -226,6 +228,7 @@ export function openRuntimeInstanceStore(input: {
       );
     const model = selectRuntimeModel(config, request.model),
       effort = selectRuntimeEffort(config, request.effort),
+      fast = selectRuntimeFast(config, request.fast),
       permissionMode = runtimePermissionMode(request.permissionMode ?? config.permissionMode, config.kindId),
       witnessed = input.discover(),
       installation = witnessed.find(
@@ -247,8 +250,9 @@ export function openRuntimeInstanceStore(input: {
         request.providerSessionId,
         config.kindId === "claude" ? effort : request.effort === undefined ? null : effort,
         permissionMode,
+        fast,
       ),
-      definition = definitionSnapshot(config, model, effort);
+      definition = definitionSnapshot(config, model, effort, fast);
     if (config.auth.mode === "subscription") {
       const readiness = rememberAuthReadiness(
         config.instanceId,
@@ -466,6 +470,7 @@ export function openRuntimeInstanceStore(input: {
         hasEnabled = action.enabled !== undefined,
         hasPermission = action.permissionMode !== undefined,
         hasIsolation = action.isolationState !== undefined,
+        hasFast = action.fast !== undefined,
         hasBaseUrl = action.baseUrl !== undefined;
       if (
         !hasName &&
@@ -475,13 +480,14 @@ export function openRuntimeInstanceStore(input: {
         !hasEnabled &&
         !hasPermission &&
         !hasIsolation &&
+        !hasFast &&
         !hasBaseUrl
       )
         throw runtimeInstanceError(
           "invalid_runtime_instance_update",
           [
             "Runtime instance update requires --name, --installation, --model, ",
-            "--default-model, --base-url, --permission-mode, --isolation, --enable, or --disable.",
+            "--default-model, --base-url, --permission-mode, --isolation, --fast, --enable, or --disable.",
           ].join(""),
         );
       if (hasBaseUrl && current.kindId === "agy")
@@ -489,6 +495,8 @@ export function openRuntimeInstanceStore(input: {
           "invalid_runtime_kind_config",
           "agy runtime instances support subscription OAuth only and have no base URL.",
         );
+      if (hasFast && current.kindId !== "codex")
+        throw runtimeInstanceError("invalid_runtime_fast", "Fast mode is supported only by Codex runtime instances.");
       const installationId = hasInstallation
           ? requireWitnessedInstallation(current.kindId, action.installationId, input.discover()).installationId
           : current.installationId,
@@ -501,7 +509,11 @@ export function openRuntimeInstanceStore(input: {
         // endpoint (same secure validation as create); an explicit empty string clears it
         // back to the official endpoint. Omitted leaves it untouched.
         baseUrl = hasBaseUrl ? String(action.baseUrl).trim() : undefined,
-        kindConfig = runtimeInstanceBaseUrlConfig(current, baseUrl);
+        kindConfig = runtimeInstanceKindConfig(
+          current,
+          baseUrl,
+          hasFast ? requireBoolean(action.fast, "fast") : undefined,
+        );
       if (!models.includes(defaultModel))
         throw runtimeInstanceError(
           "invalid_runtime_model",
@@ -679,14 +691,22 @@ function codexConfigHasBearer(configPath: string): boolean {
 /** Rebuilds the kind-scoped configuration after a base URL edit. `baseUrl === undefined`
  * means the update did not touch it (keep the stored endpoint); a non-empty string
  * replaces it; an explicit empty string clears it back to the official endpoint. */
-function runtimeInstanceBaseUrlConfig(
+function runtimeInstanceKindConfig(
   current: RuntimeInstanceConfig,
   baseUrl: string | undefined,
+  fast: boolean | undefined,
 ): { readonly claude?: unknown } | { readonly codex?: unknown } {
   if (current.kindId === "codex") {
-    const { baseUrl: _dropped, ...rest } = current.codex,
-      next = baseUrl === undefined ? current.codex.baseUrl : baseUrl || undefined;
-    return { codex: { ...rest, ...(next ? { baseUrl: next } : {}) } };
+    const { baseUrl: _droppedBaseUrl, fast: _droppedFast, ...rest } = current.codex,
+      nextBaseUrl = baseUrl === undefined ? current.codex.baseUrl : baseUrl || undefined,
+      nextFast = fast === undefined ? current.codex.fast : fast;
+    return {
+      codex: {
+        ...rest,
+        ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
+        ...(nextFast === undefined ? {} : { fast: nextFast }),
+      },
+    };
   }
   if (current.kindId === "claude") {
     const { baseUrl: _dropped, ...rest } = current.claude,

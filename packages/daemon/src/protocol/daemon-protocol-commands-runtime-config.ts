@@ -159,6 +159,10 @@ export const runtimeConfigProtocolCommands = Object.freeze([
           "Use a kind-supported reasoning effort: agy low, medium, high; " +
           "Claude or Codex minimal, low, medium, high, xhigh.",
       }),
+      cliInput("--fast", "boolean", false, {
+        code: "invalid_runtime_fast",
+        nextAction: "Use --fast only for a Codex runtime instance.",
+      }),
       cliInput("--base-url", "single", false, {
         code: "invalid_field",
         nextAction: "Use an HTTPS or loopback HTTP API base URL.",
@@ -301,6 +305,10 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       cliInput("--base-url", "single", false, {
         code: "invalid_base_url",
         nextAction: "Use an absolute HTTPS base URL, or an empty --base-url to return to the official endpoint.",
+      }),
+      cliInput("--fast", "boolean", false, {
+        code: "invalid_runtime_fast",
+        nextAction: "Use --fast only for a Codex runtime instance.",
       }),
       cliInput(
         "--permission-mode",

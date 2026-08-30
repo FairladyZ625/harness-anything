@@ -70,6 +70,7 @@ export function parseSchedule(
         "--mission-file",
         "--model",
         "--effort",
+        "--fast",
         "--cwd",
       ];
     if (mission && missionFile)
@@ -77,7 +78,7 @@ export function parseSchedule(
     if (every && (cronExpression || timezone))
       return rejected("invalid_field", "Use --every or --cron/--timezone, not both.", json);
     if (cronExpression && !timezone) return rejected("missing_field", "Add --timezone <IANA-zone> with --cron.", json);
-    if (!updateFlags.some((flag) => flags.one.has(flag)))
+    if (!updateFlags.some((flag) => flags.one.has(flag) || flags.booleans.has(flag)))
       return rejected("missing_field", "Change at least one Schedule definition field.", json);
     const everyMs = every === undefined ? undefined : parseScheduleDuration(every);
     if (everyMs === null)
@@ -102,6 +103,7 @@ export function parseSchedule(
       ...(cronExpression === undefined ? {} : { cronExpression }),
       ...(timezone === undefined ? {} : { timezone }),
       ...(mission ? { mission } : missionFile ? { missionFile } : {}),
+      ...(flags.booleans.has("--fast") ? { fast: true } : {}),
       ...retry,
     });
   }
@@ -138,6 +140,7 @@ export function parseSchedule(
       ["--effort", "reasoningEffort"],
       ["--cwd", "cwd"],
     ]),
+    ...(flags.booleans.has("--fast") ? { fast: true } : {}),
     ...(flags.booleans.has("--disabled") ? { disabled: true } : {}),
     ...retry,
   });

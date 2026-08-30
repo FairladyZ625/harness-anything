@@ -6,6 +6,7 @@ export type RuntimeBatchEntry = {
   readonly to?: string;
   readonly model?: string;
   readonly effort?: string;
+  readonly fast?: boolean;
   readonly permissionMode?: string;
   readonly prompt?: string;
   readonly mission?: string;

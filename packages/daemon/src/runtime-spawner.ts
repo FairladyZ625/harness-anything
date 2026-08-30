@@ -116,6 +116,7 @@ export interface RuntimeSpawnerInput {
       readonly prompt: string;
       readonly model?: string;
       readonly effort?: string;
+      readonly fast?: boolean;
       readonly providerSessionId?: string;
       readonly permissionMode?: string;
     },
@@ -192,6 +193,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "squadId",
         "model",
         "effort",
+        "fast",
         "permissionMode",
         "cwd",
         "prompt",
@@ -229,6 +231,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       parentRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
       model = payload.model === undefined ? undefined : requiredRuntimeSpawnText(payload.model, "model"),
       effort = payload.effort === undefined ? undefined : requiredRuntimeSpawnText(payload.effort, "effort"),
+      fast = payload.fast === undefined ? undefined : requiredRuntimeFast(payload.fast),
       permissionMode =
         payload.permissionMode === undefined
           ? undefined
@@ -408,6 +411,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         prompt,
         ...(selectedModel ? { model: selectedModel } : {}),
         ...(effort ? { effort } : {}),
+        ...(fast === undefined ? {} : { fast }),
         ...(permissionMode ? { permissionMode } : {}),
         ...(providerSessionId ? { providerSessionId } : {}),
       }),
@@ -517,6 +521,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...(promptSource ? { promptSource } : {}),
         model: definition.model,
         reasoningEffort: definition.reasoningEffort,
+        fast: definition.fast ?? false,
         resumeProviderSessionId: providerSessionId ?? null,
         ...(onExitCommand ? { onExitCommand } : {}),
         ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
@@ -643,6 +648,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       onExitCommand: onExitCommand ?? null,
       model: definition.model,
       reasoningEffort: definition.reasoningEffort,
+      fast: definition.fast ?? false,
       startedAt: streamStartedAt,
       stream: openStream(),
       fallbackAttempt: fallbackAttempt ?? null,
@@ -691,6 +697,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           cwd: scheduled.cwd ? { scope: "repo-relative", path: scheduled.cwd } : { scope: "repo-root" },
           ...(scheduled.model ? { model: scheduled.model } : {}),
           ...(scheduled.effort ? { effort: scheduled.effort } : {}),
+          ...(scheduled.fast === undefined ? {} : { fast: scheduled.fast }),
           ...(scheduled.mode === "detect" ? { permissionMode: "read-only" } : {}),
         },
         binding,
@@ -852,6 +859,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               ...(header.parentRuntimeSessionId ? { parentRuntimeSessionId: header.parentRuntimeSessionId } : {}),
               ...(next.model ? { model: next.model } : {}),
               ...(header.reasoningEffort ? { effort: header.reasoningEffort } : {}),
+              ...(header.fast === undefined ? {} : { fast: header.fast }),
               ...(header.permissionMode ? { permissionMode: header.permissionMode } : {}),
               cwd:
                 dispatchCwd === input.rootDir
@@ -902,6 +910,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     }, remainingMs);
     timer.unref();
   }
+}
+
+function requiredRuntimeFast(value: unknown): boolean {
+  if (typeof value !== "boolean") throw runtimeSpawnError("invalid_runtime_fast", "Runtime fast must be a boolean.");
+  return value;
 }
 
 function initialFallbackAttempt(

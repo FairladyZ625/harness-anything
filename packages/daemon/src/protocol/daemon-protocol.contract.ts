@@ -166,6 +166,7 @@ export const runtimeInstanceMethods = Object.freeze([
         baseUrl: "string?",
         permissionMode: "string?",
         isolationState: "string?",
+        fast: "boolean?",
         enabled: "boolean?",
       }),
     }),

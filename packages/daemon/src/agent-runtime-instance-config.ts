@@ -204,14 +204,15 @@ export function codexRuntimeConfig(value: unknown): CodexRuntimeInstanceConfig {
   if (
     !isRuntimeInstanceRecord(value) ||
     Object.keys(value).some(
-      (key) => !["reasoningEffort", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"].includes(key),
+      (key) => !["reasoningEffort", "fast", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"].includes(key),
     )
   )
     throw runtimeInstanceError(
       "invalid_runtime_kind_config",
-      "codex configuration accepts only reasoningEffort, baseUrl, wireApi, requiresOpenAiAuth, and httpHeaders.",
+      "codex configuration accepts only reasoningEffort, fast, baseUrl, wireApi, requiresOpenAiAuth, and httpHeaders.",
     );
   const effort = value.reasoningEffort === undefined ? undefined : runtimeEffort(value.reasoningEffort),
+    fast = value.fast === undefined ? undefined : requireBoolean(value.fast, "fast"),
     baseUrl = value.baseUrl === undefined ? undefined : secureRuntimeBaseUrl(value.baseUrl),
     wireApi = value.wireApi === undefined ? undefined : identifier(value.wireApi, "wireApi"),
     requiresOpenAiAuth =
@@ -221,6 +222,7 @@ export function codexRuntimeConfig(value: unknown): CodexRuntimeInstanceConfig {
     httpHeaders = value.httpHeaders === undefined ? undefined : runtimeHttpHeaders(value.httpHeaders);
   return {
     ...(effort ? { reasoningEffort: effort } : {}),
+    ...(fast === undefined ? {} : { fast }),
     ...(baseUrl ? { baseUrl } : {}),
     ...(wireApi ? { wireApi } : {}),
     ...(requiresOpenAiAuth === undefined ? {} : { requiresOpenAiAuth }),
@@ -317,6 +319,14 @@ export function selectRuntimeEffort(config: RuntimeInstanceConfig, requested?: s
   if (effort === undefined) return null;
   if (config.kindId === "agy") return agyEffort(effort);
   return runtimeEffort(effort);
+}
+
+export function selectRuntimeFast(config: RuntimeInstanceConfig, requested?: boolean): boolean {
+  const fast = requested ?? (config.kindId === "codex" ? config.codex.fast : false) ?? false;
+  if (!fast) return false;
+  if (config.kindId !== "codex")
+    throw runtimeInstanceError("invalid_runtime_fast", "Fast mode is supported only by Codex runtime instances.");
+  return true;
 }
 
 export function runtimeEffort(value: unknown): string {

@@ -48,6 +48,7 @@ export interface ScheduleAgentTargetV1 {
   readonly runtimeInstanceId: string;
   readonly model?: string;
   readonly reasoningEffort?: string;
+  readonly fast?: boolean;
   readonly cwd?: string;
 }
 
@@ -132,6 +133,7 @@ const targetSchema: EntityJsonObjectSchema = {
     runtimeInstanceId: { type: "string", minLength: 1 },
     model: { type: "string", minLength: 1 },
     reasoningEffort: { type: "string", minLength: 1 },
+    fast: { type: "boolean" },
     cwd: { type: "string", minLength: 1 },
     squadId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
   },
@@ -359,7 +361,8 @@ function validTarget(value: unknown, allowUnknownFields: boolean): value is Sche
       typeof value.squadId === "string" &&
       new RegExp(ENTITY_ID_PATTERN, "u").test(value.squadId)
     );
-  const optional = ["model", "reasoningEffort", "cwd"],
+  const optionalText = ["model", "reasoningEffort", "cwd"],
+    optional = [...optionalText, "fast"],
     required = ["kind", "agentId", "runtimeInstanceId"];
   return (
     required.every((field) => Object.hasOwn(value, field)) &&
@@ -368,7 +371,8 @@ function validTarget(value: unknown, allowUnknownFields: boolean): value is Sche
     typeof value.agentId === "string" &&
     new RegExp(ENTITY_ID_PATTERN, "u").test(value.agentId) &&
     isNonEmptyString(value.runtimeInstanceId) &&
-    optional.every((field) => value[field] === undefined || isNonEmptyString(value[field]))
+    optionalText.every((field) => value[field] === undefined || isNonEmptyString(value[field])) &&
+    (value.fast === undefined || typeof value.fast === "boolean")
   );
 }
 

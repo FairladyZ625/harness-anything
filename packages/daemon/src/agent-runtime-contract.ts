@@ -45,6 +45,7 @@ export type AgentRuntimeInstanceDto = AgentRuntimeInstanceCommonDto &
         readonly kindId: "codex";
         readonly codex: {
           readonly reasoningEffort: string | null;
+          readonly fast: boolean;
           readonly baseUrl: string | null;
           readonly baseUrlConfigured: boolean;
           readonly wire_api: string | null;
@@ -350,6 +351,7 @@ function validCodexInstanceConfig(value: unknown): boolean {
     isAgentRuntimeContractRecord(value) &&
     hasExactAgentRuntimeContractFields(value, [
       "reasoningEffort",
+      "fast",
       "baseUrl",
       "baseUrlConfigured",
       "wire_api",
@@ -357,6 +359,7 @@ function validCodexInstanceConfig(value: unknown): boolean {
       "http_headers",
     ]) &&
     (value.reasoningEffort === null || typeof value.reasoningEffort === "string") &&
+    typeof value.fast === "boolean" &&
     (value.baseUrl === null || typeof value.baseUrl === "string") &&
     typeof value.baseUrlConfigured === "boolean" &&
     (value.wire_api === null || typeof value.wire_api === "string") &&
@@ -496,18 +499,22 @@ function validPage(value: unknown): boolean {
 function validDefinitionSnapshot(value: unknown): value is AgentDefinitionSnapshot {
   return (
     isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, [
-      "schema",
-      "configVersion",
-      "instanceId",
-      "installationId",
-      "kindId",
-      "providerId",
-      "model",
-      "reasoningEffort",
-      "baseUrl",
-      "authMode",
-    ]) &&
+    hasAgentRuntimeContractFields(
+      value,
+      [
+        "schema",
+        "configVersion",
+        "instanceId",
+        "installationId",
+        "kindId",
+        "providerId",
+        "model",
+        "reasoningEffort",
+        "baseUrl",
+        "authMode",
+      ],
+      ["fast"],
+    ) &&
     value.schema === "agent-definition-snapshot/v1" &&
     value.configVersion === 1 &&
     [value.instanceId, value.installationId, value.providerId, value.model].every(
@@ -515,6 +522,7 @@ function validDefinitionSnapshot(value: unknown): value is AgentDefinitionSnapsh
     ) &&
     ["claude", "codex", "agy"].includes(String(value.kindId)) &&
     (value.reasoningEffort === null || typeof value.reasoningEffort === "string") &&
+    (value.fast === undefined || typeof value.fast === "boolean") &&
     (value.baseUrl === null || typeof value.baseUrl === "string") &&
     ["subscription", "api-key"].includes(String(value.authMode))
   );

@@ -66,6 +66,7 @@ export function launchArgs(
   providerSessionId?: string,
   effort: string | null = null,
   permissionMode: RuntimePermissionMode | undefined = undefined,
+  fast = false,
 ): string[] {
   if (config.kindId === "claude")
     return [
@@ -101,6 +102,7 @@ export function launchArgs(
     "--model",
     model,
     ...(effort ? ["--config", `model_reasoning_effort=${tomlString(effort)}`] : []),
+    ...(fast ? ["--config", `service_tier=${tomlString("fast")}`] : []),
     ...(providerSessionId ? [providerSessionId] : []),
     "-",
   ];

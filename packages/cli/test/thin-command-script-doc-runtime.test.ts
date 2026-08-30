@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parseRuntimeBatchEntry } from "../src/cli-runtime-batch-input.ts";
+import { runtimeBatchSpawnAction } from "../src/cli-runtime-batch.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("thin parser converts the sole preset script target into closed typed start params", () => {
@@ -350,6 +351,13 @@ test("runtime batch uses the same prompt, mission, and task input union as runti
     mission: "api-review",
     task: "task-1",
   });
+  const fast = parseRuntimeBatchEntry({ instance: "codex-fast", prompt: "inspect", fast: true }, 0);
+  assert.equal(fast.fast, true);
+  assert.equal(runtimeBatchSpawnAction(fast).fast, true);
+  assert.throws(
+    () => parseRuntimeBatchEntry({ instance: "worker", prompt: "inspect", fast: "yes" }, 0),
+    /field fast must be a boolean/u,
+  );
   assert.throws(
     () => parseRuntimeBatchEntry({ instance: "worker", prompt: "one", mission: "two", task: "task-1" }, 0),
     /cannot combine prompt and mission/u,

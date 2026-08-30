@@ -72,6 +72,11 @@ export function mergeProjectedScheduleUpdate(input: {
     model = optionalTarget("model"),
     reasoningEffort = optionalTarget("reasoningEffort"),
     cwd = optionalTarget("cwd"),
+    fast: boolean | undefined = Object.hasOwn(action, "fast")
+      ? action.fast === true
+      : currentTarget?.kind === "agent" && typeof currentTarget.fast === "boolean"
+        ? currentTarget.fast
+        : undefined,
     target: unknown =
       currentTarget?.kind === "agent" || Object.hasOwn(action, "agentId") || Object.hasOwn(action, "runtimeInstanceId")
         ? {
@@ -84,6 +89,7 @@ export function mergeProjectedScheduleUpdate(input: {
               : currentTarget?.runtimeInstanceId,
             ...(model ? { model } : {}),
             ...(reasoningEffort ? { reasoningEffort } : {}),
+            ...(fast === undefined ? {} : { fast }),
             ...(cwd ? { cwd } : {}),
           }
         : currentSpec?.target,

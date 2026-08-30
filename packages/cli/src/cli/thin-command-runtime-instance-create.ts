@@ -20,6 +20,8 @@ export function parseRuntimeInstanceCreate(
     return rejected("invalid_field", "Subscription instances cannot accept a credential reference.", json);
   if (kindId === "agy" && authMode !== "subscription")
     return rejected("invalid_field", "agy runtime instances support subscription OAuth only.", json);
+  if (kindId !== "codex" && flags.booleans.has("--fast"))
+    return rejected("invalid_runtime_fast", "Fast mode is supported only by Codex runtime instances.", json);
   if (!header.ok) return rejected("invalid_field", header.hint, json);
   if (hasForeignAdapterOptions(kindId, flags, header.value))
     return rejected("invalid_field", "This runtime kind does not accept options for another adapter.", json);
@@ -78,6 +80,7 @@ function runtimeInstanceKindConfig(
     ? {
         codex: {
           ...(one.get("--effort") ? { reasoningEffort: one.get("--effort") } : {}),
+          ...(booleans.has("--fast") ? { fast: true } : {}),
           ...(baseUrl ? { baseUrl } : {}),
           ...(one.get("--wire-api") ? { wireApi: one.get("--wire-api") } : {}),
           ...(booleans.has("--requires-openai-auth") ? { requiresOpenAiAuth: true } : {}),
