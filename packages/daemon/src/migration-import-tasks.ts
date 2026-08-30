@@ -80,6 +80,7 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
       currentNode: status === "in_review" ? "review" : "implementation",
       iteration: 0,
       pinned: sourceTask === undefined ? false : sourceTask.pinned,
+      packageDisposition: row.packageDisposition,
       createdBy: context.actor,
       completionGateIds: [],
       presetSnapshotDigest: null,

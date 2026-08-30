@@ -6,6 +6,7 @@ import type {
   ProjectionPage,
   ProjectionWarning,
   RelationCoverageRow,
+  RelationFactRow,
   RelationGraphEdgeRow,
   TaskProjection,
   SettingsV1,
@@ -485,14 +486,21 @@ export interface DaemonFactSummaryRow {
   readonly taskId?: string;
 }
 
-type DaemonRelationGraphProjection = Omit<
-  ReturnType<typeof import("../../../kernel/src/projection/sqlite-task-projection.ts").readRelationGraphProjection>,
-  "taskRows" | "coverageRows"
+type EventProjectionCut = Pick<
+  ReturnType<TaskProjection["readRelationQuery"]>,
+  "status" | "watermark" | "sourceRevision"
 >;
+type DaemonRelationGraphProjection = {
+  readonly edges: ReturnType<TaskProjection["readRelationQuery"]>["rows"];
+  readonly factAnchors: ReturnType<TaskProjection["readFactAnchors"]>["rows"];
+  readonly facts: readonly RelationFactRow[];
+  readonly warnings: readonly ProjectionWarning[];
+};
 
 type ServedCoverageRow = RelationCoverageRow & { readonly freshnessReason?: FreshnessReason };
 
-export type DaemonRelationGraphFullResult = { readonly ok: true } & DaemonRelationGraphProjection & {
+export type DaemonRelationGraphFullResult = { readonly ok: true } & EventProjectionCut &
+  DaemonRelationGraphProjection & {
     /** Coverage rows as served: the kernel row plus the optional uncovered-cause
      * classification (kernel `freshnessReasonOf`), attached only to uncovered rows.
      * Optional so older daemons and every persisted record shape stay valid. */
@@ -509,16 +517,20 @@ type EmptyRelationFacetRows = {
 };
 
 export type DaemonRelationGraphFacetResult =
-  | ({ readonly ok: true; readonly facet: "edges" } & Omit<EmptyRelationFacetRows, "edges"> & {
+  | ({ readonly ok: true; readonly facet: "edges" } & EventProjectionCut &
+      Omit<EmptyRelationFacetRows, "edges"> & {
         readonly edges: DaemonRelationGraphProjection["edges"];
       })
-  | ({ readonly ok: true; readonly facet: "coverageRows" } & Omit<EmptyRelationFacetRows, "coverageRows"> & {
+  | ({ readonly ok: true; readonly facet: "coverageRows" } & EventProjectionCut &
+      Omit<EmptyRelationFacetRows, "coverageRows"> & {
         readonly coverageRows: readonly ServedCoverageRow[];
       })
-  | ({ readonly ok: true; readonly facet: "factAnchors" } & Omit<EmptyRelationFacetRows, "factAnchors"> & {
+  | ({ readonly ok: true; readonly facet: "factAnchors" } & EventProjectionCut &
+      Omit<EmptyRelationFacetRows, "factAnchors"> & {
         readonly factAnchors: DaemonRelationGraphProjection["factAnchors"];
       })
-  | ({ readonly ok: true; readonly facet: "facts" } & Omit<EmptyRelationFacetRows, "facts"> & {
+  | ({ readonly ok: true; readonly facet: "facts" } & EventProjectionCut &
+      Omit<EmptyRelationFacetRows, "facts"> & {
         readonly facts: readonly DaemonFactSummaryRow[];
       })
   | ({ readonly ok: true; readonly facet: "runtimeEdges" } & Omit<EmptyRelationFacetRows, "edges"> & {

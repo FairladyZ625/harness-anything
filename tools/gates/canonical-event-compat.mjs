@@ -62,14 +62,14 @@ const frozenReadsideEvents = Object.freeze([
     relativePath: "events/02/migration-b2821bafd985e93e5e737a3ab9.json",
     revision: 8,
     eventId: "event-023aba2339afd97dedd4b04d4a77d3cf14c90257822b274443943f6b649d3a2d",
-    gitBlobSha: "173dadccec75a21bdb6ad5cf1931c881441c8a59",
+    gitBlobSha: "63907d14d7bf0062051b72604ff213501e206c10",
     validators: ["validateDaemonRelationGraph"],
   },
   {
     relativePath: "events/c7/migration-55e443cf67529244643e784dab.json",
     revision: 7,
     eventId: "event-c721eb4ac2e565c68f6cb458c77392ad0ff2fa368ef19ddc303c48ce43490553",
-    gitBlobSha: "412528897a38a7f026348b76af00d2855a4a3e42",
+    gitBlobSha: "4acbe8f97a47edbb3d370112d067541c5f9b1a1e",
     validators: [
       "validateDaemonTaskSnapshotList",
       "validateDaemonWorkspaceSummary",

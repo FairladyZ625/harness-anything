@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   blockingOf,
   closeoutReadiness,
   deriveRelationId,
   freshnessReasonOf,
-  readRelationGraphProjection,
   workspaceTaskStatus,
   type FreshnessReason,
   type FreshnessReasonInput,
@@ -58,31 +58,10 @@ export function makeTaskQueryReadModel(input: {
     closeout = judgments.closeout,
     blocking = judgments.blocking;
   function relationGraph(): DaemonRelationGraphFullResult {
-    return relationGraphFrom(readRelationGraphProjection({ rootDir }));
-  }
-  function relationGraphFrom(
-    materialized: ReturnType<typeof readRelationGraphProjection>,
-  ): DaemonRelationGraphFullResult {
-    const decisions = projection.readDecisionGraph(),
+    const relations = projection.readRelationQuery({}),
+      decisions = projection.readDecisionGraph(),
       facts = projection.readFactGraph(),
-      taskRelations = projection.readTaskRelations(),
-      eventTruthReady = decisions.status === "ready" && facts.status === "ready" && taskRelations.status === "ready";
-    if (!eventTruthReady) {
-      const warning = {
-        code: "relation_truth_unavailable" as const,
-        source: "generated-cache" as const,
-        severity: "hard-fail" as const,
-        message: "Event-backed relation truth has not reached the canonical source revision.",
-        repairHint: "Retry after the rebuild projection catches up.",
-      };
-      return {
-        ok: true,
-        ...withoutTaskRows(materialized),
-        warnings: materialized.warnings.some(({ code }) => code === warning.code)
-          ? materialized.warnings
-          : [...materialized.warnings, warning],
-      };
-    }
+      cut = requireSameProjectionCut("relation graph", [relations, decisions, facts]);
     const eventCoverage = decisions.coverageRows.map((row) => {
       const fulfillment = row.fulfillment === "standing_policy" ? ("standing-policy" as const) : row.fulfillment;
       return withFreshnessReason({ ...row, fulfillment });
@@ -101,27 +80,14 @@ export function makeTaskQueryReadModel(input: {
       provenance: relationProvenance(row.provenance),
       liveness: row.state,
     }));
-    const mergedCoverage = mergeRows(
-      materialized.coverageRows.map(withFreshnessReason),
-      eventCoverage,
-      (row) => row.claimRef,
-    );
     return {
       ok: true,
-      edges: mergeRows(
-        materialized.edges,
-        [...taskRelations.rows, ...decisions.edges, ...facts.edges],
-        (row) => row.relationId,
-      ),
-      coverageRows: mergedCoverage,
-      factAnchors: mergeRows(materialized.factAnchors, facts.factAnchors, (row) => row.factRef),
-      facts: mergeRows(materialized.facts, eventFacts, (row) => row.ref),
-      // #1542: the merge above already answers this read from event-backed truth, so an
-      // unmaterialized `projections.sqlite` generated cache is not a gap in what was served
-      // and must not stand as a permanent hard-fail warning on every otherwise-healthy read.
-      warnings: materialized.warnings.filter(
-        (warning) => !(warning.source === "generated-cache" && warning.code === "relation_truth_unavailable"),
-      ),
+      edges: relations.rows,
+      coverageRows: eventCoverage,
+      factAnchors: facts.factAnchors,
+      facts: eventFacts,
+      warnings: relationFacetWarnings(cut.status),
+      ...cut,
     };
   }
   function relationGraphFacet(query: DaemonRelationGraphFacetPayload): DaemonRelationGraphFacetResult {
@@ -150,6 +116,7 @@ export function makeTaskQueryReadModel(input: {
         ...emptyRows,
         edges,
         warnings: relationFacetWarnings(read.status),
+        ...projectionCut(read),
       };
     }
     if (query.facet === "facts") {
@@ -170,6 +137,7 @@ export function makeTaskQueryReadModel(input: {
           ...(row.taskId === undefined ? {} : { taskId: row.taskId }),
         })),
         warnings: relationFacetWarnings(read.status),
+        ...projectionCut(read),
       };
     }
     if (query.facet === "factAnchors") {
@@ -180,6 +148,7 @@ export function makeTaskQueryReadModel(input: {
         ...emptyRows,
         factAnchors: read.rows,
         warnings: relationFacetWarnings(read.status),
+        ...projectionCut(read),
       };
     }
     const read = projection.readDecisionGraph();
@@ -192,44 +161,39 @@ export function makeTaskQueryReadModel(input: {
         return withFreshnessReason({ ...row, fulfillment });
       }),
       warnings: relationFacetWarnings(read.status),
+      ...projectionCut(read),
     };
   }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
     const lifecycle = projection.list(query),
-      narrow = hasNarrowFacet(query),
-      materialized = narrow ? null : readRelationGraphProjection({ rootDir }),
-      l2 = new Map((materialized?.taskRows ?? []).map((row) => [row.taskId, row])),
-      graph = narrow ? null : relationGraphFrom(materialized!),
-      graphWarnings = graph?.warnings ?? [],
+      relations = projection.readRelationQuery({}),
+      taskStatuses = projection.readTaskStatuses(),
+      decisionRead = projection.listDecisions({}),
+      cut = requireSameProjectionCut("task control surface", [lifecycle, relations, taskStatuses, decisionRead]),
+      graphWarnings = relationFacetWarnings(relations.status),
       hardWarnings = graphWarnings.filter(({ severity }) => severity === "hard-fail").map(({ message }) => message),
-      context = narrow ? narrowTaskContext(lifecycle.rows.map(({ taskId }) => taskId)) : null,
-      edges = context?.decisionEdges ?? projection.readDecisionGraph().edges,
+      edges = relations.rows,
       activeDerives = new Map<string, typeof edges>();
     for (const edge of edges)
       if (edge.state === "active" && edge.direction === "directed" && edge.relationType === "derives")
         activeDerives.set(edge.targetRef, [...(activeDerives.get(edge.targetRef) ?? []), edge]);
-    const blockingTasks =
-      context?.taskStatuses ??
-      lifecycle.rows.flatMap((row) =>
-        row.snapshot.task ? [{ taskId: row.taskId, status: row.snapshot.task.status }] : [],
-      );
-    const blockingEdges = context?.blockingEdges ?? graph!.edges;
+    const blockingTasks = taskStatuses.rows.flatMap((row) =>
+      row.status === null ? [] : [{ taskId: row.taskId, status: row.status }],
+    );
     const blockingRows = new Map(
-      blocking(blockingTasks, blockingEdges, {
+      blocking(blockingTasks, edges, {
         state: hardWarnings.length ? "error" : "ready",
         hardFailWarnings: hardWarnings,
       }).map((row) => [row.taskId, row]),
     );
-    const decisions =
-      context?.decisions ?? new Map(projection.listDecisions({}).decisions.map((row) => [row.decisionId, row]));
+    const decisions = new Map(decisionRead.decisions.map((row) => [row.decisionId, row]));
     return {
       ok: true,
       ...lifecycle,
       rows: lifecycle.rows.map((row) => {
-        const source = l2.get(row.taskId),
-          task = row.snapshot.task,
+        const task = row.snapshot.task,
           metadata = task?.metadata,
-          disposition = task?.packageDisposition ?? source?.packageDisposition ?? "active",
+          disposition = requiredPackageDisposition(row.taskId, task?.packageDisposition),
           derived = activeDerives.get(`task/${row.taskId}`) ?? [],
           scopes = derived
             .flatMap((edge) => {
@@ -237,12 +201,11 @@ export function makeTaskQueryReadModel(input: {
               return id ? [decisions.get(id)] : [];
             })
             .filter((value) => value !== undefined),
-          origin: TaskPlacementSupplement["origin"] =
-            source?.source === "external-engine" ? "external" : disposition !== "active" ? "archival" : "native",
+          origin: TaskPlacementSupplement["origin"] = disposition !== "active" ? "archival" : "native",
           placement: TaskPlacementSupplement = {
             moduleKeys: [
               ...new Set(
-                [metadata?.moduleKey, source?.moduleKey, ...scopes.flatMap((scope) => scope.appliesTo.modules)].filter(
+                [metadata?.moduleKey, ...scopes.flatMap((scope) => scope.appliesTo.modules)].filter(
                   (value): value is string => !!value,
                 ),
               ),
@@ -256,14 +219,12 @@ export function makeTaskQueryReadModel(input: {
                 }),
               ),
             ].sort(),
-            parentTaskId: metadata?.parentTaskId ?? source?.parentTaskId ?? null,
+            parentTaskId: metadata?.parentTaskId ?? null,
             origin,
-            engine: source?.lifecycleEngine ?? "kernel/task-lifecycle/v1",
+            engine: "kernel/task-lifecycle/v1",
             packageDisposition: disposition,
             provenance: [
-              ...(source
-                ? [{ kind: "l2" as const, ref: source.sourcePath }]
-                : [{ kind: "canonical-event" as const, ref: `task/${row.taskId}` }]),
+              { kind: "canonical-event" as const, ref: `task/${row.taskId}` },
               ...derived.map((edge) => ({ kind: "decision-relation" as const, ref: edge.relationId })),
             ],
           },
@@ -293,6 +254,7 @@ export function makeTaskQueryReadModel(input: {
           ),
         };
       }),
+      ...cut,
     };
   }
   function agenda(query: { readonly limit?: number; readonly cursor?: string } = {}): DaemonAgendaResult {
@@ -377,8 +339,10 @@ export function makeTaskQueryReadModel(input: {
         decisions: decisions?.page.nextCursor ?? null,
       },
       nextCursor = Object.values(nextState).some((value) => value !== null) ? encodeAgendaCursor(nextState) : null,
-      watermarks = reads.map(({ watermark }) => watermark),
-      revisions = reads.map(({ sourceRevision }) => sourceRevision),
+      cut = requireSameProjectionCut(
+        "review queue",
+        reads.length === 0 ? [projection.readRelationQuery({ limit: 1 })] : reads,
+      ),
       warningCodes = [...new Set([active, blocked, planned, inReview].flatMap((read) => read?.warnings ?? []))],
       warnings: DaemonAgendaResult["warnings"] = warningCodes.map((code) => ({
         code,
@@ -390,44 +354,22 @@ export function makeTaskQueryReadModel(input: {
       schema: "daemon.agenda/v1",
       ok: true,
       command: "agenda",
-      status: reads.every((read) => read.status === "ready") ? "ready" : "pending",
+      ...cut,
       inFlight,
       awaitingDecision,
       waitingOnOthers,
       dispatchable,
       page: { sourceLimit, cursor: query.cursor ?? null, nextCursor },
-      watermark: watermarks.length ? Math.min(...watermarks) : 0,
-      sourceRevision: revisions.length ? Math.max(...revisions) : 0,
       warnings,
       summary: renderAgendaSummary({ inFlight, awaitingDecision, waitingOnOthers, dispatchable }),
     };
-  }
-  function narrowTaskContext(taskIds: readonly string[]) {
-    const taskRefs = taskIds.map((taskId) => `task/${taskId}`),
-      blockingEdges = projection.readTaskDependencyClosure(taskRefs).rows,
-      decisionEdges = projection.readTaskRelationsByTargets(taskRefs, "derives").rows,
-      statusIds = new Set(taskIds);
-    for (const edge of blockingEdges) {
-      const targetId = /^task\/([^/]+)$/u.exec(edge.targetRef)?.[1];
-      if (targetId) statusIds.add(targetId);
-    }
-    const decisionIds = [
-        ...new Set(decisionEdges.flatMap((edge) => /^decision\/([^/]+)/u.exec(edge.sourceRef)?.[1] ?? [])),
-      ],
-      decisions = new Map(
-        decisionIds.length ? projection.readDecisions(decisionIds).decisions.map((row) => [row.decisionId, row]) : [],
-      );
-    const taskStatuses = projection
-      .readTaskStatuses([...statusIds])
-      .rows.flatMap((row) => (row.status === null ? [] : [{ taskId: row.taskId, status: row.status }]));
-    return { blockingEdges, decisionEdges, decisions, taskStatuses };
   }
   /**
    * Narrow relation graph read: one indexed page of converged event-backed
    * edges plus only the fact anchors and rows those edges touch, and coverage
    * rows restricted to the decisions the page references. Explicitly scoped to
-   * event-backed truth — authored-L1 edges that exist only in the unmaterialized
-   * markdown-side cache appear in the unparameterized converged read, not here.
+   * event-backed truth; the unparameterized read calls this same relation query
+   * authority with an empty filter, so query shape cannot change the truth set.
    */
   function relationGraphPage(query: TaskRelationQuery): DaemonRelationGraphFullResult {
     const page: TaskRelationProjectionRead = projection.readRelationQuery(query),
@@ -436,7 +378,8 @@ export function makeTaskQueryReadModel(input: {
       facts = projection.searchFacts({ refs: factRefs }),
       factAnchors = projection.readFactAnchors(factRefs),
       decisionRefs = [...refs].filter((ref) => ref.startsWith("decision/")),
-      decisions = decisionRefs.length === 0 ? { coverageRows: [] } : projection.readDecisionGraph(),
+      decisions = projection.readDecisionGraph(),
+      cut = requireSameProjectionCut("relation graph page", [page, facts, factAnchors, decisions]),
       coverageRows = decisions.coverageRows.filter((row) =>
         decisionRefs.some((ref) => row.decisionRef === ref || row.claimRef === ref),
       );
@@ -464,7 +407,8 @@ export function makeTaskQueryReadModel(input: {
       coverageRows: servedCoverage,
       factAnchors: factAnchors.rows,
       facts: servedFacts,
-      warnings: [],
+      warnings: relationFacetWarnings(cut.status),
+      ...cut,
       ...(page.page ? { page: page.page } : {}),
     };
   }
@@ -524,10 +468,28 @@ function relationFacetWarnings(status: "ready" | "pending") {
         },
       ];
 }
-function mergeRows<A>(materialized: readonly A[], eventRows: readonly A[], key: (row: A) => string): readonly A[] {
-  const rows = new Map(materialized.map((row) => [key(row), row]));
-  for (const row of eventRows) rows.set(key(row), row);
-  return [...rows.values()].sort((left, right) => key(left).localeCompare(key(right)));
+type ProjectionCut = Pick<TaskRelationProjectionRead, "status" | "watermark" | "sourceRevision">;
+function projectionCut(read: ProjectionCut): ProjectionCut {
+  return {
+    status: read.status,
+    watermark: read.watermark,
+    sourceRevision: read.sourceRevision,
+  };
+}
+function requireSameProjectionCut(surface: string, reads: readonly ProjectionCut[]): ProjectionCut {
+  const basis = reads[0];
+  if (basis === undefined) throw new Error(`${surface} requires an event projection cut.`);
+  for (const read of reads.slice(1))
+    if (!isDeepStrictEqual(projectionCut(read), projectionCut(basis)))
+      throw new Error(`${surface} spans multiple event projection cuts.`);
+  return projectionCut(basis);
+}
+export function requiredPackageDisposition(
+  taskId: string,
+  disposition: "active" | "archived" | "tombstoned" | undefined,
+): "active" | "archived" | "tombstoned" {
+  if (disposition !== undefined) return disposition;
+  throw new Error(`Event-backed task projection is missing packageDisposition for ${taskId}.`);
 }
 /** Attach the kernel's uncovered-cause classification so consumers never re-derive it. */
 function withFreshnessReason<T extends FreshnessReasonInput>(row: T): T & { freshnessReason?: FreshnessReason } {
@@ -540,23 +502,6 @@ function relationProvenance(
   return value.flatMap((entry) =>
     entry.sessionId === null ? [] : [{ runtime: entry.runtime, sessionId: entry.sessionId, boundAt: entry.boundAt }],
   );
-}
-function hasNarrowFacet(query: TaskProjectionListQuery): boolean {
-  return (
-    query.status !== undefined ||
-    query.changedAfterRevision !== undefined ||
-    query.updatedAfter !== undefined ||
-    query.updatedBefore !== undefined ||
-    query.limit !== undefined ||
-    query.cursor !== undefined ||
-    query.pinnedFirst === true
-  );
-}
-function withoutTaskRows(
-  value: ReturnType<typeof readRelationGraphProjection>,
-): Omit<ReturnType<typeof readRelationGraphProjection>, "taskRows"> {
-  const { taskRows: _taskRows, ...rest } = value;
-  return rest;
 }
 function evidenceSubstrate(locator: string): "repository-path" | "uri" | "canonical-event" | "opaque" {
   if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(locator)) return "uri";

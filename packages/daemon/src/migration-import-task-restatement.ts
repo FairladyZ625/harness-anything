@@ -99,7 +99,10 @@ export function restateLegacyTaskEvents(
     const issues = validateTaskV2(restated, true);
     if (issues.length)
       throw new Error(
-        `${snapshot.sourcePath}: Task/v1 cannot be restated as Task/v2: ${issues.map(({ message }) => message).join("; ")}`,
+        [
+          `${snapshot.sourcePath}: Task/v1 cannot be restated as Task/v2: `,
+          issues.map(({ message }) => message).join("; "),
+        ].join(""),
       );
     const eventIssues = validateRestatedEvent(input.value, restated);
     if (eventIssues.length)

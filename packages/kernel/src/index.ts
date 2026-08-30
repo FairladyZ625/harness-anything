@@ -254,7 +254,32 @@ export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
 export * from "./publish/index.ts";
-export * from "./projection/sqlite-task-projection.ts";
+export {
+  checkTaskProjection,
+  defaultTaskProjectionPath,
+  hashTaskProjectionRows,
+  queryTaskChildren,
+  readTaskProjection,
+  rebuildTaskProjection,
+} from "./projection/sqlite-task-projection.ts";
+export type {
+  CoordinationStatus,
+  ProjectionCanonicalStatus,
+  ProjectionCheckAxisReport,
+  ProjectionCheckReport,
+  ProjectionCheckResult,
+  ProjectionFreshness,
+  ProjectionReadResult,
+  ProjectionSource,
+  ProjectionWarning,
+  ProjectionWarningCode,
+  ProjectionWarningSeverity,
+  ProjectionWarningSource,
+  TaskFieldExtensionProjection,
+  TaskProjectionOptions,
+  TaskProjectionQueryFilters,
+  TaskProjectionRow,
+} from "./projection/sqlite-task-projection.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {

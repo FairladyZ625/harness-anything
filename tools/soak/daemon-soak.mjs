@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -25,11 +25,23 @@ import { streamAgentRuntimeAt } from "../../packages/daemon/src/client/local-jso
 import { openDaemonConnLog } from "../../packages/daemon/src/conn-log.ts";
 import { currentDaemonProtocolVersion } from "../../packages/daemon/src/protocol/version.ts";
 import { assessHermeticConfig } from "../test-hermetic-preflight.mjs";
-import { buildTimeline, discoverConnLogFiles, loadConnLogRecords, renderTimeline } from "../logs/log-timeline.mjs";
+import {
+  closeServer,
+  delay,
+  git,
+  listen,
+  readConfig,
+  rssLoop,
+  stopChild,
+  timelineFor,
+  waitForAttachedRepo,
+  waitForChildExit,
+  waitForMissing,
+} from "./daemon-soak-support.mjs";
+import { renderTimeline } from "../logs/log-timeline.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const cliEntry = path.join(repoRoot, "packages/cli/src/index.ts");
-const MIB = 1024 * 1024;
 const workloadFailureEvidenceLimit = 20;
 
 const soakActor = Object.freeze({ principal: { personId: "person-soak" }, executor: null });
@@ -599,119 +611,6 @@ export function renderDaemonOutput(chunks) {
     bytes = Buffer.byteLength(output);
   if (bytes > 0) return `[soak] captured daemon stdout/stderr: ${bytes} byte(s)\n${output}`;
   return "[soak] captured daemon stdout/stderr: 0 byte(s)\n[soak] no daemon stdout/stderr was emitted. This is expected: normal `ha daemon serve` startup, service, and cooperative shutdown intentionally write no stdio. This capture is working; persistent daemon diagnostics use lifecycle, connection, and request log sinks.\n";
-}
-
-async function rssLoop({ pid, stopAt, samples }) {
-  const started = performance.now();
-  while (Date.now() < stopAt) {
-    samples.push({ atMs: performance.now() - started, rssBytes: readRssBytes(pid) });
-    await delay(2_000);
-  }
-  samples.push({ atMs: performance.now() - started, rssBytes: readRssBytes(pid) });
-}
-
-function readRssBytes(pid) {
-  if (process.platform === "linux") {
-    const match = /^VmRSS:\s+(\d+)\s+kB$/mu.exec(readFileSync(`/proc/${pid}/status`, "utf8"));
-    if (!match) throw new Error(`VmRSS is missing for daemon pid ${pid}`);
-    return Number(match[1]) * 1024;
-  }
-  return Number(execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim()) * 1024;
-}
-
-function timelineFor({ userRoot, daemonId }) {
-  const files = discoverConnLogFiles({ userRoot, daemonId });
-  if (files.length === 0) throw new Error(`no connection log was written for daemon ${daemonId}`);
-  return buildTimeline(loadConnLogRecords(files));
-}
-
-async function waitForAttachedRepo({ child, endpoint, repoId, timeoutMs }) {
-  for (const deadline = Date.now() + timeoutMs; Date.now() < deadline; ) {
-    if (child.exitCode !== null) throw new Error(`daemon exited during startup with code ${child.exitCode}`);
-    try {
-      const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 500, 2_000);
-      const repo = status.repos?.find?.((candidate) => candidate.repoId === repoId);
-      if (repo?.state === "attached") return;
-      if (repo?.state === "unavailable") throw new Error(`scale repo unavailable: ${repo.lastError}`);
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith("scale repo unavailable")) throw error;
-    }
-    await delay(100);
-  }
-  throw new Error(`daemon did not attach ${repoId} within ${timeoutMs}ms`);
-}
-
-export function readConfig(env = process.env) {
-  return {
-    taskCount: positive(env.HARNESS_SOAK_TASKS, 1_377),
-    eventCount: positive(env.HARNESS_SOAK_EVENTS, 26_650),
-    durationMs: positive(env.HARNESS_SOAK_DURATION_MS, 120_000),
-    warmupMs: positive(env.HARNESS_SOAK_WARMUP_MS, 30_000),
-    faultDurationMs: positive(env.HARNESS_SOAK_FAULT_MS, 10_000),
-    startupTimeoutMs: positive(env.HARNESS_SOAK_STARTUP_TIMEOUT_MS, 300_000),
-    concurrency: positive(env.HARNESS_SOAK_CONCURRENCY, 8),
-    requestIntervalMs: positive(env.HARNESS_SOAK_REQUEST_INTERVAL_MS, 500),
-    helloProbeIntervalMs: positive(env.HARNESS_SOAK_HELLO_INTERVAL_MS, 500),
-    maxFaultConnections: positive(env.HARNESS_SOAK_MAX_FAULT_CONNECTIONS, 6),
-    maxHelloP99Ms: positive(env.HARNESS_SOAK_MAX_HELLO_P99_MS, 500),
-    maxRssGrowthBytes: positive(env.HARNESS_SOAK_MAX_RSS_GROWTH_MIB, 32) * MIB,
-    maxRssSlopeBytesPerMinute: positive(env.HARNESS_SOAK_MAX_RSS_SLOPE_MIB_PER_MIN, 12) * MIB,
-    workloadMethodOverride: optionalText(env.HARNESS_SOAK_WORKLOAD_METHOD_OVERRIDE),
-    resultsDir: env.HARNESS_SOAK_RESULTS_DIR || "tmp/soak-results",
-  };
-}
-
-function positive(value, fallback) {
-  const parsed = value === undefined ? fallback : Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1)
-    throw new Error(`soak configuration must be positive integers; received ${value}`);
-  return parsed;
-}
-function optionalText(value) {
-  if (value === undefined) return null;
-  if (typeof value !== "string" || value.length === 0)
-    throw new Error("HARNESS_SOAK_WORKLOAD_METHOD_OVERRIDE must be a non-empty method name");
-  return value;
-}
-function git(rootDir, ...args) {
-  execFileSync("git", ["-C", rootDir, ...args], { stdio: "ignore" });
-}
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-function listen(server, endpoint) {
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(endpoint, () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-}
-function closeServer(server) {
-  return new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-}
-function waitForChildExit(child, timeoutMs) {
-  return Promise.race([
-    new Promise((resolve) => (child.exitCode !== null ? resolve() : child.once("close", resolve))),
-    delay(timeoutMs).then(() => {
-      throw new Error(`daemon did not exit within ${timeoutMs}ms`);
-    }),
-  ]);
-}
-async function waitForMissing(target, timeoutMs) {
-  for (const deadline = Date.now() + timeoutMs; existsSync(target) && Date.now() < deadline; ) await delay(25);
-  if (existsSync(target)) throw new Error(`daemon endpoint remained after stop: ${target}`);
-}
-async function stopChild(child) {
-  if (!child || child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  try {
-    await waitForChildExit(child, 5_000);
-  } catch {
-    child.kill("SIGKILL");
-    await waitForChildExit(child, 2_000).catch(() => undefined);
-  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
