@@ -25,6 +25,7 @@ export const guiAction = <
   guiBridgeMethod: B,
   pathName: string,
   commandClass: "repo-read" | "repo-write" | "arbiter",
+  actionDefaults?: Readonly<Record<string, unknown>>,
 ) => ({
   id,
   phase: "W5-GUI-S2",
@@ -41,6 +42,7 @@ export const guiAction = <
   serviceMethod: id,
   auth: "local-session-token" as const,
   commandClass,
+  ...(actionDefaults === undefined ? {} : { actionDefaults }),
 });
 
 export const guiS3Action = <
@@ -131,6 +133,32 @@ export const daemonGuiActionMethods = Object.freeze([
     "submitTask",
     "/api/tasks/:taskId/submit",
     "repo-write",
+  ),
+  // The GUI pin/unpin surface is a *named ingress onto the existing task amend
+  // write*, not a second write path: `actionDefaults` carries the pinned-only
+  // patch, so the renderer payload stays `{taskId}` and the daemon still runs the
+  // same `task-amend` action (and therefore the same WriteCoordinator, canonical
+  // event, and projection apply) that `ha task pin` runs. The declared payload is
+  // closed, so no other amend field can be smuggled through this method.
+  guiAction(
+    "task.pin",
+    "repo.task.pin",
+    "task-amend",
+    shape({ taskId: "string" }),
+    "pinTask",
+    "/api/tasks/:taskId/pin",
+    "repo-write",
+    { patches: [{ field: "pinned", value: "true" }] },
+  ),
+  guiAction(
+    "task.unpin",
+    "repo.task.unpin",
+    "task-amend",
+    shape({ taskId: "string" }),
+    "unpinTask",
+    "/api/tasks/:taskId/unpin",
+    "repo-write",
+    { patches: [{ field: "pinned", value: "false" }] },
   ),
   guiAction(
     "decision.list",

@@ -147,11 +147,19 @@ test("preload exposes only the approved API methods", () => {
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
   assert.equal(getPreloadApiCapability("getTasks").status, "shipped");
-  assert.equal(daemonGuiActionMethods.length, 28);
+  assert.equal(daemonGuiActionMethods.length, 30);
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"),
     false,
   );
+  // pinTask/unpinTask 是台账 pin 的 GUI 写通道,但不是通用 amend:payload 只收
+  // repoId+taskId,pinned-only patch 由 daemon 契约的 actionDefaults 钉死。
+  for (const method of ["pinTask", "unpinTask"]) {
+    assert.equal(assertPreloadPayload(method, { repoId: "repo-a", taskId: "task-a" }), true);
+    assert.throws(() => assertPreloadPayload(method, { repoId: "repo-a" }), /invalid/u);
+    assert.throws(() => assertPreloadPayload(method, { repoId: "repo-a", taskId: "task-a", patches: [] }), /invalid/u);
+    assert.throws(() => assertPreloadPayload(method, { repoId: "repo-a", taskId: "" }), /invalid/u);
+  }
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.agentRuntime.cancel"),
     true,

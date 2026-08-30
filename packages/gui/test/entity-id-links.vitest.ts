@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HomeView } from "../src/renderer/views/HomeView.tsx";
+import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
@@ -42,7 +43,9 @@ import type { RelationCoverageRow } from "../src/renderer/api/renderer-dto.ts";
 import {
   REPO_ID,
   TASK_A_ID,
+  TASK_B_ID,
   DECISION_ID,
+  DECISION_B_ID,
   FACT_REF,
   AGENT_ID,
   SQUAD_ID,
@@ -460,8 +463,73 @@ const SYSTEM_HEALTH = {
 
 const runtimeTasks = [{ taskId: TASK_A_ID, title: "G10 探针任务甲" }];
 
+/**
+ * 议程视图 fixture:`repo.agenda.read` 一页的形状(分组判定是 daemon 的事,这里只
+ * 铺四段各一行,让死 ID 扫描覆盖到任务行、待裁 execution 行与待裁决策行)。
+ */
+const FIXTURE_AGENDA = {
+  ok: true as const,
+  status: "ready" as const,
+  inFlight: [
+    {
+      taskId: TASK_A_ID,
+      title: "G10 探针任务甲",
+      status: "active",
+      pinned: true,
+      updatedAt: AT,
+      leaseExecutionId: "execution-g10",
+      activeExecutionIds: ["execution-g10"],
+      blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+    },
+  ],
+  awaitingDecision: [
+    {
+      kind: "execution" as const,
+      taskId: TASK_B_ID,
+      title: "G10 探针任务乙",
+      pinned: false,
+      executionId: "execution-g10-review",
+      submittedAt: AT,
+      blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+    },
+    {
+      kind: "decision" as const,
+      decisionId: DECISION_B_ID,
+      title: "G10 探针决策乙(待批)",
+      riskTier: "low" as const,
+      urgency: "medium" as const,
+      proposedAt: AT,
+    },
+  ],
+  waitingOnOthers: [],
+  dispatchable: [
+    {
+      taskId: TASK_B_ID,
+      title: "G10 探针任务乙",
+      status: "planned",
+      pinned: false,
+      updatedAt: AT,
+      leaseExecutionId: null,
+      activeExecutionIds: [],
+      blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+    },
+  ],
+  summary: "在飞线 (1)\n待裁 (2)\n球在别人手里 (0)\n可派队列 (1)",
+  page: { sourceLimit: 100, cursor: null, nextCursor: null },
+  watermark: 7,
+  sourceRevision: 7,
+};
+
 const VIEW_RENDERERS = {
   home: () => createElement(HomeView, { repos: [fixtureRepoRow()], currentRepoId: REPO_ID, onOpenProject: noop }),
+  agenda: () =>
+    createElement(AgendaView, {
+      agenda: FIXTURE_AGENDA,
+      tasks: FIXTURE_TASKS,
+      onSelect: noop,
+      onNavigateDecision: noop,
+      onSetPin: noop,
+    }),
   overview: () =>
     createElement(OverviewView, {
       project: FIXTURE_PROJECT,

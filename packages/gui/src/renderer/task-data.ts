@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { harnessClient, type TaskListSuccess, type TaskQueryFacets } from "./api-client.ts";
+import { agendaQueryKeys } from "./agenda-data.ts";
 import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
 
 export const LEDGER_REFRESH_INTERVAL_MS = 2_000;
@@ -121,6 +122,7 @@ export async function invalidateLedgerDependents(queryClient: QueryClient, repoI
       refetchType: "active",
     }),
     queryClient.invalidateQueries({ queryKey: ["triadic", repoId], refetchType: "active" }),
+    queryClient.invalidateQueries({ queryKey: agendaQueryKeys.read(repoId), refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId), refetchType: "active" }),
   ]);
 }

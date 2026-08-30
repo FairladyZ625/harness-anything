@@ -1,5 +1,6 @@
 import {
   Kanban,
+  ListMagnifyingGlass,
   SquaresFour,
   Graph,
   Scales,
@@ -25,6 +26,7 @@ import type { ViewId } from "./viewHistory.ts";
 const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   home: "shell.nav.home",
   overview: "shell.nav.overview",
+  agenda: "shell.nav.agenda",
   board: "shell.nav.board",
   decisions: "shell.nav.decisions",
   decisionPool: "shell.nav.decisionPool",
@@ -57,6 +59,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     labelKey: "shell.nav.workspace",
     items: [
       { id: "overview", icon: <SquaresFour weight="duotone" /> },
+      { id: "agenda", icon: <ListMagnifyingGlass weight="duotone" /> },
       { id: "board", icon: <Kanban weight="duotone" /> },
       { id: "graph", icon: <Graph weight="duotone" /> },
     ],

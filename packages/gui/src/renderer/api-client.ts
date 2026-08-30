@@ -1,4 +1,7 @@
 import type {
+  AgendaRead,
+  AgendaTaskRow,
+  AgendaAwaitingRow,
   ContractVersion,
   DecisionProjectionRow,
   FactAnchorRow,
@@ -51,6 +54,19 @@ export interface RelationGraphSuccess {
   readonly facts: ReadonlyArray<RelationFactRow>;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
   readonly page?: QueryPage;
+}
+
+/**
+ * `repo.agenda.read` 的有界一页。四个分组只做透传:分组判定与组内 pin 置顶都在
+ * daemon 投影里完成,renderer 不重推任何「在飞/待裁/球在别人手里/可派」判据。
+ */
+export interface AgendaSuccess
+  extends Pick<AgendaRead, "inFlight" | "awaitingDecision" | "waitingOnOthers" | "dispatchable" | "summary"> {
+  readonly ok: true;
+  readonly status: "ready" | "pending";
+  readonly page: { readonly sourceLimit: number; readonly cursor: string | null; readonly nextCursor: string | null };
+  readonly watermark: number;
+  readonly sourceRevision: number;
 }
 
 export interface QueryPage {
@@ -356,6 +372,9 @@ export const harnessClient = {
   async getTasks(payload: RepoScope & TaskQueryFacets): Promise<TaskListSuccess> {
     return readTaskListResult(await invokeBridge("getTasks", payload));
   },
+  async getAgenda(payload: RepoScope & { readonly limit?: number; readonly cursor?: string }): Promise<AgendaSuccess> {
+    return readAgendaResult(await invokeBridge("getAgenda", payload));
+  },
   async getSettings(payload: RepoScope): Promise<SettingsSuccess> {
     return readSettingsResult(await invokeBridge("getSettings", payload));
   },
@@ -455,6 +474,13 @@ export const harnessClient = {
     },
   ): Promise<GuiActionResult> {
     return readGuiActionResult(await invokeBridge("submitTask", payload));
+  },
+  /** 台账 pin 的唯一 GUI 写通道:daemon 侧就是 `ha task pin` 的 pinned-only amend。 */
+  async pinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
+    return readGuiActionResult(await invokeBridge("pinTask", payload));
+  },
+  async unpinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
+    return readGuiActionResult(await invokeBridge("unpinTask", payload));
   },
   async showReceipt(payload: RepoScope & { readonly opId: string }): Promise<GuiActionResult> {
     return readGuiActionResult(await invokeBridge("showReceipt", payload));
@@ -602,6 +628,69 @@ function readTaskListResult(value: unknown): TaskListSuccess {
       : [],
     ...(result.page ? { page: result.page } : {}),
   };
+}
+
+function readAgendaResult(value: unknown): AgendaSuccess {
+  const result = value as Partial<AgendaSuccess>;
+  if (
+    !result ||
+    result.ok !== true ||
+    (result.status !== "ready" && result.status !== "pending") ||
+    !Array.isArray(result.inFlight) ||
+    !result.inFlight.every(isAgendaTaskRow) ||
+    !Array.isArray(result.awaitingDecision) ||
+    !result.awaitingDecision.every(isAgendaAwaitingRow) ||
+    !Array.isArray(result.waitingOnOthers) ||
+    !result.waitingOnOthers.every(isAgendaTaskRow) ||
+    !Array.isArray(result.dispatchable) ||
+    !result.dispatchable.every(isAgendaTaskRow) ||
+    typeof result.summary !== "string" ||
+    !isRendererRecord(result.page) ||
+    !Number.isInteger(result.page.sourceLimit) ||
+    (result.page.cursor !== null && typeof result.page.cursor !== "string") ||
+    (result.page.nextCursor !== null && typeof result.page.nextCursor !== "string") ||
+    !Number.isInteger(result.watermark) ||
+    !Number.isInteger(result.sourceRevision)
+  )
+    throw new Error(localErrorHint(value, "Agenda bridge returned an invalid result."));
+  return result as AgendaSuccess;
+}
+
+/** 分组判据不在 renderer 重建:这里只验形状,分组语义全部来自 daemon 投影。 */
+function isAgendaTaskRow(value: unknown): value is AgendaTaskRow {
+  return (
+    isRendererRecord(value) &&
+    typeof value.taskId === "string" &&
+    typeof value.title === "string" &&
+    typeof value.status === "string" &&
+    typeof value.pinned === "boolean" &&
+    typeof value.updatedAt === "string" &&
+    (value.leaseExecutionId === null || typeof value.leaseExecutionId === "string") &&
+    Array.isArray(value.activeExecutionIds) &&
+    value.activeExecutionIds.every((id) => typeof id === "string") &&
+    isRendererRecord(value.blockingAssessment)
+  );
+}
+
+function isAgendaAwaitingRow(value: unknown): value is AgendaAwaitingRow {
+  if (!isRendererRecord(value)) return false;
+  if (value.kind === "decision")
+    return (
+      typeof value.decisionId === "string" &&
+      typeof value.title === "string" &&
+      ["low", "medium", "high"].includes(String(value.riskTier)) &&
+      ["low", "medium", "high"].includes(String(value.urgency)) &&
+      typeof value.proposedAt === "string"
+    );
+  return (
+    value.kind === "execution" &&
+    typeof value.taskId === "string" &&
+    typeof value.title === "string" &&
+    typeof value.pinned === "boolean" &&
+    typeof value.executionId === "string" &&
+    typeof value.submittedAt === "string" &&
+    isRendererRecord(value.blockingAssessment)
+  );
 }
 
 function readWorkspaceSummaryResult(value: unknown): WorkspaceSummarySuccess {

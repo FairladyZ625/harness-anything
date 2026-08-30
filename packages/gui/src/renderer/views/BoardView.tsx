@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Lock, Archive, Star } from "@phosphor-icons/react";
+import { Lock, Archive, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
 import {
@@ -24,7 +24,7 @@ import {
 import { SwimlaneBoard, type LaneGroupBy } from "./SwimlaneBoard";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
-import { sortByFavoritesFirst } from "../model/taskFilters";
+import { sortByPinAndFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
 import { ListView } from "./ListView";
 import { isTaskStartable, type TaskMutationFeedback } from "../task-actions.ts";
@@ -77,6 +77,18 @@ function Card({
     >
       <div className="flex items-center gap-2">
         <EngineBadge engine={task.engine} locked={external} />
+        {task.pinned === true && (
+          <span
+            title="📌 今天当前在做"
+            data-testid={`board-pinned-marker-${task.taskId}`}
+            className={[
+              "inline-flex items-center gap-0.5 rounded border border-accent/40",
+              "px-1 font-mono text-[11px] text-accent",
+            ].join(" ")}
+          >
+            <PushPin weight="fill" />
+          </span>
+        )}
         {archived && (
           <span className="ml-auto inline-flex items-center gap-1 font-mono text-[11px] text-text-faint">
             <Archive weight="bold" />
@@ -176,7 +188,12 @@ function Column({
   const meta = STATUS_META[status];
   // 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):
   // 每张卡外层的拖拽容器带 content-visibility:auto,离屏卡的布局与绘制由渲染器跳过。
-  const ordered = sortByFavoritesFirst(tasks, (t) => t.taskId, favorites);
+  const ordered = sortByPinAndFavoritesFirst(
+    tasks,
+    (t) => t.pinned === true,
+    (t) => t.taskId,
+    favorites,
+  );
   return (
     <div
       ref={setNodeRef}
@@ -241,6 +258,7 @@ export function BoardView({
   initialGroupBy,
   onStartTask,
   mutationFeedback,
+  onSetPin,
 }: {
   tasks: readonly TaskRow[];
   allTasks: TaskRow[];
@@ -255,6 +273,8 @@ export function BoardView({
   initialGroupBy?: LaneGroupBy;
   onStartTask?: (task: TaskRow) => Promise<unknown>;
   mutationFeedback?: (taskId: string) => TaskMutationFeedback | undefined;
+  /** 台账 pin 写通道,列表布局的 📌 按钮用;列/泳道布局只读展示。 */
+  onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   // coding preset 默认按 root 分组(milestone=root task)。drill 携带 groupBy 提示。
   const [layout, setLayout] = useState<BoardLayout>(drill ? "swimlane" : (initialLayout ?? "column"));
@@ -387,6 +407,7 @@ export function BoardView({
           relations={relations}
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
+          onSetPin={onSetPin}
           embedded
         />
       ) : layout === "swimlane" ? (
