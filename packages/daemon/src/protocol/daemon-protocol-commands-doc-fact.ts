@@ -164,6 +164,14 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
+  defineRepoReadCommand({
+    id: "fact-type-list",
+    phase: "DecisionFact-A",
+    path: ["fact", "type", "list"],
+    summary: "List registered Fact domain types and the Fact that registered each value.",
+    method: "repo.task.run",
+    inputs: [],
+  }),
   defineLedgerWriteCommand({
     id: "fact-record",
     phase: "DecisionFact-A",

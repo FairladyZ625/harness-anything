@@ -64,6 +64,11 @@ export interface FactSearchPage {
   readonly cursor: string | null;
   readonly nextCursor: string | null;
 }
+export interface FactDomainTypeRow {
+  readonly domainType: FactDomainType;
+  readonly registeredByFactId: string;
+  readonly workspaceRevision: number;
+}
 export class FactProjectionError extends Error {
   readonly code:
     | "content_not_ready"
@@ -258,6 +263,18 @@ function listFactRows(db: DatabaseSync, where: string, values: readonly string[]
 export function readFactRow(db: DatabaseSync, factId: string): FactProjectionRow | null {
   const record = db.prepare(`${factRowSelect} WHERE fact_id = ?`).get(factId) as FactRecord | undefined;
   return record ? (decodeFactRows(db, [record])[0] ?? null) : null;
+}
+
+export function listFactDomainTypeRows(db: DatabaseSync): readonly FactDomainTypeRow[] {
+  return queryRows<{
+    readonly domainType: FactDomainType;
+    readonly registeredByFactId: string;
+    readonly workspaceRevision: number;
+  }>(
+    db,
+    "SELECT domain_type AS domainType, registered_by_fact_id AS registeredByFactId," +
+      " workspace_revision AS workspaceRevision FROM fact_domain_type ORDER BY domain_type",
+  );
 }
 
 export function searchFactRows(db: DatabaseSync, filters: FactSearchFilters): readonly FactProjectionRow[] {

@@ -41,12 +41,16 @@ export function parseFact(
       registersDomainType: domainType,
     });
   }
+  if (id === "fact-type-list")
+    return accepted(rootDir, repoId, json, {
+      kind: "fact-type-list",
+    });
   if (id === "fact-search") {
     const query = args[2]?.startsWith("--") ? undefined : args[2];
     return parseProjected(id, args.slice(query ? 3 : 2), rootDir, repoId, json, inputs, query ? { query } : {});
   }
   if (id === "fact-show") return parseProjected(id, args.slice(2), rootDir, repoId, json, inputs);
-  return rejected("unsupported_command", "Use fact record, type register, search, or show.", json);
+  return rejected("unsupported_command", "Use fact record, type register, type list, search, or show.", json);
 }
 
 export function parseFactRecord(

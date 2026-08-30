@@ -77,6 +77,10 @@ export interface FactFacetStats {
   readonly total: number | null;
   /** memoryClass 在读面上的折叠:semantic→lesson、procedural→progress、episodic→finding。 */
   readonly byCategory: ReadonlyArray<{ readonly category: RelationFactSummaryRow["category"]; readonly count: number }>;
+  readonly domainTypes: ReadonlyArray<{
+    readonly domainType: string;
+    readonly registeredByFactId: string;
+  }>;
 }
 
 /**
@@ -92,8 +96,8 @@ export function useFactFacetStats(repoId: string, enabled: boolean): FactFacetSt
     staleTime: 10_000,
   });
   return useMemo(() => {
-    if (query.isError) return { state: "error", total: null, byCategory: [] };
-    if (query.data === undefined) return { state: "pending", total: null, byCategory: [] };
+    if (query.isError) return { state: "error", total: null, byCategory: [], domainTypes: [] };
+    if (query.data === undefined) return { state: "pending", total: null, byCategory: [], domainTypes: [] };
     const facts = query.data.facts,
       counts = new Map<RelationFactSummaryRow["category"], number>();
     for (const fact of facts) counts.set(fact.category, (counts.get(fact.category) ?? 0) + 1);
@@ -101,6 +105,7 @@ export function useFactFacetStats(repoId: string, enabled: boolean): FactFacetSt
       state: "ready",
       total: facts.length,
       byCategory: [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([category, count]) => ({ category, count })),
+      domainTypes: query.data.domainTypes,
     };
   }, [query.data, query.isError]);
 }

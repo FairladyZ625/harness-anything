@@ -521,6 +521,7 @@ type EmptyRelationFacetRows = {
   readonly factAnchors: readonly [];
   readonly facts: readonly [];
   readonly warnings: readonly ProjectionWarning[];
+  readonly domainTypes: readonly [];
 };
 
 export type DaemonRelationGraphFacetResult =
@@ -537,8 +538,9 @@ export type DaemonRelationGraphFacetResult =
         readonly factAnchors: DaemonRelationGraphProjection["factAnchors"];
       })
   | ({ readonly ok: true; readonly facet: "facts" } & EventProjectionCut &
-      Omit<EmptyRelationFacetRows, "facts"> & {
+      Omit<EmptyRelationFacetRows, "facts" | "domainTypes"> & {
         readonly facts: readonly DaemonFactSummaryRow[];
+        readonly domainTypes: ReturnType<TaskProjection["listFactDomainTypes"]>["domainTypes"];
       })
   | ({ readonly ok: true; readonly facet: "runtimeEdges" } & Omit<EmptyRelationFacetRows, "edges"> & {
         readonly edges: readonly RelationGraphEdgeRow[];

@@ -32,7 +32,9 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-function stubBridge() {
+function stubBridge(
+  domainTypes: ReadonlyArray<{ readonly domainType: string; readonly registeredByFactId: string }> = [],
+) {
   const calls = { relationGraph: 0 };
   vi.stubGlobal("window", {
     harness: {
@@ -122,6 +124,7 @@ function stubBridge() {
             { anchor: "fact/F-BBBBBBBB", text: "观察二", category: "lesson" },
             { anchor: "fact/F-CCCCCCCC", text: "观察三", category: "finding" },
           ],
+          domainTypes: domainTypes.map((entry, index) => ({ ...entry, workspaceRevision: index + 1 })),
           warnings: [],
         };
       }),
@@ -225,11 +228,10 @@ describe("fact type vocabulary area (negative control)", () => {
     await settle();
     const area = container.querySelector('[data-testid="fact-type-vocabulary"]');
     expect(area).not.toBeNull();
-    // 待后端标注 + 裁决引用 + 后端任务引用都在场。
-    expect(area?.textContent).toContain("待后端");
+    // 裁决引用与真实投影标注都在场。
+    expect(area?.textContent).toContain("投影实况");
     expect(area?.textContent).toContain(FACT_TYPE_VOCABULARY.decisionId);
-    expect(area?.textContent).toContain(FACT_TYPE_VOCABULARY.backendTaskId);
-    // 阴性对照:登记面未合入,词表区不得出现任何 Type 词面;已登记清单为空。
+    // 阴性对照:空投影不得出现任何示例 Type。
     const registered = container.querySelector('[data-testid="fact-type-registered-list"]');
     expect(registered?.textContent).toContain("空——");
     // 同一详情里,事实切面是真实数据:既有读面工作正常,空的是登记面本身。
@@ -238,6 +240,21 @@ describe("fact type vocabulary area (negative control)", () => {
     expect(live?.textContent).toContain("3 条 fact");
     expect(live?.textContent).toContain("lesson · 2");
     expect(live?.textContent).toContain("finding · 1");
+  });
+
+  it("renders registered types and their exact registration fact ids", async () => {
+    stubBridge([
+      { domainType: "architecture", registeredByFactId: "F-AAAABBBB" },
+      { domainType: "bug", registeredByFactId: "F-CCCCDDDD" },
+    ]);
+    const container = await renderSurface(view("fact"));
+    await settle();
+    const registered = container.querySelector('[data-testid="fact-type-registered-list"]');
+    expect(registered?.textContent).toContain("architecture");
+    expect(registered?.textContent).toContain("fact/F-AAAABBBB");
+    expect(registered?.textContent).toContain("bug");
+    expect(registered?.textContent).toContain("fact/F-CCCCDDDD");
+    expect(registered?.textContent).not.toContain("空——");
   });
 
   it("does not read the fact facet for other entities", async () => {

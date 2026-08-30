@@ -81,6 +81,7 @@ export function makeEntityActionCatalogExecutor(input: {
     const contract = executableAction(action.kind);
     if (contract.execution.read) {
       if (action.kind === "fact-search") return readReceipt("fact-search", facts.search(factFilters(action)));
+      if (action.kind === "fact-type-list") return readReceipt("fact-type-list", facts.listDomainTypes());
       if (action.kind === "fact-show")
         return readReceipt("fact-show", facts.show(requiredCommandText(action.factId, "factId")));
       if (action.kind === "decision-list") {

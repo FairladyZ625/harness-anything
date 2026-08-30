@@ -7,3 +7,18 @@ export function rendererErrorHint(value: unknown, fallback: string): string {
     ? value.error.hint
     : fallback;
 }
+
+export interface FactDomainTypeSummaryRow {
+  readonly domainType: string;
+  readonly registeredByFactId: string;
+  readonly workspaceRevision: number;
+}
+
+export function isFactDomainTypeSummaryRow(value: unknown): value is FactDomainTypeSummaryRow {
+  return (
+    isRendererRecord(value) &&
+    typeof value.domainType === "string" &&
+    typeof value.registeredByFactId === "string" &&
+    Number.isSafeInteger(value.workspaceRevision)
+  );
+}

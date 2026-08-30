@@ -576,6 +576,7 @@ const factActionCatalog = Object.freeze({
       factExposure,
     ),
     executableAction("fact", factIdentity, "search", "fact-search", null, factExposure, true),
+    executableAction("fact", factIdentity, "type-list", "fact-type-list", null, factExposure, true),
     executableAction("fact", factIdentity, "show", "fact-show", null, factExposure, true),
   ]),
 });

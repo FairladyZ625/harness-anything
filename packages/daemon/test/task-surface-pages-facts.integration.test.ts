@@ -402,6 +402,7 @@ test("fact search action forwards observed-time windows and preserves keyset pag
       ).outcome,
       "applied",
     );
+    assert.deepEqual(evidence(await cell.run({ kind: "fact-type-list" }, binding)).domainTypes, []);
     for (const domainType of ["architecture", "custom-3", "custom-4", "custom-5"])
       assert.equal(
         (
@@ -419,6 +420,16 @@ test("fact search action forwards observed-time windows and preserves keyset pag
         ).outcome,
         "applied",
       );
+    const vocabulary = evidence(await cell.run({ kind: "fact-type-list" }, binding));
+    assert.deepEqual(
+      (vocabulary.domainTypes as { domainType: string }[]).map(({ domainType }) => domainType),
+      ["architecture", "custom-3", "custom-4", "custom-5"],
+    );
+    assert.match(String((vocabulary.domainTypes as { registeredByFactId: string }[])[0]?.registeredByFactId), /^F-/u);
+    const guiVocabulary = (await cell.read("repo.triadic.relationGraph", { facet: "facts" })) as {
+      readonly domainTypes: readonly { readonly domainType: string; readonly registeredByFactId: string }[];
+    };
+    assert.equal(JSON.stringify(guiVocabulary.domainTypes), JSON.stringify(vocabulary.domainTypes));
     for (let index = 1; index <= 5; index += 1)
       assert.equal(
         (

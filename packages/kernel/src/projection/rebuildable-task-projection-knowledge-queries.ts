@@ -10,6 +10,7 @@ import {
 import {
   assertFactAdmission,
   FactProjectionError,
+  listFactDomainTypeRows,
   readFactAnchorRows,
   readFactGraphRows,
   readFactRow,
@@ -31,6 +32,7 @@ export function knowledgeQueryApi(
   | "admitFact"
   | "readFact"
   | "searchFacts"
+  | "listFactDomainTypes"
   | "readFactAnchors"
   | "readFactGraph"
   | "admitDecision"
@@ -75,6 +77,17 @@ export function knowledgeQueryApi(
           watermark: current,
           sourceRevision: round.sourceRevision,
           ...(page.page ? { page: page.page } : {}),
+        };
+      }),
+    listFactDomainTypes: () =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const round = catchUpRound(db, eventStore, limit),
+          current = watermark(db);
+        return {
+          status: current === round.sourceRevision ? "ready" : "pending",
+          domainTypes: listFactDomainTypeRows(db),
+          watermark: current,
+          sourceRevision: round.sourceRevision,
         };
       }),
     readFactAnchors: (refs) =>

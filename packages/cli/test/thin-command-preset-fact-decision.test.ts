@@ -115,7 +115,7 @@ test("Relation commands replace hosted Task and Decision relation ingress", () =
   assert.equal(parseThinCommand(["decision", "relate", "dec_a"]).ok, false);
 });
 
-test("Fact CLI exposes only record/search/show and covers all five local parse errors", () => {
+test("Fact CLI exposes record, controlled types, search, and show while keeping local errors closed", () => {
   const record = parseThinCommand([
     "fact",
     "record",
@@ -139,6 +139,7 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
   const search = parseThinCommand(["fact", "search", "Observed", "--task", "task-1"]),
     facetedSearch = parseThinCommand(["fact", "search", "--type", "architecture"]),
     registration = parseThinCommand(["fact", "type", "register", "architecture", "--source", "decision/CH1"]),
+    vocabulary = parseThinCommand(["fact", "type", "list"]),
     reclassification = parseThinCommand([
       "fact",
       "reclassify",
@@ -156,6 +157,7 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
   assert.equal(facetedSearch.ok, true);
   assert.equal(show.ok, true);
   assert.equal(registration.ok, true);
+  assert.equal(vocabulary.ok, true);
   assert.equal(reclassification.ok, true);
   if (record.ok)
     assert.deepEqual(record.command.action, {
@@ -181,6 +183,7 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
       memoryTags: [],
       registersDomainType: "architecture",
     });
+  if (vocabulary.ok) assert.deepEqual(vocabulary.command.action, { kind: "fact-type-list" });
   if (reclassification.ok)
     assert.deepEqual(reclassification.command.action, {
       kind: "fact-reclassify",

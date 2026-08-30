@@ -34,7 +34,7 @@ export type FactWriteBundle = CanonicalWriteBundle & {
 
 export function makeFactService(options: {
   readonly eventStore: Pick<CanonicalEventStore, "append" | "readEvent">;
-  readonly projection: Pick<TaskProjection, "admitFact" | "apply" | "readFact" | "searchFacts">;
+  readonly projection: Pick<TaskProjection, "admitFact" | "apply" | "readFact" | "searchFacts" | "listFactDomainTypes">;
 }) {
   const record = (bundle: FactWriteBundle): FactRecordResult => {
     const { event } = bundle;
@@ -69,5 +69,6 @@ export function makeFactService(options: {
     return { ...read, fact: read.fact };
   };
   const search = (filters: FactSearchFilters) => options.projection.searchFacts(filters);
-  return Object.freeze({ record, search, show });
+  const listDomainTypes = () => options.projection.listFactDomainTypes();
+  return Object.freeze({ record, search, show, listDomainTypes });
 }

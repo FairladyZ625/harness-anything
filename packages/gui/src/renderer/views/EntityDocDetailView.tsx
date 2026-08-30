@@ -7,7 +7,7 @@ import { useFactFacetStats, type EntityLiveCounts } from "../entities-data.ts";
  * 实体说明面·详情:一个实体是什么、字段什么含义、状态词表、与谁有什么关系、
  * 合法写入动作。与 PresetDetailView 同构(面包屑头部 + 回撤原路返回)。
  * Fact 详情额外承载 Type 受控词表配置区(dec_2935057783CD5D56E9F287AE4D):
- * 登记面后端未合入前呈真实空态,禁止示例词冒充词表。
+ * 词表由既有 facts 切面读返回;空结果呈真实空态,禁止示例词冒充词表。
  */
 export function EntityDocDetailView({
   repoId,
@@ -203,7 +203,7 @@ export function EntityDocDetailView({
           </DetailSection>
         )}
 
-        {doc.kind === "fact" && <FactTypeVocabulary />}
+        {doc.kind === "fact" && <FactTypeVocabulary stats={factStats} />}
         {doc.kind === "fact" && <FactFacetLive stats={factStats} />}
       </main>
     </div>
@@ -282,7 +282,7 @@ function LiveCountBadge({ doc, liveCounts }: { readonly doc: EntityKindDoc; read
  * Type 必须显式登记后可用(CH1,不允许自由文本)、一条 fact 可属多个 Type(CH2)、
  * 已记录的 fact 可重新归类且保留审计轨迹(CH3)。登记面后端未合入,这里呈真实空态。
  */
-function FactTypeVocabulary() {
+function FactTypeVocabulary({ stats }: { readonly stats: ReturnType<typeof useFactFacetStats> }) {
   return (
     <section
       data-testid="fact-type-vocabulary"
@@ -291,7 +291,9 @@ function FactTypeVocabulary() {
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-[12px] font-semibold uppercase tracking-wide text-text-muted">Fact Type 受控词表</h3>
         <span className="rounded border border-accent/60 px-1.5 py-0.5 font-mono text-[10px] text-accent">配置区</span>
-        <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-faint">待后端</span>
+        <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
+          投影实况
+        </span>
       </div>
       <p className="mt-2 text-[12px] leading-relaxed text-text-muted">
         裁决 {FACT_TYPE_VOCABULARY.decisionId}:Type 不允许自由文本——随手写会把「分面检索」退化成它要解决的 混乱。一个
@@ -303,11 +305,22 @@ function FactTypeVocabulary() {
         data-testid="fact-type-registered-list"
       >
         <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">已登记 Type</div>
-        {FACT_TYPE_VOCABULARY.registeredTypes.length === 0 ? (
+        {stats.state === "pending" ? <p className="mt-1 text-[12px] text-text-faint">正在读取已登记 Type…</p> : null}
+        {stats.state === "error" ? <p className="mt-1 text-[12px] text-status-blocked">Type 词表读取失败。</p> : null}
+        {stats.state === "ready" && stats.domainTypes.length === 0 ? (
           <p className="mt-1 text-[12px] leading-relaxed text-text-faint">
-            空——登记面后端尚未合入({FACT_TYPE_VOCABULARY.backendTaskId} 在飞)。合入前这里保持空态,
-            不用示例词冒充词表;登记与配置入口就放在这一区。
+            空——本仓尚未登记 Fact Type。这里展示真实投影结果,不用示例词冒充词表。
           </p>
+        ) : null}
+        {stats.state === "ready" && stats.domainTypes.length > 0 ? (
+          <ul className="mt-2 space-y-1">
+            {stats.domainTypes.map((entry) => (
+              <li key={entry.domainType} className="flex items-center gap-2 text-[12px]">
+                <code className="font-mono text-text">{entry.domainType}</code>
+                <span className="text-text-faint">由 fact/{entry.registeredByFactId} 登记</span>
+              </li>
+            ))}
+          </ul>
         ) : null}
       </div>
     </section>

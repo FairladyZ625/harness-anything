@@ -178,14 +178,10 @@ describe("relation plane vocabulary", () => {
   });
 });
 
-describe("fact type vocabulary area is an honest empty state", () => {
-  it("registers no types while the registration backend is unmerged", () => {
-    // 阴性对照:登记面未合入前词表必须为空——示例词冒充词表会在这里红。
-    expect(FACT_TYPE_VOCABULARY.registeredTypes).toEqual([]);
-  });
-
-  it("cites the ruling decision and the in-flight backend task", () => {
+describe("fact type vocabulary area follows the controlled read surface", () => {
+  it("stores only the ruling anchor and documents the list action", () => {
     expect(FACT_TYPE_VOCABULARY.decisionId).toBe("dec_2935057783CD5D56E9F287AE4D");
-    expect(FACT_TYPE_VOCABULARY.backendTaskId).toBe("task_bee3a7e874110347e48a102b67");
+    expect(Object.keys(FACT_TYPE_VOCABULARY)).toEqual(["decisionId"]);
+    expect(ENTITY_DOC_BY_KIND.get("fact")?.actions).toContain("type-list");
   });
 });

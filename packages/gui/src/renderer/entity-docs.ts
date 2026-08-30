@@ -73,13 +73,10 @@ const noNested: readonly { readonly container: string; readonly fields: readonly
 
 /**
  * Fact Type 受控词表(dec_2935057783CD5D56E9F287AE4D CH1-CH3):
- * 登记面后端(task_bee3a7e874110347e48a102b67)未合入前,这里**恒为空**。
- * 空是真实状态,不是缺数据;合入后此区改为读登记面,禁止在过渡期 mock 词表。
+ * 词表值来自 fact_domain_type 投影读面。这里仅保留裁决锚,不保存第二份词表。
  */
 export const FACT_TYPE_VOCABULARY = Object.freeze({
   decisionId: "dec_2935057783CD5D56E9F287AE4D",
-  backendTaskId: "task_bee3a7e874110347e48a102b67",
-  registeredTypes: Object.freeze([] as readonly string[]),
 });
 
 const taskDoc: EntityKindDoc = {
@@ -275,7 +272,7 @@ const factDoc: EntityKindDoc = {
     { type: "refuted-by", sourceKind: "decision", targetKind: "fact" },
     { type: "supersedes-fact", sourceKind: "fact", targetKind: "fact" },
   ],
-  actions: ["record", "reclassify", "type-register", "search", "show"],
+  actions: ["record", "reclassify", "type-register", "search", "type-list", "show"],
   guiEntry: { view: "graph", note: "关系图与 Task 详情·证据页签" },
   liveCount: null,
 };
