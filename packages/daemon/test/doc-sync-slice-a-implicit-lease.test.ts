@@ -11,6 +11,38 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { actor, git, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+test("implicit submit accepts two authored paths with identical content", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-identical-content-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("identical-content"),
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "identical-content-daemon",
+    }),
+    binding = { actor, source: "local" as const },
+    body = "# Same\n\nshared body\n";
+  try {
+    write(rootDir, "context/one.md", body);
+    write(rootDir, "context/two.md", body);
+    const submitted = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.doesNotMatch(JSON.stringify(submitted), /duplicate write target/u);
+    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
+    assert.equal(event?.schema, "doc-event/v1");
+    if (event?.schema === "doc-event/v1")
+      assert.deepEqual(
+        event.payload.changes.map((change) => change.path),
+        ["context/one.md", "context/two.md"],
+      );
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/one.md"), "utf8"), body);
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/two.md"), "utf8"), body);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("implicit submit applies eligible prose and reports an unrelated blocked row as skipped", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-partial-blocked-"));
   initRepo(rootDir);
