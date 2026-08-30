@@ -961,7 +961,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(unknownFact.code, "invalid_command");
     assert.equal(
       rejectionHint(unknownFact),
-      'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".',
+      'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "domainType", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".',
     );
     writeFileSync(
       path.join(root, "batch.json"),

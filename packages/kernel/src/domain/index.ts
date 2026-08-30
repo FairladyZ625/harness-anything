@@ -136,7 +136,8 @@ export {
   isFactId,
   validateFactEvent,
 } from "./fact-event.ts";
-export type { FactConfidence, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
+export { validDomainType } from "./fact-event.ts";
+export type { FactConfidence, FactDomainType, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
 
 export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";
 export type { ContractVersion } from "./contract-version.ts";

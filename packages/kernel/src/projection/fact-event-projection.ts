@@ -1,6 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import { type RelationType, type RelationOrigin, type RelationState } from "../domain/entity-relation.ts";
-import { factRef, type FactEventV1, type FactMemoryClass, type FactConfidence } from "../domain/fact-event.ts";
+import {
+  factRef,
+  type FactConfidence,
+  type FactDomainType,
+  type FactEventV1,
+  type FactMemoryClass,
+} from "../domain/fact-event.ts";
 import type { ActorIdentity, WriteSource } from "../domain/write-chain.contract.ts";
 import type { FactAnchorRow } from "./relation-graph-projection.ts";
 import { factLiveness } from "../domain/fact-liveness.ts";
@@ -17,6 +23,7 @@ export interface FactProjectionRow {
   readonly evidenceSource: string;
   readonly observedAt: string;
   readonly confidence: FactConfidence;
+  readonly domainType?: FactDomainType;
   readonly memoryClass: FactMemoryClass;
   readonly memoryTags: FactEventV1["payload"]["memoryTags"];
   readonly provenance: FactEventV1["payload"]["provenance"];
@@ -45,6 +52,7 @@ export interface FactSearchFilters {
   readonly taskId?: string;
   readonly refs?: readonly string[];
   readonly confidence?: FactConfidence;
+  readonly domainType?: FactDomainType;
   readonly memoryClass?: FactMemoryClass;
   readonly observedAfter?: string;
   readonly observedBefore?: string;
@@ -82,6 +90,8 @@ export function createFactProjectionTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS fact_task_page ON fact(task_id, observed_at DESC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_observed_page ON fact(observed_at DESC, task_id ASC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_confidence_page ON fact(confidence, observed_at DESC, task_id ASC, fact_id ASC);
+    CREATE INDEX IF NOT EXISTS fact_domain_type_page ON fact(
+      json_extract(row_json, '$.domainType'), observed_at DESC, task_id ASC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_memory_class_page ON fact(memory_class, observed_at DESC, task_id ASC, fact_id ASC);
   `);
 }
@@ -114,6 +124,7 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     evidenceSource: event.payload.evidenceSource,
     observedAt: event.payload.observedAt,
     confidence: event.payload.confidence,
+    ...(event.payload.domainType ? { domainType: event.payload.domainType } : {}),
     memoryClass: event.payload.memoryClass,
     memoryTags: event.payload.memoryTags,
     provenance: event.payload.provenance,
@@ -220,6 +231,10 @@ export function searchFactRowsPage(
   if (filters.confidence) {
     where.push("fact.confidence = ?");
     values.push(filters.confidence);
+  }
+  if (filters.domainType) {
+    where.push("json_extract(fact.row_json, '$.domainType') = ?");
+    values.push(filters.domainType);
   }
   if (filters.memoryClass) {
     where.push("fact.memory_class = ?");

@@ -155,6 +155,7 @@ export const factFieldContracts = {
     "confidence is captured with the observation; later doubt is expressed by another fact or invalidation",
     show("fact.confidence"),
   ),
+  domainType: immutable("domain type is create-time subject classification", show("fact.domainType")),
   memoryClass: immutable("memory class is create-time classification", show("fact.memoryClass")),
   memoryTags: immutable("memory tags are create-time classification", show("fact.memoryTags")),
   provenance: immutable(

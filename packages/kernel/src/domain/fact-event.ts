@@ -34,6 +34,7 @@ export const factProvenanceRuntimes = ["human", "claude-code", "codex", "zcode",
 export type FactConfidence = (typeof factConfidenceLevels)[number];
 export type FactMemoryClass = (typeof factMemoryClasses)[number];
 export type FactMemoryTag = (typeof factMemoryTags)[number];
+export type FactDomainType = string;
 export type FactProvenanceRuntime = (typeof factProvenanceRuntimes)[number];
 export const FACT_DOCUMENT_POLICY_ID = "typed-machine-writer/v1" as const;
 export interface FactsDocumentClaim {
@@ -64,6 +65,7 @@ export interface FactEventPayload {
   readonly evidenceSource: string;
   readonly observedAt: string;
   readonly confidence: FactConfidence;
+  readonly domainType?: FactDomainType;
   readonly memoryClass: FactMemoryClass;
   readonly memoryTags: readonly FactMemoryTag[];
   readonly provenance: readonly SessionProvenanceV1[];
@@ -199,7 +201,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
         "provenance",
         "factsDocumentClaim",
       ],
-      ["supersedes"],
+      ["domainType", "supersedes"],
       allowUnknownFields,
     )
   )
@@ -212,6 +214,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
     !isNonEmptyString(payload.evidenceSource) ||
     !timestamp(payload.observedAt) ||
     !includes(factConfidenceLevels, payload.confidence) ||
+    (payload.domainType !== undefined && !validDomainType(payload.domainType)) ||
     !includes(factMemoryClasses, payload.memoryClass) ||
     !Array.isArray(payload.memoryTags) ||
     new Set(payload.memoryTags).size !== payload.memoryTags.length ||
@@ -225,6 +228,12 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
   )
     return ["fact event payload is invalid"];
   return [];
+}
+
+export function validDomainType(value: unknown): value is FactDomainType {
+  return (
+    typeof value === "string" && value === value.trim() && codePoints(value, 1, 64) && !/[\p{Cc}\p{Cf}]/u.test(value)
+  );
 }
 
 function factEventFields(value: Readonly<Record<string, unknown>>, allowUnknownFields: boolean): boolean {

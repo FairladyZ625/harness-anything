@@ -194,6 +194,10 @@ export const docFactProtocolCommands = Object.freeze([
         },
         { enum: ["semantic", "episodic", "procedural"] },
       ),
+      cliInput("--type", "single", false, {
+        code: "invalid_field",
+        nextAction: "Fact type must be 1 to 64 characters without surrounding whitespace or control characters.",
+      }),
       cliInput("--memory-tag", "repeated", false, {
         code: "invalid_field",
         nextAction: "--memory-tag requires a non-empty value.",
@@ -255,6 +259,10 @@ export const docFactProtocolCommands = Object.freeze([
         },
         { enum: ["semantic", "episodic", "procedural"] },
       ),
+      cliInput("--type", "single", false, {
+        code: "invalid_field",
+        nextAction: "Fact search type requires a non-empty value.",
+      }),
       cliInput(
         "--observed-after",
         "single",

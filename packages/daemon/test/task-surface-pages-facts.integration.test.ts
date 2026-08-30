@@ -414,6 +414,7 @@ test("fact search action forwards observed-time windows and preserves keyset pag
               evidenceSource: "fact-query-fixture",
               observedAt: `2026-08-15T00:00:0${index}.000Z`,
               confidence: "high",
+              ...(index <= 2 ? { domainType: "architecture" } : { domainType: `custom-${index}` }),
               memoryClass: "semantic",
             },
             binding,
@@ -453,6 +454,13 @@ test("fact search action forwards observed-time windows and preserves keyset pag
       (window.facts as { factId: string }[]).map(({ factId }) => factId),
       ["F-00000004", "F-00000003"],
     );
+    const architecture = evidence(
+      await cell.run({ kind: "fact-search", taskId: "task_fact_query", domainType: "architecture" }, binding),
+    );
+    assert.deepEqual(
+      (architecture.facts as { factId: string }[]).map(({ factId }) => factId),
+      ["F-00000002", "F-00000001"],
+    );
     const invalidDate = await cell.run(
         {
           kind: "fact-search",
@@ -488,7 +496,7 @@ test("fact search action forwards observed-time windows and preserves keyset pag
     assert.equal(unknownField.outcome, "op_rejected");
     assert.equal(
       unknownField.nextAction,
-      'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".',
+      'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "domainType", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".',
     );
   } finally {
     await cell?.close();

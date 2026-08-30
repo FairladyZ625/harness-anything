@@ -13,6 +13,7 @@ import {
   relationEventWritePlan,
   requireEntityStoreKindContract,
   timestamp,
+  validDomainType,
   type AuthorizationDecision,
   type CanonicalEventCut,
   type CanonicalEventStore,
@@ -25,6 +26,7 @@ import {
   type EntityUpsertBundle,
   type EventPublicationKillpoint,
   type FactConfidence,
+  type FactDomainType,
   type FactEventV1,
   type FactMemoryClass,
   type FactSearchFilters,
@@ -874,6 +876,7 @@ function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilte
       "query",
       "taskId",
       "confidence",
+      "domainType",
       "memoryClass",
       "observedAfter",
       "observedBefore",
@@ -882,7 +885,7 @@ function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilte
     ],
     unknownField = unknownFieldViolation(action, allowed);
   if (unknownField) reject("invalid_command", `Fact search filters contain an ${unknownField}`);
-  const { query, taskId, confidence, memoryClass, observedAfter, observedBefore, limit, cursor } = action;
+  const { query, taskId, confidence, domainType, memoryClass, observedAfter, observedBefore, limit, cursor } = action;
   if (query !== undefined && (typeof query !== "string" || !query.trim()))
     reject("invalid_command", "Fact search query must be a non-empty string.");
   if (taskId !== undefined && (typeof taskId !== "string" || !taskId.trim()))
@@ -898,6 +901,8 @@ function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilte
       !(["semantic", "episodic", "procedural"] as const).includes(memoryClass as FactMemoryClass))
   )
     reject("invalid_command", "Fact search memory class is invalid.");
+  if (domainType !== undefined && !validDomainType(domainType))
+    reject("invalid_command", "Fact search domain type is invalid.");
   if (observedAfter !== undefined && !timestamp(observedAfter))
     reject("invalid_command", "observedAfter must be an ISO-8601 UTC timestamp.");
   if (observedBefore !== undefined && !timestamp(observedBefore))
@@ -916,6 +921,7 @@ function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilte
     ...(typeof query === "string" ? { query } : {}),
     ...(typeof taskId === "string" ? { taskId } : {}),
     ...(typeof confidence === "string" ? { confidence: confidence as FactConfidence } : {}),
+    ...(typeof domainType === "string" ? { domainType: domainType as FactDomainType } : {}),
     ...(typeof memoryClass === "string" ? { memoryClass: memoryClass as FactMemoryClass } : {}),
     ...(typeof observedAfter === "string" ? { observedAfter } : {}),
     ...(typeof observedBefore === "string" ? { observedBefore } : {}),

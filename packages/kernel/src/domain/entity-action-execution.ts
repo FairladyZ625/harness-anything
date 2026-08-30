@@ -8,6 +8,7 @@ import { deriveRelationId } from "./entity-relation.ts";
 import { compileRelationCreatedEvent, compileRelationRetiredEvent, type RelationEventV1 } from "./relation-event.ts";
 import {
   factMemoryTags,
+  validDomainType,
   type FactConfidence,
   type FactEventDraftV1,
   type FactEventV1,
@@ -78,12 +79,14 @@ export type EntityActionCompileHook = (input: EntityActionCompileInput) => Entit
 export function compileFactRecordAction(input: EntityActionCompileInput): EntityActionDraft {
   const action = input.action,
     confidence = action.confidence as FactConfidence,
+    domainType = action.domainType,
     memoryClass = action.memoryClass as FactMemoryClass,
     memoryTags = stringList(action.memoryTags),
     observedAt = typeof action.observedAt === "string" ? action.observedAt : input.occurredAt;
   if (
     !(["low", "medium", "high"] as const).includes(confidence) ||
     !(["semantic", "episodic", "procedural"] as const).includes(memoryClass) ||
+    (domainType !== undefined && !validDomainType(domainType)) ||
     memoryTags.some((tag) => !factMemoryTags.includes(tag as never))
   )
     invalid(input, "Fact classification is invalid.");
@@ -119,6 +122,7 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
         evidenceSource: requiredText(input, action.evidenceSource, "evidenceSource"),
         observedAt,
         confidence,
+        ...(typeof domainType === "string" ? { domainType } : {}),
         memoryClass,
         memoryTags: memoryTags as FactEventV1["payload"]["memoryTags"],
         provenance: [sessionProvenance(input.session, input.occurredAt)],

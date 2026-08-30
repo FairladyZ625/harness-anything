@@ -127,6 +127,8 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
     "test",
     "--confidence",
     "high",
+    "--type",
+    "architecture",
     "--memory-class",
     "semantic",
     "--memory-tag",
@@ -135,9 +137,11 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
     "2500",
   ]);
   const search = parseThinCommand(["fact", "search", "Observed", "--task", "task-1"]),
+    facetedSearch = parseThinCommand(["fact", "search", "--type", "architecture"]),
     show = parseThinCommand(["fact", "show", "--id", "F-ABCDEFGH"]);
   assert.equal(record.ok, true);
   assert.equal(search.ok, true);
+  assert.equal(facetedSearch.ok, true);
   assert.equal(show.ok, true);
   if (record.ok)
     assert.deepEqual(record.command.action, {
@@ -146,10 +150,13 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
       statement: "Observed",
       evidenceSource: "test",
       confidence: "high",
+      domainType: "architecture",
       memoryClass: "semantic",
       memoryTags: ["pattern"],
       waitProjectionMs: 2500,
     });
+  if (facetedSearch.ok)
+    assert.deepEqual(facetedSearch.command.action, { kind: "fact-search", domainType: "architecture" });
   const migrated = parseThinCommand([
     "fact",
     "record",

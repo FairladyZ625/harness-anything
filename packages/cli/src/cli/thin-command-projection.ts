@@ -6,7 +6,7 @@ export const projectedAliases: Readonly<Record<string, Readonly<Record<string, s
   "task-list": { "--kind": "workKind", "--parent": "parentTaskId" },
   "relation-list": { "--type": "relationType" },
   "task-review": { "--reviewer": "reviewerId" },
-  "fact-search": { "--task": "taskId" },
+  "fact-search": { "--task": "taskId", "--type": "domainType" },
   "fact-show": { "--id": "factId" },
   "decision-accept": {
     "--rationale": "rationale",

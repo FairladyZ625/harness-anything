@@ -45,6 +45,7 @@ test("recorded Fact is durable and immediately searchable through the canonical 
         evidenceSource: "integration test",
         observedAt: "2026-08-13T00:00:00.000Z",
         confidence: "high",
+        domainType: "architecture",
         memoryClass: "semantic",
         memoryTags: ["pattern", "abstract_rule"],
         provenance: [
@@ -67,10 +68,24 @@ test("recorded Fact is durable and immediately searchable through the canonical 
     const event = compile(projection, draft),
       recorded = service.record(event);
     assert.equal(recorded.fact.factId, "F-ABCDEFGH");
+    assert.equal(recorded.fact.domainType, "architecture");
     assert.deepEqual(recorded.fact.memoryTags, event.event.payload.memoryTags);
     assert.deepEqual(recorded.fact.provenance, event.event.payload.provenance);
     assert.equal(store.readEvent(event.event.opId)?.schema, "fact-event/v1");
     assert.deepEqual(service.search({ query: "SQLite", taskId: "task-fact" }).facts, [recorded.fact]);
+    const { domainType: _domainType, ...untypedPayload } = draft.payload,
+      untyped = service.record(
+        compile(projection, {
+          ...draft,
+          eventId: "event-fact-2",
+          opId: "op-fact-2",
+          factId: "F-BCDEFGHJ",
+          workspaceRevision: 2,
+          payload: { ...untypedPayload, statement: "Untyped observation" },
+        }),
+      );
+    assert.equal(untyped.fact.domainType, undefined);
+    assert.deepEqual(service.search({ domainType: "architecture" }).facts, [recorded.fact]);
     assert.deepEqual(service.show("F-ABCDEFGH").fact, recorded.fact);
   } finally {
     projection?.close();
