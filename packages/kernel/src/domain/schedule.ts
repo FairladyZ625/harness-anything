@@ -56,7 +56,7 @@ export interface ScheduleSquadTargetV1 {
   readonly squadId: string;
 }
 
-export type ScheduleTargetV1 = ScheduleAgentTargetV1 | ScheduleSquadTargetV1;
+type ScheduleTargetV1 = ScheduleAgentTargetV1 | ScheduleSquadTargetV1;
 
 export interface ScheduleDefinitionV1 {
   readonly schema: "schedule/v1";
@@ -240,25 +240,6 @@ export function createScheduleV1(input: {
       lastMissedAt: null,
       lastMissedReason: null,
     },
-  };
-  const errors = validateScheduleV1(schedule);
-  if (errors.length) throw new Error(errors.join("; "));
-  return schedule;
-}
-
-export function updateScheduleV1(input: {
-  readonly schedule: ScheduleV1;
-  readonly name: string;
-  readonly mode: ScheduleMode;
-  readonly spec: ScheduleDefinitionV1["spec"];
-  readonly occurredAt: string;
-}): ScheduleV1 {
-  const schedule: ScheduleV1 = {
-    ...input.schedule,
-    name: input.name.trim(),
-    mode: input.mode,
-    spec: { ...input.spec, mission: input.spec.mission.trim() },
-    updatedAt: input.occurredAt,
   };
   const errors = validateScheduleV1(schedule);
   if (errors.length) throw new Error(errors.join("; "));
