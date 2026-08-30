@@ -71,7 +71,7 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
   if (mission && !task) throw new Error(`Batch dispatch ${index} uses mission without task.`);
   if (to && !agent) throw new Error(`Batch dispatch ${index} uses to without agent.`);
   if (effort && !runtimeRunEfforts().includes(effort))
-    throw new Error(`Batch dispatch ${index} effort must be minimal, low, medium, high, or xhigh.`);
+    throw new Error(`Batch dispatch ${index} effort must be minimal, low, medium, high, xhigh, or max.`);
   if (fast !== undefined && typeof fast !== "boolean")
     throw new Error(`Batch dispatch ${index} field fast must be a boolean.`);
   if (permissionMode && !["bypass", "workspace-write", "read-only"].includes(permissionMode))

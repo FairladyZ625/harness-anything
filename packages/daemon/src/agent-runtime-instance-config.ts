@@ -331,10 +331,10 @@ export function selectRuntimeFast(config: RuntimeInstanceConfig, requested?: boo
 
 export function runtimeEffort(value: unknown): string {
   const effort = typeof value === "string" ? value.trim() : "";
-  if (!["minimal", "low", "medium", "high", "xhigh"].includes(effort))
+  if (!["minimal", "low", "medium", "high", "xhigh", "max"].includes(effort))
     throw runtimeInstanceError(
       "invalid_runtime_effort",
-      `Reasoning effort ${String(value)} is not supported; use minimal, low, medium, high, or xhigh.`,
+      `Reasoning effort ${String(value)} is not supported; use minimal, low, medium, high, xhigh, or max.`,
     );
   return effort;
 }
