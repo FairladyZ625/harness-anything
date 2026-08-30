@@ -41,6 +41,8 @@ export interface CliInputFacet {
   readonly minItems?: number;
   readonly maxItems?: number;
   readonly unique?: boolean;
+  readonly requiredWhen?: { readonly field: string; readonly values: readonly string[] };
+  readonly allowedWhen?: { readonly field: string; readonly values: readonly string[] };
   readonly requires?: readonly string[];
   readonly requiresAny?: readonly string[];
   readonly conflictsWith?: readonly string[];
@@ -80,7 +82,7 @@ export function parameterRelationHint(value: string): boolean {
 }
 export function cliInputHelp(input: CliInputFacet): string {
   const facts = [
-    input.required ? "required" : "optional",
+    input.required ? "required" : input.requiredWhen ? "conditionally required" : "optional",
     input.kind === "repeated" ? "repeatable" : input.kind === "boolean" ? "flag" : "value",
   ];
   if (input.enum) facts.push(`values: ${input.enum.join(", ")}`);
@@ -96,6 +98,10 @@ export function cliInputHelp(input: CliInputFacet): string {
   if (input.minItems !== undefined || input.maxItems !== undefined)
     facts.push(`count: ${input.minItems ?? 0}..${input.maxItems ?? "∞"} items`);
   if (input.unique) facts.push("values must be unique");
+  if (input.requiredWhen)
+    facts.push(`required when ${input.requiredWhen.field} is ${input.requiredWhen.values.join(" or ")}`);
+  if (input.allowedWhen)
+    facts.push(`allowed when ${input.allowedWhen.field} is ${input.allowedWhen.values.join(" or ")}`);
   if (input.requires?.length) facts.push(`requires: ${input.requires.join(", ")}`);
   if (input.requiresAny?.length) facts.push(`requires one of: ${input.requiresAny.join(", ")}`);
   if (input.conflictsWith?.length) facts.push(`mutually exclusive with: ${input.conflictsWith.join(", ")}`);

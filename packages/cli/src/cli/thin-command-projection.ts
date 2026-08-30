@@ -87,9 +87,21 @@ export function parseProjected(
       ...base,
       ...projectFlags(commandId, f, inputs),
     },
+    conditionalViolation = declaration?.inputs.find((input) => {
+      const field = input.field ?? projectedField(commandId, input.name),
+        present = action[field] !== undefined,
+        matches = (condition: NonNullable<typeof input.requiredWhen>) =>
+          condition.values.includes(String(action[condition.field]));
+      return (
+        (input.requiredWhen !== undefined && matches(input.requiredWhen) && !present) ||
+        (input.allowedWhen !== undefined && present && !matches(input.allowedWhen))
+      );
+    }),
     invalidGroup = declaration?.actionConstraints?.find(
       (group) => group.filter((field) => action[field] !== undefined).length !== 1,
     );
+  if (conditionalViolation)
+    return rejected(conditionalViolation.error.code, conditionalViolation.error.nextAction, json);
   if (invalidGroup) {
     const input = declaration?.inputs.find((candidate) => invalidGroup.includes(candidate.field ?? ""));
     return rejected(input?.error.code ?? "invalid_field", input?.error.nextAction ?? "Action inputs conflict.", json);

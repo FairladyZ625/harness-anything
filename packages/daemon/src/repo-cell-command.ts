@@ -32,7 +32,6 @@ import type {
 } from "./repo-cell-types.ts";
 
 const CODE_DOC_REPOINT_FIELDS = ["kind", "taskId", "record", "paths", "reason"];
-
 export function dispatchRead<M extends RepoCellReadMethod>(
   handlers: DaemonGuiReadHandlers,
   method: M,
@@ -99,7 +98,8 @@ export function buildCommand(
         "Use planned, active, blocked, in_review, done, or cancelled as the target status.",
       );
     const suppliedReason = typeof action.reason === "string" && action.reason.trim() ? action.reason.trim() : null,
-      reason = suppliedReason ?? (status === "cancelled" ? "" : `Explicit lifecycle transition to ${status}`);
+      requiresExplicitReason = status === "cancelled" || snapshot.task?.status === "cancelled",
+      reason = suppliedReason ?? (requiresExplicitReason ? "" : `Explicit lifecycle transition to ${status}`);
     return normalizeTaskLifecycleCommand(bound, {
       type: "TransitionTask",
       taskId,

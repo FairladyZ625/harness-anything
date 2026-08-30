@@ -33,6 +33,10 @@ export async function renderTaskActionProtocolProjection() {
   return (await format(source, { parser: "typescript", printWidth: 120 })).trimEnd();
 }
 
+export function normalizeProjectionLineEndings(source) {
+  return source.replaceAll("\r\n", "\n");
+}
+
 function generatedRegion(source, target) {
   const start = source.indexOf(protocolMarkers.start);
   const end = source.indexOf(protocolMarkers.end, start);
@@ -55,7 +59,7 @@ export async function checkTaskActionProtocolProjection() {
   const source = readFileSync(protocolTarget, "utf8"),
     current = generatedRegion(source, protocolTarget),
     expected = await renderTaskActionProtocolProjection();
-  if (current !== expected) {
+  if (normalizeProjectionLineEndings(current) !== normalizeProjectionLineEndings(expected)) {
     throw new Error("Generated Task Action protocol projection is stale; run tools/generate-task-action-protocol.mjs.");
   }
 }

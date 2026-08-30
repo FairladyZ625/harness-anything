@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { checkTaskActionProtocolProjection } from "./generate-task-action-protocol.mjs";
+import { checkTaskActionProtocolProjection, normalizeProjectionLineEndings } from "./generate-task-action-protocol.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 
@@ -20,6 +20,10 @@ test("Task Action transport has one current build-time projection", async () => 
     sources.filter((file) => readFileSync(file, "utf8").includes("// task-action-json-fields:generated:start")),
     [],
   );
+});
+
+test("Task Action projection checks normalize checkout line endings", () => {
+  assert.equal(normalizeProjectionLineEndings("first\r\nsecond\r\n"), "first\nsecond\n");
 });
 
 function sourceFiles(directory) {

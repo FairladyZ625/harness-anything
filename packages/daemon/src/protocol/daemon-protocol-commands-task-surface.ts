@@ -63,15 +63,33 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary: "Move lifecycle status; done and in_review remain reserved for complete and submit.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--force", "boolean", false, {
-        code: "invalid_field",
-        nextAction: "Use --force only for audited cancellation.",
-      }),
-      cliInput("--reason", "single", false, {
-        code: "missing_field",
-        nextAction:
-          "Forced cancellation requires --reason <auditable-reason>; direct done still requires task complete.",
-      }),
+      cliInput(
+        "--force",
+        "boolean",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Audited cancellation requires --force; use it only when the target status is cancelled.",
+        },
+        {
+          field: "force",
+          requiredWhen: { field: "status", values: ["cancelled"] },
+          allowedWhen: { field: "status", values: ["cancelled"] },
+        },
+      ),
+      cliInput(
+        "--reason",
+        "single",
+        false,
+        {
+          code: "missing_field",
+          nextAction: "Forced cancellation and cancelled-task reinstatement require --reason <auditable-reason>.",
+        },
+        {
+          field: "reason",
+          requiredWhen: { field: "status", values: ["planned", "cancelled"] },
+        },
+      ),
     ],
   }),
   defineLedgerWriteCommand({
