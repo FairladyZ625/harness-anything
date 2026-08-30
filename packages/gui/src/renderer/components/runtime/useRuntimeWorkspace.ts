@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
 import { successfulAgentRuntimeResult } from "../../../../../daemon/src/agent-runtime-contract.ts";
-import { agentEntityClient } from "../../agent-entity-client.ts";
+import { agentEntityClient, type EntitySaveResult } from "../../agent-entity-client.ts";
 import { agentRuntimeClient } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
 import { buildDispatchSpawnInput, type DispatchRequest } from "../../dispatch-flow.ts";
@@ -65,6 +65,43 @@ export function runtimeSelectionFromRef(ref: string | null): RuntimeSelection | 
 // liveness word decides "is this carrier running anything" through a table lookup alone.
 const LIVENESS_LIVE: Record<string, boolean> = { live: true };
 
+const ENTITY_VISIBILITY_ATTEMPTS = 80,
+  ENTITY_VISIBILITY_PAUSE_MS = 250;
+
+/** A write receipt may settle before the read projection exposes its declaration. */
+export async function waitForEntityCatalogRow<T extends { readonly id: string }>(
+  client: QueryClient,
+  queryKey: readonly unknown[],
+  read: () => Promise<readonly T[]>,
+  entityId: string,
+  pause: () => Promise<void> = () =>
+    new Promise<void>((resolve) => window.setTimeout(resolve, ENTITY_VISIBILITY_PAUSE_MS)),
+): Promise<readonly T[] | null> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < ENTITY_VISIBILITY_ATTEMPTS; attempt += 1) {
+    try {
+      const rows = await read();
+      lastError = null;
+      client.setQueryData(queryKey, rows);
+      if (rows.some((row) => row.id === entityId)) return rows;
+    } catch (error) {
+      consumeKnownError(error);
+      lastError = error;
+    }
+    if (attempt + 1 < ENTITY_VISIBILITY_ATTEMPTS) await pause();
+  }
+  if (lastError !== null) throw lastError;
+  return null;
+}
+
+function saveWasRejected(saved: EntitySaveResult): boolean {
+  return saved.outcome === "op_rejected";
+}
+
+function saveFailureHint(saved: EntitySaveResult): string {
+  return saved.error?.hint ?? `Entity save returned ${saved.outcome}.`;
+}
+
 // W6 IA 拆分:聚合页撤销后,「运行时」组三个入口各自只读自己的面——每页一个
 // hook,一处读失败只降级本页(原聚合页「每区域读自己的源」原则在页粒度上延续)。
 // 共享的 busy/feedback 通道与 spawn 收据轮询留在 useRuntimeChannel,三个 hook 都从
@@ -86,7 +123,19 @@ function useRuntimeChannel(repoId: string, refresh: () => Promise<unknown>) {
     try {
       const result = await action();
       const record = result as Record<string, unknown> | null,
-        id = String(record?.sessionId ?? record?.opId ?? "applied");
+        rejected = record?.outcome === "op_rejected";
+      if (rejected) {
+        const rejectedError =
+            record?.error && typeof record.error === "object" && !Array.isArray(record.error)
+              ? (record.error as Record<string, unknown>)
+              : null,
+          hint =
+            typeof rejectedError?.hint === "string" ? rejectedError.hint : `The ${label.toLowerCase()} was rejected.`;
+        setFeedback(null);
+        setError(t("agentRuntime.feedbackFailed", { label, error: hint }));
+        return result;
+      }
+      const id = String(record?.sessionId ?? record?.opId ?? "applied");
       setFeedback(t("agentRuntime.feedbackApplied", { label, id }));
       if (reread) await refresh();
       return result;
@@ -302,26 +351,64 @@ export function useAgentSquadWorkspace(
     error: channel.error,
     settlement: channel.settlement,
     clearFeedback: channel.clearFeedback,
-    saveAgent: async (declaration: AgentDeclarationV1) => {
-      const saved = await channel.run(
+    saveAgent: async (declaration: AgentDeclarationV1): Promise<EntitySaveResult | null> => {
+      // A cold Agent entry can still have its initial empty catalog request in flight when the
+      // first create action is submitted. Cancel that pre-write snapshot so it cannot overwrite
+      // the post-write reread with stale data.
+      await Promise.all([
+        client.cancelQueries({ queryKey: ["agents", repoId] }),
+        client.cancelQueries({ queryKey: ["agent-detail", repoId] }),
+      ]);
+      const saved = (await channel.run(
         t("agentRuntime.opAgentSaved"),
         () => agentEntityClient.saveAgent(repoId, declaration),
         false,
-      );
+      )) as EntitySaveResult | null;
       if (saved === null) return null;
-      await client.invalidateQueries({ queryKey: ["agents", repoId] });
-      await client.invalidateQueries({ queryKey: ["agent-detail", repoId] });
+      if (saveWasRejected(saved)) {
+        channel.reportError(saveFailureHint(saved));
+        return null;
+      }
+      const visible = await waitForEntityCatalogRow(
+        client,
+        ["agents", repoId],
+        () => agentEntityClient.listAgents(repoId),
+        declaration.id,
+      );
+      if (visible === null) {
+        channel.reportError(`Agent ${declaration.id} was saved but is not visible in the Agent catalog yet.`);
+        return null;
+      }
+      await client.invalidateQueries({ queryKey: ["agent-detail", repoId], refetchType: "active" });
       return saved;
     },
-    saveSquad: async (declaration: SquadDeclarationV1) => {
-      const saved = await channel.run(
+    saveSquad: async (declaration: SquadDeclarationV1): Promise<EntitySaveResult | null> => {
+      // Keep the first blank Squad create on the same write/read ordering as Agent create.
+      await Promise.all([
+        client.cancelQueries({ queryKey: ["squads", repoId] }),
+        client.cancelQueries({ queryKey: ["squad-detail", repoId] }),
+      ]);
+      const saved = (await channel.run(
         t("agentRuntime.opSquadSaved"),
         () => agentEntityClient.saveSquad(repoId, declaration),
         false,
-      );
+      )) as EntitySaveResult | null;
       if (saved === null) return null;
-      await client.invalidateQueries({ queryKey: ["squads", repoId] });
-      await client.invalidateQueries({ queryKey: ["squad-detail", repoId] });
+      if (saveWasRejected(saved)) {
+        channel.reportError(saveFailureHint(saved));
+        return null;
+      }
+      const visible = await waitForEntityCatalogRow(
+        client,
+        ["squads", repoId],
+        () => agentEntityClient.listSquads(repoId),
+        declaration.id,
+      );
+      if (visible === null) {
+        channel.reportError(`Squad ${declaration.id} was saved but is not visible in the Squad catalog yet.`);
+        return null;
+      }
+      await client.invalidateQueries({ queryKey: ["squad-detail", repoId], refetchType: "active" });
       return saved;
     },
     dispatch: (request: DispatchRequest) =>
