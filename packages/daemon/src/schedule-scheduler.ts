@@ -247,6 +247,7 @@ function evaluateSchedule(
   schedule: ScheduleListRow,
   observedAt: string,
 ): { readonly due: DueOccurrence | null; readonly missed: MissedOccurrences | null } {
+  if (schedule.state === "invalid") return { due: null, missed: null };
   if (schedule.state !== "armed" || schedule.spec.target.kind !== "agent") return { due: null, missed: null };
   const cursor =
       Date.parse(schedule.updatedAt) > Date.parse(schedule.status.automaticEvaluatedThrough)

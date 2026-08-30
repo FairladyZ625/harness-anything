@@ -27,7 +27,7 @@ import {
 import { receiptOutcomeWords } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 
-export type ScheduleListRow = {
+export type ValidScheduleListRow = {
   readonly scheduleId: string;
   readonly state: "armed" | "paused";
   readonly mode: "detect" | "remediate";
@@ -47,6 +47,15 @@ export type ScheduleListRow = {
   readonly definitionRevision: number;
   readonly nextRunAt: string | null;
 };
+
+export type InvalidScheduleListRow = {
+  readonly scheduleId: string;
+  readonly state: "invalid";
+  readonly invalidReason: string;
+  readonly definitionRevision: number;
+};
+
+export type ScheduleListRow = ValidScheduleListRow | InvalidScheduleListRow;
 
 export function parseScheduleListReceipt(
   receipt: Readonly<Record<string, unknown>>,
@@ -105,6 +114,15 @@ export function daemonCommandReceiptRejectionCode(receipt: Readonly<Record<strin
 }
 
 function scheduleListRow(value: unknown): value is ScheduleListRow {
+  if (
+    exactRecord(value, ["scheduleId", "state", "invalidReason", "definitionRevision"]) &&
+    nonEmpty(value.scheduleId) &&
+    value.state === "invalid" &&
+    nonEmpty(value.invalidReason) &&
+    integer(value.definitionRevision) &&
+    Number(value.definitionRevision) >= 0
+  )
+    return true;
   if (!isJsonObject(value) || !isJsonObject(value.spec) || !isJsonObject(value.status)) return false;
   const trigger = value.spec.trigger,
     target = value.spec.target;

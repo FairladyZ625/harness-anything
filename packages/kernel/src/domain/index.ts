@@ -183,7 +183,6 @@ export {
   nextScheduleOccurrence,
   scheduleMissedReasons,
   scheduleRunOutcomes,
-  updateScheduleV1,
   validateScheduleV1,
 } from "./schedule.ts";
 export type {
@@ -192,7 +191,6 @@ export type {
   ScheduleMissedReason,
   ScheduleMode,
   ScheduleRunOutcome,
-  ScheduleTargetV1,
   ScheduleTriggerV1,
   ScheduleV1,
 } from "./schedule.ts";

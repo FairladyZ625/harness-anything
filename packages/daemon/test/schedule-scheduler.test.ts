@@ -24,6 +24,40 @@ test("raw RepoCell schedule-list receipt is normalized and arms one Schedule", a
   scheduler.close();
 });
 
+test("an invalid Schedule row does not prevent healthy occurrences from arming", async () => {
+  const clock = fakeClock("2026-08-27T10:00:00.000Z"),
+    healthy = schedule("healthy-probe"),
+    repo = fixtureRepo("invalid-row", "local", [healthy]);
+  repo.listReceipts.push({
+    outcome: "applied",
+    opId: "read:schedule-list:invalid-row",
+    revision: 2,
+    evidence: JSON.stringify({
+      schema: "schedule-list/v1",
+      schedules: [
+        {
+          scheduleId: "legacy-probe",
+          state: "invalid",
+          invalidReason: 'schedule is missing required field "mode".',
+          definitionRevision: 1,
+        },
+        { ...healthy, definitionRevision: 2, nextRunAt: "2026-08-27T10:30:00.000Z" },
+      ],
+    }),
+  });
+  const scheduler = makeScheduleScheduler({
+    cells: new Map([[repo.repoId, repo.cell]]),
+    localBinding,
+    now: clock.now,
+    setTimer: clock.setTimer,
+    clearTimer: clock.clearTimer,
+  });
+  await scheduler.start();
+  assert.equal(clock.liveTimers().length, 1);
+  assert.equal(clock.liveTimers()[0]!.delayMs, 30 * 60_000);
+  scheduler.close();
+});
+
 test("projection-pending Schedule reads retry silently and then arm", async () => {
   const clock = fakeClock("2026-08-27T10:00:00.000Z"),
     repo = fixtureRepo("projection-pending", "local", [schedule("e2e-probe")]),

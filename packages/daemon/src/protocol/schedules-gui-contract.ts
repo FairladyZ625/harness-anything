@@ -107,6 +107,15 @@ export interface ScheduleGuiRowDto {
   readonly updatedAt: string;
 }
 
+export interface ScheduleGuiInvalidRowDto {
+  readonly scheduleId: string;
+  readonly state: "invalid";
+  readonly invalidReason: string;
+  readonly definitionRevision: number;
+}
+
+export type ScheduleGuiListRowDto = ScheduleGuiRowDto | ScheduleGuiInvalidRowDto;
+
 export interface SchedulesListResult {
   readonly ok: true;
   readonly status: "ready" | "pending";
@@ -115,7 +124,7 @@ export interface SchedulesListResult {
   readonly viewerNodeId: string | null;
   readonly actions: { readonly create: ScheduleGuiActionFacet };
   readonly options: ScheduleGuiOptionsDto;
-  readonly schedules: readonly ScheduleGuiRowDto[];
+  readonly schedules: readonly ScheduleGuiListRowDto[];
   readonly watermark: number;
   readonly sourceRevision: number;
 }
@@ -284,6 +293,16 @@ export function validateSchedulesList(value: unknown): readonly string[] {
   const secretErrors = rejectSecretKeys(value);
   if (secretErrors.length) return secretErrors;
   for (const row of value.schedules) {
+    if (
+      isJsonObject(row) &&
+      Object.keys(row).length === 4 &&
+      scheduleNonEmptyText(row.scheduleId) &&
+      row.state === "invalid" &&
+      scheduleNonEmptyText(row.invalidReason) &&
+      Number.isSafeInteger(row.definitionRevision) &&
+      Number(row.definitionRevision) >= 0
+    )
+      continue;
     if (
       !isJsonObject(row) ||
       Object.keys(row).some(

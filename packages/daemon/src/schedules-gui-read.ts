@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { nextScheduleOccurrence, type DaemonRepoMode, type ScheduleV1 } from "../../kernel/src/index.ts";
+import {
+  nextScheduleOccurrence,
+  validateScheduleV1,
+  type DaemonRepoMode,
+  type ScheduleV1,
+} from "../../kernel/src/index.ts";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { parseAgentDeclarationV1 } from "../../kernel/src/index.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
@@ -10,6 +15,8 @@ import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.
 import type {
   ScheduleExecutionAvailability,
   ScheduleGuiActionFacet,
+  ScheduleGuiInvalidRowDto,
+  ScheduleGuiListRowDto,
   ScheduleGuiOptionsDto,
   ScheduleGuiRowDto,
   ScheduleGuiTriggerDto,
@@ -32,6 +39,7 @@ export interface SchedulesGuiReadContext {
   };
   readonly projection: {
     readonly listEntities: (entityKind: string) => readonly {
+      readonly id?: string;
       readonly value: unknown;
       readonly workspaceRevision: number;
     }[];
@@ -267,7 +275,9 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
     cut = context.projection.readTaskStatuses();
   const schedules = context.projection
     .listEntities("schedule")
-    .map((row): ScheduleGuiRowDto => {
+    .map((row): ScheduleGuiListRowDto => {
+      const errors = validateScheduleV1(row.value);
+      if (errors.length > 0) return invalidScheduleGuiRow(row, errors);
       const schedule = row.value as ScheduleV1,
         active = activeRunDtoOf(schedule),
         availability = deriveScheduleExecutionAvailability({
@@ -351,7 +361,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
 
 function scheduleOptions(
   context: SchedulesGuiReadContext,
-  schedules: readonly ScheduleGuiRowDto[],
+  schedules: readonly ScheduleGuiListRowDto[],
 ): ScheduleGuiOptionsDto {
   const agents = context.projection.listEntities("agent").map(({ value }) => {
       const agent = parseAgentDeclarationV1(value);
@@ -373,11 +383,29 @@ function scheduleOptions(
       })),
     cwd = new Set<string>([".", ...trackedDirectories(context.rootDir)]);
   for (const schedule of schedules)
-    if (schedule.target.kind === "agent" && schedule.target.cwd) cwd.add(schedule.target.cwd);
+    if (schedule.state !== "invalid" && schedule.target.kind === "agent" && schedule.target.cwd)
+      cwd.add(schedule.target.cwd);
   return {
     agents: agents.sort((left, right) => left.agentId.localeCompare(right.agentId)),
     instances: instances.sort((left, right) => left.instanceId.localeCompare(right.instanceId)),
     cwd: [...cwd].sort((left, right) => (left === "." ? -1 : right === "." ? 1 : left.localeCompare(right))),
+  };
+}
+
+function invalidScheduleGuiRow(
+  row: { readonly id?: string; readonly value: unknown; readonly workspaceRevision: number },
+  errors: readonly string[],
+): ScheduleGuiInvalidRowDto {
+  const value =
+      typeof row.value === "object" && row.value !== null && !Array.isArray(row.value)
+        ? (row.value as Readonly<Record<string, unknown>>)
+        : null,
+    scheduleId = row.id ?? (typeof value?.scheduleId === "string" && value.scheduleId ? value.scheduleId : "unknown");
+  return {
+    scheduleId,
+    state: "invalid",
+    invalidReason: errors.join("; "),
+    definitionRevision: row.workspaceRevision,
   };
 }
 

@@ -227,6 +227,7 @@ test("Schedule show, update, and delete expose closed structured packet inputs",
       });
   }
   assert.equal(parseThinCommand(["schedule", "update", "probe", "--from-file", "update.json"]).ok, false);
+  assert.equal(parseThinCommand(["schedule", "update", "probe", "--mode", "observe"]).ok, false);
 });
 
 test("Schedule show human renderer returns the complete schedule snapshot", () => {
@@ -291,10 +292,16 @@ test("Schedule list human renderer shows state, next occurrence, and single-flig
             nextRunAt: "2026-08-26T14:00:00.000Z",
           },
           { ...paused, definitionRevision: 2, nextRunAt: null },
+          {
+            scheduleId: "legacy",
+            state: "invalid",
+            invalidReason: 'schedule is missing required field "mode".',
+            definitionRevision: 3,
+          },
         ],
       }),
     }),
-    "armed\tarmed\t2026-08-26T14:00:00.000Z\tactive\npaused\tpaused\tnone\tidle",
+    'armed\tarmed\t2026-08-26T14:00:00.000Z\tactive\npaused\tpaused\tnone\tidle\nlegacy\tinvalid\tschedule is missing required field "mode".',
   );
   assert.equal(
     renderScheduleList({
