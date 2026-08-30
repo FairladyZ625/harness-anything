@@ -5,28 +5,28 @@ import * as kernel from "../../src/index.ts";
 
 test("kernel public source index is importable by the explicit TS test runner", () => {
   assert.equal(kernel.REPLAY_TASK_GRAPH.template, "replay/v1");
-  assert.deepEqual(kernel.TASK_LIFECYCLE_COMMAND_CATALOG.map((entry) => entry.commandType), [
-    "CreateReplayTask",
-    "StartExecution",
-    "TransitionTask",
-    "TransitionTask",
-    "TransitionTask",
-    "TransitionTask",
-    "SubmitExecution",
-    "RecordReview",
-    "RecordReviewConsent",
-    "ReconcileCodeDoc",
-    "RepointCodeDoc",
-    "CompleteTask"
-  ]);
-  assert.deepEqual([...kernel.decisionStates], [
-    "proposed",
-    "in_effect",
-    "rejected",
-    "deferred",
-    "superseded",
-    "outcome_retired"
-  ]);
+  assert.deepEqual(
+    kernel.TASK_LIFECYCLE_COMMAND_CATALOG.map((entry) => entry.commandType),
+    [
+      "CreateReplayTask",
+      "StartExecution",
+      "TransitionTask",
+      "TransitionTask",
+      "TransitionTask",
+      "TransitionTask",
+      "TransitionTask",
+      "SubmitExecution",
+      "RecordReview",
+      "RecordReviewConsent",
+      "ReconcileCodeDoc",
+      "RepointCodeDoc",
+      "CompleteTask",
+    ],
+  );
+  assert.deepEqual(
+    [...kernel.decisionStates],
+    ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
+  );
   assert.equal("LifecycleEngine" in kernel, false);
   assert.equal("LockRegistry" in kernel, false);
   assert.equal(typeof kernel.VersionControlSystem, "object");

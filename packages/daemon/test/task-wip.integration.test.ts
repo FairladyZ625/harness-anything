@@ -297,7 +297,7 @@ test("a standard task becomes a visible structure-derived root without rewriting
   }
 });
 
-test("task list rows expose packageDisposition and taskClass so the occupancy count is independently recomputable", async () => {
+test("task list exposes active package metadata and excludes archived packages from the worktable", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-wip-projection-"));
   let cell: Cell | undefined;
   try {
@@ -345,8 +345,8 @@ test("task list rows expose packageDisposition and taskClass so the occupancy co
     assert.equal(byTask.get("task_STD")?.taskClass, "standard");
     assert.equal(byTask.get("task_STD")?.packageDisposition, "active");
     assert.equal(byTask.get("task_MILESTONE")?.taskClass, "milestone");
-    assert.equal(byTask.get("task_ARCHIVED")?.packageDisposition, "archived");
-    // The gate's counting criteria, recomputed only from list rows: 3 active-status rows, 1 occupying slot.
+    assert.equal(byTask.has("task_ARCHIVED"), false);
+    // The gate's counting criteria, recomputed only from visible worktable rows: 1 occupying slot.
     const occupying = rows.filter(
       (row) =>
         ["active", "blocked", "in_review"].includes(row.status) &&
@@ -356,6 +356,84 @@ test("task list rows expose packageDisposition and taskClass so the occupancy co
     assert.deepEqual(
       occupying.map((row) => row.taskId),
       ["task_STD"],
+    );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a released active task returns to planned while held leases and stale writers reject", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-return-planned-"));
+  let cell: Cell | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("task-return-planned"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "task-return-planned",
+      now: () => "2026-08-30T00:00:00.000Z",
+    });
+    const binding = { actor, source: "local" as const },
+      taskId = "task_RETURN_PLANNED";
+    await createReadyTask(cell, rootDir, taskId, "Return released work to planning");
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId, executionId: "exe_return_planned" }, binding)).outcome,
+      "applied",
+    );
+    const held = await cell.run(
+      { kind: "task-transition", taskId, status: "planned", reason: "Scope needs replanning" },
+      binding,
+    );
+    assert.equal(held.outcome, "op_rejected");
+    assert.equal(held.code, "invalid_transition");
+    assert.match(String(held.nextAction), /unleased active task/u);
+
+    const released = await cell.run(
+      { kind: "task-release", taskId, reason: "No worker remains; return scope to planning" },
+      binding,
+    );
+    assert.equal(released.outcome, "applied");
+    assert.match(
+      String((released.next as readonly { readonly command?: string }[] | undefined)?.[0]?.command),
+      new RegExp(`ha task transition ${taskId} planned --reason`, "u"),
+    );
+
+    const expectedVersion = released.revision,
+      attempts = await Promise.all([
+        cell.run(
+          {
+            kind: "task-transition",
+            taskId,
+            status: "planned",
+            reason: "Owner returned orphaned work to planning",
+            expectedVersion,
+          },
+          binding,
+        ),
+        cell.run(
+          {
+            kind: "task-transition",
+            taskId,
+            status: "planned",
+            reason: "Concurrent return to planning",
+            expectedVersion,
+          },
+          binding,
+        ),
+      ]),
+      applied = attempts.filter((receipt) => receipt.outcome === "applied"),
+      rejected = attempts.filter((receipt) => receipt.outcome === "op_rejected");
+    assert.equal(applied.length, 1, JSON.stringify(attempts));
+    assert.equal(rejected.length, 1, JSON.stringify(attempts));
+    assert.equal(rejected[0]?.code, "invalid_transition");
+    assert.equal(
+      (
+        JSON.parse(String((await cell.run({ kind: "task-show", taskId }, binding)).evidence)) as {
+          readonly task: { readonly status: string };
+        }
+      ).task.status,
+      "planned",
     );
   } finally {
     await cell?.close();

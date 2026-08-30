@@ -284,6 +284,34 @@ export const reinstate: Transition = {
       (raw as TransitionTaskCommand).status as "planned" | "active" | "in_review",
     ),
 };
+export const returnToPlanned: Transition = {
+  id: "return_to_planned",
+  commandType: "TransitionTask",
+  from: "active",
+  proof: ["auditedReason"],
+  eventType: "task_transitioned",
+  matches: (command, snapshot) =>
+    command.type === "TransitionTask" && command.status === "planned" && snapshot.task?.status === "active",
+  validate: (snapshot, raw) => {
+    const command = raw as TransitionTaskCommand,
+      issues = revisionIssues(snapshot, command);
+    if (
+      snapshot.task?.status !== "active" ||
+      snapshot.lease !== null ||
+      !explainStatusTransition("active", "planned").allowed
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "ReturnToPlanned requires an unleased active task after its execution lease is released",
+        ),
+      );
+    if (!isNonEmptyString(command.reason))
+      issues.push(lifecycleContractIssue("invalid_schema", "ReturnToPlanned requires an auditable reason"));
+    return issues;
+  },
+  reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "planned"),
+};
 export const unblock: Transition = {
   id: "unblock_task",
   commandType: "TransitionTask",
