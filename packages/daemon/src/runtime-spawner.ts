@@ -101,6 +101,7 @@ export interface RuntimeSpawnerInput {
   readonly repoId: string;
   readonly rootDir: string;
   readonly daemonGeneration: number;
+  readonly runtimeNodeId?: string;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly store?: () => CanonicalEventStore;
   readonly projection?: () => TaskProjection;

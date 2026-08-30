@@ -639,6 +639,40 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     context.diagnostic(
       `detach cross-process retrieval: ${JSON.stringify({ launcherPid: detachedProcess.pid, retrievalPid: retrievalProcess.pid, runtimeSessionId: detachedRuntimeSessionId, outcome: retrievalProcess.receipt.outcome, resultText: retrievedText, readerReuse })}`,
     );
+    const restartDetached = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "hold", "--detach"]),
+      restartSessionId = String(restartDetached.runtimeSessionId),
+      restartDispatchId = String(restartDetached.dispatchId),
+      liveBeforeRestart = await eventuallyRuntimeStatus(root, env, restartSessionId, "live"),
+      workerPid = Number(
+        readDispatchRecords(root, restartDispatchId).find((record) => record.kind === "process_started")?.pid,
+      ),
+      daemonBeforeRestart = run(root, env, ["daemon", "status"]),
+      stoppedForRestart = run(root, env, ["daemon", "stop", "--force"]);
+    assert.equal(liveBeforeRestart.session.liveness, "live");
+    assert.equal(
+      processAlive(workerPid),
+      true,
+      `runtime worker ${String(workerPid)} must be live before daemon restart`,
+    );
+    assert.equal(stoppedForRestart.forced, true, JSON.stringify(stoppedForRestart));
+    assert.equal(processAlive(workerPid), true, `runtime worker ${String(workerPid)} must survive daemon stop --force`);
+    const liveAfterRestart = await eventuallyRuntimeStatus(root, env, restartSessionId, "live"),
+      daemonAfterRestart = run(root, env, ["daemon", "status"]);
+    assert.notEqual(daemonAfterRestart.pid, daemonBeforeRestart.pid, "runtime status must use a restarted daemon");
+    assert.equal(liveAfterRestart.session.liveness, "live");
+    assert.equal(liveAfterRestart.session.activity.outcome, null);
+    assert.equal(processAlive(workerPid), true, `runtime worker ${String(workerPid)} must agree with runtime status`);
+    assert.equal(run(root, env, ["runtime", "cancel", restartSessionId]).detail, "cancelled");
+    context.diagnostic(
+      `daemon restart liveness: ${JSON.stringify({
+        runtimeSessionId: restartSessionId,
+        workerPid,
+        daemonBefore: daemonBeforeRestart.pid,
+        daemonAfter: daemonAfterRestart.pid,
+        before: liveBeforeRestart.session.liveness,
+        after: liveAfterRestart.session.liveness,
+      })}`,
+    );
     const invalidOnExit = runMaybe(root, env, [
       "runtime",
       "run",
@@ -1300,6 +1334,30 @@ async function eventually<T>(read: () => T): Promise<T> {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`dispatch did not settle: ${JSON.stringify(last)}`);
+}
+async function eventuallyRuntimeStatus(
+  root: string,
+  env: NodeJS.ProcessEnv,
+  runtimeSessionId: string,
+  liveness: string,
+): Promise<{ readonly session: Record<string, unknown> & { readonly activity: Record<string, unknown> } }> {
+  let last: Record<string, unknown> = {};
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    last = run(root, env, ["runtime", "status", runtimeSessionId]);
+    const session = last.session as Record<string, unknown> & { readonly activity: Record<string, unknown> };
+    if (session.liveness === liveness) return { session };
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`runtime status did not reach ${liveness}: ${JSON.stringify(last)}`);
+}
+function processAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid < 1) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Record<string, unknown> {
   const result = runMaybe(root, env, args);

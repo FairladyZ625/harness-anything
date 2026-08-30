@@ -955,11 +955,32 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         "utf8",
       ).includes("provider-re-adopt-session"),
     );
+    const reAdoptHostPid = await eventuallyValue(() => {
+      const started = readFileSync(
+        path.join(root, ".harness", "runtime", "dispatches", `${String(receipt.dispatchId)}.jsonl`),
+        "utf8",
+      )
+        .trim()
+        .split(/\r?\n/u)
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .find((record) => record.kind === "process_started");
+      return Number.isInteger(started?.pid) && Number(started?.pid) > 0 ? Number(started?.pid) : null;
+    });
     await cell.close();
     cell = undefined;
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.doesNotThrow(() => process.kill(providerPid, 0), "repo-cell close must not terminate its runtime worker");
     cell = await open("re-adopt-after");
+    const liveProjection = makeTaskProjection({
+      rootDir: root,
+      projectionPath: path.join(parent, "runtime-re-adopt-live-before-exit.sqlite"),
+      eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+    });
+    liveProjection.list();
+    const adopted = liveProjection.readRuntimeSession(String(receipt.runtimeSessionId))!;
+    liveProjection.close();
+    assert.deepEqual({ liveness: adopted.liveness, outcome: adopted.outcome }, { liveness: "live", outcome: null });
+    assert.doesNotThrow(() => process.kill(reAdoptHostPid, 0), "adopted runtime worker must still be alive");
     writeFileSync(release, "release");
     await eventually(() =>
       makeTaskEventStore({ repoId, rootDir: root })
@@ -986,6 +1007,14 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       },
       { liveness: "exited", outcome: "succeeded", exitCode: 0 },
     );
+    await eventually(() => {
+      try {
+        process.kill(reAdoptHostPid, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    });
     assert.match(
       readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${String(receipt.dispatchId)}.jsonl`), "utf8"),
       /survived daemon restart/u,
