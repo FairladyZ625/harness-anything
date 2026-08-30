@@ -21,7 +21,6 @@ export { makeTaskProjection } from "../projection/rebuildable-task-projection.ts
 export type {
   ProjectionPage,
   ReplicaProjectionBasis,
-  TaskIndexProjectionRead,
   TaskIndexProjectionRow,
   TaskProjection,
   TaskProjectionListQuery,
