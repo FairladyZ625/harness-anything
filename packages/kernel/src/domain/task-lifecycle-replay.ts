@@ -114,6 +114,7 @@ export function compileExecutionExecutorDeclaration(input: {
   readonly taskId: string;
   readonly executionId: string;
   readonly actor: ActorAxes;
+  readonly executor: NonNullable<ActorAxes["executor"]>;
   readonly source: WriteSource;
   readonly reason: string;
   readonly opId: string;
@@ -133,18 +134,24 @@ export function compileExecutionExecutorDeclaration(input: {
     !task ||
     !current ||
     !eligible ||
+    input.executor.kind !== "agent" ||
+    !isNonEmptyString(input.executor.id) ||
+    (input.actor.executor !== null && stableStringify(input.actor.executor) !== stableStringify(input.executor)) ||
     !isNonEmptyString(input.reason) ||
     input.workspaceRevision <= input.snapshot.revision
   )
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue(
         "invalid_executor_declaration",
-        "executor declaration requires the same principal to name an agent for a submitted Execution at the " +
+        "executor declaration requires the same principal to bind a dispatched agent to a submitted Execution at the " +
           "review node that originally declared no executor; unblock a blocked task before retrying",
       ),
     ]);
   const nextTask = { ...task, status: "in_review" as const },
-    nextExecution: ExecutionV1 = { ...current, actor: input.actor },
+    nextExecution: ExecutionV1 = {
+      ...current,
+      actor: { principal: input.actor.principal, executor: input.executor },
+    },
     event: ExecutionExecutorDeclaredEvent = {
       schema: "task-event/v1",
       eventId: input.eventId,
@@ -346,7 +353,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
   }
   if (event.type === "execution_executor_declared") {
     const current = execution(snapshot, event.payload.execution.executionId),
-      expected = current ? { ...current, actor: event.actor } : null,
+      expected = current ? { ...current, actor: event.payload.execution.actor } : null,
       expectedTask = snapshot.task ? { ...snapshot.task, status: "in_review" as const } : null;
     if (
       !current ||
@@ -354,8 +361,9 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
       stableStringify(event.payload.previousActor) !== stableStringify(current.actor) ||
       stableStringify(event.payload.execution) !== stableStringify(expected) ||
       current.actor.executor !== null ||
-      event.actor.executor === null ||
+      event.payload.execution.actor.executor === null ||
       !isSamePerson(current.actor, event.actor) ||
+      !isSamePerson(event.payload.execution.actor, event.actor) ||
       !["active", "in_review"].includes(String(snapshot.task?.status)) ||
       snapshot.task?.currentNode !== "review" ||
       snapshot.lease !== null ||

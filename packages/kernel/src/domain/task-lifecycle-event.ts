@@ -28,6 +28,7 @@ import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { isValidDocEventChange, type DocEventChange } from "./doc-sync.contract.ts";
 import { timestamp } from "./timestamp.ts";
 import { validFactStillHoldsAttestation, type FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
+import { isSamePerson } from "./actor-domain-services.ts";
 export const taskEventTypes = [
   "task_created",
   "execution_started",
@@ -357,15 +358,26 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       issues.push(invalidEventPayloadIssue("lease event history is invalid"));
   }
   if (value.type === "execution_executor_declared") {
-    issues.push(...validateActorAxes(payload.previousActor, allowUnknownFields));
+    const previousActor = payload.previousActor,
+      executionActor = isRecord(payload.execution) ? payload.execution.actor : null,
+      actorsValid =
+        validateActorAxes(previousActor, allowUnknownFields).length === 0 &&
+        validateActorAxes(executionActor, allowUnknownFields).length === 0 &&
+        validateActorAxes(value.actor, allowUnknownFields).length === 0;
+    issues.push(...validateActorAxes(previousActor, allowUnknownFields));
     if (
       !isNonEmptyString(payload.reason) ||
-      (isRecord(payload.previousActor) && payload.previousActor.executor !== null) ||
-      (isRecord(payload.execution) && !sameActorIdentity(payload.execution.actor, value.actor))
+      !actorsValid ||
+      (previousActor as ActorAxes).executor !== null ||
+      (executionActor as ActorAxes).executor === null ||
+      !isSamePerson(previousActor as ActorAxes, value.actor as ActorAxes) ||
+      !isSamePerson(executionActor as ActorAxes, value.actor as ActorAxes) ||
+      ((value.actor as ActorAxes).executor !== null &&
+        !sameActorIdentity(executionActor as ActorAxes, value.actor as ActorAxes))
     )
       issues.push(
         invalidEventPayloadIssue(
-          "executor declaration must preserve the previous bare actor, bind the declaring actor, and state a reason",
+          "executor declaration must preserve the previous bare actor, bind a dispatched agent on the same principal, and state a reason",
         ),
       );
   }

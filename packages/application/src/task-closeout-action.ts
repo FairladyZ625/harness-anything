@@ -1,50 +1,27 @@
 import { createHash } from "node:crypto";
 import {
   authorizationPort,
+  createTaskCloseoutPacketTemplate,
   closeoutReadiness,
   currentActionEnvelopeVersion,
   currentExecutionCuts,
   DEFAULT_POLICY,
   deriveOwnerRoleBinding,
+  stableStringify,
+  taskCloseoutPacketSchema,
+  validateTaskCloseoutPacket,
   type ActorIdentity,
   type AuthorizationDecision,
+  type CloseoutCiJudgment,
   type CloseoutSnapshot,
   type LeaseV1,
+  type SubmissionV1,
+  type TaskCloseoutPacket,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 
-const submissionFields = [
-  "completionClaim",
-  "deliverables",
-  "outputs",
-  "verificationNotes",
-  "knownGaps",
-  "residualRisks",
-  "commitSha",
-] as const;
-const reviewFields = ["verdict", "reason", "evidenceChecked"] as const;
 /** The `ci` completion gate id every CI judgment is reconciled against; the task contract owns whether it applies. */
 const ciGateId = "ci";
-const ciJudgments = ["passed", "not_applicable"] as const;
-type CiJudgment = (typeof ciJudgments)[number];
-type Judgment = {
-  readonly submission: {
-    readonly completionClaim: string;
-    readonly deliverables: readonly string[];
-    readonly outputs: readonly string[];
-    readonly verificationNotes: readonly string[];
-    readonly knownGaps: readonly string[];
-    readonly residualRisks: readonly string[];
-    readonly commitSha: string;
-  };
-  readonly review: {
-    readonly verdict: "approved" | "changes_requested" | "dismissed";
-    readonly reason: string;
-    readonly evidenceChecked: readonly string[];
-  };
-  readonly consent: { readonly approved: true };
-  readonly completion: { readonly ci: CiJudgment; readonly codeDocPaths: readonly string[] };
-};
 type Snapshot = CloseoutSnapshot & {
   readonly revision: number;
   readonly task:
@@ -75,10 +52,26 @@ export interface TaskCloseoutActionDependencies {
 export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDependencies): Promise<WriteReceipt> {
   const { action, caller, opId } = dependencies,
     taskId = requiredText(action.taskId, "taskId"),
-    fromFile = requiredText(action.fromFile, "fromFile"),
-    executionId = typeof action.executionId === "string" ? action.executionId : undefined,
+    executionId = typeof action.executionId === "string" ? action.executionId : undefined;
+  const snapshot = await dependencies.read(),
+    task = snapshot.task;
+  if (!task || task.taskId !== taskId)
+    return reject(opId, "task_not_found", "Run ha task list and choose an existing task id.");
+  if (action.printSchema === true) return discoveryReceipt(opId, snapshot, taskCloseoutPacketSchema);
+  if (action.printTemplate === true) {
+    const submitted = currentExecutionCuts(snapshot).some(
+        (candidate) =>
+          candidate.submission !== null && (executionId === undefined || candidate.executionId === executionId),
+      ),
+      template = createTaskCloseoutPacketTemplate({
+        includeSubmission: !submitted,
+        ci: task.completionGateIds.includes(ciGateId) ? "passed" : "not_applicable",
+      });
+    return discoveryReceipt(opId, snapshot, template);
+  }
+  const fromFile = requiredText(action.fromFile, "fromFile"),
     invocation = closeoutInvocation(taskId, fromFile, executionId);
-  let judgment: Judgment;
+  let judgment: TaskCloseoutPacket;
   try {
     judgment = readJudgment(() => dependencies.readWorkspaceText(dependencies.rootDir, fromFile, "fromFile"));
   } catch (error) {
@@ -88,10 +81,6 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
       `${error instanceof Error ? error.message : String(error)} Repair the packet, then run ${invocation}.`,
     );
   }
-  const snapshot = await dependencies.read(),
-    task = snapshot.task;
-  if (!task || task.taskId !== taskId)
-    return reject(opId, "task_not_found", `Run ha task list, choose an existing task id, then run ${invocation}.`);
   const repairCandidates = currentExecutionCuts(snapshot).filter(
       (candidate) =>
         candidate.state === "submitted" &&
@@ -138,25 +127,19 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     );
   const ciIssue = ciJudgmentIssue(task.completionGateIds, judgment.completion.ci);
   if (ciIssue) return reject(opId, "invalid_judgment", `${ciIssue} Repair the packet, then run ${invocation}.`);
-  const reviewId = deterministicId(
-      "review-closeout",
-      taskId,
-      String(task.iteration),
-      judgment.submission.commitSha,
-      judgment.review,
-    ),
-    consentId = deterministicId(
-      "consent-closeout",
-      taskId,
-      String(task.iteration),
-      judgment.submission.commitSha,
-      reviewId,
-    );
   if (task.status === "active" && declareExecutor)
     return reject(opId, "executor_missing", `Run ${declareExecutor}, then run ${invocation}.`);
   let stage = 0,
-    submitActor: ActorIdentity | null = null;
+    submitActor: ActorIdentity | null = null,
+    submission: SubmissionV1;
   if (task.status === "active") {
+    if (!judgment.submission)
+      return reject(
+        opId,
+        "submission_required",
+        `packet.submission is required while ${taskId} has an active Execution. Run ha task closeout ${taskId} --print-template, fill it, then run ${invocation}.`,
+      );
+    submission = judgment.submission;
     if (!snapshot.lease)
       return reject(
         opId,
@@ -190,12 +173,24 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
         cuts.map((candidate) => candidate.executionId),
       );
     const selected = candidates[0]!;
-    if (!sameFields(selected.submission, judgment.submission, submissionFields))
+    if (!selected.submission)
+      return reject(
+        opId,
+        "invalid_transition",
+        `Execution ${selected.executionId} has no canonical submission; run ha task show ${taskId}, then repair its lifecycle state.`,
+      );
+    submission = selected.submission;
+    if (judgment.submission && !sameSubmission(selected.submission, judgment.submission))
       return reject(
         opId,
         "submission_mismatch",
-        `Run ha task show ${taskId}, make ${fromFile} submission match execution ${selected.executionId}, then run ${invocation}.`,
+        [
+          `Execution ${selected.executionId} is already locked to this submission:\n`,
+          `${JSON.stringify(selected.submission, null, 2)}\n`,
+          `Remove the submission section from ${fromFile} to resume from review, or replace it with the exact content above, then run ${invocation}.`,
+        ].join(""),
       );
+    const reviewId = deterministicReviewId(taskId, task.iteration, submission.commitSha, judgment.review);
     const assessed = closeoutReadiness(
       executionId
         ? {
@@ -227,6 +222,9 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
       stage = 2;
   }
 
+  const reviewId = deterministicReviewId(taskId, task.iteration, submission.commitSha, judgment.review),
+    consentId = deterministicId("consent-closeout", taskId, String(task.iteration), submission.commitSha, reviewId);
+
   const selector = executionId ? { executionId } : {},
     humanReviewer: ActorIdentity = { principal: caller.principal, executor: null },
     steps: Array<WriteReceipt & { readonly stage: string }> = [];
@@ -250,7 +248,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   if (stage <= 0) {
     const stopped = await invoke(
       "submit",
-      { kind: "task-submit", taskId, ...selector, submission: judgment.submission },
+      { kind: "task-submit", taskId, ...selector, submission },
       submitActor ?? caller,
     );
     if (stopped) return stopped;
@@ -296,7 +294,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     taskId,
     reviewId,
     consentId,
-    submittedCommitSha: judgment.submission.commitSha,
+    submittedCommitSha: submission.commitSha,
     summary: `closed out task ${taskId}`,
     steps,
   } as WriteReceipt;
@@ -357,7 +355,7 @@ function authorizeCloseout(
   );
 }
 
-function readJudgment(readText: () => string): Judgment {
+function readJudgment(readText: () => string): TaskCloseoutPacket {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readText());
@@ -366,38 +364,10 @@ function readJudgment(readText: () => string): Judgment {
       `Closeout judgment must be one readable JSON object inside the workspace: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  return validateJudgment(parsed);
-}
-function validateJudgment(value: unknown): Judgment {
-  const packet = exact(value, ["submission", "review", "consent", "completion"], "judgment packet"),
-    submission = exact(packet.submission, submissionFields, "submission"),
-    review = exact(packet.review, reviewFields, "review"),
-    consent = exact(packet.consent, ["approved"], "consent"),
-    completion = exact(packet.completion, ["ci", "codeDocPaths"], "completion");
-  requiredText(submission.completionClaim, "submission.completionClaim");
-  for (const field of ["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const)
-    stringList(submission[field], `submission.${field}`);
-  if (!/^[0-9a-f]{40}$/u.test(String(submission.commitSha)))
-    throw new Error("submission.commitSha must be a full 40-character Git SHA.");
-  if (!["approved", "changes_requested", "dismissed"].includes(String(review.verdict)))
-    throw new Error("review.verdict must be approved, changes_requested, or dismissed.");
-  requiredText(review.reason, "review.reason");
-  stringList(review.evidenceChecked, "review.evidenceChecked");
-  if (consent.approved !== true)
-    throw new Error("consent.approved must be true; closeout never invents consent intent.");
-  ciJudgmentToken(completion.ci);
-  stringList(completion.codeDocPaths, "completion.codeDocPaths");
-  return { submission, review, consent, completion } as unknown as Judgment;
-}
-function exact(value: unknown, fields: readonly string[], name: string): Record<string, unknown> {
-  if (
-    !value ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    Object.keys(value).sort().join("\0") !== [...fields].sort().join("\0")
-  )
-    throw new Error(`${name} requires exactly: ${fields.join(", ")}.`);
-  return value as Record<string, unknown>;
+  const validation = validateTaskCloseoutPacket(parsed);
+  if (!validation.ok)
+    throw new Error(`Closeout packet has ${validation.issues.length} error(s):\n- ${validation.issues.join("\n- ")}`);
+  return validation.packet;
 }
 /**
  * The task contract, never the executor, decides which CI judgment is honest for this task.
@@ -405,7 +375,7 @@ function exact(value: unknown, fields: readonly string[], name: string): Record<
  * because there is no CI run on this change for `passed` to refer to. Exactly one value is legal
  * either way, so closeout can neither invent a green CI run nor wave away a gate the contract declared.
  */
-function ciJudgmentIssue(completionGateIds: readonly string[], ci: CiJudgment): string | null {
+function ciJudgmentIssue(completionGateIds: readonly string[], ci: CloseoutCiJudgment): string | null {
   const declared = completionGateIds.includes(ciGateId);
   if (ci === (declared ? "passed" : "not_applicable")) return null;
   const because = declared
@@ -417,18 +387,8 @@ function ciJudgmentIssue(completionGateIds: readonly string[], ci: CiJudgment): 
     " closeout never invents a CI judgment."
   );
 }
-/** Packet-shape check only: the token set is closed here, and which token is honest is the contract's call below. */
-function ciJudgmentToken(value: unknown): CiJudgment {
-  if (ciJudgments.includes(value as CiJudgment)) return value as CiJudgment;
-  throw new Error(`completion.ci must be ${ciJudgments.join(" or ")}; closeout never invents a CI judgment.`);
-}
 function requiredText(value: unknown, name: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} must be a non-empty string.`);
-  return value;
-}
-function stringList(value: unknown, name: string): readonly string[] {
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry.trim()))
-    throw new Error(`${name} must be an array of non-empty strings.`);
   return value;
 }
 function deterministicId(prefix: string, ...parts: readonly unknown[]): string {
@@ -436,6 +396,14 @@ function deterministicId(prefix: string, ...parts: readonly unknown[]): string {
     .update(parts.map((part) => (typeof part === "string" ? part : JSON.stringify(part))).join("\0"))
     .digest("hex")
     .slice(0, 16)}`;
+}
+function deterministicReviewId(
+  taskId: string,
+  iteration: number,
+  commitSha: string,
+  review: TaskCloseoutPacket["review"],
+): string {
+  return deterministicId("review-closeout", taskId, String(iteration), commitSha, review);
 }
 function closeoutInvocation(taskId: string, fromFile: string, executionId?: string): string {
   return `ha task closeout ${taskId} --from-file ${fromFile}${executionId ? ` --execution-id ${executionId}` : ""}`;
@@ -460,9 +428,23 @@ function candidateRejection(
 function reject(opId: string, code: string, nextAction: string): WriteReceipt {
   return { outcome: "op_rejected", opId, code, origin: "daemon", evidence: `rejection:${code}`, nextAction };
 }
-function sameFields(left: unknown, right: unknown, fields: readonly string[]): boolean {
-  if (!left || typeof left !== "object" || !right || typeof right !== "object") return false;
-  const select = (value: object) =>
-    Object.fromEntries(fields.map((field) => [field, (value as Record<string, unknown>)[field]]));
-  return JSON.stringify(select(left)) === JSON.stringify(select(right));
+function sameSubmission(left: SubmissionV1, right: SubmissionV1): boolean {
+  return stableStringify(left) === stableStringify(right);
+}
+function discoveryReceipt(opId: string, snapshot: Snapshot, value: unknown): WriteReceipt {
+  return {
+    outcome: "applied",
+    opId: `read:${opId}`,
+    revision: snapshot.revision,
+    evidence: JSON.stringify(value),
+    visibility: "center",
+    proof: {
+      committedRevision: snapshot.revision,
+      appliedCut: snapshot.revision,
+      durable: true,
+      canonicalVisible: true,
+      worktreeVisible: null,
+    },
+    summary: `${JSON.stringify(value, null, 2)}\n`,
+  } as WriteReceipt;
 }

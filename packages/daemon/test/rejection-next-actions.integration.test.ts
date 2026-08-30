@@ -156,18 +156,14 @@ test("executor declaration and completion context refusals name projection rebui
     assert.equal(declaration.code, "content_not_ready", JSON.stringify(declaration));
     assert.equal(
       declaration.nextAction,
-      `Task ${taskId} is not ready for executor declaration; run ha daemon projection rebuild, then retry ha task declare-executor ${taskId} --execution-id ${executionId} --reason <reason>.`,
+      `Task ${taskId} is not ready for executor declaration; run ha daemon projection rebuild, then retry ha task declare-executor ${taskId} --execution-id ${executionId} --agent <dispatch-agent> --reason <reason>.`,
     );
     assert.equal((await cell.run({ kind: "projection-rebuild" }, declarer)).outcome, "applied");
-    assert.equal(
-      (
-        await cell.run(
-          { kind: "task-declare-executor", taskId, executionId, reason: "Recover omitted executor" },
-          declarer,
-        )
-      ).outcome,
-      "applied",
+    const withoutDispatch = await cell.run(
+      { kind: "task-declare-executor", taskId, executionId, reason: "Recover omitted executor" },
+      declarer,
     );
+    assert.equal(withoutDispatch.code, "invalid_proof", JSON.stringify(withoutDispatch));
     await cell.close();
     cell = undefined;
 

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -127,6 +127,44 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
       repoId: workspaceId("review-bare"),
       rootDir: canonicalRoot(rootDir),
       ownerId: "daemon-test",
+      runtimeDaemonRoute: { userRoot: rootDir, daemonId: "daemon-test", endpoint: path.join(rootDir, "daemon.sock") },
+      prepareRuntimeLaunch: (_instanceId, request) => ({
+        definition: {
+          schema: "agent-definition-snapshot/v1",
+          configVersion: 1,
+          instanceId: "review-runtime",
+          installationId: "review-runtime-installation",
+          kindId: "codex",
+          providerId: "openai",
+          model: "review-model",
+          reasoningEffort: "medium",
+          baseUrl: null,
+          authMode: "subscription",
+        },
+        installation: {
+          installationId: "review-runtime-installation",
+          kindId: "codex",
+          executablePath: "/test/review-runtime",
+          version: "1.0.0",
+          observedAt: "2026-08-22T00:00:00.000Z",
+        },
+        executablePath: "/test/review-runtime",
+        args: ["provider-review-bare"],
+        env: {},
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: () => ({
+        pid: 1_001,
+        onOutput: (listener) => {
+          queueMicrotask(() =>
+            listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-review-bare" })}\n`),
+          );
+        },
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+      }),
     });
     const bare = withRoleBinding(
       {
@@ -145,20 +183,33 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
     const started = (await cell.run({ kind: "task-start", taskId, executionId }, bare)) as Record<string, unknown>;
     assert.equal(started.outcome, "applied");
     assert.match(String(started.summary), /declared no executor/u);
-    const commitSha = git(rootDir, "rev-parse", "HEAD");
-    assert.equal(
-      (await cell.run({ kind: "task-release", taskId, reason: "Rejoin as the agent that completed the work." }, bare))
-        .outcome,
-      "applied",
+    const worker = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "review-runtime",
+        cwd: { scope: "repo-root" },
+        prompt: "Implement the task.",
+        taskId,
+        idempotencyKey: "review-bare-worker",
+      },
+      bare,
     );
+    await runtimeEvent(
+      rootDir,
+      "review-bare",
+      (event) =>
+        event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === worker.runtimeSessionId,
+    );
+    const commitSha = git(rootDir, "rev-parse", "HEAD");
     const agent = withRoleBinding(
       {
-        actor: { principal: { personId: "0" }, executor: { kind: "agent" as const, id: "recovering-agent" } },
+        actor: {
+          principal: { personId: "0" },
+          executor: { kind: "agent" as const, id: `runtime-session:${worker.runtimeSessionId}` },
+        },
         source: "local" as const,
       },
       "arbiter",
     );
-    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, agent)).outcome, "applied");
     writeFileSync(
       path.join(rootDir, "submission.json"),
       JSON.stringify({
@@ -172,7 +223,7 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
       }),
     );
     assert.equal(
-      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, agent)).outcome,
+      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, bare)).outcome,
       "applied",
     );
     writeFileSync(
@@ -190,16 +241,41 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
 
     const wrongPrincipal = withRoleBinding(
       {
-        actor: { principal: { personId: "1" }, executor: { kind: "agent" as const, id: "recovering-agent" } },
+        actor: { principal: { personId: "1" }, executor: null },
         source: "local" as const,
       },
       "arbiter",
     );
     const denied = await cell.run(
-      { kind: "task-declare-executor", taskId, executionId, reason: "Claim from another principal." },
+      {
+        kind: "task-declare-executor",
+        taskId,
+        executionId,
+        agent: `runtime-session:${worker.runtimeSessionId}`,
+        reason: "Claim from another principal.",
+      },
       wrongPrincipal,
     );
     assert.equal(denied.code, "invalid_proof");
+
+    const impersonatingAgent = withRoleBinding(
+        {
+          actor: { principal: { personId: "0" }, executor: { kind: "agent" as const, id: "another-runtime" } },
+          source: "local" as const,
+        },
+        "arbiter",
+      ),
+      impersonationDenied = await cell.run(
+        {
+          kind: "task-declare-executor",
+          taskId,
+          executionId,
+          agent: `runtime-session:${worker.runtimeSessionId}`,
+          reason: "One agent must not bind another agent's dispatch.",
+        },
+        impersonatingAgent,
+      );
+    assert.equal(impersonationDenied.code, "invalid_proof", JSON.stringify(impersonationDenied));
 
     const declared = (await cell.run(
       {
@@ -207,7 +283,7 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
         taskId,
         reason: "Recovered the executor omitted by the original start invocation.",
       },
-      agent,
+      bare,
     )) as Record<string, unknown>;
     assert.equal(declared.outcome, "applied", JSON.stringify(declared));
     const event = makeTaskEventStore({ repoId: "review-bare", rootDir }).readEvent(String(declared.opId));
@@ -215,6 +291,7 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
     if (event?.type === "execution_executor_declared") {
       assert.deepEqual(event.payload.previousActor, bare.actor);
       assert.deepEqual(event.payload.execution.actor, agent.actor);
+      assert.deepEqual(event.actor, bare.actor);
       assert.equal(event.payload.reason, "Recovered the executor omitted by the original start invocation.");
     }
 
@@ -222,8 +299,8 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
       { kind: "task-review-execution", taskId, executionId, reviewId: "r2", fromFile: "review.json" },
       agent,
     );
-    assert.equal(selfReview.code, "actor_unauthorized");
-    assert.match(String(selfReview.nextAction), /independent of the submitting executor/u);
+    assert.equal(selfReview.code, "runtime_task_self_review_forbidden");
+    assert.match(String(selfReview.nextAction), /cannot review its own work/u);
 
     const reviewed = await cell.run(
       { kind: "task-review-execution", taskId, executionId, reviewId: "r3", fromFile: "review.json" },
@@ -247,7 +324,7 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
   }
 });
 
-test("a reviewed bare-invocation execution can declare its executor and complete after cold replay", async () => {
+test("a reviewed bare-invocation execution without a dispatch cannot declare an executor", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-bare-reviewed-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const repoId = workspaceId("review-bare-reviewed"),
@@ -256,26 +333,6 @@ test("a reviewed bare-invocation execution can declare its executor and complete
     bare = withRoleBinding(
       {
         actor: { principal: { personId: "person-owner" }, executor: null },
-        source: "local" as const,
-      },
-      "arbiter",
-    ),
-    agent = withRoleBinding(
-      {
-        actor: {
-          principal: { personId: "person-owner" },
-          executor: { kind: "agent" as const, id: "recovering-agent" },
-        },
-        source: "local" as const,
-      },
-      "arbiter",
-    ),
-    wrongPrincipal = withRoleBinding(
-      {
-        actor: {
-          principal: { personId: "person-outsider" },
-          executor: { kind: "agent" as const, id: "recovering-agent" },
-        },
         source: "local" as const,
       },
       "arbiter",
@@ -357,124 +414,19 @@ test("a reviewed bare-invocation execution can declare its executor and complete
       ).outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          { kind: "task-transition", taskId, status: "blocked", reason: "Executor attribution must be repaired." },
-          bare,
-        )
-      ).outcome,
-      "applied",
-    );
-    writeFileSync(
-      path.join(rootDir, "judgment.json"),
-      JSON.stringify({
-        submission,
-        review: { verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["daemon integration"] },
-        consent: { approved: true },
-        completion: { ci: "passed", codeDocPaths: ["README.md"] },
-      }),
-    );
-
-    const negativeControl = {
-      complete: await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, agent),
-      consent: await cell.run(
-        {
-          kind: "task-review-consent",
-          taskId,
-          executionId,
-          reviewId: "review-approved",
-          consentId: "consent-approved",
-        },
-        bare,
-      ),
-      closeout: await cell.run({ kind: "task-closeout", taskId, executionId, fromFile: "judgment.json" }, agent),
-      start: await cell.run({ kind: "task-start", taskId, executionId }, agent),
-      declareWrongPrincipal: await cell.run(
-        { kind: "task-declare-executor", taskId, executionId, reason: "An outsider must not claim this execution." },
-        wrongPrincipal,
-      ),
-    };
-    console.log(`executor-null-negative-control=${JSON.stringify(negativeControl)}`);
-    assert.deepEqual(
-      Object.values(negativeControl).map((receipt) => receipt.outcome),
-      ["op_rejected", "op_rejected", "op_rejected", "op_rejected", "op_rejected"],
-    );
-    assert.equal(negativeControl.complete.code, "task_blocked");
-    assert.match(String(negativeControl.complete.nextAction), /ha task transition task-bare-reviewed active/u);
-    assert.match(String(negativeControl.closeout.nextAction), /ha task transition task-bare-reviewed active/u);
-    assert.match(String(negativeControl.closeout.nextAction), /ha task declare-executor task-bare-reviewed/u);
-
-    const unblocked = await cell.run({ kind: "task-transition", taskId, status: "active" }, bare);
-    assert.equal(unblocked.outcome, "applied", JSON.stringify(unblocked));
-    const completeRepair = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, agent),
-      closeoutRepair = await cell.run({ kind: "task-closeout", taskId, executionId, fromFile: "judgment.json" }, agent);
-    assert.equal(completeRepair.code, "executor_missing", JSON.stringify(completeRepair));
-    assert.match(String(completeRepair.nextAction), /ha task declare-executor task-bare-reviewed/u);
-    assert.equal(closeoutRepair.code, "executor_missing", JSON.stringify(closeoutRepair));
-    assert.match(String(closeoutRepair.nextAction), /ha task declare-executor task-bare-reviewed/u);
     const denied = await cell.run(
-      { kind: "task-declare-executor", taskId, executionId, reason: "An outsider must not claim this execution." },
-      wrongPrincipal,
-    );
-    assert.equal(denied.code, "invalid_proof", JSON.stringify(denied));
-
-    const declared = (await cell.run(
       {
         kind: "task-declare-executor",
         taskId,
         executionId,
-        reason: "The original principal names the agent that completed the already approved execution.",
+        agent: "runtime-session:missing-runtime",
+        reason: "A free-text executor must not satisfy the proof gate.",
       },
-      agent,
-    )) as Record<string, unknown>;
-    assert.equal(declared.outcome, "applied", JSON.stringify(declared));
-    const declaration = makeTaskEventStore({ repoId, rootDir }).readEvent(String(declared.opId));
-    assert.equal(declaration?.type, "execution_executor_declared");
-    if (declaration?.type === "execution_executor_declared") {
-      assert.deepEqual(declaration.payload.previousActor, bare.actor);
-      assert.deepEqual(declaration.payload.execution.actor, agent.actor);
-      assert.equal(declaration.payload.task.status, "in_review");
-      assert.equal(declaration.payload.task.currentNode, "review");
-    }
-
-    await cell.close();
-    cell = undefined;
-    const projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId, rootDir }) });
-    projection.close();
-    rmSync(projection.path, { force: true });
-    projection.rebuild();
-    assert.equal(projection.read(taskId).snapshot.task?.status, "in_review");
-    assert.deepEqual(
-      projection.read(taskId).snapshot.executions.find((execution) => execution.executionId === executionId)?.actor,
-      agent.actor,
-    );
-    projection.close();
-
-    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "review-bare-reviewed-reopened" });
-    const consented = await cell.run(
-      { kind: "task-review-consent", taskId, executionId, reviewId: "review-approved", consentId: "consent-approved" },
       bare,
     );
-    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
-    const completed = (await cell.run(
-      { kind: "task-complete", taskId, executionId, ci: "passed", paths: ["README.md"] },
-      bare,
-    )) as Record<string, unknown>;
-    console.log(
-      `executor-null-positive-control=${JSON.stringify({ completeRepair, closeoutRepair, denied, declared, consented, completed })}`,
-    );
-    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
-    const shown = await cell.run({ kind: "task-show", taskId }, bare);
-    assert.match(String(shown.evidence), /"status":"done"/u);
-    assert.equal(
-      makeTaskEventStore({ repoId, rootDir })
-        .read()
-        .events.some(
-          (event) => event.type === "review_recorded" && event.payload.review.verdict === "changes_requested",
-        ),
-      false,
-    );
+    assert.equal(denied.code, "invalid_proof", JSON.stringify(denied));
+    assert.match(String(denied.nextAction), /has no recorded runtime dispatch/u);
+    assert.match(String(denied.nextAction), new RegExp(`ha task dispatches ${taskId}`, "u"));
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -677,10 +629,8 @@ test("task-bound runtime sessions cannot review their own execution across exit 
       implementer,
     );
     assert.equal(directCreated.outcome, "applied");
-    await realizeTaskPlanFixture(
-      rootDir,
-      String((directCreated as Record<string, unknown>).packagePath),
-      (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, implementer),
+    await realizeTaskPlanFixture(rootDir, String((directCreated as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, implementer),
     );
     assert.equal(
       (await cell.run({ kind: "task-start", taskId: directTaskId, executionId: directExecutionId }, implementer))

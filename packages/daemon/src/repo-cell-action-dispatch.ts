@@ -23,6 +23,7 @@ import { runFactRekey } from "./fact-rekey.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { actorHint } from "./repo-cell-proof.ts";
+import { readTaskDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 
@@ -568,6 +569,7 @@ export function declareExecutionExecutor(
         `${taskId}`,
         " --execution-id ",
         `${requestedExecutionId ?? "<execution-id>"}`,
+        " --agent <dispatch-agent>",
         " --reason <reason>.",
       ].join(""),
     );
@@ -580,9 +582,12 @@ export function declareExecutionExecutor(
           `Run ha task show ${taskId}; unblock the Task if needed, then retry when`,
           "one submitted review-node execution with no executor is eligible.",
         ].join(" "),
-        (candidate: string) => `ha task declare-executor ${taskId} --execution-id ${candidate} --reason <reason>`,
+        (candidate: string) =>
+          `ha task declare-executor ${taskId} --execution-id ${candidate} --agent <dispatch-agent> --reason <reason>`,
       ),
-    opId = cell.operationId(action, binding, cell.input.repoId, snapshot.revision),
+    executor = dispatchedExecutor(cell, action, taskId, executionId),
+    canonicalAction = { ...action, agent: executor.id },
+    opId = cell.operationId(canonicalAction, binding, cell.input.repoId, snapshot.revision),
     existing = cell.store.readEvent(opId);
   if (existing) return cell.receiptForOperation(opId, binding);
   const declaration = compileExecutionExecutorDeclaration({
@@ -590,6 +595,7 @@ export function declareExecutionExecutor(
       taskId,
       executionId,
       actor: binding.actor,
+      executor,
       source: binding.source,
       reason,
       opId,
@@ -615,5 +621,58 @@ export function declareExecutionExecutor(
     cell.projection.read(taskId).snapshot,
     publication,
     cell.receiptProof(compiled.event, publication),
+  );
+}
+
+function dispatchedExecutor(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  taskId: string,
+  executionId: string,
+): { readonly kind: "agent"; readonly id: string } {
+  const requested = action.agent === undefined ? undefined : cell.requiredCellText(action.agent, "agent"),
+    rows = readTaskDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).dispatches.filter(
+      (dispatch) => dispatch.executionId === executionId,
+    ),
+    candidates = [
+      ...new Map(
+        rows.map((dispatch) => [
+          dispatch.runtimeSessionId,
+          {
+            runtimeSessionId: dispatch.runtimeSessionId,
+            executorId: `runtime-session:${dispatch.runtimeSessionId}`,
+            agentId: dispatch.agentId,
+          },
+        ]),
+      ).values(),
+    ],
+    matches = requested
+      ? candidates.filter(
+          (candidate) =>
+            requested === candidate.executorId ||
+            requested === candidate.runtimeSessionId ||
+            requested === candidate.agentId,
+        )
+      : candidates;
+  if (matches.length === 1) return { kind: "agent", id: matches[0]!.executorId };
+  const choices = candidates.map((candidate) => candidate.executorId);
+  if (candidates.length === 0)
+    throw cell.cellCodedError(
+      "invalid_proof",
+      `Execution ${executionId} has no recorded runtime dispatch. Run ha task dispatches ${taskId}; executor declaration remains unavailable until a real dispatch record exists.`,
+    );
+  if (requested)
+    throw cell.cellCodedError(
+      "invalid_proof",
+      `--agent ${requested} does not name exactly one dispatch for execution ${executionId}. Choose ${choices.join(" or ")} from ha task dispatches ${taskId}.`,
+    );
+  throw cell.cellCodedError(
+    "invalid_command",
+    `Execution ${executionId} has multiple dispatched executors. Choose one explicitly with ${choices
+      .map(
+        (agent) =>
+          `ha task declare-executor ${taskId} --execution-id ${executionId} --agent ${agent} --reason <reason>`,
+      )
+      .join(" or ")}.`,
   );
 }

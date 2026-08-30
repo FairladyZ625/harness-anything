@@ -152,7 +152,7 @@ export function lifecycleReceipt(
             : !approved.length
               ? declarationNeeded
                 ? [
-                    "HARNESS_ACTOR=agent:<id> ha task declare-executor ",
+                    "ha task declare-executor ",
                     `${event.taskId}`,
                     " --execution-id ",
                     `${executionId}`,

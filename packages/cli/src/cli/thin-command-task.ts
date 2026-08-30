@@ -58,10 +58,31 @@ export function parseTask(
   if (id === "task-relate") return parseRelate(args, taskId, rootDir, repoId, json, inputs);
   if (id === "task-complete") return parseComplete(rootDir, repoId, json, args, taskId, inputs);
   if (id === "task-submit") return parseSubmit(rootDir, repoId, json, args, taskId, inputs);
-  if (id === "task-closeout")
-    return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
+  if (id === "task-closeout") {
+    const f = readFlags(id, args.slice(3), inputs);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    const fromFile = f.one.get("--from-file"),
+      printTemplate = f.booleans.has("--print-template"),
+      printSchema = f.booleans.has("--print-schema"),
+      modes = Number(fromFile !== undefined) + Number(printTemplate) + Number(printSchema);
+    if (modes !== 1)
+      return rejected(
+        modes === 0 ? "missing_field" : "invalid_field",
+        "Choose exactly one of --from-file <judgment.json>, --print-template, or --print-schema.",
+        json,
+      );
+    const executionId = f.one.get("--execution-id");
+    if (printSchema && executionId)
+      return rejected("invalid_field", "--execution-id does not apply to --print-schema.", json);
+    return accepted(rootDir, repoId, json, {
+      kind: id,
       taskId,
+      ...(executionId ? { executionId } : {}),
+      ...(fromFile ? { fromFile } : {}),
+      ...(printTemplate ? { printTemplate: true } : {}),
+      ...(printSchema ? { printSchema: true } : {}),
     });
+  }
   if (id === "task-declare-executor") {
     const f = readFlags(id, args.slice(3), inputs),
       executionId = f.ok ? f.one.get("--execution-id") : undefined;
@@ -70,6 +91,7 @@ export function parseTask(
           kind: id,
           taskId,
           ...(executionId ? { executionId } : {}),
+          ...(f.one.get("--agent") ? { agent: f.one.get("--agent") } : {}),
           reason: f.one.get("--reason"),
         })
       : rejected(f.code, f.nextAction, json);

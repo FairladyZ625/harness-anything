@@ -9,6 +9,7 @@ import {
   reviewJsonFields,
   taskSubmissionJsonFields,
 } from "../../../preset/src/preset-command-contract.ts";
+import { taskCloseoutPacketHelp } from "../../../kernel/src/index.ts";
 
 export const taskExecutionProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
@@ -131,12 +132,37 @@ export const taskExecutionProtocolCommands = Object.freeze([
       cliInput(
         "--from-file",
         "single",
-        true,
+        false,
         {
           code: "missing_field",
-          nextAction: "Run ha task closeout <task-id> --from-file <judgment.json>.",
+          nextAction: "Choose exactly one of --from-file <judgment.json>, --print-template, or --print-schema.",
         },
-        { jsonFields: ["submission", "review", "consent", "completion"] },
+        {
+          jsonFields: ["review", "consent", "completion"],
+          jsonAllowedFields: ["submission", "review", "consent", "completion"],
+          format: taskCloseoutPacketHelp(),
+          conflictsWith: ["--print-template", "--print-schema"],
+        },
+      ),
+      cliInput(
+        "--print-template",
+        "boolean",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use --print-template without --from-file or --print-schema.",
+        },
+        { conflictsWith: ["--from-file", "--print-schema"] },
+      ),
+      cliInput(
+        "--print-schema",
+        "boolean",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use --print-schema without --from-file or --print-template.",
+        },
+        { conflictsWith: ["--from-file", "--print-template", "--execution-id"] },
       ),
     ],
   }),

@@ -19,6 +19,8 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "task-1",
       "--execution-id",
       "execution-1",
+      "--agent",
+      "runtime-session:runtime-1",
       "--reason",
       "Recover omitted executor attribution",
     ]),
@@ -76,6 +78,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       kind: "task-declare-executor",
       taskId: "task-1",
       executionId: "execution-1",
+      agent: "runtime-session:runtime-1",
       reason: "Recover omitted executor attribution",
     });
   if (review.ok)
