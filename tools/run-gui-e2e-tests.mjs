@@ -13,7 +13,8 @@ export function selectGuiE2eCommand({ platform, display, hasXvfbRun }) {
   const baseCommand = {
     command: npmCommand,
     args: ["run", "test:e2e", "-w", "@harness-anything/gui"],
-    requiresXvfb: false
+    requiresXvfb: false,
+    shell: platform === "win32",
   };
 
   if (platform !== "linux" || display) {
@@ -31,7 +32,8 @@ export function selectGuiE2eCommand({ platform, display, hasXvfbRun }) {
   return {
     command: "xvfb-run",
     args: ["--auto-servernum", "npm", ...baseCommand.args],
-    requiresXvfb: true
+    requiresXvfb: true,
+    shell: false
   };
 }
 
@@ -57,7 +59,7 @@ function main() {
     cwd: repoRoot,
     env: process.env,
     stdio: "inherit",
-    shell: process.platform === "win32"
+    shell: selected.shell
   });
 
   if (result.error) {
