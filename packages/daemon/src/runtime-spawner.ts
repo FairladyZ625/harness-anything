@@ -137,6 +137,13 @@ export interface RuntimeSpawnerInput {
     schedule: TrustedScheduleRuntime | null,
   ) => void;
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void | Promise<void>;
+  /** Re-authorizes each local canonical Runtime event at the cut where it is appended. */
+  readonly authorizeRuntimeEvent?: (input: {
+    readonly type: AgentRuntimeEventV1["type"];
+    readonly payload: AgentRuntimeEventV1["payload"];
+    readonly opId: string;
+    readonly binding: RuntimeBinding;
+  }) => RuntimeBinding;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }
 

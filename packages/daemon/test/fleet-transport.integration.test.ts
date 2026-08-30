@@ -803,6 +803,20 @@ test(
       leaseReleaseIndex < runtimeExitIndex && runtimeExitIndex < runtimeOutcomeIndex,
       "center settlement must precede the adjacent edge exit and outcome events",
     );
+    assert.deepEqual(
+      settledEvents
+        .filter(
+          (event) =>
+            (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+            event.payload.runtimeSessionId === receipt.runtimeSessionId,
+        )
+        .map((event) => event.actor.executor),
+      [
+        { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` },
+        { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` },
+      ],
+      "the center must bind terminal edge writes to their node-owned RuntimeSession",
+    );
     const after = await fixture.host.read(fixture.assignment.repoId, "repo.tasks.list", {}, fixture.auth);
     assert.ok(after.sourceRevision > before.sourceRevision);
     await t.test("provider session resume keeps the center-observed runtime instance", async () => {

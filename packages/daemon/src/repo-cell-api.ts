@@ -808,6 +808,18 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     return pending;
   };
   const runtimeIngress: RepoCell["runtimeIngress"] = (action, binding) => {
+    if (
+      action.kind === "event" &&
+      (action.type === "runtime_session_exited" || action.type === "runtime_session_outcome_observed") &&
+      typeof action.payload.runtimeSessionId === "string"
+    )
+      binding = {
+        ...binding,
+        actor: {
+          principal: binding.actor.principal,
+          executor: { kind: "agent", id: `runtime-session:${action.payload.runtimeSessionId}` },
+        },
+      };
     const command = commandDescriptorForAction("runtime-run"),
       admission = admitRepoMode(context.mode, command, binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));

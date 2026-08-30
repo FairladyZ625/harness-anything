@@ -49,6 +49,7 @@ import type {
   RepoCellBinding,
   RepoCellStatus,
   RepoCellTerminal,
+  RepoTaskAction,
   Snapshot,
 } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
@@ -321,6 +322,41 @@ async function openLockedRepoCell(
   let settleScheduledOutcome: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell Schedule settlement is not ready.");
   };
+  const authorizeRuntimeAction = (
+    action: RepoTaskAction,
+    binding: RuntimeAttemptTerminal["binding"],
+    actionId: string,
+  ): RuntimeAttemptTerminal["binding"] => {
+    const { authorizationDecision: _previousDecision, ...unframed } = binding,
+      currentBinding =
+        binding.source !== "local" || binding.authorizationBindingMode !== "declared"
+          ? unframed
+          : (() => {
+              const {
+                  roleBindings: _previousRoleBindings,
+                  authorizationBindingMode: _previousBindingMode,
+                  ...local
+                } = unframed,
+                roleBindings = declaredRoleBindingsForActor(rootDir, binding.actor);
+              return roleBindings === undefined
+                ? { ...local, authorizationBindingMode: "default" as const }
+                : { ...local, authorizationBindingMode: "declared" as const, roleBindings };
+            })(),
+      revision = store.readHead()?.revision ?? 0,
+      authorizationDecision = authorizeRepoCellAction({
+        action,
+        binding: currentBinding,
+        actionId,
+        revision,
+        now: now(),
+      });
+    if (authorizationDecision.outcome === "denied")
+      throw cellCodedError(
+        "authorization_denied",
+        authorizationDecision.nextActions.join(" ") || `${action.kind} requires repository write authority.`,
+      );
+    return { ...currentBinding, authorizationDecision };
+  };
   const runtimeSpawner = makeRuntimeSpawner({
     repoId: input.repoId,
     rootDir,
@@ -353,6 +389,18 @@ async function openLockedRepoCell(
       if (terminal.schedule) schedule(() => settleScheduledOutcome(terminal));
       input.onAttemptTerminal?.(terminal);
     },
+    authorizeRuntimeEvent: ({ type, payload, opId, binding }) =>
+      authorizeRuntimeAction(
+        {
+          kind: "runtime-run",
+          runtimeEventType: type,
+          ...(Object.hasOwn(payload, "runtimeSessionId")
+            ? { runtimeSessionId: (payload as { readonly runtimeSessionId: string }).runtimeSessionId }
+            : {}),
+        },
+        binding,
+        `runtime-event:${opId}`,
+      ),
     ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });
@@ -528,8 +576,7 @@ async function openLockedRepoCell(
     const scheduled = terminal.schedule,
       detail = terminal.resultRef ?? terminal.reason;
     if (!scheduled) return;
-    const receipt = scheduleActions.settle(
-      {
+    const settlement = {
         scheduleId: scheduled.scheduleId,
         claimFence: scheduled.claimFence,
         outcome: terminal.outcome,
@@ -537,8 +584,12 @@ async function openLockedRepoCell(
         ...(detail ? { detail } : {}),
         idempotencyKey: `${terminal.runtimeSessionId}:attempt-terminal`,
       },
-      terminal.binding,
-    );
+      binding = authorizeRuntimeAction(
+        { kind: "schedule-settle", phase: "outcome", ...settlement },
+        terminal.binding,
+        `runtime-schedule-settle:${terminal.runtimeSessionId}`,
+      ),
+      receipt = scheduleActions.settle(settlement, binding);
     if (receipt.outcome !== "applied")
       throw cellCodedError(
         "schedule_settlement_pending",
@@ -554,16 +605,15 @@ async function openLockedRepoCell(
     // the next: a sibling dispatch that settles late would otherwise release the lease its own
     // batch just reacquired. The version is the generation, so settle only against that one.
     if (task.leaseVersion !== null && lease.version !== task.leaseVersion) return;
-    const settled = await extracted.taskSurfaceWrite(
-      {
+    const action = {
         kind: "task-release",
         taskId: task.taskId,
         terminalExecutionId: task.executionId,
         terminalRuntimeSessionId: terminal.runtimeSessionId,
         reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
       },
-      terminal.binding,
-    );
+      binding = authorizeRuntimeAction(action, terminal.binding, `runtime-task-release:${terminal.runtimeSessionId}`),
+      settled = await extracted.taskSurfaceWrite(action, binding);
     if (settled.outcome !== "applied")
       throw cellCodedError("runtime_lease_release_failed", `Runtime terminal lease settlement was ${settled.outcome}.`);
   };

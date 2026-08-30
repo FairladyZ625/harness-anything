@@ -23,7 +23,8 @@ export async function publishExit(
     return;
   context.exiting.add(active.runtimeSessionId);
   const cancelled = active.cancelRequested,
-    eventBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding;
+    cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
+    terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId);
   try {
     await consumeDurableOutput(context, active);
     if (!cancelled && code === null)
@@ -131,13 +132,13 @@ export async function publishExit(
         "runtime_session_cancelled",
         { runtimeSessionId: active.runtimeSessionId },
         active.cancelOpId ?? `${active.dispatchOpId}-cancelled`,
-        eventBinding,
+        cancelBinding,
       );
       await context.publishRuntimeEvent(
         "runtime_session_exited",
         { runtimeSessionId: active.runtimeSessionId },
         `${active.dispatchOpId}-exited`,
-        eventBinding,
+        terminalBinding,
       );
     }
     context.processes.delete(active.runtimeSessionId);
@@ -182,7 +183,7 @@ export async function publishExit(
         "runtime_session_exited",
         { runtimeSessionId: active.runtimeSessionId },
         `${active.dispatchOpId}-exited`,
-        eventBinding,
+        terminalBinding,
       );
     context.input.recordLifecycle?.({
       event: "runtime_exit",
@@ -205,7 +206,7 @@ export async function publishExit(
         ...(reasonCode ? { reasonCode } : {}),
       },
       `${active.dispatchOpId}-outcome`,
-      eventBinding,
+      terminalBinding,
       body,
     );
     context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
@@ -230,6 +231,17 @@ export async function publishExit(
   } finally {
     context.exiting.delete(active.runtimeSessionId);
   }
+}
+
+function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSessionId: string): ActiveRuntime["binding"] {
+  const { authorizationDecision: _spawnDecision, ...current } = binding;
+  return {
+    ...current,
+    actor: {
+      principal: binding.actor.principal,
+      executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+    },
+  };
 }
 
 export function runtimeResultText(
