@@ -1,6 +1,7 @@
-import { readdirSync, statSync, lstatSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { statFileSync, statLinkSync } from "./doc-sync-reads.ts";
 import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./protocol/artifacts-gui-contract.ts";
 
 /** 本读需要的投影面(结构性窄口,真实 TaskProjection 天然满足;测试可注入 stub)。 */
@@ -53,24 +54,6 @@ interface ArtifactFileRow {
   readonly relative: string;
   readonly kind: ArtifactGuiKind;
   readonly mtimeMs: number;
-}
-
-function statFileSync(target: string): import("node:fs").Stats | null {
-  try {
-    return statSync(target);
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
-}
-
-function statLinkSync(target: string): import("node:fs").Stats | null {
-  try {
-    return lstatSync(target);
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
 }
 
 /** 一棵 artifacts/ 子树下的 html/md 文件;符号链接一律不跟(产物只认真实文件)。 */

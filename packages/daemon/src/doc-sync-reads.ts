@@ -365,7 +365,7 @@ function worktreeDocumentIndex(packageRoot: string | null): readonly WorktreeDoc
   return rows.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function statFileSync(target: string): import("node:fs").Stats | null {
+export function statFileSync(target: string): import("node:fs").Stats | null {
   try {
     return statSync(target);
   } catch (error) {
@@ -374,7 +374,7 @@ function statFileSync(target: string): import("node:fs").Stats | null {
   }
 }
 
-function statLinkSync(target: string): import("node:fs").Stats | null {
+export function statLinkSync(target: string): import("node:fs").Stats | null {
   try {
     return lstatSync(target);
   } catch (error) {

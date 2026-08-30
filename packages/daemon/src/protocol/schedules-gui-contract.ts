@@ -182,7 +182,7 @@ const lastRunFields = [
   "detail",
 ] as const;
 
-function utcTimestamp(value: unknown, nullable = false): boolean {
+export function utcTimestamp(value: unknown, nullable = false): boolean {
   const valid = typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(value);
   return nullable ? value === null || valid : valid;
 }
@@ -191,7 +191,7 @@ function scheduleNonEmptyText(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
-function nullableNonEmpty(value: unknown): boolean {
+export function nullableNonEmpty(value: unknown): boolean {
   return value === null || scheduleNonEmptyText(value);
 }
 

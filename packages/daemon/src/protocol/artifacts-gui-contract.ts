@@ -1,4 +1,5 @@
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
+import { nullableNonEmpty, utcTimestamp } from "./schedules-gui-contract.ts";
 
 /** Artifacts GUI wire contract。一次 `repo.artifacts.list` 的 DTO 是「全部 task 包
  * artifacts/ 下的 html/md 文件」×「文档投影(台账时间)」×「task 归属(投影
@@ -52,14 +53,6 @@ const artifactRowFields = ["taskId", "taskTitle", "packagePath", "path", "kind",
 
 function artifactNonEmptyText(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
-}
-
-function nullableNonEmpty(value: unknown): boolean {
-  return value === null || artifactNonEmptyText(value);
-}
-
-function utcTimestamp(value: unknown): boolean {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(value);
 }
 
 function artifactPath(value: unknown): value is string {
