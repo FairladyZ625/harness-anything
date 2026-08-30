@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -102,21 +102,24 @@ test("manifest gate runner preserves the full CI plan when --changed is absent",
 test("manifest gate runner resumes only the failed run and removes its checkpoint after success", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "ha-manifest-resume-"));
   try {
-    writeRunnerFixture(root);
     git(root, ["init"]);
+    git(root, ["config", "core.autocrlf", "true"]);
+    writeRunnerFixture(root);
     git(root, ["add", "."]);
     git(root, ["-c", "user.name=Harness Test", "-c", "user.email=test@example.com", "commit", "-m", "fixture"]);
 
-    const first = runFixture(root, {});
+    const ciEnv = fixtureCiEnv(root);
+    const first = runFixture(root, ciEnv);
     assert.equal(first.status, 1, first.stderr);
     assert.equal(readRuns(root), "one\n");
+    assert.equal(existsSync(ciEnv.HARNESS_CI_GATE_RESULTS), true);
 
-    const resumed = runFixture(root, { ALLOW_SECOND_GATE: "1" }, ["--resume"]);
+    const resumed = runFixture(root, { ...ciEnv, ALLOW_SECOND_GATE: "1" }, ["--resume"]);
     assert.equal(resumed.status, 0, resumed.stderr);
     assert.match(resumed.stdout, /check-one \(already passed; resumed\)/u);
     assert.equal(readRuns(root), "one\nthree\n");
 
-    const staleResume = runFixture(root, { ALLOW_SECOND_GATE: "1" }, ["--resume"]);
+    const staleResume = runFixture(root, { ...ciEnv, ALLOW_SECOND_GATE: "1" }, ["--resume"]);
     assert.equal(staleResume.status, 2);
     assert.match(staleResume.stderr, /--resume requires a failed manifest gate run/u);
   } finally {
@@ -193,6 +196,18 @@ function writeRunnerFixture(root) {
 
 function gate(id, command) {
   return { id, command, executionSurfaces: { rewriteCi: { pullRequestJobs: ["boundaries"] } } };
+}
+
+function fixtureCiEnv(root) {
+  const observationRoot = path.join(root, "tmp/ci-observation");
+  return {
+    GITHUB_ACTIONS: "true",
+    GITHUB_JOB: "fast-contract",
+    HARNESS_CI_NODE_TEST_RESULTS: path.join(observationRoot, "node-tests.json"),
+    HARNESS_CI_VITEST_RESULTS: path.join(observationRoot, "vitest.json"),
+    HARNESS_CI_GATE_RESULTS: path.join(observationRoot, "gates.json"),
+    HARNESS_CI_OBSERVATION_OUTPUT: path.join(observationRoot, "observation.json"),
+  };
 }
 
 function git(root, args) {

@@ -185,9 +185,9 @@ If that exact message is not the sole failure, do not exclude the gate. Never
 treat the exclusion as a CI waiver; the required GitHub context must still pass
 on the PR. `--resume` uses only the checkpoint from the latest failed run in the
 same worktree, skips commands that already passed, and removes the checkpoint
-after success. If the selected surface or tracked repository content changed,
-the runner rejects the checkpoint; rerun without `--resume` so affected checks
-are not skipped. Results are never cached across successful runs.
+after success. If the selected gates or their commands changed, the runner
+rejects the checkpoint; rerun without `--resume` so affected checks are not
+skipped. Results are never cached across successful runs.
 
 > 中文：从 `tools/gate-manifest.json` 读取当前 job/tier，用
 > `run-manifest-gates --changed origin/main` 跑改动面对应的 job，并始终运行
@@ -196,7 +196,7 @@ are not skipped. Results are never cached across successful runs.
 > 本地只有 `check-github-required-contexts` 的精确报错
 > `repository must be provided as owner/name` 可在确认缺 GitHub 上下文后单独排除；
 > 该排除不适用于 CI，也不能掩盖其他失败。`--resume` 只复用同一 worktree 最近一次
-> 失败运行的已绿命令；成功后删除断点，代码或选择面变化后必须重新完整执行。
+> 失败运行的已绿命令；成功后删除断点，所选 gate 或命令变化后必须重新完整执行。
 
 ## Commit with the contributor identity
 

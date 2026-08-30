@@ -346,9 +346,7 @@ function prepareResume(manifest, options) {
     throw new Error(`cannot read resume checkpoint: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (checkpoint.schema !== "manifest-gate-resume/v1" || checkpoint.signature !== signature) {
-    throw new Error(
-      "resume checkpoint does not match the selected gates or current repository state; rerun without --resume",
-    );
+    throw new Error("resume checkpoint does not match the selected gates or commands; rerun without --resume");
   }
   return { path: checkpointPath, signature, passedCommands: new Set(checkpoint.passedCommands ?? []) };
 }
@@ -356,35 +354,7 @@ function prepareResume(manifest, options) {
 function createResumeSignature(manifest, options) {
   const baseOptions = { ...options, exclude: new Set(), resume: false };
   const basePlan = buildManifestGatePlan(manifest, baseOptions);
-  const repositoryState = createRepositoryStateDigest();
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        packageSurface: options.packageSurface,
-        workflowJob: options.workflowJob,
-        shard: options.shard,
-        changed: options.changed,
-        changedPaths: options.changedPaths,
-        basePlan,
-        repositoryState,
-      }),
-    )
-    .digest("hex");
-}
-
-function createRepositoryStateDigest() {
-  const digest = createHash("sha256")
-    .update(readGitOutput(["rev-parse", "HEAD"]))
-    .update("\0")
-    .update(readGitOutput(["diff", "--binary", "HEAD", "--"]));
-  const untracked = readGitOutput(["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean);
-  for (const file of untracked)
-    digest
-      .update("\0")
-      .update(file)
-      .update("\0")
-      .update(readFileSync(path.join(repoRoot, file)));
-  return digest.digest("hex");
+  return createHash("sha256").update(JSON.stringify(basePlan)).digest("hex");
 }
 
 function readGitOutput(args) {
