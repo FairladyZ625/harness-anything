@@ -24,13 +24,14 @@ export function parseRuntimeInstanceUpdate(
     !flags.one.has("--base-url") &&
     !flags.one.has("--permission-mode") &&
     !flags.one.has("--isolation") &&
+    !flags.booleans.has("--fast") &&
     !enable &&
     !disable
   )
     return rejected(
       "invalid_field",
       "Runtime instance update requires --name, --installation, --model, --default-model, " +
-        "--base-url, --permission-mode, --isolation, --enable, or --disable.",
+        "--base-url, --permission-mode, --isolation, --fast, --enable, or --disable.",
       json,
     );
   return accepted(
@@ -47,6 +48,7 @@ export function parseRuntimeInstanceUpdate(
       ...(flags.one.has("--base-url") ? { baseUrl: flags.one.get("--base-url") } : {}),
       ...(flags.one.get("--permission-mode") ? { permissionMode: flags.one.get("--permission-mode") } : {}),
       ...(flags.one.get("--isolation") ? { isolationState: flags.one.get("--isolation") } : {}),
+      ...(flags.booleans.has("--fast") ? { fast: true } : {}),
       ...(enable || disable ? { enabled: enable } : {}),
     },
     route.method,

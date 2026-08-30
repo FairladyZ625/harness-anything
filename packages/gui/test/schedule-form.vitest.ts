@@ -41,6 +41,7 @@ const initialRow: ScheduleGuiRowDto = {
     runtimeInstanceId: "codex-schedule",
     model: "gpt-5.6",
     reasoningEffort: "high",
+    fast: true,
     cwd: null,
   },
   mission: "Keep the mainline green.",
@@ -141,6 +142,11 @@ describe("segmented guided form (M5)", () => {
     // The ternary loop is the default route; report is locked on.
     const report = container.querySelector<HTMLElement>('[data-testid="schedule-form-routing-report"]');
     expect(report?.textContent).toContain("Write report");
+    expect(
+      container
+        .querySelector<HTMLButtonElement>('[data-testid="schedule-form-fast"] button')
+        ?.getAttribute("aria-checked"),
+    ).toBe("true");
   });
 
   it("switches to the cron calendar, previews the expression, and blocks the save until interval is restored", async () => {
@@ -216,12 +222,16 @@ describe("segmented guided form (M5)", () => {
     const mission = container.querySelector<HTMLTextAreaElement>('[data-testid="schedule-form-mission"]');
     expect(mission?.value).toContain("{{lastReport}}");
     await setValue(container, "schedule-form-mission", "Run the probe {{repo}}.");
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('[data-testid="schedule-form-fast"] button')?.click(),
+    );
     await click(container, "schedule-form-submit");
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         scheduleId: "fresh-probe",
         everyMs: 1_800_000,
         mission: "Run the probe {{repo}}.",
+        fast: true,
       } satisfies Partial<ScheduleDefinitionInput>),
     );
   });

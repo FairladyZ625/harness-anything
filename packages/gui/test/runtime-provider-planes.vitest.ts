@@ -36,6 +36,7 @@ const form: CreateInstanceFormState = {
   providerId: "anthropic",
   model: "claude-opus",
   reasoningEffort: "",
+  fast: false,
   baseUrl: "",
   authMode: "subscription",
   apiKey: "",
@@ -60,6 +61,7 @@ describe("provider edit form", () => {
     isolationState: "enforced",
     codex: {
       reasoningEffort: null,
+      fast: true,
       baseUrl: "https://old.example/v1",
       baseUrlConfigured: true,
       wire_api: null,
@@ -77,6 +79,7 @@ describe("provider edit form", () => {
     expect(buildRuntimeInstanceUpdatePayload("codex-edit", { ...form, name: "Codex Edited" })).toMatchObject({
       instanceId: "codex-edit",
       baseUrl: "https://old.example/v1",
+      fast: true,
     });
   });
   it("sends the edited base URL and an explicit empty value clears it", () => {
@@ -306,6 +309,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
         providerId: "codex_local_access",
         model: "gpt-5.6-terra, gpt-5.6-sol",
         reasoningEffort: " high ",
+        fast: true,
         baseUrl: "http://localhost:50818/v1",
         authMode: "api-key",
         apiKey: "  sk-sidecar  ",
@@ -329,6 +333,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
       permissionMode: "workspace-write",
       codex: {
         reasoningEffort: "high",
+        fast: true,
         baseUrl: "http://localhost:50818/v1",
         wireApi: "responses",
         requiresOpenAiAuth: true,
@@ -343,6 +348,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
         providerId: "openai",
         model: "gpt-5.6-sol",
         reasoningEffort: "",
+        fast: false,
         baseUrl: "",
         authMode: "subscription",
         apiKey: "",

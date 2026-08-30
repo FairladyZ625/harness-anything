@@ -5,6 +5,7 @@ export const thinCliLocalErrorCodes = Object.freeze([
   "daemon_target_conflict",
   "duplicate_field",
   "invalid_field",
+  "invalid_runtime_fast",
   "missing_field",
   "runtime_settlement_failed",
   "unknown_field",

@@ -52,6 +52,7 @@ export interface TrustedScheduleSpawn extends TrustedScheduleRuntime {
   readonly agentId: string;
   readonly model?: string;
   readonly effort?: string;
+  readonly fast?: boolean;
   readonly cwd?: string;
 }
 
@@ -109,6 +110,7 @@ export type ActiveRuntime = {
   readonly onExitCommand: string | null;
   readonly model: string;
   readonly reasoningEffort: string | null;
+  readonly fast: boolean;
   readonly startedAt: string;
   readonly stream: DispatchStreamWriter;
   readonly fallbackAttempt: RuntimeFallbackAttempt | null;

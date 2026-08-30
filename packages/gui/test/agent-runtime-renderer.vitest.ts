@@ -31,6 +31,7 @@ const definition = {
   providerId: "openai",
   model: "gpt-5.6-sol",
   reasoningEffort: "high",
+  fast: true,
   baseUrl: "https://api.example.test/",
   authMode: "api-key",
 } as const;
@@ -76,6 +77,7 @@ const instance = {
   permissionMode: "bypass",
   codex: {
     reasoningEffort: definition.reasoningEffort,
+    fast: definition.fast,
     baseUrl: definition.baseUrl,
     baseUrlConfigured: true,
     wire_api: null,
@@ -468,6 +470,7 @@ describe("agent runtime renderer", () => {
     const codexMarkup = runtimeCard(instance),
       claudeMarkup = runtimeCard(claudeInstance);
     expect(codexMarkup).toContain("codex.reasoningEffort");
+    expect(codexMarkup).toContain("codex.fast");
     expect(codexMarkup).toContain("codex.http_headers");
     expect(codexMarkup).toContain("x-client=harness");
     expect(codexMarkup).not.toContain("claude.baseUrl");
@@ -618,8 +621,11 @@ describe("agent runtime renderer", () => {
     for (const kind of ["claude", "codex", "agy"] as const) expect(dialog(kind)).not.toMatch(/type="password"/u);
     expect(dialog("claude")).toContain("API override");
     expect(dialog("codex")).toContain("Codex-family models only.");
+    expect(dialog("codex")).toContain("Fast mode");
+    expect(dialog("codex")).toContain('data-testid="new-runtime-fast"');
     expect(dialog("agy")).toContain("AGY supports only its own login flow");
     expect(dialog("agy")).not.toContain("API override");
+    expect(dialog("agy")).not.toContain("Fast mode");
   });
   it("renders detected models as selected checkboxes and keeps custom text behind an override", () => {
     const markup = renderToStaticMarkup(

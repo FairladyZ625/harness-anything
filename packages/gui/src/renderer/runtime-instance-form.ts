@@ -18,6 +18,7 @@ export type CreateInstanceFormState = {
   readonly models?: readonly string[];
   readonly model?: string;
   readonly reasoningEffort: string;
+  readonly fast: boolean;
   readonly baseUrl: string;
   readonly authMode: RuntimeAuthMode;
   readonly apiKey: string;
@@ -36,6 +37,9 @@ export type RuntimeInstanceEditFormState = {
   readonly baseUrl: string;
   /** Whether this instance's plane carries a base URL at all (API-mode claude/codex). */
   readonly baseUrlEditable: boolean;
+  /** Codex-only default used when an individual launch does not override it. */
+  readonly fast: boolean;
+  readonly fastEditable: boolean;
 };
 
 type DetectedModels = { readonly models?: readonly string[]; readonly defaultModel?: string };
@@ -87,6 +91,7 @@ export function buildRuntimeInstanceCreatePayload(
         permissionMode: form.permissionMode,
         codex: {
           ...(form.reasoningEffort.trim() ? { reasoningEffort: form.reasoningEffort.trim() } : {}),
+          ...(form.fast ? { fast: true } : {}),
           ...(baseUrl ? { baseUrl } : {}),
           ...(form.wireApi ? { wireApi: form.wireApi } : {}),
           ...(form.requiresOpenAiAuth ? { requiresOpenAiAuth: true } : {}),
@@ -112,6 +117,8 @@ export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): Runti
     customModel: "",
     baseUrlEditable: editable,
     baseUrl: editable ? runtimeInstanceBaseUrl(instance) : "",
+    fast: instance.kindId === "codex" ? instance.codex.fast : false,
+    fastEditable: instance.kindId === "codex",
   };
 }
 
@@ -171,6 +178,7 @@ export function buildRuntimeInstanceUpdatePayload(
     // meaningful (back to the official endpoint), so it is sent whenever the plane has one.
     // A plane without an API mode has no base URL at all and the field is omitted there.
     ...(form.baseUrlEditable ? { baseUrl: form.baseUrl.trim() } : {}),
+    ...(form.fastEditable ? { fast: form.fast } : {}),
   };
 }
 
@@ -200,6 +208,7 @@ export function applyRuntimeKind(
     requiresOpenAiAuth: false,
     baseUrl: planeAllowsBaseUrl(kindId, authMode) ? form.baseUrl : "",
     reasoningEffort: planeAllowsEffort(kindId) ? form.reasoningEffort : "",
+    fast: kindId === "codex" ? form.fast : false,
     permissionMode: defaults.permissionMode,
     isolation: defaults.isolation,
   };

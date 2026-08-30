@@ -451,6 +451,7 @@ function runtimeInstance(instanceId: string): RuntimeInstanceSummary {
     permissionMode: "read-only",
     codex: {
       reasoningEffort: null,
+      fast: false,
       baseUrl: null,
       baseUrlConfigured: false,
       wire_api: null,
@@ -474,6 +475,7 @@ function definition(instanceId: string, model: string): AgentDefinitionSnapshot 
     providerId: "openai",
     model,
     reasoningEffort: null,
+    fast: false,
     baseUrl: null,
     authMode: "subscription",
   };

@@ -71,6 +71,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
       onExitCommand: stream.header.onExitCommand ?? null,
       model: metadata.model,
       reasoningEffort: metadata.reasoningEffort,
+      fast: metadata.fast,
       startedAt: stream.header.startedAt,
       stream: reopenDispatchStream(context.input.rootDir, stream.header),
       fallbackAttempt: stream.header.fallbackAttempt ?? null,
@@ -123,6 +124,7 @@ function adoptableMetadata(header: DispatchStreamHeader): {
   readonly prompt: string;
   readonly model: string;
   readonly reasoningEffort: string | null;
+  readonly fast: boolean;
 } | null {
   if (
     typeof header.dispatchOpId !== "string" ||
@@ -133,6 +135,7 @@ function adoptableMetadata(header: DispatchStreamHeader): {
     typeof header.cwd !== "string" ||
     typeof header.prompt !== "string" ||
     typeof header.model !== "string" ||
+    (header.fast !== undefined && typeof header.fast !== "boolean") ||
     (header.reasoningEffort !== null && typeof header.reasoningEffort !== "string")
   )
     return null;
@@ -145,6 +148,7 @@ function adoptableMetadata(header: DispatchStreamHeader): {
     prompt: header.prompt,
     model: header.model,
     reasoningEffort: header.reasoningEffort,
+    fast: header.fast ?? false,
   };
 }
 function isBinding(value: unknown): value is RuntimeBinding {

@@ -400,6 +400,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       (value.squadId !== undefined && !nonEmpty(value.squadId)) ||
       (value.model !== undefined && !nonEmpty(value.model)) ||
       (value.effort !== undefined && !nonEmpty(value.effort)) ||
+      (value.fast !== undefined && typeof value.fast !== "boolean") ||
       (value.permissionMode !== undefined && !nonEmpty(value.permissionMode)) ||
       (value.prompt !== undefined && !nonEmpty(value.prompt)) ||
       (value.prompt === undefined && !nonEmpty(value.taskId)) ||

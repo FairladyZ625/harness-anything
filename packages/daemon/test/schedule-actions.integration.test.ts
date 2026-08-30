@@ -29,6 +29,7 @@ const definition: AgentDefinitionSnapshot = {
   providerId: "openai",
   model: "gpt-5.6-sol",
   reasoningEffort: "high",
+  fast: true,
   baseUrl: null,
   authMode: "subscription",
 };
@@ -39,6 +40,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
     exit: ((code: number | null) => void) | null = null,
     launchCount = 0,
     preparedPermissionMode: string | undefined,
+    preparedFast: boolean | undefined,
     workerGitEnvironmentRequests = 0,
     launched: { readonly env: NodeJS.ProcessEnv; readonly prompt: string } | null = null;
   try {
@@ -76,6 +78,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       ],
       prepareRuntimeLaunch: async (_instanceId, request) => {
         preparedPermissionMode = request.permissionMode;
+        preparedFast = request.fast;
         return {
           definition,
           installation: {
@@ -145,6 +148,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           agentId: "probe-agent",
           runtimeInstanceId: definition.instanceId,
           mission: "Inspect the repository and report success.",
+          fast: true,
           idempotencyKey: "seed-e2e-probe",
         },
         actor,
@@ -160,6 +164,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           agentId: "probe-agent",
           runtimeInstanceId: definition.instanceId,
           mission: "Inspect the repository and report success.",
+          fast: true,
           idempotencyKey: "seed-e2e-probe",
         },
         actor,
@@ -172,6 +177,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       assert.equal(started.outcome, "applied", JSON.stringify(started));
       assert.equal(launchCount, 1);
       assert.equal(preparedPermissionMode, "read-only");
+      assert.equal(preparedFast, true);
       assert.equal(workerGitEnvironmentRequests, 0);
       assert.equal((launched as { env: NodeJS.ProcessEnv } | null)?.env.HARNESS_TASK_BOUND, undefined);
       assert.equal((launched as { env: NodeJS.ProcessEnv } | null)?.env.HARNESS_SCHEDULE_ID, "e2e-probe");

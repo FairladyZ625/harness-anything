@@ -417,6 +417,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       instanceId: "cli-worker",
       model: "runtime-test-model",
       reasoningEffort: null,
+      fast: false,
       cwd: realpathSync(root),
       missionRef: `${packagePath}/artifacts/missions/${boundDispatchId}.md`,
       runtimeSessionId: bound.runtimeSessionId,
@@ -842,7 +843,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(unknownDispatch.status, 1);
     assert.equal(
       rejectionHint(unknownDispatch.receipt),
-      'Batch dispatch 0 contains an unknown field "permissionMode"; allowed fields: "instance", "agent", "to", "squad", "model", "effort", "permission-mode", "prompt", "mission", "cwd", "task".',
+      'Batch dispatch 0 contains an unknown field "permissionMode"; allowed fields: "instance", "agent", "to", "squad", "model", "effort", "fast", "permission-mode", "prompt", "mission", "cwd", "task".',
     );
     const unknownSpawn = await runCommandThroughDaemon(
       {
@@ -913,6 +914,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
               to: "terra",
               model: "runtime-test-model",
               effort: "high",
+              fast: true,
               prompt: "batch hold one",
               task: taskId,
             },
@@ -967,6 +969,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       (JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).reasoningEffort,
       "high",
     );
+    assert.equal((JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).fast, true);
     const emptyFailure = runMaybe(root, env, [
       "runtime",
       "run",

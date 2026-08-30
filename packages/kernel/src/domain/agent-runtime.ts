@@ -57,6 +57,7 @@ export interface AgentDefinitionSnapshot {
   readonly providerId: string;
   readonly model: string;
   readonly reasoningEffort: string | null;
+  readonly fast?: boolean;
   readonly baseUrl: string | null;
   readonly authMode: "subscription" | "api-key";
 }
@@ -558,9 +559,7 @@ function validCapabilities(value: unknown): boolean {
   );
 }
 function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): value is AgentDefinitionSnapshot {
-  return (
-    isRecord(value) &&
-    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
+  const required = [
       "schema",
       "configVersion",
       "instanceId",
@@ -571,12 +570,18 @@ function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): v
       "reasoningEffort",
       "baseUrl",
       "authMode",
-    ]) &&
+    ],
+    allowed = [...required, "fast"];
+  return (
+    isRecord(value) &&
+    required.every((field) => Object.hasOwn(value, field)) &&
+    (allowUnknownFields || Object.keys(value).every((field) => allowed.includes(field))) &&
     value.schema === "agent-definition-snapshot/v1" &&
     value.configVersion === 1 &&
     [value.instanceId, value.installationId, value.providerId, value.model].every(isNonEmptyString) &&
     ["claude", "codex", "agy"].includes(String(value.kindId)) &&
     (value.reasoningEffort === null || isNonEmptyString(value.reasoningEffort)) &&
+    (value.fast === undefined || typeof value.fast === "boolean") &&
     (value.baseUrl === null || isNonEmptyString(value.baseUrl)) &&
     ["subscription", "api-key"].includes(String(value.authMode))
   );

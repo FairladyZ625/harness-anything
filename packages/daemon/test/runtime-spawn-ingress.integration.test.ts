@@ -26,6 +26,7 @@ const definition: AgentDefinitionSnapshot = {
   providerId: "openai",
   model: "gpt-5.6-sol",
   reasoningEffort: "high",
+  fast: false,
   baseUrl: "https://api.example.test/",
   authMode: "api-key",
 };
@@ -128,7 +129,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         installationId: ingressDefinition.installationId,
         providerId: ingressDefinition.providerId,
         models: [ingressDefinition.model],
-        codex: { reasoningEffort: ingressDefinition.reasoningEffort },
+        codex: { reasoningEffort: ingressDefinition.reasoningEffort, fast: ingressDefinition.fast },
         authMode: ingressDefinition.authMode,
       },
       auth,
@@ -1391,19 +1392,28 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
   }
 });
 
-test("daemon ingress passes Claude effort through to the witnessed Claude Code CLI", async () => {
+test("daemon ingress passes Claude effort and Codex fast through to the witnessed CLIs", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-effort-ingress-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     repoId = "runtime-claude-effort-ingress",
     uid = process.getuid?.() ?? 0,
     argsPath = path.join(parent, "claude-args.json"),
+    codexArgsPath = path.join(parent, "codex-args.json"),
     executablePath = writeProviderStub(path.join(parent, "claude-stub"), "claude", argsPath),
-    installation = {
+    codexExecutablePath = writeProviderStub(path.join(parent, "codex-stub"), "codex", codexArgsPath),
+    claudeInstallation = {
       installationId: "installation-claude-effort",
       kindId: "claude" as const,
       executablePath,
       version: "2.1.251",
+      observedAt: "2026-08-30T00:00:00.000Z",
+    },
+    codexInstallation = {
+      installationId: "installation-codex-fast",
+      kindId: "codex" as const,
+      executablePath: codexExecutablePath,
+      version: "0.150.1",
       observedAt: "2026-08-30T00:00:00.000Z",
     },
     auth = {
@@ -1416,10 +1426,10 @@ test("daemon ingress passes Claude effort through to the witnessed Claude Code C
   initIngressRepo(root, uid);
   registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const host = await openDaemonHost({
-    daemonId: "runtime-claude-effort-ingress",
-    userRoot,
-    runtimeDiscover: () => [installation],
-  }),
+      daemonId: "runtime-claude-effort-ingress",
+      userRoot,
+      runtimeDiscover: () => [claudeInstallation, codexInstallation],
+    }),
     endpoint = localUserDaemonEndpoint(userRoot, "runtime-claude-effort-ingress"),
     transport = createUnixSocketTransportServer({
       daemonId: "runtime-claude-effort-ingress",
@@ -1436,10 +1446,24 @@ test("daemon ingress passes Claude effort through to the witnessed Claude Code C
         instanceId: "claude-effort-provider",
         name: "Claude effort provider",
         kindId: "claude",
-        installationId: installation.installationId,
+        installationId: claudeInstallation.installationId,
         providerId: "anthropic",
         models: ["claude-fable-5"],
         claude: {},
+        authMode: "subscription",
+      },
+      auth,
+    );
+    host.runtimeInstance(
+      "daemon.runtimeInstance.create",
+      {
+        instanceId: "codex-fast-provider",
+        name: "Codex fast provider",
+        kindId: "codex",
+        installationId: codexInstallation.installationId,
+        providerId: "openai",
+        models: ["gpt-5.6-sol"],
+        codex: {},
         authMode: "subscription",
       },
       auth,
@@ -1463,7 +1487,59 @@ test("daemon ingress passes Claude effort through to the witnessed Claude Code C
         "--effort",
         "high",
       ],
-      spawned = await spawnCli([
+      spawned = await spawnCli(
+        [
+          "--root",
+          root,
+          "--json",
+          "runtime",
+          "run",
+          "claude-effort-provider",
+          "--effort",
+          "high",
+          "--prompt",
+          "probe",
+          "--no-stream",
+        ],
+        childEnv,
+      );
+    assert.equal(spawned.status, 0, `${spawned.stderr}\n${spawned.stdout}`);
+    assert.deepEqual(JSON.parse(readFileSync(argsPath, "utf8")), expectedArgs);
+    const fastSpawned = await spawnCli(
+      ["--root", root, "--json", "runtime", "run", "codex-fast-provider", "--fast", "--prompt", "probe", "--no-stream"],
+      childEnv,
+    );
+    assert.equal(fastSpawned.status, 0, `${fastSpawned.stderr}\n${fastSpawned.stdout}`);
+    assert.deepEqual(JSON.parse(readFileSync(codexArgsPath, "utf8")), [
+      "exec",
+      "--json",
+      "--sandbox",
+      "danger-full-access",
+      "--model",
+      "gpt-5.6-sol",
+      "--config",
+      'service_tier="fast"',
+      "-",
+    ]);
+    const unsupported = await spawnCli(
+      [
+        "--root",
+        root,
+        "--json",
+        "runtime",
+        "run",
+        "claude-effort-provider",
+        "--fast",
+        "--prompt",
+        "reject",
+        "--no-stream",
+      ],
+      childEnv,
+    );
+    assert.notEqual(unsupported.status, 0);
+    assert.equal((JSON.parse(unsupported.stdout) as Record<string, unknown>).code, "invalid_runtime_fast");
+    const rejected = await spawnCli(
+      [
         "--root",
         root,
         "--json",
@@ -1471,26 +1547,13 @@ test("daemon ingress passes Claude effort through to the witnessed Claude Code C
         "run",
         "claude-effort-provider",
         "--effort",
-        "high",
+        "turbo",
         "--prompt",
-        "probe",
+        "reject",
         "--no-stream",
-      ], childEnv);
-    assert.equal(spawned.status, 0, `${spawned.stderr}\n${spawned.stdout}`);
-    assert.deepEqual(JSON.parse(readFileSync(argsPath, "utf8")), expectedArgs);
-    const rejected = await spawnCli([
-      "--root",
-      root,
-      "--json",
-      "runtime",
-      "run",
-      "claude-effort-provider",
-      "--effort",
-      "turbo",
-      "--prompt",
-      "reject",
-      "--no-stream",
-    ], childEnv);
+      ],
+      childEnv,
+    );
     assert.equal(rejected.status, 2, `${rejected.stderr}\n${rejected.stdout}`);
     assert.equal((JSON.parse(rejected.stdout) as Record<string, unknown>).code, "invalid_runtime_effort");
     const rejectedIngress = await rpc(host, auth, "repo.agentRuntime.spawn", {

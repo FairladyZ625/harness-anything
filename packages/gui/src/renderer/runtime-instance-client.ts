@@ -24,6 +24,7 @@ export type RuntimeInstanceUpdateInput = {
   readonly enabled?: boolean;
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   readonly isolationState?: "enforced" | "operator-environment";
+  readonly fast?: boolean;
 };
 type RuntimeInstanceCreateCommon = {
   readonly instanceId: string;
@@ -44,6 +45,7 @@ export type RuntimeInstanceCreateInput = RuntimeInstanceCreateCommon &
         readonly kindId: "codex";
         readonly codex: {
           readonly reasoningEffort?: string;
+          readonly fast?: boolean;
           readonly baseUrl?: string;
           readonly wireApi?: string;
           readonly requiresOpenAiAuth?: boolean;

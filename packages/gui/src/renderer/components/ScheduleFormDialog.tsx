@@ -88,6 +88,7 @@ export function ScheduleForm({
     [runtimeInstanceId, setRuntimeInstanceId] = useState(initialAgentTarget?.runtimeInstanceId ?? ""),
     [model, setModel] = useState(initialAgentTarget?.model ?? ""),
     [reasoningEffort, setReasoningEffort] = useState(initialAgentTarget?.reasoningEffort ?? ""),
+    [fast, setFast] = useState(initialAgentTarget?.fast ?? false),
     [cwd, setCwd] = useState(initialAgentTarget?.cwd ?? "."),
     [mission, setMission] = useState(initial?.mission ?? ""),
     // Purpose + routing are semantic scaffolding (design §4); the write path for
@@ -114,6 +115,7 @@ export function ScheduleForm({
     selectedInstanceId = instance?.instanceId ?? "",
     selectedModel = instance?.models.includes(model) ? model : "",
     selectedEffort = instance?.efforts.includes(reasoningEffort) ? reasoningEffort : "",
+    selectedFast = instance?.kindId === "codex" && fast,
     cronExpression = useMemo(
       () => buildCronExpression(cronFrequency, cronTime, cronWeekdays),
       [cronFrequency, cronTime, cronWeekdays],
@@ -150,11 +152,13 @@ export function ScheduleForm({
         ? {
             ...(selectedModel ? { model: selectedModel } : {}),
             ...(selectedEffort ? { reasoningEffort: selectedEffort } : {}),
+            ...(selectedFast ? { fast: true } : {}),
             ...(cwd === "." ? {} : { cwd }),
           }
         : {
             model: selectedModel || null,
             reasoningEffort: selectedEffort || null,
+            fast: selectedFast,
             cwd: cwd === "." ? null : cwd,
           }),
     };
@@ -320,6 +324,7 @@ export function ScheduleForm({
                 setRuntimeInstanceId("");
                 setModel("");
                 setReasoningEffort("");
+                setFast(false);
               }}
             >
               {options.agents.map((option) => (
@@ -377,6 +382,17 @@ export function ScheduleForm({
               ))}
             </select>
           </FormField>
+          {instance?.kindId === "codex" ? (
+            <FormField label={t("agentRuntime.fast")}>
+              <span
+                data-testid="schedule-form-fast"
+                className="inline-flex min-h-8 items-center gap-2 text-[11px] text-text-muted"
+              >
+                <Toggle checked={selectedFast} onChange={setFast} label={t("agentRuntime.fast")} />
+                {t("agentRuntime.fastDescription")}
+              </span>
+            </FormField>
+          ) : null}
           <FormField label={t("schedules.fields.cwd")}>
             <select
               data-testid="schedule-form-cwd"

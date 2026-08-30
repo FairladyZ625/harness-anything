@@ -135,6 +135,7 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
       prompt: "oversized adoption",
       model: "gpt-5.6-sol",
       reasoningEffort: null,
+      fast: false,
     });
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
     truncateSync(target, 600 * 1024 * 1024);

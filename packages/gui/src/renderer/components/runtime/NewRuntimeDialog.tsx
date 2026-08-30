@@ -35,6 +35,7 @@ const emptyForm = (kindId: RuntimeKindId): CreateInstanceFormState => ({
   models: undefined,
   model: "",
   reasoningEffort: "",
+  fast: false,
   baseUrl: "",
   authMode: "subscription",
   apiKey: "",
@@ -281,6 +282,17 @@ export function NewRuntimeDialog({
               />
             </Labelled>
           ))}
+        {form.kindId === "codex" && (
+          <Labelled label={t("agentRuntime.fast")} hint={t("agentRuntime.fastHint")}>
+            <span
+              data-testid="new-runtime-fast"
+              className="inline-flex min-h-8 items-center gap-2 text-[11px] text-text-muted"
+            >
+              <Toggle checked={form.fast} onChange={(fast) => patch({ fast })} label={t("agentRuntime.fast")} />
+              {t("agentRuntime.fastDescription")}
+            </span>
+          </Labelled>
+        )}
         {form.kindId === "codex" && apiOn && (
           <Labelled label="wire_api">
             <select

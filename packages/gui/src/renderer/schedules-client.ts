@@ -138,6 +138,7 @@ export interface ScheduleDefinitionInput {
   readonly mission: string;
   readonly model?: string | null;
   readonly reasoningEffort?: string | null;
+  readonly fast?: boolean;
   readonly cwd?: string | null;
 }
 

@@ -438,6 +438,7 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
           mission: scheduleMission,
           model: text,
           reasoningEffort: one("minimal", "low", "medium", "high", "xhigh"),
+          fast: boolean,
           cwd: logicalPath,
           disabled: boolean,
           idempotencyKey: text,
@@ -472,6 +473,7 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
           mission: scheduleMission,
           model: nullable(text),
           reasoningEffort: nullable(one("minimal", "low", "medium", "high", "xhigh")),
+          fast: boolean,
           cwd: nullable(logicalPath),
           idempotencyKey: text,
         },
@@ -489,6 +491,7 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
         "mission",
         "model",
         "reasoningEffort",
+        "fast",
         "cwd",
       ].some((field) => Object.hasOwn(value, field)) &&
       !(

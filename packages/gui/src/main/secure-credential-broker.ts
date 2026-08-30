@@ -20,6 +20,7 @@ type CreatePayload = {
   readonly claude?: { readonly baseUrl?: string };
   readonly codex?: {
     readonly reasoningEffort?: string;
+    readonly fast?: boolean;
     readonly baseUrl?: string;
     readonly wireApi?: string;
     readonly requiresOpenAiAuth?: boolean;

@@ -29,6 +29,7 @@ const runtimeCreateForm: CreateInstanceFormState = {
   providerId: "anthropic",
   model: "claude-opus",
   reasoningEffort: "",
+  fast: false,
   baseUrl: "",
   authMode: "subscription",
   apiKey: "",
@@ -334,6 +335,7 @@ test("preload accepts the renderer's codex create payload", () => {
       providerId: "openai",
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
+      fast: true,
       permissionMode: "workspace-write",
       isolation: "enforced",
     },
@@ -466,6 +468,7 @@ test("runtime update accepts exactly the fields the registry declares", () => {
     "baseUrl",
     "defaultModel",
     "enabled",
+    "fast",
     "installationId",
     "instanceId",
     "isolationState",
@@ -479,11 +482,13 @@ test("runtime update accepts exactly the fields the registry declares", () => {
         ? { models: ["model-a"] }
         : field === "enabled"
           ? { enabled: true }
-          : field === "permissionMode"
-            ? { permissionMode: "bypass" }
-            : field === "isolationState"
-              ? { isolationState: "enforced" }
-              : { [field]: "value" };
+          : field === "fast"
+            ? { fast: true }
+            : field === "permissionMode"
+              ? { permissionMode: "bypass" }
+              : field === "isolationState"
+                ? { isolationState: "enforced" }
+                : { [field]: "value" };
     assert.equal(
       assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", ...sample }),
       true,

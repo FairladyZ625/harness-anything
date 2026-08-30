@@ -64,6 +64,7 @@ export interface DispatchStreamHeader {
   readonly promptSource?: string;
   readonly model?: string;
   readonly reasoningEffort?: string | null;
+  readonly fast?: boolean;
   readonly resumeProviderSessionId?: string | null;
   readonly mission?: string;
   readonly fallbackAttempt?: RuntimeFallbackAttempt;

@@ -169,6 +169,7 @@ export async function dispatchClaimedSchedule<
       agentId: target.agentId,
       ...(target.model ? { model: target.model } : {}),
       ...(target.reasoningEffort ? { effort: target.reasoningEffort } : {}),
+      ...(target.fast === undefined ? {} : { fast: target.fast }),
       ...(target.cwd ? { cwd: target.cwd } : {}),
       mode: input.schedule.mode,
     });
@@ -650,6 +651,7 @@ export function makeRepoCellScheduleActions(cell: RepoCellRuntimeContext): RepoC
                 runtimeInstanceId: cell.requiredCellText(action.runtimeInstanceId, "runtimeInstanceId"),
                 ...(typeof action.model === "string" ? { model: action.model } : {}),
                 ...(typeof action.reasoningEffort === "string" ? { reasoningEffort: action.reasoningEffort } : {}),
+                ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
                 ...(typeof action.cwd === "string" ? { cwd: action.cwd } : {}),
               },
               mission: cell.requiredCellText(action.mission, "mission"),
@@ -674,6 +676,7 @@ export function makeRepoCellScheduleActions(cell: RepoCellRuntimeContext): RepoC
           "mission",
           "model",
           "reasoningEffort",
+          "fast",
           "cwd",
         ];
         if (!fields.some((field) => Object.hasOwn(action, field)))

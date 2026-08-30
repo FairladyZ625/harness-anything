@@ -82,6 +82,7 @@ export async function publishExit(
             instanceId: active.instanceId,
             model: active.model,
             reasoningEffort: active.reasoningEffort,
+            fast: active.fast,
             cwd: active.cwd,
             prompt: scrubProviderValue(active.prompt) as string,
             ...(active.promptSource ? { promptSource: active.promptSource } : {}),

@@ -61,6 +61,7 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
     to = text("to"),
     model = text("model"),
     effort = text("effort"),
+    fast = record.fast,
     permissionMode = text("permission-mode"),
     cwd = text("cwd"),
     task = text("task");
@@ -71,6 +72,8 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
   if (to && !agent) throw new Error(`Batch dispatch ${index} uses to without agent.`);
   if (effort && !runtimeRunEfforts().includes(effort))
     throw new Error(`Batch dispatch ${index} effort must be minimal, low, medium, high, or xhigh.`);
+  if (fast !== undefined && typeof fast !== "boolean")
+    throw new Error(`Batch dispatch ${index} field fast must be a boolean.`);
   if (permissionMode && !["bypass", "workspace-write", "read-only"].includes(permissionMode))
     throw new Error(`Batch dispatch ${index} permission-mode must be bypass, workspace-write, or read-only.`);
   return {
@@ -79,6 +82,7 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
     ...(to ? { to } : {}),
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {}),
+    ...(fast === undefined ? {} : { fast }),
     ...(permissionMode ? { permissionMode } : {}),
     ...(prompt ? { prompt } : {}),
     ...(mission ? { mission } : {}),

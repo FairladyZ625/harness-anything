@@ -42,6 +42,7 @@ export interface RuntimeDispatchArchive {
   readonly instanceId: string;
   readonly model: string;
   readonly reasoningEffort: string | null;
+  readonly fast: boolean;
   readonly cwd: string;
   readonly prompt: string;
   readonly promptSource?: string;
@@ -88,6 +89,7 @@ export function archiveRuntimeDispatch(
       instanceId: value.instanceId,
       model: value.model,
       reasoningEffort: value.reasoningEffort,
+      fast: value.fast,
       cwd: value.cwd,
       missionRef,
       ...(value.onExitCommand ? { onExitCommand: value.onExitCommand } : {}),

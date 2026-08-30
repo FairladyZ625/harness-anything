@@ -61,6 +61,7 @@ export interface ScheduleGuiRowDto {
         readonly runtimeInstanceId: string;
         readonly model: string | null;
         readonly reasoningEffort: string | null;
+        readonly fast: boolean;
         readonly cwd: string | null;
       }
     | { readonly kind: "squad"; readonly squadId: string };
@@ -216,11 +217,12 @@ function validTargetDto(value: unknown): boolean {
   if (value.kind === "squad") return Object.keys(value).length === 2 && scheduleNonEmptyText(value.squadId);
   return (
     value.kind === "agent" &&
-    Object.keys(value).length === 6 &&
+    Object.keys(value).length === 7 &&
     scheduleNonEmptyText(value.agentId) &&
     scheduleNonEmptyText(value.runtimeInstanceId) &&
     nullableNonEmpty(value.model) &&
     nullableNonEmpty(value.reasoningEffort) &&
+    typeof value.fast === "boolean" &&
     nullableNonEmpty(value.cwd)
   );
 }

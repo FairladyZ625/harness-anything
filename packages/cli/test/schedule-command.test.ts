@@ -27,6 +27,7 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
     "codex-probe",
     "--mission",
     "Run the probe",
+    "--fast",
     "--disabled",
     "--idempotency-key",
     "seed-e2e-probe",
@@ -42,6 +43,7 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
       agentId: "probe-agent",
       runtimeInstanceId: "codex-probe",
       mission: "Run the probe",
+      fast: true,
       disabled: true,
       idempotencyKey: "seed-e2e-probe",
     });
@@ -71,6 +73,7 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
     "gpt-5.6-sol",
     "--effort",
     "high",
+    "--fast",
     "--cwd",
     "packages/cli",
     "--idempotency-key",
@@ -86,6 +89,7 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
       mission: "Run the updated probe",
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
+      fast: true,
       cwd: "packages/cli",
       idempotencyKey: "update-e2e-probe",
     });

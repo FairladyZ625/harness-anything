@@ -239,7 +239,7 @@ function runtimeKindConfigProblem(value: Record<string, unknown>): string | unde
       ? ["baseUrl"]
       : field === "agy"
         ? ["effort"]
-        : ["reasoningEffort", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"];
+        : ["reasoningEffort", "fast", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"];
   if (!closed(config, fields)) {
     const nested = Object.keys(config).find((key) => !fields.includes(key));
     return `unexpected field "${field}.${nested}"; expected only ${fields.join(", ")}.`;
@@ -254,6 +254,7 @@ function runtimeKindConfigProblem(value: Record<string, unknown>): string | unde
       : 'field "agy.effort" must be low, medium, or high.';
   if (config.reasoningEffort !== undefined && typeof config.reasoningEffort !== "string")
     return 'field "codex.reasoningEffort" must be a string.';
+  if (config.fast !== undefined && typeof config.fast !== "boolean") return 'field "codex.fast" must be a boolean.';
   if (config.baseUrl !== undefined && typeof config.baseUrl !== "string")
     return 'field "codex.baseUrl" must be a string.';
   if (config.wireApi !== undefined && typeof config.wireApi !== "string")
@@ -276,6 +277,7 @@ function validRuntimeInstanceUpdate(value: unknown): boolean {
     value.instanceId.length > 0 &&
     runtimeInstanceUpdateFields.some((field) => field !== "instanceId" && value[field] !== undefined) &&
     (value.enabled === undefined || typeof value.enabled === "boolean") &&
+    (value.fast === undefined || typeof value.fast === "boolean") &&
     (value.permissionMode === undefined ||
       ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) &&
     (value.isolationState === undefined ||
@@ -309,6 +311,7 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
     "mission",
     "model",
     "reasoningEffort",
+    "fast",
     "cwd",
     "idempotencyKey",
   ];
@@ -321,11 +324,14 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
     Number(value.everyMs) < 60_000
   )
     return false;
-  return [value.model, value.reasoningEffort, value.cwd].every(
-    (field) =>
-      field === undefined ||
-      (nullableOptionals && field === null) ||
-      (typeof field === "string" && field.trim().length > 0),
+  return (
+    (value.fast === undefined || typeof value.fast === "boolean") &&
+    [value.model, value.reasoningEffort, value.cwd].every(
+      (field) =>
+        field === undefined ||
+        (nullableOptionals && field === null) ||
+        (typeof field === "string" && field.trim().length > 0),
+    )
   );
 }
 function validScheduleDelete(value: unknown): boolean {

@@ -159,6 +159,7 @@ export function publicConfig(
       kindId: "codex",
       codex: {
         reasoningEffort: config.codex.reasoningEffort ?? null,
+        fast: config.codex.fast ?? false,
         baseUrl: config.codex.baseUrl ?? null,
         baseUrlConfigured: config.codex.baseUrl !== undefined,
         wire_api: config.codex.wireApi ?? null,
@@ -177,6 +178,7 @@ export function definitionSnapshot(
   config: RuntimeInstanceConfig,
   model: string,
   effort: string | null,
+  fast: boolean,
 ): AgentDefinitionSnapshot {
   return {
     schema: "agent-definition-snapshot/v1",
@@ -187,6 +189,7 @@ export function definitionSnapshot(
     providerId: config.providerId,
     model,
     reasoningEffort: effort,
+    fast,
     baseUrl: runtimeBaseUrl(config) ?? null,
     authMode: config.auth.mode,
   };
