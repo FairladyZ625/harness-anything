@@ -153,6 +153,12 @@ export type WriteTarget =
     }
   | { readonly kind: "content_blob"; readonly sha256: string; readonly size: number; readonly mediaType: string }
   | { readonly kind: "local_wal_file"; readonly path: string; readonly operation: "append" | "replace" };
+export interface ContentAddressedInput {
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+  readonly body?: string;
+}
 export interface WritePlan<C extends string = string> {
   readonly commandType: C;
   readonly targets: readonly WriteTarget[];
@@ -361,7 +367,7 @@ function safeIdentity(value: unknown): value is string {
 }
 
 function targetKey(target: WriteTarget): string {
-  return target.kind === "event_file" || target.kind === "event_head"
+  return target.kind === "event_file" || target.kind === "event_head" || target.kind === "authored_file"
     ? `${target.kind}:${target.path}`
     : target.kind === "local_wal_file" || target.kind === "authored_file_delete"
       ? `${target.kind}:${target.path}`
@@ -370,6 +376,49 @@ function targetKey(target: WriteTarget): string {
         : target.kind === "lease_sqlite"
           ? `${target.kind}:${target.table}:${target.taskId}:${target.operation}`
           : `${target.kind}:${target.sha256}`;
+}
+
+function isContentAddressedTarget(target: WriteTarget): boolean {
+  return (
+    target.kind === "content_blob" ||
+    (target.kind === "local_wal_file" && /^\.harness\/wal\/objects\/[0-9a-f]{64}$/u.test(target.path))
+  );
+}
+
+function contentAddressedTargetConflicts(left: WriteTarget, right: WriteTarget): boolean {
+  return (
+    left.kind === "content_blob" &&
+    right.kind === "content_blob" &&
+    (left.size !== right.size || left.mediaType !== right.mediaType)
+  );
+}
+
+function normalizeWriteTargets(targets: readonly WriteTarget[]): readonly WriteTarget[] {
+  const seen = new Set<string>();
+  return targets.filter((target) => {
+    if (!isContentAddressedTarget(target)) return true;
+    const key = targetKey(target);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function normalizeContentAddressedInputs<T extends ContentAddressedInput>(inputs: readonly T[]): readonly T[] {
+  const bySha256 = new Map<string, T>();
+  for (const input of inputs) {
+    const prior = bySha256.get(input.sha256);
+    if (
+      prior !== undefined &&
+      (prior.size !== input.size || prior.mediaType !== input.mediaType || prior.body !== input.body)
+    )
+      throw new WriteChainContractError(
+        "invalid_write_plan",
+        `content address ${input.sha256} has conflicting size, media type, or body`,
+      );
+    if (prior === undefined) bySha256.set(input.sha256, input);
+  }
+  return [...bySha256.values()];
 }
 
 const WAL_SEGMENT_PATH = ".harness/wal/seg-000000.log";
@@ -412,11 +461,15 @@ export function validateDeclaredWritePlan(plan: WritePlan, commandTypes: readonl
     !plan.targets.some((target) => target.kind === "projection_invalidation")
   )
     errors.push("write plan must declare event and projection targets");
-  const keys = new Set<string>();
+  const targetsByKey = new Map<string, WriteTarget>();
   for (const target of plan.targets) {
     const key = targetKey(target);
-    if (keys.has(key)) errors.push(`duplicate write target: ${key}`);
-    keys.add(key);
+    const prior = targetsByKey.get(key);
+    if (prior !== undefined) {
+      if (!isContentAddressedTarget(target)) errors.push(`duplicate write target: ${key}`);
+      else if (contentAddressedTargetConflicts(prior, target))
+        errors.push(`conflicting content-addressed write target: ${key}`);
+    } else targetsByKey.set(key, target);
     if (
       target.kind === "event_file" &&
       (!safeWorkspacePath(target.path) ||
@@ -457,10 +510,12 @@ export function freezeDeclaredWritePlan<C extends string>(
   plan: WritePlan<C>,
   commandTypes: readonly string[],
 ): FrozenWritePlan<C> {
-  const suppliedWalTargets = plan.targets.filter(
-    (target): target is Extract<WriteTarget, { readonly kind: "local_wal_file" }> => target.kind === "local_wal_file",
+  const suppliedWalTargets = normalizeWriteTargets(
+    plan.targets.filter(
+      (target): target is Extract<WriteTarget, { readonly kind: "local_wal_file" }> => target.kind === "local_wal_file",
+    ),
   );
-  const nonWalTargets = plan.targets.filter((target) => target.kind !== "local_wal_file");
+  const nonWalTargets = normalizeWriteTargets(plan.targets.filter((target) => target.kind !== "local_wal_file"));
   const derivedWalTargets = localWalWriteTargets(nonWalTargets);
   const resolvedPlan = { commandType: plan.commandType, targets: [...nonWalTargets, ...derivedWalTargets] };
   const errors = [

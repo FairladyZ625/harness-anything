@@ -8,6 +8,7 @@ import {
   issueWriterGenerationToken,
   nextRecoveryBatch,
   normalizeCommandEnvelope,
+  normalizeContentAddressedInputs,
   serializeEventEnvelope,
   serializeEventHead,
   validateNormalizedCommandEnvelope,
@@ -113,6 +114,121 @@ test("G03 derives exact local WAL declarations from canonical targets", () => {
         ["CreateReplayTask"],
       ),
     /local WAL targets must exactly derive/u,
+  );
+});
+
+test("G03 keys authored targets by path even when their content is identical", () => {
+  const sha256 = "a".repeat(64);
+  const plan = freezeDeclaredWritePlan(
+    {
+      commandType: "DocSyncSubmit",
+      targets: [
+        { kind: "event_file", path: "harness/events/op-1.json", operation: "create" },
+        { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+        { kind: "projection_invalidation", projection: "document/v1", key: "context/one.md" },
+        {
+          kind: "authored_file",
+          path: "context/one.md",
+          operation: "replace",
+          sha256,
+          size: 4,
+          mediaType: "text/plain",
+        },
+        {
+          kind: "authored_file",
+          path: "context/two.md",
+          operation: "replace",
+          sha256,
+          size: 4,
+          mediaType: "text/plain",
+        },
+      ],
+    },
+    ["DocSyncSubmit"],
+  );
+
+  assert.deepEqual(
+    plan.targets.filter((target) => target.kind === "authored_file").map((target) => target.path),
+    ["context/one.md", "context/two.md"],
+  );
+});
+
+test("G03 still rejects two authored writes to the same path", () => {
+  const authored = {
+    kind: "authored_file",
+    path: "context/one.md",
+    operation: "replace",
+    sha256: "a".repeat(64),
+    size: 4,
+    mediaType: "text/plain",
+  };
+  assert.throws(
+    () =>
+      freezeDeclaredWritePlan(
+        {
+          commandType: "DocSyncSubmit",
+          targets: [
+            { kind: "event_file", path: "harness/events/op-1.json", operation: "create" },
+            { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+            { kind: "projection_invalidation", projection: "document/v1", key: "context/one.md" },
+            authored,
+            authored,
+          ],
+        },
+        ["DocSyncSubmit"],
+      ),
+    /duplicate write target: authored_file:context\/one\.md/u,
+  );
+});
+
+test("G03 folds identical content targets and their derived WAL object target by SHA", () => {
+  const content = { kind: "content_blob", sha256: "a".repeat(64), size: 4, mediaType: "text/plain" };
+  const plan = freezeDeclaredWritePlan(
+    {
+      commandType: "DocSyncSubmit",
+      targets: [
+        { kind: "event_file", path: "harness/events/op-1.json", operation: "create" },
+        { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+        { kind: "projection_invalidation", projection: "document/v1", key: "context/one.md" },
+        content,
+        { ...content },
+      ],
+    },
+    ["DocSyncSubmit"],
+  );
+
+  assert.equal(plan.targets.filter((target) => target.kind === "content_blob").length, 1);
+  assert.equal(
+    plan.targets.filter((target) => target.kind === "local_wal_file" && target.path.includes("/objects/")).length,
+    1,
+  );
+  assert.throws(
+    () =>
+      freezeDeclaredWritePlan(
+        {
+          commandType: "DocSyncSubmit",
+          targets: [
+            ...plan.targets.filter((target) => target.kind !== "local_wal_file"),
+            { ...content, mediaType: "application/octet-stream" },
+          ],
+        },
+        ["DocSyncSubmit"],
+      ),
+    /conflicting content-addressed write target/u,
+  );
+});
+
+test("G03 folds identical blob inputs and rejects conflicting bodies for one SHA", () => {
+  const blob = {
+    sha256: "a".repeat(64),
+    size: 4,
+    mediaType: "text/plain",
+    body: "left",
+  };
+  assert.deepEqual(normalizeContentAddressedInputs([blob, { ...blob }]), [blob]);
+  assert.throws(
+    () => normalizeContentAddressedInputs([blob, { ...blob, body: "rght" }]),
+    /conflicting size, media type, or body/u,
   );
 });
 

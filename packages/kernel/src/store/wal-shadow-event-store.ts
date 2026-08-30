@@ -1,5 +1,5 @@
 import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
-import type { ActorIdentity, EventHead } from "../domain/write-chain.contract.ts";
+import { normalizeContentAddressedInputs, type ActorIdentity, type EventHead } from "../domain/write-chain.contract.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
@@ -323,7 +323,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       // The killpoint models the gap in which a successor writer epoch can be
       // allocated. Recheck immediately before the WAL becomes authoritative.
       options.beforeAppend?.();
-      wal.append({ event: bundle.event, blobs: bundle.blobs });
+      wal.append({ event: bundle.event, blobs: normalizeContentAddressedInputs(bundle.blobs) });
       options.killpoint?.("after_event_write");
       options.killpoint?.("after_head_write");
       makeVisible(ledger, wal, pendingEvents, gitBaseline.files, bundle, options);

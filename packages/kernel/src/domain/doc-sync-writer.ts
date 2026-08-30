@@ -23,6 +23,7 @@ import {
   freezeDeclaredWritePlan,
   isFrozenWritePlan,
   isRecord,
+  normalizeContentAddressedInputs,
   type FrozenWritePlan,
   type WriteTarget,
 } from "./write-chain.contract.ts";
@@ -251,7 +252,13 @@ export function decideDocWrite(input: DocWriteDecisionInput): DocWriteDecision {
       ...(retirementReason === undefined ? {} : { retirementReason }),
     },
   };
-  return { accepted: true, event, blobs, plan: docSyncWritePlan(event), authorizationDecision };
+  return {
+    accepted: true,
+    event,
+    blobs: normalizeContentAddressedInputs(blobs),
+    plan: docSyncWritePlan(event),
+    authorizationDecision,
+  };
 }
 
 export function docSyncWritePlan(event: DocEventV1): FrozenWritePlan<"DocSyncSubmit"> {

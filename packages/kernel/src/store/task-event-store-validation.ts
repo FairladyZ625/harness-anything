@@ -33,6 +33,8 @@ import { assertPeopleEventInputs, isPeopleEvent } from "../domain/people-event.t
 import { assertSnapshotUpgradeInputs, isSnapshotUpgradeEvent } from "../domain/task-snapshot-upgrade-store-seam.ts";
 import {
   isFrozenWritePlan,
+  normalizeContentAddressedInputs,
+  WriteChainContractError,
   type EventHead,
   type FrozenWritePlan,
   type WriteTarget,
@@ -178,7 +180,8 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
   )
     throw new TaskEventStoreError("invalid_write_plan", "canonical write bundle must declare its event and head");
   assertContentInputs(claims, blobs, "canonical bundle");
-  const declaredAuthored = plan.targets.filter((target) => target.kind === "authored_file"),
+  const normalizedClaims = normalizeContentAddressedInputs(claims),
+    declaredAuthored = plan.targets.filter((target) => target.kind === "authored_file"),
     expectedAuthored: WriteTarget[] = canonicalDocumentClaims(event).map((claim) => ({
       kind: "authored_file",
       path: claim.path,
@@ -191,7 +194,7 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
     targetShape(declaredAuthored) !== targetShape(expectedAuthored) ||
     targetShape(plan.targets.filter((target) => target.kind === "content_blob")) !==
       targetShape(
-        claims.map((claim) => ({
+        normalizedClaims.map((claim) => ({
           kind: "content_blob",
           sha256: claim.sha256,
           size: claim.size,
@@ -266,6 +269,15 @@ export function assertContentInputs(
   }[],
   label: string,
 ): void {
+  let normalizedClaims: readonly (typeof claims)[number][];
+  let normalizedBlobs: readonly (typeof blobs)[number][];
+  try {
+    normalizedClaims = normalizeContentAddressedInputs(claims);
+    normalizedBlobs = normalizeContentAddressedInputs(blobs);
+  } catch (error) {
+    if (!(error instanceof WriteChainContractError)) throw error;
+    throw new TaskEventStoreError("invalid_write_plan", `${label} content inputs conflict for one SHA`);
+  }
   const shape = (
     items: readonly {
       readonly sha256: string;
@@ -279,8 +291,8 @@ export function assertContentInputs(
         .sort((a, b) => a.sha256.localeCompare(b.sha256)),
     );
   if (
-    shape(blobs) !== shape(claims) ||
-    blobs.some((blob) => Buffer.byteLength(blob.body) !== blob.size || sha256Text(blob.body) !== blob.sha256)
+    shape(normalizedBlobs) !== shape(normalizedClaims) ||
+    normalizedBlobs.some((blob) => Buffer.byteLength(blob.body) !== blob.size || sha256Text(blob.body) !== blob.sha256)
   )
     throw new TaskEventStoreError(
       "invalid_write_plan",

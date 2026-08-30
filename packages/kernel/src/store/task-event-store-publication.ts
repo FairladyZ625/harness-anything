@@ -9,7 +9,11 @@ import {
   ledgerLayoutMigrationWritePlan,
   type LedgerLayoutMigrationEventV1,
 } from "../domain/ledger-layout-migration-event.ts";
-import { serializeEventHead } from "../domain/write-chain.contract.ts";
+import {
+  normalizeContentAddressedInputs,
+  serializeEventHead,
+  WriteChainContractError,
+} from "../domain/write-chain.contract.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isPeopleEvent } from "../domain/people-event.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
@@ -167,15 +171,14 @@ export function createPublicationApi(runtime: StoreRuntime) {
       },
       ...additionalFiles,
     ];
-    const contentBySha256 = new Map<string, CanonicalEventWriteBundle["blobs"][number]>();
-    for (const member of members)
-      for (const blob of member.blobs) {
-        const prior = contentBySha256.get(blob.sha256);
-        if (prior !== undefined && prior.body !== blob.body)
-          throw new TaskEventStoreError("invalid_write_plan", `content blob ${blob.sha256} has conflicting bytes`);
-        contentBySha256.set(blob.sha256, blob);
-      }
-    const blobs = [...contentBySha256.values()],
+    let blobs: readonly CanonicalEventWriteBundle["blobs"][number][];
+    try {
+      blobs = normalizeContentAddressedInputs(members.flatMap((member) => member.blobs));
+    } catch (error) {
+      if (!(error instanceof WriteChainContractError)) throw error;
+      throw new TaskEventStoreError("invalid_write_plan", error.message);
+    }
+    const contentBySha256 = new Map(blobs.map((blob) => [blob.sha256, blob])),
       uncached = blobs.filter((blob) => !runtime.recentContent.has(blob.sha256)).map((blob) => blob.sha256);
     const existingBlobs = readBlobsAt(runtime.ledger, parent.sha, uncached);
     for (const claim of blobs) {
