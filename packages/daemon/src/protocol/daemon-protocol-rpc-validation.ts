@@ -1,5 +1,4 @@
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
-import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-action-validation.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import {
   validateObserveTailPayload,
@@ -18,6 +17,7 @@ import {
   stringArray,
   validateGuiSubmission,
 } from "./daemon-protocol-validate-entities.ts";
+import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
 import { allDaemonProtocolMethods } from "./daemon-protocol.contract.ts";
 import { decisionStateWords, relationStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import {
@@ -30,7 +30,7 @@ import {
 } from "./json-rpc-types.ts";
 
 export { DaemonProtocolContractError };
-export { validateSessionEnvironment } from "./daemon-protocol-action-validation.ts";
+export { validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
 
 export function isDaemonGuiReadMethod(method: string): method is DaemonGuiRpcReadMethod {
   return daemonGuiReadMethods.some((entry) => entry.method === method);

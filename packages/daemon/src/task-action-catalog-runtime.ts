@@ -53,9 +53,11 @@ export async function runTaskActionCatalogRuntime(
     throw cell.cellCodedError(
       "lease_conflict",
       activeLease.phase === "reserving"
-        ? `Task ${taskId} is being reserved by ${actorHint(activeLease.actor)}; wait for that reservation to publish ` +
+        ? `Task ${taskId} is being reserved by ${actorHint(activeLease.actor)}; ` +
+            "wait for that reservation to publish " +
             `or lapse at ${activeLease.expiresAt}, then retry ha task start ${taskId}.`
-        : `Task ${taskId} is held by ${actorHint(activeLease.actor)}; that holder must run ha task release ${taskId}. ` +
+        : `Task ${taskId} is held by ${actorHint(activeLease.actor)}; ` +
+            `that holder must run ha task release ${taskId}. ` +
             `This caller must wait for release, then retry ha task start ${taskId}.`,
     );
   }

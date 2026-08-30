@@ -1,17 +1,17 @@
 import { shape } from "./daemon-protocol-gui-types.ts";
-import { guiAction, guiS3Action } from "./daemon-protocol-gui-action-builder.ts";
 import {
   CATALOG_REREAD_RECEIPT_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
   DAEMON_GUI_COMMAND_RECEIPT_SCHEMA,
   DAEMON_PROTOCOL_ERROR_SCHEMA,
+  guiAction,
+  guiS3Action,
   TERMINAL_ATTACH_EVENT_SCHEMA,
   TERMINAL_ATTACH_SCHEMA,
   TERMINAL_CONTROL_RECEIPT_SCHEMA,
   TERMINAL_DETACH_ACK_SCHEMA,
   TERMINAL_INPUT_ACK_SCHEMA,
 } from "./daemon-protocol-schema-ids.ts";
-
 export const daemonGuiActionMethods = Object.freeze([
   {
     id: "gui.control.request",

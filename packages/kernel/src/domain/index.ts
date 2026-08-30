@@ -141,10 +141,7 @@ export {
   TASK_SUBMISSION_JSON_FIELDS,
 } from "./entity-kind-registry.ts";
 export type {
-  BoundedContextActionException,
   EntityActionContract,
-  EntityActionInputContract,
-  EntityActionInputField,
   EntityKindDeclaration,
   EntityKindRegistration,
   EntityKindRegistry,
