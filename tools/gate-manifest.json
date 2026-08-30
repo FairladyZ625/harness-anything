@@ -4759,10 +4759,10 @@
     },
     {
       "id": "ontology-durable-action-authorization",
-      "command": "node tools/gates/ontology-durable-action-authorization.mjs",
+      "command": "node tools/gates/ontology-durable-action-authorization.mjs --mode ratchet",
       "category": "boundary",
-      "tier": "pr-advisory",
-      "tierReason": "Phase G0 baseline observation only; G2 may promote this gate after every durable action reaches AuthorizationPort and receipts carry a non-null decision.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "task_6afb9b18781322b945d268d8f2",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f3-actor-role-policy-是真实切片但不是单一授权模型"
@@ -4773,8 +4773,8 @@
         "WriteReceipt authorizationDecision contract"
       ],
       "githubContext": {
-        "requiredContexts": [],
-        "workflowJobs": ["ontology-advisory"],
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4795,8 +4795,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": false, "contexts": [] },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": true, "contexts": ["boundaries"] },
         "classes": ["pr"]
       },
       "deterministic": true,
