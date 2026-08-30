@@ -693,5 +693,16 @@
   "artifacts.list.justNow": "just now",
   "artifacts.list.minutesAgo": "{minutes} min ago",
   "artifacts.list.hoursAgo": "{hours} h ago",
-  "artifacts.list.daysAgo": "{days} d ago"
+  "artifacts.list.daysAgo": "{days} d ago",
+  "views.overviewView.statsTitle": "Stats",
+  "views.overviewView.statsCollapsedHint": "{tasks} tasks · {decisions} decisions · expand for the per-status breakdown",
+  "views.overviewView.statsTasks": "tasks by status",
+  "views.overviewView.statsDecisions": "decisions by state",
+  "views.overviewView.statsRevision": "projection watermark {watermark} · ledger revision {sourceRevision}",
+  "views.overviewView.statsRevisionUnknown": "ledger cut not read yet, revision pair unknown",
+  "views.overviewView.statsAnomalyDaemon": "daemon unresponsive",
+  "views.overviewView.statsAnomalyProjection": "projection behind by {lag}",
+  "views.overviewView.statsAnomalyRead": "read failed",
+  "views.overviewView.healthExpandTitle": "Expand runtime health details",
+  "views.overviewView.healthCollapseTitle": "Collapse runtime health details"
 }

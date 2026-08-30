@@ -5,6 +5,7 @@ import { DecisionStream } from "../components/overview/DecisionStream.tsx";
 import { TaskStream } from "../components/overview/TaskStream.tsx";
 import { PinnedStream } from "../components/overview/PinnedStream.tsx";
 import { RuntimeHealthCard } from "../components/overview/RuntimeHealthCard.tsx";
+import { OverviewStatsBar, type OverviewStatsAnomaly } from "../components/overview/OverviewStatsBar.tsx";
 import { DecisionPreviewDrawer } from "../components/DecisionPreviewDrawer.tsx";
 import { decisionStateLabel } from "../components/badges";
 import { deriveRuntimeHealth, type RuntimeHealthInput } from "../model/runtime-health.ts";
@@ -29,6 +30,7 @@ export function OverviewView({
   workspaceSummary,
   relations,
   systemHealth,
+  ledgerRevision,
   onSelect,
   onNavigateEntity,
   onDrill,
@@ -47,6 +49,8 @@ export function OverviewView({
   relations: RelationEdge[];
   /** 第四格输入(App 从 systemQuery / tasksQuery 折算,见 model/runtime-health.ts)。 */
   systemHealth: Omit<RuntimeHealthInput, "lastSnapshotAt" | "now">;
+  /** 底部统计条的版本对(null = 台账切面还没读到过);同一份 repo.tasks.read 切面。 */
+  ledgerRevision: { readonly watermark: number; readonly sourceRevision: number } | null;
   onSelect: (id: string) => void;
   /** 显式「去看板」出口:带任务流当前状态预置。 */
   onDrill: (status: SnapshotStatus) => void;
@@ -75,6 +79,18 @@ export function OverviewView({
     lastSnapshotAt: lastSnapshotAt || null,
     now: new Date().toISOString(),
   });
+  // 底部统计条的异常口径(task_b2fb4bc7):daemon 断连 / 投影落后 / 读失败。
+  // 只消费本页已经拿到的读面,不为此新增任何查询。
+  const statsAnomalies: OverviewStatsAnomaly[] = [];
+  if (health.daemon.state === "unresponsive")
+    statsAnomalies.push({ code: "daemon", label: t("views.overviewView.statsAnomalyDaemon") });
+  if ((health.projection.lag ?? 0) > 0)
+    statsAnomalies.push({
+      code: "projection",
+      label: t("views.overviewView.statsAnomalyProjection", { lag: String(health.projection.lag) }),
+    });
+  if (systemHealth.daemon?.ok === false)
+    statsAnomalies.push({ code: "read", label: t("views.overviewView.statsAnomalyRead") });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -139,6 +155,8 @@ export function OverviewView({
           <RuntimeHealthCard health={health} onOpenSystem={onOpenSystem} />
         </Card>
       </div>
+
+      <OverviewStatsBar summary={workspaceSummary} revision={ledgerRevision} anomalies={statsAnomalies} />
 
       <DecisionPreviewDrawer
         decision={previewDecision}

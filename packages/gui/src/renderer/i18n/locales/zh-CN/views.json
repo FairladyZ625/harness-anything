@@ -693,5 +693,16 @@
   "artifacts.list.justNow": "刚刚",
   "artifacts.list.minutesAgo": "{minutes} 分钟前",
   "artifacts.list.hoursAgo": "{hours} 小时前",
-  "artifacts.list.daysAgo": "{days} 天前"
+  "artifacts.list.daysAgo": "{days} 天前",
+  "views.overviewView.statsTitle": "统计",
+  "views.overviewView.statsCollapsedHint": "任务 {tasks} · 决策 {decisions} · 点开看分状态明细",
+  "views.overviewView.statsTasks": "任务分状态",
+  "views.overviewView.statsDecisions": "决策分状态",
+  "views.overviewView.statsRevision": "投影 watermark {watermark} · 台账 revision {sourceRevision}",
+  "views.overviewView.statsRevisionUnknown": "台账切面尚未读到,版本对未知",
+  "views.overviewView.statsAnomalyDaemon": "daemon 无响应",
+  "views.overviewView.statsAnomalyProjection": "投影落后 {lag}",
+  "views.overviewView.statsAnomalyRead": "读失败",
+  "views.overviewView.healthExpandTitle": "展开运行时健康详情",
+  "views.overviewView.healthCollapseTitle": "收起运行时健康详情"
 }
