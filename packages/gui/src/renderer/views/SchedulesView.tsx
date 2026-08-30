@@ -1,7 +1,11 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Clock, Plus } from "@phosphor-icons/react";
-import type { ScheduleGuiRowDto, SchedulesListResult } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
+import type {
+  ScheduleGuiListRowDto,
+  ScheduleGuiRowDto,
+  SchedulesListResult,
+} from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
 import { Badge, Btn, Chip, Empty, Hint } from "../components/runtime/parts.tsx";
 import { ScheduleFormDialog } from "../components/ScheduleFormDialog.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
@@ -265,7 +269,7 @@ function ScheduleListPane({
   onOpenSchedule,
   onCreate,
 }: {
-  readonly rows: readonly ScheduleGuiRowDto[];
+  readonly rows: readonly ScheduleGuiListRowDto[];
   readonly data: SchedulesListResult | null;
   readonly pending: boolean;
   readonly busy: boolean;
@@ -275,14 +279,15 @@ function ScheduleListPane({
   const [stateFilter, setStateFilter] = useState<StateFilter>("all");
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [healthFilter, setHealthFilter] = useState<HealthFilter>("all");
-  const modeProjected = rows.some((row) => scheduleRowMode(row) !== null),
-    healthProjected = rows.some((row) => scheduleRowHealth(row) !== null),
+  const modeProjected = rows.some((row) => row.state !== "invalid" && scheduleRowMode(row) !== null),
+    healthProjected = rows.some((row) => row.state !== "invalid" && scheduleRowHealth(row) !== null),
     visible = rows.filter((row) => {
       if (stateFilter !== "all" && row.state !== stateFilter) return false;
-      if (modeFilter !== "all" && scheduleRowMode(row) !== modeFilter) return false;
+      if (modeFilter !== "all" && (row.state === "invalid" || scheduleRowMode(row) !== modeFilter)) return false;
       // The bucket is the daemon's classification of its health rollup — the
       // renderer only selects rows whose bucket matches the requested facet.
-      if (healthFilter !== "all" && scheduleRowHealth(row)?.bucket !== healthFilter) return false;
+      if (healthFilter !== "all" && (row.state === "invalid" || scheduleRowHealth(row)?.bucket !== healthFilter))
+        return false;
       return true;
     });
   return (
@@ -383,6 +388,20 @@ function ScheduleListPane({
             </thead>
             <tbody>
               {visible.map((row) => {
+                if (row.state === "invalid")
+                  return (
+                    <tr
+                      key={row.scheduleId}
+                      data-testid={`schedule-row-${row.scheduleId}`}
+                      className="border-b border-border bg-status-blocked/10 last:border-b-0"
+                    >
+                      <td className="px-2.5 py-1.5 font-mono text-[10.5px] text-text-faint">{row.scheduleId}</td>
+                      <td colSpan={9} className="px-2.5 py-1.5 text-status-blocked">
+                        <b className="mr-2 font-mono uppercase">invalid</b>
+                        {row.invalidReason}
+                      </td>
+                    </tr>
+                  );
                 const stateMeta = STATE_META[row.state],
                   mode = scheduleRowMode(row),
                   health = scheduleRowHealth(row)?.recent ?? null;

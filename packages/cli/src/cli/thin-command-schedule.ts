@@ -164,6 +164,7 @@ export function renderScheduleList(receipt: Record<string, unknown>): string | n
   if (schedules.length === 0) return "No schedules.";
   return schedules
     .map((row) => {
+      if (row.state === "invalid") return [row.scheduleId, row.state, row.invalidReason].join("\t");
       return [row.scheduleId, row.state, row.nextRunAt ?? "none", row.status.activeRun ? "active" : "idle"]
         .map(String)
         .join("\t");

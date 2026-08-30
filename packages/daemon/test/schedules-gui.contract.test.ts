@@ -270,7 +270,7 @@ test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass 
   );
 });
 
-test("trigger DTO variants remain closed and malformed intervals are refused", () => {
+test("malformed definitions degrade to invalid rows while trigger DTO variants remain closed", () => {
   const malformed = {
     ...armedSchedule,
     spec: {
@@ -278,18 +278,18 @@ test("trigger DTO variants remain closed and malformed intervals are refused", (
       trigger: { kind: "interval", everyMs: 30_000, anchorAt: "2026-08-27T07:00:00.000Z" },
     },
   };
-  assert.throws(
-    () =>
-      readSchedulesGui(
-        guiContext({
-          projection: {
-            listEntities: (kind) => (kind === "schedule" ? [{ value: malformed, workspaceRevision: 1 }] : []),
-            readTaskStatuses: guiContext().projection.readTaskStatuses,
-          },
-        }),
-      ),
-    /schedule trigger or cursor is invalid/u,
-  );
+  const degraded = readSchedulesGui(
+      guiContext({
+        projection: {
+          listEntities: (kind) => (kind === "schedule" ? [{ value: malformed, workspaceRevision: 1 }] : []),
+          readTaskStatuses: guiContext().projection.readTaskStatuses,
+        },
+      }),
+    ),
+    invalid = degraded.schedules[0];
+  assert.equal(invalid?.state, "invalid");
+  if (invalid?.state === "invalid") assert.match(invalid.invalidReason, /everyMs.*at least 60000/u);
+  assert.deepEqual(validateSchedulesList(degraded), []);
   const result = readSchedulesGui(guiContext());
   assert.notDeepEqual(
     validateSchedulesList({

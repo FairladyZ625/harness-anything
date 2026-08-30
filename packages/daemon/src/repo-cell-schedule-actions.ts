@@ -9,13 +9,8 @@ import {
   scheduleMissedReasons,
   scheduleRunOutcomes,
   timestamp,
-  updateScheduleV1,
-  validateScheduleV1,
   type ScheduleMissedReason,
-  type ScheduleMode,
   type ScheduleRunOutcome,
-  type ScheduleTargetV1,
-  type ScheduleTriggerV1,
   type ScheduleV1,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -33,6 +28,12 @@ import type { TrustedScheduleSpawn } from "./runtime-spawn.ts";
 import { readScheduleRuns } from "./schedule-runs-read.ts";
 import type { RepoCellRuntimeContext, RepoCellScheduleActions } from "./repo-cell-action-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import {
+  inspectScheduleProjection,
+  mergeProjectedScheduleUpdate,
+  requiredScheduleMode,
+  scheduleTriggerFromCreate,
+} from "./schedule-projection.ts";
 
 type ScheduleClaimKind = "scheduled" | "manual";
 export type ScheduleClaimInput = {
@@ -86,10 +87,6 @@ function isScheduleSpawnWriteReceipt(value: JsonObject): value is JsonObject & S
     (value.dispatchId === undefined || typeof value.dispatchId === "string") &&
     (value.runtimeSessionId === undefined || typeof value.runtimeSessionId === "string")
   );
-}
-
-function isProjectedSchedule(value: unknown): value is ScheduleV1 {
-  return validateScheduleV1(value).length === 0;
 }
 
 const schedulePacketContracts: Readonly<Record<string, PacketActionContract>> = Object.freeze({
@@ -200,12 +197,19 @@ export async function dispatchClaimedSchedule<
 }
 
 export function makeRepoCellScheduleActions(cell: RepoCellRuntimeContext): RepoCellScheduleActions {
-  const read = (scheduleId: string): { readonly schedule: ScheduleV1; readonly revision: number } => {
+  const inspect = (scheduleId: string) => {
     const row = cell.projection.getEntity("schedule", scheduleId);
     if (!row) throw cell.cellCodedError("entity_not_found", `Schedule ${scheduleId} does not exist.`);
-    if (!isProjectedSchedule(row.value))
-      throw cell.cellCodedError("invalid_store", `Schedule ${scheduleId} projection is invalid.`);
-    return { schedule: row.value, revision: row.workspaceRevision };
+    return inspectScheduleProjection(row);
+  };
+  const read = (scheduleId: string): { readonly schedule: ScheduleV1; readonly revision: number } => {
+    const projection = inspect(scheduleId);
+    if (!projection.valid)
+      throw cell.cellCodedError(
+        "invalid_store",
+        `Schedule ${scheduleId} projection is invalid: ${projection.invalid.invalidReason}`,
+      );
+    return { schedule: projection.schedule, revision: projection.revision };
   };
   const replay = (action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt | null => {
     const opId = cell.operationId(action, binding, cell.input.repoId, 0),
@@ -542,11 +546,11 @@ export function makeRepoCellScheduleActions(cell: RepoCellRuntimeContext): RepoC
             binding.assignmentScope?.scope.kind === "schedule" ? binding.assignmentScope.scope.scheduleId : null,
           schedules = cell.projection
             .listEntities("schedule")
-            .filter((row) => assignmentScheduleId === null || row.value.scheduleId === assignmentScheduleId)
+            .filter((row) => assignmentScheduleId === null || row.id === assignmentScheduleId)
             .map((row) => {
-              if (!isProjectedSchedule(row.value))
-                throw cell.cellCodedError("invalid_store", "Schedule projection contains an invalid row.");
-              const schedule = row.value;
+              const projection = inspectScheduleProjection(row);
+              if (!projection.valid) return projection.invalid;
+              const schedule = projection.schedule;
               return {
                 ...schedule,
                 definitionRevision: row.workspaceRevision,
@@ -600,7 +604,20 @@ export function makeRepoCellScheduleActions(cell: RepoCellRuntimeContext): RepoC
             ? action.idempotencyKey
             : `${action.kind}:${scheduleId}:${cell.store.readHead()?.revision ?? 0}`;
       if (action.kind === "schedule-show") {
-        const { schedule, revision } = read(scheduleId);
+        const projection = inspect(scheduleId);
+        if (!projection.valid)
+          return {
+            outcome: "applied",
+            opId: cell.operationId(action, binding, cell.input.repoId, projection.revision),
+            revision: projection.revision,
+            evidence: `schedule:${scheduleId}:${projection.revision}:invalid`,
+            schedule: projection.invalid,
+            scheduleId,
+            definitionRevision: projection.revision,
+            nextRunAt: null,
+            summary: `Schedule ${scheduleId} is invalid: ${projection.invalid.invalidReason}`,
+          } as WriteReceipt;
+        const { schedule, revision } = projection;
         return {
           outcome: "applied",
           opId: cell.operationId(action, binding, cell.input.repoId, revision),
@@ -661,66 +678,41 @@ export function makeRepoCellScheduleActions(cell: RepoCellRuntimeContext): RepoC
         ];
         if (!fields.some((field) => Object.hasOwn(action, field)))
           throw cell.cellCodedError("invalid_command", "Schedule update requires at least one definition field.");
-        const { schedule, revision } = read(scheduleId),
+        const projection = inspect(scheduleId),
           occurredAt = cell.now(),
-          trigger = scheduleTriggerFromUpdate(action, schedule.spec.trigger, occurredAt),
-          optionalTarget = (field: "model" | "reasoningEffort" | "cwd"): string | undefined =>
-            Object.hasOwn(action, field)
-              ? action[field] === null
-                ? undefined
-                : cell.requiredCellText(action[field], field)
-              : schedule.spec.target.kind === "agent"
-                ? schedule.spec.target[field]
-                : undefined,
-          target: ScheduleTargetV1 =
-            schedule.spec.target.kind === "agent" ||
-            Object.hasOwn(action, "agentId") ||
-            Object.hasOwn(action, "runtimeInstanceId")
-              ? {
-                  kind: "agent",
-                  agentId: Object.hasOwn(action, "agentId")
-                    ? cell.requiredCellText(action.agentId, "agentId")
-                    : schedule.spec.target.kind === "agent"
-                      ? schedule.spec.target.agentId
-                      : cell.requiredCellText(undefined, "agentId"),
-                  runtimeInstanceId: Object.hasOwn(action, "runtimeInstanceId")
-                    ? cell.requiredCellText(action.runtimeInstanceId, "runtimeInstanceId")
-                    : schedule.spec.target.kind === "agent"
-                      ? schedule.spec.target.runtimeInstanceId
-                      : cell.requiredCellText(undefined, "runtimeInstanceId"),
-                  ...(optionalTarget("model") ? { model: optionalTarget("model") } : {}),
-                  ...(optionalTarget("reasoningEffort") ? { reasoningEffort: optionalTarget("reasoningEffort") } : {}),
-                  ...(optionalTarget("cwd") ? { cwd: optionalTarget("cwd") } : {}),
-                }
-              : schedule.spec.target,
-          spec = {
-            trigger,
-            target,
-            mission: Object.hasOwn(action, "mission")
-              ? cell.requiredCellText(action.mission, "mission")
-              : schedule.spec.mission,
-          },
-          name = Object.hasOwn(action, "name") ? cell.requiredCellText(action.name, "name") : schedule.name,
-          mode = Object.hasOwn(action, "mode") ? requiredScheduleMode(action.mode) : schedule.mode;
+          merged = mergeProjectedScheduleUpdate({
+            value: projection.valid
+              ? (projection.schedule as unknown as Readonly<Record<string, unknown>>)
+              : projection.value,
+            action,
+            occurredAt,
+            requiredText: cell.requiredCellText,
+          });
+        if (!merged.schedule)
+          throw cell.cellCodedError(
+            "invalid_store",
+            `Schedule ${scheduleId} update remains invalid: ${merged.errors.join("; ")}`,
+          );
+        const schedule = merged.schedule,
+          revision = projection.revision;
         if (
-          JSON.stringify({ name, mode, spec }) ===
-          JSON.stringify({ name: schedule.name, mode: schedule.mode, spec: schedule.spec })
+          projection.valid &&
+          JSON.stringify({ name: schedule.name, mode: schedule.mode, spec: schedule.spec }) ===
+            JSON.stringify({
+              name: projection.schedule.name,
+              mode: projection.schedule.mode,
+              spec: projection.schedule.spec,
+            })
         )
           return {
             outcome: "no_changes",
             opId: cell.operationId(updateAction, binding, cell.input.repoId, 0),
             revision,
             evidence: `schedule:${scheduleId}:unchanged`,
-            schedule,
+            schedule: projection.schedule,
             scheduleId,
           } as WriteReceipt;
-        return publish(
-          updateAction,
-          binding,
-          updateScheduleV1({ schedule, name, mode, spec, occurredAt }),
-          "schedule_updated",
-          { expectedRevision: revision },
-        );
+        return publish(updateAction, binding, schedule, "schedule_updated", { expectedRevision: revision });
       }
       if (action.kind === "schedule-delete") {
         const deleteAction = { ...action, idempotencyKey },
@@ -843,51 +835,4 @@ export function makeRepoCellScheduleActions(cell: RepoCellRuntimeContext): RepoC
 function requiredDeletionBase(value: string | undefined): string {
   if (typeof value === "string" && /^[0-9a-f]{64}$/u.test(value)) return value;
   throw new Error("Schedule deletion requires the current declaration document hash.");
-}
-
-function requiredScheduleMode(value: unknown): ScheduleMode {
-  if (value === "detect" || value === "remediate") return value;
-  throw Object.assign(new Error("Schedule mode must be detect or remediate."), { code: "invalid_command" });
-}
-
-function scheduleTriggerFromCreate(action: RepoTaskAction, occurredAt: string): ScheduleTriggerV1 {
-  if (Object.hasOwn(action, "everyMs") === Object.hasOwn(action, "cronExpression"))
-    throw Object.assign(new Error("Schedule creation requires exactly one interval or cron trigger."), {
-      code: "invalid_command",
-    });
-  return Object.hasOwn(action, "everyMs")
-    ? { kind: "interval", everyMs: Number(action.everyMs), anchorAt: occurredAt }
-    : {
-        kind: "cron",
-        expression: String(action.cronExpression),
-        timezone: String(action.timezone),
-      };
-}
-
-function scheduleTriggerFromUpdate(
-  action: RepoTaskAction,
-  current: ScheduleTriggerV1,
-  occurredAt: string,
-): ScheduleTriggerV1 {
-  if (
-    Object.hasOwn(action, "everyMs") &&
-    (Object.hasOwn(action, "cronExpression") || Object.hasOwn(action, "timezone"))
-  )
-    throw Object.assign(new Error("Schedule update cannot combine interval and cron trigger fields."), {
-      code: "invalid_command",
-    });
-  if (Object.hasOwn(action, "everyMs"))
-    return { kind: "interval", everyMs: Number(action.everyMs), anchorAt: occurredAt };
-  if (Object.hasOwn(action, "cronExpression"))
-    return {
-      kind: "cron",
-      expression: String(action.cronExpression),
-      timezone: String(action.timezone),
-    };
-  if (Object.hasOwn(action, "timezone")) {
-    if (current.kind !== "cron")
-      throw Object.assign(new Error("Schedule timezone can only update a cron trigger."), { code: "invalid_command" });
-    return { ...current, timezone: String(action.timezone) };
-  }
-  return current;
 }

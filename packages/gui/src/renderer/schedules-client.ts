@@ -1,4 +1,8 @@
-import type { ScheduleGuiRowDto, SchedulesListResult } from "../../../daemon/src/protocol/schedules-gui-contract.ts";
+import type {
+  ScheduleGuiListRowDto,
+  ScheduleGuiRowDto,
+  SchedulesListResult,
+} from "../../../daemon/src/protocol/schedules-gui-contract.ts";
 import type { DaemonGuiReadPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 
@@ -266,7 +270,9 @@ export const scheduleRunRefOccurrence = (focusedEntityRef: string | null): strin
 };
 
 export const scheduleRowById = (
-  rows: readonly ScheduleGuiRowDto[],
+  rows: readonly ScheduleGuiListRowDto[],
   scheduleId: string | null,
 ): ScheduleGuiRowDto | null =>
-  scheduleId === null ? null : (rows.find((row) => row.scheduleId === scheduleId) ?? null);
+  scheduleId === null
+    ? null
+    : (rows.find((row): row is ScheduleGuiRowDto => row.scheduleId === scheduleId && row.state !== "invalid") ?? null);
