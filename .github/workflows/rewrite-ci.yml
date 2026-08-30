@@ -302,6 +302,30 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  ontology-advisory:
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Report Phase G0 ontology findings
+        run: node tools/run-manifest-gates.mjs --workflow-job ontology-advisory
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-ontology-advisory
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: ignore
+          retention-days: 14
+
   package-policy:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

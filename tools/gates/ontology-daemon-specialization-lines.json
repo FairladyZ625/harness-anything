@@ -1,0 +1,10 @@
+{
+  "schema": "ontology-daemon-specialization-lines/v1",
+  "files": {
+    "packages/daemon/src/repo-cell-action-dispatch.ts": 619,
+    "packages/daemon/src/protocol/json-rpc-server.ts": 631,
+    "packages/daemon/src/repo-cell-command.ts": 305,
+    "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts": 449,
+    "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts": 490
+  }
+}

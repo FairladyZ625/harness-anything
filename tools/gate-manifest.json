@@ -45,6 +45,7 @@
   },
   "tierDefinitions": {
     "pr-required": "Runs in a GitHub branch-protection required context for pull requests.",
+    "pr-advisory": "Runs on pull requests in a non-required, continue-on-error observation job.",
     "main-only": "Does not run in a PR required context; runs through full-check on main push, scheduled nightly, and manual workflow dispatch unless noted.",
     "nightly-only": "Runs only on scheduled full-check.",
     "manual-only": "Runs only by explicit local or workflow-dispatch invocation."
@@ -155,6 +156,7 @@
         "windows-first-run",
         "integration-shard",
         "boundaries",
+        "ontology-advisory",
         "package-policy",
         "supply-chain",
         "gui-build",
@@ -4644,6 +4646,291 @@
         "evidence": [
           "tools/check-gui-status-judgments.test.mjs"
         ]
+      }
+    },
+    {
+      "id": "ontology-kind-authority",
+      "command": "node tools/gates/ontology-kind-authority.mjs",
+      "category": "boundary",
+      "tier": "pr-advisory",
+      "tierReason": "Phase G0 baseline observation only; G3a may promote this gate after the legacy kind/ref tables are deleted by CEO decision.",
+      "authoritySource": [
+        "task_6afb9b18781322b945d268d8f2",
+        "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f1-统一语义坐标系被证伪至少四套-kindactionread-坐标并存",
+        "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f6-entity-化有真货也有文档metadata换皮"
+      ],
+      "consumerScope": [
+        "kernel canonical entity-kind registry",
+        "legacy KernelEntityKind and EntityRef kind authorities"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Every registry-external kind table is reported; no table is hidden by an allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/ontology-kind-authority.mjs",
+          "tools/gates/test/ontology-kind-authority.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/ontology-kind-authority.test.mjs"]
+      }
+    },
+    {
+      "id": "ontology-durable-action-authorization",
+      "command": "node tools/gates/ontology-durable-action-authorization.mjs",
+      "category": "boundary",
+      "tier": "pr-advisory",
+      "tierReason": "Phase G0 baseline observation only; G2 may promote this gate after every durable action reaches AuthorizationPort and receipts carry a non-null decision.",
+      "authoritySource": [
+        "task_6afb9b18781322b945d268d8f2",
+        "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f3-actor-role-policy-是真实切片但不是单一授权模型"
+      ],
+      "consumerScope": [
+        "daemon durable command descriptors and GUI action descriptors",
+        "daemon/application action handler call graph to AuthorizationPort",
+        "WriteReceipt authorizationDecision contract"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "All non-read command kinds are tabulated; missing static traces and nullable receipts are visible without exemptions."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/ontology-durable-action-authorization.mjs",
+          "tools/gates/test/ontology-durable-action-authorization.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/ontology-durable-action-authorization.test.mjs"]
+      }
+    },
+    {
+      "id": "ontology-event-read-truth",
+      "command": "node tools/gates/ontology-event-read-truth.mjs",
+      "category": "boundary",
+      "tier": "pr-advisory",
+      "tierReason": "Phase G0 baseline observation only; G3b may promote this gate after wide and narrow event reads use the same event-backed truth.",
+      "authoritySource": [
+        "task_6afb9b18781322b945d268d8f2",
+        "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f7-projection-基础有效但统一读取协议甚至出现了query-shape-truth差异"
+      ],
+      "consumerScope": [
+        "daemon task query read model",
+        "daemon WIP snapshot event-projection read"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Legacy materialized/L1/L2 truth participation points are reported directly with no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/ontology-event-read-truth.mjs",
+          "tools/gates/test/ontology-event-read-truth.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/ontology-event-read-truth.test.mjs"]
+      }
+    },
+    {
+      "id": "ontology-explain-executable-actions",
+      "command": "node tools/gates/ontology-explain-executable-actions.mjs",
+      "category": "boundary",
+      "tier": "pr-advisory",
+      "tierReason": "Phase G0 baseline observation only; G1 may promote this gate after explain exposes only executable actions.",
+      "authoritySource": [
+        "task_6afb9b18781322b945d268d8f2",
+        "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f2-action-catalog-大部分是可解释名字不是可执行-action-authority"
+      ],
+      "consumerScope": [
+        "kernel entity action catalogs",
+        "entity explain transitions.available output"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Every action advertised by explain with execution:null is counted and named."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/ontology-explain-executable-actions.mjs",
+          "tools/gates/test/ontology-explain-executable-actions.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/ontology-explain-executable-actions.test.mjs"]
+      }
+    },
+    {
+      "id": "ontology-daemon-specialization-lines",
+      "command": "node tools/gates/ontology-daemon-specialization-lines.mjs --base origin/main",
+      "category": "boundary",
+      "tier": "pr-advisory",
+      "tierReason": "Phase G0 shrink-only observation; promotion from advisory requires a separate CEO decision.",
+      "authoritySource": [
+        "task_6afb9b18781322b945d268d8f2",
+        "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f5-daemon-特化赘肉没有删除规模与结构都给出反证"
+      ],
+      "consumerScope": [
+        "five audited daemon specialization files",
+        "shrink-only per-file line baseline"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The committed baseline may only fall relative to the merge base; increases have no receipt or allowlist path."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/ontology-daemon-specialization-lines.mjs",
+          "tools/gates/ontology-daemon-specialization-lines.json",
+          "tools/gates/test/ontology-daemon-specialization-lines.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/ontology-daemon-specialization-lines.test.mjs"]
+      }
+    },
+    {
+      "id": "ontology-action-concurrency",
+      "command": "node tools/gates/ontology-action-concurrency.mjs",
+      "category": "boundary",
+      "tier": "pr-advisory",
+      "tierReason": "Phase G0 baseline observation only; G1 may promote this gate after Action definitions declare concurrency semantics.",
+      "authoritySource": [
+        "task_6afb9b18781322b945d268d8f2",
+        "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f9-中心多edge并发是最强的真实收益但它来自专用机制而非ontology-action模型"
+      ],
+      "consumerScope": [
+        "kernel EntityActionContract catalog entries",
+        "expectedVersion, lease, occurrence, idempotency, and artifact ownership declarations"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Every catalog action is tabulated and every missing concurrency field is named."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/ontology-action-concurrency.mjs",
+          "tools/gates/test/ontology-action-concurrency.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/ontology-action-concurrency.test.mjs"]
       }
     }
   ]
