@@ -45,7 +45,7 @@ test("recorded Fact is durable and immediately searchable through the canonical 
         evidenceSource: "integration test",
         observedAt: "2026-08-13T00:00:00.000Z",
         confidence: "high",
-        domainType: "architecture",
+        domainTypes: ["architecture", "bug"],
         memoryClass: "semantic",
         memoryTags: ["pattern", "abstract_rule"],
         provenance: [
@@ -65,28 +65,101 @@ test("recorded Fact is durable and immediately searchable through the canonical 
       },
     };
 
-    const event = compile(projection, draft),
+    const { domainTypes: _registeredDomainTypes, ...registrationPayload } = draft.payload;
+    for (const [index, domainType] of ["architecture", "bug"].entries()) {
+      service.record(
+        compile(projection, {
+          ...draft,
+          eventId: `event-type-${index}`,
+          opId: `op-type-${index}`,
+          factId: index === 0 ? "F-TYPEARCH" : "F-TYPEBAGG",
+          taskId: undefined,
+          workspaceRevision: index + 1,
+          payload: {
+            ...registrationPayload,
+            statement: `Registered ${domainType}`,
+            registersDomainType: domainType,
+          },
+        }),
+      );
+    }
+    const event = compile(projection, { ...draft, workspaceRevision: 3 }),
       recorded = service.record(event);
     assert.equal(recorded.fact.factId, "F-ABCDEFGH");
-    assert.equal(recorded.fact.domainType, "architecture");
+    assert.deepEqual(recorded.fact.domainTypes, ["architecture", "bug"]);
     assert.deepEqual(recorded.fact.memoryTags, event.event.payload.memoryTags);
     assert.deepEqual(recorded.fact.provenance, event.event.payload.provenance);
     assert.equal(store.readEvent(event.event.opId)?.schema, "fact-event/v1");
     assert.deepEqual(service.search({ query: "SQLite", taskId: "task-fact" }).facts, [recorded.fact]);
-    const { domainType: _domainType, ...untypedPayload } = draft.payload,
+    const { domainTypes: _domainTypes, ...untypedPayload } = draft.payload,
       untyped = service.record(
         compile(projection, {
           ...draft,
           eventId: "event-fact-2",
           opId: "op-fact-2",
           factId: "F-BCDEFGHJ",
-          workspaceRevision: 2,
+          workspaceRevision: 4,
           payload: { ...untypedPayload, statement: "Untyped observation" },
         }),
       );
-    assert.equal(untyped.fact.domainType, undefined);
+    assert.equal(untyped.fact.domainTypes, undefined);
     assert.deepEqual(service.search({ domainType: "architecture" }).facts, [recorded.fact]);
-    assert.deepEqual(service.show("F-ABCDEFGH").fact, recorded.fact);
+    assert.throws(
+      () =>
+        service.record(
+          compile(projection, {
+            ...draft,
+            eventId: "event-unregistered",
+            opId: "op-unregistered",
+            factId: "F-NREGTYPE",
+            workspaceRevision: 5,
+            payload: { ...draft.payload, domainTypes: ["architecture-design"] },
+          }),
+        ),
+      /Fact domain type architecture-design is not registered/u,
+    );
+    const reclassified = service.record(
+      compile(projection, {
+        ...draft,
+        eventId: "event-reclassify",
+        opId: "op-reclassify",
+        workspaceRevision: 5,
+        type: "fact_reclassified",
+        payload: {
+          ...draft.payload,
+          domainTypes: ["bug"],
+          reclassificationRationale: "The observation now serves bug diagnosis only.",
+        },
+      }),
+    );
+    assert.deepEqual(reclassified.fact.domainTypes, ["bug"]);
+    assert.deepEqual(service.search({ domainType: "architecture" }).facts, []);
+    assert.deepEqual(service.search({ domainType: "bug" }).facts, [reclassified.fact]);
+    assert.equal(store.readEvent("op-fact-1")?.type, "fact_recorded");
+    assert.equal(store.readEvent("op-reclassify")?.type, "fact_reclassified");
+    assert.equal(
+      store.readEvent("op-reclassify")?.payload.reclassificationRationale,
+      "The observation now serves bug diagnosis only.",
+    );
+    assert.throws(
+      () =>
+        service.record(
+          compile(projection, {
+            ...draft,
+            eventId: "event-reclassify-mutated",
+            opId: "op-reclassify-mutated",
+            workspaceRevision: 6,
+            type: "fact_reclassified",
+            payload: {
+              ...draft.payload,
+              statement: "Mutated observation",
+              domainTypes: ["bug"],
+              reclassificationRationale: "Attempted content mutation.",
+            },
+          }),
+        ),
+      /reclassification changed observation data/u,
+    );
   } finally {
     projection?.close();
     rmSync(rootDir, { recursive: true, force: true });

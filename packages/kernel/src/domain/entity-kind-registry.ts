@@ -24,6 +24,7 @@ import {
 import {
   compileDecisionReckonAction,
   compileFactRecordAction,
+  compileFactReclassifyAction,
   decisionActionCompiler,
   relationActionCompiler,
   type EntityActionCompileHook,
@@ -565,6 +566,15 @@ const factActionCatalog = Object.freeze({
   ref: "kernel/fact-event/v1",
   actions: Object.freeze([
     executableAction("fact", factIdentity, "record", "fact-record", compileFactRecordAction, factExposure),
+    executableAction("fact", factIdentity, "reclassify", "fact-reclassify", compileFactReclassifyAction, factExposure),
+    executableAction(
+      "fact",
+      factIdentity,
+      "type-register",
+      "fact-type-register",
+      compileFactRecordAction,
+      factExposure,
+    ),
     executableAction("fact", factIdentity, "search", "fact-search", null, factExposure, true),
     executableAction("fact", factIdentity, "show", "fact-show", null, factExposure, true),
   ]),

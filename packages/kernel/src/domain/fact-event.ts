@@ -65,7 +65,9 @@ export interface FactEventPayload {
   readonly evidenceSource: string;
   readonly observedAt: string;
   readonly confidence: FactConfidence;
-  readonly domainType?: FactDomainType;
+  readonly domainTypes?: readonly FactDomainType[];
+  readonly registersDomainType?: FactDomainType;
+  readonly reclassificationRationale?: string;
   readonly memoryClass: FactMemoryClass;
   readonly memoryTags: readonly FactMemoryTag[];
   readonly provenance: readonly SessionProvenanceV1[];
@@ -73,7 +75,12 @@ export interface FactEventPayload {
   readonly factsDocumentClaim: FactsDocumentClaim;
 }
 
-export type FactEventV1 = EventEnvelope<"fact-event/v1", "fact_recorded", ActorIdentity, FactEventPayload> & {
+export type FactEventV1 = EventEnvelope<
+  "fact-event/v1",
+  "fact_recorded" | "fact_reclassified",
+  ActorIdentity,
+  FactEventPayload
+> & {
   /** Optional provenance owner. It is not part of fact identity. */
   readonly taskId?: string;
   readonly factId: string;
@@ -183,7 +190,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
     !isRecord(value) ||
     !factEventFields(value, allowUnknownFields) ||
     value.schema !== "fact-event/v1" ||
-    value.type !== "fact_recorded" ||
+    (value.type !== "fact_recorded" && value.type !== "fact_reclassified") ||
     (value.taskId !== undefined && !safeId(value.taskId)) ||
     typeof value.factId !== "string" ||
     !isFactId(value.factId) ||
@@ -201,7 +208,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
         "provenance",
         "factsDocumentClaim",
       ],
-      ["domainType", "supersedes"],
+      ["domainTypes", "registersDomainType", "supersedes", "reclassificationRationale"],
       allowUnknownFields,
     )
   )
@@ -214,7 +221,12 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
     !isNonEmptyString(payload.evidenceSource) ||
     !timestamp(payload.observedAt) ||
     !includes(factConfidenceLevels, payload.confidence) ||
-    (payload.domainType !== undefined && !validDomainType(payload.domainType)) ||
+    (payload.domainTypes !== undefined &&
+      (!Array.isArray(payload.domainTypes) ||
+        payload.domainTypes.length === 0 ||
+        new Set(payload.domainTypes).size !== payload.domainTypes.length ||
+        payload.domainTypes.some((domainType) => !validDomainType(domainType)))) ||
+    (payload.registersDomainType !== undefined && !validDomainType(payload.registersDomainType)) ||
     !includes(factMemoryClasses, payload.memoryClass) ||
     !Array.isArray(payload.memoryTags) ||
     new Set(payload.memoryTags).size !== payload.memoryTags.length ||
@@ -224,6 +236,13 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
     payload.provenance.some((entry) => !provenance(entry, allowUnknownFields)) ||
     !uniqueProvenance(payload.provenance) ||
     (payload.supersedes !== undefined && !supersedes(payload.supersedes, allowUnknownFields)) ||
+    (value.type === "fact_reclassified" &&
+      (payload.domainTypes === undefined ||
+        payload.registersDomainType !== undefined ||
+        payload.supersedes !== undefined ||
+        !codePoints(payload.reclassificationRationale, 1, 199))) ||
+    (value.type === "fact_recorded" && payload.reclassificationRationale !== undefined) ||
+    (payload.registersDomainType !== undefined && payload.domainTypes !== undefined) ||
     !validFactsClaim(payload.factsDocumentClaim, value.factId, value.taskId, allowUnknownFields)
   )
     return ["fact event payload is invalid"];

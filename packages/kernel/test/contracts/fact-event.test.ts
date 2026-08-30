@@ -38,7 +38,7 @@ const draft: FactEventDraftV1 = {
       evidenceSource: "contract fixture",
       observedAt: "2026-08-13T00:00:00.000Z",
       confidence: "high",
-      domainType: "架构",
+      domainTypes: ["架构", "bug"],
       memoryClass: "semantic",
       memoryTags: ["pattern"],
       provenance: [
@@ -82,8 +82,8 @@ test("Fact event reader ignores unknown fields while the current writer stays st
     { ...event, occurredAt: "not-a-timestamp" },
     { ...event, payload: { ...event.payload, statement: "   " } },
     { ...event, payload: { ...event.payload, observedAt: "not-a-timestamp" } },
-    { ...event, payload: { ...event.payload, domainType: " bug " } },
-    { ...event, payload: { ...event.payload, domainType: "x".repeat(65) } },
+    { ...event, payload: { ...event.payload, domainTypes: [" bug "] } },
+    { ...event, payload: { ...event.payload, domainTypes: ["x".repeat(65)] } },
     {
       ...event,
       payload: { ...event.payload, memoryTags: ["pattern", "pattern"] },

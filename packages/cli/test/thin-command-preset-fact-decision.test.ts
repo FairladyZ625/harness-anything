@@ -138,11 +138,25 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
   ]);
   const search = parseThinCommand(["fact", "search", "Observed", "--task", "task-1"]),
     facetedSearch = parseThinCommand(["fact", "search", "--type", "architecture"]),
+    registration = parseThinCommand(["fact", "type", "register", "architecture", "--source", "decision/CH1"]),
+    reclassification = parseThinCommand([
+      "fact",
+      "reclassify",
+      "F-ABCDEFGH",
+      "--type",
+      "architecture",
+      "--type",
+      "bug",
+      "--rationale",
+      "Dual-purpose observation",
+    ]),
     show = parseThinCommand(["fact", "show", "--id", "F-ABCDEFGH"]);
   assert.equal(record.ok, true);
   assert.equal(search.ok, true);
   assert.equal(facetedSearch.ok, true);
   assert.equal(show.ok, true);
+  assert.equal(registration.ok, true);
+  assert.equal(reclassification.ok, true);
   if (record.ok)
     assert.deepEqual(record.command.action, {
       kind: "fact-record",
@@ -150,13 +164,30 @@ test("Fact CLI exposes only record/search/show and covers all five local parse e
       statement: "Observed",
       evidenceSource: "test",
       confidence: "high",
-      domainType: "architecture",
+      domainTypes: ["architecture"],
       memoryClass: "semantic",
       memoryTags: ["pattern"],
       waitProjectionMs: 2500,
     });
   if (facetedSearch.ok)
     assert.deepEqual(facetedSearch.command.action, { kind: "fact-search", domainType: "architecture" });
+  if (registration.ok)
+    assert.deepEqual(registration.command.action, {
+      kind: "fact-type-register",
+      statement: "Registered Fact domain type: architecture",
+      evidenceSource: "decision/CH1",
+      confidence: "high",
+      memoryClass: "semantic",
+      memoryTags: [],
+      registersDomainType: "architecture",
+    });
+  if (reclassification.ok)
+    assert.deepEqual(reclassification.command.action, {
+      kind: "fact-reclassify",
+      factId: "F-ABCDEFGH",
+      domainTypes: ["architecture", "bug"],
+      rationale: "Dual-purpose observation",
+    });
   const migrated = parseThinCommand([
     "fact",
     "record",

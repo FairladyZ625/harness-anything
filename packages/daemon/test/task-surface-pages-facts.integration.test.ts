@@ -402,6 +402,23 @@ test("fact search action forwards observed-time windows and preserves keyset pag
       ).outcome,
       "applied",
     );
+    for (const domainType of ["architecture", "custom-3", "custom-4", "custom-5"])
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "fact-type-register",
+              statement: `Registered Fact domain type: ${domainType}`,
+              evidenceSource: "fact-query-fixture",
+              confidence: "high",
+              memoryClass: "semantic",
+              registersDomainType: domainType,
+            },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
     for (let index = 1; index <= 5; index += 1)
       assert.equal(
         (
@@ -414,7 +431,7 @@ test("fact search action forwards observed-time windows and preserves keyset pag
               evidenceSource: "fact-query-fixture",
               observedAt: `2026-08-15T00:00:0${index}.000Z`,
               confidence: "high",
-              ...(index <= 2 ? { domainType: "architecture" } : { domainType: `custom-${index}` }),
+              ...(index <= 2 ? { domainTypes: ["architecture"] } : { domainTypes: [`custom-${index}`] }),
               memoryClass: "semantic",
             },
             binding,
@@ -461,6 +478,22 @@ test("fact search action forwards observed-time windows and preserves keyset pag
       (architecture.facts as { factId: string }[]).map(({ factId }) => factId),
       ["F-00000002", "F-00000001"],
     );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "fact-reclassify",
+            factId: "F-00000001",
+            domainTypes: ["architecture", "custom-3"],
+            rationale: "This observation now spans architecture and the custom-3 facet.",
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
+    const reclassified = evidence(await cell.run({ kind: "fact-show", factId: "F-00000001" }, binding));
+    assert.deepEqual((reclassified.fact as { domainTypes: string[] }).domainTypes, ["architecture", "custom-3"]);
     const invalidDate = await cell.run(
         {
           kind: "fact-search",

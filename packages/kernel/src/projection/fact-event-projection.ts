@@ -23,7 +23,7 @@ export interface FactProjectionRow {
   readonly evidenceSource: string;
   readonly observedAt: string;
   readonly confidence: FactConfidence;
-  readonly domainType?: FactDomainType;
+  readonly domainTypes?: readonly FactDomainType[];
   readonly memoryClass: FactMemoryClass;
   readonly memoryTags: FactEventV1["payload"]["memoryTags"];
   readonly provenance: FactEventV1["payload"]["provenance"];
@@ -87,19 +87,53 @@ export function createFactProjectionTables(db: DatabaseSync): void {
       PRIMARY KEY(fact_id));
     CREATE VIRTUAL TABLE IF NOT EXISTS fact_fts USING fts5(fact_id UNINDEXED, statement, evidence_source,
       tokenize='unicode61 remove_diacritics 2');
+    CREATE TABLE IF NOT EXISTS fact_domain_type (
+      domain_type TEXT PRIMARY KEY, registered_by_fact_id TEXT NOT NULL UNIQUE,
+      workspace_revision INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS fact_reclassification (
+      op_id TEXT PRIMARY KEY, fact_id TEXT NOT NULL, domain_types_json TEXT NOT NULL,
+      rationale TEXT NOT NULL, workspace_revision INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS fact_task_page ON fact(task_id, observed_at DESC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_observed_page ON fact(observed_at DESC, task_id ASC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_confidence_page ON fact(confidence, observed_at DESC, task_id ASC, fact_id ASC);
-    CREATE INDEX IF NOT EXISTS fact_domain_type_page ON fact(
-      json_extract(row_json, '$.domainType'), observed_at DESC, task_id ASC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_memory_class_page ON fact(memory_class, observed_at DESC, task_id ASC, fact_id ASC);
   `);
 }
 
 export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void {
   const ownRef = factRef(event.factId);
-  if (db.prepare("SELECT 1 FROM fact WHERE fact_id = ?").get(event.factId))
+  const existing = db.prepare("SELECT 1 FROM fact WHERE fact_id = ?").get(event.factId);
+  if (event.type === "fact_reclassified" && !existing)
+    throw new FactProjectionError("entity_not_found", `Fact ${ownRef} does not exist.`);
+  if (event.type === "fact_recorded" && existing)
     throw new FactProjectionError("invalid_transition", `Fact ${ownRef} already exists.`);
+  if (event.type === "fact_reclassified") {
+    const record = db.prepare("SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
+      | { readonly row_json: string }
+      | undefined;
+    const row = record ? (JSON.parse(record.row_json) as FactProjectionRow) : null;
+    if (
+      !row ||
+      row.taskId !== event.taskId ||
+      row.statement !== event.payload.statement ||
+      row.evidenceSource !== event.payload.evidenceSource ||
+      row.observedAt !== event.payload.observedAt ||
+      row.confidence !== event.payload.confidence ||
+      row.memoryClass !== event.payload.memoryClass ||
+      JSON.stringify(row.memoryTags) !== JSON.stringify(event.payload.memoryTags)
+    )
+      throw new FactProjectionError("invalid_transition", `Fact ${ownRef} reclassification changed observation data.`);
+  }
+  if (event.payload.registersDomainType) {
+    if (db.prepare("SELECT 1 FROM fact_domain_type WHERE domain_type = ?").get(event.payload.registersDomainType))
+      throw new FactProjectionError(
+        "invalid_transition",
+        `Fact domain type ${event.payload.registersDomainType} is already registered.`,
+      );
+  }
+  for (const domainType of event.payload.domainTypes ?? [])
+    if (!db.prepare("SELECT 1 FROM fact_domain_type WHERE domain_type = ?").get(domainType))
+      throw new FactProjectionError("relation_invalid", `Fact domain type ${domainType} is not registered.`);
   const supersedes = event.payload.supersedes;
   if (!supersedes) return;
   const target = db.prepare("SELECT ref FROM fact WHERE ref = ?").get(supersedes.factRef) as
@@ -114,6 +148,29 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
 
 export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
   assertFactAdmission(db, event);
+  if (event.type === "fact_reclassified") {
+    const record = db.prepare("SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
+      | { readonly row_json: string }
+      | undefined;
+    if (!record) throw new FactProjectionError("entity_not_found", `Fact fact/${event.factId} does not exist.`);
+    const row = JSON.parse(record.row_json) as FactProjectionRow;
+    db.prepare("UPDATE fact SET workspace_revision = ?, row_json = ? WHERE fact_id = ?").run(
+      event.workspaceRevision,
+      JSON.stringify({ ...row, domainTypes: event.payload.domainTypes, workspaceRevision: event.workspaceRevision }),
+      event.factId,
+    );
+    db.prepare(
+      "INSERT INTO fact_reclassification" +
+        "(op_id, fact_id, domain_types_json, rationale, workspace_revision) VALUES (?, ?, ?, ?, ?)",
+    ).run(
+      event.opId,
+      event.factId,
+      JSON.stringify(event.payload.domainTypes ?? []),
+      event.payload.reclassificationRationale!,
+      event.workspaceRevision,
+    );
+    return;
+  }
   const ref = factRef(event.factId);
   const row: Omit<FactProjectionRow, "state"> = {
     schema: "fact-row/v1",
@@ -124,7 +181,7 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     evidenceSource: event.payload.evidenceSource,
     observedAt: event.payload.observedAt,
     confidence: event.payload.confidence,
-    ...(event.payload.domainType ? { domainType: event.payload.domainType } : {}),
+    ...(event.payload.domainTypes ? { domainTypes: event.payload.domainTypes } : {}),
     memoryClass: event.payload.memoryClass,
     memoryTags: event.payload.memoryTags,
     provenance: event.payload.provenance,
@@ -148,6 +205,10 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     event.workspaceRevision,
     JSON.stringify(row),
   );
+  if (event.payload.registersDomainType)
+    db.prepare(
+      "INSERT INTO fact_domain_type(domain_type, registered_by_fact_id, workspace_revision) VALUES (?, ?, ?)",
+    ).run(event.payload.registersDomainType, event.factId, event.workspaceRevision);
   db.prepare("INSERT INTO fact_fts(fact_id, statement, evidence_source) VALUES (?, ?, ?)").run(
     event.factId,
     row.statement,
@@ -233,7 +294,7 @@ export function searchFactRowsPage(
     values.push(filters.confidence);
   }
   if (filters.domainType) {
-    where.push("json_extract(fact.row_json, '$.domainType') = ?");
+    where.push("EXISTS (SELECT 1 FROM json_each(fact.row_json, '$.domainTypes') WHERE value = ?)");
     values.push(filters.domainType);
   }
   if (filters.memoryClass) {

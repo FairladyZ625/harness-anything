@@ -127,6 +127,44 @@ export const docFactProtocolCommands = Object.freeze([
     inputs: [],
   }),
   defineLedgerWriteCommand({
+    id: "fact-reclassify",
+    phase: "DecisionFact-A",
+    path: ["fact", "reclassify"],
+    syntaxPath: ["fact", "reclassify", "<fact-id>"],
+    summary: "Replace a Fact's domain types with an audited reclassification event.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput("--type", "repeated", true, {
+        code: "missing_field",
+        nextAction: "Add one or more registered --type values.",
+      }),
+      cliInput(
+        "--rationale",
+        "single",
+        true,
+        {
+          code: "missing_field",
+          nextAction: "Add --rationale <why> with at most 199 characters.",
+        },
+        { regex: "^[\\s\\S]{1,199}$" },
+      ),
+    ],
+  }),
+  defineLedgerWriteCommand({
+    id: "fact-type-register",
+    phase: "DecisionFact-A",
+    path: ["fact", "type", "register"],
+    syntaxPath: ["fact", "type", "register", "<type>"],
+    summary: "Register one controlled Fact domain type through an audited Fact event.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput("--source", "single", true, {
+        code: "missing_field",
+        nextAction: "Add --source <source> describing the registration basis.",
+      }),
+    ],
+  }),
+  defineLedgerWriteCommand({
     id: "fact-record",
     phase: "DecisionFact-A",
     path: ["fact", "record"],
@@ -194,7 +232,7 @@ export const docFactProtocolCommands = Object.freeze([
         },
         { enum: ["semantic", "episodic", "procedural"] },
       ),
-      cliInput("--type", "single", false, {
+      cliInput("--type", "repeated", false, {
         code: "invalid_field",
         nextAction: "Fact type must be 1 to 64 characters without surrounding whitespace or control characters.",
       }),

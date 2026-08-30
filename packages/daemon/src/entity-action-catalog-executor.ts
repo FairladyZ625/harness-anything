@@ -190,7 +190,9 @@ export function makeEntityActionCatalogExecutor(input: {
               rawAction,
               decisions.show(requiredCommandText(rawAction.decisionId, "decisionId")).decision,
             )
-          : rawAction
+          : contract.id === "reclassify"
+            ? reclassificationAction(rawAction, input.projection)
+            : rawAction
       ) as RepoTaskAction,
       dryRun = action.dryRun === true,
       existing = dryRun ? null : input.store.readEvent(opId),
@@ -495,6 +497,26 @@ export function deriveActionResult(
     nextActions: Object.freeze([
       ...new Set([...(receipt.nextActions ?? []), ...(receipt.nextAction ? [receipt.nextAction] : [])]),
     ]),
+  };
+}
+
+function reclassificationAction(
+  action: Readonly<Record<string, unknown>>,
+  projection: TaskProjection,
+): Readonly<Record<string, unknown>> {
+  const factId = requiredCommandText(action.factId, "factId"),
+    read = projection.readFact(factId),
+    fact = read.fact;
+  if (!fact) reject("invalid_command", `Fact fact/${factId} does not exist.`);
+  return {
+    ...action,
+    ...(fact.taskId ? { taskId: fact.taskId } : {}),
+    statement: fact.statement,
+    evidenceSource: fact.evidenceSource,
+    observedAt: fact.observedAt,
+    confidence: fact.confidence,
+    memoryClass: fact.memoryClass,
+    memoryTags: fact.memoryTags,
   };
 }
 
