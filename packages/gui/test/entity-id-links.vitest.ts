@@ -23,6 +23,8 @@ import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
 import { SchedulesView } from "../src/renderer/views/SchedulesView.tsx";
 import { schedulesClient } from "../src/renderer/schedules-client.ts";
+import { ArtifactsView } from "../src/renderer/views/ArtifactsView.tsx";
+import { artifactsClient } from "../src/renderer/artifacts-client.ts";
 import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { DaemonObserveView } from "../src/renderer/views/DaemonObserveView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
@@ -371,6 +373,28 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
     watermark: 1,
     sourceRevision: 1,
   });
+  // Artifacts fixture: one html row attributed to a fixture task so the timeline's
+  // task link is exercised by the dead-id scan.
+  vi.spyOn(artifactsClient, "list").mockResolvedValue({
+    ok: true,
+    status: "ready",
+    repoId: REPO_ID,
+    kind: "html",
+    artifacts: [
+      {
+        taskId: FIXTURE_TASKS[0]!.taskId,
+        taskTitle: FIXTURE_TASKS[0]!.title,
+        packagePath: `tasks/${FIXTURE_TASKS[0]!.taskId}-fixture`,
+        path: "artifacts/report.html",
+        kind: "html",
+        time: "2026-08-30T00:00:00.000Z",
+        timeSource: "ledger",
+      },
+    ],
+    counts: { html: 1, md: 0 },
+    watermark: 1,
+    sourceRevision: 1,
+  });
   // Schedules fixture carries routable session/agent refs so the behavioral scan
   // covers the new plane's deep-link exits (the ids must stay activatable).
   vi.spyOn(schedulesClient, "list").mockResolvedValue({
@@ -661,6 +685,7 @@ const VIEW_RENDERERS = {
       onSelectEntity: noop,
       onOpenTask: noop,
     }),
+  artifacts: () => createElement(ArtifactsView, { repoId: REPO_ID, onNavigateTask: noop }),
   schedules: () =>
     createElement(SchedulesView, {
       repoId: REPO_ID,

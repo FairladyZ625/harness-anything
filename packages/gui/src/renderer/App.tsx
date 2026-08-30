@@ -40,6 +40,7 @@ import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
 import { SessionsView } from "./views/SessionsView.tsx";
 import { SchedulesView } from "./views/SchedulesView.tsx";
+import { ArtifactsView } from "./views/ArtifactsView.tsx";
 import { AgentSquadView } from "./views/AgentSquadView.tsx";
 import { ProvidersView } from "./views/ProvidersView.tsx";
 import { useTaskActions } from "./task-actions.ts";
@@ -675,6 +676,8 @@ function AppShell() {
                 onSelectEntity={selectRuntimeEntity}
                 onFocusSchedule={(ref) => updateLocation({ focusedEntityRef: ref })}
               />
+            ) : view === "artifacts" ? (
+              <ArtifactsView repoId={projectId} onNavigateTask={navigateToTask} />
             ) : view === "agentSquad" ? (
               <AgentSquadView
                 repoId={projectId}

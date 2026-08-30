@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "status": "ready",
+  "repoId": "artifacts-contract",
+  "kind": "html",
+  "artifacts": [
+    {
+      "taskId": "task_with_weathering",
+      "taskTitle": "Weathering",
+      "packagePath": "tasks/task_with_weathering",
+      "path": "reports/weathering.html",
+      "kind": "html",
+      "time": "yesterday",
+      "timeSource": "filesystem"
+    }
+  ],
+  "counts": { "html": 1, "md": 0 },
+  "watermark": 1,
+  "sourceRevision": 1
+}

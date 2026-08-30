@@ -12,6 +12,7 @@ import {
   Waveform,
   HourglassMedium,
   Clock,
+  FileHtml,
 } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
@@ -38,6 +39,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   adapters: "shell.nav.adapters",
   sessions: "shell.nav.sessions",
   schedules: "shell.nav.schedules",
+  artifacts: "shell.nav.artifacts",
   agentSquad: "shell.nav.agentSquad",
   providers: "shell.nav.providers",
   system: "shell.nav.system",
@@ -79,6 +81,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { id: "sessions", icon: <Waveform weight="duotone" /> },
       { id: "schedules", icon: <Clock weight="duotone" /> },
+      { id: "artifacts", icon: <FileHtml weight="duotone" /> },
       { id: "agentSquad", icon: <Users weight="duotone" /> },
       { id: "providers", icon: <PlugsConnected weight="duotone" /> },
     ],

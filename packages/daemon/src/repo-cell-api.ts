@@ -16,6 +16,7 @@ import { readAgentEntityGuiProjection } from "./agent-entities.ts";
 import { discoverAgentSkills } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import { listProjectedTaskDocuments, readProjectedDocument } from "./doc-sync-actions.ts";
+import { readArtifactsGui } from "./artifacts-gui-read.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { readObserveTail } from "./observe-tail.ts";
 import { readSchedulesGui } from "./schedules-gui-read.ts";
@@ -359,6 +360,11 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
     "repo.tasks.document.read": (payload) => readProjectedDocument(context.rootDir, context.projection, payload),
     "repo.tasks.documents.list": (payload) => listProjectedTaskDocuments(context.rootDir, context.projection, payload),
+    "repo.artifacts.list": (payload) =>
+      readArtifactsGui(
+        { rootDir: context.rootDir, projection: context.projection, input: { repoId: context.input.repoId } },
+        payload,
+      ),
     "repo.agentRuntime.overview": (payload) => context.runtimeReads.overview(payload),
     "repo.agentRuntime.sessionGroups": (payload) => context.runtimeReads.sessionGroups(payload),
     "repo.agentRuntime.sessions.read": (payload) => context.runtimeReads.session(payload),
