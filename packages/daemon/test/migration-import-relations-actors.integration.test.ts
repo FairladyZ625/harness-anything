@@ -91,7 +91,7 @@ test("task hierarchy and task-side relations replay into the event stream", asyn
   }
 });
 
-test("relations the current matrix rejects are skipped with a reason instead of migrating", async () => {
+test("legacy relation parser issues remain diagnostic and do not shrink the same-cut oracle", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-illegal-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new");
@@ -109,9 +109,9 @@ test("relations the current matrix rejects are skipped with a reason instead of 
       { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
       { actor, source: "local" },
     )) as Record<string, unknown>;
-    assert.equal(dryRun.exitCode, 3, JSON.stringify(dryRun));
-    assert.match(String(dryRun.summary), /\| relation \| 3 \| 1 \| 2 \| 2 \| PASS \|/u);
-    assert.match(String(dryRun.summary), /Format validation: 1 skipped/u);
+    assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
+    assert.match(String(dryRun.summary), /\| relation \| 2 \| 1 \| 2 \| 2 \| PASS \|/u);
+    assert.match(String(dryRun.summary), /Format observations: 1 legacy parser observations/u);
     assert.match(String(dryRun.summary), /type supports is not allowed for decision->fact/u);
   } finally {
     await cell?.close();
@@ -119,7 +119,7 @@ test("relations the current matrix rejects are skipped with a reason instead of 
   }
 });
 
-test("a relation whose endpoint entity never migrates is reported, not dropped in silence", async () => {
+test("a relation whose endpoint has no same-cut witness is retired with a receipt disposition", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-orphan-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new");
@@ -137,10 +137,29 @@ test("a relation whose endpoint entity never migrates is reported, not dropped i
       { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
       { actor, source: "local" },
     )) as Record<string, unknown>;
-    // old counts the edge, and it cannot be produced because its endpoint task is skipped.
-    // Either it is accounted for as a skip, or the reconciliation must fail — never a silent drop.
-    assert.match(String(dryRun.summary), /\| relation \| 1 \| 1 \| 0 \| 0 \| PASS \|/u, String(dryRun.summary));
-    assert.match(String(dryRun.summary), /SKIP relation/u, String(dryRun.summary));
+    assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
+    assert.deepEqual((dryRun.reconciliation as Record<string, unknown>).relation, {
+      source: 1,
+      target: 1,
+      difference: 1,
+      derived: 0,
+      archived: 0,
+      retired: 1,
+      missingIds: [],
+      passed: true,
+    });
+    assert.deepEqual(
+      (dryRun.dispositions as readonly Record<string, unknown>[]).filter(({ entityType }) => entityType === "relation"),
+      [
+        {
+          entityType: "relation",
+          entityId: "rel_ab6e554f2a225df1",
+          sourcePath: "harness/tasks/task_good/INDEX.md",
+          disposition: "retired",
+          reason: "truth_gap",
+        },
+      ],
+    );
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });

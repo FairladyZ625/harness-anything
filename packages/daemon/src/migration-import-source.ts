@@ -9,6 +9,7 @@ import type {
   MigrationImportReceipt,
   SourceGitIdentity,
 } from "./migration-import-types.ts";
+import { migrationOracleKinds } from "./migration-import-oracle.ts";
 import { runProcessText } from "./process-port.ts";
 import type { RepoTaskAction } from "./repo-cell.ts";
 
@@ -167,6 +168,24 @@ export function combineMigrationReceipts(
       },
     },
     authoredCoverage = combineAuthoredCoverage(receipts.map(({ authoredCoverage: coverage }) => coverage)),
+    reconciliation = Object.fromEntries(
+      migrationOracleKinds.map((kind) => {
+        const rows = receipts.map((receipt) => receipt.reconciliation[kind]);
+        return [
+          kind,
+          {
+            source: rows.reduce((total, row) => total + row.source, 0),
+            target: rows.reduce((total, row) => total + row.target, 0),
+            difference: rows.reduce((total, row) => total + row.difference, 0),
+            derived: rows.reduce((total, row) => total + row.derived, 0),
+            archived: rows.reduce((total, row) => total + row.archived, 0),
+            retired: rows.reduce((total, row) => total + row.retired, 0),
+            missingIds: rows.flatMap(({ missingIds }) => missingIds),
+            passed: rows.every(({ passed }) => passed),
+          },
+        ];
+      }),
+    ) as unknown as MigrationImportReceipt["reconciliation"],
     exitCode: 0 | 1 | 3 = receipts.some((receipt) => receipt.exitCode === 1)
       ? 1
       : receipts.some((receipt) => receipt.exitCode === 3)
@@ -197,6 +216,10 @@ export function combineMigrationReceipts(
     exitCode,
     counts,
     contractRestatements,
+    oracle: last.oracle,
+    reconciliation,
+    fieldDerivations: receipts.flatMap(({ fieldDerivations }) => fieldDerivations),
+    dispositions: receipts.flatMap(({ dispositions }) => dispositions),
     authoredCoverage,
     skippedEntities: receipts.flatMap(({ skippedEntities }) => skippedEntities),
     idMapPath: last.idMapPath,

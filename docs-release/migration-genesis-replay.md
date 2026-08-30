@@ -27,7 +27,7 @@ There are two migration inputs and exactly one command for each:
 
 | Input                                                                  | Command                               | Preconditions                                                                                          | Acceptance                                                                                                                                                |
 | ---------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Legacy repository whose ledger predates the current generation         | `ha migrate import --source <source>` | Freeze writers, stop the source daemon, and use a committed source snapshot. Run `--dry-run` first.    | Five-category reconciliation has old == new, `skipped=0`, no authored `required` rows, and PASS.                                                          |
+| Legacy repository whose ledger predates the current generation         | `ha migrate import --source <source>` | Freeze writers, stop the source daemon, and use a committed source whose active projection and canonical event head are at the same cut. Run `--dry-run` first. | Active IDs satisfy source ⊆ target; each kind's difference equals derived + archived/retired; 12-kind conformance and claim coverage pass. |
 | Already-canonical repository with task-local `fact/<task>/F-*` records | `ha migrate rekey-facts`              | Stop the repository daemon/writers and run against the committed canonical cut. Run `--dry-run` first. | Re-keyed facts and `produces` edges match the dry-run id-map; SQLite fact/relation counts are stable; `ha fact search` and `ha fact show <F-id>` succeed. |
 
 Run the fact-only path once at the fleet center. The marker carries a ledger
@@ -54,9 +54,11 @@ data.
 
 ## The five steps
 
-The order matters. Do not run the real import before the dry-run reports
-`skipped=0` across all five entity classes, no authored `required` rows, and a
-passing reconciliation.
+The order matters. Do not run the real import before the dry-run proves set
+inclusion and the explained-difference equality for all five entity kinds, plus
+12-kind conformance and claim-coverage preservation. Skip and authored-directory
+counts are not subtracted from the entity oracle. Destination-preimage conflicts
+remain an independent write-safety condition and require explicit resolution.
 
 ### 1. Back up the old repository
 
@@ -85,10 +87,20 @@ the daemon automatically.
 ha migrate import --source <path-to-old-repo> --dry-run
 ```
 
-The dry-run writes nothing. It prints a reconciliation table for five entity
-classes — task / decision / fact / relation / coverage — each with four counts:
-old / skipped / expected / new, plus a `Format validation: N skipped` line, an
-`Attribution` line, and an authored coverage table.
+The dry-run writes nothing. It reads `.harness/cache/task.sqlite` at the same
+revision as `harness/events/head.json` and reconciles five active entity kinds —
+task / decision / fact / relation / execution. Each row reports source active,
+target included, difference, derived, archived, and retired. Passing means
+source ⊆ target and difference = derived + archived/retired. Load-bearing
+decision-claim coverage is preserved separately. Format, attribution, and
+authored-directory rows are diagnostic.
+
+For Task/v1 → Task/v2, a missing title is derived first from `task_plan.md` H1,
+then `INDEX.md` H1. A missing `occurredAt` comes from the task's earliest
+canonical event. The receipt records `derived_from` per field and sets
+`provenance=imported_snapshot`. An entity that still cannot satisfy its strict
+contract is restated with its original ID and fields as
+`disposition=archived, reason=truth_gap`.
 
 ### 4. Resolve required rows and skips
 
@@ -112,20 +124,22 @@ not `source`; handle that path manually and dry-run again. Resolution flags for
 missing, duplicate, normalized-different, non-conflicting, or no-longer-conflicting
 paths are rejected.
 
-Legacy `presets/**` are also `required`: rebuild each package in the current
+Legacy `presets/**` remain only in the read-only forensic source and are not
+activated in the destination. To keep using one, rebuild it in the current
 `preset-manifest/v3` format and validate/install it through the preset commands.
 Do not copy the v2 package into the new repository. Retain its original bytes in
 the archive, then remove it only from the working source copy fed to the
 importer.
 
-A non-zero `skipped` count means some corpus entries do not satisfy the current
-schema. For each entry, read the stated reason and fix the source data **on a
-copy of the old repository**. Then re-run the dry-run until `skipped=0` for all
-five classes.
-
-Do not add a general-purpose mapping inside the product importer to absorb these
-cases. A one-time historical artifact should not be hardened into product logic.
-The fix belongs in the archived source data, applied on a copy.
+Legacy-parser skips are observations only. They are not subtracted from the
+same-cut oracle and no longer produce exit code 3. The importer first derives
+from same-cut witnesses. A decision, execution, task with a missing parent, or
+other strict entity that remains invalid is archived with its original ID and
+fields. A relation with an unresolved endpoint or owner retains its relation ID
+and is restated as `state=edge_retired, reason=truth_gap`. Every derivation and
+disposition is recorded in the receipt, with up to 20 samples per kind in the
+report. A non-zero class with no usable witness follows this archival rule; it
+does not disappear or pause for another decision.
 
 ### 5. Run the real import
 
@@ -133,14 +147,11 @@ The fix belongs in the archived source data, applied on a copy.
 ha migrate import --source <path-to-old-repo>
 ```
 
-Acceptance: the five entity classes report old == new and skipped=0. If any
-class does not, authored coverage has a `required` row, or reconciliation does
-not pass, do not proceed on the new repository as-is — investigate, and if
-needed discard the new repository and restart from step 2.
-
-The command exits 1 while authored `required` rows remain, exits 3 when strict
-format skips remain after authored reconciliation passes, and exits 0 only when
-the full reconciliation passes.
+Acceptance: source active IDs are a subset of target IDs for all five kinds;
+each difference equals its derived plus archived/retired count; coverage and
+12-kind conformance pass. The command exits 1 if any of those checks fails and
+0 when all pass. Skip and authored-audit rows neither change the expected count
+nor produce exit code 3.
 
 ## What the migrated data is
 
@@ -212,10 +223,9 @@ The old repository is the reference copy. Day-to-day work moves to the new
 repository; the old one no longer participates in reads or writes.
 
 **Can I skip the dry-run?**
-No. The dry-run is how you find entries that will be skipped before the real
-import runs, and the acceptance condition for the real import is skipped=0.
-Fix the source data on a copy of the old repository and re-run the dry-run until
-it is clean.
+No. The dry-run fixes a same-cut projection/event-head oracle and proves set
+inclusion plus the per-kind explained-difference equality. Review the derived,
+archived, and retired samples before applying the import.
 
 **Are migrated records second-class?**
 No. They are native entities of the new line, fully writable. The only

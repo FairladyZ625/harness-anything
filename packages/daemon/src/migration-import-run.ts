@@ -49,14 +49,20 @@ import {
   existingSourceEntity as existingSourceEntityImpl,
   mappedIdentifier as mappedIdentifierImpl,
   prepareRelation as prepareRelationImpl,
-  preparedCounts as preparedCountsImpl,
-  projectedCounts as projectedCountsImpl,
   reboundRef as reboundRefImpl,
   reboundRelation as reboundRelationImpl,
-  sourceCounts as sourceCountsImpl,
   type MigrationRelationsContext,
   type ReboundRelation,
 } from "./migration-import-relations.ts";
+import {
+  migrationOracleKinds,
+  readMigrationProjectionOracle,
+  type MigrationOracleKind,
+  type MigrationProjectionOracle,
+} from "./migration-import-oracle.ts";
+import { addOracleDecision, addOracleFact } from "./migration-import-projection-restatement.ts";
+import { scheduleArchivedEntity } from "./migration-import-dispositions.ts";
+import { reconcileProjectionOracle } from "./migration-import-reconciliation.ts";
 import {
   bySkip,
   clean,
@@ -67,10 +73,8 @@ import {
   requiredMigrationText,
   skippedCounts,
   sourcePathFor,
-  subtract,
   taskIndexPaths,
   timestamp,
-  zeroCounts,
 } from "./migration-import-report.ts";
 import {
   idRemapConflict,
@@ -80,6 +84,7 @@ import {
 } from "./migration-import-source.ts";
 import {
   addRepoDocuments as addRepoDocumentsImpl,
+  addOracleTask as addOracleTaskImpl,
   addTask as addTaskImpl,
   addTaskPackage as addTaskPackageImpl,
   importedTaskMetadata as importedTaskMetadataImpl,
@@ -96,6 +101,8 @@ import type {
   ImportCounts,
   ImportedRelation,
   ImportedTask,
+  MigrationDisposition,
+  MigrationFieldDerivation,
   MigrationImportReceipt,
   PackageDraft,
   Prepared,
@@ -184,6 +191,13 @@ export interface MigrationImportContext extends MigrationRelationsContext {
   readonly alreadyImported: Record<EntityKind, number>;
   readonly taskRead: ReturnType<typeof readMarkdownSource>;
   readonly legacyTaskRestatements: ReadonlyMap<string, LegacyTaskRestatement>;
+  readonly oracle: MigrationProjectionOracle;
+  readonly fieldDerivations: MigrationFieldDerivation[];
+  readonly dispositions: MigrationDisposition[];
+  readonly derivedIds: Readonly<Record<MigrationOracleKind, Set<string>>>;
+  readonly archivedIds: Readonly<Record<MigrationOracleKind, Set<string>>>;
+  readonly retiredIds: Set<string>;
+  readonly nativeExecutionIds: Set<string>;
 }
 
 export async function runSingleMigrationImport(
@@ -201,6 +215,7 @@ export async function runSingleMigrationImport(
     );
   const sourceLayout = resolveHarnessLayout(sourceRoot),
     sourceGit = validateSourceGit(sourceRoot, sourceLayout.authoredRoot),
+    oracle = readMigrationProjectionOracle(sourceRoot),
     sourceKey = sourceGit.sourceId,
     destinationLayout = resolveHarnessLayout(destination),
     resolutions = parseResolutions(input.action.resolutions, sourceRoot, sourceLayout.authoredRoot),
@@ -279,7 +294,19 @@ export async function runSingleMigrationImport(
       fact: 0,
       relation: 0,
       coverage: 0,
-    };
+    },
+    fieldDerivations: MigrationFieldDerivation[] = [],
+    dispositions: MigrationDisposition[] = [],
+    derivedIds = Object.fromEntries(migrationOracleKinds.map((kind) => [kind, new Set<string>()])) as Record<
+      MigrationOracleKind,
+      Set<string>
+    >,
+    archivedIds = Object.fromEntries(migrationOracleKinds.map((kind) => [kind, new Set<string>()])) as Record<
+      MigrationOracleKind,
+      Set<string>
+    >,
+    retiredIds = new Set<string>(),
+    nativeExecutionIds = new Set<string>();
   const extracted: MigrationImportContext = {
     sourceRoot,
     message,
@@ -345,60 +372,106 @@ export async function runSingleMigrationImport(
     migrationImportError,
     taskRead,
     legacyTaskRestatements: legacyTaskRead.tasks,
-    get prepared() {
-      return prepared;
-    },
-    get migratedEdges() {
-      return migratedEdges;
-    },
+    oracle,
+    fieldDerivations,
+    dispositions,
+    derivedIds,
+    archivedIds,
+    retiredIds,
+    nativeExecutionIds,
     relationMap,
   };
 
   for (const entry of taskRead.entries) addTask(entry);
+  for (const row of oracle.tasks.values()) addOracleTaskImpl(extracted, row);
   for (const entry of taskRead.entries) addTaskPackage(entry);
   addRepoDocuments();
   for (const row of cold.decisions) addDecision(row);
   for (const row of cold.facts) addFact(row);
-  const entityDrafts = drafts.sort(
-      (a, b) =>
-        Date.parse(a.occurredAt) - Date.parse(b.occurredAt) ||
-        `${a.kind}\0${a.migratedFrom}`.localeCompare(`${b.kind}\0${b.migratedFrom}`),
-    ),
-    prepared: Prepared[] = [];
+  const prepared: Prepared[] = [];
   let revision = initialRevision;
-  for (const draft of entityDrafts) {
-    const next = draft.build(revision + 1),
-      errors = validateMigrationImportEvent(next.event);
-    if (errors.length) {
-      skips.push({
-        entityType: draft.kind,
-        migratedFrom: draft.migratedFrom,
-        sourcePath: sourcePathFor(draft.kind, draft.migratedFrom),
-        reason: errors.join("; "),
+  prepareEntityDrafts();
+  for (const row of oracle.decisions.values()) addOracleDecision(extracted, row);
+  for (const row of oracle.facts.values()) addOracleFact(extracted, row);
+  prepareEntityDrafts();
+  for (const source of oracle.tasks.values())
+    if (!taskMap.has(source.taskId))
+      scheduleArchivedEntity(extracted, {
+        entityKind: "task",
+        entityId: source.taskId,
+        sourcePath: `projection:task_snapshot/${source.taskId}`,
+        originalFields: source.snapshot,
+        occurredAt: source.firstEvent?.occurredAt ?? input.now(),
       });
-      dropMap(draft.kind, draft.migratedFrom);
-      continue;
-    }
-    if (input.store.readEvent(next.event.opId) === null) {
-      prepared.push(next);
-      revision += 1;
-    }
-  }
-  const migratedEdges: RelationGraphEdgeRow[] = [];
-  for (const row of cold.truth.edges) {
-    const rebound = reboundRelation(row);
+  for (const source of oracle.decisions.values())
+    if (!decisionMap.has(source.decisionId))
+      scheduleArchivedEntity(extracted, {
+        entityKind: "decision",
+        entityId: source.decisionId,
+        sourcePath: `projection:decision/${source.decisionId}`,
+        originalFields: {
+          ...source.fields,
+          chosen: source.chosen,
+          rejected: source.rejected,
+          claims: source.claims,
+        },
+        occurredAt:
+          contextTimestamp(source.fields.decided_at) ?? contextTimestamp(source.fields.proposed_at) ?? input.now(),
+      });
+  for (const source of oracle.facts.values())
+    if (!factMap.has(`fact/${source.factId}`) && ![...factMap.values()].includes(`fact/${source.factId}`))
+      scheduleArchivedEntity(extracted, {
+        entityKind: "fact",
+        entityId: source.factId,
+        sourcePath: `projection:fact/${source.factId}`,
+        originalFields: source.fields,
+        occurredAt: contextTimestamp(source.fields.observedAt) ?? input.now(),
+      });
+  for (const source of oracle.executions.values())
+    if (!nativeExecutionIds.has(source.executionId))
+      scheduleArchivedEntity(extracted, {
+        entityKind: "execution",
+        entityId: source.executionId,
+        sourcePath: `projection:entity_projection/execution/${source.executionId}`,
+        originalFields: source.fields,
+        occurredAt:
+          contextTimestamp(source.fields.claimedAt) ?? contextTimestamp(source.fields.startedAt) ?? input.now(),
+      });
+  const coldRelationIds = new Set(cold.truth.edges.map(({ relationId }) => relationId));
+  for (const source of oracle.relations.values()) {
+    const row = source.row,
+      rebound = reboundRelation(row);
     if (!rebound) continue;
+    if (!coldRelationIds.has(row.relationId) && rebound.retirementReason === undefined) {
+      derivedIds.relation.add(row.relationId);
+      fieldDerivations.push({
+        entityType: "relation",
+        entityId: row.relationId,
+        field: "entity",
+        derived_from: `projection:relation_edge@${oracle.watermark}`,
+      });
+    }
     const held = existingSourceEntity("relation", rebound.oldId);
     if (held?.kind === "relation") {
       relationMap.set(row.relationId, held.relation.relation_id);
       if (rebound.oldId !== row.relationId) relationMap.set(rebound.oldId, held.relation.relation_id);
-      migratedEdges.push(row);
       alreadyImported.relation += 1;
       continue;
     }
     const next = prepareRelation(rebound, revision + 1);
     const errors = validateMigrationImportEvent(next.event);
-    if (errors.length || existingRelations.has(rebound.record.relation_id) || relationMap.has(row.relationId)) {
+    if (existingRelations.has(rebound.record.relation_id)) {
+      relationMap.set(row.relationId, rebound.record.relation_id);
+      derivedIds.relation.add(row.relationId);
+      fieldDerivations.push({
+        entityType: "relation",
+        entityId: row.relationId,
+        field: "entity",
+        derived_from: `destination:relation_edge/${rebound.record.relation_id}`,
+      });
+      continue;
+    }
+    if (errors.length || relationMap.has(row.relationId)) {
       skips.push({
         entityType: "relation",
         migratedFrom: row.relationId,
@@ -414,7 +487,6 @@ export async function runSingleMigrationImport(
     }
     relationMap.set(row.relationId, rebound.record.relation_id);
     if (rebound.oldId !== row.relationId) relationMap.set(rebound.oldId, rebound.record.relation_id);
-    migratedEdges.push(row);
     prepared.push(next);
     revision += 1;
   }
@@ -434,10 +506,34 @@ export async function runSingleMigrationImport(
       revision += 1;
     }
   }
-  const idMapPath = `migrations/${importId}/id-map.json`,
-    old = sourceCounts(),
+  const reconciliation = reconcileProjectionOracle(extracted),
+    oracleBasis = {
+      kind: "same-cut-projection" as const,
+      databasePath: portableMigrationPath(path.relative(sourceRoot, oracle.databasePath)),
+      watermark: oracle.watermark,
+      eventHeadRevision: oracle.eventHeadRevision,
+    },
+    idMapPath = `migrations/${importId}/id-map.json`,
+    old: ImportCounts = {
+      task: oracle.tasks.size,
+      decision: oracle.decisions.size,
+      fact: oracle.facts.size,
+      relation: oracle.relations.size,
+      coverage: oracle.coverageCount,
+    },
     skipped = skippedCounts(skips),
-    expected = subtract(old, skipped),
+    expected = old,
+    preservedCoverage = [...oracle.decisions.values()]
+      .filter(({ decisionId }) => decisionMap.has(decisionId) || archivedIds.decision.has(decisionId))
+      .flatMap(({ claims }) => claims)
+      .filter(({ loadBearing }) => loadBearing === true).length,
+    actual: ImportCounts = {
+      task: reconciliation.task.target,
+      decision: reconciliation.decision.target,
+      fact: reconciliation.fact.target,
+      relation: reconciliation.relation.target,
+      coverage: preservedCoverage,
+    },
     contractRestatements = {
       task: taskContractRestatementCounts(legacyTaskRead.tasks, [...taskMap.keys()]),
     },
@@ -456,6 +552,10 @@ export async function runSingleMigrationImport(
       },
       remappings,
       skipped: [...skips].sort(bySkip),
+      oracle: oracleBasis,
+      reconciliation,
+      fieldDerivations,
+      dispositions,
     },
     mapBody = `${stableStringify(idMap)}\n`,
     mapPrepared = prepare(
@@ -482,7 +582,9 @@ export async function runSingleMigrationImport(
   // Replay yields one event-loop turn per committed event and stops at the next
   // safe point (between single-event publications) when the daemon is draining;
   // the events already appended stay durable and complete.
-  const writesAllowed = !dryRun && authoredCoverage.passed;
+  const unexplained = migrationOracleKinds.filter((kind) => !reconciliation[kind].passed),
+    coveragePassed = actual.coverage === expected.coverage,
+    writesAllowed = !dryRun && authoredCoverage.passed && unexplained.length === 0 && coveragePassed;
   if (writesAllowed)
     for (const item of prepared) {
       if (input.shouldStop?.())
@@ -500,9 +602,7 @@ export async function runSingleMigrationImport(
       input.projection.apply(item.event, item.plan);
       await yieldToEventLoop();
     }
-  const actual = dryRun ? preparedCounts() : writesAllowed ? projectedCounts() : zeroCounts(),
-    unexplained = (Object.keys(old) as EntityKind[]).filter((kind) => actual[kind] !== expected[kind]),
-    exitCode: 0 | 1 | 3 = !authoredCoverage.passed || unexplained.length ? 1 : skips.length ? 3 : 0,
+  const exitCode: 0 | 1 | 3 = !authoredCoverage.passed || unexplained.length || !coveragePassed ? 1 : 0,
     summary = reportTable(
       dryRun,
       old,
@@ -518,6 +618,10 @@ export async function runSingleMigrationImport(
       remappings,
       alreadyImported,
       contractRestatements.task,
+      oracleBasis,
+      reconciliation,
+      fieldDerivations,
+      dispositions,
     ),
     publishedMap = dryRun ? null : input.store.readEvent(mapPrepared.event.opId),
     publication = publishedMap ? input.store.publication(publishedMap) : null,
@@ -537,6 +641,10 @@ export async function runSingleMigrationImport(
       counts: { old, skipped, expected, new: actual },
       contractRestatements,
       authoredCoverage,
+      oracle: oracleBasis,
+      reconciliation,
+      fieldDerivations,
+      dispositions,
     }),
     visibility: "center",
     proof: {
@@ -551,6 +659,10 @@ export async function runSingleMigrationImport(
     exitCode,
     counts: { old, skipped, expected, new: actual },
     contractRestatements,
+    oracle: oracleBasis,
+    reconciliation,
+    fieldDerivations: [...fieldDerivations],
+    dispositions: [...dispositions],
     authoredCoverage,
     skippedEntities: [...skips].sort(bySkip),
     idMapPath: writesAllowed ? idMapPath : null,
@@ -558,8 +670,8 @@ export async function runSingleMigrationImport(
       ? {
           code: "migration_reconciliation_failed",
           nextAction: authoredCoverage.passed
-            ? "Inspect the unexplained reconciliation mismatch before retrying."
-            : "Implement or decide every blocked authored surface before retrying.",
+            ? "Inspect the unexplained same-cut set difference before retrying."
+            : "Resolve the reported destination preimage or authored integrity conflict before retrying.",
         }
       : !canonicalVisible
         ? {
@@ -568,13 +680,7 @@ export async function runSingleMigrationImport(
               : `Query receipt ${mapPrepared.event.opId}; the canonical import-map publication is missing.`,
           }
         : {
-            nextAction:
-              exitCode === 3
-                ? [
-                    "Review the listed skipped entities; repair the source Git snapshot and ",
-                    "rerun the same import; already imported entities will be retained.",
-                  ].join("")
-                : "Migration reconciliation passed; rerunning or appending another --source is safe.",
+            nextAction: "Migration reconciliation passed; rerunning or appending another --source is safe.",
           }),
   };
   function addTask(entry: TaskSourceEntry): void {
@@ -603,6 +709,7 @@ export async function runSingleMigrationImport(
     readonly sourcePath: string;
     readonly ownerRef: string;
     readonly record: ImportedRelation;
+    readonly retirementReason?: "truth_gap";
   } | null {
     return reboundRelationImpl(extracted, row);
   }
@@ -635,13 +742,34 @@ export async function runSingleMigrationImport(
   ): string {
     return mappedIdentifierImpl(extracted, kind, sourceId, occupied, used);
   }
-  function sourceCounts(): ImportCounts {
-    return sourceCountsImpl(extracted);
+  function contextTimestamp(value: unknown): string | null {
+    return timestamp(value);
   }
-  function preparedCounts(): ImportCounts {
-    return preparedCountsImpl(extracted);
-  }
-  function projectedCounts(): ImportCounts {
-    return projectedCountsImpl(extracted);
+  function prepareEntityDrafts(): void {
+    const pending = drafts
+      .splice(0)
+      .sort(
+        (a, b) =>
+          Date.parse(a.occurredAt) - Date.parse(b.occurredAt) ||
+          `${a.kind}\0${a.migratedFrom}`.localeCompare(`${b.kind}\0${b.migratedFrom}`),
+      );
+    for (const draft of pending) {
+      const next = draft.build(revision + 1),
+        errors = validateMigrationImportEvent(next.event);
+      if (errors.length) {
+        skips.push({
+          entityType: draft.kind,
+          migratedFrom: draft.migratedFrom,
+          sourcePath: sourcePathFor(draft.kind, draft.migratedFrom),
+          reason: errors.join("; "),
+        });
+        dropMap(draft.kind, draft.migratedFrom);
+        continue;
+      }
+      if (input.store.readEvent(next.event.opId) === null) {
+        prepared.push(next);
+        revision += 1;
+      }
+    }
   }
 }

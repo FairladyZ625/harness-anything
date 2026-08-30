@@ -107,7 +107,7 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
       },
     });
     assert.match(String(result.summary), /\| Task\/v1 -> Task\/v2 \| 1 \| 1 \| 1 \| 0 \| 1 imported_snapshot \|/u);
-    assert.match(String(result.summary), /Authored reconciliation: PASS/u);
+    assert.match(String(result.summary), /Authored directory audit \(informational\): complete/u);
     assert.match(String(result.summary), /\| task:executions\/\*\* \| migrated \| 1 \| PASS \|/u);
     assert.match(String(result.summary), /\| task:task_plan\.md \| migrated \| 1 \| PASS \|/u);
     assert.match(String(result.idMapPath), /^migrations\/import_[0-9a-f_]+\/id-map\.json$/u);

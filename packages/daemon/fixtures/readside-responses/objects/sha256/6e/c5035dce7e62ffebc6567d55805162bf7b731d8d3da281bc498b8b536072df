@@ -1,7 +1,7 @@
 ---
 schema: decision-package/v1
 decision_id: dec_LEDGER_E1
-workspaceRevision: 2
+workspaceRevision: 1
 title: "E1 内容与引擎正交:Vertical 选模板、TemplateLibrary 存正文/locale、Preset 覆盖"
 state: in_effect
 riskTier: high

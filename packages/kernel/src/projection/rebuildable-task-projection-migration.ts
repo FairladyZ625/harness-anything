@@ -273,6 +273,7 @@ export function projectMigration(
         ownerRef: entity.ownerRef,
         sourcePath: `event:${event.opId}`,
         recordIndex: 0,
+        ...(entity.retirementReason ? { retirementReason: entity.retirementReason } : {}),
       };
     runSql(
       db,
@@ -285,6 +286,22 @@ export function projectMigration(
       edge.ownerRef,
       event.workspaceRevision,
       JSON.stringify(edge),
+    );
+    return;
+  }
+  if (entity.kind === "archived-entity") {
+    runSql(
+      db,
+      [
+        "INSERT INTO archived_entity(entity_kind, entity_id, workspace_revision, row_json)",
+        "VALUES (?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id) DO UPDATE SET",
+        "workspace_revision=excluded.workspace_revision, row_json=excluded.row_json",
+        "WHERE archived_entity.workspace_revision <= excluded.workspace_revision",
+      ].join(" "),
+      entity.entityKind,
+      entity.entityId,
+      event.workspaceRevision,
+      canonicalJson(entity),
     );
     return;
   }

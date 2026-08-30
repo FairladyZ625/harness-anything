@@ -160,6 +160,7 @@ export {
   validateMigrationImportEvent,
 } from "./domain/migration-import-event.ts";
 export type {
+  MigrationArchivedEntityKind,
   MigrationDestinationPreimage,
   MigrationDocumentClaim,
   MigrationImportEventV1,

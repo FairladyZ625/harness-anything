@@ -46,16 +46,16 @@ const DISPATCH_TASK_ID = "task_62eb49f177c35bd599b0d128a9";
 const frozenReadsideEvents = Object.freeze([
   {
     relativePath: "events/0d/migration-2a969de6417e8ee577a34644f8.json",
-    revision: 2,
+    revision: 1,
     eventId: "event-0d4d85e05f103a7b4855ba76893d2986b41b3ff5dfa5c43ab65a835aec83df6c",
-    gitBlobSha: "04800ee383d7ac9e81899ca3cfe93c7e93f620af",
+    gitBlobSha: "8a3915a2389d7de093419ab07eb13fbce927760d",
     validators: ["validateDaemonDecisionList", "validateDaemonWorkspaceSummary", "validateDaemonRelationGraph"],
   },
   {
     relativePath: "events/a2/migration-755743cf11beab651d1c3136eb.json",
-    revision: 5,
+    revision: 4,
     eventId: "event-a21b9b5da3d9f438d9a6075294947b2deaf47d2b11986df29a8eac518703fd3c",
-    gitBlobSha: "85522ba6e58e6897558ee9f0a4e8c96b6f1b76d4",
+    gitBlobSha: "35db8d00821c1152c352155dbac1f618ef5cd5ee",
     validators: ["validateDaemonRelationGraph"],
   },
   {
@@ -67,9 +67,9 @@ const frozenReadsideEvents = Object.freeze([
   },
   {
     relativePath: "events/c7/migration-55e443cf67529244643e784dab.json",
-    revision: 7,
+    revision: 6,
     eventId: "event-c721eb4ac2e565c68f6cb458c77392ad0ff2fa368ef19ddc303c48ce43490553",
-    gitBlobSha: "4acbe8f97a47edbb3d370112d067541c5f9b1a1e",
+    gitBlobSha: "e2a795f2fce009f5167a3f6afd4615c55e68dd1b",
     validators: [
       "validateDaemonTaskSnapshotList",
       "validateDaemonWorkspaceSummary",
@@ -81,9 +81,9 @@ const frozenReadsideEvents = Object.freeze([
   },
   {
     relativePath: "events/5d/migration-682e16ed6645ca022351f1d4f5.json",
-    revision: 10,
+    revision: 9,
     eventId: "event-5d9e1903ef050c11053c84d60ec23a18d509d26801f47b6110c3f5f98521665c",
-    gitBlobSha: "7f85e62008db6861c260c1c11b637a1e6964365e",
+    gitBlobSha: "2bb6ffadf87c76d79e493c7412041702750e5983",
     validators: ["validateDaemonTaskDocumentList", "validateDaemonTaskDispatches"],
   },
 ]);

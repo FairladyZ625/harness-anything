@@ -298,6 +298,13 @@ function createTables(db: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS entity_projection_task
       ON entity_projection(entity_kind, task_id, workspace_revision, entity_id);
+    CREATE TABLE IF NOT EXISTS archived_entity (
+      entity_kind TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      workspace_revision INTEGER NOT NULL,
+      row_json TEXT NOT NULL,
+      PRIMARY KEY(entity_kind, entity_id)
+    );
     CREATE TABLE IF NOT EXISTS edge (
       task_id TEXT NOT NULL,
       edge_id TEXT NOT NULL,

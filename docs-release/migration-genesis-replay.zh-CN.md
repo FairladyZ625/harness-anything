@@ -23,7 +23,7 @@ ha migrate import --source <source> [--resolve <仓库相对路径>=destination|
 
 | 输入                                | 命令                                  | 前置                                                                     | 验收                                                                                                                   |
 | ----------------------------------- | ------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| 早于当前代际的老仓                  | `ha migrate import --source <source>` | 冻结写入、停止源 daemon，源必须是 committed snapshot；先跑 `--dry-run`。 | 五类对账 old == new、`skipped=0`、无 authored `required`、PASS。                                                       |
+| 早于当前代际的老仓                  | `ha migrate import --source <source>` | 冻结写入、停止源 daemon，源必须是 committed snapshot，且现役 projection 与 canonical event head 在同一 cut；先跑 `--dry-run`。 | 五类现役 ID 集合满足 source ⊆ target；每类差异恰等于 derived + archived/retired；12-kind conformance 与 coverage 保全均通过。 |
 | 已 canonical 但有 `fact/<task>/F-*` | `ha migrate rekey-facts`              | 停止该仓 daemon/写入者，在 committed canonical cut 上先跑 `--dry-run`。  | id-map 中 fact 与 `produces` 数量一致；SQLite fact/relation 计数稳定；`ha fact search` 与 `ha fact show <F-id>` 成功。 |
 
 fact-only 路径只在 fleet center 执行一次。marker 携带 ledger epoch；边缘节点
@@ -41,8 +41,10 @@ fact-only 路径只在 fleet center 执行一次。marker 携带 ledger epoch；
 
 ## 五步流程
 
-顺序承重。在 dry-run 对全部五类实体报出 `skipped=0`、authored 表没有
-`required` 且总对账通过之前，不要跑正式导入。
+顺序承重。在 dry-run 对全部五类实体报出集合包含、差异解释等式成立，且
+12-kind conformance 与 coverage 保全通过之前，不要跑正式导入。`skipped` 与
+authored 目录数量不参与实体集合的通过计算；目标 preimage 冲突仍是独立的写入
+安全条件，必须显式 resolve。
 
 ### 1. 备份老仓
 
@@ -67,9 +69,12 @@ ha init --repo-id <id> --person-id <id> --display-name <name>
 ha migrate import --source <老仓路径> --dry-run
 ```
 
-dry-run 不写任何东西。它输出五类实体——task / decision / fact / relation /
-coverage——的对账表，每类给出 old / skipped / expected / new 四个数，另有
-`Format validation: N skipped`、`Attribution` 行和 authored coverage 表。
+dry-run 不写任何东西。它从源仓 `.harness/cache/task.sqlite` 读取与
+`harness/events/head.json` 同 revision 的现役 projection，输出五类实体——
+task / decision / fact / relation / execution——的 ID 集合对账。每类给出
+source active、target included、difference、derived、archived、retired；通过条件是
+source ⊆ target 且 difference = derived + archived/retired。decision 的承重 claim
+coverage 另行保全。`Format observations`、`Attribution` 和 authored audit 是诊断信息。
 
 当前代际的生产读写只接受 `Task/v2`，其中 `pinned` 必填。创世重放会在同一
 次导入中读取老台账里的 `Task/v1` 事件，并把每个迁入 task 重述为 canonical
@@ -77,10 +82,13 @@ coverage——的对账表，每类给出 old / skipped / expected / new 四个�
 `false`；迁移实体同时写入 `provenance: imported_snapshot`。dry-run 的
 `Task/v1 -> Task/v2` 行分别列出源 v1 数、目标 v2 数、保留 pinned 数、显式
 false 数和 imported_snapshot 数。这些计数也进入结构化回执；缺失其他必填
-字段、重复创建同一 task identity 或 task 事件 revision 逆序都会拒绝导入，
-不得静默补齐或跳过。
+字段不会从迁移当天猜测：缺 `title` 时依次取同一 task package 的
+`task_plan.md` H1、`INDEX.md` H1；缺 `occurredAt` 时取该 task 最早 canonical
+event 的时间。回执逐字段记录 `derived_from`，task provenance 固定为
+`imported_snapshot`。仍不能满足严格合同的 task 保留原 ID 与原字段，重述成
+`disposition=archived, reason=truth_gap`。
 
-### 4. 处置 required 与 skip
+### 4. 阅读差异、处置目标冲突
 
 目标冲突在用户逐路径明确选择前一直是 `required`。冲突行会同时给出源与
 目标的节点类型、SHA-256、字节数；符号链接还会给出 link target。每条冲突
@@ -99,13 +107,18 @@ ha migrate import --source <老仓副本路径> \
 手工处置该路径后重跑。缺失、规范化后重复、非冲突或已经不再冲突的路径都
 会被拒绝。
 
-老线 `presets/**` 同样是 `required`：按当前 `preset-manifest/v3` 重做每个
+老线 `presets/**` 留在只读法证源仓，不会激活进目标仓。如需继续使用，按当前
+`preset-manifest/v3` 重做每个
 包，经 preset 命令验证并安装。不要把 v2 包搬进新仓；原始字节保留在归档
 中，只从送给导入器的工作副本移出。
 
-`skipped` 不为 0 表示有语料格式不合当前 schema。逐条查看原因，在**老仓的副本上**修正源数据，然后重跑 dry-run，直到五类全部 `skipped=0`。
-
-不要在产品导入器里加通用映射来吸收这些情况。一次性的历史遗留不该被固化成产品逻辑，修正属于归档的源数据，且要在副本上执行。
+旧解析器产生的 `skipped` 不再从现役 projection 总数里相减，也不单独造成
+退出码 3。导入器先按同 cut 见证派生；decision、execution 或 parent 仍不能
+满足严格合同的实体，以 `disposition=archived, reason=truth_gap` 保留原 ID 与
+原字段。端点或 owner 仍不可解析的 relation 保留原 relation ID，重述为
+`state=edge_retired, reason=truth_gap`。每一条派生和 disposition 都进入结构化
+回执，报告每类最多展示 20 条样本；没有任何见证但数量非零时也走这条规则，
+不会静默丢失或停下来等待额外裁决。
 
 ### 5. 正式导入
 
@@ -113,12 +126,10 @@ ha migrate import --source <老仓副本路径> \
 ha migrate import --source <老仓路径>
 ```
 
-验收条件：五类实体 old == new 且 skipped=0，authored 表没有 `required`，
-总对账 PASS。任何一项不满足，就不要把新仓当作可用状态继续用——先排查，
-必要时丢掉新仓，从第 2 步重来。
-
-authored 仍有 `required` 时命令退出 1；authored 对账通过但严格格式仍有
-skip 时退出 3；只有全量对账通过才退出 0。
+验收条件：五类现役 ID 集合 source ⊆ target；每类 difference 恰等于
+derived + archived/retired；coverage 保全；12-kind conformance 通过。任一项不满足
+命令退出 1；全部满足退出 0。`skipped` 和 authored audit 不再改变预期总数，
+也不再产生退出码 3。
 
 ## 迁移后的数据是什么性质
 
@@ -176,7 +187,9 @@ no-op。无法确定 owner 的 fact 不伪造归属，会无 task 边 rekey 并�
 老仓是参考副本。日常工作转移到新仓；老仓不再参与读写。
 
 **可以跳过 dry-run 吗？**
-不行。dry-run 是在正式导入之前发现将被 skip 的条目的手段，而且正式导入的验收条件就是 skipped=0。在老仓副本上修正源数据，重跑 dry-run 直到干净。
+不行。dry-run 固定 source projection 与 canonical event head 的同一 cut，并证明
+集合包含和逐类差异解释。先审阅所有 derived/archived/retired 样本，再决定是否
+正式导入。
 
 **迁入的记录是二等公民吗？**
 不是。它们是新线的原生实体，完全可写。唯一区别是出处：它们带 `migration-import/v1`、`migratedFrom` 和 `generation: v0` 标记，这些标记在后续写入后依然保留。
