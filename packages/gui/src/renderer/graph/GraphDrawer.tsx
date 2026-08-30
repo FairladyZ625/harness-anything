@@ -1,5 +1,5 @@
-import { X, GitBranch, ArrowSquareOut, ArrowsOutSimple } from "@phosphor-icons/react";
-import type { RelationEdge } from "../model/types";
+import { X, GitBranch, ArrowSquareOut, ArrowsOutSimple, PushPin } from "@phosphor-icons/react";
+import type { RelationEdge, TaskRow } from "../model/types";
 import { StatusBadge, CloseoutBadge, EngineBadge, FreshnessTag } from "../components/badges";
 import { isExternal } from "../model/types";
 import { KIND_LABEL, KIND_LABEL_IN } from "./constants";
@@ -23,6 +23,7 @@ interface Props {
   onFocus: (id: string | null) => void;
   /** W2B 活链接:在列表/详情侧打开该 entity(task→detail, decision→pool, fact→triage) */
   onNavigateEntity?: (ref: string) => void;
+  onSetTaskPin?: (task: TaskRow, pinned: boolean) => void;
 }
 
 export function GraphDrawer({
@@ -35,6 +36,7 @@ export function GraphDrawer({
   onClose,
   onFocus,
   onNavigateEntity,
+  onSetTaskPin,
 }: Props) {
   if (focusEdge) {
     return (
@@ -134,6 +136,20 @@ export function GraphDrawer({
           >
             <ArrowsOutSimple weight="bold" className="text-[10px]" />
             {t("graph.graphDrawer.open")}
+          </button>
+        )}
+        {focusTask && onSetTaskPin && (
+          <button
+            type="button"
+            data-testid={`graph-drawer-pin-toggle-${focusTask.taskId}`}
+            onClick={() => onSetTaskPin(focusTask, focusTask.pinned !== true)}
+            aria-pressed={focusTask.pinned === true}
+            title={focusTask.pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
+            className={`grid size-6 place-items-center rounded hover:bg-surface-raised ${
+              focusTask.pinned === true ? "text-accent" : "text-text-faint hover:text-text"
+            }`}
+          >
+            <PushPin weight={focusTask.pinned === true ? "fill" : "bold"} />
           </button>
         )}
         <button

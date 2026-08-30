@@ -8,7 +8,7 @@ import { TaskStream, tasksAheadOfStatus } from "../src/renderer/components/overv
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
-import { PinnedStream } from "../src/renderer/components/overview/PinnedStream.tsx";
+import { PinnedStream, pinnedAgendaItems } from "../src/renderer/components/overview/PinnedStream.tsx";
 import { RuntimeHealthCard } from "../src/renderer/components/overview/RuntimeHealthCard.tsx";
 import { DecisionPreviewDrawer } from "../src/renderer/components/DecisionPreviewDrawer.tsx";
 import { streamTime } from "../src/renderer/components/overview/streamParts.tsx";
@@ -16,6 +16,7 @@ import { formatTime } from "../src/renderer/model/time.ts";
 import type { WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
 import { DEFAULT_TASK_FILTERS, matchesTask } from "../src/renderer/model/taskFilters.ts";
 import { summarizeWorkspace } from "../../kernel/src/index.ts";
+import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 
 function task(patch: Partial<TaskRow>): TaskRow {
   return {
@@ -54,6 +55,20 @@ function decision(patch: Partial<DecisionRow>): DecisionRow {
 }
 
 const noop = () => {};
+const blocking = { state: "clear" as const, blockers: [], warnings: [] };
+const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess => ({
+  ok: true,
+  status: "ready",
+  inFlight: [],
+  awaitingDecision: [],
+  waitingOnOthers: [],
+  dispatchable: [],
+  summary: "",
+  page: { sourceLimit: 100, cursor: null, nextCursor: null },
+  watermark: 12,
+  sourceRevision: 12,
+  ...patch,
+});
 // Read one status tab's rendered text exactly. A loose `testid … label … count` regex
 // matches any later digit in the document, so it stays green when the count is wrong.
 const tabText = (markup: string, testId: string): string | null => {
@@ -268,9 +283,11 @@ describe("overview task stream", () => {
         relations: [],
         favorites: new Set<string>(),
         onToggleFavorite: noop,
+        onSetPin: noop,
       }),
     );
     expect(board.match(/data-testid="board-task-card"/gu)).toHaveLength(45);
+    expect(board).toContain('data-testid="board-pin-toggle-task_0"');
     expect(board).not.toContain('data-testid="board-column-more-active"');
     expect(board).not.toContain("再显示");
 
@@ -279,13 +296,15 @@ describe("overview task stream", () => {
         tasks: rows,
         groupBy: "root",
         onSelect: noop,
-        drill: null,
+        drill: { lane: "root_0", status: "active", groupBy: "root" },
         relations: [],
         favorites: new Set<string>(),
         onToggleFavorite: noop,
+        onSetPin: noop,
       }),
     );
     expect(swimlane.match(/data-testid="swimlane-row"/gu)).toHaveLength(45);
+    expect(swimlane).toContain('data-testid="swimlane-pin-toggle-task_0"');
     expect(swimlane).not.toContain('data-testid="swimlane-more"');
   });
 
@@ -309,6 +328,7 @@ describe("overview task stream", () => {
           watermarkAt: "2026-08-01T00:00:00.000Z",
         },
         tasks: rows,
+        agenda: agenda(),
         decisions: [],
         workspaceSummary: {
           schema: "daemon.workspace-summary/v1",
@@ -327,11 +347,17 @@ describe("overview task stream", () => {
         onOpenInbox: noop,
         onOpenDecision: noop,
         onOpenSystem: noop,
+        onSetPin: noop,
       }),
     );
 
     expect(tabText(page, "overview-status-active")).toBe("进行中 2");
     expect(tabText(page, "overview-status-blocked")).toBe("已阻塞 1");
+    expect(page).toContain("xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]");
+    expect(page).toContain("xl:row-span-2");
+    expect(page).toContain("xl:col-span-2");
+    expect(page).toContain("overflow-y-auto");
+    expect(page).toContain("overview-pin-toggle-task_a1");
   });
 
   it("filters to the selected status in place with census counts on every tab (sidebar parity)", () => {
@@ -381,7 +407,7 @@ describe("overview task stream", () => {
     expect(markup.indexOf("Newer task")).toBeLessThan(markup.indexOf("Older task"));
     expect(markup).toContain('data-testid="task-stream-rows"');
     expect(markup).toContain("overflow-y-auto");
-    expect(markup).toContain("xl:flex-1");
+    expect(markup).toContain("min-h-0 flex-1");
     expect(markup).toContain("xl:max-h-none");
   });
 
@@ -579,11 +605,9 @@ describe("overview task stream: freshly created tasks are visible with zero inte
         onGoBoard: noop,
       }),
     );
-    const ahead = section(markup, "task-stream-ahead-rows");
-    expect(ahead).not.toBeNull();
-    expect(ahead!.match(/title="task_ahead_/gu)).toHaveLength(45);
-    expect(ahead).not.toContain('data-testid="task-stream-ahead-more"');
-    expect(ahead).not.toContain("再显示");
+    expect(markup.match(/title="task_ahead_/gu)).toHaveLength(45);
+    expect(markup).not.toContain('data-testid="task-stream-ahead-more"');
+    expect(markup).not.toContain("再显示");
     // 标题报的就是全量总数。
     expect(markup).toContain("更新的 45 条");
   });
@@ -613,7 +637,7 @@ describe("overview task stream: freshly created tasks are visible with zero inte
         onGoBoard: noop,
       }),
     );
-    expect(section(markup, "task-stream-ahead-rows")!.match(/title="task_ahead_/gu)).toHaveLength(5);
+    expect(markup.match(/title="task_ahead_/gu)).toHaveLength(5);
     expect(markup).not.toContain('data-testid="task-stream-ahead-more"');
   });
 
@@ -635,10 +659,9 @@ describe("overview task stream: freshly created tasks are visible with zero inte
         onGoBoard: noop,
       }),
     );
-    const ahead = section(markup, "task-stream-ahead-rows");
-    expect(ahead!.match(/title="task_done_/gu)).toHaveLength(60);
+    expect(markup.match(/title="task_done_/gu)).toHaveLength(60);
     expect(markup).toContain("更新的 60 条");
-    expect(ahead).not.toContain("再显示");
+    expect(markup).not.toContain("再显示");
   });
 
   it("derives the ahead rows purely from the selected status (unit-level invariant)", () => {
@@ -708,11 +731,9 @@ describe("overview task stream: main row set renders in full", () => {
         onGoBoard: noop,
       }),
     );
-    const body = section(markup, "task-stream-rows");
-    expect(body).not.toBeNull();
-    expect(body!.match(/title="task_main_/gu)).toHaveLength(45);
-    expect(body).not.toContain('data-testid="task-stream-more"');
-    expect(body).not.toContain("再显示");
+    expect(markup.match(/title="task_main_/gu)).toHaveLength(45);
+    expect(markup).not.toContain('data-testid="task-stream-more"');
+    expect(markup).not.toContain("再显示");
     // 页签计数报的是真实总数,与渲染行数一致。
     expect(tabText(markup, "overview-status-active")).toBe("进行中 45");
   });
@@ -734,7 +755,7 @@ describe("overview task stream: main row set renders in full", () => {
         onGoBoard: noop,
       }),
     );
-    expect(section(markup, "task-stream-rows")!.match(/title="task_main_/gu)).toHaveLength(5);
+    expect(markup.match(/title="task_main_/gu)).toHaveLength(5);
     expect(markup).not.toContain('data-testid="task-stream-more"');
   });
 
@@ -756,33 +777,79 @@ describe("overview task stream: main row set renders in full", () => {
         onGoBoard: noop,
       }),
     );
-    expect(section(markup, "task-stream-rows")!.match(/title="task_act_/gu)).toHaveLength(60);
+    expect(markup.match(/title="task_act_/gu)).toHaveLength(60);
     expect(markup).not.toContain('data-testid="task-stream-ahead"');
     expect(markup).not.toContain("再显示");
   });
 });
 
 describe("overview pinned stream", () => {
-  it("lists only ledger-pinned tasks regardless of their coordination status", () => {
+  it("uses pinned rows from the agenda projection, deduplicating task groups and submitted executions", () => {
+    const active = {
+      taskId: "task_pin_active",
+      title: "Pinned active",
+      status: "active" as const,
+      pinned: true,
+      updatedAt: "2026-08-30T01:00:00.000Z",
+      leaseExecutionId: "execution-active",
+      activeExecutionIds: ["execution-active"],
+      blockingAssessment: blocking,
+    };
+    const projection = agenda({
+      inFlight: [active],
+      // 同一 active task 也可能因 blocking 出现在 waitingOnOthers;只显示一次。
+      waitingOnOthers: [active],
+      dispatchable: [
+        {
+          taskId: "task_plain",
+          title: "Plain planned",
+          status: "planned",
+          pinned: false,
+          updatedAt: "2026-08-30T02:00:00.000Z",
+          leaseExecutionId: null,
+          activeExecutionIds: [],
+          blockingAssessment: blocking,
+        },
+      ],
+      awaitingDecision: [
+        {
+          kind: "execution",
+          taskId: "task_pin_review",
+          title: "Pinned review",
+          pinned: true,
+          executionId: "execution-review",
+          submittedAt: "2026-08-30T03:00:00.000Z",
+          blockingAssessment: blocking,
+        },
+      ],
+    });
+
+    expect(pinnedAgendaItems(projection).map(({ taskId }) => taskId)).toEqual(["task_pin_review", "task_pin_active"]);
     const markup = renderToStaticMarkup(
       createElement(PinnedStream, {
-        tasks: [
-          task({ taskId: "task_pin_active", title: "Pinned active", pinned: true, coordinationStatus: "active" }),
-          task({ taskId: "task_pin_blocked", title: "Pinned blocked", pinned: true, coordinationStatus: "blocked" }),
-          task({ taskId: "task_plain", title: "Plain active", coordinationStatus: "active" }),
-        ],
+        agenda: projection,
         onOpenPreview: noop,
+        onSetPin: noop,
       }),
     );
     expect(markup).toContain("Pinned active");
-    expect(markup).toContain("Pinned blocked");
-    expect(markup).not.toContain("Plain active");
+    expect(markup).toContain("Pinned review");
+    expect(markup).not.toContain("Plain planned");
+    expect(markup).toContain("repo.agenda.read");
+    expect(markup.match(/title="task_pin_active/gu)).toHaveLength(1);
+    expect(markup).toContain("overview-pin-toggle-task_pin_active");
   });
 
   it("explains how to pin when nothing is pinned", () => {
-    const markup = renderToStaticMarkup(createElement(PinnedStream, { tasks: [task({})], onOpenPreview: noop }));
+    const markup = renderToStaticMarkup(createElement(PinnedStream, { agenda: agenda(), onOpenPreview: noop }));
     expect(markup).toContain("当前没有 pin 的任务");
     expect(markup).toContain("ha task pin");
+  });
+
+  it("shows projection loading instead of the task-list-derived false empty state", () => {
+    const markup = renderToStaticMarkup(createElement(PinnedStream, { agenda: undefined, onOpenPreview: noop }));
+    expect(markup).toContain("ha agenda");
+    expect(markup).not.toContain("当前没有 pin 的任务");
   });
 });
 

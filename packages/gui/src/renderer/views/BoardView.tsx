@@ -53,6 +53,7 @@ function Card({
   relations,
   isFavorite,
   onToggleFavorite,
+  onSetPin,
 }: {
   task: TaskRow;
   onSelect?: (id: string) => void;
@@ -60,6 +61,7 @@ function Card({
   relations: RelationEdge[];
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
+  onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const external = isExternal(task);
   const archived =
@@ -77,18 +79,31 @@ function Card({
     >
       <div className="flex items-center gap-2">
         <EngineBadge engine={task.engine} locked={external} />
-        {task.pinned === true && (
+        {onSetPin ? (
+          <button
+            type="button"
+            data-testid={`board-pin-toggle-${task.taskId}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSetPin(task, task.pinned !== true);
+            }}
+            title={task.pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
+            aria-pressed={task.pinned === true}
+            className={`inline-flex items-center justify-center rounded p-0.5 text-[13px] hover:bg-surface ${
+              task.pinned === true ? "text-accent" : "text-text-faint hover:text-text-muted"
+            }`}
+          >
+            <PushPin weight={task.pinned === true ? "fill" : "bold"} />
+          </button>
+        ) : task.pinned === true ? (
           <span
             title="📌 今天当前在做"
             data-testid={`board-pinned-marker-${task.taskId}`}
-            className={[
-              "inline-flex items-center gap-0.5 rounded border border-accent/40",
-              "px-1 font-mono text-[11px] text-accent",
-            ].join(" ")}
+            className="inline-flex items-center rounded border border-accent/40 px-1 text-[11px] text-accent"
           >
             <PushPin weight="fill" />
           </span>
-        )}
+        ) : null}
         {archived && (
           <span className="ml-auto inline-flex items-center gap-1 font-mono text-[11px] text-text-faint">
             <Archive weight="bold" />
@@ -137,12 +152,14 @@ function DraggableCard({
   relations,
   isFavorite,
   onToggleFavorite,
+  onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
   relations: RelationEdge[];
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
+  onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const draggable = isTaskStartable(task);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -162,6 +179,7 @@ function DraggableCard({
         relations={relations}
         isFavorite={isFavorite}
         onToggleFavorite={onToggleFavorite}
+        onSetPin={onSetPin}
       />
     </div>
   );
@@ -175,6 +193,7 @@ function Column({
   relations,
   favorites,
   onToggleFavorite,
+  onSetPin,
 }: {
   status: SnapshotStatus;
   tasks: readonly TaskRow[];
@@ -183,6 +202,7 @@ function Column({
   relations: RelationEdge[];
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
+  onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const meta = STATUS_META[status];
@@ -230,6 +250,7 @@ function Column({
               relations={relations}
               isFavorite={favorites.has(t.taskId)}
               onToggleFavorite={onToggleFavorite}
+              onSetPin={onSetPin}
             />
           ))
         ) : (
@@ -273,7 +294,7 @@ export function BoardView({
   initialGroupBy?: LaneGroupBy;
   onStartTask?: (task: TaskRow) => Promise<unknown>;
   mutationFeedback?: (taskId: string) => TaskMutationFeedback | undefined;
-  /** 台账 pin 写通道,列表布局的 📌 按钮用;列/泳道布局只读展示。 */
+  /** 台账 pin 写通道;三种看板布局的 task 卡片/行共用。 */
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   // coding preset 默认按 root 分组(milestone=root task)。drill 携带 groupBy 提示。
@@ -420,6 +441,7 @@ export function BoardView({
           relations={relations}
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
+          onSetPin={onSetPin}
         />
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -434,6 +456,7 @@ export function BoardView({
                 relations={relations}
                 favorites={favorites}
                 onToggleFavorite={onToggleFavorite}
+                onSetPin={onSetPin}
               />
             ))}
           </div>

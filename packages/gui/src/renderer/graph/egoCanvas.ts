@@ -48,6 +48,7 @@ export type EgoNodeData = Record<string, unknown> & {
   onCollapse?: (id: string) => void;
   onRefocus?: (ref: string) => void;
   onNavigate?: (ref: string) => void;
+  onSetPin?: (task: TaskRow, pinned: boolean) => void;
   refocusTitle?: string;
 };
 

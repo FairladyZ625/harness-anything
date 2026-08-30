@@ -73,7 +73,7 @@ const CELL_LABEL: Record<string, string> = {
 export function RuntimeHealthCard({ health, onOpenSystem }: { health: RuntimeHealth; onOpenSystem: () => void }) {
   const worst = runtimeHealthWorst(health);
   return (
-    <div className="flex flex-col gap-2" data-testid="runtime-health-card">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1" data-testid="runtime-health-card">
       <div className="flex items-center gap-2">
         <span
           className={`font-mono text-[12px] font-semibold ${HEALTH_TONE[worst]}`}
@@ -94,7 +94,7 @@ export function RuntimeHealthCard({ health, onOpenSystem }: { health: RuntimeHea
           onClick={onOpenSystem}
         />
       </div>
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
         <HealthRow
           label={t("views.overviewView.healthDaemon")}
           ok={health.daemon.state === "responsive" ? true : health.daemon.state === "unresponsive" ? false : null}

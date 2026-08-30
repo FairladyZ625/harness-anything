@@ -59,7 +59,11 @@ function relationReadState(
  * 看板徽章(`spawningDecisionOf`)、任务预览抽屉与会话页的决策引用只需要这一种边;
  * 量过的切面是 258,037 B,是完整 4.96 MB 图投影的 2.8%。
  */
-export function useDecisionDerivesQuery(repoId: string | null): RelationReadState {
+export function useDecisionDerivesQuery(
+  repoId: string | null,
+  options: { readonly enabled?: boolean } = {},
+): RelationReadState {
+  const enabled = repoId !== null && options.enabled !== false;
   const query = useQuery({
     queryKey: triadicQueryKeys.derives(repoId ?? "unselected"),
     queryFn: () =>
@@ -70,10 +74,10 @@ export function useDecisionDerivesQuery(repoId: string | null): RelationReadStat
         state: "active",
         direction: "directed",
       }),
-    enabled: repoId !== null,
+    enabled,
     staleTime: 10_000,
   });
-  return useMemo(() => relationReadState(query, repoId !== null), [query.data, query.isPending, query.isError, repoId]);
+  return useMemo(() => relationReadState(query, enabled), [query.data, query.isPending, query.isError, enabled]);
 }
 
 /**
@@ -94,16 +98,17 @@ export function useActiveEdgesQuery(repoId: string | null, enabled: boolean): Re
 }
 
 /** 根级常驻读面:决策摘要投影(decisionId/title/state/appliesTo),157,246 B 量级。 */
-export function useDecisionSummaryQuery(repoId: string | null) {
+export function useDecisionSummaryQuery(repoId: string | null, options: { readonly enabled?: boolean } = {}) {
+  const enabled = repoId !== null && options.enabled !== false;
   const query = useQuery({
     queryKey: triadicQueryKeys.decisionSummary(repoId ?? "unselected"),
     queryFn: () => harnessClient.getDecisionSummaries({ repoId: repoId! }),
-    enabled: repoId !== null,
+    enabled,
     staleTime: 10_000,
   });
   return {
     decisions: query.data?.decisions ?? [],
-    isPending: repoId !== null && query.isPending,
+    isPending: enabled && query.isPending,
     isError: query.isError,
   };
 }
@@ -186,21 +191,27 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
 }
 
 /**
- * 完整三元投影(图 + 决策)。**只有渲染它的视图挂载时才读**:`enabled` 由调用方按
- * 当前视图给出。这里没有 TTL/缓存层——省下的是"没人看的时候不请求",不是"少请求"。
+ * 完整三元投影(图 + 决策)。**只有渲染它的视图挂载时才读**;
+ * 总览只渲染决策流,因此调用方可单独关闭 graph。这里没有额外缓存层——
+ * 省下的是"没人看的时候不请求",不是对同一个消费者降频。
  */
-export function useTriadicProjectionQuery(repoId: string | null, options: { readonly enabled?: boolean } = {}) {
+export function useTriadicProjectionQuery(
+  repoId: string | null,
+  options: { readonly enabled?: boolean; readonly graphEnabled?: boolean; readonly decisionsEnabled?: boolean } = {},
+) {
   const enabled = options.enabled !== false && repoId !== null;
+  const graphEnabled = enabled && options.graphEnabled !== false;
+  const decisionsEnabled = enabled && options.decisionsEnabled !== false;
   const graph = useQuery({
     queryKey: triadicQueryKeys.graph(repoId ?? "unselected"),
     queryFn: () => harnessClient.getRelationGraph({ repoId: repoId! }),
-    enabled,
+    enabled: graphEnabled,
     staleTime: 10_000,
   });
   const decisions = useQuery({
     queryKey: triadicQueryKeys.decisions(repoId ?? "unselected"),
     queryFn: () => harnessClient.getDecisions({ repoId: repoId! }),
-    enabled,
+    enabled: decisionsEnabled,
     staleTime: 10_000,
   });
   const rendererData = useMemo(
@@ -211,12 +222,12 @@ export function useTriadicProjectionQuery(repoId: string | null, options: { read
       }),
     [graph.data, decisions.data],
   );
-  const isLoading = graph.isLoading || decisions.isLoading;
-  const isError = graph.isError || decisions.isError;
+  const isLoading = (graphEnabled && graph.isLoading) || (decisionsEnabled && decisions.isLoading);
+  const isError = (graphEnabled && graph.isError) || (decisionsEnabled && decisions.isError);
   /** 缓存里是否已有完整图(含之前挂载时读到的):有就不再读边切面。 */
   const graphAvailable = graph.data !== undefined;
   /** 挂载方需要它而它还没到位(禁用且无缓存时为 false,不冒充加载态)。 */
-  const isPending = enabled && (graph.isPending || decisions.isPending);
+  const isPending = (graphEnabled && graph.isPending) || (decisionsEnabled && decisions.isPending);
 
   return useMemo(
     () => ({
@@ -226,13 +237,23 @@ export function useTriadicProjectionQuery(repoId: string | null, options: { read
       graphAvailable,
       relationState: graph.isError
         ? ("error" as const)
-        : enabled && graph.isPending
+        : graphEnabled && graph.isPending
           ? ("loading" as const)
           : ("ready" as const),
       relationWarnings: graph.data?.warnings ?? [],
       ...rendererData,
     }),
-    [isLoading, isPending, isError, graphAvailable, graph.isError, graph.isPending, enabled, graph.data, rendererData],
+    [
+      isLoading,
+      isPending,
+      isError,
+      graphAvailable,
+      graph.isError,
+      graph.isPending,
+      graphEnabled,
+      graph.data,
+      rendererData,
+    ],
   );
 }
 

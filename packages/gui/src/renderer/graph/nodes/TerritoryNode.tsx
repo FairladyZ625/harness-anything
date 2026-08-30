@@ -193,11 +193,27 @@ export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
                   : "var(--color-axis-assoc)",
         }}
       />
-      {chip.pinned && (
+      {chip.entity === "task" && data.onSetPin ? (
+        <button
+          type="button"
+          data-testid={`territory-pin-toggle-${chip.navRef.slice("task/".length)}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onSetPin?.(chip.navRef, chip.pinned !== true);
+          }}
+          aria-pressed={chip.pinned === true}
+          title={chip.pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
+          className={`grid size-5 shrink-0 place-items-center rounded hover:bg-surface ${
+            chip.pinned === true ? "text-accent" : "text-text-faint hover:text-text"
+          }`}
+        >
+          <PushPin weight={chip.pinned === true ? "fill" : "bold"} className="text-[10px]" />
+        </button>
+      ) : chip.pinned ? (
         <span title="台账 pinned(在任务列表钉住)——恒在重点集,密度分层不折叠" className="flex shrink-0 items-center">
           <PushPin weight="fill" className="text-[10px] text-accent" />
         </span>
-      )}
+      ) : null}
       <span className="ui-body min-w-0 flex-1 truncate text-[12.5px] text-text">{chip.label}</span>
       {chip.sub && (
         <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-faint">

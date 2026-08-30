@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { PushPin } from "@phosphor-icons/react";
 import type { SnapshotStatus, TaskRow } from "../../model/types";
 import type { WorkspaceSummaryRead } from "../../../api/renderer-dto.ts";
 import { BOARD_COLUMNS } from "../../model/types";
@@ -23,23 +24,50 @@ const ROW_CLASS =
   " hover:border-accent/60";
 
 /** 流里的一行:主行集与「更新的」行集共用,两处的状态表达必须逐字一致。 */
-function TaskStreamRow({ task, onOpenPreview }: { task: TaskRow; onOpenPreview: (taskId: string) => void }) {
+function TaskStreamRow({
+  task,
+  onOpenPreview,
+  onSetPin,
+}: {
+  task: TaskRow;
+  onOpenPreview: (taskId: string) => void;
+  onSetPin?: (task: Pick<TaskRow, "taskId">, pinned: boolean) => void;
+}) {
+  const pinned = task.pinned === true;
   return (
-    <button
-      type="button"
-      onClick={() => onOpenPreview(task.taskId)}
-      title={`${task.taskId} · ${task.title}`}
-      className={ROW_CLASS}
-    >
-      <span className="shrink-0 text-[13px]" style={{ color: STATUS_META[task.coordinationStatus].color }}>
-        {STATUS_META[task.coordinationStatus].icon}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{task.title}</span>
-      <StatusBadge status={task.coordinationStatus} />
-      <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">
-        {streamTime(taskCreatedAt(task))}
-      </span>
-    </button>
+    <div className={ROW_CLASS}>
+      <button
+        type="button"
+        onClick={() => onOpenPreview(task.taskId)}
+        title={`${task.taskId} · ${task.title}`}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+      >
+        <span className="shrink-0 text-[13px]" style={{ color: STATUS_META[task.coordinationStatus].color }}>
+          {STATUS_META[task.coordinationStatus].icon}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{task.title}</span>
+        <StatusBadge status={task.coordinationStatus} />
+        <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">
+          {streamTime(taskCreatedAt(task))}
+        </span>
+      </button>
+      {onSetPin ? (
+        <button
+          type="button"
+          data-testid={`overview-pin-toggle-${task.taskId}`}
+          onClick={() => onSetPin(task, !pinned)}
+          aria-pressed={pinned}
+          title={pinned ? t("views.overviewView.unpinTitle") : t("views.overviewView.pinTitle")}
+          className={`inline-flex shrink-0 items-center justify-center rounded p-0.5 text-[13px] hover:bg-surface ${
+            pinned ? "text-accent" : "text-text-faint hover:text-text-muted"
+          }`}
+        >
+          <PushPin weight={pinned ? "fill" : "bold"} />
+        </button>
+      ) : pinned ? (
+        <PushPin weight="fill" className="shrink-0 text-[13px] text-accent" />
+      ) : null}
+    </div>
   );
 }
 
@@ -83,11 +111,13 @@ export function TaskStream({
   summary,
   onOpenPreview,
   onGoBoard,
+  onSetPin,
 }: {
   tasks: ReadonlyArray<TaskRow>;
   summary: WorkspaceSummaryRead["tasks"];
   onOpenPreview: (taskId: string) => void;
   onGoBoard: (status: SnapshotStatus) => void;
+  onSetPin?: (task: Pick<TaskRow, "taskId">, pinned: boolean) => void;
 }) {
   const [status, setStatus] = useState<SnapshotStatus>("active");
   const rows = useMemo(
@@ -129,7 +159,7 @@ export function TaskStream({
           </p>
           <div className="max-h-[6rem] space-y-0.5 overflow-y-auto pr-1" data-testid="task-stream-ahead-rows">
             {ahead.map((task) => (
-              <TaskStreamRow key={task.taskId} task={task} onOpenPreview={onOpenPreview} />
+              <TaskStreamRow key={task.taskId} task={task} onOpenPreview={onOpenPreview} onSetPin={onSetPin} />
             ))}
           </div>
         </div>
@@ -139,7 +169,7 @@ export function TaskStream({
       ) : (
         <StreamBody testId="task-stream-rows">
           {rows.map((task) => (
-            <TaskStreamRow key={task.taskId} task={task} onOpenPreview={onOpenPreview} />
+            <TaskStreamRow key={task.taskId} task={task} onOpenPreview={onOpenPreview} onSetPin={onSetPin} />
           ))}
         </StreamBody>
       )}

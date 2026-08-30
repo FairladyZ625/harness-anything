@@ -58,6 +58,7 @@ export interface TerritoryLayoutInput {
   containerWidth?: number;
   onOpen: (navRef: string) => void;
   onFold: (zoneId: string) => void;
+  onSetPin?: (navRef: string, pinned: boolean) => void;
 }
 
 export type TerritoryZoneNodeData = Record<string, unknown> & {
@@ -70,6 +71,7 @@ export type TerritoryZoneNodeData = Record<string, unknown> & {
 export type TerritoryEntityChipNodeData = Record<string, unknown> & {
   readonly chip: TerritoryChip;
   readonly onOpen: (navRef: string) => void;
+  readonly onSetPin?: (navRef: string, pinned: boolean) => void;
 };
 
 export type TerritoryFoldNodeData = Record<string, unknown> & {
@@ -113,7 +115,7 @@ function landingZone(chips: ReadonlyArray<TerritoryChip>): TerritoryZone {
 }
 
 export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
-  const { partition, expandedZones, onOpen, onFold } = input;
+  const { partition, expandedZones, onOpen, onFold, onSetPin } = input;
   const gridCols = deriveGridCols((input.containerWidth ?? 0) - LEFT_PAD * 2);
 
   const zones: TerritoryZone[] = [...partition.zones];
@@ -164,7 +166,7 @@ export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
           width: ZONE_W - ZONE_BODY_PAD_X * 2,
           height: CHIP_H,
           style: { width: ZONE_W - ZONE_BODY_PAD_X * 2, height: CHIP_H },
-          data: { chip, onOpen },
+          data: { chip, onOpen, onSetPin },
           zIndex: 2,
         });
         chipY += CHIP_H + CHIP_GAP;
