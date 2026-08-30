@@ -224,7 +224,13 @@ export function addOracleTask(context: MigrationImportContext, source: Projectio
   context.taskMap.set(source.taskId, targetTaskId);
   context.taskPackages.set(source.taskId, targetPackage);
   context.taskOccurredAt.set(source.taskId, occurredAt);
-  recordTaskDerivation(context, "task", source.taskId, "entity", `projection:task_snapshot@${context.oracle.watermark}`);
+  recordTaskDerivation(
+    context,
+    "task",
+    source.taskId,
+    "entity",
+    `projection:task_snapshot@${context.oracle.watermark}`,
+  );
   recordTaskDerivation(context, "task", source.taskId, "title", titleWitness.source);
   recordTaskDerivation(context, "task", source.taskId, "occurredAt", `event:${source.firstEvent!.eventId}`);
   context.drafts.push({
