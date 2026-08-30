@@ -7,6 +7,7 @@ import { agentEntityClient } from "./agent-entity-client.ts";
 import { schedulesClient } from "./schedules-client.ts";
 import { KIND_LABEL } from "./graph/constants.ts";
 import { agentNodeRowOf, scheduleNodeRowOf, withAgentTaskCounts } from "./graph/runtimeEntities.ts";
+import type { ScheduleGuiRowDto } from "../../../daemon/src/protocol/schedules-gui-contract.ts";
 import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge } from "./model/types.ts";
 import { activeProducesFactRefs } from "./model/triadic.ts";
 
@@ -151,7 +152,14 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
     staleTime: 10_000,
   });
   const relations = useMemo(() => adaptRelationRows(runtimeEdges.data?.edges ?? []), [runtimeEdges.data]);
-  const scheduleRows = useMemo(() => (schedules.data?.schedules ?? []).map(scheduleNodeRowOf), [schedules.data]);
+  // 无效声明行(缺 mode 等,#2025 起 list 会降级列出)没有 target agent,进不了图;它们在 Schedules 视图里单独显示。
+  const scheduleRows = useMemo(
+    () =>
+      (schedules.data?.schedules ?? [])
+        .filter((row): row is ScheduleGuiRowDto => row.state !== "invalid")
+        .map(scheduleNodeRowOf),
+    [schedules.data],
+  );
   return useMemo(() => {
     const agentRows = withAgentTaskCounts((agents.data ?? []).map(agentNodeRowOf), relations);
     return {
