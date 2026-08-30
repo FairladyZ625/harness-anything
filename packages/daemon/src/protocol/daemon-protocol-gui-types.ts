@@ -24,7 +24,7 @@ import type { SchedulesListResult } from "./schedules-gui-contract.ts";
 import type { ScheduleRunsResult } from "../schedule-runs-read.ts";
 import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { taskStatusWords } from "./daemon-protocol-vocabulary.ts";
-import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
+import { isJsonObject, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
 
 type TaskProjectionListRow = ReturnType<TaskProjection["list"]>["rows"][number];
 type TaskProjectionWarning = ReturnType<TaskProjection["list"]>["warnings"][number];
@@ -55,15 +55,61 @@ export type RpcShape = {
   readonly open?: boolean;
 };
 
-export const shape = (fields: RpcShape["fields"], open = false): RpcShape => ({
+export const shape = <const Fields extends RpcShape["fields"]>(fields: Fields, open = false) => ({
   fields,
   open,
 });
 
-export const optionalEnum = (values: readonly string[]): RpcEnumRule => ({
+export const optionalEnum = <const Values extends readonly string[]>(values: Values) => ({
   values,
-  optional: true,
+  optional: true as const,
 });
+
+export function validateShape(value: unknown, expected: RpcShape, prefix: string): string[] {
+  if (!isJsonObject(value)) return [`${prefix} must be an object`];
+  const errors: string[] = [],
+    allowed = Object.keys(expected.fields);
+  if (!expected.open)
+    for (const field of Object.keys(value)) {
+      const unknownField = unknownFieldViolation({ [field]: value[field] }, allowed);
+      if (unknownField) errors.push(`${prefix} contains an ${unknownField}`);
+    }
+  for (const [field, rule] of Object.entries(expected.fields)) {
+    const item = value[field],
+      enumRule = "values" in Object(rule) ? (rule as RpcEnumRule) : null;
+    if (
+      ((rule === "string?" ||
+        rule === "string-null?" ||
+        rule === "json?" ||
+        rule === "array?" ||
+        rule === "boolean?" ||
+        rule === "number?" ||
+        enumRule?.optional) &&
+        item === undefined) ||
+      (rule === "string-null?" && item === null)
+    )
+      continue;
+    if (enumRule) {
+      if (!enumRule.values.includes(String(item)))
+        errors.push(`${prefix}.${field} must be one of ${enumRule.values.join(", ")}`);
+    } else if (rule === "json" || rule === "json?") {
+      if (!isJsonObject(item)) errors.push(`${prefix}.${field} must be object`);
+    } else if (rule === "array" || rule === "array?") {
+      if (!Array.isArray(item)) errors.push(`${prefix}.${field} must be array`);
+    } else if (
+      rule === "string" ||
+      rule === "string?" ||
+      rule === "string-null?" ||
+      rule === "number" ||
+      rule === "number?" ||
+      rule === "boolean?"
+    ) {
+      const type = rule.startsWith("string") ? "string" : rule === "boolean?" ? "boolean" : "number";
+      if (typeof item !== type || (type === "string" && !item)) errors.push(`${prefix}.${field} must be ${type}`);
+    } else errors.push(...validateShape(item, rule as RpcShape, `${prefix}.${field}`));
+  }
+  return errors;
+}
 
 export const observeTailKinds = ["events", "repo-log", "daemon-log", "dispatch"] as const;
 export type ObserveTailKind = (typeof observeTailKinds)[number];

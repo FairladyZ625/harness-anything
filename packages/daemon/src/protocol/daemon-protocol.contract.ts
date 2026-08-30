@@ -1,9 +1,12 @@
 import { presetMethods } from "../../../preset/src/preset-command-contract.ts";
 import type { ContractVersion } from "../../../kernel/src/domain/contract-version.ts";
+import type { FleetTaskAction } from "../fleet/contract.ts";
 import { daemonOwnedProtocolCommands } from "./daemon-protocol-commands.ts";
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
-import { optionalEnum, shape } from "./daemon-protocol-gui-types.ts";
+import type { DaemonSessionEnvironment } from "./daemon-protocol-identifiers.ts";
+import { optionalEnum, shape, type RpcEnumRule, type RpcShape } from "./daemon-protocol-gui-types.ts";
+import type { JsonObject, JsonValue } from "./json-rpc-types.ts";
 import { daemonGuiActionSchemas, daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
 import {
   daemonRepoModeWords,
@@ -350,6 +353,209 @@ export const allDaemonProtocolMethods = Object.freeze([
   ...daemonGuiActionMethods,
   ...daemonStreamFacets,
 ]);
+
+type DaemonRpcDescriptor = (typeof allDaemonProtocolMethods)[number];
+export type DaemonRpcMethod = DaemonRpcDescriptor["method"];
+
+type RpcOptionalRule = "string?" | "string-null?" | "json?" | "array?" | "boolean?" | "number?";
+type RpcOptionalKeys<Fields extends RpcShape["fields"]> = {
+  readonly [Key in keyof Fields]-?: Fields[Key] extends RpcOptionalRule | { readonly optional: true } ? Key : never;
+}[keyof Fields];
+type RpcRequiredKeys<Fields extends RpcShape["fields"]> = Exclude<keyof Fields, RpcOptionalKeys<Fields>>;
+type RpcRuleValue<Rule> = Rule extends RpcShape
+  ? RpcParamsFromShape<Rule>
+  : Rule extends "string" | "string?" | "string-null?"
+    ? Rule extends "string-null?"
+      ? string | null
+      : string
+    : Rule extends "number" | "number?"
+      ? number
+      : Rule extends "boolean?"
+        ? boolean
+        : Rule extends "json" | "json?"
+          ? JsonObject
+          : Rule extends "array" | "array?"
+            ? ReadonlyArray<JsonValue>
+            : Rule extends RpcEnumRule
+              ? Rule["values"][number]
+              : never;
+
+/** Compile-time counterpart of the runtime RpcShape validator. */
+export type RpcParamsFromShape<Shape extends RpcShape> = Readonly<
+  { [Key in RpcRequiredKeys<Shape["fields"]>]: RpcRuleValue<Shape["fields"][Key]> } & {
+    [Key in RpcOptionalKeys<Shape["fields"]>]?: RpcRuleValue<Shape["fields"][Key]>;
+  }
+>;
+
+type DescriptorParams<Method extends DaemonRpcMethod, Descriptor = DaemonRpcDescriptor> = Descriptor extends {
+  readonly method: infer Methods;
+  readonly params: infer Params extends RpcShape;
+}
+  ? Method extends Methods
+    ? RpcParamsFromShape<Params>
+    : never
+  : never;
+
+type DaemonFleetChannelPayload = {
+  readonly host: string;
+  readonly port: number;
+  readonly caPath: string;
+  readonly servername?: string;
+  readonly nodeId: string;
+  readonly credential?: string;
+  readonly rosterPath?: string;
+  readonly assignmentId: string;
+  readonly repoId: string;
+  readonly viewRoot: string;
+  readonly quotaBytes: number;
+};
+export type DaemonFleetTaskAction = FleetTaskAction;
+type DaemonFleetTaskPayload = DaemonFleetChannelPayload & {
+  readonly workspaceRoot?: string;
+  readonly waitTimeoutMs?: number;
+  readonly action:
+    | DaemonFleetTaskAction
+    | {
+        readonly kind: "fleet-runtime";
+        readonly method:
+          | "repo.agentRuntime.spawn"
+          | "repo.agentRuntime.cancel"
+          | "repo.agentRuntime.overview"
+          | "repo.agentRuntime.sessions.read";
+        readonly payload: JsonObject;
+      }
+    | { readonly kind: "fleet-schedule"; readonly payload: JsonObject };
+};
+type DaemonFleetDocSyncPayload = DaemonFleetChannelPayload & {
+  readonly workspaceRoot: string;
+  readonly dryRun?: boolean;
+  readonly paths?: readonly string[];
+  readonly timeoutMs?: number;
+};
+type DaemonFleetConflictExitPayload = DaemonFleetChannelPayload & {
+  readonly workspaceRoot: string;
+  readonly action: "resolve" | "discard-local" | "overwrite-center";
+  readonly conflictId: string;
+};
+
+type DaemonRpcParamOverrides = {
+  readonly "protocol.hello": {
+    readonly protocolVersion: ContractVersion;
+    readonly sessionEnvironment?: DaemonSessionEnvironment;
+  };
+  readonly "daemon.fleet.task.run": { readonly payload: DaemonFleetTaskPayload };
+  readonly "daemon.fleet.doc.sync": { readonly payload: DaemonFleetDocSyncPayload };
+  readonly "daemon.fleet.conflict.exit": { readonly payload: DaemonFleetConflictExitPayload };
+};
+
+type RepoRpcParams<Payload> = {
+  readonly repo: { readonly repoId: string };
+  readonly payload: Payload;
+};
+type PresetRpcMethod = (typeof presetMethods)[number]["method"];
+type DaemonGuiReadParams<Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap> =
+  Method extends "daemon.gui.system.read"
+    ? Readonly<Record<string, never>>
+    : Method extends "daemon.gui.control.receipt"
+      ? { readonly payload: import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap[Method] }
+      : import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap[Method] extends Readonly<Record<string, never>>
+        ? { readonly repo: { readonly repoId: string } }
+        : RepoRpcParams<import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap[Method]>;
+
+type DaemonRpcParamsFor<Method extends DaemonRpcMethod> = Method extends keyof DaemonRpcParamOverrides
+  ? DaemonRpcParamOverrides[Method]
+  : Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonStreamPayloadMap
+    ? RepoRpcParams<import("./daemon-protocol-gui-types.ts").DaemonStreamPayloadMap[Method]>
+    : Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap
+      ? DaemonGuiReadParams<Method>
+      : Method extends PresetRpcMethod
+        ? RepoRpcParams<JsonObject>
+        : DescriptorParams<Method>;
+
+export interface DaemonProtocolHelloResult {
+  readonly ok: true;
+  readonly protocolVersion: ContractVersion;
+  readonly methods: readonly DaemonRpcMethod[];
+  readonly build: { readonly commit: string | null };
+}
+
+export interface DaemonStopResult {
+  readonly ok: true;
+  readonly command: "daemon-stop";
+  readonly pid: number;
+}
+
+export interface DaemonStatusResult {
+  readonly ok: true;
+  readonly daemonId: string;
+  readonly pid: number;
+  readonly startedAt: string;
+  readonly build: {
+    readonly version: string;
+    readonly commit: string | null;
+    readonly loadedBuildId: string | null;
+    readonly diskBuildId: string | null;
+    readonly drifted: boolean;
+  };
+  readonly repos: readonly {
+    readonly repoId: string;
+    readonly rootDir: string;
+    readonly mode: "local" | "remote-center" | "remote-edge" | null;
+    readonly state: "warming" | "attached" | "unavailable" | "closed";
+    readonly generation: number | null;
+    readonly queueDepth: number | null;
+    readonly lastError: string | null;
+    readonly causeClass: "data-shape" | "infrastructure" | "projection" | null;
+    readonly recoveryMs: number | null;
+  }[];
+  readonly summary: string;
+}
+
+type DaemonRpcSuccessResult<Method extends DaemonRpcMethod> =
+  Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonGuiReadResultMap
+    ? import("./daemon-protocol-gui-types.ts").DaemonGuiReadResultMap[Method]
+    : Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonStreamResultMap
+      ? import("./daemon-protocol-gui-types.ts").DaemonStreamResultMap[Method]
+      : Method extends "protocol.hello"
+        ? DaemonProtocolHelloResult
+        : Method extends "daemon.status"
+          ? DaemonStatusResult
+          : Method extends "daemon.stop"
+            ? DaemonStopResult
+            : Method extends "repo.preset.run.start" | "repo.preset.run.status"
+              ? object
+              : Method extends import("./daemon-protocol-gui-types.ts").DaemonGuiActionMethod
+                ? import("./daemon-protocol-gui-types.ts").DaemonGuiActionResult
+                : Readonly<Record<string, unknown>>;
+
+/**
+ * Authoritative method dictionary shared by the daemon dispatcher and every client.
+ * Runtime validation remains the trust boundary; this map preserves its method/params/result
+ * correlation through TypeScript instead of erasing it to JsonObject.
+ */
+export type DaemonRpcMethodMap = {
+  readonly [Method in DaemonRpcMethod]: {
+    readonly params: DaemonRpcParamsFor<Method>;
+    readonly result:
+      | DaemonRpcSuccessResult<Method>
+      | import("./daemon-protocol-gui-types.ts").DaemonProtocolErrorResult;
+  };
+};
+
+export type DaemonRpcParams<Method extends DaemonRpcMethod> = DaemonRpcMethodMap[Method]["params"];
+export type DaemonRpcResult<Method extends DaemonRpcMethod> = DaemonRpcMethodMap[Method]["result"];
+
+/** Parsed values are JSON-compatible at every nested object boundary. */
+export type DaemonRpcWireValue<Value> =
+  Value extends ReadonlyArray<infer Item>
+    ? ReadonlyArray<DaemonRpcWireValue<Item>>
+    : Value extends object
+      ? Value & JsonObject & { readonly [Key in keyof Value]: DaemonRpcWireValue<Value[Key]> }
+      : Value;
+export type DaemonRpcWireParams<Method extends DaemonRpcMethod> = DaemonRpcWireValue<DaemonRpcParams<Method>>;
+export type DaemonRpcCall<Method extends DaemonRpcMethod = DaemonRpcMethod> = Method extends DaemonRpcMethod
+  ? { readonly method: Method; readonly params: DaemonRpcWireParams<Method> }
+  : never;
 
 export const DAEMON_RPC_SCHEMA = Object.freeze({
   id: "w3-daemon-rpc/v1",
