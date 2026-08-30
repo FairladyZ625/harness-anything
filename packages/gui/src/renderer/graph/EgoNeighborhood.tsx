@@ -78,6 +78,8 @@ export type EgoNeighborhoodProps = {
   /** 重点模式开关(翻转时从当前焦点重铺)。 */
   densityFocus?: boolean;
   onNavigateEntity?: (ref: string) => void;
+  /** 现有 task pin 动作;其他实体没有 action 时保持只读。 */
+  onSetTaskPin?: (task: TaskRow, pinned: boolean) => void;
   onRefocus?: (ref: string) => void;
   /** 布局统计回调(宿主页头用:聚光灯 header 的「N 节点 · M 边」与焦点面包屑标题)。 */
   onLayoutStats?: (stats: { nodes: number; edges: number; focusLabel: string | null }) => void;
@@ -106,6 +108,7 @@ function EgoNeighborhoodInner({
   focusSet = null,
   densityFocus = false,
   onNavigateEntity,
+  onSetTaskPin,
   onRefocus,
   onLayoutStats,
   panelSlot,
@@ -221,10 +224,20 @@ function EgoNeighborhoodInner({
           onCollapse: canvas.collapseNode,
           onRefocus: openFocus,
           onNavigate: onNavigateEntity,
+          onSetPin: onSetTaskPin,
           ...(refocusTitle ? { refocusTitle } : {}),
         },
       }));
-  }, [spotlight, statusVisibleIds, canvas.selectId, canvas.collapseNode, openFocus, onNavigateEntity, refocusTitle]);
+  }, [
+    spotlight,
+    statusVisibleIds,
+    canvas.selectId,
+    canvas.collapseNode,
+    openFocus,
+    onNavigateEntity,
+    onSetTaskPin,
+    refocusTitle,
+  ]);
 
   const displayEdges = useMemo(() => {
     if (!spotlight) return [];
@@ -399,6 +412,7 @@ function EgoNeighborhoodInner({
             openFocus(data?.entity === "task" ? `task/${id}` : id);
           }}
           onNavigateEntity={onNavigateEntity}
+          onSetTaskPin={onSetTaskPin}
         />
       )}
     </div>

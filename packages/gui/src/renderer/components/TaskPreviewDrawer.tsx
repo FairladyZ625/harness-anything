@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { ArrowSquareOut, CheckCircle, Lock, X, XCircle } from "@phosphor-icons/react";
+import { ArrowSquareOut, CheckCircle, Lock, PushPin, X, XCircle } from "@phosphor-icons/react";
 import type { RelationEdge, TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
 import { normalizeTaskId } from "../model/triadic.ts";
@@ -26,6 +26,7 @@ export function TaskPreviewDrawer({
   onClose,
   onOpenDetail,
   onPreviewTask,
+  onSetPin,
 }: {
   task: TaskRow | null;
   tasks: readonly TaskRow[];
@@ -33,6 +34,7 @@ export function TaskPreviewDrawer({
   onClose: () => void;
   onOpenDetail: (id: string) => void;
   onPreviewTask: (id: string) => void;
+  onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   useEffect(() => {
     if (!task) return;
@@ -83,6 +85,20 @@ export function TaskPreviewDrawer({
               </div>
               <h2 className="mt-2 text-[20px] font-semibold leading-tight text-text">{task.title}</h2>
             </div>
+            {onSetPin && (
+              <button
+                type="button"
+                data-testid="task-preview-pin-toggle"
+                onClick={() => onSetPin(task, task.pinned !== true)}
+                aria-pressed={task.pinned === true}
+                title={task.pinned === true ? t("views.taskDetailView.unpinTitle") : t("views.taskDetailView.pinTitle")}
+                className={`grid size-8 shrink-0 place-items-center rounded-md hover:bg-surface-raised ${
+                  task.pinned === true ? "text-accent" : "text-text-faint hover:text-text"
+                }`}
+              >
+                <PushPin weight={task.pinned === true ? "fill" : "bold"} />
+              </button>
+            )}
             <button
               onClick={onClose}
               aria-label={t("components.taskPreviewDrawer.closeTaskPreview")}

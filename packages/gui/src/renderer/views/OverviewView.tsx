@@ -11,6 +11,7 @@ import { deriveRuntimeHealth, type RuntimeHealthInput } from "../model/runtime-h
 import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import type { WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
+import type { AgendaSuccess } from "../api-client.ts";
 
 const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";
 
@@ -23,6 +24,7 @@ const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";
 export function OverviewView({
   project,
   tasks,
+  agenda,
   decisions,
   workspaceSummary,
   relations,
@@ -33,9 +35,13 @@ export function OverviewView({
   onOpenInbox,
   onOpenDecision,
   onOpenSystem,
+  onSetPin,
+  onDecisionPreviewChange,
 }: {
   project: Project;
   tasks: readonly TaskRow[];
+  /** `ha agenda` 同一条 repo.agenda.read 投影;PIN 区不从 task list 二次猜。 */
+  agenda?: AgendaSuccess;
   decisions: DecisionRow[];
   workspaceSummary: WorkspaceSummaryRead;
   relations: RelationEdge[];
@@ -50,6 +56,9 @@ export function OverviewView({
   /** G10 实体互链:决策预览抽屉里的 agent/task ID 的导航出口。 */
   onNavigateEntity: (ref: string) => void;
   onOpenSystem: () => void;
+  onSetPin?: (task: Pick<TaskRow, "taskId">, pinned: boolean) => void;
+  /** 让 App 只在决策抽屉实际打开时挂载 active-edge 窄面。 */
+  onDecisionPreviewChange?: (decisionId: string | null) => void;
 }) {
   // 决策预览抽屉:本页局部状态,不开抽屉不进导航栈(不改导航契约)。
   const [previewDecisionId, setPreviewDecisionId] = useState<string | null>(null);
@@ -80,26 +89,53 @@ export function OverviewView({
         <p className="mt-1 text-[12px] text-text-muted">{t("views.overviewView.tagline")}</p>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-5 xl:auto-rows-[minmax(0,1fr)] xl:grid-cols-2 xl:overflow-hidden">
-        <Card title={t("views.overviewView.decisionStreamTitle")} bodyClassName="p-3">
+      <div
+        className={[
+          "grid min-h-0 flex-1 grid-cols-1 auto-rows-[22rem] gap-4 overflow-y-auto p-5",
+          "xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]",
+          "xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)_minmax(10rem,0.66fr)] xl:overflow-hidden",
+        ].join(" ")}
+      >
+        <Card title={t("views.overviewView.decisionStreamTitle")} bodyClassName="p-3" className="xl:col-start-1">
           <DecisionStream
             decisions={decisions}
             summary={workspaceSummary.decisions}
             stateLabel={decisionStateLabel}
-            onOpenPreview={setPreviewDecisionId}
+            onOpenPreview={(decisionId) => {
+              setPreviewDecisionId(decisionId);
+              onDecisionPreviewChange?.(decisionId);
+            }}
             onOpenInbox={onOpenInbox}
           />
         </Card>
 
-        <Card title={t("views.overviewView.taskStreamTitle")} bodyClassName="p-3">
-          <TaskStream tasks={tasks} summary={workspaceSummary.tasks} onOpenPreview={onSelect} onGoBoard={onDrill} />
+        <Card
+          title={t("views.overviewView.taskStreamTitle")}
+          bodyClassName="p-3"
+          className="xl:col-start-2 xl:row-start-1 xl:row-span-2"
+        >
+          <TaskStream
+            tasks={tasks}
+            summary={workspaceSummary.tasks}
+            onOpenPreview={onSelect}
+            onGoBoard={onDrill}
+            onSetPin={onSetPin}
+          />
         </Card>
 
-        <Card title={t("views.overviewView.pinnedStreamTitle")} bodyClassName="p-3">
-          <PinnedStream tasks={tasks} onOpenPreview={onSelect} />
+        <Card
+          title={t("views.overviewView.pinnedStreamTitle")}
+          bodyClassName="p-3"
+          className="xl:col-start-1 xl:row-start-2"
+        >
+          <PinnedStream agenda={agenda} onOpenPreview={onSelect} onSetPin={onSetPin} />
         </Card>
 
-        <Card title={t("views.overviewView.runtimeHealthTitle")} bodyClassName="p-3">
+        <Card
+          title={t("views.overviewView.runtimeHealthTitle")}
+          bodyClassName="p-3"
+          className="xl:col-span-2 xl:row-start-3"
+        >
           <RuntimeHealthCard health={health} onOpenSystem={onOpenSystem} />
         </Card>
       </div>
@@ -108,9 +144,13 @@ export function OverviewView({
         decision={previewDecision}
         tasks={tasks}
         relations={relations}
-        onClose={() => setPreviewDecisionId(null)}
+        onClose={() => {
+          setPreviewDecisionId(null);
+          onDecisionPreviewChange?.(null);
+        }}
         onOpenDetail={(decisionId) => {
           setPreviewDecisionId(null);
+          onDecisionPreviewChange?.(null);
           onOpenDecision(decisionId);
         }}
         onNavigateEntity={onNavigateEntity}

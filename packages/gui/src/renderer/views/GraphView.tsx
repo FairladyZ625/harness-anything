@@ -60,6 +60,7 @@ export interface GraphViewProps {
   schedules?: ReadonlyArray<ScheduleNodeRow>;
   runtimeRelations?: ReadonlyArray<RelationEdge>;
   onNavigateEntity?: (ref: string) => void;
+  onSetTaskPin?: (task: TaskRow, pinned: boolean) => void;
   onFocusEntityChange?: (ref: string | null) => void;
   /** 最近访问 navRef 列表(App 层 pushRecent 维护),左栏 Recent 段数据源。 */
   recentRefs?: ReadonlyArray<string>;
@@ -101,6 +102,7 @@ function GraphViewInner({
   schedules = EMPTY_SCHEDULES,
   runtimeRelations = EMPTY_RELATIONS,
   onNavigateEntity,
+  onSetTaskPin,
   onFocusEntityChange,
   focusRef,
   viewMode,
@@ -321,8 +323,12 @@ function GraphViewInner({
       containerWidth,
       onOpen: enterSpotlight,
       onFold: toggleZone,
+      onSetPin: (navRef, pinned) => {
+        const task = tasks.find((candidate) => `task/${candidate.taskId}` === navRef);
+        if (task) onSetTaskPin?.(task, pinned);
+      },
     }).nodes;
-  }, [territory, expandedZones, containerWidth, enterSpotlight, toggleZone]);
+  }, [territory, expandedZones, containerWidth, enterSpotlight, toggleZone, tasks, onSetTaskPin]);
 
   // 视口策略(与老版同源):聚光灯 fitView 在 EgoNeighborhood 内;领地**不 fitView** ——
   // 上千块 fit 进一屏正是「块被压成几像素细横条」的成因,领地以默认视口(zoom 1,
@@ -516,6 +522,7 @@ function GraphViewInner({
               statusFilter: filters.entityStatus,
             }}
             onNavigateEntity={onNavigateEntity}
+            onSetTaskPin={onSetTaskPin}
             onRefocus={openFocus}
             onLayoutStats={setSpotlightStats}
             panelSlot={filterPanel}

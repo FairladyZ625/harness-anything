@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { CaretRight, Lock, Star } from "@phosphor-icons/react";
+import { CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
 import { STATUS_META, CloseoutBadge, DecisionSourceBadge, FreshnessTag, freshnessBorder } from "../components/badges";
 import { spawningDecisionOf } from "../model/triadic";
-import { sortByFavoritesFirst } from "../model/taskFilters";
+import { sortByPinAndFavoritesFirst } from "../model/taskFilters";
 
 export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
 
@@ -41,12 +41,14 @@ function LaneCard({
   relations,
   isFavorite,
   onToggleFavorite,
+  onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
   relations: RelationEdge[];
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
+  onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const external = isExternal(task);
   const archived =
@@ -67,6 +69,25 @@ function LaneCard({
     >
       <div className="flex min-w-0 items-center gap-1.5">
         {external && <Lock weight="bold" className="shrink-0 text-[13px] text-text-faint" />}
+        {onSetPin ? (
+          <button
+            type="button"
+            data-testid={`swimlane-pin-toggle-${task.taskId}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSetPin(task, task.pinned !== true);
+            }}
+            title={task.pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
+            aria-pressed={task.pinned === true}
+            className={`inline-flex items-center justify-center rounded p-0.5 text-[13px] hover:bg-surface ${
+              task.pinned === true ? "text-accent" : "text-text-faint hover:text-text-muted"
+            }`}
+          >
+            <PushPin weight={task.pinned === true ? "fill" : "bold"} />
+          </button>
+        ) : task.pinned === true ? (
+          <PushPin weight="fill" className="shrink-0 text-[13px] text-accent" />
+        ) : null}
         <button
           type="button"
           onClick={(event) => {
@@ -157,6 +178,7 @@ function DrilldownPanel({
   allTasks,
   favorites,
   onToggleFavorite,
+  onSetPin,
 }: {
   active: ActiveCell | null;
   tasks: readonly TaskRow[];
@@ -166,6 +188,7 @@ function DrilldownPanel({
   allTasks: ReadonlyArray<TaskRow>;
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
+  onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   if (!active) {
     return (
@@ -178,7 +201,12 @@ function DrilldownPanel({
   }
 
   const meta = STATUS_META[active.status];
-  const sorted = sortByFavoritesFirst(tasks, (t) => t.taskId, favorites);
+  const sorted = sortByPinAndFavoritesFirst(
+    tasks,
+    (task) => task.pinned === true,
+    (task) => task.taskId,
+    favorites,
+  );
   const laneLabel = groupLabelOf(active.lane, groupBy, allTasks);
 
   return (
@@ -207,6 +235,7 @@ function DrilldownPanel({
               relations={relations}
               isFavorite={favorites.has(t.taskId)}
               onToggleFavorite={onToggleFavorite}
+              onSetPin={onSetPin}
             />
           ))}
         </div>
@@ -229,6 +258,7 @@ export function SwimlaneBoard({
   relations,
   favorites,
   onToggleFavorite,
+  onSetPin,
 }: {
   tasks: readonly TaskRow[];
   groupBy: LaneGroupBy;
@@ -237,6 +267,7 @@ export function SwimlaneBoard({
   relations: RelationEdge[];
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
+  onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const drillMatches = Boolean(drill && drill.groupBy === groupBy);
   const drillLane = drill?.lane;
@@ -349,6 +380,7 @@ export function SwimlaneBoard({
         allTasks={tasks}
         favorites={favorites}
         onToggleFavorite={onToggleFavorite}
+        onSetPin={onSetPin}
       />
     </div>
   );

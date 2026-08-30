@@ -5,7 +5,6 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HomeView } from "../src/renderer/views/HomeView.tsx";
-import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
@@ -473,8 +472,10 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
   await act(async () => {
     await Promise.resolve();
   });
+  // react-query 通过 notifyManager 的宏任务批量发布已完成的查询；只排空 Promise
+  // 微任务会让快机器在 artifacts fixture 到达前扫描空态，掩盖真实 DOM。
   await act(async () => {
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
   return container;
 }
@@ -488,8 +489,8 @@ const SYSTEM_HEALTH = {
 const runtimeTasks = [{ taskId: TASK_A_ID, title: "G10 探针任务甲" }];
 
 /**
- * 议程视图 fixture:`repo.agenda.read` 一页的形状(分组判定是 daemon 的事,这里只
- * 铺四段各一行,让死 ID 扫描覆盖到任务行、待裁 execution 行与待裁决策行)。
+ * 总览 PIN 分区 fixture:`repo.agenda.read` 一页的形状。PIN 卡片与 `ha agenda`
+ * 共用这条投影,死 ID 扫描据此覆盖 pinned task 行。
  */
 const FIXTURE_AGENDA = {
   ok: true as const,
@@ -546,18 +547,11 @@ const FIXTURE_AGENDA = {
 
 const VIEW_RENDERERS = {
   home: () => createElement(HomeView, { repos: [fixtureRepoRow()], currentRepoId: REPO_ID, onOpenProject: noop }),
-  agenda: () =>
-    createElement(AgendaView, {
-      agenda: FIXTURE_AGENDA,
-      tasks: FIXTURE_TASKS,
-      onSelect: noop,
-      onNavigateDecision: noop,
-      onSetPin: noop,
-    }),
   overview: () =>
     createElement(OverviewView, {
       project: FIXTURE_PROJECT,
       tasks: FIXTURE_TASKS,
+      agenda: FIXTURE_AGENDA,
       decisions: FIXTURE_DECISIONS,
       workspaceSummary: FIXTURE_WORKSPACE_SUMMARY,
       relations: FIXTURE_RELATIONS,

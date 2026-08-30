@@ -259,7 +259,7 @@ export function useTaskActions(repoId: string) {
   // 台账 pin 的 GUI 写通道:与 `ha task pin/unpin` 完全同一条 daemon 动作
   // (pinned-only `task-amend`),不另造写路。pinned 与 coordinationStatus 正交,
   // 所以可见性判据只看 `snapshot.task.pinned` 这一件事。
-  const setTaskPin = (task: TaskRow, pinned: boolean): Promise<TaskMutationFeedback> =>
+  const setTaskPin = (task: Pick<TaskRow, "taskId">, pinned: boolean): Promise<TaskMutationFeedback> =>
     once(`pin:${task.taskId}`, task.taskId, async () => {
       publish(task.taskId, {
         state: "pending",

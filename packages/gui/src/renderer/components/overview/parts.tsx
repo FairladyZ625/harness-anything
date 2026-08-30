@@ -26,9 +26,7 @@ const CLOSEOUT_GRAY: Record<CloseoutReadiness, number> = {
 };
 
 export const closeoutColor = (v: CloseoutReadiness) =>
-  v === "ready"
-    ? "var(--color-accent)"
-    : `color-mix(in oklch, var(--color-text) ${CLOSEOUT_GRAY[v]}%, transparent)`;
+  v === "ready" ? "var(--color-accent)" : `color-mix(in oklch, var(--color-text) ${CLOSEOUT_GRAY[v]}%, transparent)`;
 
 export const DISPOSITION_ORDER: PackageDisposition[] = ["active", "archived", "tombstoned"];
 
@@ -75,13 +73,15 @@ export function Card({
   title,
   children,
   bodyClassName = "p-3",
+  className = "",
 }: {
   title: string;
   children: React.ReactNode;
   bodyClassName?: string;
+  className?: string;
 }) {
   return (
-    <section className="flex min-h-[24rem] flex-col rounded-lg border border-border bg-surface xl:min-h-0">
+    <section className={`${className} flex min-h-0 flex-col rounded-lg border border-border bg-surface`}>
       <div className="border-b border-border px-3 py-2 font-mono text-[11px] uppercase tracking-wide text-text-faint">
         {title}
       </div>

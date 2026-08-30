@@ -164,9 +164,11 @@ describe("W6 Goal 第三项:只显示前 N 条必须显形", () => {
         onClose: noop,
         onOpenDetail: noop,
         onPreviewTask: noop,
+        onSetPin: noop,
       }),
     );
     expect(markup.match(/事件 \d+/gu)).toHaveLength(10);
+    expect(markup).toContain('data-testid="task-preview-pin-toggle"');
     expect(markup).not.toContain('data-testid="task-preview-events-more"');
     expect(markup).not.toContain("remaining");
   });

@@ -5,7 +5,6 @@ import type { SnapshotStatus } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
-import { AgendaView } from "./views/AgendaView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
@@ -62,7 +61,8 @@ import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
 import { FirstRunGuide, FirstRunWizard } from "./components/FirstRunWizard.tsx";
 
 /**
- * 渲染完整三元投影(图 + 决策全量行)的视图。只有这些视图挂载时才读完整投影;
+ * 渲染全量决策行的视图。总览不在决策抽屉关闭时预读完整图;
+ * 其他集合内视图同时渲染图 + 决策。只有这些视图挂载时才读完整投影;
  * 看板/总览之外的普通页(presets/adapters/settings/system/…)与任务看板本身都不在其中。
  */
 const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
@@ -106,11 +106,16 @@ function AppShell() {
   // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
   useLocationRestore(location, document.body);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
-  // 议程投影只在议程视图挂载时读(同一读面纪律:没人看不请求)。
-  const agendaQuery = useAgendaQuery(activeRepoId !== null && view === "agenda" ? activeRepoId : null);
+  // 总览的「PIN 在做」直接消费 `ha agenda` 同一条 repo.agenda.read 投影。
+  // 其他视图不挂载这条读,避免把已删除的独立议程页变成后台读取。
+  const agendaQuery = useAgendaQuery(activeRepoId !== null && view === "overview" ? activeRepoId : null);
   const setTaskFilters = (next: TaskFilters) => updateLocation({ taskFilters: next });
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [overviewDecisionPreviewId, setOverviewDecisionPreviewId] = useState<string | null>(null);
+  useEffect(() => {
+    setOverviewDecisionPreviewId(null);
+  }, [view, activeRepoId]);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [setupGuide, setSetupGuide] = useState<"provider" | "agent" | null>(null);
   const terminalDock = useRef<TerminalDockHandle>(null);
@@ -140,21 +145,32 @@ function AppShell() {
   );
 
   // ----------------------------------------------------------------三元读取分层
-  // 常驻 chrome 只读两个窄面(≈4.5% 的完整对);⌘K 的事实切面、边切面与完整投影
-  // 都由「当前挂载的界面」决定,没人看就不请求(裁决 2026-08-29;fact F-9E166C6B:
-  // 根级全量重取曾占 GUI 收到字节的 99.13%)。
-  const decisionDerives = useDecisionDerivesQuery(activeRepoId);
-  const decisionSummary = useDecisionSummaryQuery(activeRepoId);
-  const paletteFacts = usePaletteFactsQuery(activeRepoId, paletteOpen);
+  // 窄面也按真实消费者挂载:看板需要 derives 徽章,任务详情/⌘K 需要决策标题,
+  // 其余页面不背景读它们。⌘K 的事实切面与完整投影同样由当前界面决定
+  // (裁决 2026-08-29;fact F-9E166C6B:根级全量重取曾占 GUI 收到字节的 99.13%)。
   const fullProjectionMounted = FULL_TRIADIC_PROJECTION_VIEWS.has(view);
-  const triadicQuery = useTriadicProjectionQuery(activeRepoId, { enabled: fullProjectionMounted });
+  const fullGraphProjectionMounted = fullProjectionMounted && view !== "overview";
+  // 完整投影视图已经包含 decisions + derives 边,不再并发读两条窄面。总览新增
+  // repo.agenda.read 后仍比旧冷加载少一个请求,并且没有缓存/第二投影。
+  const decisionDerives = useDecisionDerivesQuery(activeRepoId, {
+    enabled: !fullProjectionMounted && view === "board",
+  });
+  const decisionSummary = useDecisionSummaryQuery(activeRepoId, {
+    enabled: !fullProjectionMounted && (selectedId !== null || paletteOpen),
+  });
+  const paletteFacts = usePaletteFactsQuery(activeRepoId, paletteOpen);
+  const triadicQuery = useTriadicProjectionQuery(activeRepoId, {
+    enabled: fullProjectionMounted,
+    graphEnabled: fullGraphProjectionMounted,
+  });
   // 运行时平面(agent/schedule 行 + agent→task 派发边):只有关系图页读;三条既有
   // 读(agent 目录/Schedule 列表/关系图切面)与各自入口共享缓存,不另立读方法。
   const graphRuntimeMounted = view === "graph";
   const runtimePlane = useRuntimePlaneQuery(activeRepoId, { enabled: graphRuntimeMounted });
   // 任务预览抽屉、任务详情与会话页渲染的是关系边本身;完整图已在缓存里(刚从图/
   // 决策视图过来)就直接用它,不把同一批边读两遍。
-  const edgeSurfaceMounted = previewTask !== null || selected !== null || view === "sessions";
+  const edgeSurfaceMounted =
+    previewTask !== null || selected !== null || overviewDecisionPreviewId !== null || view === "sessions";
   const activeEdges = useActiveEdgesQuery(activeRepoId, edgeSurfaceMounted && !triadicQuery.graphAvailable);
 
   const decisions = triadicQuery.decisions;
@@ -166,7 +182,9 @@ function AppShell() {
   /** 边级界面用的关系集合:完整图可用时是全量边,否则是 active 边切面。 */
   const edgeRelations = triadicQuery.graphAvailable ? triadicQuery.relations : activeEdges.relations;
   /** 看板/列表徽章用的关系集合:根级 derives 切面,任何视图下都在。 */
-  const boardRelations = decisionDerives.relations;
+  const boardRelations = fullProjectionMounted ? relations : decisionDerives.relations;
+  /** chrome 的决策标题/命令面板:完整投影在场就复用,否则用常驻窄面。 */
+  const chromeDecisions = fullProjectionMounted ? decisions : decisionSummary.decisions;
 
   useEffect(() => {
     if (!activeRepoId || !tasksQuery.data) return;
@@ -275,8 +293,8 @@ function AppShell() {
   // 决策条目来自常驻的摘要投影,事实条目来自面板打开时才读的事实切面——面板合上
   // 时不持有任何三元投影。
   const paletteEntries = useMemo(
-    () => buildPaletteIndex(projectTasks, decisionSummary.decisions, paletteFacts.facts),
-    [projectTasks, decisionSummary.decisions, paletteFacts.facts],
+    () => buildPaletteIndex(projectTasks, chromeDecisions, paletteFacts.facts),
+    [projectTasks, chromeDecisions, paletteFacts.facts],
   );
 
   useAppShortcuts({
@@ -483,7 +501,7 @@ function AppShell() {
                 task={selected}
                 tasks={tasks}
                 relations={edgeRelations}
-                decisions={decisionSummary.decisions}
+                decisions={chromeDecisions}
                 onBack={() => updateLocation({ selectedId: null })}
                 onSelect={(id) => updateLocation({ selectedId: id })}
                 projectName={project.name}
@@ -510,9 +528,10 @@ function AppShell() {
                 <OverviewView
                   project={project}
                   tasks={projectTasks}
+                  agenda={agendaQuery.data}
                   decisions={decisions}
                   workspaceSummary={workspaceSummaryQuery.data}
-                  relations={relations}
+                  relations={edgeRelations}
                   systemHealth={overviewSystemHealth}
                   onSelect={openTaskPreview}
                   onDrill={(status) => drillToBoard("__all__", status, "root")}
@@ -520,6 +539,10 @@ function AppShell() {
                   onOpenDecision={navigateToDecision}
                   onOpenSystem={() => goto("system")}
                   onNavigateEntity={navigateToEntity}
+                  onDecisionPreviewChange={setOverviewDecisionPreviewId}
+                  onSetPin={(task, pinned) => {
+                    void taskActions.setTaskPin(task, pinned);
+                  }}
                 />
               ) : (
                 <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
@@ -541,16 +564,6 @@ function AppShell() {
                   void taskActions.setTaskPin(task, pinned);
                 }}
               />
-            ) : view === "agenda" ? (
-              <AgendaView
-                agenda={agendaQuery.data}
-                tasks={projectTasks}
-                onSelect={openTaskDetail}
-                onNavigateDecision={navigateToDecision}
-                onSetPin={(task, pinned) => {
-                  void taskActions.setTaskPin(task, pinned);
-                }}
-              />
             ) : view === "graph" ? (
               <EntityWorkspace
                 focusedEntityRef={focusedEntityRef}
@@ -564,6 +577,9 @@ function AppShell() {
                 schedules={runtimePlane.schedules}
                 runtimeRelations={runtimePlane.relations}
                 onNavigateEntity={navigateToEntity}
+                onSetTaskPin={(task, pinned) => {
+                  void taskActions.setTaskPin(task, pinned);
+                }}
                 onOpenDecisionPool={openDecisionInPool}
                 onFocusEntityChange={focusEntityInWorkspace}
                 recentRefs={recentRefs}
@@ -737,6 +753,9 @@ function AppShell() {
         onClose={() => updateLocation({ previewId: null })}
         onOpenDetail={openTaskDetail}
         onPreviewTask={openTaskPreview}
+        onSetPin={(task, pinned) => {
+          void taskActions.setTaskPin(task, pinned);
+        }}
       />
       <CommandPalette
         open={paletteOpen}

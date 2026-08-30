@@ -56,7 +56,7 @@ export function StreamBody({
 }) {
   return (
     <div
-      className={`${maxHeightClass} space-y-0.5 overflow-y-auto pr-1 xl:min-h-0 xl:flex-1 xl:max-h-none`}
+      className={`${maxHeightClass} min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1 xl:max-h-none`}
       data-testid={testId}
     >
       {children}

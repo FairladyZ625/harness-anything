@@ -9,6 +9,7 @@ import type {
 import { DocReader } from "../components/DocReader.tsx";
 import { HtmlArtifactPreview } from "../components/HtmlArtifactPreview.tsx";
 import { Badge, Chip, Empty, Hint } from "../components/runtime/parts.tsx";
+import { EntityRefLink, entityRefOf } from "../components/EntityRefLink.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import { useTaskDocumentQuery } from "../task-data.ts";
@@ -178,9 +179,7 @@ export function ArtifactsWorkspace({
                         )}
                       </td>
                       <td className="max-w-[22rem] px-2.5 py-1.5">
-                        <span className="block truncate font-mono text-[10px] text-text-faint" title={repoPathOf(row)}>
-                          {repoPathOf(row)}
-                        </span>
+                        <ArtifactPathLink row={row} onNavigateTask={onNavigateTask} />
                       </td>
                       <td className="whitespace-nowrap px-2.5 py-1.5">
                         <span className="inline-flex items-center gap-1.5">
@@ -229,6 +228,34 @@ function KindToggle({
       {t(KIND_LABEL[kind])}
       {count === undefined ? "" : ` · ${count}`}
     </button>
+  );
+}
+
+function ArtifactPathLink({
+  row,
+  onNavigateTask,
+}: {
+  readonly row: ArtifactGuiRowDto;
+  readonly onNavigateTask: (taskId: string) => void;
+}) {
+  const path = repoPathOf(row);
+  if (row.taskId === null) {
+    return (
+      <span className="block truncate font-mono text-[10px] text-text-faint" title={path}>
+        {path}
+      </span>
+    );
+  }
+  const taskId = row.taskId;
+  return (
+    <EntityRefLink
+      entityRef={entityRefOf("task", taskId)}
+      onNavigate={() => onNavigateTask(taskId)}
+      title={t("artifacts.openTask")}
+      className="block max-w-full truncate text-left font-mono text-[10px] text-text-faint hover:text-accent"
+    >
+      {path}
+    </EntityRefLink>
   );
 }
 

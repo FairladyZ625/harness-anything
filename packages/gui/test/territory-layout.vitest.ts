@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { partitionForSkel } from "../src/renderer/graph/territory.ts";
 import {
@@ -86,6 +86,20 @@ describe("layoutTerritory (two-level zone + chip)", () => {
       expect(chip.position.y).toBeGreaterThanOrEqual(zone.position.y + zoneHeaderH(zone.data.zone) + ZONE_BODY_PAD_Y);
       expect(chip.position.y + chip.height!).toBeLessThanOrEqual(zone.position.y + zone.height!);
     }
+  });
+
+  it("carries the existing pin writer into every task chip", () => {
+    const onSetPin = vi.fn();
+    const partition = partitionForSkel("task", [task()], [], [], [], []);
+    const { nodes } = layoutTerritory({
+      partition,
+      expandedZones: new Set(),
+      onOpen: noop,
+      onFold: noop,
+      onSetPin,
+    });
+    const chip = nodes.find(isTerritoryEntityChipNode)!;
+    expect(chip.data.onSetPin).toBe(onSetPin);
   });
 
   it("folds by default: FOLDED_CHIP_CAP chips + one fold row, not all 40", () => {

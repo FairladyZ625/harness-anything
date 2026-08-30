@@ -32,6 +32,7 @@ export interface EntityWorkspaceProps {
   schedules?: ReadonlyArray<ScheduleNodeRow>;
   runtimeRelations?: ReadonlyArray<RelationEdge>;
   onNavigateEntity: (ref: string) => void;
+  onSetTaskPin?: (task: TaskRow, pinned: boolean) => void;
   onFocusEntityChange: (ref: string | null) => void;
   /** 跳去决策池并聚焦该 decision(演化史 DecisionDetailPanel 的「在决策池查看」)。 */
   onOpenDecisionPool?: (decisionId: string) => void;
@@ -57,6 +58,7 @@ export function EntityWorkspace({
   schedules,
   runtimeRelations,
   onNavigateEntity,
+  onSetTaskPin,
   onFocusEntityChange,
   onOpenDecisionPool,
   recentRefs,
@@ -122,6 +124,7 @@ export function EntityWorkspace({
             schedules={schedules}
             runtimeRelations={runtimeRelations}
             onNavigateEntity={onNavigateEntity}
+            onSetTaskPin={onSetTaskPin}
             onFocusEntityChange={onFocusEntityChange}
             focusRef={focusedEntityRef}
             viewMode={viewMode}

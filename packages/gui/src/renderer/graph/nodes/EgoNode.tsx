@@ -77,7 +77,27 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
             style={{ backgroundColor: data.color ?? "var(--color-status-unknown)" }}
           />
         )}
-        {entity === "task" && (data.raw as TaskRow).pinned === true && <EgoPinMark />}
+        {entity === "task" &&
+          (data.onSetPin ? (
+            <button
+              type="button"
+              data-testid={`ego-pin-toggle-${(data.raw as TaskRow).taskId}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                const task = data.raw as TaskRow;
+                data.onSetPin?.(task, task.pinned !== true);
+              }}
+              aria-pressed={(data.raw as TaskRow).pinned === true}
+              title={(data.raw as TaskRow).pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
+              className={`grid size-5 shrink-0 place-items-center rounded hover:bg-surface ${
+                (data.raw as TaskRow).pinned === true ? "text-accent" : "text-text-faint hover:text-text"
+              }`}
+            >
+              <PushPin weight={(data.raw as TaskRow).pinned === true ? "fill" : "bold"} />
+            </button>
+          ) : (data.raw as TaskRow).pinned === true ? (
+            <EgoPinMark />
+          ) : null)}
         <span className="ui-meta min-w-0 flex-1 truncate text-text">{data.label}</span>
         {data.hiddenCount > 0 && (
           <span
@@ -117,6 +137,24 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
           {entity}
         </span>
         <span className="ml-auto flex min-w-0 items-center gap-1">
+          {entity === "task" && data.onSetPin && (
+            <button
+              type="button"
+              data-testid={`ego-pin-toggle-${(data.raw as TaskRow).taskId}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                const task = data.raw as TaskRow;
+                data.onSetPin?.(task, task.pinned !== true);
+              }}
+              aria-pressed={(data.raw as TaskRow).pinned === true}
+              title={(data.raw as TaskRow).pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
+              className={`grid size-5 place-items-center rounded hover:bg-surface-raised ${
+                (data.raw as TaskRow).pinned === true ? "text-accent" : "text-text-faint hover:text-text"
+              }`}
+            >
+              <PushPin weight={(data.raw as TaskRow).pinned === true ? "fill" : "bold"} className="text-[11px]" />
+            </button>
+          )}
           {data.onRefocus && !focus && (
             <button
               onClick={stop(data.onRefocus, data.navRef)}
@@ -195,7 +233,7 @@ function EgoTaskBody({ task }: { task: TaskRow }) {
   );
 }
 
-/** 台账 pin 的只读标记:pin 写入口在任务列表(task_b87204e6),图上不做第二条写路。 */
+/** 缺少写回调时的只读 pin 标记。 */
 function EgoPinMark() {
   return (
     <span title="台账 pinned(在任务列表钉住)——恒在重点集,密度分层不折叠" className="flex shrink-0 items-center">
